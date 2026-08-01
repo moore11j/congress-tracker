@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
 import { getResearchBriefBySlug } from "@/lib/researchBriefs";
 
 export const dynamic = "force-static";
@@ -283,6 +284,12 @@ export default function AiEarningsDdPage() {
             ))}
           </div>
         </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-slate-950/30 px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <ResearchBriefContextualCta ticker="GOOGL" companyName="Alphabet" researchSlug="ai-earnings-dd" />
         </div>
       </section>
 

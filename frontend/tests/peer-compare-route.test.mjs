@@ -29,7 +29,7 @@ test("peer compare page renders report and selector recovery", () => {
   assert.match(comparePage, /Compare two tickers/);
   assert.match(comparePage, /Search for two tickers to compare\./);
   assert.match(comparePage, /Search for a first ticker to compare\./);
-  assert.match(comparePage, /Compare tickers to see which setup has stronger evidence/);
+  assert.match(comparePage, /Compare tickers to see which setup has stronger support/);
   assert.match(comparePage, /Our Call/);
 });
 
@@ -59,7 +59,7 @@ test("peer compare page renders compact locked state and pricing return CTAs", (
   assert.match(comparePage, /Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts\./);
   assert.match(comparePage, /Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro\./);
   assert.match(comparePage, /Categories Walnut evaluates/);
-  assert.match(comparePage, /Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case\./);
+  assert.match(comparePage, /Walnut&apos;s proprietary confirmation score summarizes whether the available data supports or conflicts with each stock setup\./);
   assert.match(comparePage, /pricingHref\(currentPath\)/);
   assert.match(comparePage, /\/login\?return_to=\$\{encodeURIComponent\(currentPath\)\}/);
 });

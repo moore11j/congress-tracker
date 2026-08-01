@@ -19,6 +19,7 @@ const publicStaticPaths = new Set([
   "/stock-confirmation-score",
   "/stock-research-app",
   "/stock-analysis-tools",
+  "/reddit/stock-research",
 ]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =

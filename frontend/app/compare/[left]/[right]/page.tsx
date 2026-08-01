@@ -6,6 +6,7 @@ import { ghostButtonClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
 import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/CompareAnalytics";
+import { CompareContextualCta } from "@/components/compare/CompareContextualCta";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { isAdminEntitlement } from "@/lib/entitlements";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
@@ -160,7 +161,7 @@ function SideHeader({ side, winner, tone }: { side: PeerCompareResponse["left"];
 function proLockCopy(category: PeerCompareCategory) {
   if (category.key === "institutional_activity") return "See which ticker institutions are accumulating or reducing.";
   if (category.key === "options_flow") return "See whether options positioning confirms or contradicts the comparison.";
-  return "Upgrade to see this additional evidence.";
+  return "Upgrade to see this additional context.";
 }
 
 function CategoryCard({ category, data, upgradeHref }: { category: PeerCompareCategory; data: PeerCompareResponse; upgradeHref: string }) {
@@ -327,7 +328,7 @@ function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { 
           ))}
         </div>
         <p className="mt-4 text-sm leading-6 text-slate-400">
-          Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case.
+          Walnut&apos;s proprietary confirmation score summarizes whether the available data supports or conflicts with each stock setup.
         </p>
       </section>
     </div>
@@ -389,7 +390,7 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Peer Compare</p>
             <h1 className="mt-2 text-3xl font-semibold text-white">{pageTitle}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-              Compare tickers to see which setup has stronger evidence across fundamentals, valuation, price action, catalysts, risks and Walnut&apos;s proprietary confirmation score.
+              Compare tickers to see which setup has stronger support across fundamentals, valuation, price action, catalysts, risks and Walnut&apos;s proprietary confirmation score.
             </p>
           </div>
           {hasLeft ? (
@@ -410,6 +411,14 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
               properties={{ ticker_pair: `${left}/${right}`, auth_state: authState.token ? "authenticated" : "logged_out", current_plan: plan }}
             />
             <LockedCompareState data={data} authenticated={Boolean(authState.token)} upgradeHref={upgradeHref} signInHref={signInHref} />
+            <CompareContextualCta
+              tickerA={left}
+              tickerB={right}
+              currentPath={currentPath}
+              searchParams={sp}
+              authState={authState.token ? "authenticated" : "logged_out"}
+              plan={plan}
+            />
           </>
         ) : data ? (
           <>
@@ -421,6 +430,14 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
               />
             ) : null}
             <CompareReport data={data} upgradeHref={upgradeHref} />
+            <CompareContextualCta
+              tickerA={left}
+              tickerB={right}
+              currentPath={currentPath}
+              searchParams={sp}
+              authState={authState.token ? "authenticated" : "logged_out"}
+              plan={plan}
+            />
           </>
         ) : <CompareError message={errorMessage} />}
       </div>

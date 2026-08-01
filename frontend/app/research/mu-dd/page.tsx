@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
 import { getResearchBriefBySlug } from "@/lib/researchBriefs";
 
 export const dynamic = "force-static";
@@ -26,7 +27,7 @@ const headlineMetrics = [
   { label: "Fiscal Q4 revenue guide", value: "$50.0B +/- $1.0B", detail: "Management guided gross margin to roughly 86%." },
 ] as const;
 
-const thesisChecks = [
+const setupChecks = [
   {
     title: "Revenue is still accelerating",
     body: "The bear case needs the memory cycle to roll over. Micron's latest reported revenue and next-quarter guide point the other direction for now.",
@@ -120,7 +121,7 @@ export default function MuDdLandingPage() {
         </div>
 
         <div className="grid gap-3">
-          {thesisChecks.map((item) => (
+          {setupChecks.map((item) => (
             <article key={item.title} className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
               <h3 className="text-base font-semibold text-white">{item.title}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-400">{item.body}</p>
@@ -148,9 +149,9 @@ export default function MuDdLandingPage() {
       <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.9fr] lg:px-8">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Follow The Evidence</p>
-          <h2 className="mt-3 text-2xl font-semibold text-white">Use Walnut to keep the MU thesis updated.</h2>
+          <h2 className="mt-3 text-2xl font-semibold text-white">Use Walnut to keep the MU setup updated.</h2>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            A Reddit post is a starting point. Walnut gives you the ongoing terminal view: the ticker page, peer comparison, market context, and public-data signals you can re-check as the cycle evolves.
+            A Reddit post is a starting point. Walnut gives you the ongoing terminal view: the ticker page, peer comparison, market context, and public-data trends you can re-check as the cycle evolves.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href={signupHref} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
@@ -171,6 +172,12 @@ export default function MuDdLandingPage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 bg-slate-950/30 px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <ResearchBriefContextualCta ticker="MU" companyName="Micron Technology" researchSlug="mu-dd" />
         </div>
       </section>
 

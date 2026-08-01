@@ -6,11 +6,71 @@ import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
-import { ApiError, getGoogleAuthUrl, getMe, login, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
+import { ApiError, getGoogleAuthUrl, getMe, login, recordProductEvent, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
 import { selectClassName } from "@/lib/styles";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
+import { campaignParamKeys } from "@/lib/campaignAttribution";
 
 type Mode = "login" | "register";
+
+function campaignPropertiesFromReturnTo(returnTo: string, extra: Record<string, string | number | boolean | null> = {}) {
+  const url = new URL(returnTo || "/", window.location.origin);
+  const properties: Record<string, string | number | boolean | null> = {
+    page_path: `${url.pathname}${url.search}`,
+    auth_state: "authenticated",
+    plan: "free",
+    referrer: document.referrer || null,
+    ...extra,
+  };
+  for (const key of campaignParamKeys) properties[key] = url.searchParams.get(key);
+  return properties;
+}
+
+function recordSignupCompleteEvents(returnTo: string) {
+  const url = new URL(returnTo || "/", window.location.origin);
+  const path = `${url.pathname}${url.search}`;
+  const baseProperties = campaignPropertiesFromReturnTo(path);
+  const referringLandingPage = url.searchParams.get("referring_landing_page");
+
+  if (referringLandingPage === "/reddit/stock-research" || (url.searchParams.get("utm_source") === "reddit" && url.searchParams.get("utm_campaign") === "stock_research_intent_aug_2026")) {
+    recordProductEvent({
+      event_name: "reddit_signup_complete",
+      path,
+      properties: {
+        ...baseProperties,
+        referring_landing_page: referringLandingPage,
+      },
+    });
+  }
+
+  const compareMatch = url.pathname.match(/^\/compare\/([^/]+)\/([^/]+)\/?$/);
+  if (compareMatch) {
+    const tickerA = decodeURIComponent(compareMatch[1] || "").toUpperCase();
+    const tickerB = decodeURIComponent(compareMatch[2] || "").toUpperCase();
+    recordProductEvent({
+      event_name: "compare_signup_complete",
+      path,
+      properties: {
+        ...baseProperties,
+        ticker_a: tickerA,
+        ticker_b: tickerB,
+      },
+    });
+  }
+
+  const researchMatch = url.pathname.match(/^\/research\/([^/]+)\/?$/);
+  if (researchMatch) {
+    recordProductEvent({
+      event_name: "research_brief_signup_complete",
+      path,
+      properties: {
+        ...baseProperties,
+        ticker: url.searchParams.get("cta_ticker"),
+        research_slug: url.searchParams.get("research_slug") || decodeURIComponent(researchMatch[1] || ""),
+      },
+    });
+  }
+}
 
 export function LoginRegisterPanel({
   resetStatus,
@@ -141,7 +201,8 @@ export function LoginRegisterPanel({
           address_line1: addressLine1,
           address_line2: addressLine2,
         });
-        destination = nextPath.startsWith("/compare/") || nextPath.startsWith("/pricing") ? nextPath : "/account/settings?registered=1";
+        destination = resolvedReturnTo ? nextPath : "/account/settings?registered=1";
+        recordSignupCompleteEvents(destination);
       } else {
         await login({ email, password });
       }

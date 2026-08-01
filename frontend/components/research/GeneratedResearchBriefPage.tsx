@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import type { AdminResearchBriefDraft } from "@/lib/api";
 import { WALNUT_MARKETING_URL, marketingCanonicalUrl } from "@/lib/marketingMetadata";
+import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
 
 type StoredSignalResult = {
   ticker: string;
@@ -202,6 +203,11 @@ export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBrie
               </div>
             </section>
           ))}
+          <ResearchBriefContextualCta
+            ticker={article.primary_ticker || draft.primary_ticker}
+            companyName={article.primary_ticker || draft.primary_ticker}
+            researchSlug={article.slug}
+          />
         </article>
 
         <aside className="space-y-4">
