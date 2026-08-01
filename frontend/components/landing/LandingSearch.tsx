@@ -82,7 +82,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
   }
 
   return (
-    <div ref={rootRef} className="relative mx-auto mt-4 w-full max-w-2xl sm:mt-8">
+    <div ref={rootRef} className="relative z-[80] mx-auto mt-4 w-full max-w-2xl sm:mt-8">
       <form onSubmit={submit} className="grid gap-3 rounded-lg border border-emerald-300/25 bg-slate-950/80 p-2 shadow-2xl shadow-black/25 ring-1 ring-white/10 sm:grid-cols-[1fr_auto]">
         <label className="flex min-w-0 items-center gap-3 rounded-md bg-white/[0.035] px-3 py-3">
           <SearchIcon />
@@ -103,7 +103,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
       </form>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[1400] overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
           {suggest.loading && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Searching...</p> : null}
           {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">No matches found</p> : null}
           {results.length > 0 ? (

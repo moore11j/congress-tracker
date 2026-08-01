@@ -3,7 +3,7 @@ import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShel
 import { legalPageChrome } from "@/lib/legalPageChrome";
 import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
-const lastUpdated = "June 20, 2026";
+const lastUpdated = "July 31, 2026";
 
 const faqCategories = [
   {
@@ -71,6 +71,91 @@ const faqCategories = [
         question: "Why did a score change?",
         answer:
           "Scores may change when new filings, disclosures, price behavior, or other contributing data sources change.",
+      },
+    ],
+  },
+  {
+    title: "Research Glossary",
+    items: [
+      {
+        question: "What are fundamentals?",
+        answer:
+          "Fundamentals are company-level business and financial measures such as revenue, earnings, cash flow, debt, margins, growth, valuation, and balance-sheet strength. They help describe what the company is producing economically, separate from the stock chart.",
+      },
+      {
+        question: "What are technicals?",
+        answer:
+          "Technicals are market-based measures derived from price, volume, and trend behavior. Examples include moving averages, RSI, MACD, Bollinger Bands, support and resistance, relative volume, and breakout or breakdown patterns.",
+      },
+      {
+        question: "What is P/E ratio?",
+        answer:
+          "P/E ratio, or price-to-earnings ratio, compares a company's stock price with its earnings per share. A higher P/E can imply investors are paying more for each dollar of earnings, while a lower P/E can imply a cheaper valuation or weaker growth expectations.",
+      },
+      {
+        question: "What is the difference between trailing P/E and forward P/E?",
+        answer:
+          "Trailing P/E uses earnings already reported over a recent historical period, often the last twelve months. Forward P/E uses expected future earnings estimates. Forward P/E can be useful for growth expectations, but it depends on forecasts that may be wrong.",
+      },
+      {
+        question: "What are EPS and ROE?",
+        answer:
+          "EPS, or earnings per share, is a company's profit allocated to each share of common stock. ROE, or return on equity, compares net income with shareholder equity and is often used to judge how efficiently a company turns equity capital into profit.",
+      },
+      {
+        question: "What are EBITDA and EV/EBITDA?",
+        answer:
+          "EBITDA means earnings before interest, taxes, depreciation, and amortization. EV/EBITDA compares enterprise value with EBITDA and is commonly used to compare company valuations while accounting for debt and cash differences.",
+      },
+      {
+        question: "What are margins, gross margins, and profit margins?",
+        answer:
+          "Margins compare profit with revenue. Gross margin measures revenue left after direct costs of goods or services. Operating margin measures operating income as a share of revenue. Profit margin usually means net income as a share of revenue after all expenses.",
+      },
+      {
+        question: "What is operating margin change?",
+        answer:
+          "Operating margin change measures whether operating profit as a percentage of revenue is improving or deteriorating over time. Rising operating margin can suggest better efficiency or pricing power, while falling margin can suggest cost pressure or weaker profitability.",
+      },
+      {
+        question: "What is FCF yield?",
+        answer:
+          "FCF yield, or free cash flow yield, compares free cash flow with a company's market value. It is often used to evaluate how much cash flow investors receive relative to the price they are paying for the business.",
+      },
+      {
+        question: "What are discounted cash flow and market capitalization?",
+        answer:
+          "Discounted cash flow, or DCF, estimates a business's value by discounting expected future cash flows back to today's dollars. Market capitalization is the stock market value of a company's equity, calculated as share price multiplied by shares outstanding.",
+      },
+      {
+        question: "What is beta?",
+        answer:
+          "Beta measures how much a stock has historically moved relative to a market benchmark. A beta above 1 has tended to move more than the benchmark, while a beta below 1 has tended to move less.",
+      },
+      {
+        question: "What are SMA and EMA?",
+        answer:
+          "SMA, or simple moving average, is the average price over a selected period. EMA, or exponential moving average, gives more weight to recent prices. Both are used to evaluate trend direction and possible support or resistance.",
+      },
+      {
+        question: "What are Bollinger Bands?",
+        answer:
+          "Bollinger Bands plot a moving average with upper and lower bands based on recent volatility. They are often used to identify unusually stretched price moves, volatility expansion, or consolidation.",
+      },
+      {
+        question: "What are RSI and MACD?",
+        answer:
+          "RSI, or relative strength index, is a momentum indicator that compares recent gains and losses. MACD, or moving average convergence divergence, compares moving averages to evaluate momentum shifts and possible bullish or bearish crossovers.",
+      },
+      {
+        question: "What is Walnut's confirmation score?",
+        answer:
+          "Walnut's proprietary confirmation score is a research metric that summarizes whether available evidence appears to support or contradict a ticker view. It is separate from the underlying data and is not investment advice, a price target, or a recommendation.",
+      },
+      {
+        question: "What is the difference between institutionals, insiders, and Congress activity?",
+        answer:
+          "Institutionals refers to reported activity from large investment managers and funds. Insiders refers to reported trades by company officers, directors, or large beneficial owners. Congress activity refers to disclosed trades by members of Congress and covered related filers under congressional disclosure rules.",
       },
     ],
   },

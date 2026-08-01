@@ -137,6 +137,12 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Markets"/);
   assert.match(faqPage, /Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works\./);
   assert.match(faqPage, /Data & Disclosures/);
+  assert.match(faqPage, /Research Glossary/);
+  assert.match(faqPage, /What are fundamentals\?/);
+  assert.match(faqPage, /What are SMA and EMA\?/);
+  assert.match(faqPage, /What is Walnut's confirmation score\?/);
+  assert.match(faqPage, /What is FCF yield\?/);
+  assert.match(faqPage, /institutionals, insiders, and Congress activity/);
   assert.match(faqPage, /Subscriptions & Billing/);
   assert.match(faqPage, /No\. Walnut provides informational and research tools only\./);
 });
