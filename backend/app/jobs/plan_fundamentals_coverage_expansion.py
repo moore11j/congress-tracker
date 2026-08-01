@@ -341,6 +341,68 @@ def enqueue_fundamentals_coverage_batch(
     }
 
 
+def fundamentals_coverage_queue_status(*, reason: str, symbols: list[str] | None = None) -> dict[str, Any]:
+    normalized_symbols = sorted({symbol for raw in (symbols or []) if (symbol := normalize_symbol(raw))})
+    with SessionLocal() as db:
+        statement = select(DataEnrichmentJob).where(DataEnrichmentJob.job_type == "ticker_financials")
+        if reason:
+            statement = statement.where(DataEnrichmentJob.reason == reason)
+        if normalized_symbols:
+            statement = statement.where(DataEnrichmentJob.symbol.in_(normalized_symbols))
+        jobs = db.execute(statement.order_by(DataEnrichmentJob.priority.asc(), DataEnrichmentJob.symbol.asc())).scalars().all()
+        job_symbols = sorted({job.symbol for job in jobs if job.symbol})
+        cache_rows = []
+        if job_symbols:
+            cache_rows = db.execute(
+                select(TickerFinancialsCache)
+                .where(TickerFinancialsCache.symbol.in_(job_symbols))
+                .order_by(TickerFinancialsCache.symbol.asc())
+            ).scalars().all()
+
+    status_counts: dict[str, int] = {}
+    for job in jobs:
+        status_counts[job.status] = status_counts.get(job.status, 0) + 1
+    cache_status_counts: dict[str, int] = {}
+    for row in cache_rows:
+        cache_status_counts[row.status] = cache_status_counts.get(row.status, 0) + 1
+    return {
+        "status": "ok",
+        "mode": "queue_status",
+        "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+        "job_count": len(jobs),
+        "job_status_counts": dict(sorted(status_counts.items())),
+        "cache_row_count": len(cache_rows),
+        "cache_status_counts": dict(sorted(cache_status_counts.items())),
+        "jobs": [
+            {
+                "symbol": job.symbol,
+                "status": job.status,
+                "priority": job.priority,
+                "attempts": job.attempts,
+                "max_attempts": job.max_attempts,
+                "error": job.error,
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            }
+            for job in jobs
+        ],
+        "cache_rows": [
+            {
+                "symbol": row.symbol,
+                "status": row.status,
+                "fetched_at": row.fetched_at.isoformat() if row.fetched_at else None,
+            }
+            for row in cache_rows
+        ],
+    }
+
+
+def _parse_symbols(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Planner for expanding historical fundamentals coverage.")
     parser.add_argument("--start-date")
@@ -352,12 +414,22 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--apply", action="store_true", help="Enqueue ticker_financials jobs for the selected uncached symbols.")
+    parser.add_argument("--queue-status", action="store_true", help="Report ticker_financials queue/cache status for a reason.")
     parser.add_argument("--priority", type=int, default=70)
     parser.add_argument("--reason", default="strategies_fundamentals_coverage_expansion")
+    parser.add_argument("--symbols")
     args = parser.parse_args()
 
     parsed_start = parse_iso_date(args.start_date) if args.start_date else None
     parsed_end = parse_iso_date(args.end_date) if args.end_date else None
+    if args.queue_status:
+        result = fundamentals_coverage_queue_status(
+            reason=str(args.reason or ""),
+            symbols=_parse_symbols(args.symbols),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+
     if args.apply:
         result = enqueue_fundamentals_coverage_batch(
             start_date=parsed_start,

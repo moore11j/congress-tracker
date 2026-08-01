@@ -228,3 +228,52 @@ def test_enqueue_fundamentals_coverage_batch_uses_planned_uncached_symbols(monke
     assert calls[1][1]["priority"] == 70
     assert calls[2][1]["symbol"] == "MSFT"
     assert calls[2][1]["priority"] == 71
+
+
+def test_fundamentals_coverage_queue_status_reports_jobs_and_cache(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            DataEnrichmentJob(
+                job_type="ticker_financials",
+                symbol="AAPL",
+                dedupe_key="ticker_financials:AAPL",
+                priority=70,
+                status="done",
+                source="strategy_research",
+                reason="batch1",
+                next_run_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            DataEnrichmentJob(
+                job_type="ticker_financials",
+                symbol="MSFT",
+                dedupe_key="ticker_financials:MSFT",
+                priority=71,
+                status="queued",
+                source="strategy_research",
+                reason="batch1",
+                next_run_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            TickerFinancialsCache(
+                symbol="AAPL",
+                status="ok",
+                payload_json="{}",
+                fetched_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    monkeypatch.setattr(planner, "SessionLocal", SessionLocal)
+
+    result = planner.fundamentals_coverage_queue_status(reason="batch1")
+
+    assert result["job_status_counts"] == {"done": 1, "queued": 1}
+    assert result["cache_status_counts"] == {"ok": 1}
+    assert result["cache_row_count"] == 1
+    assert [job["symbol"] for job in result["jobs"]] == ["AAPL", "MSFT"]
