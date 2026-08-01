@@ -242,6 +242,54 @@ def filter_signals_by_fundamental_rule(
     return filtered, {key: value for key, value in sorted(skipped.items()) if value}
 
 
+def snapshot_provenance_summary(
+    db: Session,
+    signals: list[Signal],
+    *,
+    provider: str = "fmp",
+    data_mode: FundamentalDataMode = "snapshots",
+) -> dict[str, Any]:
+    source_kind_counts: dict[str, int] = {}
+    confidence_counts: dict[str, int] = {}
+    methodology_counts: dict[str, int] = {}
+    for signal in signals:
+        snapshot = latest_snapshot_on_or_before(
+            db,
+            signal.symbol,
+            as_of=signal.disclosure_date,
+            provider=provider,
+            data_mode=data_mode,
+        )
+        if snapshot is None:
+            continue
+        source_kind = snapshot.source_kind or "unknown"
+        confidence = snapshot.data_quality_confidence or "unknown"
+        methodology = snapshot.methodology_version or "unknown"
+        source_kind_counts[source_kind] = source_kind_counts.get(source_kind, 0) + 1
+        confidence_counts[confidence] = confidence_counts.get(confidence, 0) + 1
+        methodology_counts[methodology] = methodology_counts.get(methodology, 0) + 1
+    return {
+        "source_kind_counts": dict(sorted(source_kind_counts.items())),
+        "data_quality_confidence_counts": dict(sorted(confidence_counts.items())),
+        "methodology_version_counts": dict(sorted(methodology_counts.items())),
+    }
+
+
+def _overall_snapshot_confidence(provenance: dict[str, Any], data_mode: FundamentalDataMode) -> str:
+    if data_mode != "snapshots":
+        return "low"
+    confidence_counts = provenance.get("data_quality_confidence_counts") or {}
+    if not confidence_counts:
+        return "unavailable"
+    if any(key in confidence_counts for key in ("low", "current_cache_proxy")):
+        return "low"
+    if any("proxy" in str(key) or key == "medium" for key in confidence_counts):
+        return "medium_proxy"
+    if set(confidence_counts) <= {"high"}:
+        return "high"
+    return "mixed"
+
+
 def run_research(
     db: Session,
     config: ResearchConfig,
@@ -287,6 +335,7 @@ def run_research(
         provider=provider,
         data_mode=data_mode,
     )
+    provenance = snapshot_provenance_summary(db, signals, provider=provider, data_mode=data_mode)
     per_side_cost_rate = max((config.slippage_bps + config.fee_bps) / 10000.0, 0.0)
     universe_price_maps = {symbol: prices for symbol, prices in price_maps.items() if symbol != config.benchmark}
     runs: list[dict[str, Any]] = []
@@ -311,7 +360,7 @@ def run_research(
             metrics["status"] = "insufficient_lots"
         runs.append(metrics)
 
-    confidence = "high" if data_mode == "snapshots" else "low"
+    confidence = _overall_snapshot_confidence(provenance, data_mode)
     return {
         "metadata": {
             "strategy_name": config.strategy_name,
@@ -344,6 +393,7 @@ def run_research(
             "require_adjusted_prices": config.require_adjusted,
             "price_source": "price_cache.adjusted_close",
             "data_quality_confidence": confidence,
+            "fundamental_snapshot_provenance": provenance,
             "data_state": "production PostgreSQL read-only research query",
             "warning": None
             if data_mode == "snapshots"

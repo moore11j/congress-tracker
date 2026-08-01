@@ -10,9 +10,11 @@ from app.models import FundamentalsSnapshot
 from app.strategy_research.congress_buys import Signal
 from app.strategy_research.fundamental_confirmation import (
     FundamentalState,
+    _overall_snapshot_confidence,
     filter_signals_by_fundamental_rule,
     fundamental_rule_matches,
     fundamental_state_from_snapshot,
+    snapshot_provenance_summary,
 )
 
 
@@ -34,6 +36,8 @@ def _snapshot(
     free_cash_flow: float = 1_000_000.0,
     forward_pe: float | None = 22.0,
     net_debt_to_ebitda: float | None = 1.5,
+    source_kind: str | None = None,
+    data_quality_confidence: str | None = None,
 ) -> FundamentalsSnapshot:
     observed_at = datetime.combine(snapshot_date, datetime.min.time(), tzinfo=timezone.utc)
     return FundamentalsSnapshot(
@@ -50,6 +54,8 @@ def _snapshot(
         free_cash_flow=free_cash_flow,
         forward_pe=forward_pe,
         net_debt_to_ebitda=net_debt_to_ebitda,
+        source_kind=source_kind,
+        data_quality_confidence=data_quality_confidence,
     )
 
 
@@ -156,5 +162,31 @@ def test_current_cache_proxy_mode_is_explicitly_separate_from_snapshot_mode():
 
         assert len(filtered) == 1
         assert skipped == {}
+    finally:
+        db.close()
+
+
+def test_snapshot_provenance_downgrades_proxy_strategy_confidence():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            _snapshot(
+                "AAPL",
+                date(2026, 8, 1),
+                source_kind="ticker_financials_cache_statement_proxy",
+                data_quality_confidence="medium_proxy",
+            )
+        )
+        db.commit()
+
+        provenance = snapshot_provenance_summary(
+            db,
+            [_signal(disclosure_date=date(2026, 8, 1))],
+        )
+
+        assert provenance["source_kind_counts"] == {"ticker_financials_cache_statement_proxy": 1}
+        assert provenance["data_quality_confidence_counts"] == {"medium_proxy": 1}
+        assert _overall_snapshot_confidence(provenance, "snapshots") == "medium_proxy"
     finally:
         db.close()
