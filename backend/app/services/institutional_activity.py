@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import and_, func, inspect, or_, select
+from sqlalchemy import and_, exists, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_extract_analytics_by_holder, fetch_shares_float, fetch_symbol_positions_summary
@@ -1794,6 +1794,8 @@ def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50
         .limit(bounded_limit + 1)
     ).scalars().all()
     rows = fetched_rows[:bounded_limit]
+    if not rows:
+        return _derived_activity_for_holder_from_positions(db, normalized, page=page, limit=bounded_limit)
     symbols = sorted({row.normalized_symbol for row in rows if row.normalized_symbol})
     issuer_names: dict[str, str | None] = {}
     if symbols:
@@ -1819,6 +1821,154 @@ def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50
         "page": page,
         "limit": bounded_limit,
         "has_next": len(fetched_rows) > bounded_limit,
+    }
+
+
+def _derived_activity_for_holder_from_positions(db: Session, cik: str, *, page: int, limit: int) -> dict[str, Any]:
+    filings = db.execute(
+        select(InstitutionalFiling)
+        .where(InstitutionalFiling.cik == cik)
+        .where(InstitutionalFiling.superseded_by.is_(None))
+        .where(exists(select(InstitutionalPosition.id).where(InstitutionalPosition.filing_id == InstitutionalFiling.id)))
+        .order_by(
+            InstitutionalFiling.report_year.desc(),
+            InstitutionalFiling.report_quarter.desc(),
+            InstitutionalFiling.filing_date.desc().nullslast(),
+            InstitutionalFiling.id.desc(),
+        )
+        .limit(8)
+    ).scalars().all()
+    if len(filings) < 2:
+        return {"items": [], "page": page, "limit": limit, "has_next": False, "derived": True}
+    current_filing = filings[0]
+    prior_filing = next(
+        (
+            filing
+            for filing in filings[1:]
+            if (filing.report_year, filing.report_quarter) < (current_filing.report_year, current_filing.report_quarter)
+        ),
+        None,
+    )
+    if prior_filing is None:
+        return {"items": [], "page": page, "limit": limit, "has_next": False, "derived": True}
+
+    current_positions = db.execute(
+        select(InstitutionalPosition).where(InstitutionalPosition.filing_id == current_filing.id)
+    ).scalars().all()
+    prior_positions = db.execute(
+        select(InstitutionalPosition).where(InstitutionalPosition.filing_id == prior_filing.id)
+    ).scalars().all()
+    current_total = sum(float(row.value_usd or 0.0) for row in current_positions)
+    prior_total = sum(float(row.value_usd or 0.0) for row in prior_positions)
+    current_by_key = {_position_row_identity_key(row): row for row in current_positions}
+    prior_by_key = {_position_row_identity_key(row): row for row in prior_positions}
+    symbols = sorted(
+        {
+            symbol
+            for row in [*current_positions, *prior_positions]
+            if (symbol := normalize_symbol(row.normalized_symbol or row.symbol))
+        }
+    )
+    current_prices = _cached_current_prices(db, symbols)
+    items = [
+        payload
+        for key in sorted(set(current_by_key) | set(prior_by_key))
+        if (payload := _derived_activity_payload(
+            current_by_key.get(key),
+            prior_by_key.get(key),
+            current_filing=current_filing,
+            current_total=current_total,
+            prior_total=prior_total,
+            current_prices=current_prices,
+        ))
+    ]
+    items.sort(key=lambda item: abs(float(item.get("value_delta_usd") or 0.0)), reverse=True)
+    offset = max(0, int(page or 0)) * limit
+    page_items = items[offset : offset + limit]
+    return {
+        "items": page_items,
+        "page": page,
+        "limit": limit,
+        "has_next": offset + limit < len(items),
+        "derived": True,
+    }
+
+
+def _derived_activity_payload(
+    current: InstitutionalPosition | None,
+    prior: InstitutionalPosition | None,
+    *,
+    current_filing: InstitutionalFiling,
+    current_total: float,
+    prior_total: float,
+    current_prices: dict[str, float],
+) -> dict[str, Any] | None:
+    row = current or prior
+    if row is None:
+        return None
+    symbol = normalize_symbol(row.normalized_symbol or row.symbol) or row.symbol
+    curr_shares = current.shares if current else None
+    prev_shares = prior.shares if prior else None
+    curr_value = current.value_usd if current else None
+    prev_value = prior.value_usd if prior else None
+    shares_delta = _delta(curr_shares, prev_shares)
+    value_delta = _delta(curr_value, prev_value)
+    if not _positiveish(shares_delta) and not _positiveish(value_delta):
+        return None
+    if current is None:
+        change_type = "exit"
+        direction = "bearish"
+    elif prior is None:
+        change_type = "new_position"
+        direction = "bullish"
+    elif float(value_delta or 0.0) < 0:
+        change_type = "decrease"
+        direction = "bearish"
+    else:
+        change_type = "increase"
+        direction = "bullish"
+    current_weight = (float(curr_value) / current_total) * 100.0 if curr_value is not None and current_total > 0 else None
+    prior_weight = (float(prev_value) / prior_total) * 100.0 if prev_value is not None and prior_total > 0 else None
+    report_price = _per_share_value(curr_value, curr_shares)
+    if report_price is None and change_type == "exit":
+        report_price = _per_share_value(prev_value, prev_shares)
+    activity_price = _per_share_value(abs(float(value_delta)), abs(float(shares_delta))) if value_delta is not None and shares_delta else None
+    current_price = current_prices.get(symbol or "")
+    current_market_value_usd = None
+    if current_price is not None and curr_shares is not None and change_type != "exit":
+        current_market_value_usd = float(current_price) * float(curr_shares)
+    return {
+        "id": current.id if current else prior.id if prior else None,
+        "symbol": symbol,
+        "issuer_name": (current.issuer_name if current else None) or (prior.issuer_name if prior else None),
+        "action": _reported_action_label(change_type, value_delta),
+        "change_type": change_type,
+        "direction": direction,
+        "current_value_usd": 0 if change_type == "exit" else curr_value,
+        "prior_value_usd": prev_value,
+        "value_delta_usd": _round_optional(value_delta, 2),
+        "value_delta_pct": _round_optional(_pct_delta(curr_value, prev_value), 4),
+        "current_shares": curr_shares,
+        "prior_shares": prev_shares,
+        "shares_delta": _round_optional(shares_delta, 4),
+        "shares_delta_pct": _round_optional(_pct_delta(curr_shares, prev_shares), 4),
+        "current_portfolio_weight": _round_optional(current_weight, 6),
+        "prior_portfolio_weight": _round_optional(prior_weight, 6),
+        "portfolio_weight_delta": _round_optional(_delta(current_weight, prior_weight), 6),
+        "current_ownership_pct": current.ownership_pct if current else None,
+        "prior_ownership_pct": prior.ownership_pct if prior else None,
+        "ownership_pct_delta": _round_optional(_delta(current.ownership_pct if current else None, prior.ownership_pct if prior else None), 6),
+        "activity_price": _round_optional(activity_price or report_price, 4),
+        "report_price": _round_optional(report_price, 4),
+        "current_price": _round_optional(current_price, 4),
+        "price_since_report_pct": _round_optional(_pct_delta(current_price, report_price), 4),
+        "current_market_value_usd": _round_optional(current_market_value_usd, 2),
+        "filing_date": current_filing.filing_date.isoformat() if current_filing.filing_date else None,
+        "report_period": f"Q{current_filing.report_quarter} {current_filing.report_year}",
+        "report_year": current_filing.report_year,
+        "report_quarter": current_filing.report_quarter,
+        "materiality_score": None,
+        "derived": True,
     }
 
 

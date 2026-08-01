@@ -1918,6 +1918,49 @@ def test_holder_activity_payload_includes_activity_prices_units_and_cached_curre
         assert item["current_market_value_usd"] == 450
 
 
+def test_holder_activity_derives_latest_position_changes_when_materialized_rows_are_missing():
+    engine = _engine()
+    today = date.today()
+    cik = "0005555555"
+
+    with _session(engine) as db:
+        prior_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=95), year=2025, quarter=4))
+        current_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today, year=2026, quarter=1))
+        assert prior_candidate is not None
+        assert current_candidate is not None
+        upsert_institutional_holder(db, prior_candidate)
+        prior_filing, _ = upsert_institutional_filing(db, prior_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=prior_filing,
+            rows=[{"symbol": "NVDA", "shares": 10, "marketValue": 100, "cusip": "67066G104"}],
+        )
+        upsert_institutional_holder(db, current_candidate)
+        current_filing, _ = upsert_institutional_filing(db, current_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=current_filing,
+            rows=[
+                {"symbol": "NVDA", "shares": 15, "marketValue": 300, "cusip": "67066G104"},
+                {"symbol": "MSFT", "shares": 4, "marketValue": 80, "cusip": "594918104"},
+            ],
+        )
+        db.add(QuoteCache(symbol="NVDA", price=30.0, asof_ts=datetime.now(timezone.utc).replace(tzinfo=None)))
+        db.commit()
+
+        assert db.query(InstitutionalPositionChange).count() == 0
+        activity = activity_for_holder(db, cik, page=0, limit=10)
+        assert activity["derived"] is True
+        by_symbol = {item["symbol"]: item for item in activity["items"]}
+        assert by_symbol["NVDA"]["change_type"] == "increase"
+        assert by_symbol["NVDA"]["activity_price"] == 40
+        assert by_symbol["NVDA"]["report_price"] == 20
+        assert by_symbol["NVDA"]["current_price"] == 30
+        assert by_symbol["MSFT"]["change_type"] == "new_position"
+
+
 def test_holder_performance_summary_uses_cached_eod_prices_for_weighted_returns():
     engine = _engine()
     today = datetime.now(timezone.utc).date()
