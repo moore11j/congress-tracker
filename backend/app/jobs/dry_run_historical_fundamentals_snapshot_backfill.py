@@ -216,19 +216,23 @@ def dry_run_historical_fundamentals_snapshot_backfill(
     symbols: Iterable[str] | None = None,
     lag_days: int = DEFAULT_QUARTERLY_AVAILABILITY_LAG_DAYS,
     provider: str = DEFAULT_PROVIDER,
+    as_of: date | None = None,
     sample_limit: int = 12,
 ) -> dict[str, Any]:
     normalized_symbols = _normalize_symbols(symbols)
+    as_of_date = as_of or datetime.now(timezone.utc).date()
     with SessionLocal() as db:
         statement = select(TickerFinancialsCache).where(TickerFinancialsCache.status.in_(("ok", "partial"))).order_by(TickerFinancialsCache.symbol.asc())
         if normalized_symbols is not None:
             statement = statement.where(func.upper(TickerFinancialsCache.symbol).in_(normalized_symbols))
         rows = db.execute(statement).scalars().all()
-        candidates = [
+        all_candidates = [
             candidate
             for row in rows
             for candidate in candidates_from_financials_row(row, lag_days=lag_days, provider=provider)
         ]
+        future_candidates = [candidate for candidate in all_candidates if candidate.snapshot_date > as_of_date]
+        candidates = [candidate for candidate in all_candidates if candidate.snapshot_date <= as_of_date]
         existing_keys = _existing_snapshot_keys(db, candidates)
         dates = [candidate.snapshot_date for candidate in candidates]
         period_dates = [candidate.period_date for candidate in candidates]
@@ -251,6 +255,7 @@ def dry_run_historical_fundamentals_snapshot_backfill(
             "run_timestamp": datetime.now(timezone.utc).isoformat(),
             "methodology_version": METHODOLOGY_VERSION,
             "provider": provider,
+            "as_of_date": as_of_date.isoformat(),
             "source": "ticker_financials_cache.quarterly_statement_rows",
             "availability_basis": f"statement period date plus {max(0, int(lag_days))} calendar days; proxy only",
             "warnings": [
@@ -259,6 +264,8 @@ def dry_run_historical_fundamentals_snapshot_backfill(
                 "Do not publish these as final historical fundamentals until filing/acceptance dates are backfilled or disclosed as proxy methodology.",
             ],
             "cache_rows_seen": len(rows),
+            "raw_candidate_rows": len(all_candidates),
+            "future_availability_candidate_rows_excluded": len(future_candidates),
             "candidate_rows": len(candidates),
             "candidate_symbols": len(symbol_counts),
             "existing_snapshot_key_conflicts": len(existing_keys),
@@ -287,11 +294,18 @@ def _parse_symbols(value: str | None) -> list[str] | None:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    return date.fromisoformat(value)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dry-run historical fundamentals snapshot backfill from cached financials only.")
     parser.add_argument("--symbols", help="Optional comma-separated symbols to inspect.")
     parser.add_argument("--lag-days", type=int, default=DEFAULT_QUARTERLY_AVAILABILITY_LAG_DAYS)
     parser.add_argument("--provider", default=DEFAULT_PROVIDER)
+    parser.add_argument("--as-of-date", help="Exclude proxy snapshot dates after this YYYY-MM-DD date. Defaults to today UTC.")
     parser.add_argument("--sample-limit", type=int, default=12)
     args = parser.parse_args()
     print(
@@ -300,6 +314,7 @@ def main() -> None:
                 symbols=_parse_symbols(args.symbols),
                 lag_days=args.lag_days,
                 provider=args.provider,
+                as_of=_parse_date(args.as_of_date),
                 sample_limit=args.sample_limit,
             ),
             indent=2,

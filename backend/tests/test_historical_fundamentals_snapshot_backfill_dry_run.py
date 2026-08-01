@@ -81,7 +81,9 @@ def test_dry_run_reports_new_rows_and_existing_snapshot_conflicts(monkeypatch):
     result = backfill_module.dry_run_historical_fundamentals_snapshot_backfill(symbols=["AAPL"], sample_limit=2)
 
     assert result["mode"] == "dry_run"
+    assert result["as_of_date"]
     assert result["cache_rows_seen"] == 1
+    assert result["raw_candidate_rows"] == 5
     assert result["candidate_rows"] == 5
     assert result["candidate_symbols"] == 1
     assert result["existing_snapshot_key_conflicts"] == 1
@@ -109,3 +111,26 @@ def test_dry_run_symbol_filter_limits_cache_rows(monkeypatch):
     assert result["cache_rows_seen"] == 1
     assert result["candidate_symbols"] == 1
     assert result["top_symbols_by_candidate_rows"] == [{"symbol": "MSFT", "candidate_rows": 5}]
+
+
+def test_dry_run_excludes_future_proxy_availability_dates(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(_cache_row("AAPL"))
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
+
+    result = backfill_module.dry_run_historical_fundamentals_snapshot_backfill(
+        symbols=["AAPL"],
+        as_of=date(2025, 8, 1),
+        sample_limit=10,
+    )
+
+    assert result["raw_candidate_rows"] == 5
+    assert result["future_availability_candidate_rows_excluded"] == 4
+    assert result["candidate_rows"] == 1
+    assert result["snapshot_date_range"] == {"start": "2025-05-15", "end": "2025-05-15"}
