@@ -148,6 +148,7 @@ def run_backfill(
     latest_only: bool,
     overwrite: bool,
     dry_run: bool,
+    progress_every: int,
 ) -> dict[str, Any]:
     throttle = CallsPerMinuteThrottle(calls_per_minute)
     normalized_cik = "".join(ch for ch in str(cik or "") if ch.isdigit()).zfill(10) if cik else None
@@ -164,6 +165,7 @@ def run_backfill(
         "symbols_failed": 0,
         "positions_updated": 0,
     }
+    progress_interval = max(1, int(progress_every or 25))
     with SessionLocal() as db:
         symbols = [
             symbol
@@ -188,7 +190,8 @@ def run_backfill(
                 continue
             if not denominator or denominator <= 0:
                 stats["symbols_without_denominator"] += 1
-                print({"symbol": symbol, "status": "no_denominator", "progress": f"{index}/{len(symbols)}"})
+                if index == 1 or index % progress_interval == 0 or index == len(symbols):
+                    print({"symbol": symbol, "status": "no_denominator", "progress": f"{index}/{len(symbols)}", **stats})
                 continue
             updated = _update_symbol_positions(
                 db,
@@ -204,16 +207,18 @@ def run_backfill(
             stats["positions_updated"] += updated
             if updated:
                 stats["symbols_updated"] += 1
-            print(
-                {
-                    "symbol": symbol,
-                    "status": "updated" if updated else "skipped",
-                    "positions_updated": updated,
-                    "denominator": round(float(denominator), 4),
-                    "denominator_source": denominator_source,
-                    "progress": f"{index}/{len(symbols)}",
-                }
-            )
+            if index == 1 or index % progress_interval == 0 or index == len(symbols):
+                print(
+                    {
+                        "symbol": symbol,
+                        "status": "updated" if updated else "skipped",
+                        "last_positions_updated": updated,
+                        "denominator": round(float(denominator), 4),
+                        "denominator_source": denominator_source,
+                        "progress": f"{index}/{len(symbols)}",
+                        **stats,
+                    }
+                )
     return stats
 
 
@@ -225,6 +230,7 @@ def main() -> None:
     parser.add_argument("--latest-only", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--progress-every", type=int, default=25)
     args = parser.parse_args()
     print(
         run_backfill(
@@ -234,6 +240,7 @@ def main() -> None:
             latest_only=args.latest_only,
             overwrite=args.overwrite,
             dry_run=args.dry_run,
+            progress_every=args.progress_every,
         )
     )
 

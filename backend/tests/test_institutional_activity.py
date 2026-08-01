@@ -1929,6 +1929,7 @@ def test_institutional_ownership_backfill_updates_positions_from_shares_float(mo
         latest_only=False,
         overwrite=False,
         dry_run=False,
+        progress_every=25,
     )
 
     assert result["symbols_updated"] == 2
