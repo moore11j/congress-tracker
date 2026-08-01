@@ -28,6 +28,8 @@ class SymbolActivity:
     insider_officer_purchases: int = 0
     price_rows: int = 0
     adjusted_price_rows: int = 0
+    dollar_volume_rows: int = 0
+    avg_dollar_volume: float | None = None
     price_start: str | None = None
     price_end: str | None = None
     financial_cache_status: str | None = None
@@ -130,7 +132,7 @@ def _load_price_coverage(db, activities: dict[str, SymbolActivity], *, start_dat
     if not symbols:
         return
     statement = (
-        select(PriceCache.symbol, PriceCache.date, PriceCache.adjusted_close)
+        select(PriceCache.symbol, PriceCache.date, PriceCache.adjusted_close, PriceCache.dollar_volume)
         .where(PriceCache.symbol.in_(symbols))
         .where(PriceCache.date <= end_date.isoformat())
         .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
@@ -138,7 +140,8 @@ def _load_price_coverage(db, activities: dict[str, SymbolActivity], *, start_dat
     if start_date is not None:
         statement = statement.where(PriceCache.date >= start_date.isoformat())
     rows = db.execute(statement).all()
-    for raw_symbol, raw_day, adjusted_close in rows:
+    dollar_volume_sums: dict[str, float] = {}
+    for raw_symbol, raw_day, adjusted_close, dollar_volume in rows:
         symbol = normalize_symbol(raw_symbol)
         activity = activities.get(symbol or "")
         if activity is None:
@@ -146,11 +149,18 @@ def _load_price_coverage(db, activities: dict[str, SymbolActivity], *, start_dat
         activity.price_rows += 1
         if adjusted_close is not None and float(adjusted_close) > 0:
             activity.adjusted_price_rows += 1
+        if dollar_volume is not None and float(dollar_volume) > 0:
+            activity.dollar_volume_rows += 1
+            dollar_volume_sums[activity.symbol] = dollar_volume_sums.get(activity.symbol, 0.0) + float(dollar_volume)
         day = str(raw_day)
         if activity.price_start is None or day < activity.price_start:
             activity.price_start = day
         if activity.price_end is None or day > activity.price_end:
             activity.price_end = day
+    for symbol, total in dollar_volume_sums.items():
+        activity = activities.get(symbol)
+        if activity is not None and activity.dollar_volume_rows > 0:
+            activity.avg_dollar_volume = round(total / activity.dollar_volume_rows, 2)
 
 
 def _load_financial_cache_state(db, activities: dict[str, SymbolActivity]) -> None:
@@ -190,12 +200,13 @@ def _load_active_financial_jobs(db, activities: dict[str, SymbolActivity]) -> No
 def _priority_score(activity: SymbolActivity) -> float:
     source_bonus = 20.0 if activity.congress_purchases and activity.insider_purchases else 0.0
     price_bonus = min(activity.adjusted_price_rows / 252.0, 2.0) * 10.0
+    liquidity_bonus = min(math.log10(max(activity.avg_dollar_volume or 0.0, 1.0)), 8.0)
     congress_score = activity.congress_purchases * 5.0
     insider_score = activity.insider_purchases * 3.0
     role_score = activity.insider_director_purchases * 1.0 + activity.insider_officer_purchases * 1.0
     value_score = math.log10(max(activity.congress_amount_max + activity.insider_value, 0.0) + 1.0)
     queued_penalty = 15.0 if activity.has_active_financial_job else 0.0
-    return round(source_bonus + price_bonus + congress_score + insider_score + role_score + value_score - queued_penalty, 4)
+    return round(source_bonus + price_bonus + liquidity_bonus + congress_score + insider_score + role_score + value_score - queued_penalty, 4)
 
 
 def plan_fundamentals_coverage_expansion(
@@ -203,6 +214,7 @@ def plan_fundamentals_coverage_expansion(
     start_date: date | None = None,
     end_date: date | None = None,
     min_adjusted_price_rows: int = 60,
+    min_avg_dollar_volume: float = 1_000_000.0,
     include_cached: bool = False,
     include_queued: bool = False,
     limit: int = 100,
@@ -228,6 +240,7 @@ def plan_fundamentals_coverage_expansion(
         if (include_cached or not row.has_financial_cache)
         and (include_queued or not row.has_active_financial_job)
         and row.adjusted_price_rows >= min_adjusted_price_rows
+        and (row.avg_dollar_volume or 0.0) >= min_avg_dollar_volume
     ]
     selected = eligible[: max(0, limit)]
     batches = [
@@ -242,6 +255,7 @@ def plan_fundamentals_coverage_expansion(
             "start_date": start_date.isoformat() if start_date else None,
             "end_date": end.isoformat(),
             "min_adjusted_price_rows": min_adjusted_price_rows,
+            "min_avg_dollar_volume": min_avg_dollar_volume,
             "include_cached": include_cached,
             "include_queued": include_queued,
             "limit": limit,
@@ -253,6 +267,8 @@ def plan_fundamentals_coverage_expansion(
             "symbols_with_financial_cache": len(rows) - len(missing_cache),
             "missing_cache_with_min_adjusted_prices": sum(1 for row in missing_cache if row.adjusted_price_rows >= min_adjusted_price_rows),
             "missing_cache_without_min_adjusted_prices": sum(1 for row in missing_cache if row.adjusted_price_rows < min_adjusted_price_rows),
+            "missing_cache_with_min_liquidity": sum(1 for row in missing_cache if (row.avg_dollar_volume or 0.0) >= min_avg_dollar_volume),
+            "missing_cache_without_min_liquidity": sum(1 for row in missing_cache if (row.avg_dollar_volume or 0.0) < min_avg_dollar_volume),
             "symbols_with_active_financial_jobs": sum(1 for row in rows if row.has_active_financial_job),
             "eligible_selected": len(selected),
             "batch_count": len(batches),
@@ -267,6 +283,7 @@ def main() -> None:
     parser.add_argument("--start-date")
     parser.add_argument("--end-date")
     parser.add_argument("--min-adjusted-price-rows", type=int, default=60)
+    parser.add_argument("--min-avg-dollar-volume", type=float, default=1_000_000.0)
     parser.add_argument("--include-cached", action="store_true")
     parser.add_argument("--include-queued", action="store_true")
     parser.add_argument("--limit", type=int, default=100)
@@ -277,6 +294,7 @@ def main() -> None:
         start_date=parse_iso_date(args.start_date) if args.start_date else None,
         end_date=parse_iso_date(args.end_date) if args.end_date else None,
         min_adjusted_price_rows=max(0, int(args.min_adjusted_price_rows)),
+        min_avg_dollar_volume=max(0.0, float(args.min_avg_dollar_volume)),
         include_cached=bool(args.include_cached),
         include_queued=bool(args.include_queued),
         limit=max(0, int(args.limit)),

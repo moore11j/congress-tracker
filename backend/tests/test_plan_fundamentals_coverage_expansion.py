@@ -53,13 +53,14 @@ def _insider(symbol: str, row_id: int, *, director: bool = False, officer: bool 
     )
 
 
-def _prices(symbol: str, count: int) -> list[PriceCache]:
+def _prices(symbol: str, count: int, *, dollar_volume: float = 2_000_000.0) -> list[PriceCache]:
     return [
         PriceCache(
             symbol=symbol,
             date=f"2026-01-{index + 1:02d}",
             close=100.0 + index,
             adjusted_close=100.0 + index,
+            dollar_volume=dollar_volume,
         )
         for index in range(count)
     ]
@@ -98,6 +99,7 @@ def test_plan_prioritizes_missing_financial_cache_with_price_coverage(monkeypatc
     assert result["coverage"]["strategy_signal_symbols"] == 2
     assert result["coverage"]["symbols_missing_financial_cache"] == 1
     assert result["symbols"][0]["symbol"] == "AAPL"
+    assert result["symbols"][0]["avg_dollar_volume"] == 2_000_000.0
     assert result["symbols"][0]["congress_purchases"] == 2
     assert result["symbols"][0]["insider_director_purchases"] == 1
     assert result["batches"] == [["AAPL"]]
@@ -143,3 +145,36 @@ def test_plan_excludes_active_financial_jobs_unless_requested(monkeypatch):
         limit=10,
     )
     assert with_queued["symbols"][0]["symbol"] == "NVDA"
+
+
+def test_plan_excludes_illiquid_symbols_by_default(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(_insider("LOWV", 1))
+        db.add_all(_prices("LOWV", 65, dollar_volume=250_000.0))
+        db.commit()
+    finally:
+        db.close()
+    monkeypatch.setattr(planner, "SessionLocal", SessionLocal)
+
+    result = planner.plan_fundamentals_coverage_expansion(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        min_adjusted_price_rows=60,
+        limit=10,
+    )
+
+    assert result["symbols"] == []
+    assert result["coverage"]["missing_cache_with_min_liquidity"] == 0
+    assert result["coverage"]["missing_cache_without_min_liquidity"] == 1
+
+    relaxed = planner.plan_fundamentals_coverage_expansion(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        min_adjusted_price_rows=60,
+        min_avg_dollar_volume=0,
+        limit=10,
+    )
+
+    assert relaxed["symbols"][0]["symbol"] == "LOWV"
