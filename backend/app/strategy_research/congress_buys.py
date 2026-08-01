@@ -89,6 +89,7 @@ class Signal:
     party: str | None
     source_filing_id: str | None
     source_document_url: str | None
+    dedupe_key: tuple[object, ...] | None = None
 
     @property
     def transaction_value_weight(self) -> float:
@@ -248,6 +249,8 @@ def _disclosure_date(event: Event, payload: dict[str, Any]) -> date | None:
 
 
 def _signal_key(signal: Signal) -> tuple[object, ...]:
+    if signal.dedupe_key is not None:
+        return signal.dedupe_key
     return (
         signal.symbol,
         signal.member_bioguide_id or signal.member_name,
