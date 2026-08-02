@@ -5,8 +5,8 @@ import { marketingSeoPageMetadata } from "@/lib/marketingMetadata";
 
 const page = commercialFeaturePages.stockAnalysisPlatform;
 
-export const dynamic = "force-static";
-export const revalidate = false;
+export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 export const metadata: Metadata = marketingSeoPageMetadata(page.pathname, {
   title: page.title,

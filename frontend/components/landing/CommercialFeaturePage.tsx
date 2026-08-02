@@ -28,7 +28,7 @@ export function CommercialFeaturePage({ page }: { page: CommercialFeaturePageDat
   const analyticsProperties = { page: page.key, route: page.pathname };
 
   return (
-    <main className="min-h-screen w-screen max-w-[100vw] overflow-x-hidden bg-[#030712] text-slate-100">
+    <main className="min-h-screen overflow-x-hidden bg-[#030712] text-slate-100">
       <CampaignEventOnMount eventName="seo_feature_page_view" path={page.pathname} properties={analyticsProperties} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
 

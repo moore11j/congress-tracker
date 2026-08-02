@@ -21,7 +21,9 @@ const publicTools = fs.readFileSync(path.join(root, "lib", "publicResearchTools.
 test("commercial feature pages define five distinct public routes", () => {
   for (const route of routes) {
     assert.match(data, new RegExp(`pathname:\\s*"${route}"`));
-    assert.ok(fs.existsSync(path.join(root, "app", route.slice(1), "page.tsx")), `${route} route file should exist`);
+    const routeSource = fs.readFileSync(path.join(root, "app", route.slice(1), "page.tsx"), "utf8");
+    assert.match(routeSource, /export const dynamic = "force-dynamic"/);
+    assert.doesNotMatch(routeSource, /export const dynamic = "force-static"/);
     assert.match(middleware, new RegExp(`"${route}"`));
     assert.match(sitemap, new RegExp(`https://walnutmarkets\\.com${route}`));
   }
@@ -39,6 +41,7 @@ test("commercial feature renderer includes schema, real product evidence, and tr
   assert.match(component, /seo_feature_secondary_cta_click/);
   assert.match(component, /\/landing\/compare-nvda-mu-production\.png/);
   assert.match(component, /Real Walnut interface capture/);
+  assert.doesNotMatch(component, /w-screen/);
 });
 
 test("commercial feature copy keeps required limitations visible", () => {
