@@ -177,6 +177,7 @@ def _run_candidate_period(
     db: Session,
     candidate: CandidateDefinition,
     *,
+    universe: tuple[str, ...],
     start_date: date | None,
     end_date: date,
     benchmark: str,
@@ -188,16 +189,6 @@ def _run_candidate_period(
     min_snapshots_per_symbol: int,
     top: int,
 ) -> dict[str, Any]:
-    universe = _load_universe(
-        db,
-        universe_source=candidate.universe_source,
-        symbols=None,
-        start_date=start_date,
-        end_date=end_date,
-        exclude_symbols=candidate.exclude_symbols,
-        snapshot_source_kind=snapshot_source_kind,
-        min_snapshots_per_symbol=min_snapshots_per_symbol,
-    )
     config = ResearchConfig(
         strategy_name=candidate.name,
         universe=universe,
@@ -252,6 +243,16 @@ def validate_candidate(
     top: int,
 ) -> dict[str, Any]:
     period_kwargs = {
+        "universe": _load_universe(
+            db,
+            universe_source=candidate.universe_source,
+            symbols=None,
+            start_date=None,
+            end_date=test_end,
+            exclude_symbols=candidate.exclude_symbols,
+            snapshot_source_kind=snapshot_source_kind,
+            min_snapshots_per_symbol=min_snapshots_per_symbol,
+        ),
         "benchmark": benchmark,
         "slippage_bps": slippage_bps,
         "fee_bps": fee_bps,
@@ -284,6 +285,8 @@ def validate_candidate(
             "lookback_days": candidate.lookback_days,
             "hold_days": candidate.hold_days,
             "exclude_symbols": list(candidate.exclude_symbols),
+            "universe_size": len(period_kwargs["universe"]),
+            "universe_basis": "candidate universe loaded once as of final test_end and reused across splits",
         },
         "periods": {
             "full": {"performance": full["performance"], "diagnostics": full["diagnostics"]},
