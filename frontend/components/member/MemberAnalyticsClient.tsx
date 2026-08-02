@@ -29,6 +29,7 @@ import {
 import { tickerHref } from "@/lib/ticker";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
+  PORTFOLIO_MODE,
   PORTFOLIO_MODE_OPTIONS,
   normalizeMemberPortfolioChartData,
   normalizeMemberPortfolioEventMarkers,
@@ -813,12 +814,15 @@ export function MemberAnalyticsClient({
     setPortfolioLoading(true);
     setPortfolioUnavailable(false);
 
-    const portfolioRequest = getMemberPortfolioPerformance(memberId, {
+    const portfolioPerformanceParams = {
       lookback_days: portfolioLookbackDays,
-      mode: portfolioMode,
+      mode: PORTFOLIO_MODE,
       source: "MemberAnalytics",
       signal: controller.signal,
-    })
+    };
+    if (portfolioMode !== PORTFOLIO_MODE) portfolioPerformanceParams.mode = portfolioMode;
+
+    const portfolioRequest = getMemberPortfolioPerformance(memberId, portfolioPerformanceParams)
       .then((data) => {
         if (!cancelled) setPortfolio(data);
       })

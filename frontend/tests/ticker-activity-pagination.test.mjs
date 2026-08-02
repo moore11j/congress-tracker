@@ -102,7 +102,7 @@ test("ticker trade activity grids disclose price without gain loss and preserve 
   assert.match(page, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \?\? undefined \}\)/);
   assert.match(page, /const strengthLabel = formatSignalStrengthText\(signal\.band\)/);
   assert.match(page, /const strengthLabel = formatSignalStrengthText\(display\.signal\.band\)/);
-  assert.match(page, /dateLabel=\{formatDateShort\(resolveCongressReportDate\(event\)\)\}/);
+  assert.match(page, /<CongressDateLabel[\s\S]*disclosedDate=\{resolveCongressReportDate\(event\)\}[\s\S]*tradeDate=\{resolveCongressTradeDate\(event\)\}/);
   assert.match(page, /dateLabel=\{formatDateShort\(display\.filingDate \?\? resolveInsiderFilingDate\(event\)\)\}/);
 
   assert.match(detailClient, /import \{ resolveCongressActivityPrice, resolveInsiderActivityDisplay \} from "@\/lib\/tradeDisplay"/);

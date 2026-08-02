@@ -51,8 +51,9 @@ test("upper price volume card renders five compact rows including MACD", () => {
 });
 
 test("ticker overview refreshes signal summary and mentions price volume when active", () => {
-  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => getTickerSignalsSummary/);
-  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return contextBundle\.signals_summary/);
+  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => \{/);
+  assert.match(tickerPage, /return getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return Promise\.resolve\(contextBundle\.signals_summary\)/);
   assert.match(tickerPage, /signalSummaryRequest: loadFreshSignalSummary\(\)/);
   assert.match(tickerPage, /Price \/ Volume: bearish tape/);
   assert.match(tickerPage, /Price \/ Volume: bullish tape/);

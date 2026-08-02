@@ -20,7 +20,7 @@ import {
   signalsResultsScrollFrameClassName,
   stickyResultsTableHeaderClassName,
 } from "@/components/ui/resultsTableFrame";
-import { buildReturnTo } from "@/lib/serverAuth";
+import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -290,6 +290,7 @@ export default async function SignalsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/signals", sp);
+  const authToken = await requirePageAuth(returnTo);
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
@@ -300,7 +301,7 @@ export default async function SignalsPage({
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={false}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>

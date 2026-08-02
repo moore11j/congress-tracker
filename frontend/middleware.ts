@@ -337,5 +337,11 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|apple-icon.png|icon.png).*)"],
+  matcher: [
+    "/admin/:path*",
+    "/account/:path*",
+    "/screener",
+    "/backtesting",
+    "/((?!_next/static|_next/image|favicon.ico|apple-icon.png|icon.png).*)",
+  ],
 };

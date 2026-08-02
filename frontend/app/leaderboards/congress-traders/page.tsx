@@ -155,7 +155,8 @@ function buildUrl(params: {
   url.searchParams.set("source_mode", params.source_mode);
   url.searchParams.set("performance_model", performanceModel);
   if (performanceModel === "portfolio") {
-    url.searchParams.set("mode", params.mode ?? "realistic_disclosure_lag");
+    url.searchParams.set("mode", "realistic_disclosure_lag");
+    if (params.mode && params.mode !== "realistic_disclosure_lag") url.searchParams.set("mode", params.mode);
   }
   url.searchParams.set("sort", params.sort);
   if (performanceModel !== "portfolio") url.searchParams.set("min_trades", String(params.min_trades));
@@ -267,7 +268,8 @@ async function LeaderboardResultsSection({
         chamber: performanceModel === "portfolio" ? undefined : chamber,
         source_mode: sourceMode,
         performance_model: performanceModel,
-        mode: performanceModel === "portfolio" ? portfolioMode : undefined,
+        mode: performanceModel === "portfolio" ? "realistic_disclosure_lag" : undefined,
+        ...(performanceModel === "portfolio" && portfolioMode !== "realistic_disclosure_lag" ? { mode: portfolioMode } : {}),
         sort,
         min_trades: performanceModel === "portfolio" ? undefined : minTrades,
         limit,

@@ -144,7 +144,8 @@ function buildLeaderboardHref(pathname: string, searchParamsString: string, filt
   params.set("source_mode", nextFilters.sourceMode);
   params.set("performance_model", nextFilters.performanceModel);
   if (nextFilters.performanceModel === "portfolio") {
-    params.set("mode", nextFilters.portfolioMode);
+    params.set("mode", "realistic_disclosure_lag");
+    if (nextFilters.portfolioMode !== "realistic_disclosure_lag") params.set("mode", nextFilters.portfolioMode);
   }
   params.set("sort", nextFilters.sort);
   if (nextFilters.performanceModel !== "portfolio") {

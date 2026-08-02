@@ -165,7 +165,7 @@ export function SignalsResultsClient({
   card,
   pill,
   canBacktest,
-  upgradeUrl,
+  upgradeUrl: initialUpgradeUrl,
 }: {
   mode: SignalMode;
   side: string;
@@ -182,7 +182,8 @@ export function SignalsResultsClient({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [resolvedCanBacktest, setResolvedCanBacktest] = useState(canBacktest);
-  const [resolvedUpgradeUrl, setResolvedUpgradeUrl] = useState(upgradeUrl);
+  const [resolvedUpgradeUrl, setResolvedUpgradeUrl] = useState(initialUpgradeUrl);
+  const upgradeUrl = resolvedUpgradeUrl;
   const backtestingHref = useMemo(() => backtestingHrefFromItems(items), [items]);
   const isInstitutionalMode = mode === "institutional";
   const showInstitutionalUpgradeCta = !loading && isInstitutionalProRequiredMessage(mode, errorMessage);
@@ -209,7 +210,7 @@ export function SignalsResultsClient({
   useEffect(() => {
     let alive = true;
     setResolvedCanBacktest(canBacktest);
-    setResolvedUpgradeUrl(upgradeUrl);
+    setResolvedUpgradeUrl(initialUpgradeUrl);
     getEntitlements()
       .then((entitlements) => {
         if (!alive) return;
@@ -219,12 +220,12 @@ export function SignalsResultsClient({
       .catch(() => {
         if (!alive) return;
         setResolvedCanBacktest(canBacktest);
-        setResolvedUpgradeUrl(upgradeUrl);
+        setResolvedUpgradeUrl(initialUpgradeUrl);
       });
     return () => {
       alive = false;
     };
-  }, [canBacktest, upgradeUrl]);
+  }, [canBacktest, initialUpgradeUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -292,7 +293,7 @@ export function SignalsResultsClient({
         {loading || items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-400">
             <div>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</div>
-            {showInstitutionalUpgradeCta ? <div className="mt-4"><InstitutionalSignalsUpgradeCta upgradeUrl={resolvedUpgradeUrl} /></div> : null}
+            {showInstitutionalUpgradeCta ? <div className="mt-4"><InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /></div> : null}
           </div>
         ) : (
           <div className="divide-y divide-slate-800">
@@ -423,7 +424,7 @@ export function SignalsResultsClient({
                 <td className="px-4 py-10 text-center text-slate-400" colSpan={8}>
                   <div className="flex flex-col items-center gap-3">
                     <span>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</span>
-                    {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={resolvedUpgradeUrl} /> : null}
+                    {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /> : null}
                   </div>
                 </td>
               </tr>

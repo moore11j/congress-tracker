@@ -122,7 +122,7 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
   assert.match(middleware, /canonicalUrl\.hostname = canonicalMarketingHost/);
   assert.match(middleware, /canonicalUrl\.port = ""/);
-  assert.match(middleware, /matcher: \["\/\(\(\?!_next\/static\|_next\/image\|favicon\.ico\|apple-icon\.png\|icon\.png\)\.\*\)"\]/);
+  assert.match(middleware, /"\/\(\(\?!_next\/static\|_next\/image\|favicon\.ico\|apple-icon\.png\|icon\.png\)\.\*\)"/);
   assert.match(middleware, /function isPublicTickerRoute\(pathname: string\): boolean/);
   assert.match(middleware, /function isPublicMarketingAsset\(pathname: string\): boolean/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicMarketingAsset\(pathname\)/);
