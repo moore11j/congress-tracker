@@ -29,6 +29,7 @@ from app.strategy_research.insider_buys import (
     load_insider_open_market_purchase_signals,
     load_normalized_purchase_universe,
 )
+from app.strategy_research.fundamental_confirmation_sweep import load_fundamentals_snapshot_universe
 from app.utils.symbols import normalize_symbol
 
 MethodologyVersion = Literal["cross_source_alignment_research_v1"]
@@ -335,6 +336,7 @@ def run_research(
             "min_confirming_signals": min_confirming_signals,
             "min_contract_amount": min_contract_amount,
             "universe": list(config.universe),
+            "universe_size": len(config.universe),
             "benchmark": config.benchmark,
             "start_date": signal_start.isoformat(),
             "end_date": config.end_date.isoformat(),
@@ -419,10 +421,12 @@ def main() -> None:
     parser.add_argument("--symbols", help="Comma-separated universe. Defaults to the approved 24-symbol research universe.")
     parser.add_argument(
         "--universe-source",
-        choices=("explicit", "normalized_insider_purchases"),
+        choices=("explicit", "normalized_insider_purchases", "fundamentals_snapshots"),
         default="explicit",
     )
     parser.add_argument("--exclude-symbols", help="Comma-separated symbols to exclude from the selected universe.")
+    parser.add_argument("--snapshot-source-kind", default="ticker_financials_cache_statement_proxy")
+    parser.add_argument("--min-snapshots-per-symbol", type=int, default=1)
     parser.add_argument("--benchmark", default="SPY")
     parser.add_argument("--start-date")
     parser.add_argument("--end-date", required=True)
@@ -450,6 +454,14 @@ def main() -> None:
                 db,
                 start_date=start_date or date(1990, 1, 1),
                 end_date=end_date,
+                exclude_symbols=exclude_symbols,
+            )
+        elif args.universe_source == "fundamentals_snapshots":
+            universe = load_fundamentals_snapshot_universe(
+                db,
+                end_date=end_date,
+                source_kind=args.snapshot_source_kind if args.snapshot_source_kind else None,
+                min_snapshots=int(args.min_snapshots_per_symbol),
                 exclude_symbols=exclude_symbols,
             )
         result = run_research(
