@@ -513,6 +513,8 @@ def persist_candidate_strategy_artifact(
     as_of_date = _parse_day(artifact.performance.get("end_date")) or _parse_day(timeline[-1].get("date") if timeline else None)
     walnut_score = (validation_result or {}).get("walnut_strategy_score", {}).get("score")
     run_key = run_key_for_artifact(artifact, code_version=code_version, validation_result=validation_result)
+    open_lots = _open_lots_as_of(artifact, as_of_date=as_of_date) if as_of_date else []
+    open_symbols = {lot.signal.symbol for lot in open_lots}
     preview = {
         "slug": artifact.candidate.slug,
         "name": artifact.candidate.name,
@@ -523,7 +525,8 @@ def persist_candidate_strategy_artifact(
         "as_of_date": as_of_date.isoformat() if as_of_date else None,
         "lots": len(artifact.lots),
         "equity_points": len(timeline),
-        "current_holdings": len(_open_lots_as_of(artifact, as_of_date=as_of_date)) if as_of_date else 0,
+        "current_holdings": len(open_symbols),
+        "current_signal_lots": len(open_lots),
         "performance_snapshots": 5,
         "data_quality_confidence": artifact.diagnostics.get("data_quality_confidence"),
         "walnut_strategy_score": walnut_score,

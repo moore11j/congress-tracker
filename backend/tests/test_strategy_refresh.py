@@ -173,6 +173,8 @@ def test_persist_candidate_strategy_artifact_dry_run_writes_nothing():
 
         assert result["mode"] == "dry_run"
         assert result["equity_points"] == 3
+        assert result["current_holdings"] == 1
+        assert result["current_signal_lots"] == 1
         assert _count(db, StrategyDefinition) == 0
         assert _count(db, StrategyBacktestRun) == 0
     finally:
