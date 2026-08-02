@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from bisect import bisect_right
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from time import perf_counter
 from typing import Any, Iterable, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -72,6 +74,74 @@ class FundamentalState:
     market_cap: float | None = None
     snapshot_date: date | None = None
     methodology_version: str | None = None
+
+
+class FundamentalsSnapshotLookup:
+    def __init__(
+        self,
+        rows_by_symbol: dict[str, list[FundamentalsSnapshot]],
+        *,
+        data_mode: FundamentalDataMode,
+    ) -> None:
+        self.data_mode = data_mode
+        self._rows_by_symbol = rows_by_symbol
+        self._dates_by_symbol = {
+            symbol: [row.snapshot_date for row in rows]
+            for symbol, rows in rows_by_symbol.items()
+        }
+
+    @classmethod
+    def load(
+        cls,
+        db: Session,
+        *,
+        symbols: Iterable[str],
+        max_as_of: date,
+        provider: str,
+        data_mode: FundamentalDataMode,
+    ) -> "FundamentalsSnapshotLookup":
+        normalized_symbols = sorted({symbol for symbol in _normalize_universe(symbols)})
+        if not normalized_symbols:
+            return cls({}, data_mode=data_mode)
+
+        query = (
+            select(FundamentalsSnapshot)
+            .where(func.upper(FundamentalsSnapshot.symbol).in_(normalized_symbols))
+            .where(FundamentalsSnapshot.provider == provider)
+            .where(FundamentalsSnapshot.status == "ok")
+            .order_by(
+                FundamentalsSnapshot.symbol.asc(),
+                FundamentalsSnapshot.snapshot_date.asc(),
+                FundamentalsSnapshot.observed_at.asc(),
+            )
+        )
+        if data_mode == "snapshots":
+            query = query.where(FundamentalsSnapshot.snapshot_date <= max_as_of)
+
+        rows_by_symbol: dict[str, list[FundamentalsSnapshot]] = defaultdict(list)
+        for row in db.execute(query).scalars().all():
+            symbol = normalize_symbol(row.symbol)
+            if symbol:
+                rows_by_symbol[symbol].append(row)
+        fallback_observed_at = datetime.min.replace(tzinfo=timezone.utc)
+        for rows in rows_by_symbol.values():
+            rows.sort(key=lambda row: (row.snapshot_date, row.observed_at or fallback_observed_at))
+        return cls(dict(rows_by_symbol), data_mode=data_mode)
+
+    def latest_on_or_before(self, symbol: str, *, as_of: date) -> FundamentalsSnapshot | None:
+        normalized = normalize_symbol(symbol)
+        if not normalized:
+            return None
+        rows = self._rows_by_symbol.get(normalized) or []
+        if not rows:
+            return None
+        if self.data_mode == "current_cache_proxy":
+            return rows[-1]
+        dates = self._dates_by_symbol.get(normalized) or []
+        index = bisect_right(dates, as_of) - 1
+        if index < 0:
+            return None
+        return rows[index]
 
 
 def _number(value: Any) -> float | None:
@@ -257,17 +327,19 @@ def filter_signals_by_fundamental_rule(
     rule: FundamentalRule,
     provider: str = "fmp",
     data_mode: FundamentalDataMode = "snapshots",
+    snapshot_lookup: FundamentalsSnapshotLookup | None = None,
 ) -> tuple[list[Signal], dict[str, int]]:
+    lookup = snapshot_lookup or FundamentalsSnapshotLookup.load(
+        db,
+        symbols=(signal.symbol for signal in signals),
+        max_as_of=max((signal.disclosure_date for signal in signals), default=date.min),
+        provider=provider,
+        data_mode=data_mode,
+    )
     filtered: list[Signal] = []
     skipped: dict[str, int] = {"missing_snapshot": 0, "rule_not_matched": 0}
     for signal in signals:
-        snapshot = latest_snapshot_on_or_before(
-            db,
-            signal.symbol,
-            as_of=signal.disclosure_date,
-            provider=provider,
-            data_mode=data_mode,
-        )
+        snapshot = lookup.latest_on_or_before(signal.symbol, as_of=signal.disclosure_date)
         state = fundamental_state_from_snapshot(snapshot)
         if state.status != "ok":
             skipped[state.status] = skipped.get(state.status, 0) + 1
@@ -285,18 +357,20 @@ def snapshot_provenance_summary(
     *,
     provider: str = "fmp",
     data_mode: FundamentalDataMode = "snapshots",
+    snapshot_lookup: FundamentalsSnapshotLookup | None = None,
 ) -> dict[str, Any]:
+    lookup = snapshot_lookup or FundamentalsSnapshotLookup.load(
+        db,
+        symbols=(signal.symbol for signal in signals),
+        max_as_of=max((signal.disclosure_date for signal in signals), default=date.min),
+        provider=provider,
+        data_mode=data_mode,
+    )
     source_kind_counts: dict[str, int] = {}
     confidence_counts: dict[str, int] = {}
     methodology_counts: dict[str, int] = {}
     for signal in signals:
-        snapshot = latest_snapshot_on_or_before(
-            db,
-            signal.symbol,
-            as_of=signal.disclosure_date,
-            provider=provider,
-            data_mode=data_mode,
-        )
+        snapshot = lookup.latest_on_or_before(signal.symbol, as_of=signal.disclosure_date)
         if snapshot is None:
             continue
         source_kind = snapshot.source_kind or "unknown"
@@ -378,16 +452,32 @@ def run_research(
     )
     mark("load_primary_signals_seconds", phase_start)
     phase_start = perf_counter()
+    snapshot_lookup = FundamentalsSnapshotLookup.load(
+        db,
+        symbols={signal.symbol for signal in primary_signals},
+        max_as_of=config.end_date,
+        provider=provider,
+        data_mode=data_mode,
+    )
+    mark("load_fundamental_snapshots_seconds", phase_start)
+    phase_start = perf_counter()
     signals, fundamental_skips = filter_signals_by_fundamental_rule(
         db,
         primary_signals,
         rule=rule,
         provider=provider,
         data_mode=data_mode,
+        snapshot_lookup=snapshot_lookup,
     )
     mark("filter_fundamentals_seconds", phase_start)
     phase_start = perf_counter()
-    provenance = snapshot_provenance_summary(db, signals, provider=provider, data_mode=data_mode)
+    provenance = snapshot_provenance_summary(
+        db,
+        signals,
+        provider=provider,
+        data_mode=data_mode,
+        snapshot_lookup=snapshot_lookup,
+    )
     mark("snapshot_provenance_seconds", phase_start)
     per_side_cost_rate = max((config.slippage_bps + config.fee_bps) / 10000.0, 0.0)
     universe_price_maps = {symbol: prices for symbol, prices in price_maps.items() if symbol != config.benchmark}

@@ -10,6 +10,7 @@ from app.models import FundamentalsSnapshot
 from app.strategy_research.congress_buys import Signal
 from app.strategy_research.fundamental_confirmation import (
     FundamentalState,
+    FundamentalsSnapshotLookup,
     _overall_snapshot_confidence,
     filter_signals_by_fundamental_rule,
     fundamental_rule_matches,
@@ -160,6 +161,84 @@ def test_filter_signals_uses_only_snapshot_on_or_before_disclosure_date():
 
         assert filtered == []
         assert skipped == {"rule_not_matched": 1}
+    finally:
+        db.close()
+
+
+def test_snapshot_lookup_uses_latest_same_day_row_without_lookahead():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        older_observed = datetime(2026, 8, 1, 10, tzinfo=timezone.utc)
+        newer_observed = datetime(2026, 8, 1, 20, tzinfo=timezone.utc)
+        db.add(
+            FundamentalsSnapshot(
+                symbol="aapl",
+                provider="fmp",
+                snapshot_date=date(2026, 8, 1),
+                observed_at=older_observed,
+                source_fetched_at=older_observed,
+                period_date=date(2026, 8, 1),
+                status="ok",
+                revenue_growth=-5.0,
+                eps_growth=-5.0,
+            )
+        )
+        db.add(
+            FundamentalsSnapshot(
+                symbol="AAPL",
+                provider="fmp",
+                snapshot_date=date(2026, 8, 1),
+                observed_at=newer_observed,
+                source_fetched_at=newer_observed,
+                period_date=date(2026, 8, 1),
+                status="ok",
+                revenue_growth=20.0,
+                eps_growth=20.0,
+            )
+        )
+        db.add(_snapshot("AAPL", date(2026, 8, 2), revenue_growth=100.0, eps_growth=100.0))
+        db.commit()
+
+        lookup = FundamentalsSnapshotLookup.load(
+            db,
+            symbols=("AAPL",),
+            max_as_of=date(2026, 8, 1),
+            provider="fmp",
+            data_mode="snapshots",
+        )
+
+        assert lookup.latest_on_or_before("AAPL", as_of=date(2026, 7, 31)) is None
+        snapshot = lookup.latest_on_or_before("aapl", as_of=date(2026, 8, 1))
+        assert snapshot is not None
+        assert snapshot.revenue_growth == 20.0
+    finally:
+        db.close()
+
+
+def test_filter_signals_can_reuse_preloaded_snapshot_lookup():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(_snapshot("AAPL", date(2026, 8, 1), revenue_growth=20.0, eps_growth=20.0))
+        db.commit()
+        lookup = FundamentalsSnapshotLookup.load(
+            db,
+            symbols=("AAPL",),
+            max_as_of=date(2026, 8, 1),
+            provider="fmp",
+            data_mode="snapshots",
+        )
+
+        filtered, skipped = filter_signals_by_fundamental_rule(
+            db,
+            [_signal(disclosure_date=date(2026, 8, 1))],
+            rule="eps_revenue_growth_proxy",
+            snapshot_lookup=lookup,
+        )
+
+        assert len(filtered) == 1
+        assert skipped == {}
     finally:
         db.close()
 
