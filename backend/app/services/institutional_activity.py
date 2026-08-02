@@ -2163,8 +2163,15 @@ def holder_performance_summary(db: Session, cik: str, *, position_limit: int | N
         {"key": "year_2025", "label": "2025 Return", "start_date": date(2025, 1, 1), "end_date": date(2025, 12, 31)},
         {"key": "three_year", "label": "3Yr Return", "start_date": today - timedelta(days=365 * 3), "end_date": today},
     ]
-    symbols = sorted({symbol for symbol, _value in positions if symbol})
-    price_pairs = _cached_price_pairs_for_periods(db, symbols, periods, adjusted_only=True)
+    price_pairs = _cached_price_pairs_for_holder_periods(
+        db,
+        cik=normalized,
+        report_year=int(report_year),
+        report_quarter=int(report_quarter),
+        active_filing_ids=active_filing_ids,
+        periods=periods,
+        adjusted_only=True,
+    )
     items = [
         _weighted_snapshot_return_from_pairs(
             period,
@@ -2278,6 +2285,82 @@ def _cached_price_pairs_for_periods(
             end_price = price_by_symbol_day.get((normalized, str(end_day)))
             if start_price is not None and end_price is not None:
                 pairs[normalized] = (start_price, end_price)
+        results[key] = pairs
+    return results
+
+
+def _cached_price_pairs_for_holder_periods(
+    db: Session,
+    *,
+    cik: str,
+    report_year: int,
+    report_quarter: int,
+    active_filing_ids: list[int],
+    periods: list[dict[str, Any]],
+    adjusted_only: bool = False,
+) -> dict[str, dict[str, tuple[float, float]]]:
+    if not periods:
+        return {}
+    price_column = PriceCache.adjusted_close if adjusted_only else PriceCache.close
+    position_filters = [
+        InstitutionalPosition.cik == cik,
+        InstitutionalPosition.report_year == int(report_year),
+        InstitutionalPosition.report_quarter == int(report_quarter),
+        InstitutionalPosition.value_usd.is_not(None),
+        InstitutionalPosition.value_usd > 0,
+        InstitutionalPosition.normalized_symbol.is_not(None),
+    ]
+    if active_filing_ids:
+        position_filters.append(InstitutionalPosition.filing_id.in_(active_filing_ids))
+    position_symbols = (
+        select(InstitutionalPosition.normalized_symbol.label("symbol"))
+        .where(*position_filters)
+        .distinct()
+        .subquery()
+    )
+    results: dict[str, dict[str, tuple[float, float]]] = {}
+    for period in periods:
+        key = str(period["key"])
+        start_date = period["start_date"]
+        end_date = period["end_date"]
+        bounds = (
+            select(
+                PriceCache.symbol.label("symbol"),
+                func.min(PriceCache.date).label("start_day"),
+                func.max(PriceCache.date).label("end_day"),
+            )
+            .join(position_symbols, position_symbols.c.symbol == PriceCache.symbol)
+            .where(PriceCache.date >= start_date.isoformat())
+            .where(PriceCache.date <= end_date.isoformat())
+            .where(price_column.is_not(None))
+            .where(price_column > 0)
+            .group_by(PriceCache.symbol)
+            .subquery()
+        )
+        rows = db.execute(
+            select(PriceCache.symbol, PriceCache.date, price_column, bounds.c.start_day, bounds.c.end_day)
+            .join(bounds, bounds.c.symbol == PriceCache.symbol)
+            .where(or_(PriceCache.date == bounds.c.start_day, PriceCache.date == bounds.c.end_day))
+            .where(price_column.is_not(None))
+            .where(price_column > 0)
+        ).all()
+        grouped: dict[str, dict[str, float | str]] = {}
+        for symbol, day, price, start_day, end_day in rows:
+            normalized = normalize_symbol(symbol)
+            parsed = _round_optional(price, 6)
+            if not normalized or not day or parsed is None or parsed <= 0:
+                continue
+            item = grouped.setdefault(normalized, {"start_day": str(start_day), "end_day": str(end_day)})
+            if str(day) == str(start_day):
+                item["start_price"] = parsed
+            if str(day) == str(end_day):
+                item["end_price"] = parsed
+        pairs: dict[str, tuple[float, float]] = {}
+        for symbol, item in grouped.items():
+            start_price = item.get("start_price")
+            end_price = item.get("end_price")
+            if isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)):
+                pairs[symbol] = (float(start_price), float(end_price))
         results[key] = pairs
     return results
 
