@@ -118,7 +118,7 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
     withServerTimeout(
       getInstitutionPerformance(cik, { authToken, source: "InstitutionProfilePerformance" }),
       "institution:performance",
-      8000,
+      15000,
     ).catch(() => unavailableInstitutionPerformance(cik)),
   ]);
 

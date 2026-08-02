@@ -2164,15 +2164,15 @@ def holder_performance_summary(db: Session, cik: str, *, position_limit: int | N
         {"key": "three_year", "label": "3Yr Return", "start_date": today - timedelta(days=365 * 3), "end_date": today},
     ]
     symbols = sorted({symbol for symbol, _value in positions if symbol})
-    prices = _cached_price_history(
-        db,
-        symbols,
-        min(period["start_date"] for period in periods),
-        max(period["end_date"] for period in periods),
-        adjusted_only=True,
-    )
+    price_pairs = _cached_price_pairs_for_periods(db, symbols, periods, adjusted_only=True)
     items = [
-        _weighted_snapshot_return(period, positions, total_value=total_value, prices=prices, price_basis="adjusted_close")
+        _weighted_snapshot_return_from_pairs(
+            period,
+            positions,
+            total_value=total_value,
+            price_pairs=price_pairs.get(str(period["key"]), {}),
+            price_basis="adjusted_close",
+        )
         for period in periods
     ]
     return {
@@ -2218,6 +2218,106 @@ def _cached_price_history(
             continue
         history.setdefault(normalized, []).append((parsed_date, parsed_close))
     return history
+
+
+def _cached_price_pairs_for_periods(
+    db: Session,
+    symbols: list[str],
+    periods: list[dict[str, Any]],
+    *,
+    adjusted_only: bool = False,
+) -> dict[str, dict[str, tuple[float, float]]]:
+    normalized_symbols = sorted({normalize_symbol(symbol) for symbol in symbols if normalize_symbol(symbol)})
+    if not normalized_symbols or not periods:
+        return {}
+    price_column = PriceCache.adjusted_close if adjusted_only else PriceCache.close
+    results: dict[str, dict[str, tuple[float, float]]] = {}
+    for period in periods:
+        key = str(period["key"])
+        start_date = period["start_date"]
+        end_date = period["end_date"]
+        bounds = db.execute(
+            select(
+                PriceCache.symbol,
+                func.min(PriceCache.date).label("start_day"),
+                func.max(PriceCache.date).label("end_day"),
+            )
+            .where(PriceCache.symbol.in_(normalized_symbols))
+            .where(PriceCache.date >= start_date.isoformat())
+            .where(PriceCache.date <= end_date.isoformat())
+            .where(price_column.is_not(None))
+            .where(price_column > 0)
+            .group_by(PriceCache.symbol)
+        ).all()
+        if not bounds:
+            results[key] = {}
+            continue
+
+        bound_symbols = sorted({normalize_symbol(symbol) for symbol, _start_day, _end_day in bounds if normalize_symbol(symbol)})
+        bound_dates = sorted({str(day) for _symbol, start_day, end_day in bounds for day in (start_day, end_day) if day})
+        price_rows = db.execute(
+            select(PriceCache.symbol, PriceCache.date, price_column)
+            .where(PriceCache.symbol.in_(bound_symbols))
+            .where(PriceCache.date.in_(bound_dates))
+            .where(price_column.is_not(None))
+            .where(price_column > 0)
+        ).all()
+        price_by_symbol_day: dict[tuple[str, str], float] = {}
+        for symbol, day, price in price_rows:
+            normalized = normalize_symbol(symbol)
+            parsed = _round_optional(price, 6)
+            if normalized and day and parsed is not None and parsed > 0:
+                price_by_symbol_day[(normalized, str(day))] = parsed
+
+        pairs: dict[str, tuple[float, float]] = {}
+        for symbol, start_day, end_day in bounds:
+            normalized = normalize_symbol(symbol)
+            if not normalized or not start_day or not end_day:
+                continue
+            start_price = price_by_symbol_day.get((normalized, str(start_day)))
+            end_price = price_by_symbol_day.get((normalized, str(end_day)))
+            if start_price is not None and end_price is not None:
+                pairs[normalized] = (start_price, end_price)
+        results[key] = pairs
+    return results
+
+
+def _weighted_snapshot_return_from_pairs(
+    period: dict[str, Any],
+    positions: list[tuple[str | None, float | None]],
+    *,
+    total_value: float,
+    price_pairs: dict[str, tuple[float, float]],
+    price_basis: str = "close",
+) -> dict[str, Any]:
+    covered_weight = 0.0
+    weighted_return = 0.0
+    for symbol, value_usd in positions:
+        normalized = normalize_symbol(symbol)
+        if not normalized or not value_usd:
+            continue
+        pair = price_pairs.get(normalized)
+        if pair is None:
+            continue
+        start_price, end_price = pair
+        if start_price <= 0 or end_price <= 0:
+            continue
+        weight = float(value_usd) / total_value
+        covered_weight += weight
+        weighted_return += weight * ((end_price / start_price) - 1.0)
+    coverage_pct = round(covered_weight * 100.0, 2)
+    return_pct = round((weighted_return / covered_weight) * 100.0, 2) if covered_weight >= 0.65 else None
+    return {
+        "key": period["key"],
+        "label": period["label"],
+        "return_pct": return_pct,
+        "coverage_pct": coverage_pct,
+        "start_date": period["start_date"].isoformat(),
+        "end_date": period["end_date"].isoformat(),
+        "price_basis": price_basis,
+        "minimum_coverage_pct": 65,
+        "status": "ok" if return_pct is not None else "insufficient_adjusted_price_coverage",
+    }
 
 
 def _weighted_snapshot_return(
