@@ -4,6 +4,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from time import perf_counter
 from typing import Any, Iterable, Literal
 
 from sqlalchemy import select
@@ -335,8 +336,17 @@ def run_research(
     insider_role: InsiderRole,
     data_mode: FundamentalDataMode = "snapshots",
     provider: str = "fmp",
+    collect_timings: bool = False,
 ) -> dict[str, Any]:
+    started_at = perf_counter()
+    timings: dict[str, float] = {}
+
+    def mark(name: str, phase_start: float) -> None:
+        if collect_timings:
+            timings[name] = round(perf_counter() - phase_start, 4)
+
     price_start = config.start_date or date(1990, 1, 1)
+    phase_start = perf_counter()
     price_maps = load_adjusted_price_histories(
         db,
         (*config.universe, config.benchmark),
@@ -344,6 +354,7 @@ def run_research(
         end_date=config.end_date,
         require_adjusted=config.require_adjusted,
     )
+    mark("load_adjusted_price_histories_seconds", phase_start)
     benchmark_prices = price_maps.get(config.benchmark, {})
     benchmark_dates = sorted(benchmark_prices)
     if not benchmark_dates:
@@ -356,6 +367,7 @@ def run_research(
     ]
     first_price_day = min(universe_price_starts) if universe_price_starts else (config.start_date or config.end_date)
     signal_start = config.start_date or first_price_day
+    phase_start = perf_counter()
     primary_signals = _load_primary_signals(
         db,
         source,
@@ -364,6 +376,8 @@ def run_research(
         end_date=config.end_date,
         insider_role=insider_role,
     )
+    mark("load_primary_signals_seconds", phase_start)
+    phase_start = perf_counter()
     signals, fundamental_skips = filter_signals_by_fundamental_rule(
         db,
         primary_signals,
@@ -371,11 +385,16 @@ def run_research(
         provider=provider,
         data_mode=data_mode,
     )
+    mark("filter_fundamentals_seconds", phase_start)
+    phase_start = perf_counter()
     provenance = snapshot_provenance_summary(db, signals, provider=provider, data_mode=data_mode)
+    mark("snapshot_provenance_seconds", phase_start)
     per_side_cost_rate = max((config.slippage_bps + config.fee_bps) / 10000.0, 0.0)
     universe_price_maps = {symbol: prices for symbol, prices in price_maps.items() if symbol != config.benchmark}
     runs: list[dict[str, Any]] = []
     for hold_days in config.hold_days:
+        hold_timings: dict[str, float] = {}
+        phase_start = perf_counter()
         lots, skipped = build_lots(
             signals,
             universe_price_maps,
@@ -384,6 +403,9 @@ def run_research(
             rebalance_frequency=config.rebalance_frequency,
             per_side_cost_rate=per_side_cost_rate,
         )
+        if collect_timings:
+            hold_timings["build_lots_seconds"] = round(perf_counter() - phase_start, 4)
+        phase_start = perf_counter()
         simulation = simulate_active_lot_portfolio(
             lots,
             universe_price_maps,
@@ -391,13 +413,20 @@ def run_research(
             weighting=config.weighting,
             per_side_cost_rate=per_side_cost_rate,
         )
+        if collect_timings:
+            hold_timings["simulate_portfolio_seconds"] = round(perf_counter() - phase_start, 4)
+        phase_start = perf_counter()
         metrics = compute_metrics(lots=lots, simulation=simulation, hold_days=hold_days, skipped=skipped)
+        if collect_timings:
+            hold_timings["compute_metrics_seconds"] = round(perf_counter() - phase_start, 4)
         if metrics.get("status") == "ok" and metrics.get("lots", 0) < config.min_lots:
             metrics["status"] = "insufficient_lots"
+        if collect_timings:
+            metrics["timings"] = hold_timings
         runs.append(metrics)
 
     confidence = _overall_snapshot_confidence(provenance, data_mode)
-    return {
+    result = {
         "metadata": {
             "strategy_name": config.strategy_name,
             "plain_english_rule": (
@@ -441,6 +470,10 @@ def run_research(
         "aligned_symbol_count": len({signal.symbol for signal in signals}),
         "runs": runs,
     }
+    if collect_timings:
+        timings["total_seconds"] = round(perf_counter() - started_at, 4)
+        result["timings"] = timings
+    return result
 
 
 def _parse_symbols(value: str | None) -> tuple[str, ...]:
@@ -532,6 +565,7 @@ def main() -> None:
     parser.add_argument("--min-lots", type=int, default=50)
     parser.add_argument("--fundamental-data-mode", choices=("snapshots", "current_cache_proxy"), default="snapshots")
     parser.add_argument("--provider", default="fmp")
+    parser.add_argument("--timing", action="store_true", help="Include phase timing diagnostics in output.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -568,6 +602,7 @@ def main() -> None:
             insider_role=args.insider_role,
             data_mode=args.fundamental_data_mode,
             provider=args.provider,
+            collect_timings=bool(args.timing),
         )
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

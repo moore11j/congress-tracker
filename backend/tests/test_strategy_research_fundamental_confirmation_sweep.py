@@ -161,3 +161,67 @@ def test_run_sweep_calls_research_for_congress_once_and_each_insider_role(monkey
     ]
     assert len(result["rows"]) == 3
     assert result["errors"] == []
+
+
+def test_run_sweep_collects_variant_timings(monkeypatch):
+    def fake_run_research(db, config, *, source, rule, insider_role, provider, collect_timings=False):
+        assert collect_timings is True
+        return {
+            "metadata": {
+                "strategy_name": f"{source}-{rule}",
+                "source": source,
+                "insider_role": insider_role if source == "insider" else None,
+                "fundamental_rule": rule,
+                "data_quality_confidence": "medium_proxy",
+                "fundamental_snapshot_provenance": {},
+                "universe": list(config.universe),
+                "methodology_version": "fundamental_confirmation_research_v1",
+                "base_engine_version": "congress_buys_research_v1",
+                "run_timestamp": "2026-08-01T00:00:00+00:00",
+                "start_date": "2025-01-01",
+                "end_date": "2026-07-31",
+            },
+            "primary_signal_count": 2,
+            "signal_count": 1,
+            "aligned_symbol_count": 1,
+            "filtered_out": {},
+            "timings": {
+                "load_adjusted_price_histories_seconds": 0.1,
+                "load_primary_signals_seconds": 0.2,
+                "filter_fundamentals_seconds": 0.3,
+                "snapshot_provenance_seconds": 0.4,
+                "total_seconds": 1.0,
+            },
+            "runs": [{"hold_days": 90, "status": "ok", "lots": 1, "alpha_cagr_pct": 3.0, "timings": {"build_lots_seconds": 0.01}}],
+        }
+
+    monkeypatch.setattr(
+        "app.strategy_research.fundamental_confirmation_sweep.run_research",
+        fake_run_research,
+    )
+
+    result = run_sweep(
+        object(),
+        universe=("AAPL",),
+        universe_source="explicit",
+        start_date=date(2025, 1, 1),
+        end_date=date(2026, 7, 31),
+        sources=("congress",),
+        rules=("low_leverage",),
+        insider_roles=("all",),
+        hold_days=(90,),
+        weighting="equal",
+        rebalance_frequency="event",
+        benchmark="SPY",
+        slippage_bps=5.0,
+        fee_bps=0.0,
+        require_adjusted=True,
+        min_lots=1,
+        provider="fmp",
+        collect_timings=True,
+    )
+
+    assert result["timings"]["total_seconds"] >= 0
+    assert result["timings"]["variant_timings"][0]["confirmed_signals"] == 1
+    assert result["rows"][0]["elapsed_seconds"] == 1.0
+    assert result["rows"][0]["hold_timings"] == {"build_lots_seconds": 0.01}

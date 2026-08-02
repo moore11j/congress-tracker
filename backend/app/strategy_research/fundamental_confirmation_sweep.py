@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import date
+from time import perf_counter
 from typing import Any, Iterable
 
 from sqlalchemy import select
@@ -87,6 +88,7 @@ def _metric_value(row: dict[str, Any], metric: str) -> float:
 
 def flatten_result(result: dict[str, Any], *, universe_source: str) -> list[dict[str, Any]]:
     meta = result["metadata"]
+    result_timings = result.get("timings") or {}
     rows: list[dict[str, Any]] = []
     for run in result["runs"]:
         row = {
@@ -121,6 +123,9 @@ def flatten_result(result: dict[str, Any], *, universe_source: str) -> list[dict
             "methodology_version": meta.get("methodology_version"),
             "base_engine_version": meta.get("base_engine_version"),
             "run_timestamp": meta.get("run_timestamp"),
+            "elapsed_seconds": result_timings.get("total_seconds"),
+            "timings": result_timings,
+            "hold_timings": run.get("timings"),
         }
         rows.append(row)
     return rows
@@ -158,14 +163,26 @@ def run_sweep(
     require_adjusted: bool,
     min_lots: int,
     provider: str,
+    collect_timings: bool = False,
 ) -> dict[str, Any]:
+    started_at = perf_counter()
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    variant_timings: list[dict[str, Any]] = []
     for source in sources:
         roles: tuple[InsiderRole, ...] = insider_roles if source == "insider" else ("all",)
         for role in roles:
             for rule in rules:
+                variant_started_at = perf_counter()
                 try:
+                    research_kwargs: dict[str, Any] = {
+                        "source": source,
+                        "rule": rule,
+                        "insider_role": role,
+                        "provider": provider,
+                    }
+                    if collect_timings:
+                        research_kwargs["collect_timings"] = True
                     result = run_research(
                         db,
                         ResearchConfig(
@@ -182,10 +199,7 @@ def run_sweep(
                             require_adjusted=require_adjusted,
                             min_lots=min_lots,
                         ),
-                        source=source,
-                        rule=rule,
-                        insider_role=role,
-                        provider=provider,
+                        **research_kwargs,
                     )
                 except Exception as exc:  # pragma: no cover - production diagnostics path
                     errors.append(
@@ -196,11 +210,34 @@ def run_sweep(
                             "error": f"{type(exc).__name__}: {exc}",
                         }
                     )
+                    if collect_timings:
+                        variant_timings.append(
+                            {
+                                "source": source,
+                                "insider_role": role if source == "insider" else None,
+                                "rule": rule,
+                                "elapsed_seconds": round(perf_counter() - variant_started_at, 4),
+                                "status": "error",
+                            }
+                        )
                     continue
+                if collect_timings:
+                    variant_timings.append(
+                        {
+                            "source": source,
+                            "insider_role": role if source == "insider" else None,
+                            "rule": rule,
+                            "elapsed_seconds": round(perf_counter() - variant_started_at, 4),
+                            "status": "ok",
+                            "primary_signals": result.get("primary_signal_count"),
+                            "confirmed_signals": result.get("signal_count"),
+                            "timings": result.get("timings") or {},
+                        }
+                    )
                 rows.extend(flatten_result(result, universe_source=universe_source))
 
     ranked = sort_sweep_rows(rows)
-    return {
+    response = {
         "metadata": {
             "universe_source": universe_source,
             "universe_size": len(universe),
@@ -224,6 +261,12 @@ def run_sweep(
         "leaderboard": ranked,
         "errors": errors,
     }
+    if collect_timings:
+        response["timings"] = {
+            "total_seconds": round(perf_counter() - started_at, 4),
+            "variant_timings": variant_timings,
+        }
+    return response
 
 
 def _print_text_report(result: dict[str, Any], *, top: int) -> None:
@@ -238,6 +281,20 @@ def _print_text_report(result: dict[str, Any], *, top: int) -> None:
     )
     if result["errors"]:
         print(f"ERRORS count={len(result['errors'])} details={json.dumps(result['errors'], sort_keys=True)}")
+    if result.get("timings"):
+        timings = result["timings"]
+        print(f"TIMING total_seconds={timings.get('total_seconds')}")
+        for item in sorted(timings.get("variant_timings") or [], key=lambda row: row.get("elapsed_seconds") or 0, reverse=True)[:top]:
+            inner = item.get("timings") or {}
+            print(
+                "TIMING_VARIANT "
+                f"source={item.get('source')} role={item.get('insider_role')} rule={item.get('rule')} "
+                f"elapsed={item.get('elapsed_seconds')} primary={item.get('primary_signals')} confirmed={item.get('confirmed_signals')} "
+                f"prices={inner.get('load_adjusted_price_histories_seconds')} "
+                f"signals={inner.get('load_primary_signals_seconds')} "
+                f"fundamentals={inner.get('filter_fundamentals_seconds')} "
+                f"provenance={inner.get('snapshot_provenance_seconds')}"
+            )
     for index, row in enumerate(result["leaderboard"][:top], start=1):
         print(
             "#{rank} status={status} strategy={strategy} hold={hold_days} "
@@ -270,6 +327,7 @@ def main() -> None:
     parser.add_argument("--allow-raw-prices", action="store_true")
     parser.add_argument("--min-lots", type=int, default=20)
     parser.add_argument("--provider", default="fmp")
+    parser.add_argument("--timing", action="store_true", help="Include phase timing diagnostics in output.")
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -321,6 +379,7 @@ def main() -> None:
             require_adjusted=not args.allow_raw_prices,
             min_lots=int(args.min_lots),
             provider=args.provider,
+            collect_timings=bool(args.timing),
         )
 
     if args.json:
