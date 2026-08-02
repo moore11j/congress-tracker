@@ -1984,6 +1984,7 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         InstitutionalFiling,
         InstitutionalHolder,
         InstitutionalHolderIndustryBreakdown,
+        InstitutionalHolderPerformanceMetric,
         InstitutionalIndustrySummary,
         InstitutionalIngestJobRun,
         InstitutionalIngestJobState,
@@ -2001,6 +2002,7 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         InstitutionalActivityEvent.__table__,
         InstitutionalIndustrySummary.__table__,
         InstitutionalHolderIndustryBreakdown.__table__,
+        InstitutionalHolderPerformanceMetric.__table__,
         InstitutionalIngestJobState.__table__,
         InstitutionalIngestJobRun.__table__,
     ]

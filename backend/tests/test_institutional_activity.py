@@ -21,6 +21,8 @@ from app.routers.institutional import institution_activity, institution_filings,
 from app.services.institutional_activity import (
     INSTITUTIONAL_EVENT_SOURCE,
     activity_for_holder,
+    cache_holder_performance_summary,
+    cached_holder_performance_summary,
     cleanup_overbroad_institutional_feed_events,
     get_canonical_filing_for_holder_period,
     holder_performance_summary,
@@ -2046,6 +2048,19 @@ def test_holder_performance_summary_uses_cached_eod_prices_for_weighted_returns(
         assert ytd["coverage_pct"] == 100
         assert ytd["return_pct"] == 2
         assert ytd["price_basis"] == "adjusted_close"
+
+        result = cache_holder_performance_summary(db, summary, quality_score=82.5, note="cached test")
+        db.commit()
+
+        cached = cached_holder_performance_summary(db, cik)
+        assert result == {"updated": 4, "skipped": 0}
+        assert cached is not None
+        assert cached["cache_status"] == "hit"
+        assert cached["report_period"] == f"Q1 {today.year}"
+        assert cached["position_count"] == 2
+        cached_ytd = next(item for item in cached["items"] if item["key"] == "current_mark_to_market")
+        assert cached_ytd["return_pct"] == 2
+        assert cached_ytd["coverage_pct"] == 100
 
 
 def test_multiple_amendments_choose_latest_amendment_as_canonical():

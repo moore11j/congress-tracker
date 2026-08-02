@@ -18,6 +18,7 @@ from app.models import (
     InstitutionalFiling,
     InstitutionalHolder,
     InstitutionalHolderIndustryBreakdown,
+    InstitutionalHolderPerformanceMetric,
     InstitutionalIndustrySummary,
     InstitutionalPosition,
     InstitutionalPositionChange,
@@ -2193,6 +2194,139 @@ def holder_performance_summary(db: Session, cik: str, *, position_limit: int | N
         "covered_value_usd": round(total_value, 2),
         "minimum_coverage_pct": 65,
         "items": items,
+    }
+
+
+def cached_holder_performance_summary(db: Session, cik: str, *, max_age_days: int = 2) -> dict[str, Any] | None:
+    normalized = normalize_cik(cik)
+    if not normalized:
+        return None
+    profile = holder_profile(db, normalized)
+    if profile is None:
+        return None
+    report_year = profile.get("latest_report_year")
+    report_quarter = profile.get("latest_report_quarter")
+    if not report_year or not report_quarter:
+        return None
+    today = datetime.now(timezone.utc).date()
+    min_generated_on = today - timedelta(days=max(0, int(max_age_days)))
+    rows = db.execute(
+        select(InstitutionalHolderPerformanceMetric)
+        .where(InstitutionalHolderPerformanceMetric.cik == normalized)
+        .where(InstitutionalHolderPerformanceMetric.report_year == int(report_year))
+        .where(InstitutionalHolderPerformanceMetric.report_quarter == int(report_quarter))
+        .where(InstitutionalHolderPerformanceMetric.generated_on >= min_generated_on)
+        .order_by(InstitutionalHolderPerformanceMetric.id.asc())
+    ).scalars().all()
+    if not rows:
+        return None
+    expected_keys = {"report_period_ytd", "current_mark_to_market", "year_2025", "three_year"}
+    rows_by_key = {row.metric_key: row for row in rows}
+    if not expected_keys.issubset(rows_by_key):
+        return None
+    ordered_rows = [rows_by_key[key] for key in ("report_period_ytd", "current_mark_to_market", "year_2025", "three_year")]
+    first = ordered_rows[0]
+    return {
+        "status": "ok",
+        "cache_status": "hit",
+        "cik": normalized,
+        "holder_name": first.holder_name or profile.get("holder_name"),
+        "report_period": first.report_period,
+        "report_period_end": first.report_period_end.isoformat() if first.report_period_end else None,
+        "basis": first.basis,
+        "position_count": first.position_count,
+        "covered_value_usd": first.covered_value_usd,
+        "minimum_coverage_pct": first.minimum_coverage_pct,
+        "generated_on": first.generated_on.isoformat() if first.generated_on else None,
+        "generated_at": first.generated_at.isoformat() if first.generated_at else None,
+        "items": [_holder_performance_metric_payload(row) for row in ordered_rows],
+    }
+
+
+def cache_holder_performance_summary(db: Session, summary: dict[str, Any], *, quality_score: float | None = None, note: str | None = None) -> dict[str, int]:
+    normalized = normalize_cik(summary.get("cik"))
+    items = summary.get("items") if isinstance(summary.get("items"), list) else []
+    if not normalized or not items:
+        return {"updated": 0, "skipped": len(items)}
+    generated_on = datetime.now(timezone.utc).date()
+    now = datetime.now(timezone.utc)
+    updated = skipped = 0
+    report_year = _first_int(summary, "latest_report_year", "report_year")
+    report_quarter = _first_int(summary, "latest_report_quarter", "report_quarter")
+    if (report_year is None or report_quarter is None) and summary.get("report_period"):
+        match = re.search(r"Q([1-4])\s+(\d{4})", str(summary.get("report_period")))
+        if match:
+            report_quarter = int(match.group(1))
+            report_year = int(match.group(2))
+    report_period_end = _parse_date(summary.get("report_period_end"))
+    for item in items:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        metric_key = str(item.get("key") or "").strip()
+        label = str(item.get("label") or metric_key).strip()
+        if not metric_key or not label:
+            skipped += 1
+            continue
+        existing = db.execute(
+            select(InstitutionalHolderPerformanceMetric).where(
+                InstitutionalHolderPerformanceMetric.cik == normalized,
+                InstitutionalHolderPerformanceMetric.metric_key == metric_key,
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            existing = InstitutionalHolderPerformanceMetric(cik=normalized, metric_key=metric_key, label=label, generated_on=generated_on)
+            db.add(existing)
+        existing.holder_name = _first_text(summary, "holder_name")
+        existing.label = label
+        existing.return_pct = _first_number(item, "return_pct")
+        existing.coverage_pct = _first_number(item, "coverage_pct")
+        existing.start_date = _parse_date(item.get("start_date"))
+        existing.end_date = _parse_date(item.get("end_date"))
+        existing.price_basis = _first_text(item, "price_basis")
+        existing.minimum_coverage_pct = _first_number(item, "minimum_coverage_pct") or _first_number(summary, "minimum_coverage_pct")
+        existing.status = _first_text(item, "status")
+        existing.report_year = int(report_year) if report_year is not None else None
+        existing.report_quarter = int(report_quarter) if report_quarter is not None else None
+        existing.report_period = _first_text(summary, "report_period")
+        existing.report_period_end = report_period_end
+        existing.basis = _first_text(summary, "basis")
+        existing.position_count = int(summary["position_count"]) if summary.get("position_count") is not None else None
+        existing.covered_value_usd = _first_number(summary, "covered_value_usd")
+        existing.quality_score = quality_score
+        existing.note = note
+        existing.generated_on = generated_on
+        existing.generated_at = now
+        existing.updated_at = now
+        updated += 1
+    return {"updated": updated, "skipped": skipped}
+
+
+def refresh_holder_performance_cache(db: Session, cik: str, *, note: str | None = None) -> dict[str, Any]:
+    summary = holder_performance_summary(db, cik)
+    if summary.get("status") != "ok":
+        return {"status": summary.get("status", "unavailable"), "cik": normalize_cik(cik), "updated": 0}
+    profile = holder_profile(db, cik)
+    result = cache_holder_performance_summary(
+        db,
+        summary,
+        quality_score=profile.get("quality_score") if profile else None,
+        note=note,
+    )
+    return {"status": "ok", "cik": normalize_cik(cik), **result, "summary": summary}
+
+
+def _holder_performance_metric_payload(row: InstitutionalHolderPerformanceMetric) -> dict[str, Any]:
+    return {
+        "key": row.metric_key,
+        "label": row.label,
+        "return_pct": row.return_pct,
+        "coverage_pct": row.coverage_pct,
+        "start_date": row.start_date.isoformat() if row.start_date else None,
+        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "price_basis": row.price_basis,
+        "minimum_coverage_pct": row.minimum_coverage_pct,
+        "status": row.status,
     }
 
 

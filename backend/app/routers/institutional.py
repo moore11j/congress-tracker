@@ -14,6 +14,8 @@ from app.request_guards import api_prefetch_response, is_inactive_logged_out_api
 from app.services.institutional_activity import (
     INSTITUTIONAL_ACTIVITY_TOOLTIP,
     activity_for_holder,
+    cache_holder_performance_summary,
+    cached_holder_performance_summary,
     holder_profile,
     industry_summary_payload,
     list_institutional_holders,
@@ -307,13 +309,30 @@ def institution_performance(cik: str, request: Request, db: Session = Depends(ge
     profile = holder_profile(db, cik)
     if profile is None:
         return {"status": "no_data", "cik": normalize_cik(cik), "items": []}
+    cached = cached_holder_performance_summary(db, cik)
+    if cached is not None:
+        return {
+            **cached,
+            "cik": profile["cik"],
+            "holder_name": profile["holder_name"],
+            "quality_score": profile["quality_score"],
+            "note": "Performance is calculated from reported holdings and cached adjusted end-of-day prices.",
+        }
     summary = holder_performance_summary(db, cik)
+    cache_holder_performance_summary(
+        db,
+        summary,
+        quality_score=profile.get("quality_score"),
+        note="Performance is calculated from reported holdings and cached adjusted end-of-day prices.",
+    )
+    db.commit()
     return {
         **summary,
+        "cache_status": "miss_refreshed",
         "cik": profile["cik"],
         "holder_name": profile["holder_name"],
         "quality_score": profile["quality_score"],
-        "note": "Performance is calculated from reported holdings and cached end-of-day prices when coverage is sufficient.",
+        "note": "Performance is calculated from reported holdings and cached adjusted end-of-day prices.",
     }
 
 

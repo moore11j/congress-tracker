@@ -435,6 +435,44 @@ class InstitutionalHolderIndustryBreakdown(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class InstitutionalHolderPerformanceMetric(Base):
+    __tablename__ = "institutional_holder_performance_metrics"
+    __table_args__ = (
+        UniqueConstraint("cik", "metric_key", name="uq_institutional_holder_performance_metric"),
+        Index("ix_institutional_holder_performance_cik", "cik"),
+        Index("ix_institutional_holder_performance_generated_on", "generated_on"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cik: Mapped[str] = mapped_column(Text, nullable=False)
+    holder_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metric_key: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    coverage_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    start_date: Mapped[Optional[date]]
+    end_date: Mapped[Optional[date]]
+    price_basis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    minimum_coverage_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    report_year: Mapped[Optional[int]]
+    report_quarter: Mapped[Optional[int]]
+    report_period: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    report_period_end: Mapped[Optional[date]]
+    basis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    position_count: Mapped[Optional[int]]
+    covered_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    generated_on: Mapped[date] = mapped_column(nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Watchlist(Base):
     __tablename__ = "watchlists"
     id: Mapped[int] = mapped_column(primary_key=True)
