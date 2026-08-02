@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AccountNav } from "@/components/auth/AccountNav";
 import { AppTopNav } from "@/components/AppTopNav";
@@ -78,6 +79,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         </head>
         <body className="min-h-full">
           {children}
+          <Analytics />
           <SpeedInsights />
         </body>
       </html>
@@ -118,6 +120,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <PageAnalyticsTracker />
           <main className="relative z-0 mx-auto w-full min-w-0 max-w-[1728px] px-4 py-1.5 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
         </div>
+        <Analytics />
         <SpeedInsights />
       </body>
     </html>
