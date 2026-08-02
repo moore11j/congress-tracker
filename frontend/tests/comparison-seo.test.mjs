@@ -25,6 +25,9 @@ const slugs = [
 
 test("comparison buildout exposes hub and seven reusable competitor pages", () => {
   assert.match(hubPage, /<ComparisonHubPage \/>/);
+  assert.match(hubPage, /headers\(\)/);
+  assert.match(hubPage, /x-walnut-public-landing/);
+  assert.match(hubPage, /redirect\("\/compare\/_\/_"\)/);
   assert.match(competitorPage, /generateStaticParams/);
   assert.match(competitorPage, /comparisonPageList\.map/);
   assert.match(competitorPage, /marketingSeoPageMetadata/);
@@ -55,6 +58,9 @@ test("comparison pages use real product evidence and valid SEO surfaces", () => 
   assert.match(comparisonData, /SoftwareApplication/);
   assert.match(middleware, /function isPublicComparisonRoute\(pathname: string\): boolean/);
   assert.match(middleware, /normalized\.startsWith\("\/compare\/walnut-markets-vs-"\)/);
+  assert.match(middleware, /function isMarketingComparisonSlugRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /host === appHost && isMarketingComparisonSlugRoute\(pathname\)/);
+  assert.match(middleware, /marketingUrl\.hostname = canonicalMarketingHost/);
   assert.match(middleware, /isPublicComparisonRoute\(pathname\)/);
 });
 

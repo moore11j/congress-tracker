@@ -103,6 +103,10 @@ function isPublicComparisonRoute(pathname: string): boolean {
   return normalized === "/compare" || normalized.startsWith("/compare/walnut-markets-vs-");
 }
 
+function isMarketingComparisonSlugRoute(pathname: string): boolean {
+  return (pathname || "/").toLowerCase().startsWith("/compare/walnut-markets-vs-");
+}
+
 function isNoindexAppRoute(pathname: string): boolean {
   const normalized = (pathname || "/").toLowerCase();
   return noindexAppRoutePrefixes.some((prefix) => {
@@ -297,6 +301,14 @@ export async function middleware(request: NextRequest) {
 
   if (canonicalMarketingHosts.has(host) && isPublicTickerRoute(pathname)) {
     return NextResponse.next();
+  }
+
+  if (host === appHost && isMarketingComparisonSlugRoute(pathname)) {
+    const marketingUrl = request.nextUrl.clone();
+    marketingUrl.protocol = "https:";
+    marketingUrl.hostname = canonicalMarketingHost;
+    marketingUrl.port = "";
+    return NextResponse.redirect(marketingUrl, 307);
   }
 
   if (publicLandingHosts.has(host) && !publicStaticPaths.has(pathname) && !isPublicResearchRoute(pathname) && !isPublicComparisonRoute(pathname) && !publicAccountPaths.has(pathname)) {
