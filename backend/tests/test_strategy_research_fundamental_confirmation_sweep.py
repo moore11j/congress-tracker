@@ -105,8 +105,24 @@ def test_flatten_and_sort_sweep_rows_prioritizes_ok_metric_then_sample_size():
 def test_run_sweep_calls_research_for_congress_once_and_each_insider_role(monkeypatch):
     calls = []
 
-    def fake_run_research(db, config, *, source, rule, insider_role, provider):
+    def fake_load_prices(db, symbols, *, start_date, end_date, require_adjusted):
+        return {
+            "AAPL": {date(2025, 1, 1): object()},
+            "SPY": {date(2025, 1, 1): object()},
+        }
+
+    def fake_load_signals(db, source, *, universe, start_date, end_date, insider_role):
+        return []
+
+    monkeypatch.setattr("app.strategy_research.fundamental_confirmation_sweep.load_adjusted_price_histories", fake_load_prices)
+    monkeypatch.setattr("app.strategy_research.fundamental_confirmation_sweep._load_primary_signals", fake_load_signals)
+    monkeypatch.setattr("app.strategy_research.fundamental_confirmation_sweep.FundamentalsSnapshotLookup.load", lambda *args, **kwargs: object())
+
+    def fake_run_research(db, config, *, source, rule, insider_role, provider, **kwargs):
         calls.append((source, insider_role, rule, tuple(config.hold_days), provider))
+        assert kwargs["shared_price_maps"]
+        assert kwargs["shared_primary_signals"] == []
+        assert kwargs["shared_snapshot_lookup"] is not None
         return {
             "metadata": {
                 "strategy_name": f"{source}-{insider_role}-{rule}",
@@ -164,8 +180,24 @@ def test_run_sweep_calls_research_for_congress_once_and_each_insider_role(monkey
 
 
 def test_run_sweep_collects_variant_timings(monkeypatch):
-    def fake_run_research(db, config, *, source, rule, insider_role, provider, collect_timings=False):
+    def fake_load_prices(db, symbols, *, start_date, end_date, require_adjusted):
+        return {
+            "AAPL": {date(2025, 1, 1): object()},
+            "SPY": {date(2025, 1, 1): object()},
+        }
+
+    def fake_load_signals(db, source, *, universe, start_date, end_date, insider_role):
+        return []
+
+    monkeypatch.setattr("app.strategy_research.fundamental_confirmation_sweep.load_adjusted_price_histories", fake_load_prices)
+    monkeypatch.setattr("app.strategy_research.fundamental_confirmation_sweep._load_primary_signals", fake_load_signals)
+    monkeypatch.setattr("app.strategy_research.fundamental_confirmation_sweep.FundamentalsSnapshotLookup.load", lambda *args, **kwargs: object())
+
+    def fake_run_research(db, config, *, source, rule, insider_role, provider, collect_timings=False, **kwargs):
         assert collect_timings is True
+        assert kwargs["shared_price_maps"]
+        assert kwargs["shared_primary_signals"] == []
+        assert kwargs["shared_snapshot_lookup"] is not None
         return {
             "metadata": {
                 "strategy_name": f"{source}-{rule}",
@@ -222,6 +254,8 @@ def test_run_sweep_collects_variant_timings(monkeypatch):
     )
 
     assert result["timings"]["total_seconds"] >= 0
+    assert result["timings"]["context"]["load_adjusted_price_histories_seconds"] >= 0
+    assert result["timings"]["primary_signal_timings"][0]["signals"] == 0
     assert result["timings"]["variant_timings"][0]["confirmed_signals"] == 1
     assert result["rows"][0]["elapsed_seconds"] == 1.0
     assert result["rows"][0]["hold_timings"] == {"build_lots_seconds": 0.01}

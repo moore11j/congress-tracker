@@ -11,10 +11,17 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import FundamentalsSnapshot
-from app.strategy_research.congress_buys import ResearchConfig, parse_iso_date, _normalize_universe
+from app.strategy_research.congress_buys import (
+    ResearchConfig,
+    load_adjusted_price_histories,
+    parse_iso_date,
+    _normalize_universe,
+)
 from app.strategy_research.fundamental_confirmation import (
     FundamentalRule,
+    FundamentalsSnapshotLookup,
     PrimarySource,
+    _load_primary_signals,
     _label,
     run_research,
 )
@@ -169,9 +176,58 @@ def run_sweep(
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     variant_timings: list[dict[str, Any]] = []
+    context_timings: dict[str, Any] = {}
+
+    phase_started_at = perf_counter()
+    price_start = start_date or date(1990, 1, 1)
+    shared_price_maps = load_adjusted_price_histories(
+        db,
+        (*universe, benchmark),
+        start_date=price_start,
+        end_date=end_date,
+        require_adjusted=require_adjusted,
+    )
+    context_timings["load_adjusted_price_histories_seconds"] = round(perf_counter() - phase_started_at, 4)
+
+    universe_price_starts = [
+        min(prices)
+        for symbol, prices in shared_price_maps.items()
+        if symbol != benchmark and prices
+    ]
+    first_price_day = min(universe_price_starts) if universe_price_starts else (start_date or end_date)
+    signal_start = start_date or first_price_day
+    context_timings["signal_start"] = signal_start.isoformat()
+
+    phase_started_at = perf_counter()
+    shared_snapshot_lookup = FundamentalsSnapshotLookup.load(
+        db,
+        symbols=universe,
+        max_as_of=end_date,
+        provider=provider,
+        data_mode="snapshots",
+    )
+    context_timings["load_fundamental_snapshots_seconds"] = round(perf_counter() - phase_started_at, 4)
+    primary_signal_timings: list[dict[str, Any]] = []
     for source in sources:
         roles: tuple[InsiderRole, ...] = insider_roles if source == "insider" else ("all",)
         for role in roles:
+            phase_started_at = perf_counter()
+            primary_signals = _load_primary_signals(
+                db,
+                source,
+                universe=universe,
+                start_date=signal_start,
+                end_date=end_date,
+                insider_role=role,
+            )
+            primary_signal_timings.append(
+                {
+                    "source": source,
+                    "insider_role": role if source == "insider" else None,
+                    "signals": len(primary_signals),
+                    "elapsed_seconds": round(perf_counter() - phase_started_at, 4),
+                }
+            )
             for rule in rules:
                 variant_started_at = perf_counter()
                 try:
@@ -183,6 +239,9 @@ def run_sweep(
                     }
                     if collect_timings:
                         research_kwargs["collect_timings"] = True
+                    research_kwargs["shared_price_maps"] = shared_price_maps
+                    research_kwargs["shared_primary_signals"] = primary_signals
+                    research_kwargs["shared_snapshot_lookup"] = shared_snapshot_lookup
                     result = run_research(
                         db,
                         ResearchConfig(
@@ -264,6 +323,8 @@ def run_sweep(
     if collect_timings:
         response["timings"] = {
             "total_seconds": round(perf_counter() - started_at, 4),
+            "context": context_timings,
+            "primary_signal_timings": primary_signal_timings,
             "variant_timings": variant_timings,
         }
     return response
@@ -284,6 +345,19 @@ def _print_text_report(result: dict[str, Any], *, top: int) -> None:
     if result.get("timings"):
         timings = result["timings"]
         print(f"TIMING total_seconds={timings.get('total_seconds')}")
+        context = timings.get("context") or {}
+        print(
+            "TIMING_CONTEXT "
+            f"prices={context.get('load_adjusted_price_histories_seconds')} "
+            f"snapshots={context.get('load_fundamental_snapshots_seconds')} "
+            f"signal_start={context.get('signal_start')}"
+        )
+        for item in timings.get("primary_signal_timings") or []:
+            print(
+                "TIMING_SIGNALS "
+                f"source={item.get('source')} role={item.get('insider_role')} "
+                f"signals={item.get('signals')} elapsed={item.get('elapsed_seconds')}"
+            )
         for item in sorted(timings.get("variant_timings") or [], key=lambda row: row.get("elapsed_seconds") or 0, reverse=True)[:top]:
             inner = item.get("timings") or {}
             print(
@@ -292,6 +366,7 @@ def _print_text_report(result: dict[str, Any], *, top: int) -> None:
                 f"elapsed={item.get('elapsed_seconds')} primary={item.get('primary_signals')} confirmed={item.get('confirmed_signals')} "
                 f"prices={inner.get('load_adjusted_price_histories_seconds')} "
                 f"signals={inner.get('load_primary_signals_seconds')} "
+                f"snapshots={inner.get('load_fundamental_snapshots_seconds')} "
                 f"fundamentals={inner.get('filter_fundamentals_seconds')} "
                 f"provenance={inner.get('snapshot_provenance_seconds')}"
             )

@@ -411,6 +411,9 @@ def run_research(
     data_mode: FundamentalDataMode = "snapshots",
     provider: str = "fmp",
     collect_timings: bool = False,
+    shared_price_maps: dict[str, dict[date, Any]] | None = None,
+    shared_primary_signals: list[Signal] | None = None,
+    shared_snapshot_lookup: FundamentalsSnapshotLookup | None = None,
 ) -> dict[str, Any]:
     started_at = perf_counter()
     timings: dict[str, float] = {}
@@ -421,13 +424,15 @@ def run_research(
 
     price_start = config.start_date or date(1990, 1, 1)
     phase_start = perf_counter()
-    price_maps = load_adjusted_price_histories(
-        db,
-        (*config.universe, config.benchmark),
-        start_date=price_start,
-        end_date=config.end_date,
-        require_adjusted=config.require_adjusted,
-    )
+    price_maps = shared_price_maps
+    if price_maps is None:
+        price_maps = load_adjusted_price_histories(
+            db,
+            (*config.universe, config.benchmark),
+            start_date=price_start,
+            end_date=config.end_date,
+            require_adjusted=config.require_adjusted,
+        )
     mark("load_adjusted_price_histories_seconds", phase_start)
     benchmark_prices = price_maps.get(config.benchmark, {})
     benchmark_dates = sorted(benchmark_prices)
@@ -442,23 +447,27 @@ def run_research(
     first_price_day = min(universe_price_starts) if universe_price_starts else (config.start_date or config.end_date)
     signal_start = config.start_date or first_price_day
     phase_start = perf_counter()
-    primary_signals = _load_primary_signals(
-        db,
-        source,
-        universe=config.universe,
-        start_date=signal_start,
-        end_date=config.end_date,
-        insider_role=insider_role,
-    )
+    primary_signals = shared_primary_signals
+    if primary_signals is None:
+        primary_signals = _load_primary_signals(
+            db,
+            source,
+            universe=config.universe,
+            start_date=signal_start,
+            end_date=config.end_date,
+            insider_role=insider_role,
+        )
     mark("load_primary_signals_seconds", phase_start)
     phase_start = perf_counter()
-    snapshot_lookup = FundamentalsSnapshotLookup.load(
-        db,
-        symbols={signal.symbol for signal in primary_signals},
-        max_as_of=config.end_date,
-        provider=provider,
-        data_mode=data_mode,
-    )
+    snapshot_lookup = shared_snapshot_lookup
+    if snapshot_lookup is None:
+        snapshot_lookup = FundamentalsSnapshotLookup.load(
+            db,
+            symbols={signal.symbol for signal in primary_signals},
+            max_as_of=config.end_date,
+            provider=provider,
+            data_mode=data_mode,
+        )
     mark("load_fundamental_snapshots_seconds", phase_start)
     phase_start = perf_counter()
     signals, fundamental_skips = filter_signals_by_fundamental_rule(
