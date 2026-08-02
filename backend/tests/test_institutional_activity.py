@@ -1668,6 +1668,45 @@ def test_institution_profile_uses_cik_metadata_name_fallback(monkeypatch):
         assert profile["locked"] is False
 
 
+def test_filings_for_holder_marks_sparse_metadata_with_positions_processed():
+    engine = _engine()
+
+    with _session(engine) as db:
+        db.add_all(
+            [
+                InstitutionalHolder(cik="0002100119", holder_name="VANGUARD CAPITAL MANAGEMENT LLC", latest_report_year=2026, latest_report_quarter=1),
+                InstitutionalFiling(
+                    id=1,
+                    cik="0002100119",
+                    filing_date=date(2026, 3, 31),
+                    report_period_end=date(2026, 3, 31),
+                    report_year=2026,
+                    report_quarter=1,
+                    form_type=None,
+                    processed_at=None,
+                ),
+                InstitutionalPosition(
+                    filing_id=1,
+                    cik="0002100119",
+                    symbol="AAPL",
+                    normalized_symbol="AAPL",
+                    issuer_name="Apple Inc.",
+                    shares=100,
+                    value_usd=10_000_000,
+                    report_year=2026,
+                    report_quarter=1,
+                    filing_date=date(2026, 3, 31),
+                ),
+            ]
+        )
+        db.commit()
+
+        filings = filings_for_holder(db, "0002100119")
+
+        assert filings["items"][0]["holdings_count"] == 1
+        assert filings["items"][0]["status"] == "processed"
+
+
 def test_rerunning_processing_does_not_duplicate_activity_or_feed_events():
     engine = _engine()
 

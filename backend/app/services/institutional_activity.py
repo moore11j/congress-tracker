@@ -2075,6 +2075,25 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
         .limit(bounded_limit + 1)
     ).scalars().all()
     rows = fetched_rows[:bounded_limit]
+    filing_ids = [int(row.id) for row in rows if row.id is not None]
+    position_counts = {
+        int(filing_id): int(count or 0)
+        for filing_id, count in db.execute(
+            select(InstitutionalPosition.filing_id, func.count(InstitutionalPosition.id))
+            .where(InstitutionalPosition.filing_id.in_(filing_ids))
+            .group_by(InstitutionalPosition.filing_id)
+        ).all()
+    } if filing_ids else {}
+
+    def filing_status(row: InstitutionalFiling, holdings_count: int) -> str:
+        if holdings_count > 0:
+            return "processed"
+        if row.processed_at:
+            return "processed"
+        if (row.form_type or "").upper() in {"13F-HR", "13F-HR/A"}:
+            return "retryable"
+        return "no holdings"
+
     return {
         "items": [
             {
@@ -2091,16 +2110,8 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
                 "superseded_by": row.superseded_by,
                 "canonical": row.superseded_by is None,
                 "processed_at": row.processed_at.isoformat() if row.processed_at else None,
-                "holdings_count": db.execute(
-                    select(func.count(InstitutionalPosition.id)).where(InstitutionalPosition.filing_id == row.id)
-                ).scalar_one(),
-                "status": (
-                    "processed"
-                    if row.processed_at
-                    else "retryable"
-                    if (row.form_type or "").upper() in {"13F-HR", "13F-HR/A"}
-                    else "no holdings"
-                ),
+                "holdings_count": position_counts.get(int(row.id or 0), 0),
+                "status": filing_status(row, position_counts.get(int(row.id or 0), 0)),
             }
             for row in rows
         ],
