@@ -10,8 +10,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal, engine, ensure_institutional_activity_schema
 from app.models import InstitutionalHolder
-from app.services.institutional_activity import refresh_holder_performance_cache
-from app.utils.symbols import normalize_cik
+from app.services.institutional_activity import normalize_cik, refresh_holder_performance_cache
 
 
 class CallsPerMinuteThrottle:
