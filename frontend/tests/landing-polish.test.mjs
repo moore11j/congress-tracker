@@ -54,7 +54,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /\["Trends", "#signals"\]/);
   assert.match(
     landingPage,
-    /const navLinks = \[\s+\["Stock Research", "#signals"\],\s+\["Insights", "#insights"\],\s+\["Congress", "#congress"\],\s+\["Insiders", "#insiders"\],\s+\["Stock Comparisons", "#compare"\],\s+\["Stock Screener", "#screener"\],\s+\["Pricing", "#pricing"\],\s+\["About", "\/about"\],\s+\] as const;/,
+    /const navLinks = \[\s+\["Research", "#signals"\],\s+\["Insights", "#insights"\],\s+\["Congress", "#congress"\],\s+\["Insiders", "#insiders"\],\s+\["Stock Comparisons", "#compare"\],\s+\["Stock Screener", "#screener"\],\s+\["Pricing", "#pricing"\],\s+\["About", "\/about"\],\s+\] as const;/,
   );
   assert.match(landingPage, /<section id="insights"/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);

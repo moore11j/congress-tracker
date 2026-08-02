@@ -66,7 +66,7 @@ type MarketInstrument = {
 };
 
 const navLinks = [
-  ["Stock Research", "#signals"],
+  ["Research", "#signals"],
   ["Insights", "#insights"],
   ["Congress", "#congress"],
   ["Insiders", "#insiders"],
