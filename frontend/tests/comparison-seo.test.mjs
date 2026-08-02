@@ -59,6 +59,7 @@ test("comparison pages use real product evidence and valid SEO surfaces", () => 
   assert.match(middleware, /function isPublicComparisonRoute\(pathname: string\): boolean/);
   assert.match(middleware, /normalized\.startsWith\("\/compare\/walnut-markets-vs-"\)/);
   assert.match(middleware, /function isMarketingComparisonSlugRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /appCompareUrl\.pathname = "\/compare\/_\/_"/);
   assert.match(middleware, /host === appHost && isMarketingComparisonSlugRoute\(pathname\)/);
   assert.match(middleware, /marketingUrl\.hostname = canonicalMarketingHost/);
   assert.match(middleware, /isPublicComparisonRoute\(pathname\)/);

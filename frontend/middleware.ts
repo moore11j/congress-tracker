@@ -303,6 +303,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (host === appHost && (pathname || "/").toLowerCase() === "/compare") {
+    const appCompareUrl = request.nextUrl.clone();
+    appCompareUrl.pathname = "/compare/_/_";
+    return NextResponse.redirect(appCompareUrl, 307);
+  }
+
   if (host === appHost && isMarketingComparisonSlugRoute(pathname)) {
     const marketingUrl = request.nextUrl.clone();
     marketingUrl.protocol = "https:";
