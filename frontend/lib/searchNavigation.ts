@@ -10,6 +10,9 @@ const COMPANY_SUFFIXES = new Set([
   "company",
   "ltd",
   "limited",
+  "llc",
+  "llp",
+  "lp",
   "plc",
   "holdings",
   "holding",
@@ -31,6 +34,10 @@ function words(value: string | null | undefined): string[] {
 
 function normalizedKey(value: string | null | undefined) {
   return words(value).join(" ");
+}
+
+function compactKey(value: string | null | undefined) {
+  return words(value).join("");
 }
 
 function companyBaseKey(value: string | null | undefined) {
@@ -56,6 +63,8 @@ export function isHighConfidenceSearchResult(result: SearchSuggestResult | undef
   if (result.kind === "institution") {
     const idKey = normalizedKey(result.id);
     if (idKey && idKey === queryKey) return true;
+    const queryCompact = compactKey(query);
+    return Boolean(queryCompact && (compactKey(result.label) === queryCompact || compactKey(companyBaseKey(result.label)) === queryCompact));
   }
 
   return normalizedKey(result.label) === queryKey;

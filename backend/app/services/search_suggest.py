@@ -41,6 +41,7 @@ MAX_SEARCH_SUGGEST_LIMIT = 20
 PERSONALIZATION_CACHE_TTL_SECONDS = 45
 PERSONALIZATION_SYMBOL_LIMIT = 160
 ANONYMOUS_SEARCH_CACHE_TTL_SECONDS = 20 * 60
+INSTITUTION_FAST_RETURN_MIN_SCORE = 380.0
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,20 @@ _STATIC_COMPANY_QUERY_SYMBOLS: dict[str, str] = {
     "appl": "AAPL",
     "apple": "AAPL",
 }
+_ENTITY_SUFFIX_WORDS = {
+    "co",
+    "company",
+    "corp",
+    "corporation",
+    "inc",
+    "incorporated",
+    "llc",
+    "llp",
+    "lp",
+    "ltd",
+    "limited",
+    "plc",
+}
 
 
 def normalize_search_query(q: str | None) -> str:
@@ -88,8 +103,22 @@ def _compact_key(value: str | None) -> str:
     return "".join(_WORD_RE.findall((value or "").casefold()))
 
 
+def _sql_compact_text(value: Any) -> Any:
+    expr = func.lower(func.coalesce(value, ""))
+    for token in (" ", "\t", "\n", "\r", ".", ",", "'", "`", "-", "_", "&"):
+        expr = func.replace(expr, token, "")
+    return expr
+
+
 def _acronym(value: str | None) -> str:
     return "".join(word[0] for word in _WORD_RE.findall((value or "").casefold()))
+
+
+def _entity_base_compact_key(value: str | None) -> str:
+    words = _WORD_RE.findall((value or "").casefold().replace("&", " and "))
+    while len(words) > 1 and words[-1] in _ENTITY_SUFFIX_WORDS:
+        words.pop()
+    return "".join(words)
 
 
 def _bounded_edit_distance(left: str, right: str, max_distance: int) -> int:
@@ -809,6 +838,12 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
     q_lower = query.casefold()
     pattern = f"{q_lower}%" if len(query) <= 1 else f"%{q_lower}%"
     fuzzy_prefix = f"{q_lower[:2]}%" if len(query) >= 3 else pattern
+    compact_query = _compact_key(query)
+    compact_pattern = f"%{compact_query}%" if len(compact_query) >= 3 else pattern
+    compact_prefix = f"{compact_query}%" if len(compact_query) >= 3 else pattern
+    compact_holder_name = _sql_compact_text(InstitutionalHolder.holder_name)
+    compact_normalized_holder_name = _sql_compact_text(InstitutionalHolder.normalized_holder_name)
+    compact_cik_company_name = _sql_compact_text(CikMeta.company_name)
     holder_rows = db.execute(
         select(
             InstitutionalHolder.cik,
@@ -828,6 +863,12 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
             (func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(pattern))
             | (func.lower(func.coalesce(InstitutionalHolder.normalized_holder_name, "")).like(pattern))
             | (func.lower(func.coalesce(CikMeta.company_name, "")).like(pattern))
+            | (compact_holder_name.like(compact_pattern))
+            | (compact_normalized_holder_name.like(compact_pattern))
+            | (compact_cik_company_name.like(compact_pattern))
+            | (compact_holder_name.like(compact_prefix))
+            | (compact_normalized_holder_name.like(compact_prefix))
+            | (compact_cik_company_name.like(compact_prefix))
             | (func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(fuzzy_prefix))
             | (func.lower(func.coalesce(CikMeta.company_name, "")).like(fuzzy_prefix))
             | (func.lower(func.coalesce(InstitutionalHolder.cik, "")).like(pattern))
@@ -839,29 +880,34 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
         )
         .limit(max(limit * 4, 24))
     ).all()
-    transaction_rows = db.execute(
-        select(
-            InstitutionalTransaction.institution_cik.label("cik"),
-            InstitutionalTransaction.institution_name.label("holder_name"),
-            literal(None).label("cik_company_name"),
-            literal(None).label("normalized_holder_name"),
-            literal(None).label("holder_type"),
-            literal(None).label("latest_report_year"),
-            literal(None).label("latest_report_quarter"),
-            literal(0).label("quality_score"),
-            func.max(InstitutionalTransaction.filing_date).label("latest_filing_date"),
-        )
-        .where(InstitutionalTransaction.institution_cik.is_not(None))
-        .where(
-            (func.lower(func.coalesce(InstitutionalTransaction.institution_name, "")).like(pattern))
-            | (func.lower(func.coalesce(InstitutionalTransaction.institution_name, "")).like(fuzzy_prefix))
-            | (func.lower(func.coalesce(InstitutionalTransaction.institution_cik, "")).like(pattern))
-        )
-        .group_by(InstitutionalTransaction.institution_cik, InstitutionalTransaction.institution_name)
-        .order_by(func.max(InstitutionalTransaction.filing_date).desc())
-        .limit(max(limit * 4, 24))
-    ).all()
-    rows = [*transaction_rows, *holder_rows]
+    transaction_rows = []
+    if len(holder_rows) < limit:
+        compact_transaction_name = _sql_compact_text(InstitutionalTransaction.institution_name)
+        transaction_rows = db.execute(
+            select(
+                InstitutionalTransaction.institution_cik.label("cik"),
+                InstitutionalTransaction.institution_name.label("holder_name"),
+                literal(None).label("cik_company_name"),
+                literal(None).label("normalized_holder_name"),
+                literal(None).label("holder_type"),
+                literal(None).label("latest_report_year"),
+                literal(None).label("latest_report_quarter"),
+                literal(0).label("quality_score"),
+                func.max(InstitutionalTransaction.filing_date).label("latest_filing_date"),
+            )
+            .where(InstitutionalTransaction.institution_cik.is_not(None))
+            .where(
+                (func.lower(func.coalesce(InstitutionalTransaction.institution_name, "")).like(pattern))
+                | (func.lower(func.coalesce(InstitutionalTransaction.institution_name, "")).like(fuzzy_prefix))
+                | (compact_transaction_name.like(compact_pattern))
+                | (compact_transaction_name.like(compact_prefix))
+                | (func.lower(func.coalesce(InstitutionalTransaction.institution_cik, "")).like(pattern))
+            )
+            .group_by(InstitutionalTransaction.institution_cik, InstitutionalTransaction.institution_name)
+            .order_by(func.max(InstitutionalTransaction.filing_date).desc())
+            .limit(max((limit - len(holder_rows)) * 4, 12))
+        ).all()
+    rows = [*holder_rows, *transaction_rows]
 
     items: list[SearchSuggestItem] = []
     seen: set[str] = set()
@@ -980,6 +1026,21 @@ def _select_suggestion_items(results: list[SearchSuggestItem], limit: int) -> li
     return selected
 
 
+def _is_high_confidence_institution_result(item: SearchSuggestItem | None, query: str) -> bool:
+    if not item or item.get("kind") != "institution":
+        return False
+    score = float(item.get("score") or 0.0)
+    if score < INSTITUTION_FAST_RETURN_MIN_SCORE:
+        return False
+    query_compact = _compact_key(query)
+    if not query_compact:
+        return False
+    label_compact = _compact_key(str(item.get("label") or ""))
+    label_base_compact = _entity_base_compact_key(str(item.get("label") or ""))
+    item_id = _compact_key(str(item.get("id") or ""))
+    return query_compact in {label_compact, label_base_compact, item_id}
+
+
 def _run_suggestion_loader(kind: str, query: str, loader: Any) -> list[SearchSuggestItem]:
     started_at = perf_counter()
     try:
@@ -1047,6 +1108,32 @@ def search_suggestions(
                 _anonymous_suggestion_cache[cache_key] = (perf_counter(), payload)
         return payload
 
+    quick_institutions = _run_suggestion_loader(
+        "institution_quick",
+        query,
+        lambda: _institution_suggestions(db, query, bounded_limit, None),
+    )
+    quick_institutions.sort(key=lambda result: (-(float(result.get("score") or 0)), str(result.get("label") or "")))
+    if _is_high_confidence_institution_result(quick_institutions[0] if quick_institutions else None, query):
+        items = [{key: value for key, value in item.items() if key != "score"} for item in quick_institutions[:bounded_limit]]
+        payload = {"items": items, "results": items, "query": query}
+        duration_ms = (perf_counter() - started_at) * 1000
+        context = get_request_context() or {}
+        logger.info(
+            "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s mode=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s institution_quick=1",
+            duration_ms,
+            len(query),
+            len(items),
+            normalized_mode,
+            context.get("db_query_count"),
+            context.get("db_checkout_count"),
+            context.get("db_checkout_slow_count"),
+        )
+        if user_id is None:
+            with _anonymous_suggestion_cache_lock:
+                _anonymous_suggestion_cache[cache_key] = (perf_counter(), payload)
+        return payload
+
     results: list[SearchSuggestItem] = []
     per_kind_limit = max(bounded_limit, 8)
     personalization = _personalization_for_user(db, user_id)
@@ -1064,8 +1151,11 @@ def search_suggestions(
             ),
         ),
         ("agency", lambda: _agency_suggestions(db, query, per_kind_limit)),
-        ("institution", lambda: _institution_suggestions(db, query, per_kind_limit, personalization)),
     ]
+    if user_id is None:
+        results.extend(quick_institutions)
+    else:
+        loaders.append(("institution", lambda: _institution_suggestions(db, query, per_kind_limit, personalization)))
     if include_events:
         loaders.append(("event", lambda: _event_suggestions(db, query, per_kind_limit)))
     for kind, loader in loaders:

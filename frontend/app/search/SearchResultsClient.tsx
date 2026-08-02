@@ -84,9 +84,11 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
     searchSuggest(query, 20, { signal: controller.signal, source: "SearchPageClient" })
       .then((response) => {
         if (!active) return;
-        setResults(dedupeResults(response.items ?? []));
+        const fastResults = dedupeResults(response.items ?? []);
+        setResults(fastResults);
         setError(false);
         setLoading(false);
+        if (isHighConfidenceSearchResult(fastResults[0], query)) return undefined;
         return searchSuggest(query, 20, { signal: controller.signal, source: "SearchPageClientDeep", mode: "deep" });
       })
       .then((response) => {

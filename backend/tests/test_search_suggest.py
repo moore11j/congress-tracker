@@ -372,6 +372,41 @@ def test_search_suggest_uses_cik_meta_name_when_holder_name_missing():
         db.close()
 
 
+def test_search_suggest_black_rock_spaced_query_fast_returns_institution(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(
+            InstitutionalHolder(
+                cik="0002012383",
+                holder_name="BlackRock, Inc.",
+                normalized_holder_name="blackrock inc",
+                holder_type="investment_manager",
+                latest_report_year=2026,
+                latest_report_quarter=1,
+                quality_score=100,
+            )
+        )
+        db.commit()
+
+        def fail_slow_loader(*args, **kwargs):
+            raise AssertionError("slow search loader should not run for high-confidence institution query")
+
+        monkeypatch.setattr(search_suggest_module, "_ticker_suggestions", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_member_suggestions", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_insider_suggestions", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_agency_suggestions", fail_slow_loader)
+
+        items = search_suggestions(db, "black rock", limit=5)["items"]
+
+        assert items[0]["kind"] == "institution"
+        assert items[0]["label"] == "BlackRock, Inc."
+        assert items[0]["href"] == "/institution/0002012383"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
 def test_search_suggest_symbol_prefix_beats_name_contains():
     db = _db()
     try:
