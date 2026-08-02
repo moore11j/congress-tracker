@@ -37,7 +37,12 @@ function judgmentClassName(judgment?: ResearchBriefCard["judgment"]): string {
   return "text-slate-300";
 }
 
+function briefKickerClassName(brief: ResearchBriefCard): string {
+  return brief.premium ? "text-emerald-300" : judgmentClassName(brief.judgment);
+}
+
 function judgmentLabel(brief: ResearchBriefCard): string {
+  if (brief.premium) return brief.requiredPlan === "pro" ? "Pro" : "Premium";
   if (brief.judgment === "bullish") return "Bullish";
   if (brief.judgment === "bearish") return "Bearish";
   if (brief.judgment === "macro") return "Macro";
@@ -74,7 +79,7 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
       <BriefVisual brief={brief} />
       <div className="relative z-10 flex w-full flex-col justify-between bg-gradient-to-r from-slate-950/94 via-slate-950/72 to-slate-950/20 p-4">
         <div>
-          <span className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${judgmentClassName(brief.judgment)}`}>
+          <span className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${briefKickerClassName(brief)}`}>
             {judgmentLabel(brief)}
           </span>
           <h3 className="mt-4 max-w-[14rem] text-lg font-semibold leading-6 text-white transition group-hover:text-emerald-100">
@@ -84,6 +89,11 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
             {brief.description}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
+            {brief.premium ? (
+              <span className="rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
+                {brief.requiredPlan === "pro" ? "Pro" : "Premium"}
+              </span>
+            ) : null}
             {brief.tickers.map((ticker) => (
               <span key={ticker} className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-semibold text-slate-200">
                 {ticker}
@@ -135,6 +145,8 @@ export function ResearchBriefsSection() {
             judgment: item.judgment === "neutral" ? "mixed" : (item.judgment as ResearchBriefCard["judgment"]),
             publishedAt: item.publishedAt,
             readingMinutes: item.readingMinutes,
+            premium: Boolean(item.premium),
+            requiredPlan: item.requiredPlan,
           })),
         );
       })

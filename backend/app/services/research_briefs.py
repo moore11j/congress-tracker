@@ -94,6 +94,7 @@ SECTION_FORMAT_OPTIONS = [
 ]
 STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "published", "unpublished", "failed"}
 JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
+RESEARCH_BRIEF_REQUIRED_PLAN_VALUES = {"premium", "pro"}
 WALNUT_CALL_VALUES = [
     "Very bullish",
     "Bullish",
@@ -721,6 +722,7 @@ def sanitize_research_brief_article(
         sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
         sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
     sanitized = _apply_walnut_call_metadata(sanitized)
+    sanitized = _apply_research_access_metadata(sanitized, config)
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
         sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
@@ -2300,6 +2302,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Research question must be more specific.")
     normalized_ticker = normalize_symbol(ticker)
     comparison_tickers = normalize_comparison_tickers(config, primary_ticker=normalized_ticker)
+    required_plan = _research_required_plan(config.get("required_plan"), premium_required=bool(config.get("premium_required")))
     normalized = {
         "ticker": normalized_ticker or ticker,
         "research_question": prompt[:3000],
@@ -2319,6 +2322,8 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "include_source_links": bool(config.get("include_source_links")),
         "include_confirmation_score": bool(config.get("include_confirmation_score")),
         "include_cross_source_confirmations": bool(config.get("include_cross_source_confirmations")),
+        "premium_required": required_plan is not None,
+        "required_plan": required_plan,
         "generate_thumbnail": bool(config.get("generate_thumbnail", _default_generate_thumbnail(config))),
         "selected_model": str(config.get("selected_model") or "").strip(),
         "hero_image": config.get("hero_image") or "",
@@ -2328,6 +2333,47 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
         raise HTTPException(status_code=422, detail="Comparison tickers are required for peer comparison briefs.")
     return normalized
+
+
+def _research_required_plan(value: Any, *, premium_required: bool = False) -> str | None:
+    text = str(value or "").strip().lower().replace("_", "-")
+    if text in RESEARCH_BRIEF_REQUIRED_PLAN_VALUES:
+        return text
+    return "premium" if premium_required else None
+
+
+def _apply_research_access_metadata(article: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    next_article = deepcopy(article)
+    required_plan = _research_required_plan(next_article.get("required_plan"), premium_required=bool(next_article.get("premium_required")))
+    if not required_plan:
+        required_plan = _research_required_plan(config.get("required_plan"), premium_required=bool(config.get("premium_required")))
+    next_article["premium_required"] = required_plan is not None
+    next_article["required_plan"] = required_plan
+    return next_article
+
+
+def _research_article_required_plan(article: dict[str, Any]) -> str | None:
+    return _research_required_plan(article.get("required_plan"), premium_required=bool(article.get("premium_required")))
+
+
+def _can_read_full_research_article(article: dict[str, Any], entitlements: Any | None) -> bool:
+    required_plan = _research_article_required_plan(article)
+    if not required_plan:
+        return True
+    tier = str(getattr(entitlements, "tier", "") or "").lower()
+    rank = int(getattr(entitlements, "rank", 0) or 0)
+    if tier == "admin" or rank >= 100:
+        return True
+    return rank >= (20 if required_plan == "pro" else 10)
+
+
+def _research_access_payload(article: dict[str, Any], entitlements: Any | None) -> dict[str, Any]:
+    required_plan = _research_article_required_plan(article)
+    return {
+        "premium_required": required_plan is not None,
+        "required_plan": required_plan,
+        "full_article_visible": _can_read_full_research_article(article, entitlements),
+    }
 
 
 def _choice(value: Any, choices: set[str], fallback: str) -> str:
@@ -3697,7 +3743,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
         draft = _db_draft(db, draft_id)
         if draft:
             article = draft.setdefault("article", {})
-            article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
+            article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset", "premium_required", "required_plan"}})
             article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
             draft["article"] = sanitize_research_brief_article(
                 article,
@@ -3716,7 +3762,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
         for draft in store.get("drafts", []):
             if draft.get("id") == draft_id:
                 article = draft.setdefault("article", {})
-                article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
+                article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset", "premium_required", "required_plan"}})
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
                 draft["article"] = sanitize_research_brief_article(
                     article,
@@ -3983,6 +4029,7 @@ def published_cards(db: Session | None = None) -> dict[str, Any]:
         if not slug or slug in seen_slugs:
             continue
         seen_slugs.add(slug)
+        required_plan = _research_article_required_plan(article)
         cards.append(
             {
                 "slug": slug,
@@ -3991,16 +4038,63 @@ def published_cards(db: Session | None = None) -> dict[str, Any]:
                 "description": suggested.get("description") or article.get("summary") or "",
                 "tickers": suggested.get("tickers") or [draft.get("primary_ticker")],
                 "category": article.get("category") or "Research",
-                "judgment": suggested.get("judgment") or article.get("judgment") or "mixed",
+                "judgment": None if required_plan else suggested.get("judgment") or article.get("judgment") or "mixed",
                 "publishedAt": (draft.get("published_at") or draft.get("updated_at") or "")[:10],
                 "readingMinutes": article.get("reading_minutes") or draft.get("validation", {}).get("estimated_reading_minutes") or 8,
                 "generated": True,
+                "premium": required_plan is not None,
+                "requiredPlan": required_plan,
             }
         )
     return {"items": cards}
 
 
-def published_article(slug: str, db: Session | None = None) -> dict[str, Any]:
+def _preview_research_article(article: dict[str, Any]) -> dict[str, Any]:
+    preview = deepcopy(article)
+    sections = preview.get("sections") if isinstance(preview.get("sections"), list) else []
+    preview_sections = sections[: max(1, min(2, len(sections)))] if sections else []
+    preview["sections"] = preview_sections
+    preview["key_points"] = (preview.get("key_points") or [])[:2] if isinstance(preview.get("key_points"), list) else []
+    preview["catalysts"] = []
+    preview["risks"] = []
+    preview["watch_items"] = []
+    preview["source_links"] = []
+    preview["judgment"] = ""
+    preview["walnut_call"] = ""
+    preview["confidence"] = ""
+    if isinstance(preview.get("suggested_card"), dict):
+        preview["suggested_card"] = {**preview["suggested_card"], "judgment": ""}
+    if isinstance(preview.get("seo"), dict):
+        preview["seo"] = {
+            **preview["seo"],
+            "description": str(preview.get("preview_body") or preview.get("summary") or preview["seo"].get("description") or ""),
+        }
+    preview["access"] = {"premium_required": True, "required_plan": _research_article_required_plan(article), "full_article_visible": False}
+    return preview
+
+
+def _research_payload_for_entitlements(draft: dict[str, Any], entitlements: Any | None) -> dict[str, Any]:
+    payload = deepcopy(draft)
+    article = payload.get("article") if isinstance(payload.get("article"), dict) else {}
+    access = _research_access_payload(article, entitlements)
+    if access["premium_required"] and not access["full_article_visible"]:
+        payload["article"] = _preview_research_article(article)
+        payload["research_context"] = None
+        payload["diagnostics"] = {"storage": (draft.get("diagnostics") or {}).get("storage")}
+        payload["validation"] = {
+            "status": payload.get("validation", {}).get("status", "passed"),
+            "warnings": [],
+            "numeric_claims": [],
+            "source_link_count": 0,
+            "estimated_reading_minutes": payload.get("validation", {}).get("estimated_reading_minutes") or article.get("reading_minutes") or 1,
+        }
+    else:
+        payload["article"] = deepcopy(article)
+        payload["article"]["access"] = access
+    return payload
+
+
+def published_article(slug: str, db: Session | None = None, entitlements: Any | None = None) -> dict[str, Any]:
     normalized = _slugify(slug, fallback=slug)
     if db is not None:
         try:
@@ -4011,12 +4105,12 @@ def published_article(slug: str, db: Session | None = None) -> dict[str, Any]:
             ).mappings().first()
             payload = _load_json(row["payload_json"]) if row else None
             if isinstance(payload, dict):
-                return deepcopy(payload)
+                return _research_payload_for_entitlements(payload, entitlements)
         except Exception as exc:
             logger.warning("research_brief_db_published_article_failed slug=%s error=%s", normalized, exc.__class__.__name__)
     store_drafts = sorted(_read_store().get("drafts", []), key=lambda item: item.get("updated_at") or item.get("published_at") or "", reverse=True)
     for draft in store_drafts:
         article = draft.get("article") or {}
         if draft.get("status") == "published" and article.get("slug") == normalized:
-            return deepcopy(draft)
+            return _research_payload_for_entitlements(draft, entitlements)
     raise HTTPException(status_code=404, detail="Research brief not found.")

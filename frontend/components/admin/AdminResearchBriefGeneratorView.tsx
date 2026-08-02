@@ -76,6 +76,8 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   include_source_links: true,
   include_confirmation_score: false,
   include_cross_source_confirmations: false,
+  premium_required: false,
+  required_plan: null,
   generate_thumbnail: true,
   hero_image: "",
   manual_source_url: "",
@@ -258,6 +260,31 @@ function parseComparisonTickers(value: string | string[] | null | undefined) {
 function createClientRequestId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `rb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+type ResearchBriefRequiredPlan = "free" | "premium" | "pro";
+
+function articleRequiredPlan(article?: Pick<AdminResearchBriefArticle, "premium_required" | "required_plan"> | null): ResearchBriefRequiredPlan {
+  if (!article?.premium_required) return "free";
+  return article.required_plan === "pro" ? "pro" : "premium";
+}
+
+function configRequiredPlan(config: AdminResearchBriefConfig): ResearchBriefRequiredPlan {
+  if (!config.premium_required) return "free";
+  return config.required_plan === "pro" ? "pro" : "premium";
+}
+
+function accessPatchForPlan(plan: ResearchBriefRequiredPlan) {
+  return {
+    premium_required: plan !== "free",
+    required_plan: plan === "free" ? null : plan,
+  } as const;
+}
+
+function accessLabel(plan: ResearchBriefRequiredPlan) {
+  if (plan === "pro") return "Pro only";
+  if (plan === "premium") return "Premium/Pro";
+  return "Free";
 }
 
 export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toast }) {
@@ -626,6 +653,10 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     return applySectionSelections({ ...articleDraft, sections: markdownToSections(bodyMarkdown) }, config.include_sections);
   }
 
+  function updateConfigAccess(plan: ResearchBriefRequiredPlan) {
+    setConfig((current) => ({ ...current, ...accessPatchForPlan(plan) }));
+  }
+
   function closeDeleteDialog() {
     if (busy === "delete") return;
     setDeleteDialogOpen(false);
@@ -795,6 +826,34 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 />
                 <span className="mt-1 block text-xs leading-5 text-slate-500">Use when official source discovery misses a company earnings release or filing.</span>
               </label>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Access</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-sm text-slate-200">
+                    <span className="flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={configRequiredPlan(config) === "premium"}
+                        onChange={(event) => updateConfigAccess(event.target.checked ? "premium" : "free")}
+                      />
+                      Premium/Pro
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">Free and logged-out readers see the public preview and Premium gate.</span>
+                  </label>
+                  <label className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-sm text-slate-200">
+                    <span className="flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={configRequiredPlan(config) === "pro"}
+                        onChange={(event) => updateConfigAccess(event.target.checked ? "pro" : "free")}
+                      />
+                      Pro only
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">Only Pro and admin users receive the full brief.</span>
+                  </label>
+                </div>
+              </div>
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Include sections</p>
@@ -975,9 +1034,16 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
           <h3 className="text-base font-semibold text-white">Research Brief Card Preview</h3>
           <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/60 p-4">
-            <span className="rounded-md border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-200">
-              {articleDraft?.walnut_call || selectedCard?.judgment || articleDraft?.judgment || "Draft"}
-            </span>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-md border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-200">
+                {articleDraft?.walnut_call || selectedCard?.judgment || articleDraft?.judgment || "Draft"}
+              </span>
+              {articleDraft?.premium_required ? (
+                <span className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold uppercase text-cyan-100">
+                  {accessLabel(articleRequiredPlan(articleDraft))}
+                </span>
+              ) : null}
+            </div>
             <p className="mt-3 text-lg font-semibold text-white">{selectedCard?.title || articleDraft?.title || "No draft selected"}</p>
             <p className="mt-2 text-sm leading-6 text-slate-400">{selectedCard?.description || articleDraft?.summary || "Generated card copy will appear here."}</p>
             <p className="mt-4 text-xs text-slate-500">
@@ -1289,6 +1355,41 @@ function EditorPanel({
             </div>
           ) : null}
         </details>
+        <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Access</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <label className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-sm text-slate-200">
+              <span className="flex items-center gap-2 font-medium">
+                <input
+                  type="checkbox"
+                  checked={articleRequiredPlan(article) === "premium"}
+                  onChange={(event) => {
+                    const patch = accessPatchForPlan(event.target.checked ? "premium" : "free");
+                    onArticleChange("premium_required", patch.premium_required);
+                    onArticleChange("required_plan", patch.required_plan);
+                  }}
+                />
+                Premium/Pro
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-slate-500">Premium, Pro, and admin users can read the full brief.</span>
+            </label>
+            <label className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-sm text-slate-200">
+              <span className="flex items-center gap-2 font-medium">
+                <input
+                  type="checkbox"
+                  checked={articleRequiredPlan(article) === "pro"}
+                  onChange={(event) => {
+                    const patch = accessPatchForPlan(event.target.checked ? "pro" : "free");
+                    onArticleChange("premium_required", patch.premium_required);
+                    onArticleChange("required_plan", patch.required_plan);
+                  }}
+                />
+                Pro only
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-slate-500">Only Pro and admin users can read the full brief.</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <aside className="space-y-3">
@@ -1297,6 +1398,7 @@ function EditorPanel({
         <Metric label="Source links" value={String(draft.validation?.source_link_count || 0)} />
         <Metric label="Reading time" value={`${draft.validation?.estimated_reading_minutes || article.reading_minutes || 1} min`} />
         <Metric label="Model" value={draft.model || "OpenAI"} />
+        <Metric label="Access" value={accessLabel(articleRequiredPlan(article))} />
         <Metric label="Generated at" value={(draft.updated_at || draft.created_at || "").slice(0, 16)} />
         <SourceDiscoveryDiagnostics draft={draft} />
         {draft.validation?.source_link_count === 0 ? (

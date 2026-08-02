@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ApiError, createCustomerPortalSession, deleteAccount, getAccountBillingHistory, getMe, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, createCustomerPortalSession, deleteAccount, getAccountBillingHistory, getMe, recordProductEvent, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
 import { safeAppReturnPath } from "@/lib/returnPaths";
 import {
@@ -18,6 +18,30 @@ function appendCompareUpgradeFlag(path: string) {
   if (pathname.startsWith("/compare/")) params.set("compare_upgraded", "1");
   const nextQuery = params.toString();
   return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
+}
+
+const researchCampaignParamKeys = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "rdt_cid"] as const;
+
+function researchSubscriptionProperties(returnTo: string, entitlement: string) {
+  const url = new URL(returnTo || "/", window.location.origin);
+  const properties: Record<string, string | number | boolean | null> = {
+    article_slug: url.searchParams.get("research_slug") || (url.pathname === "/research/mu-dd" ? "mu-dd" : null),
+    ticker: url.searchParams.get("cta_ticker") || (url.pathname === "/research/mu-dd" ? "MU" : null),
+    user_entitlement: entitlement,
+    page_path: `${url.pathname}${url.search}`,
+    referrer: document.referrer || null,
+  };
+  for (const key of researchCampaignParamKeys) properties[key] = url.searchParams.get(key);
+  return properties;
+}
+
+function isMuResearchReturn(returnTo: string) {
+  try {
+    const url = new URL(returnTo || "/", window.location.origin);
+    return url.pathname === "/research/mu-dd" || url.searchParams.get("research_slug") === "mu-dd";
+  } catch {
+    return false;
+  }
 }
 
 function BillingAccountSkeleton() {
@@ -64,6 +88,7 @@ export function BillingAccountPanel() {
   const [returnSyncStatus, setReturnSyncStatus] = useState<"syncing" | "synced" | "delayed" | null>(null);
   const [reactivationNotice, setReactivationNotice] = useState(false);
   const [portalStatus, setPortalStatus] = useState<string | null>(null);
+  const subscriptionCompletedTrackedRef = useRef(false);
 
   const loadBillingHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -145,6 +170,14 @@ export function BillingAccountPanel() {
           await loadBillingHistory();
           if ((fromCheckout && paidTier(response.user, response.entitlements.effective_tier ?? response.entitlements.tier)) || (!fromCheckout && refreshedFromStripe)) {
             setReturnSyncStatus("synced");
+            if (fromCheckout && returnTo && isMuResearchReturn(returnTo) && !subscriptionCompletedTrackedRef.current) {
+              subscriptionCompletedTrackedRef.current = true;
+              recordProductEvent({
+                event_name: "research_subscription_completed",
+                path: returnTo,
+                properties: researchSubscriptionProperties(returnTo, response.entitlements.effective_tier ?? response.entitlements.tier),
+              });
+            }
             if (fromCheckout && returnTo && returnTo !== "/account/billing") {
               window.location.href = appendCompareUpgradeFlag(returnTo);
             }

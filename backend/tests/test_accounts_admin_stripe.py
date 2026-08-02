@@ -2941,6 +2941,78 @@ def test_checkout_session_preserves_safe_return_path(monkeypatch):
         db.close()
 
 
+def test_checkout_session_copies_mu_reddit_attribution_to_stripe_metadata(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path.startswith("customers/"):
+            return {"id": "cus_checkout_mu"}
+        if path == "checkout/sessions":
+            return {"id": "cs_checkout_mu", "url": "https://checkout.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "checkout-mu@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_checkout_mu"
+        db.commit()
+
+        return_to = (
+            "/research/mu-dd?utm_source=reddit&utm_medium=paid_social"
+            "&utm_campaign=mu_dd_research_test&utm_content=paywall"
+            "&rdt_cid=reddit-click-123&research_slug=mu-dd&cta_ticker=MU"
+        )
+        create_checkout_session(
+            _request_for_user(user),
+            CheckoutSessionPayload(plan="premium", interval="monthly", returnTo=return_to),
+            db,
+        )
+
+        checkout_data = calls[-1][1]
+        assert checkout_data["metadata[return_path]"] == return_to
+        assert checkout_data["metadata[source_path]"] == "/research/mu-dd"
+        assert checkout_data["metadata[article_slug]"] == "mu-dd"
+        assert checkout_data["metadata[ticker]"] == "MU"
+        assert checkout_data["metadata[utm_source]"] == "reddit"
+        assert checkout_data["metadata[utm_medium]"] == "paid_social"
+        assert checkout_data["metadata[utm_campaign]"] == "mu_dd_research_test"
+        assert checkout_data["metadata[utm_content]"] == "paywall"
+        assert checkout_data["metadata[rdt_cid]"] == "reddit-click-123"
+        assert checkout_data["subscription_data[metadata][article_slug]"] == "mu-dd"
+        assert checkout_data["subscription_data[metadata][utm_source]"] == "reddit"
+    finally:
+        db.close()
+
+
+def test_product_events_are_persisted_with_source_path_and_properties():
+    db = _session()
+    try:
+        record_product_event(
+            ProductEventPayload(
+                event_name="research_paywall_viewed",
+                path="/research/mu-dd?utm_source=reddit",
+                properties={"article_slug": "mu-dd", "ticker": "MU", "user_entitlement": "free"},
+            ),
+            Request({"type": "http", "method": "POST", "path": "/api/analytics/event", "headers": []}),
+            db,
+        )
+        row = db.execute(select(PageViewEvent).where(PageViewEvent.route_group == "event")).scalar_one()
+        assert row.normalized_path == "/events/research_paywall_viewed"
+        assert row.path == "/research/mu-dd"
+        metadata = json.loads(row.metadata_json or "{}")
+        assert metadata["event_name"] == "research_paywall_viewed"
+        assert metadata["source_path"] == "/research/mu-dd"
+        assert metadata["properties"]["article_slug"] == "mu-dd"
+        assert metadata["properties"]["ticker"] == "MU"
+    finally:
+        db.close()
+
+
 def test_free_user_with_stale_test_customer_can_create_live_checkout(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_hidden")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_live_premium_monthly")

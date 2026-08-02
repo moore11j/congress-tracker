@@ -53,6 +53,14 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /Primary ticker context match/);
   assert.match(component, /include_confirmation_score: false/);
   assert.match(component, /include_cross_source_confirmations: false/);
+  assert.match(component, /premium_required: false/);
+  assert.match(component, /required_plan: null/);
+  assert.match(component, /Premium\/Pro/);
+  assert.match(component, /Pro only/);
+  assert.match(component, /updateConfigAccess/);
+  assert.match(component, /articleRequiredPlan/);
+  assert.match(component, /onArticleChange\("premium_required", patch\.premium_required\)/);
+  assert.match(component, /onArticleChange\("required_plan", patch\.required_plan\)/);
   assert.match(component, /updateConfig\("include_cross_source_confirmations", event\.target\.checked\)/);
   assert.match(component, /WALNUT_CALL_VALUES/);
   assert.match(component, /Bullish but expensive/);
@@ -104,6 +112,8 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /include_charts: false/);
   assert.match(api, /include_confirmation_score: boolean/);
   assert.match(api, /include_cross_source_confirmations: boolean/);
+  assert.match(api, /premium_required\?: boolean/);
+  assert.match(api, /required_plan\?: "premium" \| "pro" \| null/);
   assert.match(api, /manual_source_url\?: string \| null/);
   assert.match(api, /source_discovery\?: Record<string, unknown>/);
   assert.match(api, /walnut_call\?: string/);
@@ -123,5 +133,7 @@ test("public research brief integration preserves existing MU brief", () => {
   assert.match(section, /getPublishedResearchBriefs/);
   assert.match(section, /getGeneratedResearchBriefCards/);
   assert.match(section, /!seen\.has\(brief\.slug\)/);
+  assert.match(section, /requiredPlan/);
+  assert.match(section, /item\.premium/);
   assert.match(generatedPage, /GeneratedResearchBriefPage/);
 });

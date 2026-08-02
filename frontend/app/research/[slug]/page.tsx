@@ -1,14 +1,15 @@
 import { GeneratedResearchBriefPage } from "@/components/research/GeneratedResearchBriefPage";
 import { getGeneratedResearchBrief } from "@/lib/api";
 import { marketingCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMetadata";
+import { buildReturnTo, optionalPageAuthToken } from "@/lib/serverAuth";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-async function loadGeneratedResearchBrief(slug: string) {
+async function loadGeneratedResearchBrief(slug: string, authToken?: string | null) {
   try {
-    return await getGeneratedResearchBrief(slug);
+    return await getGeneratedResearchBrief(slug, { authToken, source: "ResearchBrief" });
   } catch {
     return null;
   }
@@ -49,9 +50,17 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   });
 }
 
-export default async function GeneratedResearchPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function GeneratedResearchPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
-  const draft = await loadGeneratedResearchBrief(slug);
+  const sp = (await searchParams) ?? {};
+  const authToken = await optionalPageAuthToken();
+  const draft = await loadGeneratedResearchBrief(slug, authToken);
   if (!draft) notFound();
-  return <GeneratedResearchBriefPage draft={draft} />;
+  return <GeneratedResearchBriefPage draft={draft} returnTo={buildReturnTo(`/research/${draft.article.slug || slug}`, sp)} authenticated={Boolean(authToken)} />;
 }

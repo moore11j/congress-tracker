@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from html import escape as html_escape
 from io import BytesIO
 from typing import Annotated, Any, Literal
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -3431,6 +3431,35 @@ def _safe_app_return_path(return_to: str | None, fallback: str = DEFAULT_POST_LO
     return urlunparse(("", "", parsed.path, parsed.params, parsed.query, parsed.fragment))
 
 
+CHECKOUT_ATTRIBUTION_PARAM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "rdt_cid", "cta_ticker", "research_slug")
+
+
+def _stripe_metadata_value(value: Any) -> str:
+    return str(value or "").strip()[:500]
+
+
+def _checkout_attribution_metadata(return_to: str | None) -> dict[str, str]:
+    safe_return_to = _safe_app_return_path(return_to, fallback="")
+    if not safe_return_to:
+        return {}
+    parsed = urlparse(safe_return_to)
+    query = {key: value for key, value in parse_qsl(parsed.query, keep_blank_values=False)}
+    metadata: dict[str, str] = {
+        "return_path": _stripe_metadata_value(safe_return_to),
+        "source_path": _stripe_metadata_value(parsed.path),
+    }
+    for key in CHECKOUT_ATTRIBUTION_PARAM_KEYS:
+        value = _stripe_metadata_value(query.get(key))
+        if value:
+            metadata[key] = value
+    if parsed.path.startswith("/research/"):
+        slug = parsed.path.strip("/").split("/", 1)[1]
+        metadata.setdefault("article_slug", _stripe_metadata_value(query.get("research_slug") or slug))
+    if metadata.get("article_slug") == "mu-dd":
+        metadata.setdefault("ticker", _stripe_metadata_value(query.get("cta_ticker") or "MU"))
+    return metadata
+
+
 def _authenticated_app_frontend_base_url() -> str:
     for name in ("FRONTEND_APP_URL", "APP_BASE_URL", "NEXT_PUBLIC_APP_BASE_URL", "NEXT_PUBLIC_APP_URL", "FRONTEND_BASE_URL"):
         value = _env_url(name)
@@ -4740,6 +4769,9 @@ def create_checkout_session(
         "subscription_data[metadata][tier]": tier,
         "subscription_data[metadata][price_id]": price_id,
     }
+    for key, value in _checkout_attribution_metadata(return_to).items():
+        data[f"metadata[{key}]"] = value
+        data[f"subscription_data[metadata][{key}]"] = value
     if tax_settings["automatic_tax_enabled"]:
         data["automatic_tax[enabled]"] = "true"
         data["billing_address_collection"] = "required"
@@ -6245,9 +6277,33 @@ def record_product_event(payload: ProductEventPayload, request: Request, db: Ses
     path = _safe_analytics_path(payload.path)
     if path and path.startswith("/api/"):
         return Response(status_code=204)
-    # Product events are intentionally accepted without persistence for now. This
-    # keeps first-party UI telemetry from generating backend 404 noise while the
-    # page-view analytics table remains the only stored analytics surface.
+    try:
+        user = current_user(db, request, required=False)
+    except HTTPException:
+        user = None
+    user_agent = request.headers.get("user-agent", "")
+    safe_event_name = re.sub(r"[^a-zA-Z0-9_.:-]+", "_", event_name)[:120]
+    metadata = {
+        "event_name": event_name,
+        "source_path": path or "/",
+        "properties": payload.properties,
+    }
+    row = PageViewEvent(
+        user_id=user.id if user else None,
+        session_id_hash=None,
+        path=path or "/",
+        normalized_path=f"/events/{safe_event_name}",
+        route_group="event",
+        referrer_path=None,
+        user_agent_family=_user_agent_family(user_agent),
+        device_type=_device_type(user_agent),
+        is_authenticated=bool(user),
+        plan_at_time=normalize_tier(user.entitlement_tier if user else None) if user else "anonymous",
+        metadata_json=json.dumps(metadata, sort_keys=True, default=str)[:4000],
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    db.commit()
     return Response(status_code=204)
 
 

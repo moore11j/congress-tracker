@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_admin_user
 from app.db import get_db
+from app.entitlements import current_entitlements
 from app.rate_limit import rate_limit_admin_mutation
 from app.services.research_briefs import (
     DEFAULT_SECTIONS,
@@ -63,6 +64,8 @@ class ResearchBriefGeneratePayload(BaseModel):
     include_source_links: bool = True
     include_confirmation_score: bool = False
     include_cross_source_confirmations: bool = False
+    premium_required: bool = False
+    required_plan: str | None = Field(default=None, max_length=20)
     generate_thumbnail: bool = True
     hero_image: str | None = Field(default=None, max_length=1000)
     manual_source_url: str | None = Field(default=None, max_length=1000)
@@ -186,5 +189,5 @@ def public_research_brief_cards(db: Session = Depends(get_db)):
 
 
 @router.get("/research/briefs/{slug}")
-def public_research_brief(slug: str, db: Session = Depends(get_db)):
-    return published_article(slug, db=db)
+def public_research_brief(slug: str, request: Request, db: Session = Depends(get_db)):
+    return published_article(slug, db=db, entitlements=current_entitlements(request, db))

@@ -16,7 +16,9 @@ test("mu dd brief remains a canonical research brief", () => {
   assert.match(registry, /slug: "mu-dd"/);
   assert.match(registry, /route: "\/research\/mu-dd"/);
   assert.match(registry, /title: "Is the MU momentum trade dead\?"/);
-  assert.match(registry, /The bear case needs memory demand to roll over/);
+  assert.match(registry, /A Walnut preview of the MU momentum setup/);
+  assert.match(registry, /premium: true/);
+  assert.doesNotMatch(registry, /judgment: "bullish"[\s\S]*?publishedAt: "2026-07-20"/);
   assert.doesNotMatch(registry, /A research-only Micron DD landing page/);
   assert.match(registry, /publishedAt: "2026-07-20"/);
   assert.match(registry, /featured: true/);
@@ -29,11 +31,41 @@ test("mu dd route reuses canonical research metadata", () => {
   assert.doesNotMatch(muPage, /description:\s*"A research-only Micron DD landing page/);
 });
 
+test("mu dd brief gates the conclusion behind premium access only", () => {
+  assert.match(muPage, /force-dynamic/);
+  assert.match(muPage, /optionalPageAuthToken/);
+  assert.match(muPage, /canReadFullArticle/);
+  assert.match(muPage, /<MuPremiumGate authState=\{authenticated \? "free" : "logged_out"\} entitlement=\{userEntitlement\} returnTo=\{returnTo\} \/>/);
+  assert.match(muPage, /canReadFull \? "Cyclical\? Yes\. Broken\? Not on the current data\." : "The MU debate turns on whether the memory cycle is rolling over\."/);
+  assert.match(muPage, /research_full_article_viewed/);
+  assert.match(muPage, /research_preview_viewed/);
+});
+
+test("mu premium gate uses requested copy, CTAs, and analytics events", () => {
+  const gate = read("components/research/MuPremiumGate.tsx");
+  assert.match(gate, /heading="Unlock Walnut's Full MU Conclusion"/);
+  assert.match(gate, /See the confirmation score, directional judgment, supporting evidence, catalysts, risks, and what could change the outlook\./);
+  assert.match(gate, /Create an Account to Continue/);
+  assert.match(gate, /Unlock with Premium/);
+  assert.match(gate, /View Premium Plans/);
+  for (const eventName of [
+    "research_preview_viewed",
+    "research_paywall_viewed",
+    "research_paywall_cta_clicked",
+    "research_signup_started",
+    "research_checkout_started",
+  ]) {
+    assert.match(gate, new RegExp(eventName));
+  }
+});
+
 test("insights renders research briefs from the registry", () => {
   assert.match(insightsPage, /<ResearchBriefsSection \/>/);
   assert.match(researchSection, /getPublishedResearchBriefs/);
   assert.match(researchSection, /brief\.route/);
   assert.match(researchSection, /Read brief/);
+  assert.match(researchSection, /brief\.premium/);
+  assert.match(researchSection, /Premium/);
   assert.match(researchSection, /const BRIEFS_PER_PAGE = 6/);
   assert.match(researchSection, /sortBriefsNewestFirst\(\[\.\.\.staticBriefs, \.\.\.generated\]\)/);
   assert.match(researchSection, /briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);

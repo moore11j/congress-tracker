@@ -9,6 +9,8 @@ export type ResearchBriefCard = {
   publishedAt: string;
   readingMinutes: number;
   featured?: boolean;
+  premium?: boolean;
+  requiredPlan?: "premium" | "pro" | string | null;
   thumbnailUrl?: string;
 };
 
@@ -43,13 +45,13 @@ export const researchBriefs: ResearchBriefCard[] = [
     slug: "mu-dd",
     route: "/research/mu-dd",
     title: "Is the MU momentum trade dead?",
-    description: "The bear case needs memory demand to roll over. The latest cycle data says the trade still has a pulse.",
+    description: "A Walnut preview of the MU momentum setup, memory-cycle question, and key reported revenue, margin, and guidance data.",
     tickers: ["MU"],
     category: "Semiconductors",
-    judgment: "bullish",
     publishedAt: "2026-07-20",
     readingMinutes: 7,
     featured: true,
+    premium: true,
   },
 ];
 

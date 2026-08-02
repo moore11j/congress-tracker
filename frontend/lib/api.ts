@@ -5775,6 +5775,8 @@ export type AdminResearchBriefConfig = {
   include_source_links: boolean;
   include_confirmation_score: boolean;
   include_cross_source_confirmations: boolean;
+  premium_required?: boolean;
+  required_plan?: "premium" | "pro" | null;
   generate_thumbnail: boolean;
   hero_image?: string | null;
   manual_source_url?: string | null;
@@ -5791,6 +5793,13 @@ export type AdminResearchBriefArticle = {
   walnut_call?: string;
   confidence?: string;
   confirmation_score_included?: boolean;
+  premium_required?: boolean;
+  required_plan?: "premium" | "pro" | null;
+  access?: {
+    premium_required?: boolean;
+    required_plan?: "premium" | "pro" | null;
+    full_article_visible?: boolean;
+  };
   primary_ticker: string;
   comparison_tickers: string[];
   category: string;
@@ -5910,10 +5919,12 @@ export type PublicResearchBriefCard = {
   description: string;
   tickers: string[];
   category: string;
-  judgment?: "bullish" | "bearish" | "mixed" | "macro" | "policy" | "neutral" | string;
+  judgment?: "bullish" | "bearish" | "mixed" | "macro" | "policy" | "neutral" | string | null;
   publishedAt: string;
   readingMinutes: number;
   generated?: boolean;
+  premium?: boolean;
+  requiredPlan?: "premium" | "pro" | string | null;
 };
 
 export async function getAdminResearchBriefOptions(): Promise<{
@@ -6044,11 +6055,12 @@ export async function getGeneratedResearchBriefCards(): Promise<{ items: PublicR
   });
 }
 
-export async function getGeneratedResearchBrief(slug: string): Promise<AdminResearchBriefDraft> {
+export async function getGeneratedResearchBrief(slug: string, options?: { authToken?: string | null; source?: string }): Promise<AdminResearchBriefDraft> {
   return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/research/briefs/${encodeURIComponent(slug)}`), {
+    headers: authHeaders(options?.authToken ?? undefined),
     cache: "no-store",
     next: { revalidate: 0 },
-    source: "ResearchBrief",
+    source: options?.source ?? "ResearchBrief",
   });
 }
 

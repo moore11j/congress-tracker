@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { AdminResearchBriefDraft } from "@/lib/api";
 import { WALNUT_MARKETING_URL, marketingCanonicalUrl } from "@/lib/marketingMetadata";
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
+import { PremiumResearchGate } from "@/components/research/MuPremiumGate";
 
 type StoredSignalResult = {
   ticker: string;
@@ -151,7 +152,15 @@ function isMarkdownDivider(cells: string[]) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
 }
 
-export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBriefDraft }) {
+export function GeneratedResearchBriefPage({
+  draft,
+  returnTo,
+  authenticated = false,
+}: {
+  draft: AdminResearchBriefDraft;
+  returnTo?: string;
+  authenticated?: boolean;
+}) {
   const article = draft.article as AdminResearchBriefDraft["article"] & GeneratedResearchArticleExtras;
   const tickerHref = `/ticker/${encodeURIComponent(article.primary_ticker || draft.primary_ticker)}`;
   const primaryCtaHref = `/login?mode=register&return_to=${encodeURIComponent(tickerHref)}`;
@@ -160,6 +169,10 @@ export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBrie
   const results = article.signal_results || [];
   const chartByTicker = new Map((article.price_move_charts || []).map((chart) => [chart.ticker.toLowerCase(), chart]));
   const showWalnutJudgment = Boolean(String(article.judgment || "").trim());
+  const access = article.access;
+  const fullArticleVisible = access?.premium_required ? access.full_article_visible !== false : true;
+  const requiredPlan = access?.required_plan || article.required_plan || "premium";
+  const tickers = [article.primary_ticker || draft.primary_ticker, ...(article.comparison_tickers || draft.comparison_tickers || [])].filter((ticker): ticker is string => Boolean(ticker));
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -203,25 +216,38 @@ export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBrie
               </div>
             </section>
           ))}
-          <ResearchBriefContextualCta
-            ticker={article.primary_ticker || draft.primary_ticker}
-            companyName={article.primary_ticker || draft.primary_ticker}
-            researchSlug={article.slug}
-          />
+          {fullArticleVisible ? (
+            <ResearchBriefContextualCta
+              ticker={article.primary_ticker || draft.primary_ticker}
+              companyName={article.primary_ticker || draft.primary_ticker}
+              researchSlug={article.slug}
+            />
+          ) : (
+            <PremiumResearchGate
+              authState={authenticated ? "free" : "logged_out"}
+              entitlement={authenticated ? "free" : "logged_out"}
+              returnTo={returnTo || `/research/${article.slug}`}
+              articleSlug={article.slug}
+              tickers={tickers}
+              requiredPlan={requiredPlan}
+              heading={`Unlock Walnut's Full ${tickers.length > 1 ? `${tickers[0]} vs ${tickers[1]}` : article.primary_ticker || draft.primary_ticker} Research Brief`}
+              description="See the full judgment, confirmation evidence, catalysts, risks, source trail, and what could change the setup."
+            />
+          )}
         </article>
 
         <aside className="space-y-4">
-          {showWalnutJudgment ? (
+          {showWalnutJudgment && fullArticleVisible ? (
             <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Walnut Judgment</p>
               <p className="mt-2 text-lg font-semibold capitalize text-white">{article.judgment}</p>
               <p className="mt-2 text-sm leading-6 text-slate-400">{cleanInlineText(article.summary)}</p>
             </div>
           ) : null}
-          <SideList title="Catalysts" items={article.catalysts} />
-          <SideList title="Risks" items={article.risks} />
-          <SideList title="What to watch" items={article.watch_items} />
-          <SourceList items={article.source_links || []} />
+          {fullArticleVisible ? <SideList title="Catalysts" items={article.catalysts} /> : null}
+          {fullArticleVisible ? <SideList title="Risks" items={article.risks} /> : null}
+          {fullArticleVisible ? <SideList title="What to watch" items={article.watch_items} /> : null}
+          {fullArticleVisible ? <SourceList items={article.source_links || []} /> : null}
           <TickerLookupCard currentDataAsOf={article.current_data_as_of} />
         </aside>
       </section>
