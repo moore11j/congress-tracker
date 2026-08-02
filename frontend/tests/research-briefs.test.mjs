@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const registry = read("lib/researchBriefs.ts");
 const muPage = read("app/research/mu-dd/page.tsx");
+const researchIndexPage = read("app/research/page.tsx");
 const insightsPage = read("app/insights/page.tsx");
 const researchSection = read("components/insights/ResearchBriefsSection.tsx");
 const generatedBriefPage = read("components/research/GeneratedResearchBriefPage.tsx");
@@ -67,13 +68,24 @@ test("insights renders research briefs from the registry", () => {
   assert.match(researchSection, /brief\.premium/);
   assert.match(researchSection, /Premium/);
   assert.match(researchSection, /const BRIEFS_PER_PAGE = 6/);
+  assert.match(researchSection, /mode = "preview"/);
+  assert.match(researchSection, /href="\/research"/);
+  assert.match(researchSection, /Open Research Briefs/);
   assert.match(researchSection, /sortBriefsNewestFirst\(\[\.\.\.staticBriefs, \.\.\.generated\]\)/);
+  assert.match(researchSection, /showAll \? briefs : briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);
   assert.match(researchSection, /briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);
   assert.match(researchSection, /xl:grid-cols-3/);
   assert.match(researchSection, /Show more/);
   assert.match(researchSection, /setPageIndex\(\(current\) => Math\.min\(totalPages - 1, current \+ 1\)\)/);
   assert.doesNotMatch(researchSection, /NVDA vs MU: Quality vs Cycle Torque/);
   assert.doesNotMatch(researchSection, /View all briefs/);
+});
+
+test("research index opens the full research briefs archive", () => {
+  assert.match(researchIndexPage, /appPageMetadata\("\/research"/);
+  assert.match(researchIndexPage, /Back to Insights/);
+  assert.match(researchIndexPage, /All published Walnut research briefs/);
+  assert.match(researchIndexPage, /<ResearchBriefsSection mode="archive" \/>/);
 });
 
 test("generated research briefs render pipe-delimited data as production tables", () => {

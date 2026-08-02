@@ -7,6 +7,10 @@ import { getPublishedResearchBriefs, type ResearchBriefCard } from "@/lib/resear
 
 const BRIEFS_PER_PAGE = 6;
 
+type ResearchBriefsSectionProps = {
+  mode?: "preview" | "archive";
+};
+
 function formatBriefDate(value: string): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return value;
@@ -112,9 +116,10 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
   );
 }
 
-export function ResearchBriefsSection() {
+export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectionProps) {
   const [generatedBriefs, setGeneratedBriefs] = useState<ResearchBriefCard[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
+  const showAll = mode === "archive";
   const briefs = useMemo(() => {
     const staticBriefs = getPublishedResearchBriefs().filter((brief) => brief.route.startsWith("/research/"));
     const seen = new Set(staticBriefs.map((brief) => brief.slug));
@@ -122,7 +127,10 @@ export function ResearchBriefsSection() {
     return sortBriefsNewestFirst([...staticBriefs, ...generated]);
   }, [generatedBriefs]);
   const totalPages = Math.max(1, Math.ceil(briefs.length / BRIEFS_PER_PAGE));
-  const visibleBriefs = useMemo(() => briefs.slice(pageIndex * BRIEFS_PER_PAGE, pageIndex * BRIEFS_PER_PAGE + BRIEFS_PER_PAGE), [briefs, pageIndex]);
+  const visibleBriefs = useMemo(
+    () => (showAll ? briefs : briefs.slice(pageIndex * BRIEFS_PER_PAGE, pageIndex * BRIEFS_PER_PAGE + BRIEFS_PER_PAGE)),
+    [briefs, pageIndex, showAll],
+  );
   const canShowMore = pageIndex + 1 < totalPages;
 
   useEffect(() => {
@@ -163,6 +171,14 @@ export function ResearchBriefsSection() {
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Research Briefs</h2>
           <p className="text-sm text-slate-400">In-depth Walnut research and campaign analysis.</p>
         </div>
+        {!showAll ? (
+          <Link
+            href="/research"
+            className="inline-flex min-h-9 items-center rounded-md border border-white/10 px-3 py-1.5 text-sm font-semibold text-emerald-200 transition hover:border-emerald-300/35 hover:bg-emerald-300/10 hover:text-emerald-100"
+          >
+            Open Research Briefs -&gt;
+          </Link>
+        ) : null}
       </div>
 
       {briefs.length > 0 ? (
@@ -172,7 +188,7 @@ export function ResearchBriefsSection() {
               <BriefCard key={brief.slug} brief={brief} />
             ))}
           </div>
-          {briefs.length > BRIEFS_PER_PAGE ? (
+          {!showAll && briefs.length > BRIEFS_PER_PAGE ? (
             <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
               {pageIndex > 0 ? (
                 <button
