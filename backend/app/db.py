@@ -573,6 +573,220 @@ def ensure_market_pressure_snapshot_schema(bind=engine) -> None:
         )
 
 
+def ensure_strategy_storage_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
+        float_type = "FLOAT" if dialect_name == "sqlite" else "DOUBLE PRECISION"
+        id_type = "INTEGER PRIMARY KEY AUTOINCREMENT" if dialect_name == "sqlite" else "BIGSERIAL PRIMARY KEY"
+        now_default = "CURRENT_TIMESTAMP" if dialect_name == "sqlite" else "now()"
+        false_default = "0" if dialect_name == "sqlite" else "false"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_definitions (
+                    id {id_type},
+                    slug TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    family TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    access_tier TEXT NOT NULL DEFAULT 'premium',
+                    is_featured BOOLEAN NOT NULL DEFAULT {false_default},
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    short_description TEXT,
+                    walnut_take TEXT,
+                    methodology TEXT,
+                    rule_json TEXT NOT NULL DEFAULT '{{}}',
+                    parameters_json TEXT NOT NULL DEFAULT '{{}}',
+                    universe_json TEXT NOT NULL DEFAULT '{{}}',
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    risk_notes_json TEXT NOT NULL DEFAULT '[]',
+                    data_quality_confidence TEXT NOT NULL DEFAULT 'unknown',
+                    methodology_version TEXT NOT NULL,
+                    created_by TEXT,
+                    created_at {timestamp_type} NOT NULL DEFAULT {now_default},
+                    updated_at {timestamp_type} NOT NULL DEFAULT {now_default},
+                    published_at {timestamp_type}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_backtest_runs (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    run_key TEXT NOT NULL,
+                    run_type TEXT NOT NULL DEFAULT 'research',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    started_at {timestamp_type},
+                    completed_at {timestamp_type},
+                    backtest_start_date DATE,
+                    backtest_end_date DATE,
+                    benchmark TEXT NOT NULL DEFAULT 'SPY',
+                    methodology_version TEXT NOT NULL,
+                    code_version TEXT,
+                    dataset_versions_json TEXT NOT NULL DEFAULT '{{}}',
+                    parameters_json TEXT NOT NULL DEFAULT '{{}}',
+                    universe_hash TEXT,
+                    universe_json TEXT NOT NULL DEFAULT '{{}}',
+                    execution_timing TEXT,
+                    fee_bps_per_side {float_type} NOT NULL DEFAULT 0,
+                    slippage_bps_per_side {float_type} NOT NULL DEFAULT 0,
+                    metrics_json TEXT NOT NULL DEFAULT '{{}}',
+                    diagnostics_json TEXT NOT NULL DEFAULT '{{}}',
+                    walnut_strategy_score {float_type},
+                    data_quality_confidence TEXT NOT NULL DEFAULT 'unknown',
+                    error TEXT,
+                    created_at {timestamp_type} NOT NULL DEFAULT {now_default},
+                    updated_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_performance_snapshots (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    run_id INTEGER NOT NULL,
+                    as_of_date DATE NOT NULL,
+                    period TEXT NOT NULL,
+                    total_return_pct {float_type},
+                    cagr_pct {float_type},
+                    benchmark_return_pct {float_type},
+                    benchmark_cagr_pct {float_type},
+                    alpha_cagr_pct {float_type},
+                    beta {float_type},
+                    sharpe {float_type},
+                    sortino {float_type},
+                    max_drawdown_pct {float_type},
+                    annualized_volatility_pct {float_type},
+                    win_rate_pct {float_type},
+                    trade_count INTEGER,
+                    independent_signal_count INTEGER,
+                    avg_holdings {float_type},
+                    turnover_events INTEGER,
+                    rolling_12m_beating_spy_pct {float_type},
+                    walnut_strategy_score {float_type},
+                    metrics_json TEXT NOT NULL DEFAULT '{{}}',
+                    created_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_equity_curve_points (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    run_id INTEGER NOT NULL,
+                    date DATE NOT NULL,
+                    strategy_value {float_type} NOT NULL,
+                    benchmark_value {float_type},
+                    drawdown_pct {float_type},
+                    active_holdings INTEGER,
+                    created_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_holdings_snapshots (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    run_id INTEGER NOT NULL,
+                    as_of_date DATE NOT NULL,
+                    holdings_count INTEGER NOT NULL DEFAULT 0,
+                    total_weight_pct {float_type},
+                    cash_weight_pct {float_type},
+                    generated_at {timestamp_type} NOT NULL DEFAULT {now_default},
+                    diagnostics_json TEXT NOT NULL DEFAULT '{{}}'
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_holding_rows (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    snapshot_id INTEGER NOT NULL,
+                    run_id INTEGER NOT NULL,
+                    symbol TEXT NOT NULL,
+                    company_name TEXT,
+                    sector TEXT,
+                    rank INTEGER,
+                    weight_pct {float_type},
+                    entry_date DATE,
+                    avg_entry_price {float_type},
+                    last_price {float_type},
+                    return_pct {float_type},
+                    source_signal_count INTEGER NOT NULL DEFAULT 0,
+                    source_signals_json TEXT NOT NULL DEFAULT '[]',
+                    payload_json TEXT NOT NULL DEFAULT '{{}}',
+                    created_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_current_holdings (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    run_id INTEGER NOT NULL,
+                    as_of_date DATE NOT NULL,
+                    symbol TEXT NOT NULL,
+                    company_name TEXT,
+                    sector TEXT,
+                    rank INTEGER,
+                    weight_pct {float_type},
+                    entry_date DATE,
+                    last_price {float_type},
+                    return_pct {float_type},
+                    source_signal_count INTEGER NOT NULL DEFAULT 0,
+                    source_signals_json TEXT NOT NULL DEFAULT '[]',
+                    payload_json TEXT NOT NULL DEFAULT '{{}}',
+                    updated_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        for statement in (
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_strategy_definitions_slug ON strategy_definitions (slug)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_definitions_category_status ON strategy_definitions (category, status)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_definitions_featured ON strategy_definitions (is_featured, sort_order)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_backtest_runs_strategy_run_key ON strategy_backtest_runs (strategy_id, run_key)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_backtest_runs_strategy_completed ON strategy_backtest_runs (strategy_id, completed_at)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_backtest_runs_status ON strategy_backtest_runs (status)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_backtest_runs_score ON strategy_backtest_runs (walnut_strategy_score)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_perf_snapshot_period ON strategy_performance_snapshots (strategy_id, run_id, as_of_date, period)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_perf_snapshots_strategy_period ON strategy_performance_snapshots (strategy_id, period, as_of_date)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_perf_snapshots_score ON strategy_performance_snapshots (walnut_strategy_score)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_equity_curve_run_date ON strategy_equity_curve_points (run_id, date)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_equity_curve_strategy_date ON strategy_equity_curve_points (strategy_id, date)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_holdings_snapshot_date ON strategy_holdings_snapshots (strategy_id, run_id, as_of_date)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_holdings_snapshots_strategy_date ON strategy_holdings_snapshots (strategy_id, as_of_date)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_holding_rows_snapshot_symbol ON strategy_holding_rows (snapshot_id, symbol)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_holding_rows_strategy_symbol ON strategy_holding_rows (strategy_id, symbol)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_holding_rows_snapshot_rank ON strategy_holding_rows (snapshot_id, rank)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_current_holdings_strategy_symbol ON strategy_current_holdings (strategy_id, symbol)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_current_holdings_strategy_rank ON strategy_current_holdings (strategy_id, rank)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_current_holdings_symbol ON strategy_current_holdings (symbol)",
+        ):
+            conn.execute(text(statement))
+
+
 def ensure_fundamentals_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

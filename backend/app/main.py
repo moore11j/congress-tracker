@@ -55,6 +55,7 @@ from app.db import (
     ensure_quote_cache_market_cap_schema,
     ensure_reddit_ads_assistant_schema,
     ensure_search_and_insights_schema,
+    ensure_strategy_storage_schema,
     ensure_ticker_meta_identity_schema,
     ensure_ticker_content_cache_schema,
     ensure_ticker_financials_cache_schema,
@@ -150,6 +151,7 @@ from app.routers.research_briefs import router as research_briefs_router
 from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
+from app.routers.strategies import router as strategies_router
 from app.routers.events import (
     _cap_feed_quote_symbols,
     _enrich_payload_company_name as _enrich_event_payload_company_name,
@@ -3892,6 +3894,7 @@ def _startup_create_tables():
         ("schema_search_and_insights", lambda: ensure_search_and_insights_schema(engine)),
         ("schema_macro_positioning", lambda: ensure_macro_positioning_schema(engine)),
         ("schema_market_pressure_snapshots", lambda: ensure_market_pressure_snapshot_schema(engine)),
+        ("schema_strategy_storage", lambda: ensure_strategy_storage_schema(engine)),
         ("schema_ticker_content_cache", lambda: ensure_ticker_content_cache_schema(engine)),
         ("schema_ticker_financials_cache", lambda: ensure_ticker_financials_cache_schema(engine)),
         ("schema_user_account_billing", lambda: ensure_user_account_billing_schema(engine)),
@@ -13409,6 +13412,7 @@ app.include_router(debug_router, prefix="/api")
 app.include_router(event_calendar_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
+app.include_router(strategies_router, prefix="/api")
 app.include_router(admin_data_sources_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
 app.include_router(reddit_ads_assistant_router, prefix="/api")

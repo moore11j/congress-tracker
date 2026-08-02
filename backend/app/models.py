@@ -2481,3 +2481,211 @@ class CongressMemberAlias(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class StrategyDefinition(Base):
+    __tablename__ = "strategy_definitions"
+    __table_args__ = (
+        Index("ix_strategy_definitions_slug", "slug", unique=True),
+        Index("ix_strategy_definitions_category_status", "category", "status"),
+        Index("ix_strategy_definitions_featured", "is_featured", "sort_order"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    family: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="draft", server_default="draft", nullable=False)
+    access_tier: Mapped[str] = mapped_column(Text, default="premium", server_default="premium", nullable=False)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    sort_order: Mapped[int] = mapped_column(default=100, server_default=text("100"), nullable=False)
+    short_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    walnut_take: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    methodology: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rule_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    parameters_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    universe_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    tags_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    risk_notes_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    data_quality_confidence: Mapped[str] = mapped_column(Text, default="unknown", server_default="unknown", nullable=False)
+    methodology_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StrategyBacktestRun(Base):
+    __tablename__ = "strategy_backtest_runs"
+    __table_args__ = (
+        UniqueConstraint("strategy_id", "run_key", name="uq_strategy_backtest_runs_strategy_run_key"),
+        Index("ix_strategy_backtest_runs_strategy_completed", "strategy_id", "completed_at"),
+        Index("ix_strategy_backtest_runs_status", "status"),
+        Index("ix_strategy_backtest_runs_score", "walnut_strategy_score"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    run_key: Mapped[str] = mapped_column(Text, nullable=False)
+    run_type: Mapped[str] = mapped_column(Text, default="research", server_default="research", nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    backtest_start_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    backtest_end_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    benchmark: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY", nullable=False)
+    methodology_version: Mapped[str] = mapped_column(Text, nullable=False)
+    code_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    dataset_versions_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    parameters_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    universe_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    universe_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    execution_timing: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fee_bps_per_side: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
+    slippage_bps_per_side: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    diagnostics_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    walnut_strategy_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    data_quality_confidence: Mapped[str] = mapped_column(Text, default="unknown", server_default="unknown", nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class StrategyPerformanceSnapshot(Base):
+    __tablename__ = "strategy_performance_snapshots"
+    __table_args__ = (
+        UniqueConstraint("strategy_id", "run_id", "as_of_date", "period", name="uq_strategy_perf_snapshot_period"),
+        Index("ix_strategy_perf_snapshots_strategy_period", "strategy_id", "period", "as_of_date"),
+        Index("ix_strategy_perf_snapshots_score", "walnut_strategy_score"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[int] = mapped_column(nullable=False)
+    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    period: Mapped[str] = mapped_column(Text, nullable=False)
+    total_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cagr_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    benchmark_cagr_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alpha_cagr_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    beta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sharpe: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sortino: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_drawdown_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    annualized_volatility_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    win_rate_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    trade_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    independent_signal_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    avg_holdings: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    turnover_events: Mapped[Optional[int]] = mapped_column(nullable=True)
+    rolling_12m_beating_spy_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    walnut_strategy_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StrategyEquityCurvePoint(Base):
+    __tablename__ = "strategy_equity_curve_points"
+    __table_args__ = (
+        UniqueConstraint("run_id", "date", name="uq_strategy_equity_curve_run_date"),
+        Index("ix_strategy_equity_curve_strategy_date", "strategy_id", "date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[int] = mapped_column(nullable=False)
+    date: Mapped[date] = mapped_column(nullable=False)
+    strategy_value: Mapped[float] = mapped_column(Float, nullable=False)
+    benchmark_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    drawdown_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    active_holdings: Mapped[Optional[int]] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StrategyHoldingsSnapshot(Base):
+    __tablename__ = "strategy_holdings_snapshots"
+    __table_args__ = (
+        UniqueConstraint("strategy_id", "run_id", "as_of_date", name="uq_strategy_holdings_snapshot_date"),
+        Index("ix_strategy_holdings_snapshots_strategy_date", "strategy_id", "as_of_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[int] = mapped_column(nullable=False)
+    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    holdings_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    total_weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cash_weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    diagnostics_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+
+
+class StrategyHoldingRow(Base):
+    __tablename__ = "strategy_holding_rows"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "symbol", name="uq_strategy_holding_rows_snapshot_symbol"),
+        Index("ix_strategy_holding_rows_strategy_symbol", "strategy_id", "symbol"),
+        Index("ix_strategy_holding_rows_snapshot_rank", "snapshot_id", "rank"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    snapshot_id: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[int] = mapped_column(nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rank: Mapped[Optional[int]] = mapped_column(nullable=True)
+    weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    avg_entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source_signal_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    source_signals_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StrategyCurrentHolding(Base):
+    __tablename__ = "strategy_current_holdings"
+    __table_args__ = (
+        UniqueConstraint("strategy_id", "symbol", name="uq_strategy_current_holdings_strategy_symbol"),
+        Index("ix_strategy_current_holdings_strategy_rank", "strategy_id", "rank"),
+        Index("ix_strategy_current_holdings_symbol", "symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[int] = mapped_column(nullable=False)
+    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rank: Mapped[Optional[int]] = mapped_column(nullable=True)
+    weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    last_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source_signal_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    source_signals_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
