@@ -51,6 +51,12 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /Explore Ticker Research/);
   assert.doesNotMatch(landingPage, /View Congress Trades/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
+  assert.doesNotMatch(landingPage, /\["Trends", "#signals"\]/);
+  assert.match(
+    landingPage,
+    /const navLinks = \[\s+\["Stock Research", "#signals"\],\s+\["Insights", "#insights"\],\s+\["Congress", "#congress"\],\s+\["Insiders", "#insiders"\],\s+\["Stock Comparisons", "#compare"\],\s+\["Stock Screener", "#screener"\],\s+\["Pricing", "#pricing"\],\s+\["About", "\/about"\],\s+\] as const;/,
+  );
+  assert.match(landingPage, /<section id="insights"/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Congress &amp; Insider Profiles<\/SectionEyebrow>/);
   assert.match(landingPage, /\["Stock Screener", "#screener"\]/);

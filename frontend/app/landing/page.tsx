@@ -66,12 +66,14 @@ type MarketInstrument = {
 };
 
 const navLinks = [
-  ["Trends", "#signals"],
+  ["Stock Research", "#signals"],
+  ["Insights", "#insights"],
   ["Congress", "#congress"],
   ["Insiders", "#insiders"],
+  ["Stock Comparisons", "#compare"],
   ["Stock Screener", "#screener"],
-  ["About", "/about"],
   ["Pricing", "#pricing"],
+  ["About", "/about"],
 ] as const;
 
 const platformFooterLinks = [
@@ -708,7 +710,7 @@ export default async function LandingPage() {
               <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
             </span>
           </a>
-          <nav className="hidden items-center gap-5 text-sm font-medium text-slate-300 lg:flex">
+          <nav className="hidden items-center gap-3 text-xs font-medium text-slate-300 lg:flex xl:gap-5 xl:text-sm">
             {navLinks.map(([label, href]) => (
               <a key={label} href={href} className="transition hover:text-white">
                 {label}
@@ -846,7 +848,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section id="insights" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
