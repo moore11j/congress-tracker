@@ -822,7 +822,7 @@ export default async function LandingPage() {
             <SectionEyebrow>Stock Research Data</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See which way the data is pointing.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings the key data into one view so you can see whether it supports the stock, conflicts with the move, or changed recently.
+              Walnut brings the key data into focus so you can see whether it supports the stock, conflicts with the move, or changed recently. Easily identify strengthening (or weakening) bullish and bearish trading opportunities with our proprietary Confirmation Score.
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">

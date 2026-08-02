@@ -67,6 +67,9 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /The market has tells\. Walnut finds them\./);
   assert.match(landingPage, /Find stocks worth buying\. Know when to make a move\./);
   assert.match(landingPage, /See which way the data is pointing\./);
+  assert.match(landingPage, /Walnut brings the key data into focus so you can see whether it supports the stock, conflicts with the move, or changed recently\./);
+  assert.match(landingPage, /Easily identify strengthening \(or weakening\) bullish and bearish trading opportunities with our proprietary Confirmation Score\./);
+  assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
