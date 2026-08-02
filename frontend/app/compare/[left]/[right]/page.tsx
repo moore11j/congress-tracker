@@ -10,6 +10,7 @@ import { CompareContextualCta } from "@/components/compare/CompareContextualCta"
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { isAdminEntitlement } from "@/lib/entitlements";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
+import { isApprovedSeoPilotPath } from "@/lib/seoQuality";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
@@ -37,12 +38,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const description = hasBoth
     ? `Compare ${left} and ${right} across fundamentals, price action, catalysts, risks, disclosures, and Walnut's confirmation score.`
     : "Compare stocks across fundamentals, price action, catalysts, risks, disclosures, and Walnut's confirmation score.";
+  const indexablePilot = hasBoth && isApprovedSeoPilotPath(canonicalPath);
 
   return {
     metadataBase: new URL(WALNUT_APP_URL),
     title,
     description,
-    robots: hasBoth ? { index: true, follow: true } : { index: false, follow: true },
+    robots: indexablePilot ? { index: true, follow: true } : { index: false, follow: true },
     alternates: { canonical: appCanonicalUrl(canonicalPath) },
     openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
     twitter: { card: "summary", title, description },

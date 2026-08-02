@@ -24,6 +24,7 @@ import { tickerHref } from "@/lib/ticker";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
+import { institutionHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ cik: string }>;
@@ -50,6 +51,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const name = profile.holder_name ?? "Institution";
     const title = `${name} 13F Holdings & Portfolio Changes | Walnut Markets`;
     const description = `Research ${name} 13F holdings, reported portfolio changes, filing history, and public-company exposure in Walnut Markets.`;
+    if (!institutionHasIndexableContent(profile)) {
+      return {
+        ...noindexFollowMetadata(title, description),
+        metadataBase: new URL(WALNUT_APP_URL),
+        alternates: { canonical: appCanonicalUrl(canonicalPath) },
+      };
+    }
     return {
       metadataBase: new URL(WALNUT_APP_URL),
       title,
@@ -61,9 +69,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   } catch {
     const title = "Institutional Holdings & Portfolio Changes | Walnut Markets";
     return {
+      ...noindexFollowMetadata(title, "Research reported 13F holdings, filing history, and institutional portfolio changes in Walnut Markets."),
       metadataBase: new URL(WALNUT_APP_URL),
-      title,
-      description: "Research reported 13F holdings, filing history, and institutional portfolio changes in Walnut Markets.",
       alternates: { canonical: appCanonicalUrl(canonicalPath) },
     };
   }

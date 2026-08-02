@@ -52,6 +52,7 @@ import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/l
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
+import { noindexFollowMetadata, tickerHasIndexableContent } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -270,6 +271,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const title = publicTickerMetadataTitle(normalizedSymbol, companyName);
   const description = publicTickerMetadataDescription(normalizedSymbol, companyName);
+  if (!tickerHasIndexableContent(profile)) {
+    return {
+      ...noindexFollowMetadata(title, description),
+      metadataBase: new URL(WALNUT_APP_URL),
+      alternates: {
+        canonical: canonicalUrl,
+      },
+    };
+  }
 
   return {
     metadataBase: new URL(WALNUT_APP_URL),

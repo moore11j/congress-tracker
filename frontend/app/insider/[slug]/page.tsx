@@ -16,6 +16,7 @@ import {
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
+import { insiderHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -215,6 +216,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const description = companyName
     ? `Research ${insiderName}'s reported insider trading activity, ownership changes, transaction history, and ${companyName} ticker context in Walnut Markets.`
     : `Research ${insiderName}'s reported insider trading activity, ownership changes, transaction history, and ticker context in Walnut Markets.`;
+  if (!insiderHasIndexableContent(summary)) {
+    return {
+      ...noindexFollowMetadata(title, description),
+      metadataBase: new URL(WALNUT_APP_URL),
+      alternates: {
+        canonical: appCanonicalUrl(canonicalPath),
+      },
+    };
+  }
 
   return {
     metadataBase: new URL(WALNUT_APP_URL),

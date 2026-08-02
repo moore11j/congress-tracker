@@ -9,6 +9,7 @@ import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
+import { departmentHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -26,6 +27,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
     const title = `${department.name} Government Contracts by Public Company | Walnut Markets`;
     const description = `Research ${department.name} contract awards, linked public companies, ticker exposure, award timing, and recipient concentration in Walnut Markets.`;
+    if (!departmentHasIndexableContent(department)) {
+      return {
+        ...noindexFollowMetadata(title, description),
+        metadataBase: new URL(WALNUT_APP_URL),
+        alternates: { canonical: appCanonicalUrl(canonicalPath) },
+      };
+    }
     return {
       metadataBase: new URL(WALNUT_APP_URL),
       title,
@@ -35,10 +43,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       twitter: { card: "summary", title, description },
     };
   } catch {
+    const title = "Government Department Contracts by Public Company | Walnut Markets";
+    const description = "Research government department contract awards, linked public companies, and ticker exposure in Walnut Markets.";
     return {
+      ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
-      title: "Government Department Contracts by Public Company | Walnut Markets",
-      description: "Research government department contract awards, linked public companies, and ticker exposure in Walnut Markets.",
       alternates: { canonical: appCanonicalUrl(fallbackCanonicalPath) },
     };
   }

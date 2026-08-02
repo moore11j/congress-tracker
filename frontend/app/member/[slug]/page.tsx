@@ -22,6 +22,7 @@ import {
 } from "@/lib/portfolioPerformance.mjs";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
+import { noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -187,6 +188,13 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const memberName = profileMemberName(member?.member?.name, prettySlug);
   const title = `${memberName} Stock Trades & Portfolio Performance | Walnut Markets`;
   const description = `Research ${memberName}'s reported stock trades, portfolio simulation, performance context, recent disclosures, and ticker exposure in Walnut Markets.`;
+  if (!member?.member?.name) {
+    return {
+      ...noindexFollowMetadata(title, description),
+      metadataBase: new URL(WALNUT_APP_URL),
+      alternates: { canonical: appCanonicalUrl(canonicalPath) },
+    };
+  }
 
   return {
     metadataBase: new URL(WALNUT_APP_URL),

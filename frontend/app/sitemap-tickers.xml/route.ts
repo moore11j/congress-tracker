@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server";
+import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
 
 const APP_URL = "https://app.walnutmarkets.com";
-const TICKERS = ["NVDA", "AAPL", "MSFT", "TSLA", "PLTR", "LMT"] as const;
 
 export const dynamic = "force-static";
 
 export function GET() {
-  return xmlResponse(urlset(TICKERS.map((symbol) => `/ticker/${symbol}`)));
-}
-
-function urlset(paths: readonly string[]) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${paths.map((path) => `  <url><loc>${APP_URL}${path}</loc></url>`).join("\n")}
-</urlset>
-`;
+  return xmlResponse(sitemapUrlset(APP_URL, seoPilotPages.tickers));
 }
 
 function xmlResponse(body: string) {
