@@ -240,6 +240,8 @@ export type InstitutionPerformanceItem = {
   coverage_pct?: number | null;
   start_date?: string | null;
   end_date?: string | null;
+  price_basis?: string | null;
+  minimum_coverage_pct?: number | null;
   status?: string | null;
 };
 
@@ -248,9 +250,11 @@ export type InstitutionPerformanceResponse = {
   cik?: string | null;
   holder_name?: string | null;
   report_period?: string | null;
+  report_period_end?: string | null;
   basis?: string | null;
   position_count?: number | null;
   covered_value_usd?: number | null;
+  minimum_coverage_pct?: number | null;
   quality_score?: number | null;
   note?: string | null;
   items?: InstitutionPerformanceItem[];

@@ -2033,18 +2033,19 @@ def test_holder_performance_summary_uses_cached_eod_prices_for_weighted_returns(
         start = date(today.year, 1, 1)
         db.add_all(
             [
-                PriceCache(symbol="AAA", date=start.isoformat(), close=100.0),
-                PriceCache(symbol="AAA", date=today.isoformat(), close=110.0),
-                PriceCache(symbol="BBB", date=start.isoformat(), close=100.0),
-                PriceCache(symbol="BBB", date=today.isoformat(), close=90.0),
+                PriceCache(symbol="AAA", date=start.isoformat(), close=100.0, adjusted_close=100.0),
+                PriceCache(symbol="AAA", date=today.isoformat(), close=110.0, adjusted_close=110.0),
+                PriceCache(symbol="BBB", date=start.isoformat(), close=100.0, adjusted_close=100.0),
+                PriceCache(symbol="BBB", date=today.isoformat(), close=90.0, adjusted_close=90.0),
             ]
         )
         db.commit()
 
         summary = holder_performance_summary(db, cik)
-        ytd = next(item for item in summary["items"] if item["key"] == "ytd")
+        ytd = next(item for item in summary["items"] if item["key"] == "current_mark_to_market")
         assert ytd["coverage_pct"] == 100
         assert ytd["return_pct"] == 2
+        assert ytd["price_basis"] == "adjusted_close"
 
 
 def test_multiple_amendments_choose_latest_amendment_as_canonical():

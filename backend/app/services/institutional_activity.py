@@ -2109,7 +2109,7 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
     }
 
 
-def holder_performance_summary(db: Session, cik: str, *, position_limit: int = 250) -> dict[str, Any]:
+def holder_performance_summary(db: Session, cik: str, *, position_limit: int | None = None) -> dict[str, Any]:
     normalized = normalize_cik(cik)
     if not normalized:
         return {"status": "invalid_cik", "cik": None, "items": []}
@@ -2137,26 +2137,42 @@ def holder_performance_summary(db: Session, cik: str, *, position_limit: int = 2
     ]
     if active_filing_ids:
         filters.append(InstitutionalPosition.filing_id.in_(active_filing_ids))
-    positions = db.execute(
+    positions_query = (
         select(InstitutionalPosition.normalized_symbol, InstitutionalPosition.value_usd)
         .where(*filters)
         .order_by(InstitutionalPosition.value_usd.desc())
-        .limit(max(25, min(int(position_limit or 250), 500)))
-    ).all()
+    )
+    if position_limit is not None:
+        positions_query = positions_query.limit(max(25, min(int(position_limit), 500)))
+    positions = db.execute(positions_query).all()
     total_value = sum(float(value or 0.0) for _symbol, value in positions)
     if total_value <= 0:
         return {"status": "no_data", "cik": normalized, "holder_name": profile.get("holder_name"), "items": []}
 
     today = datetime.now(timezone.utc).date()
+    latest_filing = get_canonical_filing_for_holder_period(db, normalized, int(report_year), int(report_quarter))
+    report_period_end = latest_filing.report_period_end if latest_filing and latest_filing.report_period_end else _quarter_end(int(report_year), int(report_quarter))
     periods = [
-        {"key": "ytd", "label": "YTD Return", "start_date": date(today.year, 1, 1), "end_date": today},
+        {
+            "key": "report_period_ytd",
+            "label": "Report-period YTD return",
+            "start_date": date(int(report_year), 1, 1),
+            "end_date": report_period_end,
+        },
+        {"key": "current_mark_to_market", "label": "Current mark-to-market return", "start_date": date(today.year, 1, 1), "end_date": today},
         {"key": "year_2025", "label": "2025 Return", "start_date": date(2025, 1, 1), "end_date": date(2025, 12, 31)},
         {"key": "three_year", "label": "3Yr Return", "start_date": today - timedelta(days=365 * 3), "end_date": today},
     ]
     symbols = sorted({symbol for symbol, _value in positions if symbol})
-    prices = _cached_price_history(db, symbols, min(period["start_date"] for period in periods), max(period["end_date"] for period in periods))
+    prices = _cached_price_history(
+        db,
+        symbols,
+        min(period["start_date"] for period in periods),
+        max(period["end_date"] for period in periods),
+        adjusted_only=True,
+    )
     items = [
-        _weighted_snapshot_return(period, positions, total_value=total_value, prices=prices)
+        _weighted_snapshot_return(period, positions, total_value=total_value, prices=prices, price_basis="adjusted_close")
         for period in periods
     ]
     return {
@@ -2164,9 +2180,11 @@ def holder_performance_summary(db: Session, cik: str, *, position_limit: int = 2
         "cik": normalized,
         "holder_name": profile.get("holder_name"),
         "report_period": f"Q{report_quarter} {report_year}",
-        "basis": "latest_reported_holdings_price_cache",
+        "report_period_end": report_period_end.isoformat(),
+        "basis": "latest_reported_full_holdings_adjusted_price_cache",
         "position_count": len(positions),
         "covered_value_usd": round(total_value, 2),
+        "minimum_coverage_pct": 65,
         "items": items,
     }
 
@@ -2176,14 +2194,19 @@ def _cached_price_history(
     symbols: list[str],
     start_date: date,
     end_date: date,
+    *,
+    adjusted_only: bool = False,
 ) -> dict[str, list[tuple[date, float]]]:
     if not symbols:
         return {}
+    price_column = PriceCache.adjusted_close if adjusted_only else PriceCache.close
     rows = db.execute(
-        select(PriceCache.symbol, PriceCache.date, PriceCache.close)
+        select(PriceCache.symbol, PriceCache.date, price_column)
         .where(PriceCache.symbol.in_(symbols))
         .where(PriceCache.date >= start_date.isoformat())
         .where(PriceCache.date <= end_date.isoformat())
+        .where(price_column.is_not(None))
+        .where(price_column > 0)
         .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
     ).all()
     history: dict[str, list[tuple[date, float]]] = {}
@@ -2203,6 +2226,7 @@ def _weighted_snapshot_return(
     *,
     total_value: float,
     prices: dict[str, list[tuple[date, float]]],
+    price_basis: str = "close",
 ) -> dict[str, Any]:
     start_date = period["start_date"]
     end_date = period["end_date"]
@@ -2227,7 +2251,9 @@ def _weighted_snapshot_return(
         "coverage_pct": coverage_pct,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "status": "ok" if return_pct is not None else "insufficient_price_coverage",
+        "price_basis": price_basis,
+        "minimum_coverage_pct": 65,
+        "status": "ok" if return_pct is not None else "insufficient_adjusted_price_coverage",
     }
 
 

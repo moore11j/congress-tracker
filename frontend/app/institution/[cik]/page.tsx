@@ -248,17 +248,18 @@ function unavailableInstitutionPerformance(cik: string): InstitutionPerformanceR
 function PerformanceStrip({ items }: { items: InstitutionPerformanceItem[] }) {
   const byKey = new Map(items.map((item) => [item.key ?? "", item]));
   const rows = [
-    byKey.get("ytd") ?? { key: "ytd", label: "YTD Return", return_pct: null },
+    byKey.get("report_period_ytd") ?? { key: "report_period_ytd", label: "Report-period YTD return", return_pct: null },
+    byKey.get("current_mark_to_market") ?? { key: "current_mark_to_market", label: "Current mark-to-market return", return_pct: null },
     byKey.get("year_2025") ?? { key: "year_2025", label: "2025 Return", return_pct: null },
     byKey.get("three_year") ?? { key: "three_year", label: "3Yr Return", return_pct: null },
   ];
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {rows.map((item) => (
         <div key={item.key ?? item.label ?? "return"} className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/45 p-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label ?? "Return"}</p>
-          <p className={`mt-2 text-xl font-semibold tabular-nums ${returnTextClass(item.return_pct)}`}>{formatSignedPct(item.return_pct)}</p>
-          <p className="mt-1 text-xs text-slate-500">Coverage {formatPct(item.coverage_pct)}</p>
+          <p className={`mt-2 text-xl font-semibold tabular-nums ${returnTextClass(item.return_pct)}`}>{formatPerformancePct(item.return_pct)}</p>
+          <p className="mt-1 text-xs text-slate-500">Coverage {formatPerformanceCoverage(item.coverage_pct)}</p>
         </div>
       ))}
     </div>
@@ -283,7 +284,7 @@ function HoldingsActivitySection({
           <h2 className="text-lg font-semibold text-white">{activeTab === "activity" ? "Institutional Activity" : "Most Recent Reported Holdings"}</h2>
           <p className="text-sm text-slate-400">{activeTab === "activity" ? "Quarter-over-quarter position changes by filing date." : "Sorted by reported value."}</p>
         </div>
-        <div className="inline-flex rounded-full border border-white/10 bg-slate-950/45 p-1 text-sm">
+        <div className="inline-flex rounded-xl border border-white/10 bg-slate-950/50 p-1" aria-label="Institution view">
           <TabLink cik={cik} tab="holdings" active={activeTab === "holdings"}>Holdings</TabLink>
           <TabLink cik={cik} tab="activity" active={activeTab === "activity"}>Activity</TabLink>
         </div>
@@ -298,8 +299,8 @@ function TabLink({ cik, tab, active, children }: { cik: string; tab: "holdings" 
   return (
     <Link
       href={href}
-      className={`rounded-full px-3 py-1.5 font-semibold transition ${
-        active ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"
+      className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] transition ${
+        active ? "bg-emerald-400/15 text-emerald-100" : "text-slate-400 hover:text-slate-100"
       }`}
       prefetch={false}
     >
@@ -499,6 +500,16 @@ function formatSignedPct(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(2)}%`;
+}
+
+function formatPerformancePct(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "N/A";
+  return formatSignedPct(value);
+}
+
+function formatPerformanceCoverage(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "N/A";
+  return formatPct(value);
 }
 
 function normalizeInstitutionTab(value?: string | null): "holdings" | "activity" {
