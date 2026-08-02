@@ -45,6 +45,12 @@ def _month_key(value: date) -> str:
     return f"{value.year:04d}-{value.month:02d}"
 
 
+def _parse_exclude_symbols(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(symbol for part in value.split(",") if (symbol := normalize_symbol(part.strip())))
+
+
 def _concentration_flags(summary: dict[str, Any]) -> list[str]:
     flags: list[str] = []
     total_lots = int(summary.get("lots") or 0)
@@ -245,6 +251,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fee-bps", type=float, default=0.0)
     parser.add_argument("--allow-raw-prices", action="store_true")
     parser.add_argument("--provider", default="fmp")
+    parser.add_argument("--exclude-symbols", help="Comma-separated symbols to exclude from the diagnostics universe.")
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
@@ -272,12 +279,14 @@ def main() -> None:
     start_date = parse_iso_date(args.start_date) if args.start_date else None
     benchmark = normalize_symbol(args.benchmark) or "SPY"
     with SessionLocal() as db:
+        exclude_symbols = _parse_exclude_symbols(args.exclude_symbols)
         universe = load_fundamentals_snapshot_universe(
             db,
             end_date=end_date,
             provider=args.provider,
             source_kind="ticker_financials_cache_statement_proxy",
             min_snapshots=1,
+            exclude_symbols=exclude_symbols,
         )
         result = run_diagnostics(
             db,

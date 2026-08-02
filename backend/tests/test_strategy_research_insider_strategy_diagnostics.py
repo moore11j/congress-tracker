@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 
 from app.strategy_research.congress_buys import Signal
-from app.strategy_research.insider_strategy_diagnostics import summarize_insider_strategy_quality
+from app.strategy_research.insider_strategy_diagnostics import _parse_exclude_symbols, summarize_insider_strategy_quality
 
 
 def _signal(
@@ -88,3 +88,7 @@ def test_summarize_insider_strategy_quality_can_report_medium_proxy_without_flag
     assert summary["unique_owners"] == 120
     assert summary["concentration_flags"] == []
     assert summary["data_quality_confidence"] == "medium_proxy"
+
+
+def test_parse_exclude_symbols_normalizes_csv_values():
+    assert _parse_exclude_symbols(" tsm, WRB,,bad symbol ") == ("TSM", "WRB", "BADSYMBOL")
