@@ -102,6 +102,7 @@ def run_repair(
     cik: str | None = None,
     limit: int | None = None,
     refresh_summaries: bool = False,
+    repair_aggregate_rows: bool = False,
 ) -> dict[str, Any]:
     filings = _target_filings(db, cik=cik, limit=limit)
     now = datetime.now(timezone.utc)
@@ -119,6 +120,9 @@ def run_repair(
         "summary_refreshes": 0,
         "activity_events_generated": 0,
         "feed_events_materialized": 0,
+        "aggregate_activity_events": 0,
+        "aggregate_feed_events": 0,
+        "aggregate_symbol_summaries": 0,
     }
 
     for filing in filings:
@@ -234,9 +238,16 @@ def run_repair(
                     totals["feed_events_materialized"] += materialize_feed_events_for_symbol(db, summary)
                     totals["summary_refreshes"] += 1
 
+    if repair_aggregate_rows:
+        aggregate_result = _repair_aggregate_rows(db, apply=apply, now=now)
+        totals["aggregate_activity_events"] += aggregate_result["activity_events"]
+        totals["aggregate_feed_events"] += aggregate_result["feed_events"]
+        totals["aggregate_symbol_summaries"] += aggregate_result["symbol_summaries"]
+
     return {
         "mode": "apply" if apply else "dry_run",
         "refresh_summaries": refresh_summaries,
+        "repair_aggregate_rows": repair_aggregate_rows,
         "target_count": len(filings),
         "affected_period_symbols": len(affected_period_symbols),
         "affected_ciks": len(affected_ciks),
@@ -245,17 +256,98 @@ def run_repair(
     }
 
 
+def _aggregate_rows_needing_repair(db: Session) -> tuple[list[InstitutionalActivityEvent], list[InstitutionalSymbolSummary]]:
+    bad_date = date(2026, 3, 31)
+    activities = (
+        db.execute(
+            select(InstitutionalActivityEvent).where(
+                InstitutionalActivityEvent.cik.is_(None),
+                InstitutionalActivityEvent.filing_date == bad_date,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    summaries = (
+        db.execute(
+            select(InstitutionalSymbolSummary).where(
+                InstitutionalSymbolSummary.latest_filing_date == bad_date,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return activities, summaries
+
+
+def _repair_aggregate_rows(db: Session, *, apply: bool, now: datetime) -> dict[str, int]:
+    activities, summaries = _aggregate_rows_needing_repair(db)
+    feed_ids = [_feed_source_filing_id(activity) for activity in activities if activity.id is not None]
+    feed_events = []
+    if feed_ids:
+        feed_events = (
+            db.execute(
+                select(Event).where(
+                    Event.source_provider == INSTITUTIONAL_EVENT_SOURCE,
+                    Event.source_filing_id.in_(feed_ids),
+                )
+            )
+            .scalars()
+            .all()
+        )
+    if apply:
+        for activity in activities:
+            activity.filing_date = _estimated_filing_date(activity.report_year, activity.report_quarter)
+            activity.updated_at = now
+        for summary in summaries:
+            summary.latest_filing_date = _estimated_filing_date(summary.report_year, summary.report_quarter)
+            summary.updated_at = now
+        for event in feed_events:
+            activity_id = _activity_id_from_feed_source_filing_id(event.source_filing_id)
+            activity = next((row for row in activities if row.id == activity_id), None)
+            if activity is None:
+                continue
+            event_dt = datetime.combine(_estimated_filing_date(activity.report_year, activity.report_quarter), datetime.min.time(), tzinfo=timezone.utc)
+            event.ts = event_dt
+            event.event_date = event_dt
+    return {
+        "activity_events": len(activities),
+        "feed_events": len(feed_events),
+        "symbol_summaries": len(summaries),
+    }
+
+
+def _activity_id_from_feed_source_filing_id(value: str | None) -> int | None:
+    if not value:
+        return None
+    parts = str(value).split(":")
+    if len(parts) < 2 or parts[0] != "institutional":
+        return None
+    try:
+        return int(parts[1])
+    except (TypeError, ValueError):
+        return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Repair sparse historical 13F date rows created from provider dates payloads.")
     parser.add_argument("--apply", action="store_true", help="Apply the repair. Without this flag the command is a dry run.")
     parser.add_argument("--cik", help="Optional holder CIK scope.")
     parser.add_argument("--limit", type=int, help="Optional maximum number of filing rows to repair.")
     parser.add_argument("--refresh-summaries", action="store_true", help="Also regenerate institutional activity/feed events for affected summaries.")
+    parser.add_argument("--repair-aggregate-rows", action="store_true", help="Repair aggregate institutional activity and symbol summary rows with sparse historical dates.")
     args = parser.parse_args()
 
     db = SessionLocal()
     try:
-        result = run_repair(db, apply=args.apply, cik=args.cik, limit=args.limit, refresh_summaries=args.refresh_summaries)
+        result = run_repair(
+            db,
+            apply=args.apply,
+            cik=args.cik,
+            limit=args.limit,
+            refresh_summaries=args.refresh_summaries,
+            repair_aggregate_rows=args.repair_aggregate_rows,
+        )
         if args.apply:
             db.commit()
         else:

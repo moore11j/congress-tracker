@@ -14,6 +14,7 @@ from app.models import (
     InstitutionalHolder,
     InstitutionalPosition,
     InstitutionalPositionChange,
+    InstitutionalSymbolSummary,
 )
 from app.tools.repair_sparse_historical_13f_dates import run_repair
 
@@ -146,6 +147,72 @@ def test_repair_sparse_historical_13f_dates_apply_updates_downstream_dates():
         assert raw["_walnut_original_filing_date"] == "2026-03-31"
         assert position.filing_date == date(2024, 5, 15)
         assert change.filing_date == date(2024, 5, 15)
+        assert activity.filing_date == date(2024, 5, 15)
+        assert feed_event.ts.date() == date(2024, 5, 15)
+        assert feed_event.event_date.date() == date(2024, 5, 15)
+    finally:
+        db.close()
+
+
+def test_repair_sparse_historical_13f_dates_repairs_aggregate_rows():
+    db = _session()
+    try:
+        old_date = date(2026, 3, 31)
+        db.add(
+            InstitutionalSymbolSummary(
+                symbol="AAPL",
+                normalized_symbol="AAPL",
+                report_year=2024,
+                report_quarter=1,
+                latest_filing_date=old_date,
+            )
+        )
+        activity = InstitutionalActivityEvent(
+            symbol="AAPL",
+            normalized_symbol="AAPL",
+            cik=None,
+            event_type="cluster_accumulation",
+            direction="bullish",
+            title="Institutions report net accumulation in AAPL",
+            summary="Bad aggregate date",
+            filing_date=old_date,
+            report_year=2024,
+            report_quarter=1,
+            materiality_score=50,
+            feed_visible=True,
+        )
+        db.add(activity)
+        db.flush()
+        event_dt = datetime(2026, 3, 31, tzinfo=timezone.utc)
+        db.add(
+            Event(
+                event_type="cluster_accumulation",
+                ts=event_dt,
+                event_date=event_dt,
+                symbol="AAPL",
+                source="13F filing",
+                impact_score=50,
+                payload_json="{}",
+                source_provider="institutional_13f",
+                source_filing_id=f"institutional:{activity.id}:cluster_accumulation:2024q1",
+            )
+        )
+        db.commit()
+
+        dry_run = run_repair(db, apply=False, repair_aggregate_rows=True)
+        db.rollback()
+        assert dry_run["totals"]["aggregate_activity_events"] == 1
+        assert dry_run["totals"]["aggregate_symbol_summaries"] == 1
+        assert dry_run["totals"]["aggregate_feed_events"] == 1
+
+        result = run_repair(db, apply=True, repair_aggregate_rows=True)
+        db.commit()
+
+        summary = db.query(InstitutionalSymbolSummary).one()
+        activity = db.query(InstitutionalActivityEvent).one()
+        feed_event = db.query(Event).one()
+        assert result["totals"]["aggregate_activity_events"] == 1
+        assert summary.latest_filing_date == date(2024, 5, 15)
         assert activity.filing_date == date(2024, 5, 15)
         assert feed_event.ts.date() == date(2024, 5, 15)
         assert feed_event.event_date.date() == date(2024, 5, 15)
