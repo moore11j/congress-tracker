@@ -1026,7 +1026,7 @@ def _select_suggestion_items(results: list[SearchSuggestItem], limit: int) -> li
     return selected
 
 
-def _is_high_confidence_institution_result(item: SearchSuggestItem | None, query: str) -> bool:
+def _is_high_confidence_institution_result(item: SearchSuggestItem | None, query: str, *, result_count: int = 1) -> bool:
     if not item or item.get("kind") != "institution":
         return False
     score = float(item.get("score") or 0.0)
@@ -1038,6 +1038,9 @@ def _is_high_confidence_institution_result(item: SearchSuggestItem | None, query
     label_compact = _compact_key(str(item.get("label") or ""))
     label_base_compact = _entity_base_compact_key(str(item.get("label") or ""))
     item_id = _compact_key(str(item.get("id") or ""))
+    prefix_is_specific = result_count >= 2 or len(_search_key(query).split()) >= 2
+    if prefix_is_specific and len(query_compact) >= 4 and (label_compact.startswith(query_compact) or label_base_compact.startswith(query_compact)):
+        return True
     return query_compact in {label_compact, label_base_compact, item_id}
 
 
@@ -1114,7 +1117,7 @@ def search_suggestions(
         lambda: _institution_suggestions(db, query, bounded_limit, None),
     )
     quick_institutions.sort(key=lambda result: (-(float(result.get("score") or 0)), str(result.get("label") or "")))
-    if _is_high_confidence_institution_result(quick_institutions[0] if quick_institutions else None, query):
+    if _is_high_confidence_institution_result(quick_institutions[0] if quick_institutions else None, query, result_count=len(quick_institutions)):
         items = [{key: value for key, value in item.items() if key != "score"} for item in quick_institutions[:bounded_limit]]
         payload = {"items": items, "results": items, "query": query}
         duration_ms = (perf_counter() - started_at) * 1000

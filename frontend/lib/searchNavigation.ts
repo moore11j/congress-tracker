@@ -18,6 +18,7 @@ const COMPANY_SUFFIXES = new Set([
   "holding",
   "class",
 ]);
+const HIGH_CONFIDENCE_INSTITUTION_PREFIXES = new Set(["vanguard"]);
 
 export function searchResultsHref(query: string) {
   return `/search?q=${encodeURIComponent(query.trim())}`;
@@ -64,7 +65,20 @@ export function isHighConfidenceSearchResult(result: SearchSuggestResult | undef
     const idKey = normalizedKey(result.id);
     if (idKey && idKey === queryKey) return true;
     const queryCompact = compactKey(query);
-    return Boolean(queryCompact && (compactKey(result.label) === queryCompact || compactKey(companyBaseKey(result.label)) === queryCompact));
+    const labelCompact = compactKey(result.label);
+    const baseCompact = compactKey(companyBaseKey(result.label));
+    return Boolean(
+      queryCompact &&
+      (
+        labelCompact === queryCompact ||
+        baseCompact === queryCompact ||
+        (
+          queryCompact.length >= 4 &&
+          (words(query).length >= 2 || HIGH_CONFIDENCE_INSTITUTION_PREFIXES.has(queryCompact)) &&
+          (labelCompact.startsWith(queryCompact) || baseCompact.startsWith(queryCompact))
+        )
+      )
+    );
   }
 
   return normalizedKey(result.label) === queryKey;

@@ -407,6 +407,54 @@ def test_search_suggest_black_rock_spaced_query_fast_returns_institution(monkeyp
         db.close()
 
 
+def test_search_suggest_vanguard_prefix_fast_returns_for_authenticated_user(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add_all(
+            [
+                InstitutionalHolder(
+                    cik="0002100119",
+                    holder_name="VANGUARD CAPITAL MANAGEMENT LLC",
+                    normalized_holder_name="vanguard capital management llc",
+                    holder_type="investment_manager",
+                    latest_report_year=2026,
+                    latest_report_quarter=1,
+                    quality_score=100,
+                ),
+                InstitutionalHolder(
+                    cik="0002100121",
+                    holder_name="VANGUARD PORTFOLIO MANAGEMENT LLC",
+                    normalized_holder_name="vanguard portfolio management llc",
+                    holder_type="investment_manager",
+                    latest_report_year=2026,
+                    latest_report_quarter=1,
+                    quality_score=100,
+                ),
+            ]
+        )
+        db.commit()
+
+        def fail_slow_loader(*args, **kwargs):
+            raise AssertionError("slow search loader should not run for high-confidence institution prefix")
+
+        monkeypatch.setattr(search_suggest_module, "_personalization_for_user", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_ticker_suggestions", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_member_suggestions", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_insider_suggestions", fail_slow_loader)
+        monkeypatch.setattr(search_suggest_module, "_agency_suggestions", fail_slow_loader)
+
+        items = search_suggestions(db, "vanguard", limit=5, user_id=42)["items"]
+
+        assert items[0]["kind"] == "institution"
+        assert items[0]["label"] == "VANGUARD CAPITAL MANAGEMENT LLC"
+        assert items[0]["href"] == "/institution/0002100119"
+        assert items[1]["href"] == "/institution/0002100121"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
 def test_search_suggest_symbol_prefix_beats_name_contains():
     db = _db()
     try:
