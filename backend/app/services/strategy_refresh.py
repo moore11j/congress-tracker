@@ -57,6 +57,8 @@ def strategy_category(candidate: CandidateDefinition) -> str:
         return "cross_source"
     if candidate.source == "insider":
         return "insider"
+    if candidate.source == "institutional":
+        return "institutional"
     return "congress"
 
 
@@ -64,6 +66,8 @@ def strategy_family(candidate: CandidateDefinition) -> str:
     if candidate.strategy_kind == "cross_source":
         return str(candidate.pair)
     if candidate.strategy_kind == "primary":
+        if candidate.source == "institutional":
+            return "accumulation"
         return "purchases"
     return str(candidate.rule)
 
@@ -78,6 +82,11 @@ def strategy_rule(candidate: CandidateDefinition) -> dict[str, Any]:
         "lookback_days": candidate.lookback_days if candidate.strategy_kind == "cross_source" else None,
         "min_confirming_signals": candidate.min_confirming_signals if candidate.strategy_kind == "cross_source" else None,
         "min_contract_amount": candidate.min_contract_amount if candidate.strategy_kind == "cross_source" else None,
+        "min_institutional_materiality": (
+            candidate.min_institutional_materiality
+            if candidate.source == "institutional" or "institutional" in str(candidate.pair)
+            else None
+        ),
         "holding_period_days": candidate.hold_days,
         "execution": "enter on the first trading day strictly after the public disclosure/proxy date",
     }
@@ -113,6 +122,9 @@ def risk_notes(artifact: CandidateStrategyArtifact) -> list[str]:
     notes = list(artifact.diagnostics.get("concentration_flags") or [])
     if artifact.candidate.strategy_kind == "cross_source" and "contracts" in str(artifact.candidate.pair):
         notes.append("government_contract_award_date_publication_proxy")
+    if artifact.candidate.source == "institutional" or "institutional" in str(artifact.candidate.pair):
+        notes.append("institutional_13f_short_history")
+        notes.append("institutional_activity_is_reported_holdings_not_live_trading")
     confidence = artifact.diagnostics.get("data_quality_confidence")
     if confidence == "low" and not notes:
         notes.append("low_data_quality_confidence")
@@ -158,6 +170,8 @@ def _short_description(candidate: CandidateDefinition) -> str:
         return "Congress purchase disclosures copied after realistic public filing availability."
     if candidate.strategy_kind == "primary" and candidate.source == "insider":
         return "Qualifying open-market insider purchases copied after public Form 4 availability."
+    if candidate.strategy_kind == "primary" and candidate.source == "institutional":
+        return "Bullish reported 13F institutional activity copied after public filing availability."
     if candidate.source == "insider":
         return "Open-market insider purchases filtered through point-in-time technical confirmation."
     return "Congress purchase disclosures filtered through point-in-time technical confirmation."
@@ -166,6 +180,8 @@ def _short_description(candidate: CandidateDefinition) -> str:
 def _definition_confidence(candidate: CandidateDefinition, diagnostics: dict[str, Any]) -> str:
     confidence = str(diagnostics.get("data_quality_confidence") or "unknown")
     if candidate.strategy_kind == "cross_source" and "contracts" in str(candidate.pair):
+        return "low" if confidence in {"unknown", "medium"} else confidence
+    if candidate.source == "institutional" or "institutional" in str(candidate.pair):
         return "low" if confidence in {"unknown", "medium"} else confidence
     return confidence
 
@@ -177,11 +193,23 @@ def _walnut_take(candidate: CandidateDefinition, diagnostics: dict[str, Any]) ->
 
 def _methodology_text(candidate: CandidateDefinition) -> str:
     if candidate.strategy_kind == "cross_source":
+        if "institutional" in str(candidate.pair):
+            return (
+                "Select qualifying primary-source purchase signals only when bullish reported 13F institutional activity "
+                "is present inside the configured lookback window. Entries use the later public filing/disclosure date "
+                "and adjusted prices; institutional activity is filing-date context, not live trading."
+            )
         return (
             "Select qualifying primary-source purchase signals only when a confirming Walnut source is present inside "
             "the configured lookback window. Entries occur after the disclosure/proxy date using adjusted prices."
         )
     if candidate.strategy_kind == "primary":
+        if candidate.source == "institutional":
+            return (
+                "Select bullish reported 13F institutional activity for the configured universe using the filing date, "
+                "not the quarter-end holdings date or an assumed trade date. Entries occur on the next available trading "
+                "day after public filing availability using adjusted prices."
+            )
         if candidate.source == "insider":
             return (
                 "Select qualifying open-market insider purchase disclosures for the configured universe. Entries occur "

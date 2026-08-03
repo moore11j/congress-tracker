@@ -190,6 +190,9 @@ def build_candidate_strategy_artifact(
             "source": candidate.source,
             "technical_rule": candidate.rule if candidate.strategy_kind == "technical" else None,
             "insider_role": candidate.insider_role if candidate.source == "insider" else None,
+            "min_institutional_materiality": (
+                candidate.min_institutional_materiality if candidate.source == "institutional" else None
+            ),
             "technical_as_of": (
                 "computed only from adjusted prices on or before the signal disclosure date"
                 if candidate.strategy_kind == "technical"
@@ -205,6 +208,7 @@ def build_candidate_strategy_artifact(
             start_date=signal_start,
             end_date=config.end_date,
             min_contract_amount=candidate.min_contract_amount,
+            min_institutional_materiality=candidate.min_institutional_materiality,
         )
         confirming_signals = _source_signals(
             db,
@@ -213,6 +217,7 @@ def build_candidate_strategy_artifact(
             start_date=signal_start - timedelta(days=max(candidate.lookback_days, 0)),
             end_date=config.end_date,
             min_contract_amount=candidate.min_contract_amount,
+            min_institutional_materiality=candidate.min_institutional_materiality,
         )
         alignment_rows = build_alignment_signals(
             primary_signals,
@@ -232,6 +237,7 @@ def build_candidate_strategy_artifact(
             "lookback_days": candidate.lookback_days,
             "min_confirming_signals": candidate.min_confirming_signals,
             "min_contract_amount": candidate.min_contract_amount,
+            "min_institutional_materiality": candidate.min_institutional_materiality,
         }
 
     lots, skipped = build_lots(

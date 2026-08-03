@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Event, GovernmentContract, InsiderTransactionNormalized, PriceCache
+from app.models import Event, GovernmentContract, InsiderTransactionNormalized, InstitutionalActivityEvent, PriceCache
 from app.strategy_research.congress_buys import ResearchConfig, load_congress_purchase_signals
 from app.strategy_research.cross_source_alignment import (
     CONTRACT_AWARD_DATE_PROXY_NOTE,
@@ -15,6 +15,7 @@ from app.strategy_research.cross_source_alignment import (
     load_government_contract_signals,
     run_research,
 )
+from app.strategy_research.institutional_activity_signals import load_institutional_activity_signals
 from app.strategy_research.insider_buys import load_insider_open_market_purchase_signals
 
 
@@ -38,12 +39,13 @@ def _price(db, symbol: str, day: str, adjusted_close: float) -> None:
 
 
 def _congress_event(db, *, event_id: int = 1, symbol: str = "AAPL", filing_date: str = "2024-01-10") -> None:
+    filed_at = datetime.fromisoformat(f"{filing_date}T12:00:00+00:00")
     db.add(
         Event(
             id=event_id,
             event_type="congress_trade",
-            ts=datetime(2024, 1, 10, 12, 0, tzinfo=timezone.utc),
-            event_date=datetime.fromisoformat(f"{filing_date}T12:00:00+00:00"),
+            ts=filed_at,
+            event_date=filed_at,
             symbol=symbol,
             source="congress",
             trade_type="purchase",
@@ -115,6 +117,38 @@ def _contract_row(
     )
 
 
+def _institutional_event(
+    db,
+    *,
+    row_id: int = 1,
+    symbol: str = "AAPL",
+    filing_date: date = date(2024, 1, 8),
+    event_type: str = "cluster_accumulation",
+    materiality_score: float = 90.0,
+) -> None:
+    db.add(
+        InstitutionalActivityEvent(
+            id=row_id,
+            symbol=symbol,
+            normalized_symbol=symbol,
+            cik="0001067983",
+            holder_name="Example Capital",
+            event_type=event_type,
+            direction="bullish",
+            title="Reported institutional accumulation",
+            summary="Reported 13F accumulation.",
+            filing_date=filing_date,
+            report_year=2024,
+            report_quarter=1,
+            reported_value_usd=10_000_000.0,
+            value_delta_usd=5_000_000.0,
+            holder_breadth=3,
+            materiality_score=materiality_score,
+            feed_visible=True,
+        )
+    )
+
+
 def test_alignment_uses_later_primary_public_date_without_future_confirmation():
     db = _session()
     try:
@@ -150,6 +184,72 @@ def test_alignment_uses_later_primary_public_date_without_future_confirmation():
         assert aligned[0].signal.disclosure_date == date(2024, 1, 10)
         assert aligned[0].signal.raw_entry_date == date(2024, 1, 11)
         assert aligned[0].confirming_count == 1
+    finally:
+        db.close()
+
+
+def test_institutional_activity_signals_use_filing_date_not_report_period():
+    db = _session()
+    try:
+        _institutional_event(db, filing_date=date(2024, 5, 15))
+        db.commit()
+
+        signals = load_institutional_activity_signals(
+            db,
+            universe=("AAPL",),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+            min_materiality=80.0,
+        )
+
+        assert len(signals) == 1
+        assert signals[0].disclosure_date == date(2024, 5, 15)
+        assert signals[0].raw_entry_date == date(2024, 5, 16)
+        assert signals[0].source_filing_id == "13f:0001067983:2024Q1:1"
+    finally:
+        db.close()
+
+
+def test_congress_institutional_alignment_uses_reported_13f_filing_date():
+    db = _session()
+    try:
+        _congress_event(db, filing_date="2024-05-20")
+        _institutional_event(db, filing_date=date(2024, 5, 15))
+        _price(db, "AAPL", "2024-05-21", 100.0)
+        _price(db, "AAPL", "2024-05-22", 101.0)
+        _price(db, "AAPL", "2024-06-20", 110.0)
+        _price(db, "SPY", "2024-05-21", 100.0)
+        _price(db, "SPY", "2024-05-22", 101.0)
+        _price(db, "SPY", "2024-06-20", 102.0)
+        db.commit()
+
+        result = run_research(
+            db,
+            ResearchConfig(
+                strategy_name="Congress + Institutional Accumulation",
+                universe=("AAPL",),
+                benchmark="SPY",
+                start_date=date(2024, 5, 1),
+                end_date=date(2024, 7, 1),
+                hold_days=(30,),
+                weighting="equal",
+                rebalance_frequency="event",
+                slippage_bps=0.0,
+                fee_bps=0.0,
+                require_adjusted=True,
+                min_lots=1,
+            ),
+            pair="congress_institutional",
+            lookback_days=30,
+            min_confirming_signals=1,
+            min_contract_amount=1_000_000.0,
+            min_institutional_materiality=80.0,
+        )
+
+        assert result["metadata"]["data_quality_confidence"] == "lower"
+        assert result["metadata"]["primary_source"] == "congress"
+        assert result["metadata"]["confirming_source"] == "institutional"
+        assert result["runs"][0]["status"] == "ok"
     finally:
         db.close()
 

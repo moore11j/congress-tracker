@@ -29,11 +29,18 @@ from app.strategy_research.insider_buys import (
     load_insider_open_market_purchase_signals,
     load_normalized_purchase_universe,
 )
+from app.strategy_research.institutional_activity_signals import load_institutional_activity_signals
 from app.strategy_research.fundamental_confirmation_sweep import load_fundamentals_snapshot_universe
 from app.utils.symbols import normalize_symbol
 
 MethodologyVersion = Literal["cross_source_alignment_research_v1"]
-AlignmentPair = Literal["congress_insider", "congress_contracts", "insider_contracts"]
+AlignmentPair = Literal[
+    "congress_insider",
+    "congress_contracts",
+    "congress_institutional",
+    "insider_contracts",
+    "insider_institutional",
+]
 
 METHODOLOGY_VERSION: MethodologyVersion = "cross_source_alignment_research_v1"
 CONTRACT_AWARD_DATE_PROXY_NOTE = (
@@ -116,6 +123,7 @@ def _source_signals(
     start_date: date,
     end_date: date,
     min_contract_amount: float,
+    min_institutional_materiality: float = 80.0,
 ) -> list[Signal]:
     if source == "congress":
         return load_congress_purchase_signals(db, universe=universe, start_date=start_date, end_date=end_date)
@@ -135,6 +143,14 @@ def _source_signals(
             end_date=end_date,
             min_amount=min_contract_amount,
         )
+    if source == "institutional":
+        return load_institutional_activity_signals(
+            db,
+            universe=universe,
+            start_date=start_date,
+            end_date=end_date,
+            min_materiality=min_institutional_materiality,
+        )
     raise ValueError(f"Unsupported alignment source: {source}")
 
 
@@ -143,8 +159,12 @@ def _pair_sources(pair: AlignmentPair) -> tuple[str, str]:
         return "congress", "insider"
     if pair == "congress_contracts":
         return "congress", "contracts"
+    if pair == "congress_institutional":
+        return "congress", "institutional"
     if pair == "insider_contracts":
         return "insider", "contracts"
+    if pair == "insider_institutional":
+        return "insider", "institutional"
     raise ValueError(f"Unsupported alignment pair: {pair}")
 
 
@@ -246,6 +266,7 @@ def run_research(
     lookback_days: int,
     min_confirming_signals: int,
     min_contract_amount: float,
+    min_institutional_materiality: float = 80.0,
 ) -> dict[str, Any]:
     price_start = config.start_date or date(1990, 1, 1)
     price_maps = load_adjusted_price_histories(
@@ -275,6 +296,7 @@ def run_research(
         start_date=signal_start,
         end_date=config.end_date,
         min_contract_amount=min_contract_amount,
+        min_institutional_materiality=min_institutional_materiality,
     )
     confirming_signals = _source_signals(
         db,
@@ -283,6 +305,7 @@ def run_research(
         start_date=signal_start - timedelta(days=max(lookback_days, 0)),
         end_date=config.end_date,
         min_contract_amount=min_contract_amount,
+        min_institutional_materiality=min_institutional_materiality,
     )
     alignment_rows = build_alignment_signals(
         primary_signals,
@@ -318,6 +341,7 @@ def run_research(
         runs.append(metrics)
 
     contract_proxy = "contracts" in {primary_source, confirming_source}
+    institutional_pair = "institutional" in {primary_source, confirming_source}
     return {
         "metadata": {
             "strategy_name": config.strategy_name,
@@ -335,6 +359,7 @@ def run_research(
             "lookback_days": lookback_days,
             "min_confirming_signals": min_confirming_signals,
             "min_contract_amount": min_contract_amount,
+            "min_institutional_materiality": min_institutional_materiality,
             "universe": list(config.universe),
             "universe_size": len(config.universe),
             "benchmark": config.benchmark,
@@ -347,8 +372,14 @@ def run_research(
             "slippage_bps_per_side": config.slippage_bps,
             "require_adjusted_prices": config.require_adjusted,
             "price_source": "price_cache.adjusted_close",
-            "data_quality_confidence": "lower" if contract_proxy else "medium",
-            "data_quality_note": CONTRACT_AWARD_DATE_PROXY_NOTE if contract_proxy else None,
+            "data_quality_confidence": "lower" if contract_proxy or institutional_pair else "medium",
+            "data_quality_note": (
+                CONTRACT_AWARD_DATE_PROXY_NOTE
+                if contract_proxy
+                else "institutional 13F activity history is currently short; use filing-date context, not live-trade assumptions"
+                if institutional_pair
+                else None
+            ),
             "data_state": "production PostgreSQL read-only research query",
         },
         "signal_count": len(signals),
@@ -379,7 +410,9 @@ def _label(pair: AlignmentPair) -> str:
     return {
         "congress_insider": "Congress + Insider Confirmation",
         "congress_contracts": "Congress + Government Contracts",
+        "congress_institutional": "Congress + Institutional Accumulation",
         "insider_contracts": "Insider + Government Contracts",
+        "insider_institutional": "Insider + Institutional Accumulation",
     }[pair]
 
 
@@ -417,7 +450,17 @@ def _print_text_report(result: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only cross-source alignment strategy research runner.")
-    parser.add_argument("--pair", choices=("congress_insider", "congress_contracts", "insider_contracts"), required=True)
+    parser.add_argument(
+        "--pair",
+        choices=(
+            "congress_insider",
+            "congress_contracts",
+            "congress_institutional",
+            "insider_contracts",
+            "insider_institutional",
+        ),
+        required=True,
+    )
     parser.add_argument("--symbols", help="Comma-separated universe. Defaults to the approved 24-symbol research universe.")
     parser.add_argument(
         "--universe-source",
@@ -434,6 +477,7 @@ def main() -> None:
     parser.add_argument("--lookback-days", type=int, default=90)
     parser.add_argument("--min-confirming-signals", type=int, default=1)
     parser.add_argument("--min-contract-amount", type=float, default=1_000_000.0)
+    parser.add_argument("--min-institutional-materiality", type=float, default=80.0)
     parser.add_argument("--weighting", choices=("equal", "transaction_value"), default="equal")
     parser.add_argument("--rebalance-frequency", choices=("event", "weekly", "monthly"), default="event")
     parser.add_argument("--slippage-bps", type=float, default=5.0)
@@ -484,6 +528,7 @@ def main() -> None:
             lookback_days=int(args.lookback_days),
             min_confirming_signals=int(args.min_confirming_signals),
             min_contract_amount=float(args.min_contract_amount),
+            min_institutional_materiality=float(args.min_institutional_materiality),
         )
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

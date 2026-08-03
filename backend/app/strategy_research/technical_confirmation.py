@@ -28,11 +28,12 @@ from app.strategy_research.insider_buys import (
     load_insider_open_market_purchase_signals,
     load_normalized_purchase_universe,
 )
+from app.strategy_research.institutional_activity_signals import load_institutional_activity_signals
 from app.strategy_research.fundamental_confirmation_sweep import load_fundamentals_snapshot_universe
 from app.utils.symbols import normalize_symbol
 
 MethodologyVersion = Literal["technical_confirmation_research_v1"]
-PrimarySource = Literal["congress", "insider"]
+PrimarySource = Literal["congress", "insider", "institutional"]
 TechnicalRule = Literal[
     "sma50_above_sma200",
     "price_above_sma50_sma200",
@@ -179,6 +180,14 @@ def _load_primary_signals(
             start_date=start_date,
             end_date=end_date,
             role=insider_role,
+        )
+    if source == "institutional":
+        return load_institutional_activity_signals(
+            db,
+            universe=universe,
+            start_date=start_date,
+            end_date=end_date,
+            min_materiality=80.0,
         )
     raise ValueError(f"Unsupported primary source: {source}")
 

@@ -38,6 +38,7 @@ class CandidateDefinition:
     lookback_days: int = 90
     min_confirming_signals: int = 1
     min_contract_amount: float = 1_000_000.0
+    min_institutional_materiality: float = 80.0
     exclude_symbols: tuple[str, ...] = ()
 
 
@@ -87,6 +88,16 @@ DEFAULT_CANDIDATES: tuple[CandidateDefinition, ...] = (
         min_contract_amount=1_000_000.0,
     ),
     CandidateDefinition(
+        slug="congress-institutional-confirmation-90d",
+        name="Congress + Institutional Accumulation",
+        strategy_kind="cross_source",
+        universe_source="fundamentals_snapshots",
+        pair="congress_institutional",
+        hold_days=90,
+        lookback_days=120,
+        min_institutional_materiality=80.0,
+    ),
+    CandidateDefinition(
         slug="insider-open-market-buys-90d",
         name="Insider Open-Market Buys",
         strategy_kind="primary",
@@ -124,6 +135,25 @@ DEFAULT_CANDIDATES: tuple[CandidateDefinition, ...] = (
         hold_days=90,
         lookback_days=180,
         min_contract_amount=1_000_000.0,
+    ),
+    CandidateDefinition(
+        slug="insider-institutional-confirmation-90d",
+        name="Insider + Institutional Accumulation",
+        strategy_kind="cross_source",
+        universe_source="normalized_insider_purchases",
+        pair="insider_institutional",
+        hold_days=90,
+        lookback_days=120,
+        min_institutional_materiality=80.0,
+    ),
+    CandidateDefinition(
+        slug="institutional-accumulation-90d",
+        name="Institutional Accumulation",
+        strategy_kind="primary",
+        universe_source="fundamentals_snapshots",
+        source="institutional",
+        hold_days=90,
+        min_institutional_materiality=80.0,
     ),
 )
 
@@ -273,6 +303,7 @@ def _run_candidate_period(
         lookback_days=candidate.lookback_days,
         min_confirming_signals=candidate.min_confirming_signals,
         min_contract_amount=candidate.min_contract_amount,
+        min_institutional_materiality=candidate.min_institutional_materiality,
         limit=top,
     )
 
@@ -339,6 +370,7 @@ def validate_candidate(
             "lookback_days": candidate.lookback_days,
             "hold_days": candidate.hold_days,
             "exclude_symbols": list(candidate.exclude_symbols),
+            "min_institutional_materiality": candidate.min_institutional_materiality,
             "universe_size": len(period_kwargs["universe"]),
             "universe_basis": "candidate universe loaded once as of final test_end and reused across splits",
         },

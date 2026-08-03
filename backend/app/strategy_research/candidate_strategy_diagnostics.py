@@ -288,6 +288,7 @@ def run_cross_source_diagnostics(
     min_confirming_signals: int,
     min_contract_amount: float,
     limit: int,
+    min_institutional_materiality: float = 80.0,
 ) -> dict[str, Any]:
     price_maps, benchmark_prices, benchmark_dates, signal_start = _price_context(
         db,
@@ -302,6 +303,7 @@ def run_cross_source_diagnostics(
         start_date=signal_start,
         end_date=config.end_date,
         min_contract_amount=min_contract_amount,
+        min_institutional_materiality=min_institutional_materiality,
     )
     confirming_signals = _source_signals(
         db,
@@ -310,6 +312,7 @@ def run_cross_source_diagnostics(
         start_date=signal_start - timedelta(days=max(lookback_days, 0)),
         end_date=config.end_date,
         min_contract_amount=min_contract_amount,
+        min_institutional_materiality=min_institutional_materiality,
     )
     alignment_rows = build_alignment_signals(
         primary_signals,
@@ -343,6 +346,7 @@ def run_cross_source_diagnostics(
             "lookback_days": lookback_days,
             "min_confirming_signals": min_confirming_signals,
             "min_contract_amount": min_contract_amount,
+            "min_institutional_materiality": min_institutional_materiality,
             "universe_size": len(config.universe),
             "start_date": signal_start.isoformat(),
             "end_date": config.end_date.isoformat(),
@@ -380,14 +384,25 @@ def run_cross_source_diagnostics(
 
 def _label(args: argparse.Namespace) -> str:
     if args.strategy_kind == "primary":
-        return "Congress Buys" if args.source == "congress" else f"Insider {args.insider_role.replace('_', ' ').title()} Buys"
+        if args.source == "congress":
+            return "Congress Buys"
+        if args.source == "institutional":
+            return "Institutional Accumulation"
+        return f"Insider {args.insider_role.replace('_', ' ').title()} Buys"
     if args.strategy_kind == "technical":
-        source = "Congress" if args.source == "congress" else f"Insider {args.insider_role.replace('_', ' ').title()}"
+        if args.source == "congress":
+            source = "Congress"
+        elif args.source == "institutional":
+            source = "Institutional"
+        else:
+            source = f"Insider {args.insider_role.replace('_', ' ').title()}"
         return f"{source} + {args.rule.replace('_', ' ').title()}"
     return {
         "congress_insider": "Congress + Insider Confirmation",
         "congress_contracts": "Congress + Government Contracts",
+        "congress_institutional": "Congress + Institutional Accumulation",
         "insider_contracts": "Insider + Government Contracts",
+        "insider_institutional": "Insider + Institutional Accumulation",
     }[args.pair]
 
 
@@ -432,17 +447,28 @@ def _print_text_report(result: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only concentration diagnostics for candidate strategy research.")
     parser.add_argument("--strategy-kind", choices=("primary", "technical", "cross_source"), required=True)
-    parser.add_argument("--source", choices=("congress", "insider"), default="congress")
+    parser.add_argument("--source", choices=("congress", "insider", "institutional"), default="congress")
     parser.add_argument(
         "--rule",
         choices=("sma50_above_sma200", "price_above_sma50_sma200", "golden_cross_30d", "macd_bullish", "technical_alignment"),
         default="technical_alignment",
     )
     parser.add_argument("--insider-role", choices=("all", "ceo", "cfo", "director", "officer", "ten_percent_owner"), default="all")
-    parser.add_argument("--pair", choices=("congress_insider", "congress_contracts", "insider_contracts"), default="congress_insider")
+    parser.add_argument(
+        "--pair",
+        choices=(
+            "congress_insider",
+            "congress_contracts",
+            "congress_institutional",
+            "insider_contracts",
+            "insider_institutional",
+        ),
+        default="congress_insider",
+    )
     parser.add_argument("--lookback-days", type=int, default=90)
     parser.add_argument("--min-confirming-signals", type=int, default=1)
     parser.add_argument("--min-contract-amount", type=float, default=1_000_000.0)
+    parser.add_argument("--min-institutional-materiality", type=float, default=80.0)
     parser.add_argument("--symbols")
     parser.add_argument(
         "--universe-source",
@@ -519,6 +545,7 @@ def main() -> None:
                 lookback_days=int(args.lookback_days),
                 min_confirming_signals=int(args.min_confirming_signals),
                 min_contract_amount=float(args.min_contract_amount),
+                min_institutional_materiality=float(args.min_institutional_materiality),
                 limit=int(args.top),
             )
     if args.json:
