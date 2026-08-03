@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.strategy_research.candidate_strategy_diagnostics import (
     _load_universe,
+    run_primary_diagnostics,
     run_cross_source_diagnostics,
     run_technical_diagnostics,
 )
@@ -42,6 +43,22 @@ class CandidateDefinition:
 
 DEFAULT_CANDIDATES: tuple[CandidateDefinition, ...] = (
     CandidateDefinition(
+        slug="congress-buys-90d",
+        name="Congress Buys",
+        strategy_kind="primary",
+        universe_source="fundamentals_snapshots",
+        source="congress",
+        hold_days=90,
+    ),
+    CandidateDefinition(
+        slug="congress-buys-180d",
+        name="Congress Buys 180D",
+        strategy_kind="primary",
+        universe_source="fundamentals_snapshots",
+        source="congress",
+        hold_days=180,
+    ),
+    CandidateDefinition(
         slug="congress-macd-bullish-90d",
         name="Congress + MACD Bullish",
         strategy_kind="technical",
@@ -58,6 +75,25 @@ DEFAULT_CANDIDATES: tuple[CandidateDefinition, ...] = (
         pair="congress_insider",
         hold_days=90,
         lookback_days=90,
+    ),
+    CandidateDefinition(
+        slug="congress-contracts-confirmation-90d",
+        name="Congress + Government Contracts",
+        strategy_kind="cross_source",
+        universe_source="fundamentals_snapshots",
+        pair="congress_contracts",
+        hold_days=90,
+        lookback_days=180,
+        min_contract_amount=1_000_000.0,
+    ),
+    CandidateDefinition(
+        slug="insider-open-market-buys-90d",
+        name="Insider Open-Market Buys",
+        strategy_kind="primary",
+        universe_source="normalized_insider_purchases",
+        source="insider",
+        insider_role="all",
+        hold_days=90,
     ),
     CandidateDefinition(
         slug="insider-technical-alignment-90d",
@@ -78,6 +114,16 @@ DEFAULT_CANDIDATES: tuple[CandidateDefinition, ...] = (
         rule="price_above_sma50_sma200",
         insider_role="all",
         hold_days=180,
+    ),
+    CandidateDefinition(
+        slug="insider-contracts-confirmation-90d",
+        name="Insider + Government Contracts",
+        strategy_kind="cross_source",
+        universe_source="normalized_insider_purchases",
+        pair="insider_contracts",
+        hold_days=90,
+        lookback_days=180,
+        min_contract_amount=1_000_000.0,
     ),
 )
 
@@ -203,6 +249,14 @@ def _run_candidate_period(
         require_adjusted=require_adjusted,
         min_lots=min_lots,
     )
+    if candidate.strategy_kind == "primary":
+        return run_primary_diagnostics(
+            db,
+            config,
+            source=candidate.source,
+            insider_role=candidate.insider_role,
+            limit=top,
+        )
     if candidate.strategy_kind == "technical":
         return run_technical_diagnostics(
             db,

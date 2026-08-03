@@ -63,13 +63,15 @@ def strategy_category(candidate: CandidateDefinition) -> str:
 def strategy_family(candidate: CandidateDefinition) -> str:
     if candidate.strategy_kind == "cross_source":
         return str(candidate.pair)
+    if candidate.strategy_kind == "primary":
+        return "purchases"
     return str(candidate.rule)
 
 
 def strategy_rule(candidate: CandidateDefinition) -> dict[str, Any]:
     return {
         "kind": candidate.strategy_kind,
-        "source": candidate.source if candidate.strategy_kind == "technical" else None,
+        "source": candidate.source if candidate.strategy_kind in {"primary", "technical"} else None,
         "technical_rule": candidate.rule if candidate.strategy_kind == "technical" else None,
         "insider_role": candidate.insider_role if candidate.source == "insider" else None,
         "pair": candidate.pair if candidate.strategy_kind == "cross_source" else None,
@@ -109,6 +111,8 @@ def strategy_universe(candidate: CandidateDefinition, artifact: CandidateStrateg
 
 def risk_notes(artifact: CandidateStrategyArtifact) -> list[str]:
     notes = list(artifact.diagnostics.get("concentration_flags") or [])
+    if artifact.candidate.strategy_kind == "cross_source" and "contracts" in str(artifact.candidate.pair):
+        notes.append("government_contract_award_date_publication_proxy")
     confidence = artifact.diagnostics.get("data_quality_confidence")
     if confidence == "low" and not notes:
         notes.append("low_data_quality_confidence")
@@ -140,7 +144,7 @@ def strategy_definition_values(
         "universe_json": json_dumps(strategy_universe(candidate, artifact)),
         "tags_json": json_dumps(_tags(candidate)),
         "risk_notes_json": json_dumps(risk_notes(artifact)),
-        "data_quality_confidence": str(diagnostics.get("data_quality_confidence") or "unknown"),
+        "data_quality_confidence": _definition_confidence(candidate, diagnostics),
         "methodology_version": str(artifact.metadata.get("methodology_version") or PERSISTENCE_METHODOLOGY_VERSION),
         "created_by": "strategy_refresh_writer",
         "published_at": datetime.now(timezone.utc) if publish else None,
@@ -150,9 +154,20 @@ def strategy_definition_values(
 def _short_description(candidate: CandidateDefinition) -> str:
     if candidate.strategy_kind == "cross_source":
         return "Stocks where Walnut finds agreement across separate disclosure sources."
+    if candidate.strategy_kind == "primary" and candidate.source == "congress":
+        return "Congress purchase disclosures copied after realistic public filing availability."
+    if candidate.strategy_kind == "primary" and candidate.source == "insider":
+        return "Qualifying open-market insider purchases copied after public Form 4 availability."
     if candidate.source == "insider":
         return "Open-market insider purchases filtered through point-in-time technical confirmation."
     return "Congress purchase disclosures filtered through point-in-time technical confirmation."
+
+
+def _definition_confidence(candidate: CandidateDefinition, diagnostics: dict[str, Any]) -> str:
+    confidence = str(diagnostics.get("data_quality_confidence") or "unknown")
+    if candidate.strategy_kind == "cross_source" and "contracts" in str(candidate.pair):
+        return "low" if confidence in {"unknown", "medium"} else confidence
+    return confidence
 
 
 def _walnut_take(candidate: CandidateDefinition, diagnostics: dict[str, Any]) -> str:
@@ -165,6 +180,16 @@ def _methodology_text(candidate: CandidateDefinition) -> str:
         return (
             "Select qualifying primary-source purchase signals only when a confirming Walnut source is present inside "
             "the configured lookback window. Entries occur after the disclosure/proxy date using adjusted prices."
+        )
+    if candidate.strategy_kind == "primary":
+        if candidate.source == "insider":
+            return (
+                "Select qualifying open-market insider purchase disclosures for the configured universe. Entries occur "
+                "on the next available trading day after public disclosure using adjusted prices."
+            )
+        return (
+            "Select qualifying Congress purchase disclosures for the configured universe. Entries occur on the next "
+            "available trading day after public disclosure using adjusted prices."
         )
     return (
         "Select qualifying purchase signals only when the configured technical rule is true using price data available "

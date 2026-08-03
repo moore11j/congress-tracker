@@ -86,9 +86,9 @@ def _metadata(
         "weighting": config.weighting,
         "rebalance_frequency": config.rebalance_frequency,
         "execution_timing": (
-            "first trading day strictly after public disclosure date"
-            if candidate.strategy_kind == "technical"
-            else "first trading day strictly after the later source disclosure/proxy date"
+            "first trading day strictly after the later source disclosure/proxy date"
+            if candidate.strategy_kind == "cross_source"
+            else "first trading day strictly after public disclosure date"
         ),
         "slippage_bps_per_side": config.slippage_bps,
         "fee_bps_per_side": config.fee_bps,
@@ -168,7 +168,7 @@ def build_candidate_strategy_artifact(
     per_side_cost_rate = max((config.slippage_bps + config.fee_bps) / 10000.0, 0.0)
     hold_days = config.hold_days[0]
 
-    if candidate.strategy_kind == "technical":
+    if candidate.strategy_kind in {"primary", "technical"}:
         primary_signals = _load_primary_signals(
             db,
             candidate.source,
@@ -177,16 +177,24 @@ def build_candidate_strategy_artifact(
             end_date=config.end_date,
             insider_role=candidate.insider_role,
         )
-        confirmed_signals, filter_skips = filter_signals_by_technical_rule(
-            primary_signals,
-            universe_price_maps,
-            rule=candidate.rule,
-        )
+        if candidate.strategy_kind == "technical":
+            confirmed_signals, filter_skips = filter_signals_by_technical_rule(
+                primary_signals,
+                universe_price_maps,
+                rule=candidate.rule,
+            )
+        else:
+            confirmed_signals = primary_signals
+            filter_skips = {}
         metadata_extra = {
             "source": candidate.source,
-            "technical_rule": candidate.rule,
+            "technical_rule": candidate.rule if candidate.strategy_kind == "technical" else None,
             "insider_role": candidate.insider_role if candidate.source == "insider" else None,
-            "technical_as_of": "computed only from adjusted prices on or before the signal disclosure date",
+            "technical_as_of": (
+                "computed only from adjusted prices on or before the signal disclosure date"
+                if candidate.strategy_kind == "technical"
+                else None
+            ),
         }
     else:
         primary_source, confirming_source = _pair_sources(candidate.pair)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.strategy_research.candidate_strategy_validation import walnut_strategy_score
+from app.strategy_research.candidate_strategy_validation import _candidate_lookup
 
 
 def _perf(
@@ -51,3 +52,13 @@ def test_walnut_strategy_score_penalizes_sample_concentration_and_negative_test_
     assert "negative_test_alpha" in reasons
     assert "concentration_flags" in reasons
     assert score["score"] < 25
+
+
+def test_default_candidate_lookup_includes_primary_and_contract_expansion_candidates():
+    lookup = _candidate_lookup()
+
+    assert lookup["congress-buys-90d"].strategy_kind == "primary"
+    assert lookup["congress-buys-180d"].strategy_kind == "primary"
+    assert lookup["insider-open-market-buys-90d"].strategy_kind == "primary"
+    assert lookup["congress-contracts-confirmation-90d"].pair == "congress_contracts"
+    assert lookup["insider-contracts-confirmation-90d"].pair == "insider_contracts"

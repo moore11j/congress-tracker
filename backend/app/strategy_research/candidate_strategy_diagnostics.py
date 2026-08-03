@@ -205,6 +205,80 @@ def run_technical_diagnostics(
     }
 
 
+def run_primary_diagnostics(
+    db: Session,
+    config: ResearchConfig,
+    *,
+    source: PrimarySource,
+    insider_role: InsiderRole,
+    limit: int,
+) -> dict[str, Any]:
+    price_maps, benchmark_prices, benchmark_dates, signal_start = _price_context(
+        db,
+        config,
+        price_start=config.start_date or date(1990, 1, 1),
+    )
+    primary_signals = _load_primary_signals(
+        db,
+        source,
+        universe=config.universe,
+        start_date=signal_start,
+        end_date=config.end_date,
+        insider_role=insider_role,
+    )
+    per_side_cost_rate = max((config.slippage_bps + config.fee_bps) / 10000.0, 0.0)
+    hold_days = config.hold_days[0]
+    universe_price_maps = {symbol: prices for symbol, prices in price_maps.items() if symbol != config.benchmark}
+    lots, skipped = build_lots(
+        primary_signals,
+        universe_price_maps,
+        benchmark_dates=benchmark_dates,
+        hold_days=hold_days,
+        rebalance_frequency=config.rebalance_frequency,
+        per_side_cost_rate=per_side_cost_rate,
+    )
+    sector_by_symbol = load_current_sector_map(db, {signal.symbol for signal in primary_signals})
+    return {
+        "metadata": {
+            "strategy_kind": "primary",
+            "strategy_name": config.strategy_name,
+            "methodology_version": METHODOLOGY_VERSION,
+            "source": source,
+            "insider_role": insider_role if source == "insider" else None,
+            "universe_size": len(config.universe),
+            "start_date": signal_start.isoformat(),
+            "end_date": config.end_date.isoformat(),
+            "hold_days": hold_days,
+            "benchmark": config.benchmark,
+            "weighting": config.weighting,
+            "rebalance_frequency": config.rebalance_frequency,
+            "execution_timing": "first trading day strictly after public disclosure date",
+            "slippage_bps_per_side": config.slippage_bps,
+            "fee_bps_per_side": config.fee_bps,
+            "require_adjusted_prices": config.require_adjusted,
+            "data_state": "production PostgreSQL read-only research query",
+            "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        "performance": _performance_for_lots(
+            config=config,
+            lots=lots,
+            skipped=skipped,
+            price_maps=price_maps,
+            benchmark_prices=benchmark_prices,
+            hold_days=hold_days,
+            per_side_cost_rate=per_side_cost_rate,
+        ),
+        "diagnostics": summarize_strategy_quality(
+            primary_signals=primary_signals,
+            confirmed_signals=primary_signals,
+            lots=lots,
+            skipped=skipped,
+            sector_by_symbol=sector_by_symbol,
+            limit=limit,
+        ),
+    }
+
+
 def run_cross_source_diagnostics(
     db: Session,
     config: ResearchConfig,
@@ -305,6 +379,8 @@ def run_cross_source_diagnostics(
 
 
 def _label(args: argparse.Namespace) -> str:
+    if args.strategy_kind == "primary":
+        return "Congress Buys" if args.source == "congress" else f"Insider {args.insider_role.replace('_', ' ').title()} Buys"
     if args.strategy_kind == "technical":
         source = "Congress" if args.source == "congress" else f"Insider {args.insider_role.replace('_', ' ').title()}"
         return f"{source} + {args.rule.replace('_', ' ').title()}"
@@ -355,7 +431,7 @@ def _print_text_report(result: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only concentration diagnostics for candidate strategy research.")
-    parser.add_argument("--strategy-kind", choices=("technical", "cross_source"), required=True)
+    parser.add_argument("--strategy-kind", choices=("primary", "technical", "cross_source"), required=True)
     parser.add_argument("--source", choices=("congress", "insider"), default="congress")
     parser.add_argument(
         "--rule",
@@ -418,7 +494,15 @@ def main() -> None:
             require_adjusted=not args.allow_raw_prices,
             min_lots=int(args.min_lots),
         )
-        if args.strategy_kind == "technical":
+        if args.strategy_kind == "primary":
+            result = run_primary_diagnostics(
+                db,
+                config,
+                source=args.source,
+                insider_role=args.insider_role,
+                limit=int(args.top),
+            )
+        elif args.strategy_kind == "technical":
             result = run_technical_diagnostics(
                 db,
                 config,
