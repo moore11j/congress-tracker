@@ -16,6 +16,30 @@ export type ResearchBriefCard = {
 
 export const researchBriefs: ResearchBriefCard[] = [
   {
+    slug: "spcx-earnings-preview",
+    route: "/research/spcx-earnings-preview",
+    title: "SPCX earnings preview: can growth justify its valuation?",
+    description: "SpaceX's first public-company earnings report tests Starlink growth, AI capex, Starship progress, launch economics, guidance, and the upcoming share unlock.",
+    tickers: ["SPCX"],
+    category: "Space Infrastructure",
+    judgment: "mixed",
+    publishedAt: "2026-08-03",
+    readingMinutes: 7,
+    featured: true,
+  },
+  {
+    slug: "nvda-vs-mu",
+    route: "/research/nvda-vs-mu",
+    title: "NVDA vs MU: which is the better buy right now?",
+    description: "NVIDIA has the cleaner AI demand and margin story, while Micron offers cheaper memory-cycle torque if DRAM and HBM pricing keep recovering.",
+    tickers: ["NVDA", "MU"],
+    category: "AI Semiconductors",
+    judgment: "bullish",
+    publishedAt: "2026-08-03",
+    readingMinutes: 6,
+    featured: true,
+  },
+  {
     slug: "nbis-vs-crwv-ai-neoclouds",
     route: "/research/nbis-vs-crwv-ai-neoclouds",
     title: "NBIS vs CRWV: Which AI Neocloud Trade Has Better Risk/Reward?",

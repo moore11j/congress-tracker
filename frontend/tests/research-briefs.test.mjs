@@ -8,21 +8,34 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const registry = read("lib/researchBriefs.ts");
 const muPage = read("app/research/mu-dd/page.tsx");
+const nvdaMuPage = read("app/research/nvda-vs-mu/page.tsx");
+const spcxPage = read("app/research/spcx-earnings-preview/page.tsx");
 const researchIndexPage = read("app/research/page.tsx");
 const insightsPage = read("app/insights/page.tsx");
 const researchSection = read("components/insights/ResearchBriefsSection.tsx");
 const generatedBriefPage = read("components/research/GeneratedResearchBriefPage.tsx");
 
+function registryEntry(slug) {
+  const slugIndex = registry.indexOf(`slug: "${slug}"`);
+  assert.notEqual(slugIndex, -1, `Expected registry entry for ${slug}`);
+  const start = registry.lastIndexOf("  {", slugIndex);
+  const end = registry.indexOf("\n  },", slugIndex);
+  assert.notEqual(start, -1, `Expected registry entry start for ${slug}`);
+  assert.notEqual(end, -1, `Expected registry entry end for ${slug}`);
+  return registry.slice(start, end + "\n  },".length);
+}
+
 test("mu dd brief remains a canonical research brief", () => {
+  const muEntry = registryEntry("mu-dd");
   assert.match(registry, /slug: "mu-dd"/);
   assert.match(registry, /route: "\/research\/mu-dd"/);
   assert.match(registry, /title: "Is the MU momentum trade dead\?"/);
   assert.match(registry, /A Walnut preview of the MU momentum setup/);
-  assert.match(registry, /premium: true/);
-  assert.doesNotMatch(registry, /judgment: "bullish"[\s\S]*?publishedAt: "2026-07-20"/);
+  assert.match(muEntry, /premium: true/);
+  assert.doesNotMatch(muEntry, /judgment: "bullish"/);
   assert.doesNotMatch(registry, /A research-only Micron DD landing page/);
-  assert.match(registry, /publishedAt: "2026-07-20"/);
-  assert.match(registry, /featured: true/);
+  assert.match(muEntry, /publishedAt: "2026-07-20"/);
+  assert.match(muEntry, /featured: true/);
 });
 
 test("mu dd route reuses canonical research metadata", () => {
@@ -30,6 +43,34 @@ test("mu dd route reuses canonical research metadata", () => {
   assert.match(muPage, /title: `\$\{brief\?\.title/);
   assert.match(muPage, /description: brief\?\.description/);
   assert.doesNotMatch(muPage, /description:\s*"A research-only Micron DD landing page/);
+});
+
+test("spcx earnings preview is published as a static research brief", () => {
+  assert.match(registry, /slug: "spcx-earnings-preview"/);
+  assert.match(registry, /route: "\/research\/spcx-earnings-preview"/);
+  assert.match(registry, /title: "SPCX earnings preview: can growth justify its valuation\?"/);
+  assert.match(registry, /tickers: \["SPCX"\]/);
+  assert.match(registry, /publishedAt: "2026-08-03"/);
+  assert.match(spcxPage, /getResearchBriefBySlug\("spcx-earnings-preview"\)/);
+  assert.match(spcxPage, /SpaceX reports its first public-company earnings on August 4, 2026/);
+  assert.match(spcxPage, /ResearchBriefContextualCta ticker="SPCX"/);
+  assert.match(spcxPage, /view_ticker_spcx_click/);
+  assert.match(spcxPage, /Not investment advice/);
+});
+
+test("nvda vs mu is published as a static research brief", () => {
+  assert.match(registry, /slug: "nvda-vs-mu"/);
+  assert.match(registry, /route: "\/research\/nvda-vs-mu"/);
+  assert.match(registry, /title: "NVDA vs MU: which is the better buy right now\?"/);
+  assert.match(registry, /tickers: \["NVDA", "MU"\]/);
+  assert.match(nvdaMuPage, /getResearchBriefBySlug\("nvda-vs-mu"\)/);
+  assert.match(nvdaMuPage, /NVDA is still the cleaner setup/);
+  assert.match(nvdaMuPage, /More upside torque: MU/);
+  assert.match(nvdaMuPage, /Better business plus cleaner data: NVDA/);
+  assert.match(nvdaMuPage, /ResearchBriefContextualCta ticker="NVDA"/);
+  assert.match(nvdaMuPage, /https:\/\/app\.walnutmarkets\.com\/ticker\/NVDA/);
+  assert.match(nvdaMuPage, /https:\/\/app\.walnutmarkets\.com\/ticker\/MU/);
+  assert.match(nvdaMuPage, /Not investment advice/);
 });
 
 test("mu dd brief gates the conclusion behind premium access only", () => {
