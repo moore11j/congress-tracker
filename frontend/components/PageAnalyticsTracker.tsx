@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { recordPageView } from "@/lib/api";
+import { privacyConsentChangedEvent } from "@/lib/privacyConsent";
 
 function safePath(value: string | null | undefined) {
   const raw = (value || "").trim();
@@ -22,6 +23,13 @@ function shouldTrack(path: string) {
 export function PageAnalyticsTracker() {
   const pathname = usePathname();
   const previousPath = useRef<string | null>(null);
+  const [consentRefresh, setConsentRefresh] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setConsentRefresh((current) => current + 1);
+    window.addEventListener(privacyConsentChangedEvent, refresh);
+    return () => window.removeEventListener(privacyConsentChangedEvent, refresh);
+  }, []);
 
   useEffect(() => {
     const path = safePath(pathname);
@@ -36,7 +44,7 @@ export function PageAnalyticsTracker() {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [pathname]);
+  }, [pathname, consentRefresh]);
 
   return null;
 }

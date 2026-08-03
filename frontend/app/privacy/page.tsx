@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CookieSettingsButton } from "@/components/CookieSettingsButton";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
 import { legalPageChrome } from "@/lib/legalPageChrome";
 import { marketingPageMetadata } from "@/lib/marketingMetadata";
@@ -41,6 +42,10 @@ export default async function PrivacyPage() {
 
       <LegalSection title="5. Cookies and Analytics">
         <p>We may use cookies, local storage, session identifiers, and similar technologies for authentication, security, preferences, analytics, performance measurement, and product diagnostics.</p>
+        <p>Necessary technologies support login, security, account access, billing, and core app behavior. Optional analytics and marketing technologies, including third-party pixels where enabled, are controlled through your cookie settings.</p>
+        <div className="mt-4">
+          <CookieSettingsButton />
+        </div>
       </LegalSection>
 
       <LegalSection title="6. Third-Party Providers">

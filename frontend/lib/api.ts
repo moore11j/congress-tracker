@@ -22,6 +22,7 @@ import type {
   WatchlistSummary,
 } from "@/lib/types";
 import { defaultEntitlements, entitlementTierStorageKey, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
+import { hasPrivacyConsent } from "@/lib/privacyConsent";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
 const legacyAuthTokenStorageKey = "ct:authToken";
@@ -3267,6 +3268,7 @@ export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUser
 
 export function recordPageView(payload: { path: string; referrer_path?: string | null; title?: string | null }): void {
   if (typeof window === "undefined") return;
+  if (!hasPrivacyConsent("analytics")) return;
   const url = buildApiUrl("/api/analytics/page-view");
   const sessionKey = "ct:analyticsSession";
   let sessionId = window.sessionStorage.getItem(sessionKey);
@@ -3295,6 +3297,7 @@ export function recordPageView(payload: { path: string; referrer_path?: string |
 
 export function recordProductEvent(payload: { event_name: string; path?: string | null; properties?: Record<string, string | number | boolean | null> }): void {
   if (typeof window === "undefined") return;
+  if (!hasPrivacyConsent("analytics")) return;
   const eventName = payload.event_name.trim();
   if (!eventName) return;
   const url = buildApiUrl("/api/analytics/event");
