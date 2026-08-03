@@ -298,6 +298,103 @@ def test_holder_backfill_positions_only_passes_through_and_counts_rows(monkeypat
     assert [(call["year"], call["quarter"]) for call in calls] == [(2026, 1), (2025, 4)]
 
 
+def test_historical_backfill_dry_run_plans_unprocessed_filings_without_writes(monkeypatch):
+    engine = _engine()
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    cik = "0001234567"
+    existing_row = _filing_row(cik=cik, filing_date=date(2026, 2, 14), year=2025, quarter=4)
+    planned_rows = [
+        existing_row,
+        _filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1),
+        _filing_row(cik=cik, filing_date=date(2026, 8, 14), year=2026, quarter=2),
+    ]
+
+    with _session(engine) as db:
+        candidate = parse_latest_filing(existing_row)
+        assert candidate is not None
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        upsert_positions_for_filing(db, filing=filing, rows=[{"symbol": "AAPL", "shares": 10, "value": 1000}])
+        filing.processed_at = datetime.now(timezone.utc)
+        db.commit()
+
+    monkeypatch.setattr(ingest_module, "SessionLocal", Session)
+    monkeypatch.setattr(
+        ingest_module,
+        "ensure_institutional_activity_schema",
+        lambda _engine: pytest.fail("dry-run historical backfill should not run schema writes"),
+    )
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_dates", lambda *, cik: planned_rows)
+    monkeypatch.setattr(
+        ingest_module,
+        "ingest_institutional_filing",
+        lambda **_kwargs: pytest.fail("dry-run historical backfill should not ingest filings"),
+    )
+
+    result = ingest_module.backfill_institutional_historical_batch(
+        holder_ciks=[cik],
+        start_year=2025,
+        end_year=2026,
+        max_holders=1,
+        max_filings_total=10,
+        max_filings_per_holder=10,
+    )
+
+    assert result["mode"] == "dry_run"
+    assert result["candidate_filings"] == 3
+    assert result["selected_filings"] == 2
+    assert result["skipped_existing"] == 1
+    assert result["processed_filings"] == 0
+    assert [(row["year"], row["quarter"]) for row in result["selected"]] == [(2026, 1), (2026, 2)]
+
+
+def test_historical_backfill_apply_processes_oldest_first_and_counts_results(monkeypatch):
+    engine = _engine()
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    cik = "0001234567"
+    rows = [
+        _filing_row(cik=cik, filing_date=date(2026, 8, 14), year=2026, quarter=2),
+        _filing_row(cik=cik, filing_date=date(2026, 2, 14), year=2025, quarter=4),
+        _filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1),
+    ]
+    calls = []
+
+    def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        return {
+            "status": "ok",
+            "processed_filings": 1,
+            "position_rows": 11,
+            "position_changes": 2,
+            "summaries": 1,
+            "activity_events": 1,
+            "feed_events": 1,
+        }
+
+    monkeypatch.setattr(ingest_module, "SessionLocal", Session)
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_dates", lambda *, cik: rows)
+    monkeypatch.setattr(ingest_module, "ingest_institutional_filing", fake_ingest)
+
+    result = ingest_module.backfill_institutional_historical_batch(
+        holder_ciks=[cik],
+        start_year=2025,
+        end_year=2026,
+        max_holders=1,
+        max_filings_total=3,
+        max_filings_per_holder=3,
+        apply=True,
+    )
+
+    assert result["mode"] == "apply"
+    assert result["selected_filings"] == 3
+    assert result["processed_filings"] == 3
+    assert result["position_rows"] == 33
+    assert result["position_changes"] == 6
+    assert [(call["year"], call["quarter"]) for call in calls] == [(2025, 4), (2026, 1), (2026, 2)]
+
+
 def test_positions_only_specific_ingest_skips_period_with_existing_positions(monkeypatch):
     engine = _engine()
     db = _session(engine)

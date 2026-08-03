@@ -21,10 +21,12 @@ from app.clients.fmp import (
 from app.db import SessionLocal, engine, ensure_institutional_activity_schema
 from app.models import InstitutionalFiling, InstitutionalPosition
 from app.services.institutional_activity import (
+    CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE,
     parse_latest_filing,
     process_filing_changes_and_events,
     cleanup_overbroad_institutional_feed_events,
     get_canonical_filing_for_holder_period,
+    normalize_cik,
     seed_canonical_institutional_holders,
     upsert_holder_industry_breakdown_rows,
     upsert_holder_performance_rows,
@@ -396,6 +398,207 @@ def backfill_institutional_holder(
     return counts
 
 
+def _default_historical_backfill_ciks() -> list[str]:
+    return [
+        cik
+        for row in CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE
+        if (cik := normalize_cik(row.get("cik")))
+    ]
+
+
+def _parse_cik_csv(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    ciks: list[str] = []
+    seen: set[str] = set()
+    for raw in value.split(","):
+        cik = normalize_cik(raw)
+        if not cik or cik in seen:
+            continue
+        seen.add(cik)
+        ciks.append(cik)
+    return ciks
+
+
+def _historical_existing_state(db, *, cik: str, year: int, quarter: int) -> dict[str, int | bool | None]:
+    filing = get_canonical_filing_for_holder_period(db, cik, int(year), int(quarter))
+    if filing is None:
+        return {"filing_id": None, "position_count": 0, "processed": False, "retryable_zero_position": False}
+    return {
+        "filing_id": filing.id,
+        "position_count": _count_filing_positions(db, filing),
+        "processed": filing.processed_at is not None,
+        "retryable_zero_position": _should_retry_processed_zero_position_filing(db, filing),
+    }
+
+
+def backfill_institutional_historical_batch(
+    *,
+    holder_ciks: list[str] | tuple[str, ...] | None = None,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    max_holders: int | None = 3,
+    max_filings_total: int | None = 10,
+    max_filings_per_holder: int | None = 4,
+    force: bool = False,
+    positions_only: bool = False,
+    apply: bool = False,
+) -> dict[str, Any]:
+    if apply:
+        ensure_institutional_activity_schema(engine)
+
+    now_year = datetime.now(timezone.utc).year
+    min_year = int(start_year) if start_year is not None else now_year - 5
+    max_year = int(end_year) if end_year is not None else now_year
+    if min_year > max_year:
+        raise ValueError("--historical-start-year cannot be after --historical-end-year")
+
+    source_ciks = list(holder_ciks or _default_historical_backfill_ciks())
+    normalized_ciks: list[str] = []
+    seen_ciks: set[str] = set()
+    for raw_cik in source_ciks:
+        cik = normalize_cik(raw_cik)
+        if not cik or cik in seen_ciks:
+            continue
+        seen_ciks.add(cik)
+        normalized_ciks.append(cik)
+    holder_limit = max(0, int(max_holders)) if max_holders is not None else None
+    if holder_limit is not None:
+        normalized_ciks = normalized_ciks[:holder_limit]
+
+    total_limit = max(0, int(max_filings_total)) if max_filings_total is not None else None
+    per_holder_limit = max(0, int(max_filings_per_holder)) if max_filings_per_holder is not None else None
+    counts: dict[str, Any] = {
+        "status": "ok",
+        "mode": "apply" if apply else "dry_run",
+        "positions_only": 1 if positions_only else 0,
+        "holders_requested": len(source_ciks),
+        "holders_considered": len(normalized_ciks),
+        "holders_with_candidates": 0,
+        "candidate_filings": 0,
+        "selected_filings": 0,
+        "skipped_existing": 0,
+        "skipped_bounds": 0,
+        "processed_filings": 0,
+        "position_rows": 0,
+        "position_changes": 0,
+        "summaries": 0,
+        "activity_events": 0,
+        "feed_events": 0,
+        "errors": 0,
+        "selected": [],
+        "error_details": [],
+    }
+
+    selected_total = 0
+    db = SessionLocal()
+    try:
+        for cik in normalized_ciks:
+            if total_limit is not None and selected_total >= total_limit:
+                break
+            try:
+                rows = fetch_institutional_filing_dates(cik=cik)
+            except Exception as exc:
+                counts["errors"] += 1
+                counts["error_details"].append({"cik": cik, "error": str(exc)[:240]})
+                logger.exception("Failed to fetch historical 13F filing dates cik=%s", cik)
+                continue
+
+            by_period = {}
+            for row in rows:
+                candidate = parse_latest_filing({**row, "cik": cik})
+                if candidate is None:
+                    continue
+                if candidate.report_year < min_year or candidate.report_year > max_year:
+                    counts["skipped_bounds"] += 1
+                    continue
+                key = (candidate.report_year, candidate.report_quarter)
+                existing = by_period.get(key)
+                if existing is None or _candidate_canonical_sort_key(candidate) > _candidate_canonical_sort_key(existing):
+                    by_period[key] = candidate
+
+            candidates = sorted(by_period.values(), key=lambda item: (item.report_year, item.report_quarter, item.filing_date))
+            holder_selected = 0
+            holder_had_candidate = False
+            for candidate in candidates:
+                counts["candidate_filings"] += 1
+                if total_limit is not None and selected_total >= total_limit:
+                    break
+                if per_holder_limit is not None and holder_selected >= per_holder_limit:
+                    break
+
+                existing_state = _historical_existing_state(
+                    db,
+                    cik=candidate.cik,
+                    year=candidate.report_year,
+                    quarter=candidate.report_quarter,
+                )
+                if not force:
+                    if bool(existing_state["processed"]) and not bool(existing_state["retryable_zero_position"]):
+                        counts["skipped_existing"] += 1
+                        continue
+                    if positions_only and int(existing_state["position_count"] or 0) > 0:
+                        counts["skipped_existing"] += 1
+                        continue
+
+                selected_total += 1
+                holder_selected += 1
+                holder_had_candidate = True
+                selected_row = {
+                    "cik": candidate.cik,
+                    "holder_name": candidate.holder_name,
+                    "year": candidate.report_year,
+                    "quarter": candidate.report_quarter,
+                    "filing_date": candidate.filing_date.isoformat(),
+                    "accession_number": candidate.accession_number,
+                    "existing_filing_id": existing_state["filing_id"],
+                    "existing_position_count": existing_state["position_count"],
+                }
+                if len(counts["selected"]) < 100:
+                    counts["selected"].append(selected_row)
+
+                if not apply:
+                    continue
+
+                try:
+                    result = ingest_institutional_filing(
+                        cik=candidate.cik,
+                        year=candidate.report_year,
+                        quarter=candidate.report_quarter,
+                        force=force,
+                        positions_only=positions_only,
+                    )
+                    counts["processed_filings"] += int(result.get("processed_filings", 0))
+                    counts["position_rows"] += int(result.get("position_rows", 0))
+                    counts["position_changes"] += int(result.get("position_changes", 0))
+                    counts["summaries"] += int(result.get("summaries", 0))
+                    counts["activity_events"] += int(result.get("activity_events", 0))
+                    counts["feed_events"] += int(result.get("feed_events", 0))
+                    counts["skipped_existing"] += int(result.get("skipped", 0))
+                except Exception as exc:
+                    counts["errors"] += 1
+                    counts["error_details"].append(
+                        {
+                            "cik": candidate.cik,
+                            "year": candidate.report_year,
+                            "quarter": candidate.report_quarter,
+                            "error": str(exc)[:240],
+                        }
+                    )
+                    logger.exception(
+                        "Failed to apply historical 13F filing cik=%s Q%s %s",
+                        candidate.cik,
+                        candidate.report_quarter,
+                        candidate.report_year,
+                    )
+            if holder_had_candidate:
+                counts["holders_with_candidates"] += 1
+        counts["selected_filings"] = selected_total
+    finally:
+        db.close()
+    return counts
+
+
 def ingest_holder_enrichment(*, cik: str, year: int | None = None, quarter: int | None = None) -> dict[str, Any]:
     ensure_institutional_activity_schema(engine)
     db = SessionLocal()
@@ -462,8 +665,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--positions-only", action="store_true", help="Load filing holdings snapshots without generating change/activity/feed events.")
     parser.add_argument("--cik")
+    parser.add_argument("--holder-ciks", help="Comma-separated CIKs for bounded historical backfill.")
     parser.add_argument("--year", type=int)
     parser.add_argument("--quarter", type=int)
+    parser.add_argument("--historical-backfill", action="store_true", help="Plan a bounded 13F historical backfill. Dry-run unless --apply-historical-backfill is set.")
+    parser.add_argument("--apply-historical-backfill", action="store_true", help="Write bounded 13F historical backfill rows.")
+    parser.add_argument("--historical-start-year", type=int, default=None)
+    parser.add_argument("--historical-end-year", type=int, default=None)
+    parser.add_argument("--max-holders", type=int, default=3)
+    parser.add_argument("--max-filings-total", type=int, default=10)
+    parser.add_argument("--max-filings-per-holder", type=int, default=4)
     parser.add_argument("--holder-enrichment", action="store_true")
     parser.add_argument("--industry-summary", action="store_true")
     parser.add_argument("--seed-canonical-holders", action="store_true")
@@ -511,6 +722,18 @@ def main() -> None:
             result = run_latest_ingest_job_once(require_enabled=args.require_job_enabled)
         elif args.cleanup_feed_events:
             result = cleanup_institutional_feed_events(dry_run=not args.apply_cleanup)
+        elif args.historical_backfill:
+            result = backfill_institutional_historical_batch(
+                holder_ciks=_parse_cik_csv(args.holder_ciks),
+                start_year=args.historical_start_year,
+                end_year=args.historical_end_year,
+                max_holders=args.max_holders,
+                max_filings_total=args.max_filings_total,
+                max_filings_per_holder=args.max_filings_per_holder,
+                force=args.force,
+                positions_only=args.positions_only,
+                apply=args.apply_historical_backfill,
+            )
         elif args.industry_summary:
             if args.year is None or args.quarter is None:
                 raise SystemExit("--industry-summary requires --year and --quarter")
