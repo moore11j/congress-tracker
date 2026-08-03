@@ -224,15 +224,15 @@ def run_repair(
                 totals["holders"] += 1
 
         db.flush()
-        for symbol, year, quarter in sorted(affected_period_symbols):
-            summary = refresh_symbol_summary(db, symbol, year, quarter)
-            if summary is not None:
-                totals["symbol_summaries"] += 1
-                if refresh_summaries:
+        if refresh_summaries:
+            for symbol, year, quarter in sorted(affected_period_symbols):
+                summary = refresh_symbol_summary(db, symbol, year, quarter)
+                if summary is not None:
+                    totals["symbol_summaries"] += 1
                     totals["activity_events_generated"] += generate_activity_events_for_symbol(db, summary)
                     db.flush()
                     totals["feed_events_materialized"] += materialize_feed_events_for_symbol(db, summary)
-                totals["summary_refreshes"] += 1
+                    totals["summary_refreshes"] += 1
 
     return {
         "mode": "apply" if apply else "dry_run",
