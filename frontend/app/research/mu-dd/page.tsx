@@ -132,7 +132,7 @@ export default async function MuDdLandingPage({ searchParams }: { searchParams: 
               {formatBriefDate(brief?.publishedAt)}{brief?.readingMinutes ? ` - ${brief.readingMinutes} min read` : ""} - Premium
             </p>
             <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight text-white sm:text-5xl">
-              Is the $MU momentum trade dead?
+              Is the Micron momentum trade dead?
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
               {canReadFull

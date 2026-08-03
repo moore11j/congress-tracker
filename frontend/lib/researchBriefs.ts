@@ -38,6 +38,7 @@ export const researchBriefs: ResearchBriefCard[] = [
     publishedAt: "2026-08-03",
     readingMinutes: 6,
     featured: true,
+    premium: true,
   },
   {
     slug: "nbis-vs-crwv-ai-neoclouds",
@@ -68,7 +69,7 @@ export const researchBriefs: ResearchBriefCard[] = [
   {
     slug: "mu-dd",
     route: "/research/mu-dd",
-    title: "Is the MU momentum trade dead?",
+    title: "Is the Micron momentum trade dead?",
     description: "A Walnut preview of the MU momentum setup, memory-cycle question, and key reported revenue, margin, and guidance data.",
     tickers: ["MU"],
     category: "Semiconductors",

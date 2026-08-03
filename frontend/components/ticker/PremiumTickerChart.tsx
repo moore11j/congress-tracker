@@ -49,7 +49,7 @@ type MarkerKindConfig = {
 };
 
 type ChartMode = "line" | "candles";
-type IndicatorKey = "sma20" | "sma50" | "bollinger" | "vwap";
+type IndicatorKey = "sma20" | "sma50" | "bollinger" | "donchian" | "vwap";
 
 const markerConfig: Record<TickerChartMarker["kind"], MarkerKindConfig> = {
   congress: { color: "#38bdf8", label: "Congress", toggleLabel: "Congress" },
@@ -147,6 +147,18 @@ function bollingerBands(points: { date: string; close: number }[], period = 20, 
     const bandWidth = Math.sqrt(variance) * deviations;
     upper.push({ time: chartTime(points[index].date), value: average + bandWidth });
     lower.push({ time: chartTime(points[index].date), value: average - bandWidth });
+  }
+  return { upper, lower };
+}
+
+function donchianChannels(points: { date: string; high: number; low: number }[], period = 20): { upper: LineData[]; lower: LineData[] } {
+  const upper: LineData[] = [];
+  const lower: LineData[] = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const window = points.slice(Math.max(0, index - period + 1), index + 1);
+    if (window.length < period) continue;
+    upper.push({ time: chartTime(points[index].date), value: Math.max(...window.map((point) => point.high)) });
+    lower.push({ time: chartTime(points[index].date), value: Math.min(...window.map((point) => point.low)) });
   }
   return { upper, lower };
 }
@@ -426,6 +438,7 @@ export function PremiumTickerChart({
     sma20: false,
     sma50: false,
     bollinger: false,
+    donchian: false,
     vwap: false,
   });
   const [compareInput, setCompareInput] = useState("");
@@ -532,6 +545,7 @@ export function PremiumTickerChart({
     const sma20Data = movingAverage(prices, 20);
     const sma50Data = movingAverage(prices, 50);
     const bollingerData = bollingerBands(prices);
+    const donchianData = donchianChannels(candleSource);
     const vwapData = vwapLine(closeVolumePoints);
 
     const filteredMarkers = applyMarkerDensity(
@@ -570,6 +584,12 @@ export function PremiumTickerChart({
             lower: relativeIndicatorData(bollingerData.lower, firstClose),
           }
         : bollingerData,
+      donchianData: performanceMode
+        ? {
+            upper: relativeIndicatorData(donchianData.upper, firstClose),
+            lower: relativeIndicatorData(donchianData.lower, firstClose),
+          }
+        : donchianData,
       vwapData: performanceMode ? relativeIndicatorData(vwapData, firstClose) : vwapData,
       compareData,
       performanceMode,
@@ -724,6 +744,24 @@ export function PremiumTickerChart({
         lastValueVisible: false,
         priceFormat,
       }).setData(normalized.bollingerData.lower);
+    }
+    if (indicatorVisibility.donchian) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(34,197,94,0.72)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.donchianData.upper);
+      chart.addSeries(LineSeries, {
+        color: "rgba(34,197,94,0.72)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.donchianData.lower);
     }
     if (indicatorVisibility.vwap && normalized.vwapData.length > 0) {
       chart.addSeries(LineSeries, {
@@ -984,6 +1022,7 @@ export function PremiumTickerChart({
             ["sma20", "SMA 20"],
             ["sma50", "SMA 50"],
             ["bollinger", "Bollinger"],
+            ["donchian", "Donchian"],
             ["vwap", "VWAP"],
           ] as const).map(([key, label]) => (
             <button

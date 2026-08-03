@@ -29,7 +29,7 @@ test("mu dd brief remains a canonical research brief", () => {
   const muEntry = registryEntry("mu-dd");
   assert.match(registry, /slug: "mu-dd"/);
   assert.match(registry, /route: "\/research\/mu-dd"/);
-  assert.match(registry, /title: "Is the MU momentum trade dead\?"/);
+  assert.match(registry, /title: "Is the Micron momentum trade dead\?"/);
   assert.match(registry, /A Walnut preview of the MU momentum setup/);
   assert.match(muEntry, /premium: true/);
   assert.doesNotMatch(muEntry, /judgment: "bullish"/);
@@ -58,15 +58,21 @@ test("spcx earnings preview is published as a static research brief", () => {
   assert.match(spcxPage, /Not investment advice/);
 });
 
-test("nvda vs mu is published as a static research brief", () => {
+test("nvda vs mu is published as a premium gated research brief", () => {
+  const nvdaMuEntry = registryEntry("nvda-vs-mu");
   assert.match(registry, /slug: "nvda-vs-mu"/);
   assert.match(registry, /route: "\/research\/nvda-vs-mu"/);
   assert.match(registry, /title: "NVDA vs MU: which is the better buy right now\?"/);
   assert.match(registry, /tickers: \["NVDA", "MU"\]/);
+  assert.match(nvdaMuEntry, /premium: true/);
+  assert.match(nvdaMuPage, /force-dynamic/);
   assert.match(nvdaMuPage, /getResearchBriefBySlug\("nvda-vs-mu"\)/);
-  assert.match(nvdaMuPage, /NVDA is still the cleaner setup/);
-  assert.match(nvdaMuPage, /More upside torque: MU/);
-  assert.match(nvdaMuPage, /Better business plus cleaner data: NVDA/);
+  assert.match(nvdaMuPage, /optionalPageAuthToken/);
+  assert.match(nvdaMuPage, /canReadFullArticle/);
+  assert.match(nvdaMuPage, /PremiumResearchGate/);
+  assert.match(nvdaMuPage, /Unlock Walnut's Full NVDA vs MU Conclusion/);
+  assert.match(nvdaMuPage, /research_full_article_viewed/);
+  assert.match(nvdaMuPage, /canReadFull \? "More upside torque: MU\. Better business plus cleaner data: NVDA\." : "The NVDA versus MU debate turns on quality versus cycle torque\."/);
   assert.match(nvdaMuPage, /ResearchBriefContextualCta ticker="NVDA"/);
   assert.match(nvdaMuPage, /https:\/\/app\.walnutmarkets\.com\/ticker\/NVDA/);
   assert.match(nvdaMuPage, /https:\/\/app\.walnutmarkets\.com\/ticker\/MU/);

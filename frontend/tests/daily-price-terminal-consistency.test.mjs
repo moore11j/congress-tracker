@@ -29,6 +29,8 @@ test("daily price terminal exposes advanced chart controls", () => {
   assert.match(chartSource, /volumeProfileBuckets/);
   assert.match(chartSource, /SMA 20/);
   assert.match(chartSource, /Bollinger/);
+  assert.match(chartSource, /Donchian/);
+  assert.match(chartSource, /function donchianChannels/);
   assert.match(chartSource, /VWAP/);
   assert.match(chartSource, /TickerChartCompare/);
 });
