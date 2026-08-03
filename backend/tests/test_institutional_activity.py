@@ -347,6 +347,7 @@ def test_historical_backfill_dry_run_plans_unprocessed_filings_without_writes(mo
     assert result["skipped_existing"] == 1
     assert result["processed_filings"] == 0
     assert [(row["year"], row["quarter"]) for row in result["selected"]] == [(2026, 1), (2026, 2)]
+    assert all(row["apply_action"] == "fetch_extract" for row in result["selected"])
 
 
 def test_historical_backfill_apply_processes_oldest_first_and_counts_results(monkeypatch):
@@ -393,6 +394,53 @@ def test_historical_backfill_apply_processes_oldest_first_and_counts_results(mon
     assert result["position_rows"] == 33
     assert result["position_changes"] == 6
     assert [(call["year"], call["quarter"]) for call in calls] == [(2025, 4), (2026, 1), (2026, 2)]
+
+
+def test_historical_backfill_apply_processes_existing_positions_without_refetch(monkeypatch):
+    engine = _engine()
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    cik = "0001234567"
+    prior_row = _filing_row(cik=cik, filing_date=date(2026, 2, 14), year=2025, quarter=4)
+    current_row = _filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1)
+
+    with _session(engine) as db:
+        prior_candidate = parse_latest_filing(prior_row)
+        current_candidate = parse_latest_filing(current_row)
+        assert prior_candidate is not None
+        assert current_candidate is not None
+        upsert_institutional_holder(db, prior_candidate)
+        prior_filing, _ = upsert_institutional_filing(db, prior_candidate)
+        db.flush()
+        upsert_positions_for_filing(db, filing=prior_filing, rows=[{"symbol": "NVDA", "shares": 10, "marketValue": 100}])
+        upsert_institutional_holder(db, current_candidate)
+        current_filing, _ = upsert_institutional_filing(db, current_candidate)
+        db.flush()
+        upsert_positions_for_filing(db, filing=current_filing, rows=[{"symbol": "NVDA", "shares": 20, "marketValue": 300}])
+        db.commit()
+
+    monkeypatch.setattr(ingest_module, "SessionLocal", Session)
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_dates", lambda *, cik: [prior_row, current_row])
+    monkeypatch.setattr(
+        ingest_module,
+        "ingest_institutional_filing",
+        lambda **_kwargs: pytest.fail("existing holdings should be processed without fetching extracts"),
+    )
+
+    result = ingest_module.backfill_institutional_historical_batch(
+        holder_ciks=[cik],
+        start_year=2025,
+        end_year=2026,
+        max_holders=1,
+        max_filings_total=2,
+        max_filings_per_holder=2,
+        apply=True,
+    )
+
+    assert result["selected_filings"] == 2
+    assert result["processed_existing_position_filings"] == 2
+    assert result["position_changes"] == 2
+    assert [row["apply_action"] for row in result["selected"]] == ["process_existing_positions", "process_existing_positions"]
 
 
 def test_positions_only_specific_ingest_skips_period_with_existing_positions(monkeypatch):

@@ -480,6 +480,7 @@ def backfill_institutional_historical_batch(
         "skipped_existing": 0,
         "skipped_bounds": 0,
         "processed_filings": 0,
+        "processed_existing_position_filings": 0,
         "position_rows": 0,
         "position_changes": 0,
         "summaries": 0,
@@ -553,6 +554,11 @@ def backfill_institutional_historical_batch(
                     "accession_number": candidate.accession_number,
                     "existing_filing_id": existing_state["filing_id"],
                     "existing_position_count": existing_state["position_count"],
+                    "apply_action": (
+                        "process_existing_positions"
+                        if int(existing_state["position_count"] or 0) > 0 and not positions_only
+                        else "fetch_extract"
+                    ),
                 }
                 if len(counts["selected"]) < 100:
                     counts["selected"].append(selected_row)
@@ -561,21 +567,42 @@ def backfill_institutional_historical_batch(
                     continue
 
                 try:
-                    result = ingest_institutional_filing(
-                        cik=candidate.cik,
-                        year=candidate.report_year,
-                        quarter=candidate.report_quarter,
-                        force=force,
-                        positions_only=positions_only,
-                    )
-                    counts["processed_filings"] += int(result.get("processed_filings", 0))
-                    counts["position_rows"] += int(result.get("position_rows", 0))
-                    counts["position_changes"] += int(result.get("position_changes", 0))
-                    counts["summaries"] += int(result.get("summaries", 0))
-                    counts["activity_events"] += int(result.get("activity_events", 0))
-                    counts["feed_events"] += int(result.get("feed_events", 0))
-                    counts["skipped_existing"] += int(result.get("skipped", 0))
+                    if selected_row["apply_action"] == "process_existing_positions":
+                        filing = get_canonical_filing_for_holder_period(
+                            db,
+                            candidate.cik,
+                            candidate.report_year,
+                            candidate.report_quarter,
+                        )
+                        if filing is None:
+                            raise ValueError(
+                                f"No existing 13F filing found for cik={candidate.cik} Q{candidate.report_quarter} {candidate.report_year}"
+                            )
+                        process_counts = process_filing_changes_and_events(db, filing)
+                        db.commit()
+                        counts["processed_filings"] += 1
+                        counts["processed_existing_position_filings"] += 1
+                        counts["position_changes"] += int(process_counts.get("changes", 0))
+                        counts["summaries"] += int(process_counts.get("summaries", 0))
+                        counts["activity_events"] += int(process_counts.get("activity_events", 0))
+                        counts["feed_events"] += int(process_counts.get("feed_events", 0))
+                    else:
+                        result = ingest_institutional_filing(
+                            cik=candidate.cik,
+                            year=candidate.report_year,
+                            quarter=candidate.report_quarter,
+                            force=force,
+                            positions_only=positions_only,
+                        )
+                        counts["processed_filings"] += int(result.get("processed_filings", 0))
+                        counts["position_rows"] += int(result.get("position_rows", 0))
+                        counts["position_changes"] += int(result.get("position_changes", 0))
+                        counts["summaries"] += int(result.get("summaries", 0))
+                        counts["activity_events"] += int(result.get("activity_events", 0))
+                        counts["feed_events"] += int(result.get("feed_events", 0))
+                        counts["skipped_existing"] += int(result.get("skipped", 0))
                 except Exception as exc:
+                    db.rollback()
                     counts["errors"] += 1
                     counts["error_details"].append(
                         {
