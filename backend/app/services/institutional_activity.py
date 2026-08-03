@@ -225,15 +225,28 @@ def institutional_confirmation_contribution(
 
 def parse_latest_filing(row: dict[str, Any]) -> InstitutionalFilingCandidate | None:
     cik = normalize_cik(_first_text(row, "cik", "holderCik", "institutionCik", "managerCik", "investorCik"))
-    filing_date = _parse_date(_first_value(row, "filingDate", "filing_date", "date", "acceptedDate", "accepted_date"))
+    filing_date = _parse_date(_first_value(row, "filingDate", "filing_date", "acceptedDate", "accepted_date"))
+    generic_date = _parse_date(_first_value(row, "date"))
     report_period_end = _parse_date(
-        _first_value(row, "reportPeriod", "report_period", "periodOfReport", "period_of_report", "reportDate", "report_date", "date")
+        _first_value(row, "reportPeriod", "report_period", "periodOfReport", "period_of_report", "reportDate", "report_date")
     )
     report_year = _first_int(row, "reportYear", "report_year", "year")
     report_quarter = _first_int(row, "reportQuarter", "report_quarter", "quarter")
+    if report_period_end is None and generic_date is not None:
+        report_period_end = generic_date
     if report_period_end and (report_year is None or report_quarter is None):
         report_year = report_year or report_period_end.year
         report_quarter = report_quarter or _quarter_for_date(report_period_end)
+    normalized_quarter = max(1, min(int(report_quarter), 4)) if report_quarter is not None else None
+    expected_period_end = _quarter_end(int(report_year), normalized_quarter) if report_year is not None and normalized_quarter is not None else None
+    raw = dict(row)
+    if expected_period_end is not None:
+        if report_period_end is None or (generic_date is not None and report_period_end == generic_date and generic_date != expected_period_end):
+            report_period_end = expected_period_end
+            raw["_walnut_report_period_source"] = "derived_from_report_year_quarter"
+    if filing_date is None and expected_period_end is not None:
+        filing_date = expected_period_end + timedelta(days=45)
+        raw["_walnut_filing_date_source"] = "estimated_13f_deadline"
     if not cik or filing_date is None or report_year is None or report_quarter is None:
         return None
     form_type = _first_text(row, "formType", "form_type", "form", "type")
@@ -251,7 +264,7 @@ def parse_latest_filing(row: dict[str, Any]) -> InstitutionalFilingCandidate | N
         filing_url=_first_text(row, "filingUrl", "filing_url", "url", "link", "finalLink"),
         form_type=form_type,
         is_amendment=is_amendment,
-        raw=row,
+        raw=raw,
     )
 
 

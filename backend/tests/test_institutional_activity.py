@@ -183,6 +183,42 @@ def test_parse_latest_filing_handles_latest_endpoint_payload_shape():
     assert candidate.filing_url == "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm"
 
 
+def test_parse_latest_filing_estimates_sparse_historical_dates_payload():
+    candidate = parse_latest_filing(
+        {
+            "cik": "0000093751",
+            "date": "2026-03-31",
+            "year": 2024,
+            "quarter": 1,
+        }
+    )
+
+    assert candidate is not None
+    assert candidate.report_year == 2024
+    assert candidate.report_quarter == 1
+    assert candidate.report_period_end == date(2024, 3, 31)
+    assert candidate.filing_date == date(2024, 5, 15)
+    assert candidate.raw["_walnut_report_period_source"] == "derived_from_report_year_quarter"
+    assert candidate.raw["_walnut_filing_date_source"] == "estimated_13f_deadline"
+
+
+def test_parse_latest_filing_does_not_estimate_when_exact_filing_date_present():
+    candidate = parse_latest_filing(
+        {
+            "cik": "0001452208",
+            "date": "2026-06-30",
+            "filingDate": "2026-07-01 00:00:00",
+            "year": 2026,
+            "quarter": 2,
+        }
+    )
+
+    assert candidate is not None
+    assert candidate.filing_date == date(2026, 7, 1)
+    assert candidate.report_period_end == date(2026, 6, 30)
+    assert "_walnut_filing_date_source" not in candidate.raw
+
+
 def test_latest_ingest_metrics_split_parse_failures(monkeypatch):
     class DummySession:
         def close(self):
