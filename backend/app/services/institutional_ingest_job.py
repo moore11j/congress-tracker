@@ -17,6 +17,7 @@ from app.models import InstitutionalIngestJobRun, InstitutionalIngestJobState
 logger = logging.getLogger(__name__)
 
 LATEST_FILINGS_JOB_NAME = "latest_filings"
+HISTORICAL_13F_JOB_NAME = "historical_13f"
 DEFAULT_STALE_RUNNING_MINUTES = 90
 DEFAULT_FEED_EVENTS_WARNING_THRESHOLD = 100
 SCHEDULED_PAGES_PER_RUN = 1
@@ -72,6 +73,22 @@ def latest_job_defaults() -> dict[str, int | bool]:
     }
 
 
+def historical_job_defaults() -> dict[str, Any]:
+    now_year = _now().year
+    return {
+        "enabled": False,
+        "cursor_page": 0,
+        "pages_per_run": 1,
+        "limit": 25,
+        "max_filings_per_run": 1,
+        "metadata": {
+            "start_year": now_year - 5,
+            "end_year": now_year,
+            "holder_ciks": None,
+        },
+    }
+
+
 def _apply_scheduled_window(state: InstitutionalIngestJobState) -> None:
     state.pages_per_run = SCHEDULED_PAGES_PER_RUN
     state.limit = SCHEDULED_LIMIT
@@ -92,6 +109,64 @@ def get_or_create_latest_job_state(db: Session) -> InstitutionalIngestJobState:
         max_filings_per_run=int(defaults["max_filings_per_run"]),
         last_status="idle",
     )
+    db.add(state)
+    db.flush()
+    return state
+
+
+def _loads_state_metadata(state: InstitutionalIngestJobState) -> dict[str, Any]:
+    if not state.metadata_json:
+        return {}
+    try:
+        parsed = json.loads(state.metadata_json)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _set_state_metadata(state: InstitutionalIngestJobState, metadata: dict[str, Any]) -> None:
+    state.metadata_json = json.dumps(metadata, sort_keys=True, default=str)
+
+
+def _historical_holder_ciks(metadata: dict[str, Any]) -> list[str]:
+    from app.services.institutional_activity import CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE, normalize_cik
+
+    configured = metadata.get("holder_ciks")
+    if isinstance(configured, list) and configured:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in configured:
+            cik = normalize_cik(value)
+            if cik and cik not in seen:
+                seen.add(cik)
+                normalized.append(cik)
+        return normalized
+
+    ciks: list[str] = []
+    for row in CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE:
+        cik = normalize_cik(row.get("cik"))
+        if cik:
+            ciks.append(cik)
+    return ciks
+
+
+def get_or_create_historical_job_state(db: Session) -> InstitutionalIngestJobState:
+    state = db.get(InstitutionalIngestJobState, HISTORICAL_13F_JOB_NAME)
+    if state is not None:
+        if not state.metadata_json:
+            _set_state_metadata(state, historical_job_defaults()["metadata"])
+        return state
+    defaults = historical_job_defaults()
+    state = InstitutionalIngestJobState(
+        job_name=HISTORICAL_13F_JOB_NAME,
+        enabled=bool(defaults["enabled"]),
+        cursor_page=int(defaults["cursor_page"]),
+        pages_per_run=int(defaults["pages_per_run"]),
+        limit=int(defaults["limit"]),
+        max_filings_per_run=int(defaults["max_filings_per_run"]),
+        last_status="idle",
+    )
+    _set_state_metadata(state, dict(defaults["metadata"]))
     db.add(state)
     db.flush()
     return state
@@ -127,6 +202,42 @@ def initialize_latest_job_state(
         db.close()
 
 
+def initialize_historical_job_state(
+    *,
+    cursor_page: int | None = None,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    holder_ciks: list[str] | None = None,
+    max_filings_per_run: int | None = None,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        state = get_or_create_historical_job_state(db)
+        metadata = {**historical_job_defaults()["metadata"], **_loads_state_metadata(state)}
+        if cursor_page is not None:
+            state.cursor_page = max(0, int(cursor_page))
+        if start_year is not None:
+            metadata["start_year"] = int(start_year)
+        if end_year is not None:
+            metadata["end_year"] = int(end_year)
+        if holder_ciks is not None:
+            metadata["holder_ciks"] = holder_ciks
+        if max_filings_per_run is not None:
+            state.max_filings_per_run = max(1, min(int(max_filings_per_run), 10))
+        if enabled is not None:
+            state.enabled = bool(enabled)
+            state.last_status = "idle" if enabled else "paused"
+        _set_state_metadata(state, metadata)
+        state.updated_at = _now()
+        db.commit()
+        db.refresh(state)
+        return historical_job_status_payload(db)
+    finally:
+        db.close()
+
+
 def _state_query_for_update(db: Session):
     statement = select(InstitutionalIngestJobState).where(InstitutionalIngestJobState.job_name == LATEST_FILINGS_JOB_NAME)
     if db.bind is not None and db.bind.dialect.name != "sqlite":
@@ -134,8 +245,19 @@ def _state_query_for_update(db: Session):
     return statement
 
 
+def _historical_state_query_for_update(db: Session):
+    statement = select(InstitutionalIngestJobState).where(InstitutionalIngestJobState.job_name == HISTORICAL_13F_JOB_NAME)
+    if db.bind is not None and db.bind.dialect.name != "sqlite":
+        statement = statement.with_for_update(nowait=True)
+    return statement
+
+
 def _load_state_for_update(db: Session) -> InstitutionalIngestJobState | None:
     return db.execute(_state_query_for_update(db)).scalar_one_or_none()
+
+
+def _load_historical_state_for_update(db: Session) -> InstitutionalIngestJobState | None:
+    return db.execute(_historical_state_query_for_update(db)).scalar_one_or_none()
 
 
 def _is_stale_running(state: InstitutionalIngestJobState, now: datetime) -> bool:
@@ -515,6 +637,211 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
     return run_scheduled_latest_once()
 
 
+def _apply_historical_counts_to_run(run: InstitutionalIngestJobRun, result: dict[str, Any]) -> None:
+    run.pages_scanned = 1
+    run.scanned = _as_int(result.get("candidate_filings"))
+    run.parsed = _as_int(result.get("selected_filings"))
+    run.already_processed_skipped = _as_int(result.get("skipped_existing"))
+    run.processed_filings = _as_int(result.get("processed_filings"))
+    run.skipped = _as_int(result.get("skipped_existing"))
+    run.errors = _as_int(result.get("errors"))
+    run.position_rows = _as_int(result.get("position_rows"))
+    run.position_changes = _as_int(result.get("position_changes"))
+    run.summaries = _as_int(result.get("summaries"))
+    run.activity_events = _as_int(result.get("activity_events"))
+    run.feed_events = _as_int(result.get("feed_events"))
+
+
+def run_historical_backfill_once(*, require_enabled: bool = True) -> dict[str, Any]:
+    started = _now()
+    db = SessionLocal()
+    try:
+        try:
+            state = _load_historical_state_for_update(db)
+        except OperationalError:
+            db.rollback()
+            state = get_or_create_historical_job_state(db)
+            run = _create_run(
+                db,
+                state,
+                status="skipped_locked",
+                started_at=started,
+                finished_at=_now(),
+                error_message="historical 13F job state row is locked by another runner",
+            )
+            db.commit()
+            return {"status": "skipped_locked", "run": job_run_payload(run), "state": historical_job_state_payload(state)}
+
+        if state is None:
+            state = get_or_create_historical_job_state(db)
+        metadata = {**historical_job_defaults()["metadata"], **_loads_state_metadata(state)}
+        holders = _historical_holder_ciks(metadata)
+        now = _now()
+        if _is_stale_running(state, now):
+            state.last_status = "failed"
+            state.last_error = "stale running historical 13F job recovered"
+            state.last_finished_at = now
+        elif state.last_status == "running":
+            run = _create_run(
+                db,
+                state,
+                status="skipped_locked",
+                started_at=started,
+                finished_at=now,
+                error_message="historical 13F job is already running",
+            )
+            db.commit()
+            return {"status": "skipped_locked", "run": job_run_payload(run), "state": historical_job_state_payload(state)}
+
+        if require_enabled and not state.enabled:
+            run = _create_run(
+                db,
+                state,
+                status="paused",
+                started_at=started,
+                finished_at=now,
+                error_message="historical 13F backfill is disabled",
+            )
+            state.last_status = "paused"
+            state.last_finished_at = now
+            state.updated_at = now
+            db.commit()
+            return {"status": "paused", "run": job_run_payload(run), "state": historical_job_state_payload(state)}
+
+        if not holders or int(state.cursor_page) >= len(holders):
+            state.enabled = False
+            state.last_status = "complete"
+            state.last_finished_at = now
+            state.updated_at = now
+            db.commit()
+            return {"status": "complete", "state": historical_job_state_payload(state)}
+
+        holder_index = max(0, int(state.cursor_page))
+        holder_cik = holders[holder_index]
+        run = _create_run(db, state, status="running", started_at=started)
+        run.pages_requested = 1
+        run.max_filings = max(1, min(int(state.max_filings_per_run), 10))
+        run.metadata_json = json.dumps(
+            {
+                "holder_index": holder_index,
+                "holder_cik": holder_cik,
+                "start_year": metadata.get("start_year"),
+                "end_year": metadata.get("end_year"),
+            },
+            sort_keys=True,
+            default=str,
+        )
+        state.last_status = "running"
+        state.last_started_at = started
+        state.last_error = None
+        state.updated_at = started
+        db.commit()
+        run_id = int(run.id)
+        max_filings = int(run.max_filings)
+    finally:
+        db.close()
+
+    logger.info(
+        "institutional_historical_backfill_run_start run_id=%s holder_index=%s holder_cik=%s max_filings=%s",
+        run_id,
+        holder_index,
+        holder_cik,
+        max_filings,
+    )
+
+    try:
+        from app.ingest_institutional_activity import backfill_institutional_historical_batch
+
+        result = backfill_institutional_historical_batch(
+            holder_ciks=[holder_cik],
+            start_year=int(metadata.get("start_year") or historical_job_defaults()["metadata"]["start_year"]),
+            end_year=int(metadata.get("end_year") or historical_job_defaults()["metadata"]["end_year"]),
+            max_holders=1,
+            max_filings_total=max_filings,
+            max_filings_per_holder=max_filings,
+            apply=True,
+        )
+    except Exception as exc:
+        logger.exception("institutional_historical_backfill_run_failed run_id=%s", run_id)
+        db = SessionLocal()
+        try:
+            state = db.get(InstitutionalIngestJobState, HISTORICAL_13F_JOB_NAME)
+            run = db.get(InstitutionalIngestJobRun, run_id)
+            if state is not None:
+                state.last_status = "failed"
+                state.last_error = str(exc)
+                state.last_finished_at = _now()
+                state.enabled = False
+            if run is not None:
+                run.status = "failed"
+                run.finished_at = _now()
+                run.error_message = str(exc)
+            db.commit()
+            return {"status": "failed", "error": str(exc), "run": job_run_payload(run) if run else None}
+        finally:
+            db.close()
+
+    db = SessionLocal()
+    try:
+        state = db.get(InstitutionalIngestJobState, HISTORICAL_13F_JOB_NAME)
+        run = db.get(InstitutionalIngestJobRun, run_id)
+        if state is None or run is None:
+            raise RuntimeError("historical 13F job state disappeared during run")
+
+        _apply_historical_counts_to_run(run, result)
+        now = _now()
+        run.finished_at = now
+        run.metadata_json = json.dumps(
+            {
+                **(json.loads(run.metadata_json or "{}")),
+                "backfill_result": result,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        if _as_int(result.get("errors")) > 0:
+            run.status = "failed"
+            run.error_message = "historical 13F backfill reported errors"
+            state.enabled = False
+            state.last_status = "failed"
+            state.last_error = run.error_message
+        else:
+            run.status = "success"
+            state.last_status = "success"
+            state.last_error = None
+            selected = _as_int(result.get("selected_filings"))
+            processed = _as_int(result.get("processed_filings"))
+            if selected == 0 or processed == 0:
+                state.cursor_page = int(state.cursor_page) + 1
+            run.next_cursor_page = int(state.cursor_page)
+            if int(state.cursor_page) >= len(_historical_holder_ciks(_loads_state_metadata(state))):
+                state.enabled = False
+                state.last_status = "complete"
+            state.total_pages_scanned += 1
+            state.total_filings_processed += run.processed_filings
+            state.total_position_rows += run.position_rows
+            state.total_activity_events += run.activity_events
+            state.total_feed_events += run.feed_events
+
+        state.last_finished_at = now
+        state.updated_at = now
+        db.commit()
+        db.refresh(state)
+        db.refresh(run)
+        logger.info(
+            "institutional_historical_backfill_run_finished run_id=%s status=%s holder_index=%s next_cursor=%s processed_filings=%s errors=%s",
+            run.id,
+            run.status,
+            holder_index,
+            run.next_cursor_page,
+            run.processed_filings,
+            run.errors,
+        )
+        return {"status": run.status, "state": historical_job_state_payload(state), "run": job_run_payload(run), "result": result}
+    finally:
+        db.close()
+
+
 def update_latest_job_config(
     db: Session,
     *,
@@ -551,6 +878,49 @@ def set_latest_job_cursor(db: Session, cursor_page: int) -> InstitutionalIngestJ
     return state
 
 
+def update_historical_job_config(
+    db: Session,
+    *,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    holder_ciks: list[str] | None = None,
+    max_filings_per_run: int | None = None,
+) -> InstitutionalIngestJobState:
+    state = get_or_create_historical_job_state(db)
+    metadata = {**historical_job_defaults()["metadata"], **_loads_state_metadata(state)}
+    if start_year is not None:
+        metadata["start_year"] = int(start_year)
+    if end_year is not None:
+        metadata["end_year"] = int(end_year)
+    if holder_ciks is not None:
+        metadata["holder_ciks"] = holder_ciks
+        state.cursor_page = 0
+    if max_filings_per_run is not None:
+        state.max_filings_per_run = max(1, min(int(max_filings_per_run), 10))
+    _set_state_metadata(state, metadata)
+    state.updated_at = _now()
+    return state
+
+
+def set_historical_job_enabled(db: Session, enabled: bool) -> InstitutionalIngestJobState:
+    state = get_or_create_historical_job_state(db)
+    state.enabled = bool(enabled)
+    state.last_status = "idle" if enabled else "paused"
+    state.updated_at = _now()
+    if enabled:
+        state.last_error = None
+    return state
+
+
+def set_historical_job_cursor(db: Session, cursor_page: int) -> InstitutionalIngestJobState:
+    state = get_or_create_historical_job_state(db)
+    holders = _historical_holder_ciks(_loads_state_metadata(state))
+    max_cursor = len(holders)
+    state.cursor_page = max(0, min(int(cursor_page), max_cursor))
+    state.updated_at = _now()
+    return state
+
+
 def recent_latest_job_runs(db: Session, *, limit: int = 10) -> list[InstitutionalIngestJobRun]:
     return list(
         db.execute(
@@ -564,11 +934,34 @@ def recent_latest_job_runs(db: Session, *, limit: int = 10) -> list[Institutiona
     )
 
 
+def recent_historical_job_runs(db: Session, *, limit: int = 10) -> list[InstitutionalIngestJobRun]:
+    return list(
+        db.execute(
+            select(InstitutionalIngestJobRun)
+            .where(InstitutionalIngestJobRun.job_name == HISTORICAL_13F_JOB_NAME)
+            .order_by(InstitutionalIngestJobRun.started_at.desc(), InstitutionalIngestJobRun.id.desc())
+            .limit(max(1, min(int(limit), 50)))
+        )
+        .scalars()
+        .all()
+    )
+
+
 def latest_job_status_payload(db: Session) -> dict[str, Any]:
     state = get_or_create_latest_job_state(db)
     runs = recent_latest_job_runs(db, limit=10)
     return {
         "state": job_state_payload(state),
+        "latest_run": job_run_payload(runs[0]) if runs else None,
+        "recent_runs": [job_run_payload(run) for run in runs],
+    }
+
+
+def historical_job_status_payload(db: Session) -> dict[str, Any]:
+    state = get_or_create_historical_job_state(db)
+    runs = recent_historical_job_runs(db, limit=10)
+    return {
+        "state": historical_job_state_payload(state),
         "latest_run": job_run_payload(runs[0]) if runs else None,
         "recent_runs": [job_run_payload(run) for run in runs],
     }
@@ -603,6 +996,7 @@ def job_state_payload(state: InstitutionalIngestJobState) -> dict[str, Any]:
         "last_finished_at": state.last_finished_at.isoformat() if state.last_finished_at else None,
         "last_status": state.last_status,
         "last_error": state.last_error,
+        "metadata": _loads_state_metadata(state),
         "total_pages_scanned": int(state.total_pages_scanned),
         "total_filings_processed": int(state.total_filings_processed),
         "total_position_rows": int(state.total_position_rows),
@@ -611,6 +1005,17 @@ def job_state_payload(state: InstitutionalIngestJobState) -> dict[str, Any]:
         "created_at": state.created_at.isoformat() if state.created_at else None,
         "updated_at": state.updated_at.isoformat() if state.updated_at else None,
     }
+
+
+def historical_job_state_payload(state: InstitutionalIngestJobState) -> dict[str, Any]:
+    payload = job_state_payload(state)
+    metadata = payload.get("metadata") or {}
+    holders = _historical_holder_ciks(metadata)
+    cursor = int(payload["cursor_page"])
+    payload["holder_count"] = len(holders)
+    payload["current_holder_cik"] = holders[cursor] if 0 <= cursor < len(holders) else None
+    payload["complete"] = cursor >= len(holders)
+    return payload
 
 
 def job_run_payload(run: InstitutionalIngestJobRun | None) -> dict[str, Any] | None:

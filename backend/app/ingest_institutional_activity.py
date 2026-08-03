@@ -697,6 +697,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--quarter", type=int)
     parser.add_argument("--historical-backfill", action="store_true", help="Plan a bounded 13F historical backfill. Dry-run unless --apply-historical-backfill is set.")
     parser.add_argument("--apply-historical-backfill", action="store_true", help="Write bounded 13F historical backfill rows.")
+    parser.add_argument("--historical-job-init", action="store_true", help="Initialize durable historical 13F backfill state.")
+    parser.add_argument("--historical-job-status", action="store_true", help="Print durable historical 13F backfill status.")
+    parser.add_argument("--historical-job-run-once", action="store_true", help="Run one durable historical 13F backfill slice.")
+    parser.add_argument("--historical-job-enable", action="store_true", help="Enable durable historical 13F backfill during --historical-job-init.")
     parser.add_argument("--historical-start-year", type=int, default=None)
     parser.add_argument("--historical-end-year", type=int, default=None)
     parser.add_argument("--max-holders", type=int, default=3)
@@ -749,6 +753,29 @@ def main() -> None:
             result = run_latest_ingest_job_once(require_enabled=args.require_job_enabled)
         elif args.cleanup_feed_events:
             result = cleanup_institutional_feed_events(dry_run=not args.apply_cleanup)
+        elif args.historical_job_init:
+            from app.services.institutional_ingest_job import initialize_historical_job_state
+
+            result = initialize_historical_job_state(
+                cursor_page=args.start_page,
+                start_year=args.historical_start_year,
+                end_year=args.historical_end_year,
+                holder_ciks=_parse_cik_csv(args.holder_ciks),
+                max_filings_per_run=args.max_filings_total,
+                enabled=args.historical_job_enable,
+            )
+        elif args.historical_job_status:
+            from app.services.institutional_ingest_job import historical_job_status_payload
+
+            db = SessionLocal()
+            try:
+                result = historical_job_status_payload(db)
+            finally:
+                db.close()
+        elif args.historical_job_run_once:
+            from app.services.institutional_ingest_job import run_historical_backfill_once
+
+            result = run_historical_backfill_once(require_enabled=True)
         elif args.historical_backfill:
             result = backfill_institutional_historical_batch(
                 holder_ciks=_parse_cik_csv(args.holder_ciks),

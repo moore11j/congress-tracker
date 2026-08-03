@@ -88,10 +88,45 @@ def _seed_state(Session, **kwargs):
         db.close()
 
 
+def _seed_historical_state(Session, **kwargs):
+    db = Session()
+    try:
+        state = InstitutionalIngestJobState(
+            job_name=job_module.HISTORICAL_13F_JOB_NAME,
+            enabled=kwargs.pop("enabled", False),
+            cursor_page=kwargs.pop("cursor_page", 0),
+            pages_per_run=1,
+            limit=25,
+            max_filings_per_run=kwargs.pop("max_filings_per_run", 1),
+            last_status=kwargs.pop("last_status", "idle"),
+            metadata_json=json.dumps(
+                kwargs.pop(
+                    "metadata",
+                    {"start_year": 2024, "end_year": 2026, "holder_ciks": ["0000000001", "0000000002"]},
+                )
+            ),
+            last_started_at=kwargs.pop("last_started_at", None),
+        )
+        for key, value in kwargs.items():
+            setattr(state, key, value)
+        db.add(state)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _state(Session):
     db = Session()
     try:
         return db.get(InstitutionalIngestJobState, job_module.LATEST_FILINGS_JOB_NAME)
+    finally:
+        db.close()
+
+
+def _historical_state(Session):
+    db = Session()
+    try:
+        return db.get(InstitutionalIngestJobState, job_module.HISTORICAL_13F_JOB_NAME)
     finally:
         db.close()
 
@@ -416,6 +451,158 @@ def test_scheduled_latest_once_cli_invokes_scheduler(monkeypatch, capsys):
     assert "success" in capsys.readouterr().out
 
 
+def test_historical_job_initialization_defaults_disabled(job_env):
+    db = job_env()
+    try:
+        state = job_module.get_or_create_historical_job_state(db)
+        payload = job_module.historical_job_state_payload(state)
+        assert state.enabled is False
+        assert state.cursor_page == 0
+        assert state.max_filings_per_run == 1
+        assert payload["holder_count"] >= 10
+        assert payload["current_holder_cik"]
+    finally:
+        db.close()
+
+
+def test_historical_job_run_once_pauses_when_disabled(job_env, monkeypatch):
+    _seed_historical_state(job_env, enabled=False)
+    monkeypatch.setattr(
+        ingest_module,
+        "backfill_institutional_historical_batch",
+        lambda **_kwargs: pytest.fail("disabled historical job should not run backfill"),
+    )
+
+    result = job_module.run_historical_backfill_once()
+
+    assert result["status"] == "paused"
+    assert _runs(job_env)[0].status == "paused"
+    assert _historical_state(job_env).cursor_page == 0
+
+
+def test_historical_job_processes_current_holder_and_keeps_cursor(job_env, monkeypatch):
+    _seed_historical_state(job_env, enabled=True, cursor_page=0, max_filings_per_run=2)
+    calls = []
+
+    def fake_backfill(**kwargs):
+        calls.append(kwargs)
+        return {
+            "status": "ok",
+            "candidate_filings": 4,
+            "selected_filings": 2,
+            "skipped_existing": 0,
+            "processed_filings": 2,
+            "position_rows": 0,
+            "position_changes": 20,
+            "summaries": 10,
+            "activity_events": 8,
+            "feed_events": 0,
+            "errors": 0,
+        }
+
+    monkeypatch.setattr(ingest_module, "backfill_institutional_historical_batch", fake_backfill)
+
+    result = job_module.run_historical_backfill_once()
+
+    assert result["status"] == "success"
+    assert calls == [
+        {
+            "holder_ciks": ["0000000001"],
+            "start_year": 2024,
+            "end_year": 2026,
+            "max_holders": 1,
+            "max_filings_total": 2,
+            "max_filings_per_holder": 2,
+            "apply": True,
+        }
+    ]
+    state = _historical_state(job_env)
+    assert state.cursor_page == 0
+    assert state.total_filings_processed == 2
+    assert state.total_activity_events == 8
+    run = _runs(job_env)[0]
+    assert run.job_name == job_module.HISTORICAL_13F_JOB_NAME
+    assert run.next_cursor_page == 0
+    assert run.position_changes == 20
+
+
+def test_historical_job_advances_cursor_when_holder_has_no_work(job_env, monkeypatch):
+    _seed_historical_state(job_env, enabled=True, cursor_page=0)
+    monkeypatch.setattr(
+        ingest_module,
+        "backfill_institutional_historical_batch",
+        lambda **_kwargs: {
+            "status": "ok",
+            "candidate_filings": 3,
+            "selected_filings": 0,
+            "skipped_existing": 3,
+            "processed_filings": 0,
+            "position_rows": 0,
+            "position_changes": 0,
+            "summaries": 0,
+            "activity_events": 0,
+            "feed_events": 0,
+            "errors": 0,
+        },
+    )
+
+    result = job_module.run_historical_backfill_once()
+
+    assert result["status"] == "success"
+    assert _historical_state(job_env).cursor_page == 1
+    assert _runs(job_env)[0].next_cursor_page == 1
+
+
+def test_historical_job_marks_complete_after_last_holder(job_env, monkeypatch):
+    _seed_historical_state(
+        job_env,
+        enabled=True,
+        cursor_page=1,
+        metadata={"start_year": 2024, "end_year": 2026, "holder_ciks": ["0000000001", "0000000002"]},
+    )
+    monkeypatch.setattr(
+        ingest_module,
+        "backfill_institutional_historical_batch",
+        lambda **_kwargs: {
+            "status": "ok",
+            "candidate_filings": 0,
+            "selected_filings": 0,
+            "skipped_existing": 0,
+            "processed_filings": 0,
+            "position_rows": 0,
+            "position_changes": 0,
+            "summaries": 0,
+            "activity_events": 0,
+            "feed_events": 0,
+            "errors": 0,
+        },
+    )
+
+    result = job_module.run_historical_backfill_once()
+
+    state = _historical_state(job_env)
+    assert result["status"] == "success"
+    assert state.cursor_page == 2
+    assert state.enabled is False
+    assert state.last_status == "complete"
+
+
+def test_historical_job_run_once_cli_invokes_runner(monkeypatch, capsys):
+    calls = []
+
+    def fake_run_once(*, require_enabled: bool = True):
+        calls.append(require_enabled)
+        return {"status": "success", "run": {"id": 2}}
+
+    monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--historical-job-run-once"])
+    monkeypatch.setattr(job_module, "run_historical_backfill_once", fake_run_once)
+
+    ingest_module.main()
+
+    assert calls == [True]
+    assert "success" in capsys.readouterr().out
+
+
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request({"type": "http", "method": "POST", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})
@@ -461,6 +648,42 @@ def test_admin_can_enable_disable_and_configure_job(job_env):
         assert moved["state"]["cursor_page"] == 21
 
         disabled = admin_router.admin_disable_institutional_ingest(request, db)
+        assert disabled["state"]["enabled"] is False
+    finally:
+        db.close()
+
+
+def test_admin_can_configure_historical_job(job_env):
+    db = job_env()
+    try:
+        admin = _user(db, "historical-admin@example.com", role="admin")
+        request = _request_for_user(admin)
+
+        initialized = admin_router.admin_init_historical_institutional_ingest(request, db)
+        assert initialized["state"]["job_name"] == job_module.HISTORICAL_13F_JOB_NAME
+
+        configured = admin_router.admin_configure_historical_institutional_ingest(
+            admin_router.HistoricalConfigPayload(
+                start_year=2024,
+                end_year=2026,
+                holder_ciks=["0000000001", "0000000002"],
+                max_filings_per_run=2,
+            ),
+            request,
+            db,
+        )
+        assert configured["state"]["metadata"]["start_year"] == 2024
+        assert configured["state"]["holder_count"] == 2
+        assert configured["state"]["max_filings_per_run"] == 2
+
+        enabled = admin_router.admin_enable_historical_institutional_ingest(request, db)
+        assert enabled["state"]["enabled"] is True
+
+        moved = admin_router.admin_set_historical_institutional_ingest_cursor(admin_router.CursorPayload(cursor_page=1), request, db)
+        assert moved["state"]["cursor_page"] == 1
+        assert moved["state"]["current_holder_cik"] == "0000000002"
+
+        disabled = admin_router.admin_disable_historical_institutional_ingest(request, db)
         assert disabled["state"]["enabled"] is False
     finally:
         db.close()

@@ -528,6 +528,7 @@ class InstitutionalIngestJobState(Base):
     last_finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_status: Mapped[str] = mapped_column(Text, default="idle", server_default="idle", nullable=False)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     total_pages_scanned: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
     total_filings_processed: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
     total_position_rows: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)

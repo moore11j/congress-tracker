@@ -2035,6 +2035,23 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
                     index_name,
                     _optional_index_skip_reason(exc),
                 )
+        try:
+            with conn.begin_nested():
+                if bind.dialect.name == "postgresql":
+                    conn.execute(text("ALTER TABLE institutional_ingest_job_state ADD COLUMN IF NOT EXISTS metadata_json TEXT"))
+                else:
+                    existing = {
+                        row[1]
+                        for row in conn.execute(text("PRAGMA table_info(institutional_ingest_job_state)")).fetchall()
+                        if len(row) > 1
+                    }
+                    if "metadata_json" not in existing:
+                        conn.execute(text("ALTER TABLE institutional_ingest_job_state ADD COLUMN metadata_json TEXT"))
+        except SQLAlchemyError as exc:
+            logger.warning(
+                "institutional_activity_optional_column_skipped table=institutional_ingest_job_state column=metadata_json reason=%s",
+                _optional_index_skip_reason(exc),
+            )
         logger.info("institutional_activity_schema_ensure_complete table_count=%s", len(tables))
 
 
