@@ -24,6 +24,7 @@ from app.services.institutional_activity import (
     CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE,
     parse_latest_filing,
     process_filing_changes_and_events,
+    process_filing_changes_and_events_symbol_batch,
     cleanup_overbroad_institutional_feed_events,
     get_canonical_filing_for_holder_period,
     normalize_cik,
@@ -443,6 +444,9 @@ def backfill_institutional_historical_batch(
     force: bool = False,
     positions_only: bool = False,
     apply: bool = False,
+    target_existing_filing_id: int | None = None,
+    symbol_batch_size: int | None = None,
+    symbol_cursor: str | None = None,
 ) -> dict[str, Any]:
     if apply:
         ensure_institutional_activity_schema(engine)
@@ -481,6 +485,11 @@ def backfill_institutional_historical_batch(
         "skipped_bounds": 0,
         "processed_filings": 0,
         "processed_existing_position_filings": 0,
+        "partial_filings": 0,
+        "symbols_processed": 0,
+        "symbols_total": 0,
+        "next_symbol_cursor": None,
+        "active_filing_id": target_existing_filing_id,
         "position_rows": 0,
         "position_changes": 0,
         "summaries": 0,
@@ -534,6 +543,8 @@ def backfill_institutional_historical_batch(
                     year=candidate.report_year,
                     quarter=candidate.report_quarter,
                 )
+                if target_existing_filing_id is not None and existing_state["filing_id"] != int(target_existing_filing_id):
+                    continue
                 if not force:
                     if bool(existing_state["processed"]) and not bool(existing_state["retryable_zero_position"]):
                         counts["skipped_existing"] += 1
@@ -578,10 +589,26 @@ def backfill_institutional_historical_batch(
                             raise ValueError(
                                 f"No existing 13F filing found for cik={candidate.cik} Q{candidate.report_quarter} {candidate.report_year}"
                             )
-                        process_counts = process_filing_changes_and_events(db, filing)
+                        if symbol_batch_size is not None:
+                            process_counts = process_filing_changes_and_events_symbol_batch(
+                                db,
+                                filing,
+                                after_symbol=symbol_cursor,
+                                symbol_limit=symbol_batch_size,
+                            )
+                        else:
+                            process_counts = process_filing_changes_and_events(db, filing)
                         db.commit()
-                        counts["processed_filings"] += 1
-                        counts["processed_existing_position_filings"] += 1
+                        complete = bool(process_counts.get("complete", True))
+                        counts["active_filing_id"] = filing.id
+                        counts["symbols_processed"] += int(process_counts.get("symbols_processed", 0))
+                        counts["symbols_total"] = int(process_counts.get("symbols_total", counts.get("symbols_total") or 0))
+                        counts["next_symbol_cursor"] = process_counts.get("next_symbol_cursor")
+                        if complete:
+                            counts["processed_filings"] += 1
+                            counts["processed_existing_position_filings"] += 1
+                        else:
+                            counts["partial_filings"] += 1
                         counts["position_changes"] += int(process_counts.get("changes", 0))
                         counts["summaries"] += int(process_counts.get("summaries", 0))
                         counts["activity_events"] += int(process_counts.get("activity_events", 0))

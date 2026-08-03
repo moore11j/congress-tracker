@@ -85,6 +85,9 @@ def historical_job_defaults() -> dict[str, Any]:
             "start_year": now_year - 5,
             "end_year": now_year,
             "holder_ciks": None,
+            "active_filing_id": None,
+            "symbol_cursor": None,
+            "symbol_batch_size": 100,
         },
     }
 
@@ -643,6 +646,8 @@ def _apply_historical_counts_to_run(run: InstitutionalIngestJobRun, result: dict
     run.parsed = _as_int(result.get("selected_filings"))
     run.already_processed_skipped = _as_int(result.get("skipped_existing"))
     run.processed_filings = _as_int(result.get("processed_filings"))
+    if _as_int(result.get("partial_filings")):
+        run.processed_filings = 0
     run.skipped = _as_int(result.get("skipped_existing"))
     run.errors = _as_int(result.get("errors"))
     run.position_rows = _as_int(result.get("position_rows"))
@@ -760,6 +765,9 @@ def run_historical_backfill_once(*, require_enabled: bool = True) -> dict[str, A
             max_filings_total=max_filings,
             max_filings_per_holder=max_filings,
             apply=True,
+            target_existing_filing_id=metadata.get("active_filing_id"),
+            symbol_cursor=metadata.get("symbol_cursor"),
+            symbol_batch_size=int(metadata.get("symbol_batch_size") or 100),
         )
     except Exception as exc:
         logger.exception("institutional_historical_backfill_run_failed run_id=%s", run_id)
@@ -811,7 +819,19 @@ def run_historical_backfill_once(*, require_enabled: bool = True) -> dict[str, A
             state.last_error = None
             selected = _as_int(result.get("selected_filings"))
             processed = _as_int(result.get("processed_filings"))
-            if selected == 0 or processed == 0:
+            partial = _as_int(result.get("partial_filings"))
+            state_metadata = {**historical_job_defaults()["metadata"], **_loads_state_metadata(state)}
+            if partial:
+                state_metadata["active_filing_id"] = result.get("active_filing_id")
+                state_metadata["symbol_cursor"] = result.get("next_symbol_cursor")
+                _set_state_metadata(state, state_metadata)
+            else:
+                state_metadata["active_filing_id"] = None
+                state_metadata["symbol_cursor"] = None
+                _set_state_metadata(state, state_metadata)
+            if selected == 0 and metadata.get("active_filing_id"):
+                state.cursor_page = int(state.cursor_page)
+            elif selected == 0 or (processed == 0 and partial == 0):
                 state.cursor_page = int(state.cursor_page) + 1
             run.next_cursor_page = int(state.cursor_page)
             if int(state.cursor_page) >= len(_historical_holder_ciks(_loads_state_metadata(state))):

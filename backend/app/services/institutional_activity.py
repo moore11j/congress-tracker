@@ -712,6 +712,175 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) 
     return {"changes": changes, "summaries": summaries, "activity_events": events, "feed_events": feed_events}
 
 
+def _symbols_for_filing_change_processing(db: Session, filing: InstitutionalFiling) -> list[str]:
+    prior_year, prior_quarter = _previous_quarter(filing.report_year, filing.report_quarter)
+    active_prior_filing_ids = _active_filing_ids_for_period(
+        db,
+        cik=filing.cik,
+        report_year=prior_year,
+        report_quarter=prior_quarter,
+    )
+    current_symbols = select(InstitutionalPosition.normalized_symbol).where(
+        InstitutionalPosition.filing_id == filing.id,
+        InstitutionalPosition.normalized_symbol.is_not(None),
+    )
+    prior_symbols = select(InstitutionalPosition.normalized_symbol).where(
+        InstitutionalPosition.cik == filing.cik,
+        InstitutionalPosition.report_year == prior_year,
+        InstitutionalPosition.report_quarter == prior_quarter,
+        InstitutionalPosition.normalized_symbol.is_not(None),
+    )
+    if active_prior_filing_ids:
+        prior_symbols = prior_symbols.where(InstitutionalPosition.filing_id.in_(active_prior_filing_ids))
+    rows = [row[0] for row in db.execute(current_symbols).all()] + [row[0] for row in db.execute(prior_symbols).all()]
+    return sorted({symbol for symbol in (normalize_symbol(value) for value in rows) if symbol})
+
+
+def _prior_positions_for_filing_symbols(
+    db: Session,
+    filing: InstitutionalFiling,
+    symbols: list[str],
+) -> list[InstitutionalPosition]:
+    if not symbols:
+        return []
+    prior_year, prior_quarter = _previous_quarter(filing.report_year, filing.report_quarter)
+    active_filing_ids = _active_filing_ids_for_period(
+        db,
+        cik=filing.cik,
+        report_year=prior_year,
+        report_quarter=prior_quarter,
+    )
+    query = select(InstitutionalPosition).where(
+        InstitutionalPosition.cik == filing.cik,
+        InstitutionalPosition.report_year == prior_year,
+        InstitutionalPosition.report_quarter == prior_quarter,
+        InstitutionalPosition.normalized_symbol.in_(symbols),
+    )
+    if active_filing_ids:
+        query = query.where(InstitutionalPosition.filing_id.in_(active_filing_ids))
+    return db.execute(query).scalars().all()
+
+
+def process_filing_changes_and_events_symbol_batch(
+    db: Session,
+    filing: InstitutionalFiling,
+    *,
+    after_symbol: str | None = None,
+    symbol_limit: int = 100,
+    reset_existing: bool = False,
+) -> dict[str, Any]:
+    apply_institutional_filing_supersession(db, filing)
+    if not is_canonical_institutional_filing(db, filing):
+        _suppress_holder_period_activity(db, filing)
+        filing.processed_at = datetime.now(timezone.utc)
+        return {
+            "changes": 0,
+            "summaries": 0,
+            "activity_events": 0,
+            "feed_events": 0,
+            "complete": True,
+            "superseded_suppressed": 1,
+            "next_symbol_cursor": None,
+            "symbols_processed": 0,
+        }
+
+    db.flush()
+    should_reset_existing = reset_existing or (_filing_is_amendment(filing) and not after_symbol)
+    reset_symbols = _reset_holder_period_changes_and_activity(db, filing) if should_reset_existing else set()
+    all_symbols = sorted(set(_symbols_for_filing_change_processing(db, filing)) | {symbol for symbol in reset_symbols if symbol})
+    normalized_after = normalize_symbol(after_symbol)
+    remaining = [symbol for symbol in all_symbols if normalized_after is None or symbol > normalized_after]
+    limit = max(1, min(int(symbol_limit or 100), 500))
+    batch_symbols = remaining[:limit]
+    if not batch_symbols:
+        filing.processed_at = datetime.now(timezone.utc)
+        return {
+            "changes": 0,
+            "summaries": 0,
+            "activity_events": 0,
+            "feed_events": 0,
+            "complete": True,
+            "next_symbol_cursor": None,
+            "symbols_processed": 0,
+            "symbols_total": len(all_symbols),
+        }
+
+    current_positions = db.execute(
+        select(InstitutionalPosition).where(
+            InstitutionalPosition.filing_id == filing.id,
+            InstitutionalPosition.normalized_symbol.in_(batch_symbols),
+        )
+    ).scalars().all()
+    prior_positions = _prior_positions_for_filing_symbols(db, filing, batch_symbols)
+    holder = db.get(InstitutionalHolder, filing.cik)
+    holder_name = holder.holder_name if holder else None
+    holder_quality_weight = _holder_quality_weight(holder)
+    prior_by_key = {_position_match_key(position): position for position in prior_positions}
+    current_by_key = {_position_match_key(position): position for position in current_positions}
+
+    changes = 0
+    symbols: set[str] = {symbol for symbol in reset_symbols if symbol in batch_symbols}
+    for key, current in current_by_key.items():
+        prior = prior_by_key.get(key)
+        change = upsert_position_change(
+            db,
+            filing=filing,
+            holder_name=holder_name,
+            current=current,
+            prior=prior,
+            holder_quality_weight=holder_quality_weight,
+            passive_like=bool(holder and holder.is_passive_like),
+        )
+        if change:
+            changes += 1
+            if change.normalized_symbol:
+                symbols.add(change.normalized_symbol)
+
+    for key, prior in prior_by_key.items():
+        if key in current_by_key:
+            continue
+        change = upsert_position_change(
+            db,
+            filing=filing,
+            holder_name=holder_name,
+            current=None,
+            prior=prior,
+            holder_quality_weight=holder_quality_weight,
+            passive_like=bool(holder and holder.is_passive_like),
+        )
+        if change:
+            changes += 1
+            if change.normalized_symbol:
+                symbols.add(change.normalized_symbol)
+
+    summaries = events = feed_events = 0
+    if symbols:
+        db.flush()
+    for symbol in sorted(symbols):
+        summary = refresh_symbol_summary(db, symbol, filing.report_year, filing.report_quarter)
+        if summary:
+            summaries += 1
+            events += generate_activity_events_for_symbol(db, summary)
+            db.flush()
+            feed_events += materialize_feed_events_for_symbol(db, summary)
+
+    next_cursor = batch_symbols[-1]
+    complete = len(remaining) <= len(batch_symbols)
+    if complete:
+        filing.processed_at = datetime.now(timezone.utc)
+        next_cursor = None
+    return {
+        "changes": changes,
+        "summaries": summaries,
+        "activity_events": events,
+        "feed_events": feed_events,
+        "complete": complete,
+        "next_symbol_cursor": next_cursor,
+        "symbols_processed": len(batch_symbols),
+        "symbols_total": len(all_symbols),
+    }
+
+
 def upsert_position_change(
     db: Session,
     *,

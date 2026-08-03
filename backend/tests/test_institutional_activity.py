@@ -37,6 +37,7 @@ from app.services.institutional_activity import (
     parse_position,
     positions_for_holder,
     process_filing_changes_and_events,
+    process_filing_changes_and_events_symbol_batch,
     seed_canonical_institutional_holders,
     upsert_institutional_filing,
     upsert_institutional_holder,
@@ -441,6 +442,62 @@ def test_historical_backfill_apply_processes_existing_positions_without_refetch(
     assert result["processed_existing_position_filings"] == 2
     assert result["position_changes"] == 2
     assert [row["apply_action"] for row in result["selected"]] == ["process_existing_positions", "process_existing_positions"]
+
+
+def test_symbol_batch_processing_commits_progress_without_marking_complete():
+    engine = _engine()
+    today = date.today()
+    cik = "0001234567"
+
+    with _session(engine) as db:
+        prior_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=95), year=2025, quarter=4))
+        current_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today, year=2026, quarter=1))
+        assert prior_candidate is not None
+        assert current_candidate is not None
+        upsert_institutional_holder(db, prior_candidate)
+        prior_filing, _ = upsert_institutional_filing(db, prior_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=prior_filing,
+            rows=[
+                {"symbol": "AAPL", "shares": 10, "marketValue": 100, "cusip": "037833100"},
+                {"symbol": "MSFT", "shares": 10, "marketValue": 100, "cusip": "594918104"},
+            ],
+        )
+        upsert_institutional_holder(db, current_candidate)
+        current_filing, _ = upsert_institutional_filing(db, current_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=current_filing,
+            rows=[
+                {"symbol": "AAPL", "shares": 20, "marketValue": 300, "cusip": "037833100"},
+                {"symbol": "MSFT", "shares": 30, "marketValue": 500, "cusip": "594918104"},
+            ],
+        )
+
+        first = process_filing_changes_and_events_symbol_batch(db, current_filing, symbol_limit=1)
+        db.commit()
+        db.refresh(current_filing)
+        assert first["complete"] is False
+        assert first["symbols_processed"] == 1
+        assert first["next_symbol_cursor"] == "AAPL"
+        assert current_filing.processed_at is None
+        assert db.query(InstitutionalPositionChange).count() == 1
+
+        second = process_filing_changes_and_events_symbol_batch(
+            db,
+            current_filing,
+            after_symbol=str(first["next_symbol_cursor"]),
+            symbol_limit=1,
+        )
+        db.commit()
+        db.refresh(current_filing)
+        assert second["complete"] is True
+        assert second["next_symbol_cursor"] is None
+        assert current_filing.processed_at is not None
+        assert db.query(InstitutionalPositionChange).count() == 2
 
 
 def test_positions_only_specific_ingest_skips_period_with_existing_positions(monkeypatch):

@@ -514,6 +514,9 @@ def test_historical_job_processes_current_holder_and_keeps_cursor(job_env, monke
             "max_filings_total": 2,
             "max_filings_per_holder": 2,
             "apply": True,
+            "target_existing_filing_id": None,
+            "symbol_cursor": None,
+            "symbol_batch_size": 100,
         }
     ]
     state = _historical_state(job_env)
@@ -524,6 +527,114 @@ def test_historical_job_processes_current_holder_and_keeps_cursor(job_env, monke
     assert run.job_name == job_module.HISTORICAL_13F_JOB_NAME
     assert run.next_cursor_page == 0
     assert run.position_changes == 20
+
+
+def test_historical_job_stores_partial_filing_symbol_cursor(job_env, monkeypatch):
+    _seed_historical_state(job_env, enabled=True, cursor_page=0, max_filings_per_run=1)
+    calls = []
+
+    def fake_backfill(**kwargs):
+        calls.append(kwargs)
+        return {
+            "status": "ok",
+            "candidate_filings": 1,
+            "selected_filings": 1,
+            "skipped_existing": 0,
+            "processed_filings": 0,
+            "processed_existing_position_filings": 0,
+            "partial_filings": 1,
+            "active_filing_id": 123,
+            "symbols_processed": 100,
+            "symbols_total": 5000,
+            "next_symbol_cursor": "AAPL",
+            "position_rows": 0,
+            "position_changes": 100,
+            "summaries": 100,
+            "activity_events": 50,
+            "feed_events": 0,
+            "errors": 0,
+        }
+
+    monkeypatch.setattr(ingest_module, "backfill_institutional_historical_batch", fake_backfill)
+
+    result = job_module.run_historical_backfill_once()
+
+    state = _historical_state(job_env)
+    metadata = json.loads(state.metadata_json or "{}")
+    assert result["status"] == "success"
+    assert state.cursor_page == 0
+    assert metadata["active_filing_id"] == 123
+    assert metadata["symbol_cursor"] == "AAPL"
+    assert calls[0]["target_existing_filing_id"] is None
+    assert calls[0]["symbol_cursor"] is None
+    run = _runs(job_env)[0]
+    assert run.processed_filings == 0
+    assert run.position_changes == 100
+
+
+def test_historical_job_resumes_partial_filing_symbol_cursor(job_env, monkeypatch):
+    _seed_historical_state(
+        job_env,
+        enabled=True,
+        cursor_page=0,
+        max_filings_per_run=1,
+        metadata={
+            "start_year": 2024,
+            "end_year": 2026,
+            "holder_ciks": ["0000000001", "0000000002"],
+            "active_filing_id": 123,
+            "symbol_cursor": "AAPL",
+            "symbol_batch_size": 25,
+        },
+    )
+    calls = []
+
+    def fake_backfill(**kwargs):
+        calls.append(kwargs)
+        return {
+            "status": "ok",
+            "candidate_filings": 1,
+            "selected_filings": 1,
+            "skipped_existing": 0,
+            "processed_filings": 1,
+            "processed_existing_position_filings": 1,
+            "partial_filings": 0,
+            "active_filing_id": 123,
+            "symbols_processed": 25,
+            "symbols_total": 125,
+            "next_symbol_cursor": None,
+            "position_rows": 0,
+            "position_changes": 25,
+            "summaries": 25,
+            "activity_events": 12,
+            "feed_events": 0,
+            "errors": 0,
+        }
+
+    monkeypatch.setattr(ingest_module, "backfill_institutional_historical_batch", fake_backfill)
+
+    result = job_module.run_historical_backfill_once()
+
+    state = _historical_state(job_env)
+    metadata = json.loads(state.metadata_json or "{}")
+    assert result["status"] == "success"
+    assert state.cursor_page == 0
+    assert metadata["active_filing_id"] is None
+    assert metadata["symbol_cursor"] is None
+    assert calls == [
+        {
+            "holder_ciks": ["0000000001"],
+            "start_year": 2024,
+            "end_year": 2026,
+            "max_holders": 1,
+            "max_filings_total": 1,
+            "max_filings_per_holder": 1,
+            "apply": True,
+            "target_existing_filing_id": 123,
+            "symbol_cursor": "AAPL",
+            "symbol_batch_size": 25,
+        }
+    ]
 
 
 def test_historical_job_advances_cursor_when_holder_has_no_work(job_env, monkeypatch):
