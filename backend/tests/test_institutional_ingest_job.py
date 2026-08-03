@@ -749,6 +749,42 @@ def test_historical_job_run_once_cli_invokes_runner(monkeypatch, capsys):
     assert "success" in capsys.readouterr().out
 
 
+def test_scheduled_historical_once_cli_exits_nonzero_on_failed_run(monkeypatch, capsys):
+    calls = []
+
+    def fake_run_once(*, require_enabled: bool = True):
+        calls.append(require_enabled)
+        return {"status": "failed", "error": "boom"}
+
+    monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--scheduled-historical-once"])
+    monkeypatch.setattr(job_module, "run_historical_backfill_once", fake_run_once)
+
+    with pytest.raises(SystemExit) as exc:
+        ingest_module.main()
+
+    assert exc.value.code == 1
+    assert calls == [True]
+    assert "failed" in capsys.readouterr().out
+
+
+def test_scheduled_historical_once_cli_treats_paused_as_clean_skip(monkeypatch, capsys):
+    calls = []
+
+    def fake_run_once(*, require_enabled: bool = True):
+        calls.append(require_enabled)
+        return {"status": "paused"}
+
+    monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--scheduled-historical-once"])
+    monkeypatch.setattr(job_module, "run_historical_backfill_once", fake_run_once)
+
+    with pytest.raises(SystemExit) as exc:
+        ingest_module.main()
+
+    assert exc.value.code == 0
+    assert calls == [True]
+    assert "paused" in capsys.readouterr().out
+
+
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request({"type": "http", "method": "POST", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})

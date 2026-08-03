@@ -801,6 +801,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--historical-job-config", action="store_true", help="Update durable historical 13F backfill configuration without running it.")
     parser.add_argument("--historical-job-status", action="store_true", help="Print durable historical 13F backfill status.")
     parser.add_argument("--historical-job-run-once", action="store_true", help="Run one durable historical 13F backfill slice.")
+    parser.add_argument("--scheduled-historical-once", action="store_true", help="Run one scheduled durable historical 13F backfill slice.")
     parser.add_argument("--historical-job-enable", action="store_true", help="Enable durable historical 13F backfill during --historical-job-init.")
     parser.add_argument("--historical-start-year", type=int, default=None)
     parser.add_argument("--historical-end-year", type=int, default=None)
@@ -897,6 +898,18 @@ def main() -> None:
             from app.services.institutional_ingest_job import run_historical_backfill_once
 
             result = run_historical_backfill_once(require_enabled=True)
+        elif args.scheduled_historical_once:
+            from app.services.institutional_ingest_job import run_historical_backfill_once
+
+            result = run_historical_backfill_once(require_enabled=True)
+            status = str(result.get("status") or "").lower()
+            logger.info("Institutional scheduled historical backfill result: %s", result)
+            print(result)
+            if status == "failed":
+                raise SystemExit(1)
+            if status in {"paused", "complete", "skipped_locked"}:
+                raise SystemExit(0)
+            return
         elif args.historical_backfill:
             result = backfill_institutional_historical_batch(
                 holder_ciks=_parse_cik_csv(args.holder_ciks),
