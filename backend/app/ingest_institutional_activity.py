@@ -503,6 +503,79 @@ def backfill_institutional_historical_batch(
     selected_total = 0
     db = SessionLocal()
     try:
+        if target_existing_filing_id is not None:
+            filing = db.get(InstitutionalFiling, int(target_existing_filing_id))
+            if filing is None:
+                counts["errors"] += 1
+                counts["error_details"].append({"filing_id": int(target_existing_filing_id), "error": "existing 13F filing not found"})
+                return counts
+
+            position_count = db.query(InstitutionalPosition).filter(InstitutionalPosition.filing_id == filing.id).count()
+            counts["holders_with_candidates"] = 1
+            counts["candidate_filings"] = 1
+            counts["selected_filings"] = 1
+            counts["selected"].append(
+                {
+                    "cik": filing.cik,
+                    "holder_name": None,
+                    "year": filing.report_year,
+                    "quarter": filing.report_quarter,
+                    "filing_date": filing.filing_date.isoformat(),
+                    "accession_number": filing.accession_number,
+                    "existing_filing_id": filing.id,
+                    "existing_position_count": position_count,
+                    "apply_action": "process_existing_positions",
+                }
+            )
+            if not apply:
+                return counts
+
+            try:
+                if symbol_batch_size is not None:
+                    process_counts = process_filing_changes_and_events_symbol_batch(
+                        db,
+                        filing,
+                        after_symbol=symbol_cursor,
+                        symbol_limit=symbol_batch_size,
+                    )
+                else:
+                    process_counts = process_filing_changes_and_events(db, filing)
+                db.commit()
+                complete = bool(process_counts.get("complete", True))
+                counts["active_filing_id"] = filing.id
+                counts["symbols_processed"] += int(process_counts.get("symbols_processed", 0))
+                counts["symbols_total"] = int(process_counts.get("symbols_total", counts.get("symbols_total") or 0))
+                counts["next_symbol_cursor"] = process_counts.get("next_symbol_cursor")
+                if complete:
+                    counts["processed_filings"] += 1
+                    counts["processed_existing_position_filings"] += 1
+                else:
+                    counts["partial_filings"] += 1
+                counts["position_changes"] += int(process_counts.get("changes", 0))
+                counts["summaries"] += int(process_counts.get("summaries", 0))
+                counts["activity_events"] += int(process_counts.get("activity_events", 0))
+                counts["feed_events"] += int(process_counts.get("feed_events", 0))
+            except Exception as exc:
+                db.rollback()
+                counts["errors"] += 1
+                counts["error_details"].append(
+                    {
+                        "filing_id": filing.id,
+                        "cik": filing.cik,
+                        "year": filing.report_year,
+                        "quarter": filing.report_quarter,
+                        "error": str(exc)[:240],
+                    }
+                )
+                logger.exception(
+                    "Failed to resume historical 13F filing id=%s cik=%s Q%s %s",
+                    filing.id,
+                    filing.cik,
+                    filing.report_quarter,
+                    filing.report_year,
+                )
+            return counts
+
         for cik in normalized_ciks:
             if total_limit is not None and selected_total >= total_limit:
                 break

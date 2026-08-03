@@ -444,6 +444,72 @@ def test_historical_backfill_apply_processes_existing_positions_without_refetch(
     assert [row["apply_action"] for row in result["selected"]] == ["process_existing_positions", "process_existing_positions"]
 
 
+def test_historical_backfill_resumes_active_filing_without_fetching_dates(monkeypatch):
+    engine = _engine()
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    cik = "0001234567"
+    prior_row = _filing_row(cik=cik, filing_date=date(2026, 2, 14), year=2025, quarter=4)
+    current_row = _filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1)
+
+    with _session(engine) as db:
+        prior_candidate = parse_latest_filing(prior_row)
+        current_candidate = parse_latest_filing(current_row)
+        assert prior_candidate is not None
+        assert current_candidate is not None
+        upsert_institutional_holder(db, prior_candidate)
+        prior_filing, _ = upsert_institutional_filing(db, prior_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=prior_filing,
+            rows=[
+                {"symbol": "AAPL", "shares": 10, "marketValue": 100, "cusip": "037833100"},
+                {"symbol": "MSFT", "shares": 10, "marketValue": 100, "cusip": "594918104"},
+            ],
+        )
+        upsert_institutional_holder(db, current_candidate)
+        current_filing, _ = upsert_institutional_filing(db, current_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=current_filing,
+            rows=[
+                {"symbol": "AAPL", "shares": 20, "marketValue": 300, "cusip": "037833100"},
+                {"symbol": "MSFT", "shares": 30, "marketValue": 500, "cusip": "594918104"},
+            ],
+        )
+        current_filing_id = current_filing.id
+        db.commit()
+
+    monkeypatch.setattr(ingest_module, "SessionLocal", Session)
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(
+        ingest_module,
+        "fetch_institutional_filing_dates",
+        lambda *, cik: pytest.fail("active filing resume should not fetch provider filing dates"),
+    )
+
+    result = ingest_module.backfill_institutional_historical_batch(
+        holder_ciks=[cik],
+        start_year=2025,
+        end_year=2026,
+        max_holders=1,
+        max_filings_total=1,
+        max_filings_per_holder=1,
+        apply=True,
+        target_existing_filing_id=current_filing_id,
+        symbol_batch_size=1,
+    )
+
+    assert result["errors"] == 0
+    assert result["selected_filings"] == 1
+    assert result["partial_filings"] == 1
+    assert result["active_filing_id"] == current_filing_id
+    assert result["symbols_processed"] == 1
+    assert result["next_symbol_cursor"] == "AAPL"
+    assert result["position_changes"] == 1
+
+
 def test_symbol_batch_processing_commits_progress_without_marking_complete():
     engine = _engine()
     today = date.today()
