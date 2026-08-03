@@ -25,9 +25,10 @@ import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 import { DataSourcesReport } from "@/components/admin/DataSourcesReport";
 import { AdminAiMarketingView } from "@/components/admin/AdminAiMarketingView";
 import { AdminResearchBriefGeneratorView } from "@/components/admin/AdminResearchBriefGeneratorView";
+import { AdminStrategiesView } from "@/components/admin/AdminStrategiesView";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
-type AdminTab = "settings" | "data_sources" | "reports" | "email" | "ai_marketing" | "research_briefs" | "users";
+type AdminTab = "settings" | "data_sources" | "reports" | "email" | "ai_marketing" | "research_briefs" | "strategies" | "users";
 
 const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> = [
   {
@@ -59,6 +60,11 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
     key: "research_briefs",
     label: "Research Briefs",
     description: "Generate, review, save, and locally publish Walnut due-diligence briefs.",
+  },
+  {
+    key: "strategies",
+    label: "Strategies",
+    description: "Review persisted strategy drafts, backtest runs, holdings, diagnostics, and publication readiness.",
   },
   {
     key: "users",
@@ -997,6 +1003,10 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
 
       {activeTab === "research_briefs" ? (
         <AdminResearchBriefGeneratorView showToast={showToast} />
+      ) : null}
+
+      {activeTab === "strategies" ? (
+        <AdminStrategiesView showToast={showToast} />
       ) : null}
 
       {activeTab === "users" ? (

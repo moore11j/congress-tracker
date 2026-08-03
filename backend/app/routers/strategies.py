@@ -72,3 +72,24 @@ def admin_strategies(
         sort=sort,
         include_drafts=True,
     )
+
+
+@router.get("/admin/strategies/{slug}")
+def admin_strategy(
+    slug: str,
+    request: Request,
+    response: Response,
+    period: str = Query(default="max", max_length=20),
+    equity_limit: int = Query(default=1500, ge=1, le=5000),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    require_admin_user(db, request)
+    return strategy_detail(
+        db,
+        slug=slug,
+        entitlements=current_entitlements(request, db),
+        period=period,
+        equity_limit=equity_limit,
+        include_drafts=True,
+    )

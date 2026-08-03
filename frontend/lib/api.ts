@@ -2875,6 +2875,158 @@ export async function getAdminSettings(): Promise<AdminSettings> {
   return fetchJson<AdminSettings>(buildApiUrl("/api/admin/settings", { include_users: 0 }), { source: "AdminSettings" });
 }
 
+export type StrategyPerformanceSnapshot = {
+  period: string;
+  asOfDate?: string | null;
+  totalReturnPct?: number | null;
+  cagrPct?: number | null;
+  benchmarkReturnPct?: number | null;
+  benchmarkCagrPct?: number | null;
+  alphaCagrPct?: number | null;
+  beta?: number | null;
+  sharpe?: number | null;
+  sortino?: number | null;
+  maxDrawdownPct?: number | null;
+  annualizedVolatilityPct?: number | null;
+  winRatePct?: number | null;
+  tradeCount?: number | null;
+  independentSignalCount?: number | null;
+  avgHoldings?: number | null;
+  turnoverEvents?: number | null;
+  rolling12mBeatingSpyPct?: number | null;
+  walnutStrategyScore?: number | null;
+  metrics?: Record<string, unknown>;
+};
+
+export type StrategyRunSummary = {
+  id: number;
+  runKey: string;
+  runType: string;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  backtestStartDate?: string | null;
+  backtestEndDate?: string | null;
+  benchmark: string;
+  methodologyVersion: string;
+  codeVersion?: string | null;
+  datasetVersions?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
+  universeHash?: string | null;
+  universe?: Record<string, unknown>;
+  executionTiming?: string | null;
+  feesBpsPerSide?: number | null;
+  slippageBpsPerSide?: number | null;
+  metrics?: Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
+  walnutStrategyScore?: number | null;
+  dataQualityConfidence: string;
+  error?: string | null;
+};
+
+export type StrategyHolding = {
+  symbol: string;
+  companyName?: string | null;
+  sector?: string | null;
+  rank?: number | null;
+  weightPct?: number | null;
+  entryDate?: string | null;
+  lastPrice?: number | null;
+  returnPct?: number | null;
+  sourceSignalCount?: number | null;
+  sourceSignals?: Array<Record<string, unknown>>;
+  payload?: Record<string, unknown>;
+  asOfDate?: string | null;
+};
+
+export type StrategyEquityPoint = {
+  date: string;
+  strategyValue: number;
+  benchmarkValue?: number | null;
+  drawdownPct?: number | null;
+  activeHoldings?: number | null;
+};
+
+export type StrategyDefinitionPayload = {
+  id: number;
+  slug: string;
+  name: string;
+  category: string;
+  family?: string | null;
+  status: string;
+  accessTier: string;
+  isFeatured: boolean;
+  sortOrder: number;
+  shortDescription?: string | null;
+  walnutTake?: string | null;
+  methodology?: string | null;
+  methodologyVersion: string;
+  dataQualityConfidence: string;
+  rule?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
+  universe?: Record<string, unknown>;
+  tags?: string[];
+  riskNotes?: string[];
+  latestRun?: StrategyRunSummary | null;
+  performance?: StrategyPerformanceSnapshot | null;
+};
+
+export type StrategyDetailPayload = StrategyDefinitionPayload & {
+  equityCurve?: StrategyEquityPoint[];
+  currentHoldings?: StrategyHolding[];
+};
+
+export type StrategyListResponse = {
+  metadata: {
+    period: string;
+    sort: string;
+    category?: string | null;
+    includeDrafts?: boolean;
+    count: number;
+    storage: string;
+  };
+  items: StrategyDefinitionPayload[];
+};
+
+export async function getAdminStrategies(params?: {
+  category?: string;
+  period?: string;
+  sort?: string;
+  signal?: AbortSignal;
+}): Promise<StrategyListResponse> {
+  return fetchJson<StrategyListResponse>(
+    buildApiUrl("/api/admin/strategies", {
+      category: params?.category,
+      period: params?.period,
+      sort: params?.sort,
+    }),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "AdminStrategies",
+    },
+  );
+}
+
+export async function getAdminStrategy(
+  slug: string,
+  params?: { period?: string; equityLimit?: number; signal?: AbortSignal },
+): Promise<StrategyDetailPayload> {
+  return fetchJson<StrategyDetailPayload>(
+    buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}`, {
+      period: params?.period,
+      equity_limit: params?.equityLimit,
+    }),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "AdminStrategyDetail",
+    },
+  );
+}
+
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {
   return fetchJson<SalesLedgerResponse>(buildApiUrl("/api/admin/reports/sales-ledger", params));
 }
