@@ -34,7 +34,7 @@ export function ScreenerUpgradeOverlay({
           aria-label={title}
         />
         {badge ? (
-          <span className="pointer-events-none absolute right-3 top-3 rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100">
+          <span className="pointer-events-none absolute right-3 top-3 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
             {badge}
           </span>
         ) : null}

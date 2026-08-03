@@ -215,7 +215,7 @@ function LockedInstitutionProfile({ cik }: { cik: string }) {
             Unlock reported 13F holdings, portfolio allocation, and recent institutional activity.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Link href="/pricing" className={ghostButtonClassName} prefetch={false}>
+            <Link href="/pricing" className="inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15" prefetch={false}>
               Upgrade to Pro
             </Link>
             <span className="text-xs text-slate-500">CIK {cik}</span>

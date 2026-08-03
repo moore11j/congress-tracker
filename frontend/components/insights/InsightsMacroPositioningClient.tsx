@@ -123,7 +123,7 @@ function LockedSection({ data }: { data: InsightsMacroPositioningResponse }) {
           </p>
           <p className="mt-3 text-sm font-semibold text-emerald-100">{data.subtitle ?? "Included with Walnut Pro."}</p>
         </div>
-        <Link href="/pricing" className={ghostButtonClassName}>
+        <Link href="/pricing" className="inline-flex h-10 items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
           Upgrade to Pro
         </Link>
       </div>
@@ -331,7 +331,7 @@ function MacroFeedPanel({ overviewSummary }: { overviewSummary?: string | null }
             <p className="text-sm font-semibold text-white">Macro positioning requires Pro.</p>
             <p className="mt-2 text-sm leading-6 text-slate-300">{data?.locked_copy ?? "Unlock detailed positioning activity across major markets."}</p>
           </div>
-          <Link href="/pricing" className={ghostButtonClassName}>
+          <Link href="/pricing" className="inline-flex h-10 items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
             Upgrade to Pro
           </Link>
         </div>

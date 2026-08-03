@@ -316,10 +316,10 @@ function EmptyState({ message }: { message: string }) {
 
 function LockedState() {
   return (
-    <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-5">
-      <p className="text-sm font-semibold text-amber-100">Ownership breakdown requires Pro.</p>
-      <p className="mt-2 text-sm leading-6 text-amber-100/75">Institutional holder percentages and ownership trends use 13F filings.</p>
-      <Link href="/pricing" className="mt-4 inline-flex rounded-xl border border-amber-200/30 px-3 py-2 text-sm font-semibold text-amber-50 hover:bg-amber-200/10">
+    <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-5">
+      <p className="text-sm font-semibold text-emerald-100">Ownership breakdown requires Pro.</p>
+      <p className="mt-2 text-sm leading-6 text-slate-300">Institutional holder percentages and ownership trends use 13F filings.</p>
+      <Link href="/pricing" className="mt-4 inline-flex rounded-xl border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
         Upgrade to Pro
       </Link>
     </div>

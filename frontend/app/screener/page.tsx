@@ -674,7 +674,7 @@ function lockedMetricLine(label: string) {
   return (
     <div className="space-y-1">
       <div className="h-3 w-16 rounded-full bg-slate-800/90" />
-      <div className="text-[11px] leading-4 text-amber-200/90">{label}</div>
+      <div className="text-[11px] leading-4 text-emerald-200/90">{label}</div>
     </div>
   );
 }
@@ -939,7 +939,7 @@ export default async function ScreenerPage({
                   className="inline-flex rounded-lg pr-20"
                   buttonClassName="rounded-lg border border-transparent"
                 >
-                  <div className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs text-amber-100`}>
+                  <div className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs text-emerald-100`}>
                     Monitoring · Premium
                   </div>
                 </ScreenerUpgradeOverlay>
@@ -955,7 +955,7 @@ export default async function ScreenerPage({
         />
 
         {!canUseMonitoring ? (
-          <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] px-4 py-3 text-sm text-slate-300">
+          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.05] px-4 py-3 text-sm text-slate-300">
             Saved screen monitoring is visible here as a Premium workflow upgrade. Free accounts can save screens, but Inbox events and background monitoring stay locked until upgrade.
           </div>
         ) : null}
@@ -1454,7 +1454,7 @@ function SortHeader({
       <th className="px-3 py-2.5 text-left">
         <span className="inline-flex items-center gap-2 text-slate-400">
           {label}
-          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-amber-100">
+          <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-emerald-100">
             Premium
           </span>
         </span>
@@ -1477,7 +1477,7 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerRow; locked?: boole
   if (locked) {
     return (
       <div className="space-y-1">
-        <span className="inline-flex items-center rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+        <span className="inline-flex items-center rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
           Locked
         </span>
         <div className="text-[11px] leading-4 text-slate-500">Premium Why Now + freshness</div>

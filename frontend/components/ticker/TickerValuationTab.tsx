@@ -165,8 +165,8 @@ function ProBlur({ children, className = "" }: { children: ReactNode; className?
         {children}
       </div>
       <div className="absolute inset-0 grid place-items-center bg-slate-950/70 backdrop-blur-[4px]">
-        <Link href="/pricing" className="rounded-lg border border-indigo-300/30 bg-indigo-500/15 px-3 py-2 text-center shadow-[0_0_22px_rgba(99,102,241,0.16)] transition hover:border-indigo-200/50 hover:bg-indigo-500/20">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-indigo-200">Upgrade to Pro</p>
+        <Link href="/pricing" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-center shadow-[0_0_22px_rgba(16,185,129,0.14)] transition hover:border-emerald-200/50 hover:bg-emerald-300/15">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">Upgrade to Pro</p>
           <p className="mt-1 text-xs font-semibold text-slate-100">Full valuation details</p>
         </Link>
       </div>

@@ -1170,12 +1170,12 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
               {loadingMacroPositioning || !macroPositioning ? (
                 <TabSkeleton rows={3} />
               ) : macroPositioning.locked || macroPositioning.status === "locked" ? (
-                <section className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-5">
-                  <p className="text-sm font-semibold text-amber-100">Macro Positioning requires Pro.</p>
-                  <p className="mt-2 text-sm leading-6 text-amber-100/75">
+                <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-5">
+                  <p className="text-sm font-semibold text-emerald-100">Macro Positioning requires Pro.</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
                     {macroPositioning.subtitle ?? macroPositioning.summary ?? "Upgrade to access institutional macro positioning for this ticker."}
                   </p>
-                  <Link href="/pricing" className="mt-4 inline-flex rounded-xl border border-amber-200/30 px-3 py-2 text-sm font-semibold text-amber-50 hover:bg-amber-200/10">
+                  <Link href="/pricing" className="mt-4 inline-flex rounded-xl border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
                     Upgrade to Pro
                   </Link>
                 </section>

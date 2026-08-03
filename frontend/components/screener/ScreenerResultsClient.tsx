@@ -81,7 +81,7 @@ function formatShortDate(value?: string | null): string {
 function lockedMetricLine(label: string) {
   return (
     <div className="space-y-1">
-      <span className="inline-flex items-center rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+      <span className="inline-flex items-center rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
         Premium
       </span>
       <div className="text-[11px] leading-4 text-slate-500">{label}</div>
@@ -172,7 +172,7 @@ function SortHeader({
       <th className="px-3 py-2.5 text-left">
         <span className="inline-flex items-center gap-2 text-slate-400">
           {label}
-          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-amber-100">
+          <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-emerald-100">
             Premium
           </span>
         </span>
@@ -249,7 +249,7 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerApiRow; locked?: bo
   if (locked) {
     return (
       <div className="space-y-1">
-        <span className="inline-flex items-center rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+        <span className="inline-flex items-center rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
           Locked
         </span>
         <div className="text-[11px] leading-4 text-slate-500">Premium Why Now + freshness</div>

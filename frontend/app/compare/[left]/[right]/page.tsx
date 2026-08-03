@@ -187,7 +187,7 @@ function CategoryCard({ category, data, upgradeHref }: { category: PeerCompareCa
             eventName={category.required_plan === "pro" ? "compare_pro_upgrade_click" : "compare_premium_upgrade_click"}
             path={`/compare/${encodeURIComponent(data.left.symbol)}/${encodeURIComponent(data.right.symbol)}`}
             properties={{ ticker_pair: `${data.left.symbol}/${data.right.symbol}`, cta_location: `${category.key}_card` }}
-            className="mt-3 inline-flex rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
+            className="mt-3 inline-flex rounded-md border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
           >
             {category.required_plan === "pro" ? "Upgrade to Pro" : "Upgrade to Premium"}
           </CompareTrackedLink>
