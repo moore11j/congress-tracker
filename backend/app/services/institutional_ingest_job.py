@@ -212,6 +212,7 @@ def initialize_historical_job_state(
     end_year: int | None = None,
     holder_ciks: list[str] | None = None,
     max_filings_per_run: int | None = None,
+    symbol_batch_size: int | None = None,
     enabled: bool | None = None,
 ) -> dict[str, Any]:
     ensure_institutional_activity_schema(engine)
@@ -229,6 +230,8 @@ def initialize_historical_job_state(
             metadata["holder_ciks"] = holder_ciks
         if max_filings_per_run is not None:
             state.max_filings_per_run = max(1, min(int(max_filings_per_run), 10))
+        if symbol_batch_size is not None:
+            metadata["symbol_batch_size"] = max(1, min(int(symbol_batch_size), 500))
         if enabled is not None:
             state.enabled = bool(enabled)
             state.last_status = "idle" if enabled else "paused"
@@ -905,6 +908,7 @@ def update_historical_job_config(
     end_year: int | None = None,
     holder_ciks: list[str] | None = None,
     max_filings_per_run: int | None = None,
+    symbol_batch_size: int | None = None,
 ) -> InstitutionalIngestJobState:
     state = get_or_create_historical_job_state(db)
     metadata = {**historical_job_defaults()["metadata"], **_loads_state_metadata(state)}
@@ -917,6 +921,8 @@ def update_historical_job_config(
         state.cursor_page = 0
     if max_filings_per_run is not None:
         state.max_filings_per_run = max(1, min(int(max_filings_per_run), 10))
+    if symbol_batch_size is not None:
+        metadata["symbol_batch_size"] = max(1, min(int(symbol_batch_size), 500))
     _set_state_metadata(state, metadata)
     state.updated_at = _now()
     return state

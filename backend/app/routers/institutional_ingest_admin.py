@@ -44,6 +44,7 @@ class HistoricalConfigPayload(BaseModel):
     end_year: int | None = Field(default=None, ge=2000, le=2100)
     holder_ciks: list[str] | None = None
     max_filings_per_run: int | None = Field(default=None, ge=1, le=10)
+    symbol_batch_size: int | None = Field(default=None, ge=1, le=500)
 
 
 @router.get("/admin/institutional-ingest/status")
@@ -181,6 +182,7 @@ def admin_configure_historical_institutional_ingest(
         end_year=payload.end_year,
         holder_ciks=payload.holder_ciks,
         max_filings_per_run=payload.max_filings_per_run,
+        symbol_batch_size=payload.symbol_batch_size,
     )
     db.commit()
     db.refresh(state)

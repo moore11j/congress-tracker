@@ -725,11 +725,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--historical-backfill", action="store_true", help="Plan a bounded 13F historical backfill. Dry-run unless --apply-historical-backfill is set.")
     parser.add_argument("--apply-historical-backfill", action="store_true", help="Write bounded 13F historical backfill rows.")
     parser.add_argument("--historical-job-init", action="store_true", help="Initialize durable historical 13F backfill state.")
+    parser.add_argument("--historical-job-config", action="store_true", help="Update durable historical 13F backfill configuration without running it.")
     parser.add_argument("--historical-job-status", action="store_true", help="Print durable historical 13F backfill status.")
     parser.add_argument("--historical-job-run-once", action="store_true", help="Run one durable historical 13F backfill slice.")
     parser.add_argument("--historical-job-enable", action="store_true", help="Enable durable historical 13F backfill during --historical-job-init.")
     parser.add_argument("--historical-start-year", type=int, default=None)
     parser.add_argument("--historical-end-year", type=int, default=None)
+    parser.add_argument("--historical-symbol-batch-size", type=int, default=None)
     parser.add_argument("--max-holders", type=int, default=3)
     parser.add_argument("--max-filings-total", type=int, default=10)
     parser.add_argument("--max-filings-per-holder", type=int, default=4)
@@ -789,8 +791,27 @@ def main() -> None:
                 end_year=args.historical_end_year,
                 holder_ciks=_parse_cik_csv(args.holder_ciks),
                 max_filings_per_run=args.max_filings_total,
+                symbol_batch_size=args.historical_symbol_batch_size,
                 enabled=args.historical_job_enable,
             )
+        elif args.historical_job_config:
+            from app.services.institutional_ingest_job import update_historical_job_config, historical_job_status_payload
+
+            configured_max_filings = args.max_filings_total if "--max-filings-total" in sys.argv else None
+            db = SessionLocal()
+            try:
+                update_historical_job_config(
+                    db,
+                    start_year=args.historical_start_year,
+                    end_year=args.historical_end_year,
+                    holder_ciks=_parse_cik_csv(args.holder_ciks),
+                    max_filings_per_run=configured_max_filings,
+                    symbol_batch_size=args.historical_symbol_batch_size,
+                )
+                db.commit()
+                result = historical_job_status_payload(db)
+            finally:
+                db.close()
         elif args.historical_job_status:
             from app.services.institutional_ingest_job import historical_job_status_payload
 

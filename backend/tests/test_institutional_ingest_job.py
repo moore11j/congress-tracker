@@ -480,6 +480,25 @@ def test_historical_job_run_once_pauses_when_disabled(job_env, monkeypatch):
     assert _historical_state(job_env).cursor_page == 0
 
 
+def test_historical_job_config_cli_updates_symbol_batch_size_only(job_env, monkeypatch, capsys):
+    _seed_historical_state(job_env, enabled=False, max_filings_per_run=1)
+    monkeypatch.setattr(ingest_module, "SessionLocal", job_env)
+
+    monkeypatch.setattr(
+        ingest_module.sys,
+        "argv",
+        ["prog", "--historical-job-config", "--historical-symbol-batch-size", "100"],
+    )
+
+    ingest_module.main()
+
+    state = _historical_state(job_env)
+    metadata = json.loads(state.metadata_json or "{}")
+    assert state.max_filings_per_run == 1
+    assert metadata["symbol_batch_size"] == 100
+    assert "symbol_batch_size" in capsys.readouterr().out
+
+
 def test_historical_job_processes_current_holder_and_keeps_cursor(job_env, monkeypatch):
     _seed_historical_state(job_env, enabled=True, cursor_page=0, max_filings_per_run=2)
     calls = []
@@ -570,6 +589,22 @@ def test_historical_job_stores_partial_filing_symbol_cursor(job_env, monkeypatch
     run = _runs(job_env)[0]
     assert run.processed_filings == 0
     assert run.position_changes == 100
+
+
+def test_historical_job_config_updates_symbol_batch_size(job_env):
+    db = job_env()
+    try:
+        state = job_module.update_historical_job_config(db, symbol_batch_size=250)
+        db.commit()
+        metadata = json.loads(state.metadata_json or "{}")
+        assert metadata["symbol_batch_size"] == 250
+
+        state = job_module.update_historical_job_config(db, symbol_batch_size=999)
+        db.commit()
+        metadata = json.loads(state.metadata_json or "{}")
+        assert metadata["symbol_batch_size"] == 500
+    finally:
+        db.close()
 
 
 def test_historical_job_resumes_partial_filing_symbol_cursor(job_env, monkeypatch):
@@ -779,11 +814,13 @@ def test_admin_can_configure_historical_job(job_env):
                 end_year=2026,
                 holder_ciks=["0000000001", "0000000002"],
                 max_filings_per_run=2,
+                symbol_batch_size=250,
             ),
             request,
             db,
         )
         assert configured["state"]["metadata"]["start_year"] == 2024
+        assert configured["state"]["metadata"]["symbol_batch_size"] == 250
         assert configured["state"]["holder_count"] == 2
         assert configured["state"]["max_filings_per_run"] == 2
 
