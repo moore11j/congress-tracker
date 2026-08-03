@@ -189,19 +189,16 @@ def test_ticker_api_prefetch_requests_bypass_expensive_builders(monkeypatch):
     assert response.headers["x-walnut-prefetch-bypass"] == "1"
 
 
-def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatch):
+def test_ticker_context_bundle_bot_builds_complete_payload_when_no_fresh_cache(monkeypatch):
     request = _request(
         "/api/tickers/AAPL/context-bundle",
         {"user-agent": "Googlebot/2.1"},
     )
-    monkeypatch.setattr(
-        main_module,
-        "_build_ticker_context_bundle",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("bot must not build fresh context bundle")),
-    )
+    built_payload = _complete_context_bundle_payload("AAPL")
+    monkeypatch.setattr(main_module, "_build_ticker_context_bundle", lambda **_kwargs: built_payload)
     monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
 
-    response = main_module.ticker_context_bundle(
+    payload = main_module.ticker_context_bundle(
         request,
         "AAPL",
         side="all",
@@ -209,12 +206,8 @@ def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatc
         lookback_days=30,
         db=object(),
     )
-    payload = json.loads(response.body)
 
-    assert response.headers["retry-after"] == "60"
-    assert payload["symbol"] == "AAPL"
-    assert payload["status"] == "lightweight"
-    assert payload["signals_summary"]["items"] == []
+    assert payload is built_payload
 
 
 def test_ticker_context_bundle_unknown_direct_api_builds_complete_payload(monkeypatch):
@@ -326,19 +319,16 @@ def test_ticker_context_bundle_logged_in_request_still_builds_full_payload(monke
     assert payload is built_payload
 
 
-def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(monkeypatch):
+def test_ticker_context_bundle_unknown_logged_out_ssr_builds_complete_payload(monkeypatch):
     request = _request(
         "/api/tickers/AAPL/context-bundle",
         {"x-walnut-request-source": "ssr"},
     )
-    monkeypatch.setattr(
-        main_module,
-        "_build_ticker_context_bundle",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("inactive SSR must not build fresh context bundle")),
-    )
+    built_payload = _complete_context_bundle_payload("AAPL")
+    monkeypatch.setattr(main_module, "_build_ticker_context_bundle", lambda **_kwargs: built_payload)
     monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
 
-    response = main_module.ticker_context_bundle(
+    payload = main_module.ticker_context_bundle(
         request,
         "AAPL",
         side="all",
@@ -346,12 +336,8 @@ def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(m
         lookback_days=30,
         db=object(),
     )
-    payload = json.loads(response.body)
 
-    assert response.headers["retry-after"] == "60"
-    assert payload["symbol"] == "AAPL"
-    assert payload["status"] == "lightweight"
-    assert payload["signals_summary"]["items"] == []
+    assert payload is built_payload
 
 
 def test_ticker_context_bundle_logged_out_ssr_active_marker_builds_public_context(monkeypatch):
@@ -2135,7 +2121,8 @@ def test_ticker_context_bundle_stale_cache_rebuilds_complete_payload(monkeypatch
 
 def test_ticker_context_bundle_build_coalescing_returns_leader_payload(monkeypatch):
     main_module._TICKER_CONTEXT_BUNDLE_INFLIGHT.clear()
-    monkeypatch.setattr(main_module, "_ticker_context_bundle_coalesce_wait_seconds", lambda: 1.0)
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_coalesce_wait_seconds", lambda: 0.01)
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_strict_coalesce_wait_seconds", lambda: 1.0)
     state, leader = main_module._ticker_context_bundle_build_inflight_start(
         "bundle-key",
         symbol="AAPL",

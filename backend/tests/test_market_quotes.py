@@ -451,7 +451,7 @@ def test_market_quotes_concurrent_requests_coalesce_same_symbol_set(monkeypatch)
     assert quote_calls == [("AAPL", "NVDA")]
 
 
-def test_market_quotes_waiter_can_use_stale_response_during_rebuild(monkeypatch):
+def test_market_quotes_waiter_uses_fresh_leader_response_instead_of_stale_cache(monkeypatch):
     db = object()
     symbols = ["AAPL"]
     stale_payload = {
@@ -472,17 +472,39 @@ def test_market_quotes_waiter_can_use_stale_response_during_rebuild(monkeypatch)
         now_ts - 1,
         now_ts + 120,
     )
-    app_main._MARKET_QUOTES_RESPONSE_INFLIGHT[tuple(symbols)] = threading.Event()
-    monkeypatch.setenv("MARKET_QUOTES_RESPONSE_COALESCE_WAIT_SECONDS", "0.05")
+    inflight_event = threading.Event()
+    app_main._MARKET_QUOTES_RESPONSE_INFLIGHT[tuple(symbols)] = inflight_event
+    fresh_payload = {
+        "items": [
+            {
+                "symbol": "AAPL",
+                "company_name": "Apple Inc",
+                "current_price": 212.0,
+                "day_change_pct": 1.0,
+                "as_of": "2026-07-03T15:31:00",
+            }
+        ],
+        "status": "ok",
+    }
+    monkeypatch.setenv("MARKET_QUOTES_RESPONSE_COALESCE_WAIT_SECONDS", "0.01")
+    monkeypatch.setenv("MARKET_QUOTES_RESPONSE_STRICT_COALESCE_WAIT_SECONDS", "1.0")
     monkeypatch.setattr(
         app_main,
         "get_current_prices_meta_db",
-        lambda *_args, **_kwargs: pytest.fail("waiter should not rebuild while stale response is available"),
+        lambda *_args, **_kwargs: pytest.fail("waiter should not rebuild while leader is still refreshing"),
     )
 
-    response = _build_market_quotes_response("AAPL", db)
+    def finish_leader():
+        time.sleep(0.05)
+        app_main._market_quotes_response_cache_set(symbols, fresh_payload)
+        app_main._market_quotes_response_inflight_exit(symbols, inflight_event)
 
-    assert response == stale_payload
+    thread = threading.Thread(target=finish_leader)
+    thread.start()
+    response = _build_market_quotes_response("AAPL", db)
+    thread.join(timeout=1)
+
+    assert response == fresh_payload
 
 
 def test_market_quotes_prefetch_bypasses_rebuild(monkeypatch):
@@ -503,7 +525,7 @@ def test_market_quotes_prefetch_bypasses_rebuild(monkeypatch):
     assert response.headers["x-walnut-prefetch-bypass"] == "1"
 
 
-def test_market_quotes_low_value_direct_request_uses_stale_cache():
+def test_market_quotes_low_value_direct_request_does_not_use_stale_cache():
     symbols = ["AAPL"]
     stale_payload = {
         "items": [
@@ -531,7 +553,7 @@ def test_market_quotes_low_value_direct_request_uses_stale_cache():
 
     response = app_main._market_quotes_low_value_cached_response(request, symbols)
 
-    assert response == stale_payload
+    assert response is None
 
 
 def test_market_quotes_response_cache_key_respects_symbols(monkeypatch):

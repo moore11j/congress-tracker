@@ -73,6 +73,7 @@ type QueryParamsWithRequestOptions = Record<string, QueryValue | AbortSignal | u
 type ApiRequestInit = RequestInit & {
   source?: string;
   component?: string;
+  next?: { revalidate?: number };
   route?: string;
   routeFamily?: string;
   requestSource?: "ssr" | "client" | "prefetch" | "visibility" | "idle";
@@ -4741,6 +4742,8 @@ export async function getPeerCompare(
   );
 }
 
+const tickerContextBundleServerInflight = new Map<string, Promise<TickerContextBundleResponse>>();
+
 export async function getTickerContextBundle(
   symbol: string,
   params?: {
@@ -4761,7 +4764,7 @@ export async function getTickerContextBundle(
   });
   const headers = authHeaders(params?.authToken);
   if (params?.activeUser) headers["X-Walnut-Active-User"] = "browser";
-  return fetchJson<TickerContextBundleResponse>(url, {
+  const requestInit = {
     headers,
     cache: "no-store",
     next: { revalidate: 0 },
@@ -4770,7 +4773,21 @@ export async function getTickerContextBundle(
     component: "context-bundle",
     route: "/ticker/[symbol]",
     requestSource: params?.requestSource ?? (typeof window === "undefined" ? "ssr" : "client"),
+  } satisfies ApiRequestInit;
+  const canShareServerRequest = typeof window === "undefined" && !params?.authToken && !params?.signal;
+  if (!canShareServerRequest) {
+    return fetchJson<TickerContextBundleResponse>(url, requestInit);
+  }
+
+  const inflightKey = `${url}|active=${params?.activeUser ? "1" : "0"}|source=${requestInit.requestSource ?? ""}`;
+  const existing = tickerContextBundleServerInflight.get(inflightKey);
+  if (existing) return existing;
+
+  const promise = fetchJson<TickerContextBundleResponse>(url, requestInit).finally(() => {
+    tickerContextBundleServerInflight.delete(inflightKey);
   });
+  tickerContextBundleServerInflight.set(inflightKey, promise);
+  return promise;
 }
 
 export async function getSignalsAll(params: {

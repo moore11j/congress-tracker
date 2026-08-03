@@ -42,6 +42,7 @@ def test_public_get_response_cache_allowlist_only_market_data_paths():
     assert _is_public_get_cacheable_path("/api/search/suggest")
     assert _is_public_get_cacheable_path("/api/tickers/AAPL")
     assert _is_public_get_cacheable_path("/api/tickers/AAPL/chart-bundle")
+    assert _is_public_get_cacheable_path("/api/tickers/AAPL/context-bundle")
     assert _is_public_get_cacheable_path("/api/tickers/AAPL/signals-summary")
     assert _is_public_get_cacheable_path("/api/tickers/NVDA/government-contracts")
     assert _is_public_get_cacheable_path("/api/insiders/0001451612/summary")
@@ -57,6 +58,7 @@ def test_public_get_response_cache_allowlist_only_market_data_paths():
 def test_public_get_complete_data_paths_do_not_allow_stale_fallback():
     assert _is_public_get_complete_data_path("/api/feed")
     assert _is_public_get_complete_data_path("/api/events")
+    assert _is_public_get_complete_data_path("/api/tickers/AAPL/context-bundle")
     assert _is_public_get_complete_data_path("/api/tickers/AAPL/signals-summary")
     assert _is_public_get_complete_data_path("/api/tickers/NVDA/government-contracts")
 
@@ -124,6 +126,17 @@ def test_public_events_cache_key_normalizes_equivalent_query_variants():
     symbol_a = _public_get_cache_key(_request("/api/events?ticker=nvda&symbol=AAPL&limit=50"))
     symbol_b = _public_get_cache_key(_request("/api/events?symbol=aapl&ticker=NVDA&limit=50&offset=0"))
     assert symbol_a == symbol_b
+
+
+def test_public_context_bundle_cache_key_normalizes_default_query_variants():
+    base = _public_get_cache_key(_request("/api/tickers/AAPL/context-bundle"))
+    explicit = _public_get_cache_key(_request("/api/tickers/AAPL/context-bundle?side=all&limit=3&lookback_days=30"))
+    bounded = _public_get_cache_key(_request("/api/tickers/AAPL/context-bundle?side=all&limit=50&lookback_days=0"))
+
+    assert base is not None
+    assert explicit == base
+    assert bounded is not None
+    assert bounded != base
 
 
 def test_public_get_response_cache_does_not_serve_stale_events_on_downstream_503(monkeypatch):

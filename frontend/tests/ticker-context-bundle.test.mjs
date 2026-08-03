@@ -15,6 +15,8 @@ test("ticker page uses context bundle for above-the-fold ticker context with old
   assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/context-bundle/);
   assert.match(api, /component: "context-bundle"/);
   assert.match(api, /requestSource: params\?\.requestSource \?\? \(typeof window === "undefined" \? "ssr" : "client"\)/);
+  assert.match(api, /const tickerContextBundleServerInflight = new Map<string, Promise<TickerContextBundleResponse>>\(\)/);
+  assert.match(api, /const canShareServerRequest = typeof window === "undefined" && !params\?\.authToken && !params\?\.signal/);
   assert.match(tickerPage, /getTickerContextBundle\(normalizedSymbol/);
   assert.match(tickerPage, /source: "TickerContextBundle"/);
   assert.match(tickerPage, /requestSource: "ssr"/);

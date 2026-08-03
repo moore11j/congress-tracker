@@ -276,6 +276,7 @@ function request(baseUrl, path, endpointName, routeFamily, routePriority, init =
 }
 
 export function handleSummary(data) {
+  const overallRows = collectOverallLatencyRows(data);
   const routeRows = collectRouteRows(data);
   const statusRows = collectStatusRows(data);
   const topByP95 = [...routeRows]
@@ -290,6 +291,9 @@ export function handleSummary(data) {
     stdout: [
       textSummary(data, { indent: " ", enableColors: true }),
       "",
+      "Walnut overall latency summary",
+      formatOverallLatencyTable(overallRows),
+      "",
       "Walnut route-family latency attribution",
       formatRouteTable(topByP95),
       "",
@@ -301,6 +305,25 @@ export function handleSummary(data) {
       "",
     ].join("\n"),
   };
+}
+
+function collectOverallLatencyRows(data) {
+  return [
+    ["http_req_duration", "all HTTP requests"],
+    ["walnut_route_duration", "Walnut route requests"],
+  ]
+    .map(([metricName, label]) => {
+      const values = ((data.metrics || {})[metricName] || {}).values || {};
+      return {
+        label,
+        count: numericValue(values.count),
+        p50: numericValue(values["p(50)"] ?? values.med),
+        p95: numericValue(values["p(95)"]),
+        p99: numericValue(values["p(99)"]),
+        max: numericValue(values.max),
+      };
+    })
+    .filter((row) => row.count !== null || row.p95 !== null || row.p99 !== null);
 }
 
 function collectRouteRows(data) {
@@ -392,6 +415,20 @@ function parseTaggedMetric(metricName) {
 function numericValue(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatOverallLatencyTable(rows) {
+  if (!rows.length) return "  no overall latency metrics found";
+  const header = ["metric", "requests", "p50", "p95", "p99", "max"];
+  const tableRows = rows.map((row) => [
+    row.label,
+    formatCount(row.count),
+    formatMs(row.p50),
+    formatMs(row.p95),
+    formatMs(row.p99),
+    formatMs(row.max),
+  ]);
+  return renderTextTable(header, tableRows);
 }
 
 function formatRouteTable(rows) {

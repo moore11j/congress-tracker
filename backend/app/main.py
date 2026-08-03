@@ -2740,7 +2740,7 @@ def _is_public_get_cacheable_path(path: str) -> bool:
     parts = [part for part in lower_path.split("/") if part]
     if len(parts) == 3 and parts[:2] == ["api", "tickers"]:
         return True
-    if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] in {"signals-summary", "government-contracts"}:
+    if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] in {"context-bundle", "signals-summary", "government-contracts"}:
         return True
     if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] == "chart-bundle":
         return True
@@ -2755,6 +2755,7 @@ def _is_public_get_complete_data_path(path: str) -> bool:
         return True
     parts = [part for part in lower_path.split("/") if part]
     return len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] in {
+        "context-bundle",
         "signals-summary",
         "government-contracts",
     }
@@ -2833,6 +2834,18 @@ def _normalized_events_public_query(request: Request) -> list[tuple[str, str]]:
         ("whale", _normalized_public_bool(params.get("whale"), default=False)),
     ]
     return normalized
+
+
+def _normalized_ticker_context_bundle_public_query(request: Request) -> list[tuple[str, str]]:
+    params = request.query_params
+    side = _normalized_public_string(params.get("side"), default="all") or "all"
+    if side not in {"all", "buy", "sell", "buy_or_sell", "award", "inkind", "exempt"}:
+        side = "all"
+    return [
+        ("side", side),
+        ("limit", str(_normalized_public_int(params.get("limit"), default=3, minimum=1, maximum=3))),
+        ("lookback_days", str(_normalized_public_int(params.get("lookback_days"), default=30, minimum=1, maximum=365))),
+    ]
 
 
 def _is_secondary_analytics_path(path: str) -> bool:
@@ -3098,6 +3111,10 @@ def _public_get_cache_key(request: Request) -> str | None:
     normalized_path = request.url.path.rstrip("/")
     if normalized_path.lower() == "/api/events":
         query_items = _normalized_events_public_query(request)
+        return json.dumps([normalized_path, query_items], separators=(",", ":"), sort_keys=True)
+    parts = [part for part in normalized_path.lower().split("/") if part]
+    if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] == "context-bundle":
+        query_items = _normalized_ticker_context_bundle_public_query(request)
         return json.dumps([normalized_path, query_items], separators=(",", ":"), sort_keys=True)
     query_items = sorted((key, value) for key, value in request.query_params.multi_items())
     request_variant = {
@@ -5484,6 +5501,16 @@ def _market_quotes_response_coalesce_wait_seconds() -> float:
         return 2.0
 
 
+def _market_quotes_response_strict_coalesce_wait_seconds() -> float:
+    try:
+        return max(
+            _market_quotes_response_coalesce_wait_seconds(),
+            min(float(os.getenv("MARKET_QUOTES_RESPONSE_STRICT_COALESCE_WAIT_SECONDS", "15.0") or 15.0), 30.0),
+        )
+    except ValueError:
+        return 15.0
+
+
 def _market_quotes_response_cache_get(parsed_symbols: list[str], *, allow_stale: bool = False) -> dict | None:
     key = _market_quotes_response_cache_key(parsed_symbols)
     now_ts = time.time()
@@ -5537,7 +5564,7 @@ def _market_quotes_low_value_cached_response(request: Request, parsed_symbols: l
         or _is_inactive_logged_out_api_request(request)
     ):
         return None
-    return _market_quotes_response_cache_get(parsed_symbols, allow_stale=True)
+    return _market_quotes_response_cache_get(parsed_symbols)
 
 
 def _latest_cached_closes_by_symbol(db: Session, symbols: list[str]) -> dict[str, list[dict]]:
@@ -5704,13 +5731,14 @@ def _build_market_quotes_response(symbols: str | None, db: Session | None = None
         cached_response = _market_quotes_response_cache_get(parsed_symbols)
         if cached_response is not None:
             return cached_response
-        stale_response = _market_quotes_response_cache_get(parsed_symbols, allow_stale=True)
-        if stale_response is not None:
-            return stale_response
+        inflight_event.wait(_market_quotes_response_strict_coalesce_wait_seconds())
+        cached_response = _market_quotes_response_cache_get(parsed_symbols)
+        if cached_response is not None:
+            return cached_response
         owns_rebuild, inflight_event = _market_quotes_response_inflight_enter(parsed_symbols)
         if not owns_rebuild:
-            inflight_event.wait(_market_quotes_response_coalesce_wait_seconds())
-            cached_response = _market_quotes_response_cache_get(parsed_symbols, allow_stale=True)
+            inflight_event.wait(_market_quotes_response_strict_coalesce_wait_seconds())
+            cached_response = _market_quotes_response_cache_get(parsed_symbols)
             if cached_response is not None:
                 return cached_response
             # Extremely slow rebuilds should still return complete data instead of failing open.
@@ -5859,6 +5887,16 @@ def _ticker_context_bundle_coalesce_wait_seconds() -> float:
         return max(0.1, min(float(os.getenv("TICKER_CONTEXT_BUNDLE_COALESCE_WAIT_SECONDS", "4.0") or 4.0), 8.0))
     except ValueError:
         return 4.0
+
+
+def _ticker_context_bundle_strict_coalesce_wait_seconds() -> float:
+    try:
+        return max(
+            _ticker_context_bundle_coalesce_wait_seconds(),
+            min(float(os.getenv("TICKER_CONTEXT_BUNDLE_STRICT_COALESCE_WAIT_SECONDS", "30.0") or 30.0), 60.0),
+        )
+    except ValueError:
+        return 30.0
 
 
 def _ticker_context_bundle_max_concurrent_builds() -> int:
@@ -6098,7 +6136,9 @@ def _ticker_context_bundle_build_inflight_wait(
         return None
     if not event.wait(timeout=_ticker_context_bundle_coalesce_wait_seconds()):
         logger.info("ticker_bundle_build_coalesce_timeout symbol=%s user_segment=%s", symbol, user_segment)
-        return None
+        if not event.wait(timeout=_ticker_context_bundle_strict_coalesce_wait_seconds()):
+            logger.info("ticker_bundle_build_strict_coalesce_timeout symbol=%s user_segment=%s", symbol, user_segment)
+            return None
     result = state.get("result")
     if isinstance(result, dict):
         logger.info(
@@ -6184,8 +6224,8 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
         lane="ticker_context_bundle_quote",
         allow_live_user_fetch=True,
         release_connection_before_fetch=True,
-        stale_while_revalidate=True,
-        coalesce_wait_seconds=0.5,
+        stale_while_revalidate=False,
+        coalesce_wait_seconds=1.0,
         force_quote_endpoint=True,
         bypass_miss_cache=True,
     )
@@ -6390,7 +6430,7 @@ def _is_direct_context_bundle_cached_only_request(request: Request) -> bool:
     return False
 
 
-def _ticker_context_bundle_cached_or_lightweight_response(
+def _ticker_context_bundle_cached_or_live_response(
     request: Request,
     db: Session,
     *,
@@ -6421,16 +6461,19 @@ def _ticker_context_bundle_cached_or_lightweight_response(
         )
         return cached
     logger.info(
-        "api_lightweight_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
+        "api_live_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
         normalized_symbol,
         reason,
         _request_source(request, _classify_user_agent(request)),
         (perf_counter() - started_at) * 1000,
     )
-    return JSONResponse(
-        status_code=200,
-        content=_ticker_context_bundle_lightweight_payload(symbol),
-        headers={"Retry-After": "60", "Cache-Control": "private, no-store"},
+    return _build_ticker_context_bundle(
+        request=request,
+        symbol=symbol,
+        side=side,
+        limit=limit,
+        lookback_days=lookback_days,
+        db=db,
     )
 
 
@@ -6723,7 +6766,7 @@ def ticker_context_bundle(
     if prefetch_response is not None:
         return prefetch_response
     if _is_inactive_logged_out_api_request(request):
-        return _ticker_context_bundle_cached_or_lightweight_response(
+        return _ticker_context_bundle_cached_or_live_response(
             request,
             db,
             symbol=symbol,
@@ -6733,7 +6776,7 @@ def ticker_context_bundle(
             reason="inactive_or_bot",
         )
     if _is_direct_context_bundle_cached_only_request(request):
-        return _ticker_context_bundle_cached_or_lightweight_response(
+        return _ticker_context_bundle_cached_or_live_response(
             request,
             db,
             symbol=symbol,
