@@ -17,7 +17,7 @@ type CongressTraderLeaderboardPortfolioMode = "realistic_disclosure_lag" | "theo
 
 function cleanLeaderboardError(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "Sign in required.";
+    if (error.status === 401) return "Premium access required.";
     if (error.status === 402 || error.status === 403) return "Premium access required.";
     if (error.status === 503) return "Leaderboard is temporarily busy. Please retry in a moment.";
     return "Unable to load leaderboard.";

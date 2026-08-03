@@ -2,13 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
+import { PremiumFeatureGate } from "@/components/billing/PremiumFeatureGate";
 import { CongressTraderLeaderboardFiltersClient } from "@/components/leaderboards/CongressTraderLeaderboardFiltersClient";
-import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
 import { CongressTraderLeaderboardStatusState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import {
   ApiError,
   getCongressTraderLeaderboard,
+  getEntitlements,
   type CongressTraderLeaderboardChamber,
   type CongressTraderLeaderboardPerformanceModel,
   type CongressTraderLeaderboardPortfolioSort,
@@ -16,7 +17,8 @@ import {
   type CongressTraderLeaderboardSourceMode,
   type CongressTraderLeaderboardTradeSort,
 } from "@/lib/api";
-import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
+import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
+import { buildReturnTo, optionalPageAuthState } from "@/lib/serverAuth";
 import { cardClassName } from "@/lib/styles";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -202,7 +204,7 @@ function LeaderboardResultsFallback() {
 
 function cleanLeaderboardError(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "Sign in required.";
+    if (error.status === 401) return "Premium access required.";
     if (error.status === 402 || error.status === 403) return "Premium access required.";
     if (error.status === 503) return "Leaderboard is temporarily busy. Please retry in a moment.";
     return "Unable to load leaderboard.";
@@ -222,6 +224,7 @@ async function LeaderboardResultsSection({
   limit,
   isInsiderMode,
   authToken,
+  authorized,
 }: {
   lookbackDays: number;
   chamber: CongressTraderLeaderboardChamber;
@@ -233,6 +236,7 @@ async function LeaderboardResultsSection({
   limit: number;
   isInsiderMode: boolean;
   authToken: string;
+  authorized: boolean;
 }) {
   let data = null;
   let errorMessage: string | null = null;
@@ -246,20 +250,11 @@ async function LeaderboardResultsSection({
     limit,
   });
 
-  if (!authToken) {
+  if (!authorized) {
     return (
-      <CongressTraderLeaderboardClientResults
-        lookbackDays={lookbackDays}
-        chamber={chamber}
-        sourceMode={sourceMode}
-        performanceModel={performanceModel}
-        portfolioMode={portfolioMode}
-        sort={sort}
-        minTrades={minTrades}
-        limit={limit}
-        isInsiderMode={isInsiderMode}
-        sortHrefs={sortHrefs}
-      />
+      <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-4`}>
+        <PremiumFeatureGate body="Trade leaderboards are included with Premium. Upgrade to unlock the full rankings." />
+      </div>
     );
   } else {
     try {
@@ -353,8 +348,12 @@ export default async function CongressTraderLeaderboardPage({
     }));
   }
   const returnTo = buildReturnTo("/leaderboards/congress-traders", sp);
-  const authState = await requirePageAuthState(returnTo);
+  const authState = await optionalPageAuthState();
   const authToken = authState.token;
+  const entitlements = authToken
+    ? await getEntitlements(authToken, { source: "LeaderboardsPage" }).catch(() => defaultEntitlements)
+    : entitlementsFromTierHint(authState.entitlementHint);
+  const canUseLeaderboards = Boolean(authToken) && hasEntitlement(entitlements, "leaderboards");
   const performanceModel = parsePerformanceModel(rawPerformanceModel, sourceMode);
   const isPortfolioMode = performanceModel === "portfolio";
   const portfolioMode = isPortfolioMode ? parsePortfolioMode(getParam(sp, "mode")) : "realistic_disclosure_lag";
@@ -378,9 +377,8 @@ export default async function CongressTraderLeaderboardPage({
       : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
   const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, portfolioMode, sort, minTrades, limit });
 
-  return (
-    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
-      <div className="space-y-6">
+  const content = (
+    <div className="space-y-6">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">LEADERBOARDS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Trade Leaderboards</h1>
@@ -411,7 +409,8 @@ export default async function CongressTraderLeaderboardPage({
           minTrades={minTrades}
           limit={limit}
           isInsiderMode={isInsiderMode}
-          authToken={authToken}
+          authToken={authToken ?? ""}
+          authorized={canUseLeaderboards}
         />
       </Suspense>
 
@@ -429,7 +428,14 @@ export default async function CongressTraderLeaderboardPage({
           senate 90D return
         </Link>
       </div>
-      </div>
+    </div>
+  );
+
+  return authToken ? (
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={true}>
+      {content}
     </VerifiedSessionGuard>
+  ) : (
+    content
   );
 }

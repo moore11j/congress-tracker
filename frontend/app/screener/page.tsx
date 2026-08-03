@@ -2,7 +2,6 @@ import Link from "next/link";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
-import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
@@ -11,7 +10,7 @@ import { ScreenerResultsClient } from "@/components/screener/ScreenerResultsClie
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
-import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import { PremiumFeatureGate } from "@/components/billing/PremiumFeatureGate";
 import { getEntitlements, getPlanConfig, type PlanConfig } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
@@ -25,7 +24,7 @@ import {
   hasActiveTechnicalFilters,
   type ScreenerColumnKey,
 } from "@/lib/screenerColumns";
-import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
+import { buildReturnTo, optionalPageAuthState } from "@/lib/serverAuth";
 import { withServerTimeout } from "@/lib/serverTimeout";
 import {
   activeFilterControlClassName,
@@ -837,7 +836,7 @@ export default async function ScreenerPage({
 }) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/screener", sp);
-  const authState = await requirePageAuthState(returnTo);
+  const authState = await optionalPageAuthState();
   const authToken = authState.token;
   const entitlements = authToken
     ? await withServerTimeout(getEntitlements(authToken), "screener:entitlements").catch(() => defaultEntitlements)
@@ -849,7 +848,7 @@ export default async function ScreenerPage({
   const sortDir = String(params.sort_dir ?? "desc");
   const page = Number(params.page ?? 1);
   const pageSize = Number(params.page_size ?? DEFAULT_PAGE_SIZE);
-  const canUseScreener = hasEntitlement(entitlements, "screener");
+  const canUseScreener = Boolean(authToken) && hasEntitlement(entitlements, "screener");
   const canUseIntelligence = hasEntitlement(entitlements, "screener_intelligence");
   const canUseOptionsFlow = hasEntitlement(entitlements, "options_flow_filters");
   const canUseInstitutionalActivity = hasEntitlement(entitlements, "institutional_filters");
@@ -871,11 +870,9 @@ export default async function ScreenerPage({
   const technicalFiltersOpen = hasActiveTechnicalFilters(params);
   const fundamentalFiltersOpen = hasActiveFundamentalFilters(params);
 
-  return (
-    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
-      <div className="space-y-8">
+  const content = (
+    <div className="space-y-8">
       <EntitlementHintRefresh enabled={!authToken && authState.entitlementHint != null} renderedTier={entitlements.tier} />
-      <ScreenerEntitlementRefresh enabled={!authToken && !canUseScreener} />
       <ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey={resultsTriggerKey} />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -897,15 +894,6 @@ export default async function ScreenerPage({
           </span>
         </div>
       </div>
-
-      {!canUseScreener ? (
-        <div className={cardClassName}>
-          <UpgradePrompt
-            title="Unlock the stock screener"
-            body="Your current plan does not include base screener access. Upgrade to open the full discovery workflow."
-          />
-        </div>
-      ) : null}
 
       <div className={`${cardClassName} space-y-4`}>
         <SavedViewsBar
@@ -1209,9 +1197,20 @@ export default async function ScreenerPage({
           resultCap={resultCap}
           activeColumns={activeColumns}
         />
-      ) : null}
-      </div>
+      ) : (
+        <section id="screener-results" className={`${cardClassName} scroll-mt-6`}>
+          <PremiumFeatureGate body="The stock screener results are included with Premium. Upgrade to run screens and unlock the full discovery workflow." />
+        </section>
+      )}
+    </div>
+  );
+
+  return authToken ? (
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={true}>
+      {content}
     </VerifiedSessionGuard>
+  ) : (
+    content
   );
 }
 

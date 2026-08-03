@@ -147,7 +147,7 @@ function freshnessStateLabel(state: string): string {
 
 function cleanScreenerError(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "Sign in required.";
+    if (error.status === 401) return "Premium access required.";
     if (error.status === 402 || error.status === 403) return "Premium access required.";
     return "Unable to load screener.";
   }

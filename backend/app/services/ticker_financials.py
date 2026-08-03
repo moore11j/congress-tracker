@@ -472,6 +472,39 @@ def _latest_value(rows: list[dict[str, Any]], key: str) -> float | None:
     return None
 
 
+def _latest_nav_per_share(
+    balance_rows: list[dict[str, Any]],
+    metrics_rows: list[dict[str, Any]],
+    quote_rows: list[dict[str, Any]],
+    cached_quote: dict[str, Any] | None,
+) -> float | None:
+    balance = (_latest_rows(balance_rows, 1) or [{}])[-1]
+    metrics = (_latest_rows(metrics_rows, 1) or [{}])[-1]
+    equity = _numeric(balance, "totalStockholdersEquity", "totalEquity", "totalShareholderEquity")
+    if equity is None:
+        assets = _numeric(balance, "totalAssets")
+        liabilities = _numeric(balance, "totalLiabilities", "totalLiabilitiesNetMinorityInterest")
+        if assets is not None and liabilities is not None:
+            equity = assets - liabilities
+    shares = _numeric(
+        balance,
+        "sharesOutstanding",
+        "weightedAverageShsOutDil",
+        "weightedAverageShsOut",
+        "weightedAverageSharesDiluted",
+        "commonStockSharesOutstanding",
+    )
+    if shares is None:
+        price, _price_as_of = _latest_price(quote_rows, cached_quote)
+        market_cap = _numeric(metrics, "marketCap", "marketCapTTM")
+        if market_cap is not None and price not in (None, 0):
+            shares = market_cap / price
+    if equity is None or equity <= 0 or shares is None or shares <= 0:
+        return None
+    nav = equity / shares
+    return nav if math.isfinite(nav) and nav > 0 else None
+
+
 def _normalize_result(actual: float | None, estimate: float | None, surprise: float | None) -> str:
     delta = surprise
     if delta is None and actual is not None and estimate is not None:
@@ -871,6 +904,26 @@ def _normalize_health(ratio_rows: list[dict[str, Any]], metrics_rows: list[dict[
         "assetRatio": _numeric(ratio_row, "assetTurnoverTTM", "assetTurnover")
         or _numeric(metrics_row, "assetTurnoverTTM", "assetTurnover")
         or _ratio_from_parts(total_assets, total_liabilities),
+        "priceToBook": _numeric(
+            ratio_row,
+            "priceToBookRatioTTM",
+            "priceBookValueRatioTTM",
+            "priceToBookRatio",
+            "priceBookValueRatio",
+            "priceToBook",
+            "pbRatio",
+            "pbratio",
+        )
+        or _numeric(
+            metrics_row,
+            "priceToBookRatioTTM",
+            "priceBookValueRatioTTM",
+            "priceToBookRatio",
+            "priceBookValueRatio",
+            "priceToBook",
+            "pbRatio",
+            "pbratio",
+        ),
     }
 
 
@@ -1235,16 +1288,20 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "nextQuarter": _next_estimate(quarterly_estimates, period_type="quarterly"),
         "nextFiscalYear": _next_estimate(annual_estimates, period_type="annual"),
     }
+    cached_quote = _quote_cache_price(normalized_symbol)
     valuation_metrics = _valuation_metrics(
         symbol=normalized_symbol,
         quote_rows=quote_rows,
         ratio_rows=forward_ratio_rows,
         annual_estimate_rows=annual_estimates,
-        cached_quote=_quote_cache_price(normalized_symbol),
+        cached_quote=cached_quote,
     )
     forward_pe = valuation_metrics["forward_pe"]
     trailing_pe = _trailing_pe(quote_rows, ratio_rows)
     health = _normalize_health(ratio_rows, metrics_rows, quarterly_balance or annual_balance)
+    nav_per_share = _latest_nav_per_share(quarterly_balance or annual_balance, metrics_rows, quote_rows, cached_quote)
+    latest_price, _latest_price_as_of = _latest_price(quote_rows, cached_quote)
+    price_to_book = health.get("priceToBook") or _ratio_from_parts(latest_price, nav_per_share)
     has_health_data = _has_health_data(health)
 
     has_core_data = bool(annual or quarterly)
@@ -1356,6 +1413,8 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
             "debtToEquity": health.get("debtToEquity"),
             "currentRatio": health.get("currentRatio"),
             "assetRatio": health.get("assetRatio"),
+            "priceToBook": price_to_book,
+            "navPerShare": nav_per_share,
         },
         "annual": annual,
         "quarterly": quarterly,

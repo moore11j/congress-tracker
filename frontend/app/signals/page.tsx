@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
+import { PremiumFeatureGate } from "@/components/billing/PremiumFeatureGate";
 import { SignalsResultsClient } from "@/components/signals/SignalsResultsClient";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
-import { getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
+import { getEntitlements, getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
+import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { institutionHref } from "@/lib/institution";
 import { memberHref } from "@/lib/memberSlug";
@@ -20,7 +22,7 @@ import {
   signalsResultsScrollFrameClassName,
   stickyResultsTableHeaderClassName,
 } from "@/components/ui/resultsTableFrame";
-import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
+import { buildReturnTo, optionalPageAuthState } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -290,7 +292,12 @@ export default async function SignalsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/signals", sp);
-  const authToken = await requirePageAuth(returnTo);
+  const authState = await optionalPageAuthState();
+  const authToken = authState.token;
+  const entitlements = authToken
+    ? await getEntitlements(authToken, { source: "SignalsPage" }).catch(() => defaultEntitlements)
+    : entitlementsFromTierHint(authState.entitlementHint);
+  const canUseSignals = Boolean(authToken) && hasEntitlement(entitlements, "signals");
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
@@ -300,9 +307,8 @@ export default async function SignalsPage({
   const card = "min-w-0 max-w-full rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
 
-  return (
-    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
-      <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
+  const content = (
+    <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
@@ -328,21 +334,34 @@ export default async function SignalsPage({
           <h2 className="text-xl font-semibold text-white">Signals table</h2>
           <p className="text-sm text-slate-400">{mode === "institutional" ? "Material 13F filing activity by filing date." : "Abnormal trades vs per-symbol historical median."}</p>
         </div>
-        <SignalsResultsClient
-          mode={mode}
-          side={side}
-          limit={limit}
-          debug={debug}
-          sort={sort}
-          institutionalLookbackDays={institutionalLookbackDays}
-          card={card}
-          pill={pill}
-          canBacktest={false}
-          upgradeUrl="/pricing"
-        />
+        {canUseSignals ? (
+          <SignalsResultsClient
+            mode={mode}
+            side={side}
+            limit={limit}
+            debug={debug}
+            sort={sort}
+            institutionalLookbackDays={institutionalLookbackDays}
+            card={card}
+            pill={pill}
+            canBacktest={hasEntitlement(entitlements, "backtesting")}
+            upgradeUrl={entitlements.upgrade_url || "/pricing"}
+          />
+        ) : (
+          <div className={`${card} min-h-[32rem] overflow-hidden p-4`}>
+            <PremiumFeatureGate body="Signals are included with Premium. Upgrade to unlock unusual trade radar results." />
+          </div>
+        )}
       </div>
-      </div>
+    </div>
+  );
+
+  return authToken ? (
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={true}>
+      {content}
     </VerifiedSessionGuard>
+  ) : (
+    content
   );
 }
 

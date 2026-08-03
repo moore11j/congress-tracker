@@ -8906,6 +8906,12 @@ def _peer_compare_metric(key: str, label: str, left: Any, right: Any, *, unit: s
     }
 
 
+def _peer_compare_indicator_signal(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "unavailable"
+    return _peer_compare_label(value.get("signal") or value.get("direction") or value.get("message"))
+
+
 def _latest_compare_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
     row = _cached_ticker_fundamentals_row(db, symbol)
     if row is not None:
@@ -9034,7 +9040,16 @@ def _peer_compare_financials_fallbacks(db: Session, symbol: str) -> dict[str, An
     valuation = normalized.get("valuation_metrics") if isinstance(normalized.get("valuation_metrics"), dict) else {}
     sections = normalized.get("sections") if isinstance(normalized.get("sections"), dict) else {}
     valuation_section = sections.get("valuation") if isinstance(sections.get("valuation"), dict) else {}
+    health_section = sections.get("health") if isinstance(sections.get("health"), dict) else {}
     return {
+        "revenue_ttm": _first_peer_compare_number(
+            summary.get("revenueTtm"),
+            summary.get("revenue_ttm"),
+        ),
+        "eps_ttm": _first_peer_compare_number(
+            summary.get("epsTtm"),
+            summary.get("eps_ttm"),
+        ),
         "forward_pe": _first_peer_compare_number(
             valuation.get("forward_pe"),
             summary.get("forwardPE"),
@@ -9046,6 +9061,24 @@ def _peer_compare_financials_fallbacks(db: Session, symbol: str) -> dict[str, An
             summary.get("expectedEpsGrowthRatePercent"),
             valuation_section.get("expectedEpsGrowthRatePercent"),
             valuation_section.get("expected_eps_growth_rate_percent"),
+        ),
+        "nav_per_share": _first_peer_compare_number(
+            summary.get("navPerShare"),
+            summary.get("nav_per_share"),
+            valuation.get("nav_per_share"),
+            valuation.get("navPerShare"),
+            valuation_section.get("nav_per_share"),
+            valuation_section.get("navPerShare"),
+        ),
+        "price_to_book": _first_peer_compare_number(
+            summary.get("priceToBook"),
+            summary.get("price_to_book"),
+            valuation.get("price_to_book"),
+            valuation.get("priceToBook"),
+            valuation_section.get("price_to_book"),
+            valuation_section.get("priceToBook"),
+            health_section.get("price_to_book"),
+            health_section.get("priceToBook"),
         ),
     }
 
@@ -9077,22 +9110,25 @@ def _peer_compare_business_category(
     right_fallbacks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     specs = [
-        ("revenue_growth", "Revenue Growth", "percent", True, 2.0),
-        ("eps_growth", "EPS Growth", "percent", True, 2.0),
-        ("gross_margin", "Gross Margin", "percent", True, 2.0),
-        ("operating_margin", "Operating Margin", "percent", True, 2.0),
-        ("roe", "ROE", "percent", True, 2.0),
-        ("net_debt_to_ebitda", "Net Debt / EBITDA", "multiple", False, 0.25),
+        ("revenue_ttm", "Revenue", "currency", True, None, 0.15, 1.5),
+        ("eps_ttm", "EPS", "currency_per_share", True, 0.25, 0.10, 2.0),
+        ("revenue_growth", "Revenue Growth", "percent", True, 2.0, 0.10, 0.75),
+        ("eps_growth", "EPS Growth", "percent", True, 2.0, 0.10, 0.75),
+        ("gross_margin", "Gross Margin", "percent", True, 2.0, 0.10, 1.0),
+        ("operating_margin", "Operating Margin", "percent", True, 2.0, 0.10, 2.5),
+        ("roe", "ROE", "percent", True, 2.0, 0.10, 2.0),
+        ("net_debt_to_ebitda", "Net Debt / EBITDA", "multiple", False, 0.25, 0.10, 1.0),
     ]
     metrics = []
-    score = 0
-    for attr, label, unit, higher_better, threshold in specs:
+    score = 0.0
+    for attr, label, unit, higher_better, abs_threshold, rel_threshold, weight in specs:
         left = _peer_compare_fundamental_value(left_f, left_fallbacks, attr)
         right = _peer_compare_fundamental_value(right_f, right_fallbacks, attr)
-        edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, abs_threshold=threshold)
-        score += 1 if edge == "left" else -1 if edge == "right" else 0
+        edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, abs_threshold=abs_threshold, rel_threshold=rel_threshold)
+        score += weight if edge == "left" else -weight if edge == "right" else 0.0
         metrics.append(_peer_compare_metric(attr, label, left, right, unit=unit, edge=edge))
-    return {"key": "business_quality", "label": "Business Quality", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
+    edge = "left" if score >= 1.0 else "right" if score <= -1.0 else "even"
+    return {"key": "business_quality", "label": "Business Quality", "edge": edge, "score": round(score, 2), "metrics": metrics}
 
 
 def _peer_compare_valuation_category(
@@ -9107,15 +9143,17 @@ def _peer_compare_valuation_category(
         ("trailing_pe", "Trailing P/E", "multiple"),
         ("ev_to_ebitda", "EV / EBITDA", "multiple"),
         ("price_to_sales", "Price / Sales", "multiple"),
+        ("price_to_book", "Price / Book", "multiple"),
         ("fcf_yield", "FCF Yield", "percent_yield"),
+        ("nav_per_share", "NAV", "currency_per_share"),
     ]
     metrics = []
     score = 0
     for attr, label, unit in specs:
         left = _peer_compare_fundamental_value(left_f, left_fallbacks, attr)
         right = _peer_compare_fundamental_value(right_f, right_fallbacks, attr)
-        higher_better = attr == "fcf_yield"
-        edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, rel_threshold=0.1)
+        higher_better = attr in {"fcf_yield", "nav_per_share"}
+        edge = "even" if attr == "nav_per_share" else _peer_compare_edge_from_metric(left, right, higher_better=higher_better, rel_threshold=0.1)
         score += 1 if edge == "left" else -1 if edge == "right" else 0
         metrics.append(_peer_compare_metric(attr, label, left, right, unit=unit, edge=edge))
     return {"key": "valuation", "label": "Valuation", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
@@ -9136,6 +9174,18 @@ def _peer_compare_price_volume_category(left_pv: dict[str, Any], right_pv: dict[
     direction_edge = _peer_compare_edge_from_direction(left_pv.get("direction"), right_pv.get("direction"))
     score += 1 if direction_edge == "left" else -1 if direction_edge == "right" else 0
     metrics.append(_peer_compare_metric("tape", "Tape Confirmation", left_pv.get("direction"), right_pv.get("direction"), unit="text", edge=direction_edge))
+    left_rsi = left_pv.get("rsi") if isinstance(left_pv.get("rsi"), dict) else {}
+    right_rsi = right_pv.get("rsi") if isinstance(right_pv.get("rsi"), dict) else {}
+    rsi_edge = _peer_compare_edge_from_direction(_peer_compare_indicator_signal(left_rsi), _peer_compare_indicator_signal(right_rsi))
+    score += 1 if rsi_edge == "left" else -1 if rsi_edge == "right" else 0
+    metrics.append(_peer_compare_metric("rsi", "RSI", _peer_compare_num(left_rsi.get("value")), _peer_compare_num(right_rsi.get("value")), unit="number", edge=rsi_edge))
+    left_macd = left_pv.get("macd") if isinstance(left_pv.get("macd"), dict) else {}
+    right_macd = right_pv.get("macd") if isinstance(right_pv.get("macd"), dict) else {}
+    left_macd_signal = _peer_compare_indicator_signal(left_macd)
+    right_macd_signal = _peer_compare_indicator_signal(right_macd)
+    macd_edge = _peer_compare_edge_from_direction(left_macd_signal, right_macd_signal)
+    score += 1 if macd_edge == "left" else -1 if macd_edge == "right" else 0
+    metrics.append(_peer_compare_metric("macd", "MACD", left_macd_signal, right_macd_signal, unit="text", edge=macd_edge))
     return {"key": "price_volume", "label": "Price / Volume", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
 
 

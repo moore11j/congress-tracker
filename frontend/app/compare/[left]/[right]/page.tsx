@@ -126,6 +126,7 @@ function formatValue(metric: PeerCompareMetric, side: "left" | "right", context?
     if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
     return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   }
+  if (metric.unit === "currency_per_share") return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (metric.unit === "percent" || metric.unit === "percent_yield") return `${value.toFixed(1)}%`;
   if (metric.unit === "ratio") return `${value.toFixed(2)}x`;
   if (metric.unit === "multiple") return `${value.toFixed(2)}x`;

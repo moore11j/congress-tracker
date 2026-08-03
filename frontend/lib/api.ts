@@ -4682,7 +4682,7 @@ export type PeerCompareMetric = {
   label: string;
   left: number | string | boolean | null;
   right: number | string | boolean | null;
-  unit: "number" | "integer" | "currency" | "percent" | "percent_yield" | "multiple" | "ratio" | "score" | "text" | string;
+  unit: "number" | "integer" | "currency" | "currency_per_share" | "percent" | "percent_yield" | "multiple" | "ratio" | "score" | "text" | string;
   edge: "left" | "right" | "even";
 };
 

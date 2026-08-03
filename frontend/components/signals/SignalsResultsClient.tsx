@@ -131,7 +131,7 @@ function backtestingHrefFromItems(items: SignalItem[]): string | null {
 
 function cleanSignalsError(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "Sign in required.";
+    if (error.status === 401) return "Premium access required.";
     if (error.status === 402 || error.status === 403) return error.message || "Premium access required.";
     if (error.status === 503) return "Signals temporarily unavailable. Retry.";
     return "Unable to load signals.";

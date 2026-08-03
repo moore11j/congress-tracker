@@ -114,13 +114,13 @@ def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
                     symbol="AAA",
                     status="ok",
                     fetched_at=datetime.now(timezone.utc),
-                    payload_json='{"summary":{"forwardPE":15,"forwardPESource":"price_over_estimated_eps","expectedEpsGrowthRatePercent":21},"valuation_metrics":{"forward_pe":15,"forward_pe_source":"price_over_estimated_eps","expected_eps_growth_rate_percent":21,"status":"ok"}}',
+                    payload_json='{"summary":{"revenueTtm":1000000000,"epsTtm":4.25,"priceToBook":3.2,"navPerShare":18.5,"forwardPE":15,"forwardPESource":"price_over_estimated_eps","expectedEpsGrowthRatePercent":21},"valuation_metrics":{"forward_pe":15,"forward_pe_source":"price_over_estimated_eps","expected_eps_growth_rate_percent":21,"status":"ok"}}',
                 ),
                 TickerFinancialsCache(
                     symbol="BBB",
                     status="ok",
                     fetched_at=datetime.now(timezone.utc),
-                    payload_json='{"summary":{"forwardPE":28,"forwardPESource":"price_over_estimated_eps","expectedEpsGrowthRatePercent":9},"valuation_metrics":{"forward_pe":28,"forward_pe_source":"price_over_estimated_eps","expected_eps_growth_rate_percent":9,"status":"ok"}}',
+                    payload_json='{"summary":{"revenueTtm":500000000,"epsTtm":1.1,"priceToBook":7.4,"navPerShare":12.25,"forwardPE":28,"forwardPESource":"price_over_estimated_eps","expectedEpsGrowthRatePercent":9},"valuation_metrics":{"forward_pe":28,"forward_pe_source":"price_over_estimated_eps","expected_eps_growth_rate_percent":9,"status":"ok"}}',
                 ),
             ]
         )
@@ -147,10 +147,74 @@ def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
     by_key = {category["key"]: category for category in payload["categories"]}
     business_metrics = {metric["key"]: metric for metric in by_key["business_quality"]["metrics"]}
     valuation_metrics = {metric["key"]: metric for metric in by_key["valuation"]["metrics"]}
+    assert business_metrics["revenue_ttm"]["left"] == 1_000_000_000
+    assert business_metrics["eps_ttm"]["left"] == 4.25
     assert business_metrics["eps_growth"]["left"] == 21
     assert business_metrics["eps_growth"]["right"] == 9
     assert valuation_metrics["forward_pe"]["left"] == 15
     assert valuation_metrics["forward_pe"]["right"] == 28
+    assert valuation_metrics["price_to_book"]["left"] == 3.2
+    assert valuation_metrics["price_to_book"]["right"] == 7.4
+    assert valuation_metrics["price_to_book"]["edge"] == "left"
+    assert valuation_metrics["nav_per_share"]["left"] == 18.5
+    assert valuation_metrics["nav_per_share"]["right"] == 12.25
+
+
+def test_peer_compare_business_quality_weights_profitability_and_scale_over_growth():
+    nvda = _fundamentals("NVDA", revenue_growth=65.5, roe=111.7, forward_pe=22)
+    nvda.eps_growth = 66
+    nvda.gross_margin = 74.1
+    nvda.operating_margin = 64
+    nvda.eps_ttm = 3.25
+    nvda.net_debt_to_ebitda = 0
+    bmnr = _fundamentals("BMNR", revenue_growth=84.1, roe=-84.6, forward_pe=34)
+    bmnr.eps_growth = 104
+    bmnr.gross_margin = 83.5
+    bmnr.operating_margin = -145.1
+    bmnr.eps_ttm = -0.55
+    bmnr.net_debt_to_ebitda = 0.04
+
+    category = main_module._peer_compare_business_category(
+        nvda,
+        bmnr,
+        left_fallbacks={"revenue_ttm": 130_000_000_000},
+        right_fallbacks={"revenue_ttm": 328_000_000},
+    )
+
+    metrics = {metric["key"]: metric for metric in category["metrics"]}
+    assert category["edge"] == "left"
+    assert metrics["revenue_ttm"]["edge"] == "left"
+    assert metrics["eps_ttm"]["edge"] == "left"
+    assert metrics["operating_margin"]["edge"] == "left"
+    assert metrics["roe"]["edge"] == "left"
+    assert metrics["revenue_growth"]["edge"] == "right"
+    assert metrics["eps_growth"]["edge"] == "right"
+
+
+def test_peer_compare_price_volume_includes_rsi_and_macd():
+    category = main_module._peer_compare_price_volume_category(
+        {
+            "direction": "bullish",
+            "change_pct_1d": 2.0,
+            "volume_vs_avg": 1.4,
+            "rsi": {"status": "ok", "signal": "bullish", "value": 61.2},
+            "macd": {"status": "ok", "signal": "bullish"},
+        },
+        {
+            "direction": "bearish",
+            "change_pct_1d": -1.0,
+            "volume_vs_avg": 0.8,
+            "rsi": {"status": "ok", "signal": "bearish", "value": 38.4},
+            "macd": {"status": "ok", "signal": "bearish"},
+        },
+    )
+
+    metrics = {metric["key"]: metric for metric in category["metrics"]}
+    assert metrics["rsi"]["left"] == 61.2
+    assert metrics["rsi"]["edge"] == "left"
+    assert metrics["macd"]["left"] == "bullish"
+    assert metrics["macd"]["right"] == "bearish"
+    assert metrics["macd"]["edge"] == "left"
 
 
 def test_peer_compare_premium_unlocks_core_but_not_pro_sources(monkeypatch):
