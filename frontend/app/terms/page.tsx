@@ -51,7 +51,7 @@ export default async function TermsPage() {
       </LegalSection>
 
       <LegalSection title="8. Subscriptions, Billing, and Refunds">
-        <p>Paid plans, billing intervals, limits, and features are shown at checkout or in account billing screens. Subscription payments may be processed by third-party payment providers. Unless otherwise stated at purchase, fees are non-refundable except where required by law.</p>
+        <p>Paid plans, billing intervals, limits, and features are shown at checkout or in account billing screens. Subscription payments are processed by Stripe. Unless otherwise stated at purchase, fees are non-refundable except where required by law.</p>
       </LegalSection>
 
       <LegalSection title="9. Acceptable Use">
