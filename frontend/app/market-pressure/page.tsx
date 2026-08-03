@@ -88,7 +88,7 @@ export default async function MarketPressurePage({
       authState.token ? "entitlement" : "auth-required",
       authState.token
         ? "Market Pressure is available with Pro."
-        : "Sign in with a Pro account to open Market Pressure.",
+        : "Upgrade to Pro to open Market Pressure.",
       ["pro_required"],
     );
 

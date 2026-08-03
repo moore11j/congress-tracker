@@ -80,6 +80,14 @@ test("middleware uses ct_auth_hint only as a redirect hint", () => {
   assert.doesNotMatch(middlewareSource, /Authorization|Bearer|decodeURIComponent/);
 });
 
+test("premium preview pages render page gates instead of middleware login redirects", () => {
+  const protectedPrefixesLiteral = middlewareSource.match(/const protectedPrefixes = \[([^\]]*)\]/)?.[1] ?? "";
+
+  assert.doesNotMatch(protectedPrefixesLiteral, /"\/signals"|"\/screener"|"\/leaderboards"/);
+  assert.match(protectedPrefixesLiteral, /"\/account"/);
+  assert.match(protectedPrefixesLiteral, /"\/watchlists"/);
+});
+
 test("server auth returns backend session token or only a non-token hint", () => {
   assert.match(serverAuthSource, /const authSessionCookieName = "ct_session"/);
   assert.match(serverAuthSource, /const authHintCookieName = "ct_auth_hint"/);

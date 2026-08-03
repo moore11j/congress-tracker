@@ -4,7 +4,7 @@ import { isBioguideId, nameToSlug } from "./lib/memberSlug";
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
-const protectedPrefixes = ["/admin", "/account", "/screener", "/backtesting", "/watchlists", "/monitoring", "/signals", "/leaderboards"];
+const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
   "/landing",
   "/about",

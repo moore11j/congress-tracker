@@ -377,7 +377,7 @@ function capabilityReason(data: MarketPressureMapResult) {
 
 function statusCopy(data: MarketPressureMapResult) {
   if (data.status === "entitlement") return { title: "Market Pressure is available with Pro", body: data.providerMessage ?? "Upgrade to see the complete confirmation map." };
-  if (data.status === "auth-required") return { title: "Sign in with Pro", body: data.providerMessage ?? "Market Pressure is protected and does not expose map data to logged-out users." };
+  if (data.status === "auth-required") return { title: "Upgrade to Pro", body: data.providerMessage ?? "Upgrade to Pro to open Market Pressure." };
   if (data.status === "unsupported") return { title: "Canonical universe unavailable", body: capabilityReason(data) ?? "This request needs data that is not available yet." };
   if (data.status === "error") return { title: "Market Pressure could not load", body: data.providerMessage ?? "The backend request failed. No synthetic tiles were substituted." };
   if (data.status === "loading") return { title: "Loading market pressure", body: "Fetching the latest authorized Market Pressure payload." };
@@ -423,10 +423,11 @@ function disabledUniverseTitle(option: MarketPressureUniverse, data: MarketPress
 
 function MarketPressureStatusState({ data }: { data: MarketPressureMapResult }) {
   const copy = statusCopy(data);
+  const statusLabel = data.status === "auth-required" ? "upgrade required" : data.status.replace("-", " ");
   return (
     <div className="flex min-h-[21rem] items-center justify-center rounded-md border border-dashed border-white/15 bg-slate-950/45 px-4 py-10 text-center" aria-live="polite" aria-busy={data.status === "loading"}>
       <div className="max-w-xl">
-        <p className="text-xs font-medium uppercase tracking-[0.22em] text-emerald-200/80">{data.status.replace("-", " ")}</p>
+        <p className="text-xs font-medium uppercase tracking-[0.22em] text-emerald-200/80">{statusLabel}</p>
         <h2 className="mt-3 text-xl font-medium text-white">{copy.title}</h2>
         <p className="mt-3 text-sm leading-6 text-slate-300">{copy.body}</p>
         {data.status === "entitlement" ? (
@@ -440,8 +441,8 @@ function MarketPressureStatusState({ data }: { data: MarketPressureMapResult }) 
           </Link>
         ) : null}
         {data.status === "auth-required" ? (
-          <Link href="/login?return_to=%2Fmarket-pressure" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-md px-4`}>
-            Sign in
+          <Link href="/pricing" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-md px-4`}>
+            Upgrade to Pro
           </Link>
         ) : null}
       </div>

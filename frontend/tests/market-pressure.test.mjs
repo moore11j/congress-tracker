@@ -63,9 +63,13 @@ test("Market Pressure is gated as a Pro feature before protected fetches", () =>
   assert.match(page, /function canUseMarketPressure/);
   assert.match(page, /canUseMarketPressure\(entitlements, Boolean\(authState\.token\)\)/);
   assert.match(page, /Market Pressure is available with Pro/);
+  assert.match(page, /Upgrade to Pro to open Market Pressure/);
   assert.match(contract, /response\.status === 403/);
   assert.match(contract, /pro_required/);
   assert.match(client, /Upgrade to Pro/);
+  assert.match(client, /href="\/pricing"/);
+  assert.match(client, /upgrade required/);
+  assert.doesNotMatch(client, /Sign in with Pro|Sign in with a Pro account|return_to=%2Fmarket-pressure/);
   assert.doesNotMatch(client, /LayerAccessPanel/);
   assert.doesNotMatch(client, /FAST, RELIABLE, COMPLETE data only/);
 });
