@@ -128,10 +128,10 @@ export function CookieConsentManager() {
             <div className="max-w-4xl text-sm leading-6 text-slate-200">
               <p className="font-semibold text-white">Privacy choices</p>
               <p>
-                We use necessary cookies for login and security. With your permission, we also use analytics and marketing pixels to measure product usage and campaigns.
+                We use essential cookies to keep Walnut secure and working. Optional analytics help us improve the product, and optional campaign measurement helps us understand what brings people here.
               </p>
               {gpcEnabled ? (
-                <p className="mt-1 text-xs text-emerald-200">Your browser privacy signal is on, so marketing pixels stay off.</p>
+                <p className="mt-1 text-xs text-emerald-200">Your browser privacy signal is on, so optional campaign measurement stays off.</p>
               ) : null}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:shrink-0">
@@ -140,21 +140,21 @@ export function CookieConsentManager() {
                 className="rounded border border-white/15 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/30 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
                 onClick={() => saveConsent({ analytics: false, marketing: false })}
               >
-                Reject non-essential
+                Reject optional
               </button>
               <button
                 type="button"
                 className="rounded border border-white/15 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/30 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
                 onClick={() => setPreferencesOpen(true)}
               >
-                Manage choices
+                Customize
               </button>
               <button
                 type="button"
                 className="rounded bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
                 onClick={() => saveConsent({ analytics: true, marketing: true })}
               >
-                Accept all
+                Accept optional
               </button>
             </div>
           </div>
@@ -229,7 +229,7 @@ export function CookieConsentManager() {
                 className="rounded border border-white/15 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/30 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
                 onClick={() => saveConsent({ analytics: false, marketing: false })}
               >
-                Reject non-essential
+                Reject optional
               </button>
               <button
                 type="button"

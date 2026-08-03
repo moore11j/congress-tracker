@@ -24,9 +24,11 @@ test("layout renders consent manager instead of eager tracking scripts", () => {
 
 test("cookie consent manager offers bottom-bar choices and gates optional scripts", () => {
   assert.match(manager, /fixed inset-x-0 bottom-0/);
-  assert.match(manager, /Reject non-essential/);
-  assert.match(manager, /Manage choices/);
-  assert.match(manager, /Accept all/);
+  assert.match(manager, /We use essential cookies to keep Walnut secure and working/);
+  assert.match(manager, /optional campaign measurement helps us understand what brings people here/);
+  assert.match(manager, /Reject optional/);
+  assert.match(manager, /Customize/);
+  assert.match(manager, /Accept optional/);
   assert.match(manager, /Analytics/);
   assert.match(manager, /Marketing/);
   assert.match(manager, /loadGoogleAnalytics/);
