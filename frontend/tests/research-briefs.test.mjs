@@ -94,6 +94,7 @@ test("mu premium gate uses requested copy, CTAs, and analytics events", () => {
   assert.match(gate, /heading="Unlock Walnut's Full MU Conclusion"/);
   assert.match(gate, /See the confirmation score, directional judgment, supporting evidence, catalysts, risks, and what could change the outlook\./);
   assert.match(gate, /Subscribe to Premium/);
+  assert.match(gate, /ctaLabel = "Subscribe to Premium"/);
   assert.match(gate, /Unlock with Premium/);
   assert.doesNotMatch(gate, /View Premium Plans/);
   for (const eventName of [
@@ -144,6 +145,13 @@ test("generated research briefs render pipe-delimited data as production tables"
   assert.match(generatedBriefPage, /<ResearchDataTable key=\{block\.key\} header=\{block\.header\} rows=\{block\.rows\} \/>/);
   assert.match(generatedBriefPage, /<table className="min-w-full border-collapse text-left text-sm">/);
   assert.match(generatedBriefPage, /rowIndex % 2 === 0/);
+});
+
+test("generated research briefs do not render hard-coded hero buttons", () => {
+  assert.doesNotMatch(generatedBriefPage, /See what Walnut is showing now/);
+  assert.doesNotMatch(generatedBriefPage, /Research a ticker/);
+  assert.match(generatedBriefPage, /paywallCtaLabel/);
+  assert.match(generatedBriefPage, /ctaLabel=\{paywallCtaLabel\}/);
 });
 
 test("generated research briefs render markdown links and bare urls as anchors", () => {

@@ -31,6 +31,10 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /onSuggestedCardChange\(\{ description: event\.target\.value \}\)/);
   assert.match(component, /Insights preview body/);
   assert.match(component, /Full post body/);
+  assert.match(component, /<paywall heading=/);
+  assert.match(component, /<button text=/);
+  assert.match(component, /function parsePaywallBlock/);
+  assert.match(component, /paywall_copy: parsed\.paywallCopy \|\| articleDraft\.paywall_copy/);
   assert.match(component, /Advanced metadata/);
   assert.match(component, /Model/);
   assert.match(component, /GPT-5\.6 Luna/);
@@ -87,7 +91,7 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.doesNotMatch(component, /const draft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ status, article \}\);[\s\S]{0,120}await refreshDrafts\(draft\)/);
   assert.match(component, /saveDraft\(selectedDraft\?\.status === "published" \? "published" : "draft"\)/);
   assert.match(component, /Save Published Changes/);
-  assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);
+  assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article, config: currentEditedConfig\(\) \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);
   assert.match(component, /Draft saved and published\./);
   assert.match(component, /Generating research brief/);
   assert.match(component, /researchBriefJobTimedOut/);
@@ -103,7 +107,6 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /This draft has no source links/);
   assert.doesNotMatch(component, /window\.confirm\("Publish this research brief/);
   assert.match(component, /PublishDraftDialog/);
-  assert.match(component, /Double-check the confirmation score with the admin account before publishing because it was updated manually\./);
   assert.doesNotMatch(component, /window\.prompt\("Type DELETE/);
   assert.match(component, /DeleteDraftDialog/);
   assert.match(component, /Destructive action/);
@@ -114,6 +117,7 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(api, /include_cross_source_confirmations: boolean/);
   assert.match(api, /premium_required\?: boolean/);
   assert.match(api, /required_plan\?: "premium" \| "pro" \| null/);
+  assert.match(api, /cta_label\?: string/);
   assert.match(api, /manual_source_url\?: string \| null/);
   assert.match(api, /source_discovery\?: Record<string, unknown>/);
   assert.match(api, /walnut_call\?: string/);

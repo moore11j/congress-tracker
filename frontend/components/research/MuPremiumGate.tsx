@@ -17,6 +17,7 @@ type PremiumResearchGateProps = MuPremiumGateProps & {
   requiredPlan?: "premium" | "pro" | string | null;
   heading: string;
   description: string;
+  ctaLabel?: string;
   analytics?: Record<string, string | number | boolean | null>;
 };
 
@@ -53,6 +54,7 @@ export function PremiumResearchGate({
   requiredPlan = "premium",
   heading,
   description,
+  ctaLabel = "Subscribe to Premium",
   analytics = {},
 }: PremiumResearchGateProps) {
   const [loading, setLoading] = useState(false);
@@ -136,7 +138,7 @@ export function PremiumResearchGate({
               });
             }}
           >
-            Subscribe to Premium
+            {ctaLabel}
           </Link>
         ) : (
           <button type="button" onClick={startCheckout} disabled={loading} className={primaryClassName}>

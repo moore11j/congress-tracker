@@ -33,6 +33,7 @@ type GeneratedResearchArticleExtras = {
   paywall_copy?: {
     heading?: string;
     description?: string;
+    cta_label?: string;
   };
   analytics?: Record<string, string | number | boolean | null>;
 };
@@ -184,8 +185,6 @@ export function GeneratedResearchBriefPage({
   authenticated?: boolean;
 }) {
   const article = draft.article as AdminResearchBriefDraft["article"] & GeneratedResearchArticleExtras;
-  const tickerHref = `/ticker/${encodeURIComponent(article.primary_ticker || draft.primary_ticker)}`;
-  const primaryCtaHref = `/login?mode=register&return_to=${encodeURIComponent(tickerHref)}`;
   const canonicalUrl = marketingCanonicalUrl(`/research/${article.slug}`);
   const jsonLd = generatedResearchJsonLd(draft, canonicalUrl);
   const results = article.signal_results || [];
@@ -199,6 +198,7 @@ export function GeneratedResearchBriefPage({
   const fallbackPaywallTitle = `Unlock Walnut's Full ${tickers.length > 1 ? `${tickers[0]} vs ${tickers[1]}` : article.primary_ticker || draft.primary_ticker} Research Brief`;
   const paywallHeading = article.paywall_copy?.heading || fallbackPaywallTitle;
   const paywallDescription = article.paywall_copy?.description || "See the full judgment, confirmation evidence, catalysts, risks, source trail, and what could change the setup.";
+  const paywallCtaLabel = article.paywall_copy?.cta_label || "Subscribe to Premium";
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -214,15 +214,7 @@ export function GeneratedResearchBriefPage({
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{article.category || "Research Brief"}</p>
             <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{cleanInlineText(article.title)}</h1>
             <p className="mt-5 text-lg leading-8 text-slate-300">{cleanInlineText(article.subtitle || article.summary)}</p>
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link href={primaryCtaHref} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-                See what Walnut is showing now
-              </Link>
-              <Link href={tickerHref} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/50 hover:text-emerald-100">
-                Research a ticker
-              </Link>
-            </div>
-            <p className="mt-4 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
+            <p className="mt-6 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
           </div>
           {heroImage ? <ResearchHeroImage src={heroImage} title={article.title} /> : results.length ? <StoredSignalsHeroGraphic results={results} /> : null}
         </div>
@@ -271,6 +263,7 @@ export function GeneratedResearchBriefPage({
               requiredPlan={requiredPlan}
               heading={paywallHeading}
               description={paywallDescription}
+              ctaLabel={paywallCtaLabel}
               analytics={article.analytics}
             />
           )}

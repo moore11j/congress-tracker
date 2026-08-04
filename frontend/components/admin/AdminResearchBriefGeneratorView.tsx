@@ -184,18 +184,71 @@ function Button({
 }
 
 const PAYWALL_MARKER = "<!-- walnut:paywall -->";
+const DEFAULT_PAYWALL_CTA_LABEL = "Subscribe to Premium";
 const paywallMarkerPattern = /^\s*(?:<!--\s*walnut:paywall\s*-->|::walnut-paywall::|\[\[WALNUT_PAYWALL\]\])\s*$/im;
+const paywallBlockPattern = /\n*\s*<paywall\b([^>]*)>\s*([\s\S]*?)\s*<\/paywall>\s*/i;
+const buttonTagPattern = /<button\b([^>]*)\/?>/i;
+
+function escapePseudoAttribute(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function unescapePseudoAttribute(value: string) {
+  return value.replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&");
+}
+
+function pseudoAttributes(value: string) {
+  const attributes: Record<string, string> = {};
+  value.replace(/([a-zA-Z_][a-zA-Z0-9_-]*)="([^"]*)"/g, (_match, key: string, rawValue: string) => {
+    attributes[key] = unescapePseudoAttribute(rawValue);
+    return "";
+  });
+  return attributes;
+}
+
+function paywallBlockForArticle(article: AdminResearchBriefArticle) {
+  if (!article.premium_required && !article.paywall_copy) return "";
+  const heading = article.paywall_copy?.heading || "Unlock Walnut's Full Research Brief";
+  const description = article.paywall_copy?.description || "See the full analysis, investment implications, and risks.";
+  const ctaLabel = article.paywall_copy?.cta_label || DEFAULT_PAYWALL_CTA_LABEL;
+  return [
+    `<paywall heading="${escapePseudoAttribute(heading)}">`,
+    description,
+    `<button text="${escapePseudoAttribute(ctaLabel)}" link="premium_checkout" />`,
+    "</paywall>",
+  ].join("\n");
+}
+
+function parsePaywallBlock(markdown: string) {
+  const match = markdown.match(paywallBlockPattern);
+  if (!match) return { markdown, paywallCopy: null as AdminResearchBriefArticle["paywall_copy"] | null };
+  const paywallAttributes = pseudoAttributes(match[1] || "");
+  const body = match[2] || "";
+  const buttonMatch = body.match(buttonTagPattern);
+  const buttonAttributes = buttonMatch ? pseudoAttributes(buttonMatch[1] || "") : {};
+  const description = body.replace(buttonTagPattern, "").trim();
+  return {
+    markdown: `${markdown.slice(0, match.index)}\n\n${markdown.slice((match.index || 0) + match[0].length)}`.trim(),
+    paywallCopy: {
+      heading: (paywallAttributes.heading || "").trim(),
+      description,
+      cta_label: (buttonAttributes.text || DEFAULT_PAYWALL_CTA_LABEL).trim(),
+    },
+  };
+}
 
 function articleToMarkdown(article: AdminResearchBriefArticle) {
   const sections = article.sections || [];
   const markdownSections = sections.map((section) => `## ${section.heading}\n\n${section.body_markdown}`);
-  const markdown = markdownSections.join("\n\n");
-  if (paywallMarkerPattern.test(markdown)) return markdown;
+  const rawMarkdown = markdownSections.join("\n\n");
+  const paywallBlock = paywallBlockForArticle(article);
+  const withPaywallBlock = (markdown: string) => (paywallBlock ? `${markdown.trimEnd()}\n\n${paywallBlock}`.trim() : markdown);
+  if (paywallMarkerPattern.test(rawMarkdown)) return withPaywallBlock(rawMarkdown);
   const previewCount = typeof article.preview_section_count === "number" ? Math.max(0, Math.min(article.preview_section_count, markdownSections.length)) : null;
-  if (previewCount === null) return markdown;
-  if (previewCount === 0) return `${PAYWALL_MARKER}\n\n${markdown}`.trim();
-  if (previewCount >= markdownSections.length) return `${markdown}\n\n${PAYWALL_MARKER}`.trim();
-  return [...markdownSections.slice(0, previewCount), PAYWALL_MARKER, ...markdownSections.slice(previewCount)].join("\n\n");
+  if (previewCount === null) return withPaywallBlock(rawMarkdown);
+  if (previewCount === 0) return withPaywallBlock(`${PAYWALL_MARKER}\n\n${rawMarkdown}`.trim());
+  if (previewCount >= markdownSections.length) return withPaywallBlock(`${rawMarkdown}\n\n${PAYWALL_MARKER}`.trim());
+  return withPaywallBlock([...markdownSections.slice(0, previewCount), PAYWALL_MARKER, ...markdownSections.slice(previewCount)].join("\n\n"));
 }
 
 function researchBriefJobTimedOut(job: AdminResearchBriefJob) {
@@ -217,11 +270,13 @@ function paywallMarkerSectionCount(markdown: string, sections: AdminResearchBrie
   return sections.length;
 }
 
-function markdownToSections(markdown: string): { sections: AdminResearchBriefArticle["sections"]; previewSectionCount: number | null } {
-  const chunks = markdown.split(/\n(?=##\s+)/g).map((chunk) => chunk.trim()).filter(Boolean);
+function markdownToSections(markdown: string): { sections: AdminResearchBriefArticle["sections"]; previewSectionCount: number | null; paywallCopy: AdminResearchBriefArticle["paywall_copy"] | null } {
+  const parsedPaywall = parsePaywallBlock(markdown);
+  const editableMarkdown = parsedPaywall.markdown;
+  const chunks = editableMarkdown.split(/\n(?=##\s+)/g).map((chunk) => chunk.trim()).filter(Boolean);
   if (!chunks.length) {
-    const sections = [{ key: "body", heading: "Research Brief", body_markdown: markdown.trim() }];
-    return { sections, previewSectionCount: paywallMarkerSectionCount(markdown, sections) };
+    const sections = [{ key: "body", heading: "Research Brief", body_markdown: editableMarkdown.trim() }];
+    return { sections, previewSectionCount: paywallMarkerSectionCount(editableMarkdown, sections), paywallCopy: parsedPaywall.paywallCopy };
   }
   const sections = chunks.map((chunk, index) => {
     const match = chunk.match(/^##\s+(.+?)(?:\n+([\s\S]*))?$/);
@@ -232,7 +287,7 @@ function markdownToSections(markdown: string): { sections: AdminResearchBriefArt
       body_markdown: (match?.[2] || chunk).trim(),
     };
   });
-  return { sections, previewSectionCount: paywallMarkerSectionCount(markdown, sections) };
+  return { sections, previewSectionCount: paywallMarkerSectionCount(editableMarkdown, sections), paywallCopy: parsedPaywall.paywallCopy };
 }
 
 function sectionKey(value: string) {
@@ -737,6 +792,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           ...articleDraft.suggested_card,
           tickers: cardTickers,
         },
+        paywall_copy: parsed.paywallCopy || articleDraft.paywall_copy,
         sections: parsed.sections,
         preview_section_count: typeof previewSectionCount === "number" ? previewSectionCount : null,
       },

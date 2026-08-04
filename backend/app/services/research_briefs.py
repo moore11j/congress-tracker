@@ -3209,6 +3209,7 @@ def article_schema() -> dict[str, Any]:
                 "properties": {
                     "heading": {"type": "string"},
                     "description": {"type": "string"},
+                    "cta_label": {"type": "string"},
                 },
             },
             "analytics": {

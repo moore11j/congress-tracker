@@ -6153,6 +6153,7 @@ export type AdminResearchBriefArticle = {
   paywall_copy?: {
     heading?: string;
     description?: string;
+    cta_label?: string;
   };
   analytics?: Record<string, string | number | boolean | null>;
   reddit_post?: string;
@@ -7393,4 +7394,3 @@ export async function deleteNotificationSubscription(id: number): Promise<void> 
     method: "DELETE",
   });
 }
-
