@@ -37,6 +37,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <head />
         <body className="min-h-full">
           {children}
+          <PageAnalyticsTracker />
           <CookieConsentManager />
         </body>
       </html>

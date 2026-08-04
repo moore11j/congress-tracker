@@ -17,6 +17,7 @@ const privacy = read("app/privacy/page.tsx");
 test("layout renders consent manager instead of eager tracking scripts", () => {
   assert.match(layout, /import \{ CookieConsentManager \} from "@\/components\/CookieConsentManager";/);
   assert.equal((layout.match(/<CookieConsentManager \/>/g) ?? []).length, 2);
+  assert.equal((layout.match(/<PageAnalyticsTracker \/>/g) ?? []).length, 2);
   assert.doesNotMatch(layout, /googletagmanager\.com/);
   assert.doesNotMatch(layout, /redditstatic\.com\/ads\/pixel/);
   assert.doesNotMatch(layout, /dangerouslySetInnerHTML/);
