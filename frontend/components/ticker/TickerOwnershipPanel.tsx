@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import type { TickerOwnershipHolder, TickerOwnershipPoint, TickerOwnershipResponse } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
@@ -166,7 +166,7 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
     return <p className="text-sm text-slate-400">Holder-level records are not available.</p>;
   }
   return (
-    <div className="max-h-72 overflow-y-auto pr-1">
+    <div className="max-h-80 overflow-y-auto pr-1">
       <div className="space-y-2">
         {visible.map((holder) => {
           const pct = clampPct(holder.ownership_pct) ?? 0;
@@ -191,6 +191,24 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
         })}
       </div>
     </div>
+  );
+}
+
+function InstitutionalHoldersSection({ data }: { data: TickerOwnershipResponse }) {
+  const latest = data.latest;
+  return (
+    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Institutional Holders</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            {latest?.period ?? "Latest quarter"}{latest?.latest_filing_date ? ` / Filed ${formatDateShort(latest.latest_filing_date)}` : ""}
+          </p>
+        </div>
+        <p className="text-xs font-semibold tabular-nums text-slate-400">{formatNumber(data.holders.length)} records</p>
+      </div>
+      <HolderBreakdown holders={data.holders} />
+    </section>
   );
 }
 
@@ -223,14 +241,12 @@ function ReportedHoldingsSummary({ data }: { data: TickerOwnershipResponse }) {
 }
 
 function OwnershipSplit({ data }: { data: TickerOwnershipResponse }) {
-  const [open, setOpen] = useState(false);
   const latest = data.latest;
   const institutional = clampPct(latest?.institutional_ownership_pct) ?? 0;
   const retail = clampPct(latest?.retail_ownership_pct) ?? Math.max(0, 100 - institutional);
-  const hasBreakdown = data.holders.some((holder) => isFiniteNumber(holder.ownership_pct) && holder.ownership_pct > 0);
 
   return (
-    <section className="relative rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-white">Institutional vs Retail</h3>
@@ -251,19 +267,14 @@ function OwnershipSplit({ data }: { data: TickerOwnershipResponse }) {
       </div>
       <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-slate-950">
         <div className="flex h-16 w-full">
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            className="relative h-full bg-blue-500/85 text-left transition hover:bg-blue-400/90 focus:outline-none focus:ring-2 focus:ring-blue-200"
+          <div
+            className="relative h-full bg-blue-500/85 text-left"
             style={{ width: `${institutional}%` }}
-            aria-expanded={open}
-            aria-label="Institutional holder breakdown"
-            disabled={!hasBreakdown}
           >
             <span className="absolute inset-x-3 top-1/2 -translate-y-1/2 truncate text-xs font-semibold text-white">
               Institutional {formatPct(institutional)}
             </span>
-          </button>
+          </div>
           <div className="relative h-full bg-emerald-500/80" style={{ width: `${retail}%` }}>
             <span className="absolute inset-x-3 top-1/2 -translate-y-1/2 truncate text-xs font-semibold text-white">
               Retail {formatPct(retail)}
@@ -282,17 +293,6 @@ function OwnershipSplit({ data }: { data: TickerOwnershipResponse }) {
           value={isFiniteNumber(latest?.float_shares) ? formatNumber(latest?.float_shares) : formatNumber(data.holders.length)}
         />
       </div>
-      {open ? (
-        <div className="absolute left-4 right-4 top-[8.75rem] z-20 rounded-2xl border border-white/15 bg-[#050b13]/95 p-4 shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-white">Institutional Holders</h4>
-            <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-300 hover:bg-white/5">
-              Close
-            </button>
-          </div>
-          <HolderBreakdown holders={data.holders} />
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -353,6 +353,7 @@ export function TickerOwnershipPanel({ data, locked = false }: { data: TickerOwn
         <>
           <OwnershipSplit data={displayData} />
           <OwnershipChart history={displayData.history} />
+          <InstitutionalHoldersSection data={displayData} />
         </>
       ) : (
         <ReportedHoldingsSummary data={displayData} />
