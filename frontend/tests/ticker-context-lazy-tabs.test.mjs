@@ -126,9 +126,9 @@ test("analyst consensus tab is lazy and shows free summary with premium detail g
   assert.match(api, /export async function getTickerAnalystConsensus/);
   assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/consensus/);
   assert.match(panel, /Current analyst summary for \{symbol\} is not available yet/);
-  assert.match(panel, /const BACKFILL_LABEL = "Backfill"/);
+  assert.match(panel, /const LOADING_LABEL = "Loading"/);
   assert.match(panel, /snapshot\?\.recommendationDistribution\?\.total/);
-  assert.match(panel, /Backfill in progress/);
+  assert.doesNotMatch(panel, /Backfill|backfill|backfilling/);
   assert.match(panel, /Free users get the current summary/);
   assert.match(panel, /Rating Distribution/);
   assert.match(panel, /Price Targets/);

@@ -14,7 +14,7 @@ type Props = {
 };
 
 const panelClass = "rounded-lg border border-white/10 bg-slate-950/55";
-const BACKFILL_LABEL = "Backfill";
+const LOADING_LABEL = "Loading";
 
 function asNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -43,8 +43,8 @@ function formatMoney(value: number | null | undefined) {
   }).format(numeric);
 }
 
-function formatNumberOrBackfill(value: number | null | undefined, options?: Intl.NumberFormatOptions) {
-  return asNumber(value) === null ? BACKFILL_LABEL : formatNumber(value, options);
+function formatNumberOrLoading(value: number | null | undefined, options?: Intl.NumberFormatOptions) {
+  return asNumber(value) === null ? LOADING_LABEL : formatNumber(value, options);
 }
 
 function toneForLabel(value: string | null | undefined) {
@@ -69,7 +69,7 @@ function statusCopy(status: string | null | undefined) {
   if (normalized === "partial") return "Partial";
   if (normalized === "stale") return "Stale";
   if (normalized === "provider_error") return "Temporarily unavailable";
-  return "Backfill pending";
+  return LOADING_LABEL;
 }
 
 function DetailMetric({ label, value, tone = "text-white" }: { label: string; value: ReactNode; tone?: string }) {
@@ -178,15 +178,15 @@ function ChangeRow({ label, change }: { label: string; change?: TickerAnalystCon
     <div className="grid gap-2 rounded-lg border border-white/10 bg-slate-950/50 p-3 sm:grid-cols-3">
       <div>
         <p className="text-xs font-semibold text-white">{label}</p>
-        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : "Backfill in progress"}</p>
+        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : LOADING_LABEL}</p>
       </div>
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sentiment</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${sentimentTone}`}>{hasComparison ? formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 }) : BACKFILL_LABEL}</p>
+        <p className={`mt-1 text-sm font-semibold tabular-nums ${sentimentTone}`}>{hasComparison ? formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 }) : LOADING_LABEL}</p>
       </div>
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Target</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${targetTone}`}>{hasComparison ? formatMoney(change?.consensusTargetChange) : BACKFILL_LABEL}</p>
+        <p className={`mt-1 text-sm font-semibold tabular-nums ${targetTone}`}>{hasComparison ? formatMoney(change?.consensusTargetChange) : LOADING_LABEL}</p>
       </div>
     </div>
   );
@@ -245,15 +245,15 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
   const medianUpside = summary?.medianImpliedUpsidePct ?? snapshot?.medianImpliedUpsidePct ?? snapshot?.impliedUpside?.medianPct ?? null;
   const freshness = data?.freshness ?? interpretation?.freshness ?? null;
   const totalRatings = asNumber(snapshot?.totalRatingCount) ?? asNumber(snapshot?.recommendationDistribution?.total);
-  const historyBackfilling = !data?.changes?.days30?.comparisonDate && !data?.changes?.days90?.comparisonDate;
-  const actionWindowsBackfilling = historyBackfilling || (!data?.gradeEventStats?.days30 && !data?.gradeEventStats?.days90);
+  const historyLoading = !data?.changes?.days30?.comparisonDate && !data?.changes?.days90?.comparisonDate;
+  const actionWindowsLoading = historyLoading || (!data?.gradeEventStats?.days30 && !data?.gradeEventStats?.days90);
 
   if (!data || !snapshot) {
     return (
       <section className={`${panelClass} p-5`}>
-        <p className="text-sm font-semibold text-white">Analyst consensus is backfilling</p>
+        <p className="text-sm font-semibold text-white">Analyst consensus is loading</p>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          Current analyst summary for {symbol} is not available yet. The tab will populate automatically as the backfill reaches this ticker.
+          Current analyst summary for {symbol} is not available yet. The tab will populate automatically when data is ready.
         </p>
         <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{statusCopy(availability)}</p>
       </section>
@@ -306,13 +306,13 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <DetailMetric
                 label="30d Net"
-                value={actionWindowsBackfilling ? BACKFILL_LABEL : formatNumberOrBackfill(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 })}
-                tone={actionWindowsBackfilling ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days30?.netActions)}
+                value={actionWindowsLoading ? LOADING_LABEL : formatNumberOrLoading(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 })}
+                tone={actionWindowsLoading ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days30?.netActions)}
               />
               <DetailMetric
                 label="90d Net"
-                value={actionWindowsBackfilling ? BACKFILL_LABEL : formatNumberOrBackfill(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 })}
-                tone={actionWindowsBackfilling ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days90?.netActions)}
+                value={actionWindowsLoading ? LOADING_LABEL : formatNumberOrLoading(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 })}
+                tone={actionWindowsLoading ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days90?.netActions)}
               />
               <DetailMetric label="Latest" value={data.gradeEventStats?.mostRecentEvent?.action ?? "-"} tone="text-slate-200" />
             </div>
