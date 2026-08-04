@@ -4,6 +4,7 @@ import { isBioguideId, nameToSlug } from "./lib/memberSlug";
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
+const publicPageRenderCoalesceHeaderName = "x-walnut-public-page-render-coalesce";
 const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
   "/landing",
@@ -64,6 +65,14 @@ const noindexAppRoutePrefixes = [
   "/leaderboards",
   "/search",
 ];
+type MaterializedPageResponse = {
+  body: ArrayBuffer;
+  headers: [string, string][];
+  status: number;
+  statusText: string;
+};
+const publicPageRenderInflight = new Map<string, Promise<MaterializedPageResponse>>();
+const publicPageRenderInflightMaxEntries = 64;
 
 function routeFamily(pathname: string): string {
   const normalized = (pathname || "/").toLowerCase();
@@ -157,6 +166,87 @@ function isInteractiveBrowserUserAgent(userAgent: string): boolean {
   if (!ua) return false;
   if (/bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
   return /mozilla|chrome|safari|firefox|edg\//.test(ua);
+}
+
+function hasWalnutAuthCookie(request: NextRequest): boolean {
+  return Boolean(request.cookies.get(authSessionCookieName)?.value) || request.cookies.get(authHintCookieName)?.value === "1";
+}
+
+function isAnonymousPublicPageRenderCandidate(request: NextRequest, host: string, pathname: string): boolean {
+  if (host !== appHost || request.method !== "GET") return false;
+  if (request.headers.get(publicPageRenderCoalesceHeaderName) === "fill") return false;
+  if (hasWalnutAuthCookie(request)) return false;
+  if (request.headers.get("authorization")) return false;
+  if (request.headers.get("x-ct-entitlement-tier")) return false;
+  if (isPrefetchRequest(request)) return false;
+  const cacheControl = (request.headers.get("cache-control") ?? "").toLowerCase();
+  const pragma = (request.headers.get("pragma") ?? "").toLowerCase();
+  if (cacheControl.includes("no-cache") || cacheControl.includes("no-store") || pragma.includes("no-cache")) return false;
+  const normalized = (pathname || "/").toLowerCase();
+  const isTickerPage = /^\/ticker\/[^/]+\/?$/.test(normalized);
+  const isScreenerPage = normalized === "/screener";
+  if (!isTickerPage && !isScreenerPage) return false;
+  const accept = (request.headers.get("accept") ?? "").toLowerCase();
+  return !accept || accept.includes("text/html") || accept.includes("*/*");
+}
+
+function publicPageRenderCacheKey(request: NextRequest): string {
+  const url = request.nextUrl.clone();
+  url.hash = "";
+  return url.toString();
+}
+
+function responseFromMaterializedPage(entry: MaterializedPageResponse, state: "fill" | "wait"): Response {
+  const headers = new Headers(entry.headers);
+  headers.delete("set-cookie");
+  headers.set("cache-control", "private, no-store");
+  headers.set("x-walnut-public-page-render-coalesce", state);
+  return new Response(entry.body.slice(0), {
+    status: entry.status,
+    statusText: entry.statusText,
+    headers,
+  });
+}
+
+async function fetchMaterializedPublicPage(request: NextRequest): Promise<MaterializedPageResponse> {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  headers.delete("x-ct-entitlement-tier");
+  headers.set(publicPageRenderCoalesceHeaderName, "fill");
+  const response = await fetch(request.nextUrl.toString(), {
+    method: "GET",
+    headers,
+    redirect: "manual",
+  });
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.delete("set-cookie");
+  return {
+    body: await response.arrayBuffer(),
+    headers: [...responseHeaders.entries()],
+    status: response.status,
+    statusText: response.statusText,
+  };
+}
+
+async function coalescedAnonymousPublicPageRender(request: NextRequest): Promise<Response> {
+  const key = publicPageRenderCacheKey(request);
+  const existing = publicPageRenderInflight.get(key);
+  if (existing) {
+    return responseFromMaterializedPage(await existing, "wait");
+  }
+
+  while (publicPageRenderInflight.size >= publicPageRenderInflightMaxEntries) {
+    const oldestKey = publicPageRenderInflight.keys().next().value;
+    if (!oldestKey) break;
+    publicPageRenderInflight.delete(oldestKey);
+  }
+
+  const next = fetchMaterializedPublicPage(request).finally(() => {
+    publicPageRenderInflight.delete(key);
+  });
+  publicPageRenderInflight.set(key, next);
+  return responseFromMaterializedPage(await next, "fill");
 }
 
 function safeRefererPath(referer: string, request: NextRequest): string {
@@ -255,6 +345,10 @@ export async function middleware(request: NextRequest) {
 
   if (pathname === "/robots.txt") {
     return robotsTxtResponse(host);
+  }
+
+  if (isAnonymousPublicPageRenderCandidate(request, host, pathname)) {
+    return coalescedAnonymousPublicPageRender(request);
   }
 
   if (isTerminalRoute(pathname)) {

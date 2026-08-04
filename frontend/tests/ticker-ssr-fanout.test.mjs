@@ -97,3 +97,25 @@ test("middleware bypasses inactive anonymous terminal SSR before app render", ()
   assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : bot \? "bot" : "inactive"\)/);
   assert.match(middleware, /!hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
 });
+
+test("middleware coalesces only anonymous complete public page renders without completed HTML caching", () => {
+  const middleware = read("middleware.ts");
+  const coalesceBlock = middleware.slice(
+    middleware.indexOf("function responseFromMaterializedPage"),
+    middleware.indexOf("function safeRefererPath"),
+  );
+
+  assert.match(middleware, /const publicPageRenderInflight = new Map<string, Promise<MaterializedPageResponse>>\(\)/);
+  assert.match(middleware, /function isAnonymousPublicPageRenderCandidate\(request: NextRequest, host: string, pathname: string\): boolean/);
+  assert.match(middleware, /if \(hasWalnutAuthCookie\(request\)\) return false/);
+  assert.match(middleware, /request\.headers\.get\("authorization"\)/);
+  assert.match(middleware, /request\.headers\.get\("x-ct-entitlement-tier"\)/);
+  assert.match(middleware, /const isTickerPage = \/\^\\\/ticker\\\/\[\^\/]\+\\\/\?\$\/\.test\(normalized\)/);
+  assert.match(middleware, /const isScreenerPage = normalized === "\/screener"/);
+  assert.match(middleware, /headers\.delete\("cookie"\)/);
+  assert.match(middleware, /headers\.set\(publicPageRenderCoalesceHeaderName, "fill"\)/);
+  assert.match(middleware, /headers\.set\("cache-control", "private, no-store"\)/);
+  assert.match(middleware, /headers\.set\("x-walnut-public-page-render-coalesce", state\)/);
+  assert.match(middleware, /publicPageRenderInflight\.delete\(key\)/);
+  assert.doesNotMatch(coalesceBlock, /s-maxage|max-age|stale-while-revalidate/);
+});
