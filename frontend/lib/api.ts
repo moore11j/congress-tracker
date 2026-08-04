@@ -506,9 +506,11 @@ const eventsPromises = new Map<string, Promise<EventsResponse>>();
 const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
 const tickerDataPromises = new Map<string, Promise<unknown>>();
 const serverPublicJsonCache = new Map<string, { value: unknown; expiresAt: number }>();
+const serverInflightJsonRequests = new Map<string, Promise<unknown>>();
 const SERVER_PUBLIC_CACHE_TTL_MS = 30_000;
 const SERVER_PLAN_CONFIG_CACHE_TTL_MS = 60_000;
 const SERVER_PUBLIC_CACHE_MAX_ENTRIES = 512;
+const SERVER_INFLIGHT_MAX_ENTRIES = 512;
 
 function resetClientApiCaches() {
   if (typeof window === "undefined") return;
@@ -589,6 +591,29 @@ async function serverCachedJson<T>(
   }
   serverPublicJsonCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
   return response;
+}
+
+async function serverInflightJson<T>(
+  key: string,
+  request: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (typeof window !== "undefined") return request();
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  const existing = serverInflightJsonRequests.get(key) as Promise<T> | undefined;
+  if (existing) return raceWithAbort(existing, signal);
+
+  while (serverInflightJsonRequests.size >= SERVER_INFLIGHT_MAX_ENTRIES) {
+    const oldestKey = serverInflightJsonRequests.keys().next().value;
+    if (!oldestKey) break;
+    serverInflightJsonRequests.delete(oldestKey);
+  }
+
+  const next = request().finally(() => {
+    serverInflightJsonRequests.delete(key);
+  });
+  serverInflightJsonRequests.set(key, next);
+  return raceWithAbort(next, signal);
 }
 
 async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
@@ -5157,10 +5182,11 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   // The interactive feed must see newly ingested disclosures immediately; keep only short in-memory dedupe.
   const bypassPublicFetchCache = !authToken && routeFamily === "feed" && (requestSource === "ssr" || requestSource === "client");
   const canShortCache = !authToken && requestSource !== "ssr" && nextParams.debug === undefined && !requestSignal?.aborted;
-  if (canShortCache) {
+  const canShareServerInflight = typeof window === "undefined" && !authToken && requestSource === "ssr" && nextParams.debug === undefined;
+  if (canShortCache || canShareServerInflight) {
     const now = Date.now();
     const cached = eventsCache.get(cacheKey);
-    if (cached && cached.expiresAt > now) return cached.value;
+    if (canShortCache && cached && cached.expiresAt > now) return cached.value;
     const pending = eventsPromises.get(cacheKey);
     if (pending) return raceWithAbort(pending, requestSignal);
   }
@@ -5169,7 +5195,7 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
     headers: authHeaders(authToken),
     cache: authToken || bypassPublicFetchCache ? "no-store" : "force-cache",
     next: authToken || bypassPublicFetchCache ? { revalidate: 0 } : { revalidate: 30 },
-    signal: canShortCache ? undefined : requestSignal,
+    signal: canShortCache || canShareServerInflight ? undefined : requestSignal,
     requestSource,
     routeFamily,
     source,
@@ -5187,10 +5213,10 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
     }
     return normalized;
   }).finally(() => {
-    if (canShortCache) eventsPromises.delete(cacheKey);
+    if (canShortCache || canShareServerInflight) eventsPromises.delete(cacheKey);
   });
 
-  if (canShortCache) eventsPromises.set(cacheKey, request);
+  if (canShortCache || canShareServerInflight) eventsPromises.set(cacheKey, request);
   return raceWithAbort(request, requestSignal);
 }
 
@@ -5948,21 +5974,23 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
 }
 
 export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; activeUser?: boolean; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
-  return fetchJson<TickerGovernmentContractsResponse>(
-    buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/government-contracts`, {
-      lookback_days: params?.lookback_days,
-      min_amount: params?.min_amount,
-      limit: params?.limit,
-      page: params?.page,
-    }),
-    {
-      headers: params?.activeUser ? { "X-Walnut-Active-User": "browser" } : undefined,
-      cache: "no-store",
-      next: { revalidate: 0 },
-      signal: params?.signal,
-      source: params?.source ?? "TickerGovernmentContracts",
-    },
-  );
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/government-contracts`, {
+    lookback_days: params?.lookback_days,
+    min_amount: params?.min_amount,
+    limit: params?.limit,
+    page: params?.page,
+  });
+  const request = () => fetchJson<TickerGovernmentContractsResponse>(url, {
+    headers: params?.activeUser ? { "X-Walnut-Active-User": "browser" } : undefined,
+    cache: "no-store",
+    next: { revalidate: 0 },
+    signal: params?.signal,
+    source: params?.source ?? "TickerGovernmentContracts",
+  });
+  const canShareServerRequest = typeof window === "undefined" && !params?.activeUser && !params?.signal;
+  return canShareServerRequest
+    ? serverInflightJson(`ticker-government-contracts:${url}`, request, params?.signal)
+    : request();
 }
 
 export type AdminResearchBriefConfig = {

@@ -11,8 +11,11 @@ function read(path) {
 
 test("anonymous ticker SSR keeps public context bundle complete and defers detail fanout", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
+  const publicPage = read("app/walnut-public/ticker/[symbol]/page.tsx");
 
   assert.match(page, /import \{ headers \} from "next\/headers"/);
+  assert.match(page, /export async function TickerPageRenderer/);
+  assert.match(page, /requestHeaders: HeaderReader/);
   assert.doesNotMatch(page, /TickerPublicMetadata/);
   assert.match(page, /getTickerContextBundle\(normalizedSymbol/);
   assert.match(page, /source: "TickerContextBundle"/);
@@ -30,6 +33,8 @@ test("anonymous ticker SSR keeps public context bundle complete and defers detai
   assert.match(page, /if \(authToken \|\| hasAuthHint \|\| activityDetailsRequested\) return false/);
   assert.match(page, /const deferTickerActivityDetails = useAnonymousTickerSsrShell \|\| shouldDeferAnonymousTickerActivityDetails/);
   assert.match(page, /activeUser: activeTickerSsrRequest/);
+  assert.match(publicPage, /TickerPageRenderer/);
+  assert.match(publicPage, /anonymousPublicRequestHeaders\(\)/);
 
   const bundleBlock = page.slice(page.indexOf("const contextBundleResult ="), page.indexOf("const profile = contextBundleResult.profile"));
   const shellIndex = bundleBlock.indexOf("useAnonymousTickerSsrShell");
@@ -98,24 +103,27 @@ test("middleware bypasses inactive anonymous terminal SSR before app render", ()
   assert.match(middleware, /!hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
 });
 
-test("middleware coalesces only anonymous complete public page renders without completed HTML caching", () => {
+test("middleware rewrites only anonymous complete public page renders without self-fetch caching", () => {
   const middleware = read("middleware.ts");
-  const coalesceBlock = middleware.slice(
-    middleware.indexOf("function responseFromMaterializedPage"),
-    middleware.indexOf("function safeRefererPath"),
-  );
+  const helper = read("lib/anonymousPublicRender.ts");
+  const publicTicker = read("app/walnut-public/ticker/[symbol]/page.tsx");
+  const publicScreener = read("app/walnut-public/screener/page.tsx");
 
-  assert.match(middleware, /const publicPageRenderInflight = new Map<string, Promise<MaterializedPageResponse>>\(\)/);
   assert.match(middleware, /function isAnonymousPublicPageRenderCandidate\(request: NextRequest, host: string, pathname: string\): boolean/);
   assert.match(middleware, /if \(hasWalnutAuthCookie\(request\)\) return false/);
   assert.match(middleware, /request\.headers\.get\("authorization"\)/);
   assert.match(middleware, /request\.headers\.get\("x-ct-entitlement-tier"\)/);
   assert.match(middleware, /const isTickerPage = \/\^\\\/ticker\\\/\[\^\/]\+\\\/\?\$\/\.test\(normalized\)/);
   assert.match(middleware, /const isScreenerPage = normalized === "\/screener"/);
-  assert.match(middleware, /headers\.delete\("cookie"\)/);
-  assert.match(middleware, /headers\.set\(publicPageRenderCoalesceHeaderName, "fill"\)/);
-  assert.match(middleware, /headers\.set\("cache-control", "private, no-store"\)/);
-  assert.match(middleware, /headers\.set\("x-walnut-public-page-render-coalesce", state\)/);
-  assert.match(middleware, /publicPageRenderInflight\.delete\(key\)/);
-  assert.doesNotMatch(coalesceBlock, /s-maxage|max-age|stale-while-revalidate/);
+  assert.match(middleware, /function rewriteAnonymousPublicRender\(request: NextRequest, pathname: string\): NextResponse/);
+  assert.match(middleware, /return `\/walnut-public\/ticker\/\$\{tickerMatch\[1\]\}`/);
+  assert.match(middleware, /if \(normalized === "\/screener"\) return "\/walnut-public\/screener"/);
+  assert.match(middleware, /requestHeaders\.delete\("cookie"\)/);
+  assert.match(middleware, /requestHeaders\.set\(anonymousPublicRenderHeaderName, "1"\)/);
+  assert.match(middleware, /NextResponse\.rewrite\(rewriteUrl/);
+  assert.match(middleware, /response\.headers\.set\("cache-control", "private, no-store"\)/);
+  assert.doesNotMatch(middleware, /fetchMaterializedPublicPage|publicPageRenderInflight|x-walnut-public-page-render-coalesce/);
+  assert.match(helper, /x-walnut-anonymous-public-render/);
+  assert.match(publicTicker, /TickerPageRenderer/);
+  assert.match(publicScreener, /ScreenerPageRenderer/);
 });

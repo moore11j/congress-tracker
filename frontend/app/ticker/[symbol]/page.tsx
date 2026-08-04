@@ -58,6 +58,9 @@ type Props = {
   params: Promise<{ symbol: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+type TickerPageRenderProps = Props & {
+  requestHeaders: HeaderReader;
+};
 
 type Lookback = "1" | "5" | "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "institutional" | "government_contract";
@@ -3864,10 +3867,9 @@ async function DeferredTickerContent({
   );
 }
 
-export default async function TickerPage({ params, searchParams }: Props) {
+export async function TickerPageRenderer({ params, searchParams, requestHeaders }: TickerPageRenderProps) {
   const { symbol } = await params;
   const sp = (await searchParams) ?? {};
-  const requestHeaders = await headers();
   const lookback = clampLookback(one(sp, "lookback"));
   const source = clampSource(one(sp, "source"));
   const side = clampSide(one(sp, "side"));
@@ -4198,5 +4200,12 @@ export default async function TickerPage({ params, searchParams }: Props) {
       </Suspense>
     </div>
   );
+}
+
+export default async function TickerPage(props: Props) {
+  return TickerPageRenderer({
+    ...props,
+    requestHeaders: await headers(),
+  });
 }
 

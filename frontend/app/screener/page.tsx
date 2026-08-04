@@ -41,6 +41,13 @@ import { tickerHref } from "@/lib/ticker";
 export const dynamic = "force-dynamic";
 
 type SearchParams = Record<string, string | string[] | undefined>;
+type HeaderReader = Pick<Headers, "get">;
+type ScreenerPageProps = {
+  searchParams?: Promise<SearchParams>;
+};
+type ScreenerPageRenderProps = ScreenerPageProps & {
+  requestHeaders: HeaderReader;
+};
 
 type ScreenerRow = {
   symbol: string;
@@ -830,14 +837,9 @@ function PairedNumberInputs({
   );
 }
 
-export default async function ScreenerPage({
-  searchParams,
-}: {
-  searchParams?: Promise<SearchParams>;
-}) {
+export async function ScreenerPageRenderer({ searchParams, requestHeaders }: ScreenerPageRenderProps) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/screener", sp);
-  const requestHeaders = await headers();
   const authState = requestMayHavePageAuthState(requestHeaders)
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
@@ -1216,6 +1218,13 @@ export default async function ScreenerPage({
   ) : (
     content
   );
+}
+
+export default async function ScreenerPage(props: ScreenerPageProps) {
+  return ScreenerPageRenderer({
+    ...props,
+    requestHeaders: await headers(),
+  });
 }
 
 function TechnicalFiltersContent({ params, locked = false }: { params: Record<string, string | number>; locked?: boolean }) {

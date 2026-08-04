@@ -36,11 +36,15 @@ test("events and auth helpers coalesce identical short-lived requests", () => {
   assert.match(api, /if \(mePromise\) return mePromise/);
   assert.match(api, /const eventsCache = new Map/);
   assert.match(api, /const eventsPromises = new Map/);
+  assert.match(api, /const serverInflightJsonRequests = new Map/);
+  assert.match(api, /function serverInflightJson/);
   assert.match(api, /const EVENTS_CACHE_TTL_MS = 5_000/);
   assert.match(api, /const cacheKey = `events:\$\{url\}`/);
+  assert.match(api, /const canShareServerInflight = typeof window === "undefined" && !authToken && requestSource === "ssr"/);
   assert.match(api, /if \(pending\) return raceWithAbort\(pending, requestSignal\)/);
   assert.match(api, /eventsCache\.set\(cacheKey, \{ value: normalized, expiresAt: Date\.now\(\) \+ EVENTS_CACHE_TTL_MS \}\)/);
   assert.match(api, /nextParams\.debug === undefined/);
+  assert.match(api, /serverInflightJson\(`ticker-government-contracts:\$\{url\}`/);
 });
 
 test("ticker reuses server signals summary for source cards and defers chart bundle pressure", () => {
