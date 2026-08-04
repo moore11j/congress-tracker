@@ -22,6 +22,7 @@ test("insights market snapshot renders all canonical dashboard categories", () =
   assert.match(activeSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
   assert.match(marketSnapshot, /const usIndexes = indexesToInstruments\(snapshot\.indexes, FALLBACK_US_INDEXES\)/);
   assert.match(marketSnapshot, /2xl:grid-cols-8/);
+  assert.match(marketSnapshot, /text-emerald-300">INSIGHTS<\/p>[\s\S]*Market Snapshot/);
   assert.match(withoutHiddenComments(insightsClient), /getInsightsOverview/);
   assert.match(withoutHiddenComments(insightsClient), /applyInsightsOverview/);
   assert.match(withoutHiddenComments(categoryClient), /getInsightsOverview/);

@@ -215,6 +215,13 @@ test("fallback plan config starts with current public prices", () => {
   assert.doesNotMatch(defaultPlanConfig, /amount_cents: 1995|amount_cents: 19995|amount_cents: 4995|amount_cents: 49995/);
 });
 
+test("fallback plan descriptions match current public pricing copy", () => {
+  assert.match(defaultPlanConfig, /description: "For casual research and a focused starter watchlist\."/);
+  assert.match(defaultPlanConfig, /description: "For daily monitoring, premium research signals, alerts, and deeper market-political intelligence\."/);
+  assert.match(defaultPlanConfig, /description: "For serious investors and operators who need higher limits, Pro-only data sets, and workflow automation readiness\."/);
+  assert.doesNotMatch(defaultPlanConfig, /Best for checking a few tickers|Best for daily research|Best for deeper research/);
+});
+
 test("fallback plan config starts with current public headline limits", () => {
   assert.match(defaultPlanConfig, /free:\s*\{[\s\S]*?screener_saved_screens:\s*1,[\s\S]*?screener_results:\s*5,[\s\S]*?watchlists:\s*1,[\s\S]*?watchlist_tickers:\s*5,[\s\S]*?watchlist_people_departments:\s*0,[\s\S]*?watchlist_institutions:\s*0,[\s\S]*?saved_views:\s*1,[\s\S]*?monitoring_sources:\s*3,/);
   assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?screener_saved_screens:\s*5,[\s\S]*?screener_results:\s*25,[\s\S]*?watchlists:\s*5,[\s\S]*?watchlist_tickers:\s*25,[\s\S]*?watchlist_people_departments:\s*10,[\s\S]*?watchlist_institutions:\s*0,[\s\S]*?saved_views:\s*10,[\s\S]*?monitoring_sources:\s*10,/);

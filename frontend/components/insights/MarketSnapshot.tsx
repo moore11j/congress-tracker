@@ -469,7 +469,8 @@ export function MarketSnapshot({ snapshot }: Props) {
 
   return (
     <section className="rounded-lg border border-white/10 bg-slate-950/45 p-4 shadow-[0_18px_60px_-42px_rgba(16,185,129,0.55)]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Market Snapshot</h2>
           {snapshot.status === "ok" || snapshot.status === "partial" ? (

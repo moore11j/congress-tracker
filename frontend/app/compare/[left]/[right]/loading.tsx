@@ -16,7 +16,7 @@ export default function PeerCompareLoading() {
     <main className="min-h-screen bg-[#06111f] py-6 text-slate-100">
       <div className="mx-auto w-full max-w-none space-y-5">
         <section className="space-y-3" aria-busy="true">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Loading</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Peer Compare</p>
           <div className="flex max-w-lg items-center gap-3">
             <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-emerald-300/20 bg-slate-950/80 p-1 shadow-inner shadow-black/30">
               <div className="terminal-loading-progress-fill h-3 rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-300 to-lime-100 shadow-[0_0_18px_rgba(52,211,153,0.5)]" />

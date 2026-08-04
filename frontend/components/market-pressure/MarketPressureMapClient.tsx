@@ -1076,6 +1076,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
     <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Maps</p>
           <h1 className="text-2xl font-medium tracking-normal text-white sm:text-3xl">Market Pressure Map</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">See where price movement and Walnut&apos;s complete confirmation stack are aligning-or diverging-across the market.</p>
           <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-cyan-200/80">Most heatmaps show where the market has been. Walnut shows where pressure is building.</p>

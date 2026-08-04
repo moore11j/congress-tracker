@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const nav = read("components/AppTopNav.tsx");
 const page = read("app/market-pressure/page.tsx");
+const loading = read("app/market-pressure/loading.tsx");
 const client = read("components/market-pressure/MarketPressureMapClient.tsx");
 const contract = read("lib/marketPressure.ts");
 const api = read("lib/api.ts");
@@ -38,6 +39,8 @@ test("Market Pressure uses the responsive shared nav rather than a duplicate mob
 test("/market-pressure route renders a discoverable page with metadata", () => {
   assert.match(page, /export const dynamic = "force-dynamic"/);
   assert.match(page, /title: "Market Pressure Map \| Walnut Markets"/);
+  assert.match(client, /text-emerald-300">Maps<\/p>[\s\S]*Market Pressure Map/);
+  assert.match(loading, /text-emerald-300">Maps<\/p>[\s\S]*terminal-loading-progress-fill/);
   assert.match(page, /canonical: "\/market-pressure"/);
   assert.match(page, /optionalPageAuthState/);
   assert.doesNotMatch(page, /VerifiedSessionGuard/);

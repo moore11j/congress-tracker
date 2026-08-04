@@ -40,6 +40,7 @@ test("peer compare uses the full app width and shared loading treatment", () => 
   assert.doesNotMatch(compareLoading, /px-4 py-6 text-slate-100 sm:px-6 lg:px-8/);
   assert.match(comparePage, /mx-auto w-full max-w-none space-y-5/);
   assert.match(compareLoading, /mx-auto w-full max-w-none space-y-5/);
+  assert.match(compareLoading, /text-emerald-300">Peer Compare<\/p>[\s\S]*terminal-loading-progress-fill/);
   assert.match(compareLoading, /terminal-loading-progress-fill/);
   assert.match(compareLoading, /from-emerald-500 via-emerald-300 to-lime-100/);
   assert.match(compareLoading, /terminal-loading-progress-percent/);

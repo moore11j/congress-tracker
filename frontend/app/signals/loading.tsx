@@ -2,7 +2,7 @@ import { LoadingPageShell, SkeletonBlock, SkeletonCard, SkeletonTable } from "@/
 
 export default function SignalsLoading() {
   return (
-    <LoadingPageShell eyebrow="Unusual signals">
+    <LoadingPageShell eyebrow="Signals">
       <SkeletonCard>
         <div className="space-y-4">
           <SkeletonBlock className="h-4 w-40" />

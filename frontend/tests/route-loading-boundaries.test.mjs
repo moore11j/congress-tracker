@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const routeLoadings = [
   ["app/insights/loading.tsx", /eyebrow="Insights"/],
+  ["app/signals/loading.tsx", /eyebrow="Signals"/],
   ["app/pricing/loading.tsx", /eyebrow="Pricing"/],
   ["app/market-pressure/loading.tsx", /Auditing index names[\s\S]*terminal-loading-progress-percent/],
   ["app/monitoring/loading.tsx", /eyebrow="Monitoring"/],
