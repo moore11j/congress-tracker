@@ -522,7 +522,7 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
             latest_snapshot_dates.c.latest_snapshot_date.asc(),
             TickerMeta.symbol.asc(),
         )
-        .limit(limit or 5000)
+        .limit(5000)
     ).scalars().all()
     if not rows:
         rows = db.execute(
@@ -534,7 +534,7 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
                 latest_snapshot_dates.c.latest_snapshot_date.asc(),
                 Security.symbol.asc(),
             )
-            .limit(limit or 5000)
+            .limit(5000)
         ).scalars().all()
     result: list[str] = []
     seen: set[str] = set()
