@@ -338,6 +338,32 @@ def build_snapshot_payload(
 def upsert_consensus_snapshot(db: Session, values: dict[str, Any]) -> tuple[AnalystConsensusSnapshot, bool]:
     symbol = values["symbol"]
     snapshot_date = values["snapshot_date"]
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        existing_id = db.execute(
+            select(AnalystConsensusSnapshot.id)
+            .where(AnalystConsensusSnapshot.symbol == symbol)
+            .where(AnalystConsensusSnapshot.snapshot_date == snapshot_date)
+        ).scalar_one_or_none()
+        write_values = {**values, "updated_at": values.get("ingested_at") or utc_now()}
+        stmt = pg_insert(AnalystConsensusSnapshot).values(**write_values)
+        update_values = {
+            key: getattr(stmt.excluded, key)
+            for key in write_values
+            if key not in {"symbol", "snapshot_date"}
+        }
+        row_id = db.execute(
+            stmt.on_conflict_do_update(
+                index_elements=["symbol", "snapshot_date"],
+                set_=update_values,
+            ).returning(AnalystConsensusSnapshot.id)
+        ).scalar_one()
+        row = db.get(AnalystConsensusSnapshot, row_id)
+        if row is None:
+            raise RuntimeError("Analyst consensus upsert did not return a snapshot row")
+        return row, existing_id is None
+
     row = db.execute(
         select(AnalystConsensusSnapshot)
         .where(AnalystConsensusSnapshot.symbol == symbol)
