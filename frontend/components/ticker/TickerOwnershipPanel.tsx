@@ -41,6 +41,12 @@ function formatNumber(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+function displayHolderName(holder: TickerOwnershipHolder): string {
+  const name = holder.holder_name?.trim();
+  if (name && name.toLowerCase() !== "institution") return name;
+  return holder.cik ? `CIK ${holder.cik}` : "Unknown holder";
+}
+
 function hasOwnershipPct(data: TickerOwnershipResponse | null | undefined): boolean {
   return isFiniteNumber(data?.latest?.institutional_ownership_pct);
 }
@@ -83,7 +89,7 @@ function normalizedHistory(history: TickerOwnershipPoint[]): ChartPoint[] {
 }
 
 function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [activeHover, setActiveHover] = useState<{ index: number; y: number } | null>(null);
   const points = normalizedHistory(history);
   const trend = trendFor(points);
   const width = 680;
@@ -99,9 +105,11 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
   const yFor = (value: number) => top + ((100 - value) / 100) * chartHeight;
   const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(index)} ${yFor(point.value)}`).join(" ");
   const retailPath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(index)} ${yFor(point.retail)}`).join(" ");
-  const activePoint = activeIndex === null ? null : points[activeIndex] ?? null;
-  const activeX = activeIndex === null ? 0 : xFor(activeIndex);
-  const activeY = activePoint ? Math.min(yFor(activePoint.value), yFor(activePoint.retail)) : 0;
+  const activePoint = activeHover ? points[activeHover.index] ?? null : null;
+  const activeX = activeHover ? xFor(activeHover.index) : 0;
+  const activeY = activeHover ? activeHover.y : 0;
+  const tooltipSide = activeX > width * 0.78 ? "left" : activeX < width * 0.28 ? "right" : activeX >= width * 0.5 ? "right" : "left";
+  const tooltipTransform = tooltipSide === "left" ? "translate(calc(-100% - 22px), -50%)" : "translate(22px, -50%)";
 
   if (points.length === 0) {
     return <EmptyState message="Ownership history is not available for this ticker yet." />;
@@ -117,14 +125,14 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
           <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 border-t border-dashed border-emerald-300" />Trend</span>
         </div>
       </div>
-      <div className="relative h-[240px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]" onMouseLeave={() => setActiveIndex(null)}>
+      <div className="relative h-[240px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]" onMouseLeave={() => setActiveHover(null)}>
         {activePoint ? (
           <div
             className="pointer-events-none absolute z-10 w-48 rounded-lg border border-white/15 bg-slate-950/95 p-3 text-xs shadow-[0_18px_45px_rgba(0,0,0,0.45)]"
             style={{
               left: `${(activeX / width) * 100}%`,
               top: `${(activeY / height) * 100}%`,
-              transform: activeX > width * 0.72 ? "translate(-104%, -18%)" : "translate(12px, -18%)",
+              transform: tooltipTransform,
             }}
           >
             <p className="font-semibold text-white">{activePoint.period}</p>
@@ -177,9 +185,9 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
                   r="13"
                   fill="transparent"
                   className="cursor-crosshair"
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onFocus={() => setActiveIndex(index)}
-                  onBlur={() => setActiveIndex(null)}
+                  onMouseEnter={() => setActiveHover({ index, y })}
+                  onFocus={() => setActiveHover({ index, y })}
+                  onBlur={() => setActiveHover(null)}
                   tabIndex={0}
                   aria-label={`${point.period}: institutional ${formatPct(point.value)}, retail ${formatPct(point.retail)}`}
                 />
@@ -189,12 +197,11 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
                   r="13"
                   fill="transparent"
                   className="cursor-crosshair"
-                  onMouseEnter={() => setActiveIndex(index)}
+                  onMouseEnter={() => setActiveHover({ index, y: retailY })}
                 />
                 <text x={x} y={height - 15} textAnchor="middle" className="fill-slate-500 text-[10px]">
                   {point.period.replace(" 20", " '")}
                 </text>
-                <title>{`${point.period}: institutional ${formatPct(point.value)}, retail ${formatPct(point.retail)}`}</title>
               </g>
             );
           })}
@@ -225,9 +232,10 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
         <tbody className="divide-y divide-white/10">
           {visible.map((holder) => {
             const pct = clampPct(holder.ownership_pct) ?? 0;
+            const holderName = displayHolderName(holder);
             return (
               <tr key={`${holder.cik}-${holder.holder_name}`} className="hover:bg-white/[0.035]">
-                <td className="truncate px-3 py-2 font-semibold text-slate-100">{holder.holder_name || "Institution"}</td>
+                <td className="truncate px-3 py-2 font-semibold text-slate-100" title={holderName}>{holderName}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-300">{formatCompactCurrency(holder.value_usd)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-300">{formatNumber(holder.shares)}</td>
                 <td className="px-3 py-2 text-right font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : "-"}</td>

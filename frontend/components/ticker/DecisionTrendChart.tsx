@@ -114,7 +114,7 @@ export function DecisionTrendChart({
   const stroke = chartStroke(direction);
 
   return (
-    <div className="relative h-24 w-full">
+    <div className="relative z-20 h-24 w-full overflow-visible">
       <svg
         className="h-full w-full overflow-visible"
         viewBox={`0 0 ${width} ${height}`}
@@ -169,11 +169,11 @@ export function DecisionTrendChart({
 
       {hovered ? (
         <div
-          className="pointer-events-none absolute z-10 min-w-36 rounded-md border border-white/10 bg-slate-950/95 px-3 py-2 text-xs shadow-xl shadow-black/40 ring-1 ring-white/5"
+          className="pointer-events-none absolute z-50 min-w-36 rounded-md border border-white/15 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10"
           style={{
             left: `${clamp((hovered.x / width) * 100, 18, 82)}%`,
-            top: `${clamp((hovered.y / height) * 100, 16, 58)}%`,
-            transform: "translate(-50%, -115%)",
+            top: "-0.4rem",
+            transform: "translate(-50%, -100%)",
           }}
         >
           <p className="font-semibold text-slate-100">{formatDateShort(hovered.date) ?? hovered.date}</p>
