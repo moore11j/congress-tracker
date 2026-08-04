@@ -31,8 +31,8 @@ export function ensureGoogleAnalytics(options: GoogleAnalyticsOptions = {}): boo
   const win = window as WindowWithGoogleAnalytics;
   if (!win.gtag) {
     win.dataLayer = win.dataLayer || [];
-    win.gtag = (...args: unknown[]) => {
-      win.dataLayer?.push(args);
+    win.gtag = function gtag() {
+      win.dataLayer?.push(arguments);
     };
   }
   if (win.__walnutGoogleAnalyticsLoaded) return true;

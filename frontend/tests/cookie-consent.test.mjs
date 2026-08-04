@@ -43,6 +43,7 @@ test("cookie consent manager offers bottom-bar choices and gates optional script
 test("google analytics defaults analytics on while keeping marketing storage denied", () => {
   assert.match(googleAnalytics, /GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH"/);
   assert.match(googleAnalytics, /type GoogleAnalyticsOptions/);
+  assert.match(googleAnalytics, /function gtag\(\)[\s\S]*dataLayer\?\.push\(arguments\)/);
   assert.match(googleAnalytics, /gtag\("consent", "default"/);
   assert.match(googleAnalytics, /analytics_storage: analyticsGranted \? "granted" : "denied"/);
   assert.match(googleAnalytics, /ad_storage: marketingGranted \? "granted" : "denied"/);
