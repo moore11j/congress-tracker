@@ -12,6 +12,7 @@ const settingsButton = read("components/CookieSettingsButton.tsx");
 const consent = read("lib/privacyConsent.ts");
 const api = read("lib/api.ts");
 const tracker = read("components/PageAnalyticsTracker.tsx");
+const googleAnalytics = read("lib/googleAnalytics.ts");
 const privacy = read("app/privacy/page.tsx");
 
 test("layout renders consent manager instead of eager tracking scripts", () => {
@@ -32,11 +33,23 @@ test("cookie consent manager offers bottom-bar choices and gates optional script
   assert.match(manager, /Accept optional/);
   assert.match(manager, /Analytics/);
   assert.match(manager, /Marketing/);
-  assert.match(manager, /loadGoogleAnalytics/);
-  assert.match(manager, /send_page_view: false/);
+  assert.match(manager, /ensureGoogleAnalytics/);
+  assert.match(manager, /updateGoogleAnalyticsConsent/);
   assert.match(manager, /loadRedditPixel/);
   assert.match(manager, /consent\?\.analytics \? <SpeedInsights \/> : null/);
   assert.match(manager, /hasGlobalPrivacyControl/);
+});
+
+test("google analytics uses consent mode before sending page views", () => {
+  assert.match(googleAnalytics, /GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH"/);
+  assert.match(googleAnalytics, /gtag\("consent", "default"/);
+  assert.match(googleAnalytics, /analytics_storage: "denied"/);
+  assert.match(googleAnalytics, /ad_storage: "denied"/);
+  assert.match(googleAnalytics, /ad_user_data: "denied"/);
+  assert.match(googleAnalytics, /ad_personalization: "denied"/);
+  assert.match(googleAnalytics, /send_page_view: false/);
+  assert.match(googleAnalytics, /analytics_storage: analyticsGranted \? "granted" : "denied"/);
+  assert.match(googleAnalytics, /gtag\("event", "page_view"/);
 });
 
 test("first-party analytics does not write session storage before analytics consent", () => {
@@ -45,8 +58,7 @@ test("first-party analytics does not write session storage before analytics cons
   assert.match(api, /export function recordProductEvent[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*const eventName = payload\.event_name\.trim\(\)/);
   assert.match(tracker, /privacyConsentChangedEvent/);
   assert.match(tracker, /recordGoogleAnalyticsPageView/);
-  assert.match(tracker, /gtag\("event", "page_view"/);
-  assert.match(tracker, /page_location/);
+  assert.match(tracker, /hasPrivacyConsent\("analytics"\) && !recordGoogleAnalyticsPageView/);
   assert.match(tracker, /setConsentRefresh\(\(current\) => current \+ 1\)/);
 });
 

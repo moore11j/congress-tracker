@@ -9,15 +9,12 @@ import {
   writePrivacyConsent,
   type PrivacyConsent,
 } from "@/lib/privacyConsent";
+import { ensureGoogleAnalytics, updateGoogleAnalyticsConsent } from "@/lib/googleAnalytics";
 
-const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
 const REDDIT_PIXEL_ID = process.env.NEXT_PUBLIC_REDDIT_PIXEL_ID ?? "a2_jdfg5l7gwuw1";
 
 type WindowWithPixels = Window & {
-  dataLayer?: unknown[];
-  gtag?: (...args: unknown[]) => void;
   rdt?: ((...args: unknown[]) => void) & { callQueue?: unknown[]; sendEvent?: (...args: unknown[]) => void };
-  __walnutGoogleAnalyticsLoaded?: boolean;
   __walnutRedditPixelLoaded?: boolean;
 };
 
@@ -28,19 +25,6 @@ function loadScript(id: string, src: string): void {
   script.async = true;
   script.src = src;
   document.head.appendChild(script);
-}
-
-function loadGoogleAnalytics(): void {
-  const win = window as WindowWithPixels;
-  if (win.__walnutGoogleAnalyticsLoaded) return;
-  win.__walnutGoogleAnalyticsLoaded = true;
-  win.dataLayer = win.dataLayer || [];
-  win.gtag = (...args: unknown[]) => {
-    win.dataLayer?.push(args);
-  };
-  loadScript("walnut-google-analytics", `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ANALYTICS_ID}`);
-  win.gtag("js", new Date());
-  win.gtag("config", GOOGLE_ANALYTICS_ID, { send_page_view: false });
 }
 
 function loadRedditPixel(): void {
@@ -65,9 +49,9 @@ function loadRedditPixel(): void {
 }
 
 function applyConsent(consent: PrivacyConsent | null): void {
-  if (!consent) return;
-  if (consent.analytics) loadGoogleAnalytics();
-  if (consent.marketing) loadRedditPixel();
+  ensureGoogleAnalytics();
+  updateGoogleAnalyticsConsent(Boolean(consent?.analytics), Boolean(consent?.marketing));
+  if (consent?.marketing) loadRedditPixel();
 }
 
 export function CookieConsentManager() {
