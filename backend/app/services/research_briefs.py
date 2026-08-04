@@ -280,11 +280,13 @@ def research_brief_model_labels(db: Session | None = None) -> dict[str, str]:
     return {model: RESEARCH_BRIEF_MODEL_LABELS.get(model) or model for model in research_brief_model_options(db)}
 
 
-def _selected_research_model(config: dict[str, Any], db: Session | None = None) -> str:
+def _selected_research_model(config: dict[str, Any], db: Session | None = None, *, strict: bool = True) -> str:
     options = research_brief_model_options(db)
     selected = str(config.get("selected_model") or "").strip()
     if selected:
         if selected not in options:
+            if not strict:
+                return ""
             raise HTTPException(status_code=422, detail="Selected research model is not configured for this environment.")
         return selected
     serious = (
@@ -2330,7 +2332,7 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
 
-def validate_config(config: dict[str, Any]) -> dict[str, Any]:
+def validate_config(config: dict[str, Any], *, strict_selected_model: bool = True) -> dict[str, Any]:
     ticker = config.get("ticker")
     prompt = str(config.get("research_question") or "").strip()
     if not ticker:
@@ -2366,7 +2368,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "hero_image": config.get("hero_image") or "",
         "manual_source_url": _normalize_manual_source_url(config.get("manual_source_url")),
     }
-    normalized["selected_model"] = _selected_research_model(normalized)
+    normalized["selected_model"] = _selected_research_model(normalized, strict=strict_selected_model)
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
         raise HTTPException(status_code=422, detail="Comparison tickers are required for peer comparison briefs.")
     return normalized
@@ -3857,9 +3859,9 @@ def _draft_with_comparison_tickers(draft: dict[str, Any]) -> dict[str, Any]:
 
 def _apply_draft_config_patch(draft: dict[str, Any], config_patch: dict[str, Any] | None) -> dict[str, Any]:
     if not config_patch:
-        return validate_config(draft.get("config") or {})
+        return validate_config(draft.get("config") or {}, strict_selected_model=False)
     merged_config = {**(draft.get("config") or {}), **config_patch}
-    config = validate_config(merged_config)
+    config = validate_config(merged_config, strict_selected_model=False)
     comparison_tickers = list(config.get("comparison_tickers") or [])
     draft["config"] = config
     draft["comparison_tickers"] = comparison_tickers

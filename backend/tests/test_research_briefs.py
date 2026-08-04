@@ -352,6 +352,23 @@ def test_model_selector_passes_selected_model_and_rejects_invalid(tmp_path, monk
     assert exc.value.status_code == 422
 
 
+def test_existing_draft_save_clears_unconfigured_selected_model(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.MOCK_ENV, "1")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = service.generate_research_brief(db, admin, _payload().model_dump())
+    article = deepcopy(draft["article"])
+    config_patch = {**draft["config"], "selected_model": "manual-researched-draft"}
+
+    saved = service.update_draft(admin, draft["id"], article, status="draft", db=db, config_patch=config_patch)
+
+    assert saved["status"] == "draft"
+    assert saved["config"]["selected_model"] == ""
+    assert saved["article"]["title"] == article["title"]
+
+
 def test_model_options_default_to_luna_terra_sol(monkeypatch):
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)
