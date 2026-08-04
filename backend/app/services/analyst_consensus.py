@@ -515,24 +515,24 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
         .subquery()
     )
     rows = db.execute(
-        select(TickerMeta.symbol)
-        .outerjoin(latest_snapshot_dates, TickerMeta.symbol == latest_snapshot_dates.c.symbol)
+        select(Security.symbol)
+        .outerjoin(latest_snapshot_dates, Security.symbol == latest_snapshot_dates.c.symbol)
+        .where(func.lower(Security.asset_class).in_(("stock", "equity")))
         .order_by(
             latest_snapshot_dates.c.latest_snapshot_date.is_(None).desc(),
             latest_snapshot_dates.c.latest_snapshot_date.asc(),
-            TickerMeta.symbol.asc(),
+            Security.symbol.asc(),
         )
         .limit(5000)
     ).scalars().all()
     if not rows:
         rows = db.execute(
-            select(Security.symbol)
-            .outerjoin(latest_snapshot_dates, Security.symbol == latest_snapshot_dates.c.symbol)
-            .where(Security.asset_class == "stock")
+            select(TickerMeta.symbol)
+            .outerjoin(latest_snapshot_dates, TickerMeta.symbol == latest_snapshot_dates.c.symbol)
             .order_by(
                 latest_snapshot_dates.c.latest_snapshot_date.is_(None).desc(),
                 latest_snapshot_dates.c.latest_snapshot_date.asc(),
-                Security.symbol.asc(),
+                TickerMeta.symbol.asc(),
             )
             .limit(5000)
         ).scalars().all()
