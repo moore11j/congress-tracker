@@ -11,6 +11,7 @@ from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, PriceCache
 from app.entitlements import ENTITLEMENTS, require_feature
 from app.services.analyst_consensus import (
     build_snapshot_payload,
+    compare_consensus_payload,
     consensus_changes,
     current_consensus_payload,
     event_values,
@@ -211,3 +212,83 @@ def test_history_feature_is_premium_gated_and_current_payload_is_free_readable()
         message="Analyst consensus history is included with Premium.",
     )
     db.close()
+
+
+def test_free_current_payload_redacts_consensus_details():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            AnalystConsensusSnapshot(
+                symbol="AAPL",
+                snapshot_date=date(2026, 8, 4),
+                strong_buy_count=2,
+                buy_count=4,
+                hold_count=3,
+                sell_count=1,
+                strong_sell_count=0,
+                total_rating_count=10,
+                weighted_rating_value=0.7,
+                recommendation_label="Bullish",
+                price_target_high=260,
+                price_target_low=180,
+                price_target_median=220,
+                price_target_consensus=225,
+                consensus_implied_upside_pct=12.5,
+                availability_status="available",
+                provider_status="available",
+                source="fmp",
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                raw_payload_json="{}",
+            )
+        )
+        db.commit()
+
+        free_payload = current_consensus_payload(db, "AAPL", include_details=False)
+        premium_payload = current_consensus_payload(db, "AAPL", include_details=True)
+
+        assert free_payload["access"]["detailLevel"] == "current_summary"
+        assert free_payload["access"]["detailsLocked"] is True
+        assert free_payload["currentSnapshot"]["recommendationLabel"] == "Bullish"
+        assert free_payload["currentSnapshot"]["consensusImpliedUpsidePct"] == 12.5
+        assert "recommendationDistribution" not in free_payload["currentSnapshot"]
+        assert "priceTargetRange" not in free_payload["currentSnapshot"]
+        assert "changes" not in free_payload
+        assert "gradeEventStats" not in free_payload
+        assert premium_payload["currentSnapshot"]["recommendationDistribution"]["total"] == 10
+        assert premium_payload["currentSnapshot"]["priceTargetRange"]["consensus"] == 225
+    finally:
+        db.close()
+
+
+def test_compare_consensus_redacts_details_for_free():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            AnalystConsensusSnapshot(
+                symbol="MSFT",
+                snapshot_date=date(2026, 8, 4),
+                total_rating_count=8,
+                weighted_rating_value=0.5,
+                recommendation_label="Bullish",
+                price_target_consensus=500,
+                consensus_implied_upside_pct=10,
+                availability_status="available",
+                provider_status="available",
+                source="fmp",
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                raw_payload_json="{}",
+            )
+        )
+        db.commit()
+
+        free_payload = compare_consensus_payload(db, ["MSFT"], include_details=False)
+        premium_payload = compare_consensus_payload(db, ["MSFT"], include_details=True)
+
+        assert free_payload["access"]["detailsLocked"] is True
+        assert free_payload["items"]["MSFT"]["summary"]["weightedRatingValue"] is None
+        assert "priceTargetRange" not in free_payload["items"]["MSFT"]["currentSnapshot"]
+        assert premium_payload["items"]["MSFT"]["summary"]["weightedRatingValue"] == 0.5
+    finally:
+        db.close()

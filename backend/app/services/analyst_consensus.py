@@ -802,11 +802,40 @@ def snapshot_payload(snapshot: AnalystConsensusSnapshot | None) -> dict[str, Any
     }
 
 
-def current_consensus_payload(db: Session, symbol: str) -> dict[str, Any]:
+def snapshot_summary_payload(snapshot: AnalystConsensusSnapshot | None) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    return {
+        "symbol": snapshot.symbol,
+        "snapshotDate": _iso_date(snapshot.snapshot_date),
+        "recommendationLabel": snapshot.recommendation_label,
+        "totalRatingCount": snapshot.total_rating_count,
+        "consensusImpliedUpsidePct": snapshot.consensus_implied_upside_pct,
+        "medianImpliedUpsidePct": snapshot.median_implied_upside_pct,
+        "availabilityStatus": _snapshot_availability(snapshot),
+        "providerStatus": snapshot.provider_status,
+        "ingestedAt": _iso_dt(snapshot.ingested_at),
+    }
+
+
+def _summary_interpretation(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "currentAnalystDirection": payload.get("currentAnalystDirection"),
+        "trendDirection": payload.get("trendDirection"),
+        "combinedLabel": payload.get("combinedLabel"),
+        "coverageLevel": payload.get("coverageLevel"),
+        "freshness": payload.get("freshness"),
+        "dataAvailability": payload.get("dataAvailability"),
+        "methodologyVersion": payload.get("methodologyVersion"),
+    }
+
+
+def current_consensus_payload(db: Session, symbol: str, *, include_details: bool = True) -> dict[str, Any]:
     normalized, rejection = analyst_symbol_rejection_reason(symbol)
     if rejection or not normalized:
         return {
             "symbol": normalized or symbol,
+            "access": {"detailLevel": "current_summary", "detailsLocked": not include_details, "requiredPlanForDetails": "premium"},
             "availability": {"status": "unsupported", "reason": rejection},
             "providerStatus": {"status": "unsupported"},
         }
@@ -816,8 +845,35 @@ def current_consensus_payload(db: Session, symbol: str) -> dict[str, Any]:
     interpretation = interpret_consensus(snapshot, changes, event_stats)
     confidence = coverage_confidence(snapshot, changes)
     availability = _snapshot_availability(snapshot) if snapshot else "unavailable"
+    access = {
+        "detailLevel": "full_detail" if include_details else "current_summary",
+        "detailsLocked": not include_details,
+        "requiredPlanForDetails": "premium",
+    }
+    if not include_details:
+        return {
+            "symbol": normalized,
+            "access": access,
+            "currentSnapshot": snapshot_summary_payload(snapshot),
+            "currentSummary": {
+                "recommendationLabel": snapshot.recommendation_label if snapshot else None,
+                "combinedLabel": interpretation.get("combinedLabel"),
+                "trendDirection": interpretation.get("trendDirection"),
+                "coverageLevel": confidence["level"],
+                "consensusImpliedUpsidePct": snapshot.consensus_implied_upside_pct if snapshot else None,
+                "medianImpliedUpsidePct": snapshot.median_implied_upside_pct if snapshot else None,
+            },
+            "interpretation": _summary_interpretation(interpretation),
+            "freshness": interpretation.get("freshness"),
+            "availability": {"status": availability},
+            "providerStatus": {
+                "status": snapshot.provider_status if snapshot else "unavailable",
+                "error": snapshot.provider_error if snapshot else None,
+            },
+        }
     return {
         "symbol": normalized,
+        "access": access,
         "currentSnapshot": snapshot_payload(snapshot),
         "changes": changes,
         "gradeEventStats": event_stats,
@@ -933,7 +989,13 @@ def events_payload(
     return {"symbol": normalized, "limit": bounded_limit, "items": [grade_event_payload(row) for row in rows]}
 
 
-def compare_consensus_payload(db: Session, symbols: Iterable[str], *, max_symbols: int = 8) -> dict[str, Any]:
+def compare_consensus_payload(
+    db: Session,
+    symbols: Iterable[str],
+    *,
+    max_symbols: int = 8,
+    include_details: bool = True,
+) -> dict[str, Any]:
     normalized_symbols = []
     for raw in symbols:
         normalized = normalize_symbol(raw)
@@ -962,10 +1024,10 @@ def compare_consensus_payload(db: Session, symbols: Iterable[str], *, max_symbol
     by_symbol = {
         row.symbol: {
             "symbol": row.symbol,
-            "currentSnapshot": snapshot_payload(row),
+            "currentSnapshot": snapshot_payload(row) if include_details else snapshot_summary_payload(row),
             "summary": {
                 "recommendationLabel": row.recommendation_label,
-                "weightedRatingValue": row.weighted_rating_value,
+                "weightedRatingValue": row.weighted_rating_value if include_details else None,
                 "consensusImpliedUpsidePct": row.consensus_implied_upside_pct,
                 "targetDispersionPct": row.target_dispersion_pct,
                 "availabilityStatus": _snapshot_availability(row),
@@ -977,6 +1039,11 @@ def compare_consensus_payload(db: Session, symbols: Iterable[str], *, max_symbol
     return {
         "symbols": normalized_symbols,
         "maxSymbols": max_symbols,
+        "access": {
+            "detailLevel": "full_detail" if include_details else "current_summary",
+            "detailsLocked": not include_details,
+            "requiredPlanForDetails": "premium",
+        },
         "items": {
             symbol: by_symbol.get(symbol)
             or {

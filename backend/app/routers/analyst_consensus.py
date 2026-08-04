@@ -23,9 +23,14 @@ def _cache_headers(response: Response, *, seconds: int = 300) -> None:
 
 
 @router.get("/tickers/{symbol}/consensus")
-def ticker_consensus(symbol: str, response: Response, db: Session = Depends(get_db)):
+def ticker_consensus(symbol: str, request: Request, response: Response, db: Session = Depends(get_db)):
+    entitlements = current_entitlements(request, db)
     _cache_headers(response)
-    return current_consensus_payload(db, symbol)
+    return current_consensus_payload(
+        db,
+        symbol,
+        include_details=entitlements.has_feature("analyst_consensus_history"),
+    )
 
 
 @router.get("/tickers/{symbol}/consensus/history")
@@ -72,10 +77,16 @@ def ticker_consensus_events(
 @router.get("/compare/consensus")
 def compare_consensus(
     response: Response,
+    request: Request,
     symbols: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
 ):
+    entitlements = current_entitlements(request, db)
     parsed = [normalize_symbol(part) for part in symbols.split(",")]
-    payload = compare_consensus_payload(db, [symbol for symbol in parsed if symbol])
+    payload = compare_consensus_payload(
+        db,
+        [symbol for symbol in parsed if symbol],
+        include_details=entitlements.has_feature("analyst_consensus_history"),
+    )
     _cache_headers(response)
     return payload
