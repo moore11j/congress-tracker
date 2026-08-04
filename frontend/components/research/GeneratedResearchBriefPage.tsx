@@ -115,10 +115,27 @@ function autoLinkUrls(text: string, keyPrefix: string): ReactNode[] {
 
 type MarkdownBlock =
   | { type: "paragraph"; key: string; text: string }
+  | { type: "ordered_list"; key: string; intro?: string; items: string[] }
   | { type: "table"; key: string; header: string[]; rows: string[][] };
 
 function markdownBlocks(markdown: string): MarkdownBlock[] {
-  return paragraphs(markdown).map((part, index) => parsePipeTable(part, index) ?? { type: "paragraph", key: `paragraph-${index}`, text: cleanInlineText(part) });
+  return paragraphs(markdown).map((part, index) => parsePipeTable(part, index) ?? parseOrderedList(part, index) ?? { type: "paragraph", key: `paragraph-${index}`, text: cleanInlineText(part) });
+}
+
+function parseOrderedList(part: string, index: number): MarkdownBlock | null {
+  const lines = part.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+  const firstItemIndex = lines.findIndex((line) => /^\d+\.\s+/.test(line));
+  if (firstItemIndex < 0) return null;
+  const introLines = lines.slice(0, firstItemIndex);
+  const itemLines = lines.slice(firstItemIndex);
+  if (!itemLines.length || itemLines.some((line) => !/^\d+\.\s+/.test(line))) return null;
+  return {
+    type: "ordered_list",
+    key: `ordered-list-${index}`,
+    intro: introLines.length ? cleanInlineText(introLines.join(" ")) : undefined,
+    items: itemLines.map((line) => cleanInlineText(line.replace(/^\d+\.\s+/, ""))),
+  };
 }
 
 function parsePipeTable(part: string, index: number): MarkdownBlock | null {
@@ -220,7 +237,20 @@ export function GeneratedResearchBriefPage({
               {chartByTicker.get(section.key) ? <PriceMoveChart chart={chartByTicker.get(section.key)!} /> : null}
               <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
                 {markdownBlocks(section.body_markdown).map((block) =>
-                  block.type === "table" ? <ResearchDataTable key={block.key} header={block.header} rows={block.rows} /> : <p key={block.key}>{inlineMarkdown(block.text)}</p>,
+                  block.type === "table" ? (
+                    <ResearchDataTable key={block.key} header={block.header} rows={block.rows} />
+                  ) : block.type === "ordered_list" ? (
+                    <div key={block.key} className="space-y-3">
+                      {block.intro ? <p>{inlineMarkdown(block.intro)}</p> : null}
+                      <ol className="list-decimal space-y-2 pl-5">
+                        {block.items.map((item, itemIndex) => (
+                          <li key={`${block.key}-${itemIndex}`}>{inlineMarkdown(item)}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : (
+                    <p key={block.key}>{inlineMarkdown(block.text)}</p>
+                  ),
                 )}
               </div>
             </section>

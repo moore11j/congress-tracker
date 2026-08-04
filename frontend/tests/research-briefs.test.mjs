@@ -155,6 +155,14 @@ test("generated research briefs render markdown links and bare urls as anchors",
   assert.match(generatedBriefPage, /\{inlineMarkdown\(row\[cellIndex\] \|\| ""\)\}/);
 });
 
+test("generated research briefs preserve numbered table-of-contents lines", () => {
+  assert.match(generatedBriefPage, /function parseOrderedList/);
+  assert.match(generatedBriefPage, /type: "ordered_list"/);
+  assert.match(generatedBriefPage, /block\.type === "ordered_list"/);
+  assert.match(generatedBriefPage, /<ol className="list-decimal space-y-2 pl-5">/);
+  assert.match(generatedBriefPage, /line\.replace\(\/\^\\d\+\\\.\\s\+\/, ""\)/);
+});
+
 test("generated research briefs expose stored-signal conversion and miss visuals", () => {
   assert.match(generatedBriefPage, /signal_results/);
   assert.match(generatedBriefPage, /price_move_charts/);
