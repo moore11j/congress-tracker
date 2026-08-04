@@ -505,6 +505,11 @@ const eventsCache = new Map<string, { value: EventsResponse; expiresAt: number }
 const eventsPromises = new Map<string, Promise<EventsResponse>>();
 const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
 const tickerDataPromises = new Map<string, Promise<unknown>>();
+const serverPublicJsonCache = new Map<string, { value: unknown; expiresAt: number }>();
+const serverPublicJsonPromises = new Map<string, Promise<unknown>>();
+const SERVER_PUBLIC_CACHE_TTL_MS = 30_000;
+const SERVER_PLAN_CONFIG_CACHE_TTL_MS = 60_000;
+const SERVER_PUBLIC_CACHE_MAX_ENTRIES = 512;
 
 function resetClientApiCaches() {
   if (typeof window === "undefined") return;
@@ -564,6 +569,37 @@ async function clientCachedJson<T>(
     });
   tickerDataPromises.set(cacheKey, next);
   return raceWithAbort(next, signal);
+}
+
+async function serverCachedJson<T>(
+  cacheKey: string,
+  request: () => Promise<T>,
+  ttlMs = SERVER_PUBLIC_CACHE_TTL_MS,
+): Promise<T> {
+  if (typeof window !== "undefined") return request();
+
+  const now = Date.now();
+  const cached = serverPublicJsonCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.value as T;
+
+  const pending = serverPublicJsonPromises.get(cacheKey) as Promise<T> | undefined;
+  if (pending) return pending;
+
+  const next = request()
+    .then((response) => {
+      while (serverPublicJsonCache.size >= SERVER_PUBLIC_CACHE_MAX_ENTRIES) {
+        const oldestKey = serverPublicJsonCache.keys().next().value;
+        if (!oldestKey) break;
+        serverPublicJsonCache.delete(oldestKey);
+      }
+      serverPublicJsonCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
+      return response;
+    })
+    .finally(() => {
+      serverPublicJsonPromises.delete(cacheKey);
+    });
+  serverPublicJsonPromises.set(cacheKey, next);
+  return next;
 }
 
 async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
@@ -3533,13 +3569,18 @@ export async function adminUpdateStripeTaxSettings(payload: StripeTaxSettingsPay
 }
 
 export async function getPlanConfig(): Promise<PlanConfig> {
-  return fetchPublicJson<PlanConfig>(buildApiUrl("/api/plan-config"), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    headers: { "Cache-Control": "no-cache" },
-    source: "PlanConfig",
-    routeFamily: "plan-config",
-  });
+  const url = buildApiUrl("/api/plan-config");
+  return serverCachedJson(
+    `plan-config:${url}`,
+    () => fetchPublicJson<PlanConfig>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      headers: { "Cache-Control": "no-cache" },
+      source: "PlanConfig",
+      routeFamily: "plan-config",
+    }),
+    SERVER_PLAN_CONFIG_CACHE_TTL_MS,
+  );
 }
 
 export type AdminPlanPriceMode = "default" | "custom" | "free_admin_grant";
@@ -5899,6 +5940,14 @@ export async function getCongressTraderLeaderboard(params?: {
 
 export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal }): Promise<TickerProfile> {
   const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}`);
+  if (typeof window === "undefined" && !options?.signal) {
+    return serverCachedJson(
+      `ticker-profile:${url}`,
+      () => fetchJson<TickerProfile>(url, {
+        source: options?.source ?? "TickerProfile",
+      }),
+    );
+  }
   return clientCachedJson<TickerProfile>(
     `ticker-profile:${url}`,
     options?.signal,

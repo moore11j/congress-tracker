@@ -49,7 +49,7 @@ import {
   resolveInsiderDisplayPrice,
 } from "@/lib/insiderTradeDisplay";
 import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
-import { optionalPageAuthState } from "@/lib/serverAuth";
+import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 import { noindexFollowMetadata, tickerHasIndexableContent } from "@/lib/seoQuality";
@@ -3879,7 +3879,9 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const canonicalTickerUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
   const activityDetailsRequested = one(sp, "activity_details") === "1";
   const lookbackDays = Number(lookback);
-  const authState = await optionalPageAuthState();
+  const authState = requestMayHavePageAuthState(requestHeaders)
+    ? await optionalPageAuthState()
+    : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
   const entitlements = authToken
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)

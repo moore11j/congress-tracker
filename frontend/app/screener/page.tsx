@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
@@ -24,7 +25,7 @@ import {
   hasActiveTechnicalFilters,
   type ScreenerColumnKey,
 } from "@/lib/screenerColumns";
-import { buildReturnTo, optionalPageAuthState } from "@/lib/serverAuth";
+import { buildReturnTo, optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { withServerTimeout } from "@/lib/serverTimeout";
 import {
   activeFilterControlClassName,
@@ -836,7 +837,10 @@ export default async function ScreenerPage({
 }) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/screener", sp);
-  const authState = await optionalPageAuthState();
+  const requestHeaders = await headers();
+  const authState = requestMayHavePageAuthState(requestHeaders)
+    ? await optionalPageAuthState()
+    : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
   const entitlements = authToken
     ? await withServerTimeout(getEntitlements(authToken), "screener:entitlements").catch(() => defaultEntitlements)

@@ -5,6 +5,17 @@ const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const entitlementHintCookieName = "ct_entitlement_hint";
 
+type HeaderReader = Pick<Headers, "get">;
+
+export function requestMayHavePageAuthState(headersList: HeaderReader): boolean {
+  const cookieHeader = headersList.get("cookie") ?? "";
+  return (
+    cookieHeader.includes(`${authSessionCookieName}=`) ||
+    cookieHeader.includes(`${authHintCookieName}=`) ||
+    cookieHeader.includes(`${entitlementHintCookieName}=`)
+  );
+}
+
 export async function requirePageAuth(returnTo: string): Promise<string> {
   const cookieStore = await cookies();
   const token = cookieStore.get(authSessionCookieName)?.value;
