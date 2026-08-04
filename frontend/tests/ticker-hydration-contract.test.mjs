@@ -9,6 +9,10 @@ function read(path) {
   return readFileSync(join(root, path), "utf8");
 }
 
+function sourceStringLiterals(source) {
+  return source.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g)?.join("\n") ?? "";
+}
+
 test("ticker chart checks hydration status before requesting chart bundle", () => {
   const chart = read("components/ticker/TickerChartLoader.tsx");
   const api = read("lib/api.ts");
@@ -36,6 +40,38 @@ test("ticker chart renders stale freshness as an updating state", () => {
   assert.match(chart, /Latest market data is temporarily unavailable\./);
   assert.match(chart, /Updated through/);
   assert.doesNotMatch(chart, /provider|cache|FMP|Polygon|Massive/i);
+});
+
+test("ticker chart overlays premium analyst history and rating-event markers", () => {
+  const chart = read("components/ticker/PremiumTickerChart.tsx");
+  const loader = read("components/ticker/TickerChartLoader.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /export type TickerAnalystConsensusHistoryResponse/);
+  assert.match(api, /export type TickerAnalystConsensusEventsResponse/);
+  assert.match(api, /export async function getTickerAnalystConsensusHistory/);
+  assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/consensus\/history/);
+  assert.match(api, /export async function getTickerAnalystConsensusEvents/);
+  assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/consensus\/events/);
+  assert.match(api, /analystConsensusHistory\?: TickerAnalystConsensusHistoryResponse \| null/);
+  assert.match(api, /\| "analyst"/);
+
+  assert.match(loader, /getTickerAnalystConsensusHistory\(symbol,/);
+  assert.match(loader, /getTickerAnalystConsensusEvents\(symbol,/);
+  assert.match(loader, /function analystEventToMarker/);
+  assert.match(loader, /kind: "analyst"/);
+  assert.match(loader, /analystConsensusHistory: analystData\.history/);
+  assert.match(loader, /markers: \[\.\.\.\(chartBundle\.markers \?\? \[\]\), \.\.\.analystEventMarkers\(analystData\.events\)\]/);
+  assert.match(loader, /error instanceof ApiError && \[401, 402, 403, 404\]\.includes\(error\.status\)/);
+
+  assert.match(chart, /analyst: \{ color: "#38bdf8", label: "Analyst Action", toggleLabel: "Analysts" \}/);
+  assert.match(chart, /event\.kind === "analyst"/);
+  assert.match(chart, /analystConsensusTargetData/);
+  assert.match(chart, /analystMedianTargetData/);
+  assert.match(chart, /Analyst target/);
+  assert.match(chart, /Median target/);
+  assert.match(chart, /LineStyle\.Dashed/);
+  assert.match(chart, /LineStyle\.Dotted/);
 });
 
 test("ticker context does not eagerly request heavy tab data on overview mount", () => {
@@ -294,7 +330,7 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
   assert.match(api, /arrayKeys: \["items", "filings", "sec_filings", "secFilings", "results", "data"\]/);
   assert.match(card, /status === "loading" \? NEWS_LOADING_MESSAGE : status === "no_data" \? NEWS_EMPTY_MESSAGE : response\.message/);
   assert.match(read("components/ticker/TickerFinancialsPanel.tsx"), /Financial data is temporarily unavailable\./);
-  assert.doesNotMatch(card, /FMP|provider|cache|402|heavy-route|budget/);
+  assert.doesNotMatch(sourceStringLiterals(card), /FMP|provider|cache|402|heavy-route|budget/);
 });
 
 test("ticker page catches temporary profile failures and renders a shell fallback", () => {

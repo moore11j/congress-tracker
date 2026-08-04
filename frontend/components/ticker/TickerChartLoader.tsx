@@ -2,10 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  ApiError,
+  getTickerAnalystConsensusEvents,
+  getTickerAnalystConsensusHistory,
   getTickerChartBundle,
   getTickerHydrationStatus,
   requestTickerHydration,
+  type TickerAnalystConsensusEventsResponse,
+  type TickerAnalystConsensusHistoryResponse,
+  type TickerAnalystGradeEvent,
   type TickerChartBundle,
+  type TickerChartMarker,
   type TickerHydrationStatus,
 } from "@/lib/api";
 import { runHeavyTickerRequest } from "@/lib/heavyTickerRequests";
@@ -18,6 +25,82 @@ const requestedHydrationSymbols = new Set<string>();
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function analystSide(action?: string | null): TickerChartMarker["side"] {
+  const normalized = action?.trim().toLowerCase() ?? "";
+  if (normalized.includes("upgrade")) return "buy";
+  if (normalized.includes("downgrade")) return "sell";
+  return null;
+}
+
+function analystEventToMarker(event: TickerAnalystGradeEvent, index: number): TickerChartMarker | null {
+  const publishedDate = event.publishedDate?.trim();
+  if (!publishedDate) return null;
+  const action = event.action?.trim() || event.providerAction?.trim() || "Rating action";
+  const actor = event.gradingCompany?.trim() || event.analystName?.trim() || "Analyst";
+  const gradeMove = event.previousGrade && event.newGrade
+    ? `${event.previousGrade} to ${event.newGrade}`
+    : event.newGrade || event.previousGrade || null;
+  return {
+    id: `analyst-${event.id ?? `${publishedDate}-${index}`}`,
+    kind: "analyst",
+    date: publishedDate,
+    actor,
+    action,
+    side: analystSide(action),
+    detail: gradeMove,
+    label: event.newGrade || action,
+    meta: {
+      grading_company: event.gradingCompany ?? null,
+      analyst_name: event.analystName ?? null,
+      previous_grade: event.previousGrade ?? null,
+      new_grade: event.newGrade ?? null,
+      provider_action: event.providerAction ?? null,
+      published_date: publishedDate,
+    },
+  };
+}
+
+function analystEventMarkers(response: TickerAnalystConsensusEventsResponse | null): TickerChartMarker[] {
+  return (response?.items ?? [])
+    .map((event, index) => analystEventToMarker(event, index))
+    .filter((marker): marker is TickerChartMarker => marker !== null);
+}
+
+async function loadOptionalAnalystChartData(
+  symbol: string,
+  days: number,
+  signal: AbortSignal,
+): Promise<{
+  history: TickerAnalystConsensusHistoryResponse | null;
+  events: TickerAnalystConsensusEventsResponse | null;
+}> {
+  const tolerateMissing = <T,>(promise: Promise<T>): Promise<T | null> =>
+    promise.catch((error) => {
+      if (isAbortError(error)) throw error;
+      if (error instanceof ApiError && [401, 402, 403, 404].includes(error.status)) return null;
+      return null;
+    });
+
+  const [history, events] = await Promise.all([
+    tolerateMissing(
+      getTickerAnalystConsensusHistory(symbol, {
+        days,
+        signal,
+        source: "TickerAnalystChartHistory",
+      }),
+    ),
+    tolerateMissing(
+      getTickerAnalystConsensusEvents(symbol, {
+        limit: 150,
+        signal,
+        source: "TickerAnalystChartEvents",
+      }),
+    ),
+  ]);
+
+  return { history, events };
 }
 
 function chartHydrationKey(days: number): keyof TickerHydrationStatus["critical"] {
@@ -127,10 +210,17 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
         await waitForHydrationWindow(controller.signal);
       }
 
-      return runHeavyTickerRequest(
+      const chartBundle = await runHeavyTickerRequest(
         () => getTickerChartBundle(symbol, days, { signal: controller.signal, source: "TickerChart" }),
         controller.signal,
       );
+      const analystData = await loadOptionalAnalystChartData(symbol, chartBundle.days ?? days, controller.signal);
+      return {
+        ...chartBundle,
+        analystConsensusHistory: analystData.history,
+        analystConsensusEvents: analystData.events,
+        markers: [...(chartBundle.markers ?? []), ...analystEventMarkers(analystData.events)],
+      };
     }
 
     loadChartAfterHydration()

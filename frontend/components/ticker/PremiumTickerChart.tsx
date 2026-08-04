@@ -57,6 +57,7 @@ const markerConfig: Record<TickerChartMarker["kind"], MarkerKindConfig> = {
   institutional: { color: "#818cf8", label: "Institutional Activity", toggleLabel: "Institutional" },
   signals: { color: "#f59e0b", label: "Signal", toggleLabel: "Signals" },
   government_contract: { color: "#60a5fa", label: "Government Contract", toggleLabel: "Gov Contracts" },
+  analyst: { color: "#38bdf8", label: "Analyst Action", toggleLabel: "Analysts" },
 };
 
 const markerKinds = Object.keys(markerConfig) as TickerChartMarker["kind"][];
@@ -66,6 +67,7 @@ const defaultMarkerVisibility: Record<TickerChartMarker["kind"], boolean> = {
   institutional: true,
   signals: true,
   government_contract: true,
+  analyst: true,
 };
 const MAX_VISIBLE_GOVERNMENT_CONTRACT_MARKERS = 8;
 const GOVERNMENT_CONTRACT_CLUSTER_THRESHOLD = 10;
@@ -322,6 +324,15 @@ function markerSecondaryLine(event: TickerChartMarker): string {
     const dateLabel = event.meta?.event_subtype === "funding_action" ? "Report Date" : "Start Date";
     return `${dateLabel}: ${formatDate(event.meta?.report_date ?? event.date)} / ${amount} - ${agency}`;
   }
+  if (event.kind === "analyst") {
+    const analyst = event.meta?.analyst_name?.trim() ? ` / ${event.meta.analyst_name.trim()}` : "";
+    const gradeMove = event.meta?.previous_grade && event.meta?.new_grade
+      ? ` / ${event.meta.previous_grade} to ${event.meta.new_grade}`
+      : event.meta?.new_grade
+        ? ` / ${event.meta.new_grade}`
+        : "";
+    return `${formatDate(event.meta?.published_date ?? event.date)} / ${event.action}${analyst}${gradeMove}`;
+  }
   return `${formatDate(event.date)} / ${event.action} / ${formatAmountRange(event.amount_min, event.amount_max)}`;
 }
 
@@ -547,6 +558,29 @@ export function PremiumTickerChart({
     const bollingerData = bollingerBands(prices);
     const donchianData = donchianChannels(candleSource);
     const vwapData = vwapLine(closeVolumePoints);
+    const analystConsensusTargets = new Map<string, number>();
+    const analystMedianTargets = new Map<string, number>();
+    if (!performanceMode) {
+      const analystHistory = [...(bundle?.analystConsensusHistory?.points ?? [])]
+        .filter((point) => point.date)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      for (const point of analystHistory) {
+        const chartDate = resolveMarkerChartDate(point.date, priceDates);
+        if (!chartDate) continue;
+        if (typeof point.consensusTarget === "number" && Number.isFinite(point.consensusTarget)) {
+          analystConsensusTargets.set(chartDate, point.consensusTarget);
+        }
+        if (typeof point.medianTarget === "number" && Number.isFinite(point.medianTarget)) {
+          analystMedianTargets.set(chartDate, point.medianTarget);
+        }
+      }
+    }
+    const analystConsensusTargetData: LineData[] = [...analystConsensusTargets.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({ time: chartTime(date), value }));
+    const analystMedianTargetData: LineData[] = [...analystMedianTargets.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({ time: chartTime(date), value }));
 
     const filteredMarkers = applyMarkerDensity(
       (bundle?.markers ?? []).filter((marker) => visibleMarkerKinds.includes(marker.kind) && markerVisibility[marker.kind] !== false),
@@ -591,6 +625,8 @@ export function PremiumTickerChart({
           }
         : donchianData,
       vwapData: performanceMode ? relativeIndicatorData(vwapData, firstClose) : vwapData,
+      analystConsensusTargetData,
+      analystMedianTargetData,
       compareData,
       performanceMode,
       volumeProfile: volumeProfileBuckets(closeVolumePoints),
@@ -773,6 +809,27 @@ export function PremiumTickerChart({
       }).setData(normalized.vwapData);
     }
 
+    if (normalized.analystConsensusTargetData.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(56,189,248,0.78)",
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.analystConsensusTargetData);
+    }
+    if (normalized.analystMedianTargetData.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(129,140,248,0.7)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.analystMedianTargetData);
+    }
+
     if (normalized.performanceMode) {
       chart.addSeries(LineSeries, {
         color: "rgba(148,163,184,0.35)",
@@ -815,7 +872,7 @@ export function PremiumTickerChart({
       const color = isMixed ? "#e5e7eb" : markerConfig[first.kind].color;
       const shape = isMixed
         ? "square"
-        : first.kind === "signals" || first.kind === "government_contract"
+        : first.kind === "signals" || first.kind === "government_contract" || (first.kind === "analyst" && !hasBuy && !hasSell)
           ? "circle"
           : hasSell && !hasBuy
             ? "arrowDown"
@@ -990,6 +1047,18 @@ export function PremiumTickerChart({
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
             <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 rounded bg-cyan-300" />{symbol}</span>
             <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 border-t border-dashed border-slate-300/70" />{benchmarkLabel}</span>
+            {normalized.analystConsensusTargetData.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-[2px] w-5 border-t border-dashed border-cyan-300/80" />
+                Analyst target
+              </span>
+            ) : null}
+            {normalized.analystMedianTargetData.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-[2px] w-5 border-t border-dotted border-indigo-300/80" />
+                Median target
+              </span>
+            ) : null}
             {normalized.performanceMode ? <span className="text-cyan-100">Relative %</span> : null}
             <span>Daily</span>
           </div>
