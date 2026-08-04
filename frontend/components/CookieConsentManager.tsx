@@ -9,7 +9,7 @@ import {
   writePrivacyConsent,
   type PrivacyConsent,
 } from "@/lib/privacyConsent";
-import { ensureGoogleAnalytics, updateGoogleAnalyticsConsent } from "@/lib/googleAnalytics";
+import { ensureGoogleAnalytics, removeGoogleLinkerParams, updateGoogleAnalyticsConsent } from "@/lib/googleAnalytics";
 
 const REDDIT_PIXEL_ID = process.env.NEXT_PUBLIC_REDDIT_PIXEL_ID ?? "a2_jdfg5l7gwuw1";
 
@@ -57,6 +57,7 @@ function applyConsent(consent: PrivacyConsent | null): void {
     sendInitialPageView: analyticsGranted,
   });
   updateGoogleAnalyticsConsent(analyticsGranted, marketingGranted);
+  removeGoogleLinkerParams();
   if (consent?.marketing) loadRedditPixel();
 }
 

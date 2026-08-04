@@ -14,6 +14,7 @@ const api = read("lib/api.ts");
 const tracker = read("components/PageAnalyticsTracker.tsx");
 const googleAnalytics = read("lib/googleAnalytics.ts");
 const privacy = read("app/privacy/page.tsx");
+const memberPage = read("app/member/[slug]/page.tsx");
 
 test("layout renders consent manager instead of eager tracking scripts", () => {
   assert.match(layout, /import \{ CookieConsentManager \} from "@\/components\/CookieConsentManager";/);
@@ -34,6 +35,7 @@ test("cookie consent manager offers bottom-bar choices and gates optional script
   assert.match(manager, /Analytics/);
   assert.match(manager, /Marketing/);
   assert.match(manager, /ensureGoogleAnalytics/);
+  assert.match(manager, /removeGoogleLinkerParams/);
   assert.match(manager, /updateGoogleAnalyticsConsent/);
   assert.match(manager, /loadRedditPixel/);
   assert.match(manager, /\(consent\?\.analytics \?\? true\) \? <SpeedInsights \/> : null/);
@@ -45,6 +47,9 @@ test("google analytics defaults analytics on while keeping marketing storage den
   assert.match(googleAnalytics, /type GoogleAnalyticsOptions/);
   assert.match(googleAnalytics, /function gtag\(\)[\s\S]*dataLayer\?\.push\(arguments\)/);
   assert.match(googleAnalytics, /gtag\("consent", "default"/);
+  assert.match(googleAnalytics, /gtag\("set", "linker", \{ domains: \[\], accept_incoming: false \}\)/);
+  assert.match(googleAnalytics, /removeGoogleLinkerParams/);
+  assert.match(googleAnalytics, /key === "_gl" \|\| key === "_ga" \|\| key\.startsWith\("_ga_"\)/);
   assert.match(googleAnalytics, /analytics_storage: analyticsGranted \? "granted" : "denied"/);
   assert.match(googleAnalytics, /ad_storage: marketingGranted \? "granted" : "denied"/);
   assert.match(googleAnalytics, /ad_user_data: marketingGranted \? "granted" : "denied"/);
@@ -77,4 +82,11 @@ test("privacy choices are persisted and can be reopened from the privacy page", 
   assert.match(consent, /globalPrivacyControl/);
   assert.match(settingsButton, /openPrivacyConsentSettings/);
   assert.match(privacy, /<CookieSettingsButton \/>/);
+});
+
+test("member canonical redirects strip Google linker noise", () => {
+  assert.match(memberPage, /function isGoogleLinkerParam/);
+  assert.match(memberPage, /key === "_gl" \|\| key === "_ga" \|\| key\.startsWith\("_ga_"\)/);
+  assert.match(memberPage, /if \(isGoogleLinkerParam\(key\)\) continue;/);
+  assert.match(memberPage, /if \(lbParam\) query\.set\("lb", lbParam\)/);
 });

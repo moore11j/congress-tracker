@@ -14,6 +14,10 @@ type GoogleAnalyticsOptions = {
   sendInitialPageView?: boolean;
 };
 
+function isGoogleLinkerParam(key: string): boolean {
+  return key === "_gl" || key === "_ga" || key.startsWith("_ga_");
+}
+
 function loadScript(id: string, src: string): void {
   if (document.getElementById(id)) return;
   const script = document.createElement("script");
@@ -44,10 +48,21 @@ export function ensureGoogleAnalytics(options: GoogleAnalyticsOptions = {}): boo
     ad_personalization: marketingGranted ? "granted" : "denied",
     wait_for_update: 500,
   });
+  win.gtag("set", "linker", { domains: [], accept_incoming: false });
   loadScript("walnut-google-analytics", `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ANALYTICS_ID}`);
   win.gtag("js", new Date());
   win.gtag("config", GOOGLE_ANALYTICS_ID, { send_page_view: sendInitialPageView });
   return true;
+}
+
+export function removeGoogleLinkerParams(): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  const keys = Array.from(url.searchParams.keys()).filter(isGoogleLinkerParam);
+  if (!keys.length) return;
+  keys.forEach((key) => url.searchParams.delete(key));
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
 
 export function updateGoogleAnalyticsConsent(analyticsGranted: boolean, marketingGranted: boolean): void {

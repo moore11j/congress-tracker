@@ -64,9 +64,14 @@ function getParam(sp: Record<string, string | string[] | undefined>, key: string
   return typeof v === "string" ? v : "";
 }
 
+function isGoogleLinkerParam(key: string) {
+  return key === "_gl" || key === "_ga" || key.startsWith("_ga_");
+}
+
 function toQueryString(sp: Record<string, string | string[] | undefined>) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(sp)) {
+    if (isGoogleLinkerParam(key)) continue;
     if (typeof value === "string") {
       query.set(key, value);
       continue;
