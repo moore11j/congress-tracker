@@ -4062,6 +4062,111 @@ export type TickerValuationResponse = {
   updatedAt?: string | null;
 };
 
+export type TickerAnalystConsensusAccess = {
+  detailLevel?: "current_summary" | "full_detail" | string;
+  detailsLocked?: boolean;
+  requiredPlanForDetails?: "premium" | string | null;
+};
+
+export type TickerAnalystConsensusSnapshot = {
+  symbol?: string | null;
+  snapshotDate?: string | null;
+  recommendationLabel?: string | null;
+  totalRatingCount?: number | null;
+  consensusImpliedUpsidePct?: number | null;
+  medianImpliedUpsidePct?: number | null;
+  availabilityStatus?: string | null;
+  providerStatus?: string | null;
+  ingestedAt?: string | null;
+  recommendationDistribution?: {
+    strongBuy?: number | null;
+    buy?: number | null;
+    hold?: number | null;
+    sell?: number | null;
+    strongSell?: number | null;
+    total?: number | null;
+  };
+  weightedRatingValue?: number | null;
+  priceTargetRange?: {
+    high?: number | null;
+    low?: number | null;
+    median?: number | null;
+    consensus?: number | null;
+    average?: number | null;
+    analystCount?: number | null;
+  };
+  currentPriceAtSnapshot?: number | null;
+  currentPriceSource?: string | null;
+  currentPriceAsOf?: string | null;
+  impliedUpside?: {
+    medianPct?: number | null;
+    consensusPct?: number | null;
+  };
+  targetDispersionPct?: number | null;
+};
+
+export type TickerAnalystConsensusChange = {
+  comparisonDate?: string | null;
+  daysBetween?: number | null;
+  weightedSentimentChange?: number | null;
+  medianTargetChange?: number | null;
+  consensusTargetChange?: number | null;
+};
+
+export type TickerAnalystConsensusGradeWindow = {
+  upgrades?: number | null;
+  downgrades?: number | null;
+  netActions?: number | null;
+};
+
+export type TickerAnalystConsensusResponse = {
+  symbol: string;
+  access?: TickerAnalystConsensusAccess;
+  currentSnapshot?: TickerAnalystConsensusSnapshot | null;
+  currentSummary?: {
+    recommendationLabel?: string | null;
+    combinedLabel?: string | null;
+    trendDirection?: string | null;
+    coverageLevel?: string | null;
+    consensusImpliedUpsidePct?: number | null;
+    medianImpliedUpsidePct?: number | null;
+  } | null;
+  changes?: {
+    days30?: TickerAnalystConsensusChange;
+    days90?: TickerAnalystConsensusChange;
+  };
+  gradeEventStats?: {
+    days30?: TickerAnalystConsensusGradeWindow;
+    days90?: TickerAnalystConsensusGradeWindow;
+    mostRecentEvent?: {
+      action?: string | null;
+      publishedDate?: string | null;
+      gradingCompany?: string | null;
+      newGrade?: string | null;
+      previousGrade?: string | null;
+    } | null;
+    daysSinceMostRecentEvent?: number | null;
+  };
+  interpretation?: {
+    currentAnalystDirection?: string | null;
+    trendDirection?: string | null;
+    combinedLabel?: string | null;
+    coverageLevel?: string | null;
+    freshness?: { status?: string | null; daysOld?: number | null } | null;
+    dataAvailability?: string | null;
+    methodologyVersion?: string | null;
+    confirms?: string[];
+    contradicts?: string[];
+  } | null;
+  coverage?: {
+    level?: string | null;
+    reasons?: string[];
+  } | null;
+  freshness?: { status?: string | null; daysOld?: number | null } | null;
+  availability?: { status?: string | null; reason?: string | null };
+  providerStatus?: { status?: string | null; error?: string | null };
+};
+
 export type TickerFinancialsResponse = {
   symbol: string;
   companyName?: string | null;
@@ -6822,6 +6927,26 @@ export async function getTickerValuation(
       next: { revalidate: 0 },
       signal,
       source: params?.source ?? "TickerValuationTab",
+    }),
+  );
+}
+
+export async function getTickerAnalystConsensus(
+  symbol: string,
+  params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
+): Promise<TickerAnalystConsensusResponse> {
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/consensus`);
+  return clientCachedJson<TickerAnalystConsensusResponse>(
+    `ticker-analyst-consensus:${url}:${params?.authToken ? "auth" : "session"}`,
+    params?.signal,
+    (signal) => fetchJson<TickerAnalystConsensusResponse>(url, {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerAnalystConsensusTab",
+      routeFamily: "ticker",
+      requestSource: typeof window === "undefined" ? "ssr" : "client",
     }),
   );
 }

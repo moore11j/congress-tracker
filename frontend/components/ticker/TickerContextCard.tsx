@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   getEvents,
+  getTickerAnalystConsensus,
   getTickerFinancials,
   getTickerMacroPositioning,
   getTickerNews,
@@ -18,6 +19,7 @@ import {
   type NewsItem,
   type PressReleasesResponse,
   type SecFilingsResponse,
+  type TickerAnalystConsensusResponse,
   type TickerFinancialsResponse,
   type TickerOwnershipResponse,
   type TickerValuationResponse,
@@ -30,6 +32,7 @@ import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { TickerFinancialsPanel, TickerFinancialsSkeleton } from "@/components/ticker/TickerFinancialsPanel";
 import { TickerOwnershipPanel, TickerOwnershipSkeleton } from "@/components/ticker/TickerOwnershipPanel";
+import { TickerAnalystConsensusSkeleton, TickerAnalystConsensusTab } from "@/components/ticker/TickerAnalystConsensusTab";
 import { TickerValuationSkeleton, TickerValuationTab } from "@/components/ticker/TickerValuationTab";
 
 type Props = {
@@ -39,7 +42,7 @@ type Props = {
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation";
+type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus";
 
 const TAB_CLASS = "relative flex h-12 shrink-0 items-center px-5 text-sm font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
@@ -63,6 +66,7 @@ const TICKER_VALUATION_PANEL_SOURCE = "TickerValuationTab";
 const TICKER_PRESS_PANEL_SOURCE = "TickerPressPanel";
 const TICKER_FILINGS_PANEL_SOURCE = "TickerFilingsPanel";
 const TICKER_DISCLOSURE_PANEL_SOURCE = "TickerDisclosurePanel";
+const TICKER_ANALYST_CONSENSUS_PANEL_SOURCE = "TickerAnalystConsensusTab";
 const IMPLEMENTATION_DETAIL_TERMS = [
   ["current", "data", "plan"].join(" "),
   ["data", "plan"].join(" "),
@@ -80,6 +84,7 @@ const OWNERSHIP_REQUEST_TIMEOUT_MS = 12000;
 const SEC_REQUEST_TIMEOUT_MS = 12000;
 const MACRO_REQUEST_TIMEOUT_MS = 12000;
 const VALUATION_REQUEST_TIMEOUT_MS = 15000;
+const ANALYST_CONSENSUS_REQUEST_TIMEOUT_MS = 12000;
 const SEC_FORM_TITLES: Record<string, string> = {
   "3": "Initial Statement of Beneficial Ownership",
   "4": "Statement of Changes in Beneficial Ownership",
@@ -466,6 +471,8 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const [loadingMacroPositioning, setLoadingMacroPositioning] = useState(false);
   const [valuation, setValuation] = useState<TickerValuationResponse | null>(null);
   const [loadingValuation, setLoadingValuation] = useState(false);
+  const [analystConsensus, setAnalystConsensus] = useState<TickerAnalystConsensusResponse | null>(null);
+  const [loadingAnalystConsensus, setLoadingAnalystConsensus] = useState(false);
 
   const newsAbortRef = useRef<AbortController | null>(null);
   const pressAbortRef = useRef<AbortController | null>(null);
@@ -475,6 +482,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const ownershipAbortRef = useRef<AbortController | null>(null);
   const macroAbortRef = useRef<AbortController | null>(null);
   const valuationAbortRef = useRef<AbortController | null>(null);
+  const analystConsensusAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     abortRequest(newsAbortRef);
@@ -485,6 +493,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     abortRequest(ownershipAbortRef);
     abortRequest(macroAbortRef);
     abortRequest(valuationAbortRef);
+    abortRequest(analystConsensusAbortRef);
     setNewsPages([]);
     setPressPages([]);
     setSecPages([]);
@@ -494,6 +503,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     setOwnership(null);
     setMacroPositioning(null);
     setValuation(null);
+    setAnalystConsensus(null);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
@@ -502,6 +512,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     setLoadingOwnership(false);
     setLoadingMacroPositioning(false);
     setLoadingValuation(false);
+    setLoadingAnalystConsensus(false);
   }, [symbol]);
 
   useEffect(() => {
@@ -740,6 +751,51 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
       if (valuationAbortRef.current === controller) valuationAbortRef.current = null;
     };
   }, [activeTab, symbol, valuation]);
+
+  useEffect(() => {
+    if (activeTab !== "consensus") {
+      abortRequest(analystConsensusAbortRef);
+      setLoadingAnalystConsensus(false);
+      return;
+    }
+    if (analystConsensus || analystConsensusAbortRef.current) return;
+
+    const controller = new AbortController();
+    abortRequest(analystConsensusAbortRef);
+    analystConsensusAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, ANALYST_CONSENSUS_REQUEST_TIMEOUT_MS);
+    setLoadingAnalystConsensus(true);
+
+    getTickerAnalystConsensus(symbol, { signal: controller.signal, source: TICKER_ANALYST_CONSENSUS_PANEL_SOURCE })
+      .then((response) => {
+        if (!controller.signal.aborted) setAnalystConsensus(response);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.error("[ticker-analyst-consensus] fetch failed", error);
+          setAnalystConsensus({
+            symbol,
+            access: { detailLevel: "current_summary", detailsLocked: true, requiredPlanForDetails: "premium" },
+            currentSnapshot: null,
+            availability: { status: "unavailable" },
+            providerStatus: { status: "unavailable" },
+          });
+        }
+      })
+      .finally(() => {
+        timeoutGuard.clear();
+        if (analystConsensusAbortRef.current === controller) {
+          analystConsensusAbortRef.current = null;
+          setLoadingAnalystConsensus(false);
+        }
+      });
+
+    return () => {
+      timeoutGuard.clear();
+      controller.abort();
+      if (analystConsensusAbortRef.current === controller) analystConsensusAbortRef.current = null;
+    };
+  }, [activeTab, analystConsensus, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -1056,6 +1112,13 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
             <span>Valuation</span>
             <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("consensus")}
+            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-emerald-400/55 bg-emerald-500/10 text-emerald-100 shadow-[0_0_18px_rgba(16,185,129,0.12)] ${activeTab === "consensus" ? "border-emerald-300 bg-emerald-500/20 text-emerald-50" : "hover:bg-emerald-500/15 hover:text-white"}`}
+          >
+            <span>Consensus</span>
+          </button>
         </div>
       </div>
 
@@ -1136,6 +1199,26 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
             </div>
             <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               {loadingValuation || !valuation ? <TickerValuationSkeleton /> : <TickerValuationTab data={valuation} symbol={symbol} canViewDetails={canViewOwnership} />}
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "consensus" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Analyst Consensus</p>
+                <p className="mt-2 text-sm text-slate-400">Current analyst direction, implied upside, and target agreement for {symbol}.</p>
+              </div>
+              {analystConsensus?.currentSnapshot?.ingestedAt ? (
+                <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Updated {formatDateShort(analystConsensus.currentSnapshot.ingestedAt)}</span>
+              ) : null}
+            </div>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              {loadingAnalystConsensus || !analystConsensus ? (
+                <TickerAnalystConsensusSkeleton />
+              ) : (
+                <TickerAnalystConsensusTab data={analystConsensus} symbol={symbol} />
+              )}
             </div>
           </div>
         ) : null}

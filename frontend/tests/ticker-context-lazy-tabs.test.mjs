@@ -42,6 +42,11 @@ test("ticker context starts on overview and loads heavy tabs only after tab acti
   assert.match(macroEffect, /getTickerMacroPositioning\(symbol/);
   assert.ok(macroEffect.indexOf('if (activeTab !== "macro")') < macroEffect.indexOf("getTickerMacroPositioning(symbol"));
 
+  const consensusEffect = effectBlockStartingWith('if (activeTab !== "consensus")');
+  assert.match(consensusEffect, /return;/);
+  assert.match(consensusEffect, /getTickerAnalystConsensus\(symbol/);
+  assert.ok(consensusEffect.indexOf('if (activeTab !== "consensus")') < consensusEffect.indexOf("getTickerAnalystConsensus(symbol"));
+
   const pressEffect = effectBlockStartingWith('getTickerPressReleases(symbol');
   assert.match(pressEffect, /if \(activeTab !== "events"\)/);
   assert.ok(pressEffect.indexOf('if (activeTab !== "events")') < pressEffect.indexOf("getTickerPressReleases(symbol"));
@@ -59,6 +64,7 @@ test("ticker lazy tab requests have panel-specific attribution", () => {
   assert.match(card, /const TICKER_NEWS_PANEL_SOURCE = "TickerNewsPanel"/);
   assert.match(card, /const TICKER_FINANCIALS_PANEL_SOURCE = "TickerFinancialsPanel"/);
   assert.match(card, /const TICKER_OWNERSHIP_PANEL_SOURCE = "TickerOwnershipPanel"/);
+  assert.match(card, /const TICKER_ANALYST_CONSENSUS_PANEL_SOURCE = "TickerAnalystConsensusTab"/);
   assert.match(card, /const TICKER_PRESS_PANEL_SOURCE = "TickerPressPanel"/);
   assert.match(card, /const TICKER_FILINGS_PANEL_SOURCE = "TickerFilingsPanel"/);
   assert.match(card, /const TICKER_DISCLOSURE_PANEL_SOURCE = "TickerDisclosurePanel"/);
@@ -66,6 +72,7 @@ test("ticker lazy tab requests have panel-specific attribution", () => {
   assert.match(card, /getTickerNews\(symbol, \{[^}]*source: TICKER_NEWS_PANEL_SOURCE/s);
   assert.match(card, /getTickerFinancials\(symbol, \{[^}]*source: TICKER_FINANCIALS_PANEL_SOURCE/s);
   assert.match(card, /getTickerOwnership\(symbol, \{[^}]*source: TICKER_OWNERSHIP_PANEL_SOURCE/s);
+  assert.match(card, /getTickerAnalystConsensus\(symbol, \{[^}]*source: TICKER_ANALYST_CONSENSUS_PANEL_SOURCE/s);
   assert.match(card, /getTickerMacroPositioning\(symbol, \{[^}]*source: "TickerMacroPositioningTab"/s);
   assert.match(card, /getTickerPressReleases\(symbol, \{[^}]*source: TICKER_PRESS_PANEL_SOURCE/s);
   assert.match(card, /getTickerSecFilings\(symbol, \{[^}]*source: TICKER_FILINGS_PANEL_SOURCE/s);
@@ -106,4 +113,19 @@ test("ownership tab is a pro lazy tab", () => {
   assert.match(panel, /Float unavailable/);
   assert.match(panel, /hasReportedHoldings/);
   assert.match(panel, /strokeDasharray="6 5"/);
+});
+
+test("analyst consensus tab is lazy and shows free summary with premium detail gate", () => {
+  const api = read("lib/api.ts");
+  const panel = read("components/ticker/TickerAnalystConsensusTab.tsx");
+
+  assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events" \| "macro" \| "valuation" \| "consensus"/);
+  assert.match(card, /onClick=\{\(\) => setActiveTab\("consensus"\)\}/);
+  assert.match(card, /<TickerAnalystConsensusTab data=\{analystConsensus\} symbol=\{symbol\} \/>/);
+  assert.match(api, /export async function getTickerAnalystConsensus/);
+  assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/consensus/);
+  assert.match(panel, /Current analyst summary for \{symbol\} is not available yet/);
+  assert.match(panel, /Free users get the current summary/);
+  assert.match(panel, /Rating Distribution/);
+  assert.match(panel, /Price Targets/);
 });
