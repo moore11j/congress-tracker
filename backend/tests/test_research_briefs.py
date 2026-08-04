@@ -1519,6 +1519,30 @@ def test_db_backed_saving_published_brief_keeps_edited_body(tmp_path, monkeypatc
     assert "DB-backed published edit should stay saved" in listed["article"]["sections"][0]["body_markdown"]
 
 
+def test_db_backed_save_persists_edited_comparison_tickers(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.MOCK_ENV, "1")
+    db = _session()
+    for symbol in ["MU", "GOOGL", "AMZN", "MSFT", "NVDA", "AMAT", "ASML"]:
+        _seed_ticker(db, symbol)
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = service.generate_research_brief(db, admin, _payload(comparison_tickers=["GOOGL,AMZN,MSFT"]).model_dump())
+    article = deepcopy(draft["article"])
+    article["comparison_tickers"] = ["GOOGL", "AMZN", "MSFT"]
+    article["suggested_card"]["tickers"] = ["MU", "GOOGL", "AMZN", "MSFT"]
+    config_patch = {**draft["config"], "comparison_ticker": "NVDA", "comparison_tickers": ["NVDA", "AMAT", "ASML"]}
+
+    saved = service.update_draft(admin, draft["id"], article, db=db, config_patch=config_patch)
+    reloaded = service.get_draft(draft["id"], db=db)
+
+    assert saved["comparison_tickers"] == ["NVDA", "AMAT", "ASML"]
+    assert saved["config"]["comparison_tickers"] == ["NVDA", "AMAT", "ASML"]
+    assert saved["article"]["comparison_tickers"] == ["NVDA", "AMAT", "ASML"]
+    assert saved["article"]["suggested_card"]["tickers"] == ["MU", "NVDA", "AMAT", "ASML"]
+    assert reloaded["comparison_tickers"] == ["NVDA", "AMAT", "ASML"]
+    assert reloaded["config"]["comparison_tickers"] == ["NVDA", "AMAT", "ASML"]
+
+
 def test_premium_preview_uses_section_count_and_strips_hidden_sections():
     article = {
         "premium_required": True,

@@ -609,11 +609,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setBusy("generate");
     setError("");
     try {
-      const normalizedComparisonTickers = parseComparisonTickers(config.comparison_tickers);
+      const generationConfig = currentEditedConfig();
       const job = await startAdminResearchBriefGeneration({
-        ...config,
-        comparison_ticker: normalizedComparisonTickers[0] || null,
-        comparison_tickers: normalizedComparisonTickers,
+        ...generationConfig,
         client_request_id: createClientRequestId(),
       });
       setActiveJob(job);
@@ -634,7 +632,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     try {
       const article = currentEditedArticle();
       if (!article) return;
-      const draft = await updateAdminResearchBriefDraft(selectedDraft.id, { status, article });
+      const draft = await updateAdminResearchBriefDraft(selectedDraft.id, { status, article, config: currentEditedConfig() });
       applySavedDraft(draft);
       showToast?.("Draft saved.", "success");
     } catch (err) {
@@ -679,7 +677,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     try {
       const article = currentEditedArticle();
       if (!article) return;
-      const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article });
+      const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article, config: currentEditedConfig() });
       const draft = await publishAdminResearchBriefDraft(savedDraft.id);
       applySavedDraft(draft);
       setPublishDialogOpen(false);
@@ -720,14 +718,31 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     if (!articleDraft) return null;
     const parsed = markdownToSections(bodyMarkdown);
     const previewSectionCount = parsed.previewSectionCount ?? articleDraft.preview_section_count;
+    const editedConfig = currentEditedConfig();
+    const primaryTicker = articleDraft.primary_ticker || selectedDraft?.primary_ticker || editedConfig.ticker;
+    const cardTickers = Array.from(new Set([primaryTicker, ...editedConfig.comparison_tickers].filter(Boolean)));
     return applySectionSelections(
       {
         ...articleDraft,
+        comparison_tickers: editedConfig.comparison_tickers,
+        suggested_card: {
+          ...articleDraft.suggested_card,
+          tickers: cardTickers,
+        },
         sections: parsed.sections,
         preview_section_count: typeof previewSectionCount === "number" ? previewSectionCount : null,
       },
       config.include_sections,
     );
+  }
+
+  function currentEditedConfig() {
+    const normalizedComparisonTickers = parseComparisonTickers(config.comparison_tickers);
+    return {
+      ...config,
+      comparison_ticker: normalizedComparisonTickers[0] || null,
+      comparison_tickers: normalizedComparisonTickers,
+    };
   }
 
   function updateConfigAccess(plan: ResearchBriefRequiredPlan) {

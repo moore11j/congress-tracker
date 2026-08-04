@@ -75,6 +75,7 @@ class ResearchBriefGeneratePayload(BaseModel):
 class ResearchBriefUpdatePayload(BaseModel):
     status: str | None = Field(default=None, max_length=40)
     article: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConfirmPayload(BaseModel):
@@ -156,7 +157,7 @@ def admin_research_brief_draft(draft_id: str, request: Request, db: Session = De
 @router.patch("/admin/research-briefs/drafts/{draft_id}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_research_brief_update(draft_id: str, payload: ResearchBriefUpdatePayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
-    return update_draft(admin, draft_id, payload.article, status=payload.status, db=db)
+    return update_draft(admin, draft_id, payload.article, status=payload.status, db=db, config_patch=payload.config)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/refresh-sources", dependencies=[Depends(rate_limit_admin_mutation)])

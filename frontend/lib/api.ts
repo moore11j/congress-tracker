@@ -6352,7 +6352,7 @@ export async function getAdminResearchBriefDrafts(status = "all"): Promise<{ ite
 
 export async function updateAdminResearchBriefDraft(
   draftId: string,
-  payload: { status?: string; article: Partial<AdminResearchBriefArticle> },
+  payload: { status?: string; article: Partial<AdminResearchBriefArticle>; config?: Partial<AdminResearchBriefConfig> },
 ): Promise<AdminResearchBriefDraft> {
   return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}`), {
     method: "PATCH",

@@ -3855,16 +3855,51 @@ def _draft_with_comparison_tickers(draft: dict[str, Any]) -> dict[str, Any]:
     return draft
 
 
-def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any], status: str | None = None, db: Session | None = None) -> dict[str, Any]:
+def _apply_draft_config_patch(draft: dict[str, Any], config_patch: dict[str, Any] | None) -> dict[str, Any]:
+    if not config_patch:
+        return validate_config(draft.get("config") or {})
+    merged_config = {**(draft.get("config") or {}), **config_patch}
+    config = validate_config(merged_config)
+    comparison_tickers = list(config.get("comparison_tickers") or [])
+    draft["config"] = config
+    draft["comparison_tickers"] = comparison_tickers
+    draft["comparison_ticker"] = comparison_tickers[0] if comparison_tickers else None
+    return config
+
+
+def _sync_article_comparison_metadata(article: dict[str, Any], draft: dict[str, Any], config: dict[str, Any]) -> None:
+    comparison_tickers = list(config.get("comparison_tickers") or [])
+    primary_ticker = normalize_symbol(article.get("primary_ticker") or draft.get("primary_ticker") or config.get("ticker")) or str(
+        article.get("primary_ticker") or draft.get("primary_ticker") or config.get("ticker") or ""
+    ).upper()
+    article["comparison_tickers"] = comparison_tickers
+    if primary_ticker:
+        article["primary_ticker"] = primary_ticker
+    suggested_card = article.get("suggested_card") if isinstance(article.get("suggested_card"), dict) else {}
+    suggested_card["tickers"] = _dedupe_strings([primary_ticker, *comparison_tickers])
+    article["suggested_card"] = suggested_card
+
+
+def update_draft(
+    admin: UserAccount,
+    draft_id: str,
+    article_patch: dict[str, Any],
+    status: str | None = None,
+    db: Session | None = None,
+    config_patch: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if db is not None:
         draft = _db_draft(db, draft_id)
         if draft:
+            config = _apply_draft_config_patch(draft, config_patch)
             article = draft.setdefault("article", {})
             article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset", "premium_required", "required_plan"}})
+            if config_patch:
+                _sync_article_comparison_metadata(article, draft, config)
             article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
             draft["article"] = sanitize_research_brief_article(
                 article,
-                draft.get("config") or {},
+                config,
                 draft.get("research_context") or {},
                 repair_generated_sections=False,
             )
@@ -3878,12 +3913,15 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
         store = _read_store()
         for draft in store.get("drafts", []):
             if draft.get("id") == draft_id:
+                config = _apply_draft_config_patch(draft, config_patch)
                 article = draft.setdefault("article", {})
                 article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset", "premium_required", "required_plan"}})
+                if config_patch:
+                    _sync_article_comparison_metadata(article, draft, config)
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
                 draft["article"] = sanitize_research_brief_article(
                     article,
-                    draft.get("config") or {},
+                    config,
                     draft.get("research_context") or {},
                     repair_generated_sections=False,
                 )
