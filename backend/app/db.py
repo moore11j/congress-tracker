@@ -1493,34 +1493,61 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                     """
                 )
             )
+            table_columns = {
+                "analyst_consensus_snapshots": set(),
+                "analyst_grade_events": set(),
+                "analyst_consensus_ingestion_runs": set(),
+            }
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name IN (
+                        'analyst_consensus_snapshots',
+                        'analyst_grade_events',
+                        'analyst_consensus_ingestion_runs'
+                      )
+                    """
+                )
+            )
+            for table_name, column_name in rows:
+                if table_name in table_columns:
+                    table_columns[table_name].add(column_name)
+
+            def add_pg_column(table_name: str, column_name: str, column_spec: str) -> None:
+                if column_name not in table_columns.get(table_name, set()):
+                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}"))
+
             for name in snapshot_text_columns:
                 default = " DEFAULT 'unavailable'" if name == "availability_status" else " DEFAULT 'available'" if name == "provider_status" else " DEFAULT 'fmp'" if name == "source" else " DEFAULT 'analyst_consensus_v1'" if name == "methodology_version" else " DEFAULT '{}'" if name == "raw_payload_json" else ""
                 not_null = " NOT NULL" if name in {"availability_status", "provider_status", "source", "methodology_version", "raw_payload_json"} else ""
-                conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS {name} TEXT{default}{not_null}"))
+                add_pg_column("analyst_consensus_snapshots", name, f"TEXT{default}{not_null}")
             for name in snapshot_int_columns:
-                conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS {name} INTEGER"))
+                add_pg_column("analyst_consensus_snapshots", name, "INTEGER")
             for name in snapshot_numeric_columns:
-                conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS {name} DOUBLE PRECISION"))
-            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS snapshot_date DATE"))
-            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS current_price_as_of TIMESTAMPTZ"))
-            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ"))
-            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ DEFAULT now()"))
-            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+                add_pg_column("analyst_consensus_snapshots", name, "DOUBLE PRECISION")
+            add_pg_column("analyst_consensus_snapshots", "snapshot_date", "DATE")
+            add_pg_column("analyst_consensus_snapshots", "current_price_as_of", "TIMESTAMPTZ")
+            add_pg_column("analyst_consensus_snapshots", "source_updated_at", "TIMESTAMPTZ")
+            add_pg_column("analyst_consensus_snapshots", "ingested_at", "TIMESTAMPTZ DEFAULT now()")
+            add_pg_column("analyst_consensus_snapshots", "updated_at", "TIMESTAMPTZ DEFAULT now()")
             for name in event_text_columns:
                 default = " DEFAULT 'fmp'" if name == "source" else " DEFAULT '{}'" if name == "raw_payload_json" else ""
                 not_null = " NOT NULL" if name in {"event_fingerprint", "source", "raw_payload_json"} else ""
-                conn.execute(text(f"ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS {name} TEXT{default}{not_null}"))
-            conn.execute(text("ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS published_date DATE"))
-            conn.execute(text("ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ DEFAULT now()"))
-            conn.execute(text("ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+                add_pg_column("analyst_grade_events", name, f"TEXT{default}{not_null}")
+            add_pg_column("analyst_grade_events", "published_date", "DATE")
+            add_pg_column("analyst_grade_events", "ingested_at", "TIMESTAMPTZ DEFAULT now()")
+            add_pg_column("analyst_grade_events", "updated_at", "TIMESTAMPTZ DEFAULT now()")
             for name in run_text_columns:
                 default = " DEFAULT 'running'" if name == "status" else " DEFAULT '[]'" if name == "provider_errors_json" else " DEFAULT '{}'" if name == "metadata_json" else ""
                 not_null = " NOT NULL" if name in {"job_name", "status", "provider_errors_json", "metadata_json"} else ""
-                conn.execute(text(f"ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS {name} TEXT{default}{not_null}"))
+                add_pg_column("analyst_consensus_ingestion_runs", name, f"TEXT{default}{not_null}")
             for name in run_int_columns:
-                conn.execute(text(f"ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS {name} INTEGER NOT NULL DEFAULT 0"))
-            conn.execute(text("ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ"))
-            conn.execute(text("ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ"))
+                add_pg_column("analyst_consensus_ingestion_runs", name, "INTEGER NOT NULL DEFAULT 0")
+            add_pg_column("analyst_consensus_ingestion_runs", "started_at", "TIMESTAMPTZ")
+            add_pg_column("analyst_consensus_ingestion_runs", "completed_at", "TIMESTAMPTZ")
         conn.execute(
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_symbol_date "
