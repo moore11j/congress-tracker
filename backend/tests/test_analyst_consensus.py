@@ -288,6 +288,7 @@ def test_compare_consensus_redacts_details_for_free():
 
         assert free_payload["access"]["detailsLocked"] is True
         assert free_payload["items"]["MSFT"]["summary"]["weightedRatingValue"] is None
+        assert free_payload["items"]["MSFT"]["summary"]["targetDispersionPct"] is None
         assert "priceTargetRange" not in free_payload["items"]["MSFT"]["currentSnapshot"]
         assert premium_payload["items"]["MSFT"]["summary"]["weightedRatingValue"] == 0.5
     finally:

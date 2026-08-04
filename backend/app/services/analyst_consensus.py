@@ -1029,7 +1029,7 @@ def compare_consensus_payload(
                 "recommendationLabel": row.recommendation_label,
                 "weightedRatingValue": row.weighted_rating_value if include_details else None,
                 "consensusImpliedUpsidePct": row.consensus_implied_upside_pct,
-                "targetDispersionPct": row.target_dispersion_pct,
+                "targetDispersionPct": row.target_dispersion_pct if include_details else None,
                 "availabilityStatus": _snapshot_availability(row),
                 "providerStatus": row.provider_status,
             },
