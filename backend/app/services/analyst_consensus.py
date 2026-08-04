@@ -23,6 +23,7 @@ from app.models import (
     AnalystConsensusIngestionRun,
     AnalystConsensusSnapshot,
     AnalystGradeEvent,
+    Event,
     PriceCache,
     QuoteCache,
     Security,
@@ -380,6 +381,115 @@ def upsert_consensus_snapshot(db: Session, values: dict[str, Any]) -> tuple[Anal
     return row, created
 
 
+def _previous_consensus_snapshot(db: Session, symbol: str, snapshot_date: date) -> AnalystConsensusSnapshot | None:
+    return db.execute(
+        select(AnalystConsensusSnapshot)
+        .where(AnalystConsensusSnapshot.symbol == symbol)
+        .where(AnalystConsensusSnapshot.snapshot_date < snapshot_date)
+        .where(AnalystConsensusSnapshot.availability_status.in_(("available", "partial", "stale")))
+        .order_by(AnalystConsensusSnapshot.snapshot_date.desc(), AnalystConsensusSnapshot.ingested_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _pct_change(current: float | None, prior: float | None) -> float | None:
+    if current is None or prior is None or prior == 0:
+        return None
+    return ((current / prior) - 1.0) * 100.0
+
+
+def _consensus_change_payload(
+    current: AnalystConsensusSnapshot,
+    prior: AnalystConsensusSnapshot,
+) -> dict[str, Any] | None:
+    if str(current.availability_status or "").lower() not in {"available", "partial", "stale"}:
+        return None
+    label_changed = (current.recommendation_label or "") != (prior.recommendation_label or "")
+    upside_delta = None
+    if current.consensus_implied_upside_pct is not None and prior.consensus_implied_upside_pct is not None:
+        upside_delta = float(current.consensus_implied_upside_pct) - float(prior.consensus_implied_upside_pct)
+    weighted_delta = None
+    if current.weighted_rating_value is not None and prior.weighted_rating_value is not None:
+        weighted_delta = float(current.weighted_rating_value) - float(prior.weighted_rating_value)
+    target_delta_pct = _pct_change(
+        float(current.price_target_consensus) if current.price_target_consensus is not None else None,
+        float(prior.price_target_consensus) if prior.price_target_consensus is not None else None,
+    )
+    if not (
+        label_changed
+        or (upside_delta is not None and abs(upside_delta) >= 5.0)
+        or (weighted_delta is not None and abs(weighted_delta) >= 0.25)
+        or (target_delta_pct is not None and abs(target_delta_pct) >= 3.0)
+    ):
+        return None
+    direction = "bullish" if (upside_delta or weighted_delta or 0) > 0 else "bearish" if (upside_delta or weighted_delta or 0) < 0 else "neutral"
+    return {
+        "event_type": "analyst_consensus_change",
+        "symbol": current.symbol,
+        "direction": direction,
+        "snapshotDate": _iso_date(current.snapshot_date),
+        "priorSnapshotDate": _iso_date(prior.snapshot_date),
+        "recommendationLabel": current.recommendation_label,
+        "priorRecommendationLabel": prior.recommendation_label,
+        "recommendationChanged": label_changed,
+        "consensusImpliedUpsidePct": current.consensus_implied_upside_pct,
+        "priorConsensusImpliedUpsidePct": prior.consensus_implied_upside_pct,
+        "consensusUpsideDeltaPct": round(upside_delta, 4) if upside_delta is not None else None,
+        "weightedRatingValue": current.weighted_rating_value,
+        "priorWeightedRatingValue": prior.weighted_rating_value,
+        "weightedRatingDelta": round(weighted_delta, 4) if weighted_delta is not None else None,
+        "priceTargetConsensus": current.price_target_consensus,
+        "priorPriceTargetConsensus": prior.price_target_consensus,
+        "priceTargetConsensusDeltaPct": round(target_delta_pct, 4) if target_delta_pct is not None else None,
+        "methodologyVersion": METHODOLOGY_VERSION,
+    }
+
+
+def _create_consensus_change_event(
+    db: Session,
+    current: AnalystConsensusSnapshot,
+    prior: AnalystConsensusSnapshot | None,
+    observed_at: datetime,
+) -> bool:
+    if prior is None or current.snapshot_date is None:
+        return False
+    payload = _consensus_change_payload(current, prior)
+    if payload is None:
+        return False
+    source_filing_id = f"analyst_consensus:{current.symbol}:{current.snapshot_date.isoformat()}"
+    existing_id = db.execute(
+        select(Event.id)
+        .where(Event.event_type == "analyst_consensus_change")
+        .where(Event.symbol == current.symbol)
+        .where(Event.source_filing_id == source_filing_id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if existing_id is not None:
+        return False
+    magnitude = max(
+        abs(float(payload.get("consensusUpsideDeltaPct") or 0.0)),
+        abs(float(payload.get("weightedRatingDelta") or 0.0)) * 20.0,
+        abs(float(payload.get("priceTargetConsensusDeltaPct") or 0.0)),
+    )
+    event = Event(
+        event_type="analyst_consensus_change",
+        ts=observed_at,
+        event_date=datetime(current.snapshot_date.year, current.snapshot_date.month, current.snapshot_date.day, tzinfo=timezone.utc),
+        symbol=current.symbol,
+        source=SOURCE,
+        impact_score=min(100.0, max(10.0, magnitude * 2.0)),
+        payload_json=_json(payload),
+        trade_type=payload.get("direction"),
+        data_source=SOURCE,
+        source_provider=SOURCE,
+        source_filing_id=source_filing_id,
+        parser_version=METHODOLOGY_VERSION,
+    )
+    db.add(event)
+    db.flush()
+    return True
+
+
 def normalize_action(action: Any) -> str | None:
     raw = _text(action)
     if not raw:
@@ -498,8 +608,10 @@ def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime |
         observed_at=observed,
         provider_error=provider_error,
     )
+    prior_snapshot = _previous_consensus_snapshot(db, normalized, values["snapshot_date"])
     snapshot, created = upsert_consensus_snapshot(db, values)
-    return {"symbol": normalized, "status": snapshot.availability_status, "created": created, "snapshot_id": snapshot.id, "provider_error": provider_error}
+    event_created = _create_consensus_change_event(db, snapshot, prior_snapshot, observed)
+    return {"symbol": normalized, "status": snapshot.availability_status, "created": created, "snapshot_id": snapshot.id, "provider_error": provider_error, "change_event_created": event_created}
 
 
 def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_company_screener
 from app.entitlements import TierEntitlements, premium_required_error, required_tier_for_feature
-from app.models import FundamentalsCache, PriceCache, QuoteCache, TickerMeta
+from app.models import AnalystConsensusSnapshot, FundamentalsCache, PriceCache, QuoteCache, TickerMeta
 from app.services.confirmation_score import (
     normalize_confirmation_state,
     redact_confirmation_bundle_sources,
@@ -98,6 +98,9 @@ SUPPORTED_SORTS = {
     "institutional_activity_ownership_pct",
     "institutional_activity_holder_breadth",
     "institutional_activity_materiality_score",
+    "analyst_consensus_upside",
+    "analyst_consensus_ratings",
+    "analyst_consensus_sentiment",
 }
 
 PREMIUM_SORTS = {
@@ -118,6 +121,21 @@ PREMIUM_SORTS = {
     "institutional_activity_ownership_pct",
     "institutional_activity_holder_breadth",
     "institutional_activity_materiality_score",
+    "analyst_consensus_upside",
+    "analyst_consensus_ratings",
+    "analyst_consensus_sentiment",
+}
+ANALYST_CONSENSUS_FILTER_KEYS = {
+    "analyst_consensus_active",
+    "analyst_consensus_direction",
+    "analyst_consensus_min_upside",
+    "analyst_consensus_min_ratings",
+    "analyst_consensus_max_dispersion",
+}
+ANALYST_CONSENSUS_SORTS = {
+    "analyst_consensus_upside",
+    "analyst_consensus_ratings",
+    "analyst_consensus_sentiment",
 }
 OPTIONS_FLOW_FILTER_KEYS = {
     "options_flow_active",
@@ -198,6 +216,9 @@ NUMERIC_ROW_SORTS = {
     "institutional_activity_net_activity",
     "institutional_activity_institution_count",
     "institutional_activity_total_value",
+    "analyst_consensus_upside",
+    "analyst_consensus_ratings",
+    "analyst_consensus_sentiment",
 }
 
 FMP_FILTER_MAP = {
@@ -308,6 +329,11 @@ class ScreenerParams:
     institutional_activity_holder_breadth: str | None = None
     institutional_activity_lookback: str | None = None
     institutional_activity_lookback_days: int = DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS
+    analyst_consensus_active: bool | None = None
+    analyst_consensus_direction: str | None = None
+    analyst_consensus_min_upside: float | None = None
+    analyst_consensus_min_ratings: int | None = None
+    analyst_consensus_max_dispersion: float | None = None
     rel_volume_min: float | None = None
     rel_volume_max: float | None = None
     price_move_min: float | None = None
@@ -412,6 +438,11 @@ def screener_params_from_mapping(
             params.get("institutional_activity_lookback"),
             params.get("institutional_activity_lookback_days"),
         ),
+        analyst_consensus_active=_bool_param(params.get("analyst_consensus_active")),
+        analyst_consensus_direction=_string_param(params.get("analyst_consensus_direction")),
+        analyst_consensus_min_upside=_float_param(params.get("analyst_consensus_min_upside")),
+        analyst_consensus_min_ratings=_int_param(params.get("analyst_consensus_min_ratings")),
+        analyst_consensus_max_dispersion=_float_param(params.get("analyst_consensus_max_dispersion")),
         rel_volume_min=_float_param(params.get("rel_volume_min")),
         rel_volume_max=_float_param(params.get("rel_volume_max")),
         price_move_min=_float_param(params.get("price_move_min")),
@@ -643,6 +674,7 @@ def _build_screener_dataset(
     government_contracts_summaries = confirmation_context["government_contracts_summaries"]
     options_flow_summaries = confirmation_context["options_flow_summaries"]
     institutional_activity_summaries = confirmation_context["institutional_activity_summaries"]
+    analyst_consensus_summaries = _latest_analyst_consensus_summaries(db, symbols)
     overlay_availability = _overlay_availability_for_entitlements(
         confirmation_context["overlay_availability"],
         entitlements,
@@ -692,6 +724,7 @@ def _build_screener_dataset(
             government_contracts_summary=government_contracts_summaries.get(row["symbol"]),
             options_flow_summary=options_flow_summaries.get(row["symbol"]),
             institutional_activity_summary=institutional_activity_summaries.get(row["symbol"]),
+            analyst_consensus_summary=analyst_consensus_summaries.get(row["symbol"]),
         )
         for row in normalized_rows
     ]
@@ -783,6 +816,13 @@ def build_screener_csv_export(
             "Institutional Activity Total Value",
             "Institutional Activity Latest Date",
             "Institutional Activity Status",
+            "Analyst Consensus Active",
+            "Analyst Consensus Direction",
+            "Analyst Consensus Recommendation",
+            "Analyst Consensus Upside",
+            "Analyst Consensus Rating Count",
+            "Analyst Consensus Dispersion",
+            "Analyst Consensus Snapshot Date",
         ]
     )
     for row in rows:
@@ -831,6 +871,13 @@ def build_screener_csv_export(
                 _csv_number(row.get("institutional_activity_total_value")),
                 row.get("institutional_activity_latest_date") or "",
                 row.get("institutional_activity_status") or "",
+                row.get("analyst_consensus_active"),
+                _csv_label(row.get("analyst_consensus_direction")),
+                row.get("analyst_consensus_recommendation") or "",
+                _csv_number(row.get("analyst_consensus_upside")),
+                _csv_number(row.get("analyst_consensus_ratings"), digits=0),
+                _csv_number(row.get("analyst_consensus_dispersion")),
+                row.get("analyst_consensus_snapshot_date") or "",
             ]
         )
     return output.getvalue(), len(rows)
@@ -1120,6 +1167,11 @@ def _intelligence_filter_keys() -> tuple[str, ...]:
         "institutional_activity_holder_breadth",
         "institutional_activity_lookback",
         "institutional_activity_lookback_days",
+        "analyst_consensus_active",
+        "analyst_consensus_direction",
+        "analyst_consensus_min_upside",
+        "analyst_consensus_min_ratings",
+        "analyst_consensus_max_dispersion",
     )
 
 
@@ -1173,7 +1225,7 @@ def _fundamental_range(params: ScreenerParams, spec: FundamentalFilterSpec) -> t
 def _has_intelligence_filters(params: ScreenerParams) -> bool:
     return any(
         getattr(params, key) is not None
-        for key in PREMIUM_SIGNAL_FILTER_KEYS
+        for key in PREMIUM_SIGNAL_FILTER_KEYS | ANALYST_CONSENSUS_FILTER_KEYS
     )
 
 
@@ -1201,7 +1253,12 @@ def _has_institutional_activity_filters(params: ScreenerParams) -> bool:
 
 
 def _has_source_derived_filters(params: ScreenerParams) -> bool:
-    return _has_public_source_filters(params) or _has_options_flow_filters(params) or _has_institutional_activity_filters(params)
+    return (
+        _has_public_source_filters(params)
+        or _has_options_flow_filters(params)
+        or _has_institutional_activity_filters(params)
+        or any(getattr(params, key) is not None for key in ANALYST_CONSENSUS_FILTER_KEYS)
+    )
 
 
 def _has_core_filters(params: ScreenerParams) -> bool:
@@ -1217,7 +1274,7 @@ def _has_fundamental_filters(params: ScreenerParams) -> bool:
 
 
 def has_intelligence_sort(params: ScreenerParams) -> bool:
-    return params.sort in PREMIUM_SIGNAL_SORTS
+    return params.sort in PREMIUM_SIGNAL_SORTS or params.sort in ANALYST_CONSENSUS_SORTS
 
 
 def require_screener_intelligence_access(params: ScreenerParams, entitlements: TierEntitlements) -> None:
@@ -1241,7 +1298,7 @@ def require_screener_intelligence_access(params: ScreenerParams, entitlements: T
         return
     raise premium_required_error(
         feature="screener_intelligence",
-        message="Signal confirmation, Why Now, and freshness screener filters are included with Premium.",
+            message="Signal confirmation, analyst consensus, Why Now, and freshness screener filters are included with Premium.",
         entitlements=entitlements,
     )
 
@@ -1568,6 +1625,71 @@ def _activity_from_bundle(bundle: dict[str, Any] | None, source_key: str, inacti
     }
 
 
+def _analyst_consensus_direction(label: Any) -> str | None:
+    text = str(label or "").strip().lower().replace("_", " ")
+    if not text:
+        return None
+    if "sell" in text or "bear" in text or text in {"underperform", "negative"}:
+        return "bearish"
+    if "buy" in text or "bull" in text or text in {"outperform", "positive"}:
+        return "bullish"
+    if "hold" in text or "neutral" in text:
+        return "neutral"
+    return None
+
+
+def _latest_analyst_consensus_summaries(db: Session, symbols: list[str]) -> dict[str, dict[str, Any]]:
+    unique_symbols = sorted({normalize_symbol(symbol) for symbol in symbols if normalize_symbol(symbol)})
+    if not unique_symbols:
+        return {}
+    latest_dates = (
+        select(
+            AnalystConsensusSnapshot.symbol.label("symbol"),
+            func.max(AnalystConsensusSnapshot.snapshot_date).label("snapshot_date"),
+        )
+        .where(AnalystConsensusSnapshot.symbol.in_(unique_symbols))
+        .group_by(AnalystConsensusSnapshot.symbol)
+        .subquery()
+    )
+    try:
+        rows = (
+            db.execute(
+                select(AnalystConsensusSnapshot)
+                .join(
+                    latest_dates,
+                    (AnalystConsensusSnapshot.symbol == latest_dates.c.symbol)
+                    & (AnalystConsensusSnapshot.snapshot_date == latest_dates.c.snapshot_date),
+                )
+            )
+            .scalars()
+            .all()
+        )
+    except Exception:
+        db.rollback()
+        logger.debug("screener_analyst_consensus_lookup_failed", exc_info=True)
+        return {}
+    summaries: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        status = str(row.availability_status or "").strip().lower() or "unavailable"
+        active = status in {"available", "partial", "stale"}
+        recommendation = row.recommendation_label if isinstance(row.recommendation_label, str) else None
+        summaries[row.symbol] = {
+            "active": active,
+            "status": status,
+            "direction": _analyst_consensus_direction(recommendation),
+            "recommendation_label": recommendation,
+            "weighted_rating_value": _number(row.weighted_rating_value),
+            "consensus_implied_upside_pct": _number(row.consensus_implied_upside_pct),
+            "median_implied_upside_pct": _number(row.median_implied_upside_pct),
+            "target_dispersion_pct": _number(row.target_dispersion_pct),
+            "total_rating_count": _int_param(row.total_rating_count),
+            "price_target_consensus": _number(row.price_target_consensus),
+            "price_target_median": _number(row.price_target_median),
+            "snapshot_date": row.snapshot_date.isoformat() if row.snapshot_date else None,
+        }
+    return summaries
+
+
 def _enrich_row(
     row: dict[str, Any],
     bundle: dict[str, Any] | None,
@@ -1576,6 +1698,7 @@ def _enrich_row(
     government_contracts_summary: dict[str, Any] | None = None,
     options_flow_summary: dict[str, Any] | None = None,
     institutional_activity_summary: dict[str, Any] | None = None,
+    analyst_consensus_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         bundle = {
@@ -1602,6 +1725,7 @@ def _enrich_row(
     government_contracts_summary = government_contracts_summary if isinstance(government_contracts_summary, dict) else {}
     options_flow_summary = options_flow_summary if isinstance(options_flow_summary, dict) else {}
     institutional_activity_summary = institutional_activity_summary if isinstance(institutional_activity_summary, dict) else {}
+    analyst_consensus_summary = analyst_consensus_summary if isinstance(analyst_consensus_summary, dict) else {}
     government_contracts_status = (
         government_contracts_summary.get("status")
         if isinstance(government_contracts_summary.get("status"), str)
@@ -1677,6 +1801,17 @@ def _enrich_row(
         "institutional_activity_materiality_score": _number(institutional_activity_summary.get("materiality_score")) if institutional_activity_available else None,
         "institutional_activity_latest_date": institutional_activity_summary.get("latest_activity_date") if institutional_activity_available and isinstance(institutional_activity_summary.get("latest_activity_date"), str) else None,
         "institutional_activity_status": institutional_activity_status,
+        "analyst_consensus": analyst_consensus_summary,
+        "analyst_consensus_active": analyst_consensus_summary.get("active") is True,
+        "analyst_consensus_direction": analyst_consensus_summary.get("direction") if isinstance(analyst_consensus_summary.get("direction"), str) else None,
+        "analyst_consensus_recommendation": analyst_consensus_summary.get("recommendation_label") if isinstance(analyst_consensus_summary.get("recommendation_label"), str) else None,
+        "analyst_consensus_sentiment": _number(analyst_consensus_summary.get("weighted_rating_value")),
+        "analyst_consensus_upside": _number(analyst_consensus_summary.get("consensus_implied_upside_pct")),
+        "analyst_consensus_median_upside": _number(analyst_consensus_summary.get("median_implied_upside_pct")),
+        "analyst_consensus_ratings": _int_param(analyst_consensus_summary.get("total_rating_count")),
+        "analyst_consensus_dispersion": _number(analyst_consensus_summary.get("target_dispersion_pct")),
+        "analyst_consensus_snapshot_date": analyst_consensus_summary.get("snapshot_date") if isinstance(analyst_consensus_summary.get("snapshot_date"), str) else None,
+        "analyst_consensus_status": analyst_consensus_summary.get("status") if isinstance(analyst_consensus_summary.get("status"), str) else "unavailable",
         "confirmation": {
             "score": int(summary.get("confirmation_score") or 0),
             "band": summary.get("confirmation_band") if isinstance(summary.get("confirmation_band"), str) else "inactive",
@@ -1937,6 +2072,18 @@ def _row_matches_filters(
             return False
         if not _matches_institutional_holder_breadth(row, params.institutional_activity_holder_breadth):
             return False
+
+    if not _matches_boolean_filter(row.get("analyst_consensus_active"), params.analyst_consensus_active):
+        return False
+    analyst_direction = _normalized_str(params.analyst_consensus_direction)
+    if analyst_direction and _normalized_str(row.get("analyst_consensus_direction")) != analyst_direction:
+        return False
+    if params.analyst_consensus_min_upside is not None and _sort_number(row.get("analyst_consensus_upside"), missing=-999.0) < float(params.analyst_consensus_min_upside):
+        return False
+    if params.analyst_consensus_min_ratings is not None and _sort_number(row.get("analyst_consensus_ratings"), missing=-1.0) < float(params.analyst_consensus_min_ratings):
+        return False
+    if params.analyst_consensus_max_dispersion is not None and _sort_number(row.get("analyst_consensus_dispersion"), missing=999999.0) > float(params.analyst_consensus_max_dispersion):
+        return False
 
     if not _matches_technical_filters(row, params):
         return False

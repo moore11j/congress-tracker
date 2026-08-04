@@ -105,6 +105,10 @@ def build_monitoring_event_title(event: Event, payload: dict[str, Any]) -> str:
         action = _institutional_action_label(event.event_type, event.trade_type, event.transaction_type, payload)
         return " - ".join(part for part in (symbol, "Institutional Activity", action) if part)
 
+    if event.event_type == "analyst_consensus_change":
+        action = _clean_text(payload.get("recommendationLabel")) or _clean_text(payload.get("direction")) or "Consensus change"
+        return " - ".join(part for part in (symbol, "Analysts", action) if part)
+
     if event.event_type == "insider_trade":
         raw = _clean_dict(payload.get("raw"))
         insider_name = resolve_insider_name(payload, event_member_name=event.member_name) or "Insider"

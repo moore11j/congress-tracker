@@ -28,6 +28,8 @@ test("screener active column rules keep default intelligence params inactive", (
   assert.doesNotMatch(columns, /hasActiveIntelligenceFilters[\s\S]*government_contracts_min_amount/);
   assert.doesNotMatch(columns, /hasActiveIntelligenceFilters[\s\S]*options_flow_lookback_days/);
   assert.doesNotMatch(columns, /hasActiveIntelligenceFilters[\s\S]*institutional_activity_lookback_days/);
+  assert.match(columns, /columns\.push\("analyst_consensus"\)/);
+  assert.match(columns, /"analyst_consensus_min_upside"/);
   assert.match(columns, /if \(hasAnyActiveParam\(params, \["rel_volume_min", "rel_volume_max"\]\)\) columns\.push\("rel_volume"\)/);
   assert.match(columns, /\["trailing_pe", "trailing_pe_min", "trailing_pe_max"\]/);
   assert.match(columns, /\["price_sales", "price_to_sales_min", "price_to_sales_max"\]/);
@@ -46,6 +48,8 @@ test("free screener gates premium filter groups without the top monitoring badge
   assert.match(upgradeOverlay, /badge \? \(/);
   assert.match(page, /<FilterSelect name="congress_activity" label="Congress"/);
   assert.match(page, /<FilterSelect name="government_contracts_active" label="Contracts"/);
+  assert.match(page, /<FilterSelect name="analyst_consensus_direction" label="Direction"/);
+  assert.match(page, /title="Analyst filters"/);
   assert.doesNotMatch(page, /congress_activity_locked/);
   assert.doesNotMatch(page, /government_contracts_active_locked/);
   assert.match(page, /title="Confirmation filters"/);

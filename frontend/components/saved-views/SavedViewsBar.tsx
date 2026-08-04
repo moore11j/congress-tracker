@@ -64,6 +64,9 @@ const NUMERIC_EQUIVALENT_PARAM_KEYS = new Set([
   "options_flow_lookback_days",
   "institutional_activity_min_value",
   "institutional_activity_lookback_days",
+  "analyst_consensus_min_upside",
+  "analyst_consensus_min_ratings",
+  "analyst_consensus_max_dispersion",
   "lookback_days",
   "page_size",
 ]);

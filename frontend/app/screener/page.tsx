@@ -116,6 +116,16 @@ type ScreenerRow = {
   government_contracts_latest_date?: string | null;
   government_contracts_top_agency?: string | null;
   government_contracts_direction?: string | null;
+  analyst_consensus_active?: boolean | null;
+  analyst_consensus_direction?: string | null;
+  analyst_consensus_recommendation?: string | null;
+  analyst_consensus_sentiment?: number | null;
+  analyst_consensus_upside?: number | null;
+  analyst_consensus_median_upside?: number | null;
+  analyst_consensus_ratings?: number | null;
+  analyst_consensus_dispersion?: number | null;
+  analyst_consensus_snapshot_date?: string | null;
+  analyst_consensus_status?: string | null;
   options_flow_active?: boolean | null;
   options_flow_score?: number | null;
   options_flow_direction?: string | null;
@@ -230,6 +240,11 @@ const PARAM_KEYS = [
   "institutional_activity_holder_breadth",
   "institutional_activity_lookback",
   "institutional_activity_lookback_days",
+  "analyst_consensus_active",
+  "analyst_consensus_direction",
+  "analyst_consensus_min_upside",
+  "analyst_consensus_min_ratings",
+  "analyst_consensus_max_dispersion",
   ...TECHNICAL_PARAM_KEYS,
   ...FUNDAMENTAL_PARAM_KEYS,
   "lookback_days",
@@ -282,6 +297,9 @@ const SORTS = [
   ["relevance", "Relevance"],
   ["confirmation_score", "Confirmation"],
   ["freshness", "Freshness"],
+  ["analyst_consensus_upside", "Analyst upside"],
+  ["analyst_consensus_ratings", "Analyst coverage"],
+  ["analyst_consensus_sentiment", "Analyst sentiment"],
   ["market_cap", "Market cap"],
   ["price", "Price"],
   ["volume", "Volume"],
@@ -374,6 +392,28 @@ const INSTITUTIONAL_DIRECTION_OPTIONS = [
   ["bearish", "Bearish"],
   ["mixed", "Mixed"],
 ] as const;
+const ANALYST_CONSENSUS_DIRECTION_OPTIONS = [
+  ["bullish", "Bullish"],
+  ["bearish", "Bearish"],
+  ["neutral", "Neutral"],
+] as const;
+const ANALYST_CONSENSUS_UPSIDE_OPTIONS = [
+  ["0", "0%+"],
+  ["10", "10%+"],
+  ["20", "20%+"],
+  ["40", "40%+"],
+] as const;
+const ANALYST_CONSENSUS_RATING_OPTIONS = [
+  ["5", "5+"],
+  ["10", "10+"],
+  ["20", "20+"],
+  ["40", "40+"],
+] as const;
+const ANALYST_CONSENSUS_DISPERSION_OPTIONS = [
+  ["20", "20% or less"],
+  ["40", "40% or less"],
+  ["75", "75% or less"],
+] as const;
 const INSTITUTIONAL_ACTIVITY_TYPE_OPTIONS = [
   ["accumulation", "Accumulation"],
   ["distribution", "Distribution"],
@@ -447,6 +487,9 @@ const NUMERIC_PARAM_KEYS = new Set<string>([
   "institutional_activity_min_value",
   "institutional_activity_min_ownership_pct",
   "institutional_activity_lookback_days",
+  "analyst_consensus_min_upside",
+  "analyst_consensus_min_ratings",
+  "analyst_consensus_max_dispersion",
   ...TECHNICAL_PARAM_KEYS,
   ...FUNDAMENTAL_PARAM_KEYS,
 ]);
@@ -867,7 +910,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
   const overlayAvailability = overlayAvailabilityDefaults();
   const optionsFlowFilterable = canUseOptionsFlow && overlayAvailability?.options_flow?.filterable === true;
   const institutionalActivityFilterable = canUseInstitutionalActivity && overlayAvailability?.institutional_activity?.filterable === true;
-  const sortOptions = SORTS.filter(([value]) => canUseIntelligence || !["confirmation_score", "freshness"].includes(value));
+  const sortOptions = SORTS.filter(([value]) => canUseIntelligence || !["confirmation_score", "freshness", "analyst_consensus_upside", "analyst_consensus_ratings", "analyst_consensus_sentiment"].includes(value));
   const rowsOptions: ReadonlyArray<readonly [string, string]> = PAGE_SIZE_OPTIONS.map((value) => [String(value), String(value)] as const).filter(
     ([value]) => Number(value) <= Math.min(resultCap, 100),
   );
@@ -1076,6 +1119,34 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                       <FilterSelect name="confirmation_score_locked" label="Score" value="" options={CONFIRMATION_SCORE_OPTIONS} />
                       <FilterSelect name="confirmation_direction_locked" label="Direction" value="" options={CONFIRMATION_DIRECTION_OPTIONS} />
                       <FilterSelect name="confirmation_band_locked" label="Band" value="" options={CONFIRMATION_BAND_OPTIONS} />
+                    </div>
+                  </div>
+                </ScreenerUpgradeOverlay>
+              )}
+
+              {canUseIntelligence ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Analysts</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <FilterSelect name="analyst_consensus_active" label="Analysts" value={params.analyst_consensus_active} options={BOOLEAN_ACTIVITY_OPTIONS} />
+                    <FilterSelect name="analyst_consensus_direction" label="Direction" value={params.analyst_consensus_direction} options={ANALYST_CONSENSUS_DIRECTION_OPTIONS} />
+                    <FilterSelect name="analyst_consensus_min_upside" label="Upside" value={params.analyst_consensus_min_upside} options={ANALYST_CONSENSUS_UPSIDE_OPTIONS} />
+                    <FilterSelect name="analyst_consensus_min_ratings" label="Ratings" value={params.analyst_consensus_min_ratings} options={ANALYST_CONSENSUS_RATING_OPTIONS} />
+                    <FilterSelect name="analyst_consensus_max_dispersion" label="Dispersion" value={params.analyst_consensus_max_dispersion} options={ANALYST_CONSENSUS_DISPERSION_OPTIONS} />
+                  </div>
+                </div>
+              ) : (
+                <ScreenerUpgradeOverlay
+                  title="Analyst filters"
+                  body="Analyst consensus filters and sorts are included with Premium."
+                  className="rounded-2xl"
+                >
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 opacity-70 blur-[1.5px]">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Analysts</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <FilterSelect name="analyst_consensus_locked" label="Analysts" value="" options={BOOLEAN_ACTIVITY_OPTIONS} />
+                      <FilterSelect name="analyst_consensus_direction_locked" label="Direction" value="" options={ANALYST_CONSENSUS_DIRECTION_OPTIONS} />
+                      <FilterSelect name="analyst_consensus_upside_locked" label="Upside" value="" options={ANALYST_CONSENSUS_UPSIDE_OPTIONS} />
                     </div>
                   </div>
                 </ScreenerUpgradeOverlay>
@@ -1377,6 +1448,7 @@ function ScreenerResults({
               {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
               {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
               {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
+              {activeColumns.includes("analyst_consensus") ? <SortHeader params={params} sort="analyst_consensus_upside" label="Analysts" locked={intelligenceLocked} /> : null}
               {activeColumns.includes("confirmation") ? <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} /> : null}
               {activeColumns.includes("why_now") ? <th className="px-3 py-2.5 text-left">Why Now</th> : null}
               {activeColumns.includes("rel_volume") ? <th className="px-3 py-2.5 text-left">Volume vs Avg</th> : null}
@@ -1603,6 +1675,23 @@ function InstitutionalActivityCell({ row, proLocked }: { row: ScreenerRow; proLo
   );
 }
 
+function AnalystConsensusCell({ row }: { row: ScreenerRow }) {
+  if (!row.analyst_consensus_active || row.analyst_consensus_status === "unavailable") return <span className="text-sm text-slate-500">--</span>;
+  const recommendation = row.analyst_consensus_recommendation ?? titleCase(row.analyst_consensus_direction ?? "");
+  const ratings = row.analyst_consensus_ratings;
+  return (
+    <div className="min-w-[10rem]">
+      <div className="text-sm font-semibold text-slate-100">
+        {recommendation || "--"} / {formatPercent(row.analyst_consensus_upside, true)}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
+        {ratings != null ? `${ratings} ratings` : "Ratings --"}
+        {row.analyst_consensus_dispersion != null ? ` / ${formatPercent(row.analyst_consensus_dispersion)} dispersion` : ""}
+      </div>
+    </div>
+  );
+}
+
 function macdLabel(value?: string | null): string {
   if (value === "crossover_bullish") return "Bullish crossover";
   if (value === "crossover_bearish") return "Bearish crossover";
@@ -1686,6 +1775,7 @@ function ScreenerTableRow({
           availabilityStatus={governmentContractsAvailabilityStatus}
         />
       </td> : null}
+      {activeColumns.includes("analyst_consensus") ? <td className={`${tableCellClassName} min-w-[10rem]`}><AnalystConsensusCell row={row} /></td> : null}
       {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>

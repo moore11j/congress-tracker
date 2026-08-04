@@ -164,6 +164,7 @@ function SideHeader({ side, winner, tone }: { side: PeerCompareResponse["left"];
 function proLockCopy(category: PeerCompareCategory) {
   if (category.key === "institutional_activity") return "See which ticker institutions are accumulating or reducing.";
   if (category.key === "options_flow") return "See whether options positioning confirms or contradicts the comparison.";
+  if (category.key === "analyst_consensus") return "Compare analyst direction, target upside, coverage, and dispersion.";
   return "Upgrade to see this additional context.";
 }
 

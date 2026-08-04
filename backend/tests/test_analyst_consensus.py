@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_analyst_consensus_schema
-from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, PriceCache, TickerMeta
+from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, Event, PriceCache, TickerMeta
 from app.entitlements import ENTITLEMENTS, require_feature
 from app.services.analyst_consensus import (
     build_snapshot_payload,
@@ -19,12 +19,14 @@ from app.services.analyst_consensus import (
     grade_event_stats,
     implied_upside,
     latest_cached_price,
+    PricePoint,
     recommendation_label,
     target_dispersion,
     total_rating_count,
     upsert_consensus_snapshot,
     upsert_grade_event,
     weighted_sentiment,
+    _create_consensus_change_event,
 )
 
 
@@ -128,6 +130,41 @@ def test_snapshot_upsert_is_idempotent_and_change_uses_nearest_prior_snapshot():
         changes = consensus_changes(db, db.query(AnalystConsensusSnapshot).filter_by(snapshot_date=date(2026, 8, 4)).one())
         assert changes["days30"]["comparisonDate"] == "2026-07-01"
         assert changes["days30"]["consensusTargetChange"] == 25.0
+    finally:
+        db.close()
+
+
+def test_consensus_change_event_is_alertable_and_idempotent():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        first_values = build_snapshot_payload(
+            "AAPL",
+            grades_summary_rows=[{"strongBuy": 2, "buy": 4, "hold": 4, "sell": 0, "strongSell": 0}],
+            price_target_consensus_rows=[{"targetHigh": 260, "targetLow": 180, "targetConsensus": 225, "targetMedian": 220}],
+            price_target_summary_rows=[{"allTimeCount": 12, "allTimeAvgPriceTarget": 222}],
+            price=PricePoint(200, "test", datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)),
+            observed_at=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        )
+        second_values = build_snapshot_payload(
+            "AAPL",
+            grades_summary_rows=[{"strongBuy": 8, "buy": 6, "hold": 1, "sell": 0, "strongSell": 0}],
+            price_target_consensus_rows=[{"targetHigh": 330, "targetLow": 230, "targetConsensus": 280, "targetMedian": 275}],
+            price_target_summary_rows=[{"allTimeCount": 18, "allTimeAvgPriceTarget": 276}],
+            price=PricePoint(200, "test", datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)),
+            observed_at=datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc),
+        )
+        prior, _ = upsert_consensus_snapshot(db, first_values)
+        current, _ = upsert_consensus_snapshot(db, second_values)
+        observed = datetime(2026, 8, 4, 13, 0, tzinfo=timezone.utc)
+
+        assert _create_consensus_change_event(db, current, prior, observed) is True
+        assert _create_consensus_change_event(db, current, prior, observed) is False
+        db.commit()
+
+        event = db.query(Event).filter_by(event_type="analyst_consensus_change", symbol="AAPL").one()
+        assert event.source_filing_id == "analyst_consensus:AAPL:2026-08-04"
+        assert "consensusUpsideDeltaPct" in event.payload_json
     finally:
         db.close()
 

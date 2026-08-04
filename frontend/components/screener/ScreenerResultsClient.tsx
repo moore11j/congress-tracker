@@ -280,6 +280,23 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerApiRow; locked?: bo
   );
 }
 
+function AnalystConsensusCell({ row }: { row: ScreenerApiRow }) {
+  if (!row.analyst_consensus_active || row.analyst_consensus_status === "unavailable") return <span className="text-sm text-slate-500">--</span>;
+  const recommendation = row.analyst_consensus_recommendation ?? titleCase(row.analyst_consensus_direction ?? "");
+  const ratings = row.analyst_consensus_ratings;
+  return (
+    <div className="min-w-[10rem]">
+      <div className="text-sm font-semibold text-slate-100">
+        {recommendation || "--"} / {formatPercent(row.analyst_consensus_upside, true)}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
+        {ratings != null ? `${ratings} ratings` : "Ratings --"}
+        {row.analyst_consensus_dispersion != null ? ` / ${formatPercent(row.analyst_consensus_dispersion)} dispersion` : ""}
+      </div>
+    </div>
+  );
+}
+
 function macdLabel(value?: string | null): string {
   if (value === "crossover_bullish") return "Bullish crossover";
   if (value === "crossover_bearish") return "Bearish crossover";
@@ -356,6 +373,7 @@ function ScreenerTableRow({
       {activeColumns.includes("government_contracts") ? <td className={`${tableCellClassName} min-w-[11rem]`}>
         <GovernmentContractsMetricCell row={row} availabilityStatus={governmentContractsAvailabilityStatus} />
       </td> : null}
+      {activeColumns.includes("analyst_consensus") ? <td className={`${tableCellClassName} min-w-[10rem]`}><AnalystConsensusCell row={row} /></td> : null}
       {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
@@ -485,6 +503,7 @@ export function ScreenerResultsClient({
               {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
               {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
               {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
+              {activeColumns.includes("analyst_consensus") ? <SortHeader params={params} sort="analyst_consensus_upside" label="Analysts" locked={intelligenceLocked} /> : null}
               {activeColumns.includes("confirmation") ? <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} /> : null}
               {activeColumns.includes("why_now") ? <th className="px-3 py-2.5 text-left">Why Now</th> : null}
               {activeColumns.includes("rel_volume") ? <th className="px-3 py-2.5 text-left">Volume vs Avg</th> : null}

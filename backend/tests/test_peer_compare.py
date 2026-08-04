@@ -103,6 +103,81 @@ def test_peer_compare_free_tier_returns_teaser_only(monkeypatch):
     assert by_key["options_flow"]["required_plan"] == "pro"
 
 
+def test_peer_compare_includes_analyst_consensus_category(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _fundamentals("AAA", revenue_growth=20, roe=25, forward_pe=18),
+                _fundamentals("BBB", revenue_growth=12, roe=16, forward_pe=28),
+            ]
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_price_volume_summary",
+            lambda _db, _symbol: {"direction": "neutral", "change_pct_1d": 0.0, "volume_vs_avg": 1.0},
+        )
+        monkeypatch.setattr(main_module, "get_government_contracts_summary", lambda *_args, **_kwargs: {"status": "ok", "contract_count": 0, "total_award_amount": 0})
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_confirmation_context",
+            lambda _db, symbol: {
+                "confirmation_score_bundle": {
+                    "score": 80 if symbol == "AAA" else 50,
+                    "direction": "bullish" if symbol == "AAA" else "neutral",
+                }
+            },
+        )
+        monkeypatch.setattr(main_module, "_redact_locked_ticker_confirmation_sources", lambda bundle, _source_entitlements: bundle)
+        monkeypatch.setattr(
+            main_module,
+            "compare_consensus_payload",
+            lambda *_args, **_kwargs: {
+                "items": {
+                    "AAA": {
+                        "summary": {
+                            "recommendationLabel": "Bullish",
+                            "weightedRatingValue": 1.2,
+                            "consensusImpliedUpsidePct": 32.0,
+                            "targetDispersionPct": 20.0,
+                            "availabilityStatus": "available",
+                        },
+                        "currentSnapshot": {"recommendationDistribution": {"total": 24}},
+                    },
+                    "BBB": {
+                        "summary": {
+                            "recommendationLabel": "Neutral",
+                            "weightedRatingValue": 0.1,
+                            "consensusImpliedUpsidePct": 8.0,
+                            "targetDispersionPct": 45.0,
+                            "availabilityStatus": "available",
+                        },
+                        "currentSnapshot": {"recommendationDistribution": {"total": 9}},
+                    },
+                }
+            },
+        )
+
+        payload = main_module._build_peer_compare_payload(
+            db,
+            "AAA",
+            "BBB",
+            entitlements=ENTITLEMENTS["premium"],
+            authenticated=True,
+        )
+
+    by_key = {category["key"]: category for category in payload["categories"]}
+    analyst = by_key["analyst_consensus"]
+    assert analyst["label"] == "Analysts"
+    assert analyst["edge"] == "left"
+    metrics = {metric["key"]: metric for metric in analyst["metrics"]}
+    assert metrics["consensus_upside"]["left"] == 32.0
+    assert metrics["rating_count"]["right"] == 9
+    assert any("agrees with Walnut confirmation" in note for note in payload["notes"])
+
+
 def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
     engine = _engine()
     with Session(engine) as db:

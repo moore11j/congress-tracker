@@ -213,6 +213,7 @@ from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.profile_performance_curve import build_normalized_profile_curve, build_timeline_dates, load_profile_price_close_maps
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION, latest_replicated_portfolio_payload
 from app.services.signal_score import calculate_smart_score
+from app.services.analyst_consensus import compare_consensus_payload
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
@@ -8871,6 +8872,7 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
         "insiders": source_meta("insiders", None, False),
         "congress": source_meta("congress", None, False),
         "government_contracts": source_meta("government_contracts", None, False),
+        "analyst_consensus": source_meta("analyst_consensus", "premium", not can_view_signals, "premium_locked"),
         "signals": source_meta("signals", "premium", not can_view_signals, "premium_locked"),
         "institutional_activity": source_meta("institutional_activity", "pro", not can_view_pro_context, "pro_locked"),
         "options_flow": source_meta("options_flow", "pro", not can_view_pro_context, "pro_locked"),
@@ -8885,6 +8887,7 @@ _PEER_COMPARE_CATEGORY_WEIGHTS = {
     "congress_activity": 1.25,
     "insider_activity": 1.25,
     "government_contracts": 1.0,
+    "analyst_consensus": 1.25,
     "institutional_activity": 1.5,
     "options_flow": 1.5,
     "confirmation_score": 2.0,
@@ -9271,6 +9274,70 @@ def _peer_compare_government_category(left: dict[str, Any] | None, right: dict[s
     }
 
 
+def _peer_compare_analyst_direction(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("_", " ")
+    if not text or text in {"unavailable", "insufficient"}:
+        return "unavailable"
+    if "sell" in text or "bear" in text or text in {"underperform", "negative"}:
+        return "bearish"
+    if "buy" in text or "bull" in text or text in {"outperform", "positive"}:
+        return "bullish"
+    if "hold" in text or "neutral" in text:
+        return "neutral"
+    return _peer_compare_label(text)
+
+
+def _peer_compare_analyst_summary(item: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {}
+    summary = item.get("summary") if isinstance(item.get("summary"), dict) else {}
+    snapshot = item.get("currentSnapshot") if isinstance(item.get("currentSnapshot"), dict) else {}
+    distribution = snapshot.get("recommendationDistribution") if isinstance(snapshot.get("recommendationDistribution"), dict) else {}
+    return {
+        "recommendation": summary.get("recommendationLabel"),
+        "direction": _peer_compare_analyst_direction(summary.get("recommendationLabel")),
+        "weighted_rating": _peer_compare_num(summary.get("weightedRatingValue")),
+        "consensus_upside": _peer_compare_num(summary.get("consensusImpliedUpsidePct")),
+        "dispersion": _peer_compare_num(summary.get("targetDispersionPct")),
+        "rating_count": _peer_compare_num(
+            distribution.get("total")
+            or snapshot.get("totalRatingCount")
+            or snapshot.get("ratingsTotal")
+            or snapshot.get("total_rating_count")
+        ),
+        "availability": summary.get("availabilityStatus"),
+    }
+
+
+def _peer_compare_analyst_category(left: dict[str, Any] | None, right: dict[str, Any] | None, *, locked: bool) -> dict[str, Any]:
+    if locked:
+        return {"key": "analyst_consensus", "label": "Analysts", "locked": True, "required_plan": "premium", "edge": "even", "score": 0, "metrics": []}
+    left_summary = _peer_compare_analyst_summary(left)
+    right_summary = _peer_compare_analyst_summary(right)
+    direction_edge = _peer_compare_edge_from_direction(left_summary.get("direction"), right_summary.get("direction"))
+    upside_edge = _peer_compare_edge_from_metric(left_summary.get("consensus_upside"), right_summary.get("consensus_upside"), higher_better=True, abs_threshold=2.0)
+    coverage_edge = _peer_compare_edge_from_metric(left_summary.get("rating_count"), right_summary.get("rating_count"), higher_better=True, abs_threshold=3.0)
+    dispersion_edge = _peer_compare_edge_from_metric(left_summary.get("dispersion"), right_summary.get("dispersion"), higher_better=False, rel_threshold=0.15)
+    sentiment_edge = _peer_compare_edge_from_metric(left_summary.get("weighted_rating"), right_summary.get("weighted_rating"), higher_better=True, abs_threshold=0.15)
+    score = sum(
+        1 if edge == "left" else -1 if edge == "right" else 0
+        for edge in (direction_edge, upside_edge, coverage_edge, dispersion_edge, sentiment_edge)
+    )
+    return {
+        "key": "analyst_consensus",
+        "label": "Analysts",
+        "edge": "left" if score > 0 else "right" if score < 0 else "even",
+        "score": score,
+        "metrics": [
+            _peer_compare_metric("recommendation", "Recommendation", left_summary.get("direction"), right_summary.get("direction"), unit="text", edge=direction_edge),
+            _peer_compare_metric("consensus_upside", "Consensus Upside", left_summary.get("consensus_upside"), right_summary.get("consensus_upside"), unit="percent", edge=upside_edge),
+            _peer_compare_metric("rating_count", "Ratings", left_summary.get("rating_count"), right_summary.get("rating_count"), unit="integer", edge=coverage_edge),
+            _peer_compare_metric("dispersion", "Target Dispersion", left_summary.get("dispersion"), right_summary.get("dispersion"), unit="percent", edge=dispersion_edge),
+            _peer_compare_metric("weighted_rating", "Sentiment", left_summary.get("weighted_rating"), right_summary.get("weighted_rating"), unit="number", edge=sentiment_edge),
+        ],
+    }
+
+
 def _peer_compare_institutional_category(left: dict[str, Any] | None, right: dict[str, Any] | None, *, locked: bool) -> dict[str, Any]:
     if locked:
         return {"key": "institutional_activity", "label": "Reported Institutional Activity", "locked": True, "required_plan": "pro", "edge": "even", "score": 0, "metrics": []}
@@ -9346,6 +9413,7 @@ _PEER_COMPARE_TEASER_CATEGORIES = [
     ("congress_activity", "Congress Activity", "premium"),
     ("insider_activity", "Insider Activity", "premium"),
     ("government_contracts", "Government Contracts", "premium"),
+    ("analyst_consensus", "Analysts", "premium"),
     ("confirmation_score", "Confirmation Score", "premium"),
     ("institutional_activity", "Reported Institutional Activity", "pro"),
     ("options_flow", "Options Flow", "pro"),
@@ -9494,6 +9562,7 @@ def _build_peer_compare_payload(
             entitlements=entitlements,
         )
     confirmation_locked = bool((source_entitlements.get("signals") or {}).get("locked"))
+    analyst_locked = bool((source_entitlements.get("analyst_consensus") or {}).get("locked"))
     institutional_locked = bool((source_entitlements.get("institutional_activity") or {}).get("locked"))
     options_locked = bool((source_entitlements.get("options_flow") or {}).get("locked"))
 
@@ -9519,6 +9588,15 @@ def _build_peer_compare_payload(
     right_insiders = _peer_compare_trade_summary(db, right, "insider_trade", lookback_days=30)
     left_gov = get_government_contracts_summary(db, left, lookback_days=30, min_amount=1_000_000)
     right_gov = get_government_contracts_summary(db, right, lookback_days=30, min_amount=1_000_000)
+    analyst_items: dict[str, Any] = {}
+    if not analyst_locked:
+        try:
+            analyst_compare = compare_consensus_payload(db, [left, right], max_symbols=2, include_details=True)
+            analyst_items = analyst_compare.get("items") if isinstance(analyst_compare.get("items"), dict) else {}
+        except Exception:
+            db.rollback()
+            logger.debug("peer_compare_analyst_consensus_failed left=%s right=%s", left, right, exc_info=True)
+            analyst_items = {}
 
     left_confirmation = None
     right_confirmation = None
@@ -9546,6 +9624,7 @@ def _build_peer_compare_payload(
         _peer_compare_trade_category("congress_activity", "Congress Activity", left_congress, right_congress),
         _peer_compare_trade_category("insider_activity", "Insider Activity", left_insiders, right_insiders),
         _peer_compare_government_category(left_gov, right_gov),
+        _peer_compare_analyst_category(analyst_items.get(left), analyst_items.get(right), locked=analyst_locked),
         _peer_compare_institutional_category(left_institutional, right_institutional, locked=institutional_locked),
         _peer_compare_options_category(left_options, right_options, locked=options_locked),
         _peer_compare_confirmation_category(left_confirmation, right_confirmation, locked=confirmation_locked),
@@ -9558,6 +9637,14 @@ def _build_peer_compare_payload(
             continue
         if not category.get("metrics"):
             notes.append(f"{category.get('label')} has limited data for this comparison.")
+    category_by_key = {str(category.get("key")): category for category in categories}
+    analyst_edge = category_by_key.get("analyst_consensus", {}).get("edge")
+    confirmation_edge = category_by_key.get("confirmation_score", {}).get("edge")
+    if analyst_edge in {"left", "right"} and confirmation_edge in {"left", "right"}:
+        if analyst_edge == confirmation_edge:
+            notes.append("Analyst consensus agrees with Walnut confirmation on the stronger setup for this pair.")
+        else:
+            notes.append("Analyst consensus diverges from Walnut confirmation; review source drivers before treating either side as decisive.")
     call = _peer_compare_call(left, right, categories)
     return {
         "status": "ok",

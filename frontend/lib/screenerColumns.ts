@@ -6,6 +6,7 @@ export type ScreenerColumnKey =
   | "institutional"
   | "options_flow"
   | "government_contracts"
+  | "analyst_consensus"
   | "confirmation"
   | "why_now"
   | "rel_volume"
@@ -112,6 +113,18 @@ export function activeScreenerColumns(params: ScreenerParams): ScreenerColumnKey
     columns.push("options_flow");
   }
   if (hasActiveParam(params, "government_contracts_active")) columns.push("government_contracts");
+  if (
+    hasAnyActiveParam(params, [
+      "analyst_consensus_active",
+      "analyst_consensus_direction",
+      "analyst_consensus_min_upside",
+      "analyst_consensus_min_ratings",
+      "analyst_consensus_max_dispersion",
+    ])
+    || ["analyst_consensus_upside", "analyst_consensus_ratings", "analyst_consensus_sentiment"].includes(sort)
+  ) {
+    columns.push("analyst_consensus");
+  }
   if (hasAnyActiveParam(params, ["confirmation_score_min", "confirmation_direction", "confirmation_band"]) || sort === "confirmation_score") {
     columns.push("confirmation");
   }
@@ -170,6 +183,11 @@ export function hasActiveIntelligenceFilters(params: ScreenerParams): boolean {
     "why_now_state",
     "freshness",
     "government_contracts_active",
+    "analyst_consensus_active",
+    "analyst_consensus_direction",
+    "analyst_consensus_min_upside",
+    "analyst_consensus_min_ratings",
+    "analyst_consensus_max_dispersion",
     "options_flow_active",
     "options_flow_direction",
     "options_flow_min_score",

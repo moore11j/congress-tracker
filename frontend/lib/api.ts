@@ -5963,6 +5963,16 @@ export type ScreenerApiRow = {
   government_contracts_total_amount?: number | null;
   government_contracts_latest_date?: string | null;
   government_contracts_top_agency?: string | null;
+  analyst_consensus_active?: boolean | null;
+  analyst_consensus_direction?: string | null;
+  analyst_consensus_recommendation?: string | null;
+  analyst_consensus_sentiment?: number | null;
+  analyst_consensus_upside?: number | null;
+  analyst_consensus_median_upside?: number | null;
+  analyst_consensus_ratings?: number | null;
+  analyst_consensus_dispersion?: number | null;
+  analyst_consensus_snapshot_date?: string | null;
+  analyst_consensus_status?: string | null;
   options_flow_active?: boolean | null;
   options_flow_score?: number | null;
   options_flow_direction?: string | null;

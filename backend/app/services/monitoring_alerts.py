@@ -26,6 +26,7 @@ ALERTABLE_EVENT_TYPES = (
     "signal",
     "government_contract",
     "government_contract_new",
+    "analyst_consensus_change",
     "institutional_activity_change",
     *INSTITUTIONAL_EVENT_TYPES,
 )
