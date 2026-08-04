@@ -288,6 +288,49 @@ function accessLabel(plan: ResearchBriefRequiredPlan) {
   return "Free";
 }
 
+const PUBLISH_HARD_STOP_WARNING_CODES = new Set([
+  "missing_title",
+  "thin_body",
+  "missing_disclaimer",
+  "missing_source_links",
+  "insufficient_source_links",
+  "missing_official_earnings_source",
+  "official_earnings_retrieval_failed",
+  "missing_sec_or_ir_source",
+  "official_source_link_omitted",
+  "primary_ticker_context_mismatch",
+  "duplicate_slug",
+  "internal_wording",
+  "internal_workflow_language",
+  "unsupported_language",
+  "markdown_structure",
+]);
+
+function isPublishHardStopWarning(warning: { code?: string; blocking?: boolean }) {
+  return Boolean(warning.blocking && warning.code && PUBLISH_HARD_STOP_WARNING_CODES.has(warning.code));
+}
+
+function isThematicResearchDraft(draft: AdminResearchBriefDraft | null | undefined, article: AdminResearchBriefArticle | null | undefined) {
+  const analytics = objectValue(article?.analytics);
+  const context = objectValue(draft?.research_context);
+  const config = objectValue(draft?.config);
+  const text = [
+    analytics.research_type,
+    analytics.theme,
+    context.research_type,
+    context.theme,
+    config.desired_angle,
+    config.research_question,
+    article?.category,
+    article?.primary_ticker,
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  return ["thematic", "macro", "sector", "industry", "semiconductor_memory", "semiconductor memory", "memory shortage"].some((marker) =>
+    text.includes(marker),
+  );
+}
+
 export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toast }) {
   const [options, setOptions] = useState(fallbackOptions);
   const [config, setConfig] = useState<AdminResearchBriefConfig>(DEFAULT_CONFIG);
@@ -309,13 +352,15 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
   const validationLabels = selectedDraft?.validation?.labels;
-  const blockingWarnings = selectedWarnings.filter((warning) => warning.blocking);
+  const publishHardStopWarnings = selectedWarnings.filter(isPublishHardStopWarning);
   const selectedCard = articleDraft?.suggested_card;
   const comparisonTickers = config.comparison_tickers || [];
   const comparisonTickerLimitError = comparisonTickers.length > 5 ? "Comparison tickers are limited to 5 symbols." : "";
   const hasComparisonTickerErrors = Boolean(comparisonTickerLimitError || Object.keys(comparisonTickerErrors).length);
   const generationJobActive = activeJob?.status === "queued" || activeJob?.status === "running";
-  const walnutCallInvalid = Boolean(articleDraft?.walnut_call && !WALNUT_CALL_VALUES.includes(articleDraft.walnut_call));
+  const walnutCallInvalid = Boolean(
+    articleDraft?.walnut_call && !WALNUT_CALL_VALUES.includes(articleDraft.walnut_call) && !isThematicResearchDraft(selectedDraft, articleDraft),
+  );
 
   useEffect(() => {
     let alive = true;
@@ -409,6 +454,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
     setArticleDraft(selectedDraft.article);
     setBodyMarkdown(articleToMarkdown(selectedDraft.article));
+    const selectedConfig = { ...DEFAULT_CONFIG, ...(selectedDraft.config || {}) };
+    setConfig(selectedConfig);
+    setComparisonTickerInput((selectedConfig.comparison_tickers || []).join(", "));
   }, [selectedDraft]);
 
   useEffect(() => {
@@ -955,7 +1003,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onDelete={requestDeleteSelected}
             onRefreshSources={refreshSources}
             onRegenerate={regenerateWith}
-            blockingWarnings={blockingWarnings.length}
+            blockingWarnings={publishHardStopWarnings.length}
             walnutCallInvalid={walnutCallInvalid}
           />
         </div>
@@ -1128,18 +1176,28 @@ function statusTone(value: string) {
 
 function SourceDiscoveryDiagnostics({ draft }: { draft: AdminResearchBriefDraft }) {
   const context = objectValue(draft.research_context);
+  const config = objectValue(draft.config);
+  const article = objectValue(draft.article);
   const discovery = objectValue(context.source_discovery || draft.validation?.source_discovery);
   const primary = objectValue(context.primary);
   const identity = objectValue(primary.identity);
   const confirmation = objectValue(primary.confirmation);
   const expectedSymbol = String(identity.symbol || draft.primary_ticker || "").toUpperCase();
   const contextSymbol = String(confirmation.symbol || expectedSymbol || "").toUpperCase();
+  const includeConfirmationScore = Boolean(config.include_confirmation_score || article.confirmation_score_included);
+  const confirmationScoreStatus = includeConfirmationScore
+    ? confirmation.score || confirmation.confirmation_score
+      ? "found"
+      : "missing"
+    : isThematicResearchDraft(draft, draft.article)
+      ? "not applicable"
+      : "not requested";
   const rows = [
     ["Official earnings release", sourceStatus(discovery.official_earnings_release)],
     ["SEC filing", sourceStatus(discovery.sec_filing)],
     ["Walnut ticker context", primary && Object.keys(primary).length ? "found" : "missing"],
     ["Primary ticker context match", expectedSymbol && contextSymbol && expectedSymbol !== contextSymbol ? "failed" : "passed"],
-    ["Confirmation score", confirmation.score || confirmation.confirmation_score ? "found" : "missing"],
+    ["Confirmation score", confirmationScoreStatus],
     ["Comparison tickers loaded", (draft.comparison_tickers || draft.config?.comparison_tickers || []).join(", ") || "None"],
   ];
   return (
@@ -1187,7 +1245,7 @@ function PublishDraftDialog({
         </div>
         <div className="px-5 py-5">
           <p className="text-sm leading-6 text-slate-300">
-            Double-check the confirmation score with the admin account before publishing because it was updated manually.
+            Double-check source links, access level, preview boundary, and any hard-stop validation warnings before publishing.
           </p>
         </div>
         <div className="flex flex-col-reverse gap-2 border-t border-white/10 bg-slate-950/80 px-5 py-4 sm:flex-row sm:justify-end">
@@ -1474,7 +1532,7 @@ function EditorPanel({
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Make the framing more balanced without weakening the final judgment.")}>Make More Neutral</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the title.")}>Improve Title</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the final Walnut judgment.")}>Improve Walnut Judgment</Button>
-          <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || draft.validation?.status === "failed" || (draft.validation?.source_link_count || 0) === 0} onClick={onPublish}>Publish</Button>
+          <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || (draft.validation?.source_link_count || 0) === 0} onClick={onPublish}>Publish</Button>
           <Button disabled={Boolean(busy) || draft.status !== "published"} onClick={onUnpublish}>Unpublish</Button>
           <Button tone="danger" disabled={Boolean(busy)} onClick={onDelete}>Delete Draft</Button>
         </div>

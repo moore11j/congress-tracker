@@ -1315,6 +1315,38 @@ def _is_earnings_setup_context(context: dict[str, Any]) -> bool:
     return _is_earnings_setup_config(config)
 
 
+def _is_thematic_research(article: dict[str, Any], context: dict[str, Any]) -> bool:
+    analytics = article.get("analytics") if isinstance(article.get("analytics"), dict) else {}
+    config = context.get("config") if isinstance(context.get("config"), dict) else {}
+    text = " ".join(
+        str(value or "")
+        for value in (
+            analytics.get("research_type"),
+            analytics.get("theme"),
+            context.get("research_type"),
+            context.get("theme"),
+            config.get("research_type"),
+            config.get("theme"),
+            context.get("desired_angle"),
+            context.get("research_question"),
+            article.get("category"),
+            article.get("primary_ticker"),
+        )
+    ).lower()
+    return any(
+        marker in text
+        for marker in (
+            "thematic",
+            "macro",
+            "sector",
+            "industry",
+            "semiconductor_memory",
+            "semiconductor memory",
+            "memory shortage",
+        )
+    )
+
+
 def _article_earnings_judgment_label(article: dict[str, Any]) -> str | None:
     return _article_walnut_call(article)
 
@@ -3220,6 +3252,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         blocking = True
     lowered = f"{title}\n{body}".lower()
     article_score_value = _article_confirmation_score_value(article)
+    thematic_research = _is_thematic_research(article, context)
     include_confirmation_score = bool(context.get("include_confirmation_score") or article.get("confirmation_score_included"))
     include_cross_source_confirmations = bool(context.get("include_cross_source_confirmations"))
     source_link_count = _source_link_count(article, body)
@@ -3254,7 +3287,10 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         warnings.append(_warning("markdown_structure", f"Markdown structure needs cleanup: {', '.join(structure_issues)}.", blocking=True))
         labels["structure"] = "failed"
         blocking = True
-    if re.search(r"\b(provider|internal|cache|raw|token|credential|diagnostic)s?\b", lowered):
+    if re.search(r"\b(internal|token|credential|diagnostic)s?\b", lowered) or re.search(
+        r"\b(?:price_cache|confirmation_monitoring_events|raw\s+(?:response|payload|json|context|source))\b",
+        lowered,
+    ):
         warnings.append(_warning("internal_wording", "Provider/internal/cache/source-system wording must not appear in user-facing output.", blocking=True))
         labels["internal_language"] = "failed"
         blocking = True
@@ -3268,7 +3304,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     elif include_confirmation_score and not (_article_includes_confirmation_score_value(article, context) or article_score_value is not None):
         warnings.append(_warning("confirmation_score_missing_from_body", "Walnut confirmation score is checked, but the post body does not include the primary ticker score.", blocking=True))
         blocking = True
-    if not include_confirmation_score and _article_mentions_confirmation_score(article):
+    if not include_confirmation_score and _article_mentions_confirmation_score(article) and not thematic_research:
         warnings.append(_warning("confirmation_score_not_requested", "Walnut confirmation score is unchecked, but the article mentions the confirmation score.", blocking=True))
         blocking = True
     if not include_cross_source_confirmations and _article_mentions_cross_source_confirmations(article):
@@ -3278,7 +3314,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         warnings.append(_warning("confirmation_score_conflated", "Cross-source data categories must not be described as the proprietary confirmation score.", blocking=True))
         blocking = True
     has_call_metadata = "walnut_call" in article or _is_earnings_setup_context(context)
-    if has_call_metadata and _normalize_walnut_call(article.get("walnut_call")) is None:
+    if has_call_metadata and _normalize_walnut_call(article.get("walnut_call")) is None and not thematic_research:
         warnings.append(_warning("invalid_walnut_call", f"Walnut call must be one of: {', '.join(WALNUT_CALL_VALUES)}.", blocking=True))
         blocking = True
     if str(article.get("walnut_call") or "").strip().lower().endswith(" setup"):
@@ -3890,6 +3926,36 @@ def _dedupe_source_links(values: list[Any]) -> list[dict[str, str]]:
     return links[:12]
 
 
+PUBLISH_HARD_STOP_WARNING_CODES = {
+    "missing_title",
+    "thin_body",
+    "missing_disclaimer",
+    "missing_source_links",
+    "insufficient_source_links",
+    "missing_official_earnings_source",
+    "official_earnings_retrieval_failed",
+    "missing_sec_or_ir_source",
+    "official_source_link_omitted",
+    "primary_ticker_context_mismatch",
+    "duplicate_slug",
+    "internal_wording",
+    "internal_workflow_language",
+    "unsupported_language",
+    "markdown_structure",
+}
+
+
+def _publish_hard_stop_warnings(validation: dict[str, Any]) -> list[dict[str, Any]]:
+    warnings = validation.get("warnings") if isinstance(validation.get("warnings"), list) else []
+    return [
+        warning
+        for warning in warnings
+        if isinstance(warning, dict)
+        and warning.get("blocking")
+        and str(warning.get("code") or "") in PUBLISH_HARD_STOP_WARNING_CODES
+    ]
+
+
 def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Session | None = None) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=422, detail="Publish requires explicit confirmation.")
@@ -3903,7 +3969,8 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
                 repair_generated_sections=False,
             )
             validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
-            if validation["status"] != "passed":
+            hard_stop_warnings = _publish_hard_stop_warnings(validation)
+            if hard_stop_warnings:
                 draft["validation"] = validation
                 _upsert_db_draft(db, draft)
                 raise HTTPException(status_code=422, detail="Resolve validation failures before publishing.")
@@ -3925,7 +3992,8 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
                     repair_generated_sections=False,
                 )
                 validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
-                if validation["status"] != "passed":
+                hard_stop_warnings = _publish_hard_stop_warnings(validation)
+                if hard_stop_warnings:
                     draft["validation"] = validation
                     _write_store(store)
                     raise HTTPException(status_code=422, detail="Resolve validation failures before publishing.")
