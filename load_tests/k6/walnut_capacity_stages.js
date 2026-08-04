@@ -203,6 +203,7 @@ if (!profiles[profile]) {
 const selected = profiles[profile];
 
 export const options = {
+  summaryTrendStats: ["avg", "min", "med", "p(50)", "p(90)", "p(95)", "p(99)", "max", "count"],
   scenarios: {
     capacity: {
       executor: "ramping-vus",

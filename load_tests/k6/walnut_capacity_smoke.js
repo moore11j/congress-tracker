@@ -74,6 +74,7 @@ const diagnosticEndpoints = [
 const diagnosticStatuses = ["0", "200", "204", "301", "302", "307", "308", "400", "401", "403", "404", "408", "422", "429", "500", "502", "503", "504"];
 
 export const options = {
+  summaryTrendStats: ["avg", "min", "med", "p(50)", "p(90)", "p(95)", "p(99)", "max", "count"],
   scenarios: {
     smoke: {
       executor: "constant-vus",

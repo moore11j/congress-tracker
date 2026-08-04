@@ -18,7 +18,7 @@ test("anonymous ticker SSR keeps public context bundle complete and defers detai
   assert.match(page, /source: "TickerContextBundle"/);
   assert.match(page, /function shouldUseAnonymousTickerSsrShell/);
   assert.match(page, /const useAnonymousTickerSsrShell = shouldUseAnonymousTickerSsrShell/);
-  assert.match(page, /const activeTickerSsrRequest = !useAnonymousTickerSsrShell/);
+  assert.match(page, /const activeTickerSsrRequest = Boolean\(authToken \|\| authState\.hasAuthHint\) && !useAnonymousTickerSsrShell/);
   assert.match(page, /useAnonymousTickerSsrShell\s*\?\s*\{/);
   assert.match(page, /profile: fallbackTickerProfile\(normalizedSymbol\)/);
   assert.match(page, /function shouldDeferAnonymousTickerActivityDetails/);

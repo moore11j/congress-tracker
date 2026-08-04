@@ -3892,7 +3892,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     hasAuthHint: authState.hasAuthHint,
     activityDetailsRequested,
   });
-  const activeTickerSsrRequest = !useAnonymousTickerSsrShell;
+  const activeTickerSsrRequest = Boolean(authToken || authState.hasAuthHint) && !useAnonymousTickerSsrShell;
 
   const contextBundleResult = useAnonymousTickerSsrShell
     ? {
