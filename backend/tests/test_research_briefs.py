@@ -1517,3 +1517,66 @@ def test_db_backed_saving_published_brief_keeps_edited_body(tmp_path, monkeypatc
     assert "DB-backed published edit should stay saved" in saved["article"]["sections"][0]["body_markdown"]
     assert "DB-backed published edit should stay saved" in reloaded["article"]["sections"][0]["body_markdown"]
     assert "DB-backed published edit should stay saved" in listed["article"]["sections"][0]["body_markdown"]
+
+
+def test_premium_preview_uses_section_count_and_strips_hidden_sections():
+    article = {
+        "premium_required": True,
+        "required_plan": "premium",
+        "preview_section_count": 1,
+        "sections": [
+            {"key": "intro", "heading": "Intro", "body_markdown": "Public intro."},
+            {"key": "base", "heading": "Base Case", "body_markdown": "Gated base case."},
+        ],
+        "key_points": [],
+        "catalysts": ["Hidden catalyst"],
+        "risks": ["Hidden risk"],
+        "watch_items": ["Hidden watch item"],
+        "source_links": [{"label": "Hidden", "url": "https://example.com", "source_type": "source"}],
+    }
+
+    preview = service._preview_research_article(article)
+    body = "\n\n".join(section["body_markdown"] for section in preview["sections"])
+
+    assert [section["heading"] for section in preview["sections"]] == ["Intro"]
+    assert "Public intro" in body
+    assert "Gated base case" not in body
+    assert preview["catalysts"] == []
+    assert preview["risks"] == []
+    assert preview["watch_items"] == []
+    assert preview["source_links"] == []
+
+
+def test_premium_preview_marker_overrides_count_and_does_not_leak_marker_or_hidden_text():
+    article = {
+        "premium_required": True,
+        "required_plan": "premium",
+        "preview_section_count": 3,
+        "sections": [
+            {"key": "intro", "heading": "Intro", "body_markdown": "Public intro."},
+            {
+                "key": "method",
+                "heading": "Method",
+                "body_markdown": "Public method.\n\n<!-- walnut:paywall -->\n\nHidden base case.",
+            },
+            {"key": "implications", "heading": "Investment Implications", "body_markdown": "Hidden implications."},
+        ],
+        "key_points": [],
+        "catalysts": [],
+        "risks": [],
+        "watch_items": [],
+        "source_links": [],
+    }
+
+    preview = service._preview_research_article(article)
+    preview_body = "\n\n".join(section["body_markdown"] for section in preview["sections"])
+    full = service._article_without_paywall_markers(article)
+    full_body = "\n\n".join(section["body_markdown"] for section in full["sections"])
+
+    assert [section["heading"] for section in preview["sections"]] == ["Intro", "Method"]
+    assert "Public method" in preview_body
+    assert "Hidden base case" not in preview_body
+    assert "Hidden implications" not in preview_body
+    assert "walnut:paywall" not in preview_body
+    assert "Hidden base case" in full_body
+    assert "walnut:paywall" not in full_body

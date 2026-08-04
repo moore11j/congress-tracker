@@ -6042,6 +6042,7 @@ export type AdminResearchBriefArticle = {
   comparison_tickers: string[];
   category: string;
   reading_minutes: number;
+  preview_section_count?: number | null;
   hero_image?: string | null;
   current_data_as_of?: string;
   paywall_copy?: {

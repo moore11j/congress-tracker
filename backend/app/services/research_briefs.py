@@ -718,6 +718,11 @@ def sanitize_research_brief_article(
             continue
         cleaned_sections.extend(_article_sections_from_clean_markdown(body, heading, section, index))
     sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format) if repair_generated_sections else cleaned_sections
+    preview_count = _coerce_preview_section_count(sanitized.get("preview_section_count"), len(sanitized["sections"]))
+    if preview_count is None:
+        sanitized.pop("preview_section_count", None)
+    else:
+        sanitized["preview_section_count"] = preview_count
     if repair_generated_sections:
         sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
         sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
@@ -2408,6 +2413,60 @@ def _research_access_payload(article: dict[str, Any], entitlements: Any | None) 
     }
 
 
+PAYWALL_MARKER_PATTERN = re.compile(r"(?im)^\s*(?:<!--\s*walnut:paywall\s*-->|::walnut-paywall::|\[\[WALNUT_PAYWALL\]\])\s*$")
+
+
+def _strip_paywall_markers(value: Any) -> str:
+    text = str(value or "")
+    return PAYWALL_MARKER_PATTERN.sub("", text).strip()
+
+
+def _split_at_paywall_marker(value: Any) -> tuple[str, str] | None:
+    text = str(value or "")
+    match = PAYWALL_MARKER_PATTERN.search(text)
+    if not match:
+        return None
+    return text[: match.start()].strip(), text[match.end() :].strip()
+
+
+def _coerce_preview_section_count(value: Any, section_count: int) -> int | None:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(count, max(0, section_count)))
+
+
+def _article_without_paywall_markers(article: dict[str, Any]) -> dict[str, Any]:
+    cleaned = deepcopy(article)
+    sections = cleaned.get("sections") if isinstance(cleaned.get("sections"), list) else []
+    for section in sections:
+        if isinstance(section, dict) and isinstance(section.get("body_markdown"), str):
+            section["body_markdown"] = _strip_paywall_markers(section["body_markdown"])
+    return cleaned
+
+
+def _preview_sections_for_article(article: dict[str, Any]) -> list[dict[str, Any]]:
+    sections = [deepcopy(section) for section in article.get("sections") or [] if isinstance(section, dict)]
+    if not sections:
+        return []
+    for index, section in enumerate(sections):
+        split = _split_at_paywall_marker(section.get("body_markdown"))
+        if not split:
+            continue
+        public_body, _gated_body = split
+        preview_sections = _article_without_paywall_markers({"sections": sections[:index]}).get("sections") or []
+        if public_body:
+            public_section = deepcopy(section)
+            public_section["body_markdown"] = public_body
+            preview_sections.append(public_section)
+        return preview_sections
+    preview_count = _coerce_preview_section_count(article.get("preview_section_count"), len(sections))
+    if preview_count is None:
+        preview_count = max(1, min(2, len(sections)))
+    return _article_without_paywall_markers({"sections": sections[:preview_count]})["sections"]
+
+
 def _choice(value: Any, choices: set[str], fallback: str) -> str:
     text = str(value or "").strip()
     return text if text in choices else fallback
@@ -3137,6 +3196,7 @@ def article_schema() -> dict[str, Any]:
             "comparison_tickers": {"type": "array", "items": {"type": "string"}},
             "category": {"type": "string"},
             "reading_minutes": {"type": "integer"},
+            "preview_section_count": {"type": "integer", "minimum": 0},
             "hero_image": {"type": ["string", "null"]},
             "current_data_as_of": {"type": "string"},
             "premium_required": {"type": "boolean"},
@@ -3288,7 +3348,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         labels["structure"] = "failed"
         blocking = True
     if re.search(r"\b(internal|token|credential|diagnostic)s?\b", lowered) or re.search(
-        r"\b(?:price_cache|confirmation_monitoring_events|raw\s+(?:response|payload|json|context|source))\b",
+        r"\b(?:price_cache|confirmation_monitoring_events|provider\s+cache|raw\s+(?:response|payload|json|context|source))\b",
         lowered,
     ):
         warnings.append(_warning("internal_wording", "Provider/internal/cache/source-system wording must not appear in user-facing output.", blocking=True))
@@ -4140,9 +4200,7 @@ def published_cards(db: Session | None = None) -> dict[str, Any]:
 
 def _preview_research_article(article: dict[str, Any]) -> dict[str, Any]:
     preview = deepcopy(article)
-    sections = preview.get("sections") if isinstance(preview.get("sections"), list) else []
-    preview_sections = sections[: max(1, min(2, len(sections)))] if sections else []
-    preview["sections"] = preview_sections
+    preview["sections"] = _preview_sections_for_article(article)
     preview["key_points"] = (preview.get("key_points") or [])[:2] if isinstance(preview.get("key_points"), list) else []
     preview["catalysts"] = []
     preview["risks"] = []
@@ -4178,7 +4236,7 @@ def _research_payload_for_entitlements(draft: dict[str, Any], entitlements: Any 
             "estimated_reading_minutes": payload.get("validation", {}).get("estimated_reading_minutes") or article.get("reading_minutes") or 1,
         }
     else:
-        payload["article"] = deepcopy(article)
+        payload["article"] = _article_without_paywall_markers(article)
         payload["article"]["access"] = access
     return payload
 

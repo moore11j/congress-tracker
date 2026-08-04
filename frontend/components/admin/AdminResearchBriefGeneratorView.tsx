@@ -187,6 +187,9 @@ function articleToMarkdown(article: AdminResearchBriefArticle) {
   return (article.sections || []).map((section) => `## ${section.heading}\n\n${section.body_markdown}`).join("\n\n");
 }
 
+const PAYWALL_MARKER = "<!-- walnut:paywall -->";
+const paywallMarkerPattern = /^\s*(?:<!--\s*walnut:paywall\s*-->|::walnut-paywall::|\[\[WALNUT_PAYWALL\]\])\s*$/im;
+
 function researchBriefJobTimedOut(job: AdminResearchBriefJob) {
   const timestamp = job.updated_at || job.started_at || job.created_at;
   if (!timestamp) return false;
@@ -194,10 +197,25 @@ function researchBriefJobTimedOut(job: AdminResearchBriefJob) {
   return Number.isFinite(startedAt) && Date.now() - startedAt > GENERATION_POLL_TIMEOUT_MS;
 }
 
-function markdownToSections(markdown: string): AdminResearchBriefArticle["sections"] {
+function paywallMarkerSectionCount(markdown: string, sections: AdminResearchBriefArticle["sections"]) {
+  if (!paywallMarkerPattern.test(markdown)) return null;
+  for (let index = 0; index < sections.length; index += 1) {
+    const body = sections[index]?.body_markdown || "";
+    const match = body.match(paywallMarkerPattern);
+    if (!match) continue;
+    const beforeMarker = body.slice(0, match.index).trim();
+    return beforeMarker ? index + 1 : index;
+  }
+  return sections.length;
+}
+
+function markdownToSections(markdown: string): { sections: AdminResearchBriefArticle["sections"]; previewSectionCount: number | null } {
   const chunks = markdown.split(/\n(?=##\s+)/g).map((chunk) => chunk.trim()).filter(Boolean);
-  if (!chunks.length) return [{ key: "body", heading: "Research Brief", body_markdown: markdown.trim() }];
-  return chunks.map((chunk, index) => {
+  if (!chunks.length) {
+    const sections = [{ key: "body", heading: "Research Brief", body_markdown: markdown.trim() }];
+    return { sections, previewSectionCount: paywallMarkerSectionCount(markdown, sections) };
+  }
+  const sections = chunks.map((chunk, index) => {
     const match = chunk.match(/^##\s+(.+?)(?:\n+([\s\S]*))?$/);
     const heading = match?.[1]?.trim() || `Section ${index + 1}`;
     return {
@@ -206,6 +224,7 @@ function markdownToSections(markdown: string): AdminResearchBriefArticle["sectio
       body_markdown: (match?.[2] || chunk).trim(),
     };
   });
+  return { sections, previewSectionCount: paywallMarkerSectionCount(markdown, sections) };
 }
 
 function sectionKey(value: string) {
@@ -699,7 +718,16 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
 
   function currentEditedArticle() {
     if (!articleDraft) return null;
-    return applySectionSelections({ ...articleDraft, sections: markdownToSections(bodyMarkdown) }, config.include_sections);
+    const parsed = markdownToSections(bodyMarkdown);
+    const previewSectionCount = parsed.previewSectionCount ?? articleDraft.preview_section_count;
+    return applySectionSelections(
+      {
+        ...articleDraft,
+        sections: parsed.sections,
+        preview_section_count: typeof previewSectionCount === "number" ? previewSectionCount : null,
+      },
+      config.include_sections,
+    );
   }
 
   function updateConfigAccess(plan: ResearchBriefRequiredPlan) {
@@ -1373,6 +1401,10 @@ function EditorPanel({
       },
     });
   }
+  function insertPaywallMarker() {
+    const separator = bodyMarkdown.trim() ? "\n\n" : "";
+    onBodyChange(`${bodyMarkdown.trimEnd()}${separator}${PAYWALL_MARKER}\n\n`);
+  }
   return (
     <section className="grid gap-4 rounded-lg border border-white/10 bg-slate-950/55 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="min-w-0 space-y-4">
@@ -1407,7 +1439,10 @@ function EditorPanel({
           />
         </label>
         <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
+            <Button type="button" onClick={insertPaywallMarker}>Insert Paywall Marker</Button>
+          </span>
           <textarea value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
         </label>
         {article.reddit_post ? (
@@ -1432,6 +1467,15 @@ function EditorPanel({
             </select>
             <input value={article.category} onChange={(event) => onArticleChange("category", event.target.value)} className={fieldClassName()} placeholder="Category / tone" />
             <input value={String(article.reading_minutes || "")} onChange={(event) => onArticleChange("reading_minutes", Number(event.target.value) || 1)} className={fieldClassName()} placeholder="Reading time" />
+            <input
+              type="number"
+              min={0}
+              max={Math.max(0, article.sections?.length || 0)}
+              value={article.preview_section_count ?? ""}
+              onChange={(event) => onArticleChange("preview_section_count", event.target.value === "" ? null : Math.max(0, Number(event.target.value) || 0))}
+              className={fieldClassName()}
+              placeholder="Free sections before gate"
+            />
           </div>
           {article.thumbnail_asset ? (
             <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-3">
