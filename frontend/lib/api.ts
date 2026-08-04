@@ -6044,6 +6044,12 @@ export type AdminResearchBriefArticle = {
   reading_minutes: number;
   hero_image?: string | null;
   current_data_as_of?: string;
+  paywall_copy?: {
+    heading?: string;
+    description?: string;
+  };
+  analytics?: Record<string, string | number | boolean | null>;
+  reddit_post?: string;
   signal_results?: Array<{
     ticker: string;
     eventDate: string;

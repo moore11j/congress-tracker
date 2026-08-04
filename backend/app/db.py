@@ -1209,6 +1209,369 @@ def ensure_fundamentals_snapshot_schema(bind=engine) -> None:
         )
 
 
+def ensure_analyst_consensus_schema(bind=engine) -> None:
+    snapshot_numeric_columns = (
+        "weighted_rating_value",
+        "price_target_high",
+        "price_target_low",
+        "price_target_median",
+        "price_target_consensus",
+        "price_target_average",
+        "current_price_at_snapshot",
+        "median_implied_upside_pct",
+        "consensus_implied_upside_pct",
+        "target_dispersion_pct",
+    )
+    snapshot_int_columns = (
+        "strong_buy_count",
+        "buy_count",
+        "hold_count",
+        "sell_count",
+        "strong_sell_count",
+        "total_rating_count",
+        "price_target_analyst_count",
+    )
+    snapshot_text_columns = (
+        "provider_symbol",
+        "recommendation_label",
+        "current_price_source",
+        "availability_status",
+        "provider_status",
+        "source",
+        "provider_error",
+        "methodology_version",
+        "raw_payload_json",
+    )
+    event_text_columns = (
+        "provider_symbol",
+        "grading_company",
+        "analyst_name",
+        "previous_grade",
+        "new_grade",
+        "action",
+        "provider_action",
+        "source_url",
+        "provider_event_id",
+        "event_fingerprint",
+        "source",
+        "raw_payload_json",
+    )
+    run_int_columns = (
+        "symbols_attempted",
+        "symbols_succeeded",
+        "symbols_failed",
+        "records_inserted",
+        "records_updated",
+    )
+    run_text_columns = (
+        "job_name",
+        "status",
+        "provider_errors_json",
+        "rate_limit_response",
+        "error_summary",
+        "metadata_json",
+    )
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_consensus_snapshots (
+                        id INTEGER PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider_symbol TEXT,
+                        snapshot_date DATE NOT NULL,
+                        strong_buy_count INTEGER,
+                        buy_count INTEGER,
+                        hold_count INTEGER,
+                        sell_count INTEGER,
+                        strong_sell_count INTEGER,
+                        total_rating_count INTEGER,
+                        weighted_rating_value FLOAT,
+                        recommendation_label TEXT,
+                        price_target_high FLOAT,
+                        price_target_low FLOAT,
+                        price_target_median FLOAT,
+                        price_target_consensus FLOAT,
+                        price_target_average FLOAT,
+                        price_target_analyst_count INTEGER,
+                        current_price_at_snapshot FLOAT,
+                        current_price_source TEXT,
+                        current_price_as_of TIMESTAMP,
+                        median_implied_upside_pct FLOAT,
+                        consensus_implied_upside_pct FLOAT,
+                        target_dispersion_pct FLOAT,
+                        availability_status TEXT NOT NULL DEFAULT 'unavailable',
+                        provider_status TEXT NOT NULL DEFAULT 'available',
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        source_updated_at TIMESTAMP,
+                        provider_error TEXT,
+                        methodology_version TEXT NOT NULL DEFAULT 'analyst_consensus_v1',
+                        raw_payload_json TEXT NOT NULL DEFAULT '{}',
+                        ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_grade_events (
+                        id INTEGER PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider_symbol TEXT,
+                        grading_company TEXT,
+                        analyst_name TEXT,
+                        previous_grade TEXT,
+                        new_grade TEXT,
+                        action TEXT,
+                        provider_action TEXT,
+                        published_date DATE,
+                        source_url TEXT,
+                        provider_event_id TEXT,
+                        event_fingerprint TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        raw_payload_json TEXT NOT NULL DEFAULT '{}',
+                        ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_consensus_ingestion_runs (
+                        id INTEGER PRIMARY KEY,
+                        job_name TEXT NOT NULL,
+                        started_at TIMESTAMP NOT NULL,
+                        completed_at TIMESTAMP,
+                        status TEXT NOT NULL DEFAULT 'running',
+                        symbols_attempted INTEGER NOT NULL DEFAULT 0,
+                        symbols_succeeded INTEGER NOT NULL DEFAULT 0,
+                        symbols_failed INTEGER NOT NULL DEFAULT 0,
+                        records_inserted INTEGER NOT NULL DEFAULT 0,
+                        records_updated INTEGER NOT NULL DEFAULT 0,
+                        provider_errors_json TEXT NOT NULL DEFAULT '[]',
+                        rate_limit_response TEXT,
+                        error_summary TEXT,
+                        metadata_json TEXT NOT NULL DEFAULT '{}'
+                    )
+                    """
+                )
+            )
+            table_columns = {
+                table: {
+                    row[1]
+                    for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+                    if len(row) > 1
+                }
+                for table in (
+                    "analyst_consensus_snapshots",
+                    "analyst_grade_events",
+                    "analyst_consensus_ingestion_runs",
+                )
+            }
+            snapshot_columns = {
+                "snapshot_date": "DATE",
+                "current_price_as_of": "TIMESTAMP",
+                "source_updated_at": "TIMESTAMP",
+                "ingested_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                **{name: "INTEGER" for name in snapshot_int_columns},
+                **{name: "FLOAT" for name in snapshot_numeric_columns},
+                **{name: "TEXT" for name in snapshot_text_columns},
+            }
+            for name, column_type in snapshot_columns.items():
+                if name not in table_columns["analyst_consensus_snapshots"]:
+                    conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN {name} {column_type}"))
+            for name, column_type in {
+                "published_date": "DATE",
+                "ingested_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                **{name: "TEXT" for name in event_text_columns},
+            }.items():
+                if name not in table_columns["analyst_grade_events"]:
+                    conn.execute(text(f"ALTER TABLE analyst_grade_events ADD COLUMN {name} {column_type}"))
+            for name, column_type in {
+                "started_at": "TIMESTAMP",
+                "completed_at": "TIMESTAMP",
+                **{name: "INTEGER NOT NULL DEFAULT 0" for name in run_int_columns},
+                **{name: "TEXT" for name in run_text_columns},
+            }.items():
+                if name not in table_columns["analyst_consensus_ingestion_runs"]:
+                    conn.execute(text(f"ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN {name} {column_type}"))
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_consensus_snapshots (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider_symbol TEXT,
+                        snapshot_date DATE NOT NULL,
+                        strong_buy_count INTEGER,
+                        buy_count INTEGER,
+                        hold_count INTEGER,
+                        sell_count INTEGER,
+                        strong_sell_count INTEGER,
+                        total_rating_count INTEGER,
+                        weighted_rating_value DOUBLE PRECISION,
+                        recommendation_label TEXT,
+                        price_target_high DOUBLE PRECISION,
+                        price_target_low DOUBLE PRECISION,
+                        price_target_median DOUBLE PRECISION,
+                        price_target_consensus DOUBLE PRECISION,
+                        price_target_average DOUBLE PRECISION,
+                        price_target_analyst_count INTEGER,
+                        current_price_at_snapshot DOUBLE PRECISION,
+                        current_price_source TEXT,
+                        current_price_as_of TIMESTAMPTZ,
+                        median_implied_upside_pct DOUBLE PRECISION,
+                        consensus_implied_upside_pct DOUBLE PRECISION,
+                        target_dispersion_pct DOUBLE PRECISION,
+                        availability_status TEXT NOT NULL DEFAULT 'unavailable',
+                        provider_status TEXT NOT NULL DEFAULT 'available',
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        source_updated_at TIMESTAMPTZ,
+                        provider_error TEXT,
+                        methodology_version TEXT NOT NULL DEFAULT 'analyst_consensus_v1',
+                        raw_payload_json TEXT NOT NULL DEFAULT '{}',
+                        ingested_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_grade_events (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider_symbol TEXT,
+                        grading_company TEXT,
+                        analyst_name TEXT,
+                        previous_grade TEXT,
+                        new_grade TEXT,
+                        action TEXT,
+                        provider_action TEXT,
+                        published_date DATE,
+                        source_url TEXT,
+                        provider_event_id TEXT,
+                        event_fingerprint TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        raw_payload_json TEXT NOT NULL DEFAULT '{}',
+                        ingested_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_consensus_ingestion_runs (
+                        id SERIAL PRIMARY KEY,
+                        job_name TEXT NOT NULL,
+                        started_at TIMESTAMPTZ NOT NULL,
+                        completed_at TIMESTAMPTZ,
+                        status TEXT NOT NULL DEFAULT 'running',
+                        symbols_attempted INTEGER NOT NULL DEFAULT 0,
+                        symbols_succeeded INTEGER NOT NULL DEFAULT 0,
+                        symbols_failed INTEGER NOT NULL DEFAULT 0,
+                        records_inserted INTEGER NOT NULL DEFAULT 0,
+                        records_updated INTEGER NOT NULL DEFAULT 0,
+                        provider_errors_json TEXT NOT NULL DEFAULT '[]',
+                        rate_limit_response TEXT,
+                        error_summary TEXT,
+                        metadata_json TEXT NOT NULL DEFAULT '{}'
+                    )
+                    """
+                )
+            )
+            for name in snapshot_text_columns:
+                default = " DEFAULT 'unavailable'" if name == "availability_status" else " DEFAULT 'available'" if name == "provider_status" else " DEFAULT 'fmp'" if name == "source" else " DEFAULT 'analyst_consensus_v1'" if name == "methodology_version" else " DEFAULT '{}'" if name == "raw_payload_json" else ""
+                not_null = " NOT NULL" if name in {"availability_status", "provider_status", "source", "methodology_version", "raw_payload_json"} else ""
+                conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS {name} TEXT{default}{not_null}"))
+            for name in snapshot_int_columns:
+                conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS {name} INTEGER"))
+            for name in snapshot_numeric_columns:
+                conn.execute(text(f"ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS {name} DOUBLE PRECISION"))
+            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS snapshot_date DATE"))
+            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS current_price_as_of TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ DEFAULT now()"))
+            conn.execute(text("ALTER TABLE analyst_consensus_snapshots ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+            for name in event_text_columns:
+                default = " DEFAULT 'fmp'" if name == "source" else " DEFAULT '{}'" if name == "raw_payload_json" else ""
+                not_null = " NOT NULL" if name in {"event_fingerprint", "source", "raw_payload_json"} else ""
+                conn.execute(text(f"ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS {name} TEXT{default}{not_null}"))
+            conn.execute(text("ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS published_date DATE"))
+            conn.execute(text("ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ DEFAULT now()"))
+            conn.execute(text("ALTER TABLE analyst_grade_events ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+            for name in run_text_columns:
+                default = " DEFAULT 'running'" if name == "status" else " DEFAULT '[]'" if name == "provider_errors_json" else " DEFAULT '{}'" if name == "metadata_json" else ""
+                not_null = " NOT NULL" if name in {"job_name", "status", "provider_errors_json", "metadata_json"} else ""
+                conn.execute(text(f"ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS {name} TEXT{default}{not_null}"))
+            for name in run_int_columns:
+                conn.execute(text(f"ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS {name} INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text("ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_symbol_date "
+                "ON analyst_consensus_snapshots (symbol, snapshot_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_source_ingested "
+                "ON analyst_consensus_snapshots (source, ingested_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_availability "
+                "ON analyst_consensus_snapshots (availability_status)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_grade_events_source_fingerprint "
+                "ON analyst_grade_events (source, event_fingerprint)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_symbol_date "
+                "ON analyst_grade_events (symbol, published_date)"
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_action ON analyst_grade_events (action)"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_provider_id "
+                "ON analyst_grade_events (provider_event_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_runs_job_started "
+                "ON analyst_consensus_ingestion_runs (job_name, started_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_runs_status "
+                "ON analyst_consensus_ingestion_runs (status)"
+            )
+        )
+
+
 def ensure_search_and_insights_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

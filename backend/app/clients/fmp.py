@@ -412,6 +412,77 @@ def fetch_company_screener(
     return []
 
 
+def fetch_grades_summary(*, symbol: str, timeout_s: int = 30) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    return _request_stable_rows(
+        "grades-consensus",
+        params={"symbol": provider_symbol},
+        category="analyst-consensus:grades-consensus",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
+def fetch_grade_events(*, symbol: str, timeout_s: int = 30) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    return _request_stable_rows(
+        "grades",
+        params={"symbol": provider_symbol},
+        category="analyst-consensus:grades",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
+def fetch_historical_grades(*, symbol: str, timeout_s: int = 30) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    return _request_stable_rows(
+        "grades-historical",
+        params={"symbol": provider_symbol},
+        category="analyst-consensus:grades-historical",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
+def fetch_price_target_consensus(*, symbol: str, timeout_s: int = 30) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    return _request_stable_rows(
+        "price-target-consensus",
+        params={"symbol": provider_symbol},
+        category="analyst-consensus:price-target-consensus",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
+def fetch_price_target_summary(*, symbol: str, timeout_s: int = 30) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    return _request_stable_rows(
+        "price-target-summary",
+        params={"symbol": provider_symbol},
+        category="analyst-consensus:price-target-summary",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
+def fetch_bulk_upgrades_downgrades_consensus(*, timeout_s: int = 60) -> list[dict[str, Any]]:
+    return _request_stable_rows(
+        "upgrades-downgrades-consensus-bulk",
+        category="analyst-consensus:upgrades-downgrades-consensus-bulk",
+        timeout_s=timeout_s,
+    )
+
+
+def fetch_bulk_price_target_summary(*, timeout_s: int = 60) -> list[dict[str, Any]]:
+    return _request_stable_rows(
+        "price-target-summary-bulk",
+        category="analyst-consensus:price-target-summary-bulk",
+        timeout_s=timeout_s,
+    )
+
+
 def fetch_market_capitalization(
     *,
     symbol: str,

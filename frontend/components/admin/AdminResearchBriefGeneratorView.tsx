@@ -9,6 +9,7 @@ import {
   getAdminResearchBriefDrafts,
   getAdminResearchBriefOptions,
   publishAdminResearchBriefDraft,
+  recordProductEvent,
   refreshAdminResearchBriefSources,
   startAdminResearchBriefGeneration,
   unpublishAdminResearchBriefDraft,
@@ -1296,6 +1297,24 @@ function EditorPanel({
       </section>
     );
   }
+  const activeDraft = draft;
+  const activeArticle = article;
+  function copyRedditPost() {
+    const redditPost = String(activeArticle.reddit_post || "");
+    if (!redditPost.trim()) return;
+    void navigator.clipboard?.writeText(redditPost);
+    recordProductEvent({
+      event_name: "research_reddit_copy_generated",
+      path: `/research/${activeArticle.slug}`,
+      properties: {
+        ...(activeArticle.analytics || {}),
+        article_slug: activeArticle.slug,
+        ticker: activeArticle.primary_ticker || activeDraft.primary_ticker || null,
+        tickers: [activeArticle.primary_ticker || activeDraft.primary_ticker, ...(activeArticle.comparison_tickers || activeDraft.comparison_tickers || [])].filter(Boolean).join(","),
+        user_entitlement: "admin",
+      },
+    });
+  }
   return (
     <section className="grid gap-4 rounded-lg border border-white/10 bg-slate-950/55 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="min-w-0 space-y-4">
@@ -1333,6 +1352,15 @@ function EditorPanel({
           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
           <textarea value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
         </label>
+        {article.reddit_post ? (
+          <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Reddit output</p>
+              <Button onClick={copyRedditPost}>Copy Reddit Post</Button>
+            </div>
+            <textarea readOnly value={article.reddit_post} className={fieldClassName("mt-3 min-h-48 font-mono text-xs leading-6")} />
+          </div>
+        ) : null}
         <details className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
           <summary className="cursor-pointer text-sm font-semibold text-emerald-200">Advanced metadata</summary>
           <div className="mt-4 grid gap-3 md:grid-cols-2">

@@ -17,6 +17,7 @@ type PremiumResearchGateProps = MuPremiumGateProps & {
   requiredPlan?: "premium" | "pro" | string | null;
   heading: string;
   description: string;
+  analytics?: Record<string, string | number | boolean | null>;
 };
 
 const primaryClassName =
@@ -28,15 +29,21 @@ function paywallProperties(
   entitlement: string,
   articleSlug: string,
   tickers: string[],
+  analytics: Record<string, string | number | boolean | null> = {},
   extra: Record<string, string | number | boolean | null> = {},
 ) {
-  return currentCampaignProperties({
+  const properties = currentCampaignProperties({
+    ...analytics,
     article_slug: articleSlug,
     ticker: tickers[0] || null,
     tickers: tickers.join(","),
     user_entitlement: entitlement,
     ...extra,
   });
+  return {
+    ...properties,
+    source: properties.source || properties.utm_source || properties.referrer || "direct",
+  };
 }
 
 export function PremiumResearchGate({
@@ -48,6 +55,7 @@ export function PremiumResearchGate({
   requiredPlan = "premium",
   heading,
   description,
+  analytics = {},
 }: PremiumResearchGateProps) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -63,14 +71,14 @@ export function PremiumResearchGate({
     recordProductEvent({
       event_name: "research_preview_viewed",
       path: returnTo,
-      properties: paywallProperties(entitlement, articleSlug, tickers, { gate_state: authState, required_plan: checkoutPlan }),
+      properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { gate_state: authState, required_plan: checkoutPlan }),
     });
     recordProductEvent({
       event_name: "research_paywall_viewed",
       path: returnTo,
-      properties: paywallProperties(entitlement, articleSlug, tickers, { gate_state: authState, required_plan: checkoutPlan }),
+      properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { gate_state: authState, required_plan: checkoutPlan }),
     });
-  }, [articleSlug, authState, checkoutPlan, entitlement, returnTo, tickers]);
+  }, [analytics, articleSlug, authState, checkoutPlan, entitlement, returnTo, tickers]);
 
   const startCheckout = async () => {
     if (loading) return;
@@ -79,12 +87,12 @@ export function PremiumResearchGate({
     recordProductEvent({
       event_name: "research_paywall_cta_clicked",
       path: returnTo,
-      properties: paywallProperties(entitlement, articleSlug, tickers, { cta: checkoutPlan === "pro" ? "unlock_with_pro" : "unlock_with_premium", required_plan: checkoutPlan }),
+      properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: checkoutPlan === "pro" ? "unlock_with_pro" : "unlock_with_premium", required_plan: checkoutPlan }),
     });
     recordProductEvent({
       event_name: "research_checkout_started",
       path: returnTo,
-      properties: paywallProperties(entitlement, articleSlug, tickers, { plan: checkoutPlan, billing_interval: "monthly", required_plan: checkoutPlan }),
+      properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { plan: checkoutPlan, billing_interval: "monthly", required_plan: checkoutPlan }),
     });
     try {
       const session = await createCheckoutSession("monthly", checkoutPlan, returnTo);
@@ -122,12 +130,12 @@ export function PremiumResearchGate({
               recordProductEvent({
                 event_name: "research_paywall_cta_clicked",
                 path: returnTo,
-                properties: paywallProperties(entitlement, articleSlug, tickers, { cta: "create_account_to_continue", required_plan: checkoutPlan }),
+                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "create_account_to_continue", required_plan: checkoutPlan }),
               });
               recordProductEvent({
                 event_name: "research_signup_started",
                 path: returnTo,
-                properties: paywallProperties(entitlement, articleSlug, tickers, { cta: "create_account_to_continue", required_plan: checkoutPlan }),
+                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "create_account_to_continue", required_plan: checkoutPlan }),
               });
             }}
           >
@@ -145,7 +153,7 @@ export function PremiumResearchGate({
             recordProductEvent({
               event_name: "research_paywall_cta_clicked",
               path: returnTo,
-              properties: paywallProperties(entitlement, articleSlug, tickers, { cta: "view_premium_plans", required_plan: checkoutPlan }),
+              properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "view_premium_plans", required_plan: checkoutPlan }),
             });
           }}
         >

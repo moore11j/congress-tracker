@@ -3105,6 +3105,27 @@ def article_schema() -> dict[str, Any]:
             "comparison_tickers": {"type": "array", "items": {"type": "string"}},
             "category": {"type": "string"},
             "reading_minutes": {"type": "integer"},
+            "hero_image": {"type": ["string", "null"]},
+            "current_data_as_of": {"type": "string"},
+            "premium_required": {"type": "boolean"},
+            "required_plan": {"type": ["string", "null"]},
+            "paywall_copy": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "heading": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+            },
+            "analytics": {
+                "type": "object",
+                "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+            },
+            "reddit_post": {"type": "string"},
+            "thumbnail_asset": {
+                "type": "object",
+                "additionalProperties": True,
+            },
             "sections": {
                 "type": "array",
                 "items": {

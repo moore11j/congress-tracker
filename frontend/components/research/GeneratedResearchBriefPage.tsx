@@ -30,6 +30,11 @@ type GeneratedResearchArticleExtras = {
   signal_results?: StoredSignalResult[];
   price_move_charts?: PriceMovePoint[];
   current_data_as_of?: string;
+  paywall_copy?: {
+    heading?: string;
+    description?: string;
+  };
+  analytics?: Record<string, string | number | boolean | null>;
 };
 
 function paragraphs(markdown: string) {
@@ -173,6 +178,10 @@ export function GeneratedResearchBriefPage({
   const fullArticleVisible = access?.premium_required ? access.full_article_visible !== false : true;
   const requiredPlan = access?.required_plan || article.required_plan || "premium";
   const tickers = [article.primary_ticker || draft.primary_ticker, ...(article.comparison_tickers || draft.comparison_tickers || [])].filter((ticker): ticker is string => Boolean(ticker));
+  const heroImage = article.thumbnail_asset?.url || article.hero_image || "";
+  const fallbackPaywallTitle = `Unlock Walnut's Full ${tickers.length > 1 ? `${tickers[0]} vs ${tickers[1]}` : article.primary_ticker || draft.primary_ticker} Research Brief`;
+  const paywallHeading = article.paywall_copy?.heading || fallbackPaywallTitle;
+  const paywallDescription = article.paywall_copy?.description || "See the full judgment, confirmation evidence, catalysts, risks, source trail, and what could change the setup.";
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -198,7 +207,7 @@ export function GeneratedResearchBriefPage({
             </div>
             <p className="mt-4 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
           </div>
-          {results.length ? <StoredSignalsHeroGraphic results={results} /> : null}
+          {heroImage ? <ResearchHeroImage src={heroImage} title={article.title} /> : results.length ? <StoredSignalsHeroGraphic results={results} /> : null}
         </div>
       </section>
 
@@ -230,8 +239,9 @@ export function GeneratedResearchBriefPage({
               articleSlug={article.slug}
               tickers={tickers}
               requiredPlan={requiredPlan}
-              heading={`Unlock Walnut's Full ${tickers.length > 1 ? `${tickers[0]} vs ${tickers[1]}` : article.primary_ticker || draft.primary_ticker} Research Brief`}
-              description="See the full judgment, confirmation evidence, catalysts, risks, source trail, and what could change the setup."
+              heading={paywallHeading}
+              description={paywallDescription}
+              analytics={article.analytics}
             />
           )}
         </article>
@@ -252,6 +262,14 @@ export function GeneratedResearchBriefPage({
         </aside>
       </section>
     </main>
+  );
+}
+
+function ResearchHeroImage({ src, title }: { src: string; title: string }) {
+  return (
+    <div className="mt-10 overflow-hidden rounded-lg border border-white/10 bg-slate-900">
+      <img src={safeLinkHref(src)} alt={`${cleanInlineText(title)} hero image`} className="aspect-[16/9] w-full object-cover" />
+    </div>
   );
 }
 

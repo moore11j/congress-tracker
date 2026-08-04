@@ -37,6 +37,7 @@ from app.db import (
     SessionLocal,
     engine,
     ensure_ai_marketing_schema,
+    ensure_analyst_consensus_schema,
     ensure_data_enrichment_jobs_schema,
     ensure_email_notification_schema,
     ensure_event_columns,
@@ -138,6 +139,7 @@ from app.models import (
 )
 from app.ingest_congress_recent import CONGRESS_RECENT_STATUS_KEY
 from app.routers.accounts import router as accounts_router
+from app.routers.analyst_consensus import router as analyst_consensus_router
 from app.routers.backtests import router as backtests_router
 from app.routers.debug import router as debug_router
 from app.routers.event_calendar import router as event_calendar_router
@@ -3907,6 +3909,7 @@ def _startup_create_tables():
         ("schema_quote_cache_market_cap", lambda: ensure_quote_cache_market_cap_schema(engine)),
         ("schema_fundamentals_cache", lambda: ensure_fundamentals_cache_schema(engine)),
         ("schema_fundamentals_snapshots", lambda: ensure_fundamentals_snapshot_schema(engine)),
+        ("schema_analyst_consensus", lambda: ensure_analyst_consensus_schema(engine)),
         ("schema_ticker_meta_identity", lambda: ensure_ticker_meta_identity_schema(engine)),
         ("schema_search_and_insights", lambda: ensure_search_and_insights_schema(engine)),
         ("schema_macro_positioning", lambda: ensure_macro_positioning_schema(engine)),
@@ -13496,6 +13499,7 @@ def watchlist_feed(
 
 app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
+app.include_router(analyst_consensus_router, prefix="/api")
 app.include_router(institutional_router, prefix="/api")
 app.include_router(institutional_ingest_admin_router, prefix="/api")
 app.include_router(market_pressure_router, prefix="/api")

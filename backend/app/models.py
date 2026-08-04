@@ -1763,6 +1763,111 @@ class FundamentalsSnapshot(Base):
     )
 
 
+class AnalystConsensusSnapshot(Base):
+    __tablename__ = "analyst_consensus_snapshots"
+    __table_args__ = (
+        UniqueConstraint("symbol", "snapshot_date", name="uq_analyst_consensus_snapshots_symbol_date"),
+        Index("ix_analyst_consensus_snapshots_symbol_date", "symbol", "snapshot_date"),
+        Index("ix_analyst_consensus_snapshots_source_ingested", "source", "ingested_at"),
+        Index("ix_analyst_consensus_snapshots_availability", "availability_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    snapshot_date: Mapped[date] = mapped_column(nullable=False)
+    strong_buy_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    buy_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    hold_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    sell_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    strong_sell_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    total_rating_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    weighted_rating_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    recommendation_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_target_high: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_target_low: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_target_median: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_target_consensus: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_target_average: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_target_analyst_count: Mapped[Optional[int]] = mapped_column(nullable=True)
+    current_price_at_snapshot: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    current_price_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    current_price_as_of: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    median_implied_upside_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    consensus_implied_upside_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    target_dispersion_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    availability_status: Mapped[str] = mapped_column(Text, default="unavailable", server_default="unavailable", nullable=False)
+    provider_status: Mapped[str] = mapped_column(Text, default="available", server_default="available", nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    source_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    methodology_version: Mapped[str] = mapped_column(Text, default="analyst_consensus_v1", server_default="analyst_consensus_v1", nullable=False)
+    raw_payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AnalystGradeEvent(Base):
+    __tablename__ = "analyst_grade_events"
+    __table_args__ = (
+        UniqueConstraint("source", "event_fingerprint", name="uq_analyst_grade_events_source_fingerprint"),
+        Index("ix_analyst_grade_events_symbol_date", "symbol", "published_date"),
+        Index("ix_analyst_grade_events_action", "action"),
+        Index("ix_analyst_grade_events_provider_id", "provider_event_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    grading_company: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    analyst_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    previous_grade: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_grade: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    provider_action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    published_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    provider_event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    raw_payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AnalystConsensusIngestionRun(Base):
+    __tablename__ = "analyst_consensus_ingestion_runs"
+    __table_args__ = (
+        Index("ix_analyst_consensus_runs_job_started", "job_name", "started_at"),
+        Index("ix_analyst_consensus_runs_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_name: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="running", server_default="running", nullable=False)
+    symbols_attempted: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    symbols_succeeded: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    symbols_failed: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    records_inserted: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    records_updated: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    provider_errors_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    rate_limit_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+
+
 class TickerFinancialsCache(Base):
     __tablename__ = "ticker_financials_cache"
     __table_args__ = (

@@ -1,0 +1,1018 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Iterable
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.clients.fmp import (
+    FMPClientError,
+    FMPSubscriptionRestrictedError,
+    fetch_grade_events,
+    fetch_grades_summary,
+    fetch_price_target_consensus,
+    fetch_price_target_summary,
+)
+from app.models import (
+    AnalystConsensusIngestionRun,
+    AnalystConsensusSnapshot,
+    AnalystGradeEvent,
+    PriceCache,
+    QuoteCache,
+    Security,
+    TickerMeta,
+)
+from app.utils.symbols import classify_symbol, normalize_symbol
+
+METHODOLOGY_VERSION = "analyst_consensus_v1"
+SOURCE = "fmp"
+DEFAULT_HISTORY_DAYS = 365
+MAX_HISTORY_DAYS = 730
+FRESHNESS_DAYS = 7
+STALE_DAYS = 14
+
+
+@dataclass(frozen=True)
+class PricePoint:
+    price: float | None
+    source: str | None
+    as_of: datetime | None
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else None
+    if isinstance(value, str):
+        cleaned = value.replace("$", "").replace(",", "").replace("%", "").strip()
+        if not cleaned:
+            return None
+        try:
+            parsed = float(cleaned)
+        except ValueError:
+            return None
+        return parsed if math.isfinite(parsed) else None
+    return None
+
+
+def _int(value: Any) -> int | None:
+    parsed = _number(value)
+    if parsed is None:
+        return None
+    return int(parsed)
+
+
+def _positive(value: Any) -> float | None:
+    parsed = _number(value)
+    if parsed is None or parsed <= 0:
+        return None
+    return parsed
+
+
+def _text(value: Any) -> str | None:
+    if value is None:
+        return None
+    trimmed = str(value).strip()
+    return trimmed or None
+
+
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row and row.get(key) is not None:
+            return row.get(key)
+    return None
+
+
+def _date(value: Any) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    text_value = _text(value)
+    if not text_value:
+        return None
+    try:
+        return datetime.fromisoformat(text_value.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return date.fromisoformat(text_value[:10])
+    except ValueError:
+        return None
+
+
+def _iso_dt(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _iso_date(value: date | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def analyst_symbol_rejection_reason(raw_symbol: str | None) -> tuple[str | None, str | None]:
+    status, normalized, reason = classify_symbol(raw_symbol)
+    symbol_text = normalized or normalize_symbol(raw_symbol) or str(raw_symbol or "").strip().upper() or None
+    if status != "eligible" or not normalized:
+        return symbol_text, reason or status
+    return normalized, None
+
+
+def rating_counts_from_row(row: dict[str, Any]) -> dict[str, int | None]:
+    return {
+        "strong_buy_count": _int(_first_present(row, "strongBuy", "strong_buy", "analystRatingsStrongBuy")),
+        "buy_count": _int(_first_present(row, "buy", "analystRatingsBuy")),
+        "hold_count": _int(_first_present(row, "hold", "analystRatingsHold")),
+        "sell_count": _int(_first_present(row, "sell", "analystRatingsSell")),
+        "strong_sell_count": _int(_first_present(row, "strongSell", "strong_sell", "analystRatingsStrongSell")),
+    }
+
+
+def total_rating_count(counts: dict[str, int | None]) -> int | None:
+    values = [counts.get(key) for key in ("strong_buy_count", "buy_count", "hold_count", "sell_count", "strong_sell_count")]
+    if any(value is None for value in values):
+        return None
+    return sum(int(value or 0) for value in values)
+
+
+def weighted_sentiment(counts: dict[str, int | None]) -> float | None:
+    total = total_rating_count(counts)
+    if total is None or total <= 0:
+        return None
+    weighted = (
+        2 * int(counts.get("strong_buy_count") or 0)
+        + int(counts.get("buy_count") or 0)
+        - int(counts.get("sell_count") or 0)
+        - 2 * int(counts.get("strong_sell_count") or 0)
+    )
+    return weighted / total
+
+
+def recommendation_label(weighted_value: float | None, rating_count: int | None) -> str:
+    if rating_count is None or rating_count < int(os.getenv("ANALYST_CONSENSUS_MIN_COVERAGE", "3") or 3):
+        return "Insufficient Coverage"
+    if weighted_value is None:
+        return "Insufficient Coverage"
+    if weighted_value >= 1.25:
+        return "Strong Bullish"
+    if weighted_value >= 0.35:
+        return "Bullish"
+    if weighted_value > -0.35:
+        return "Neutral"
+    if weighted_value > -1.25:
+        return "Bearish"
+    return "Strong Bearish"
+
+
+def implied_upside(target: float | None, current_price: float | None) -> float | None:
+    if target is None or current_price is None or target <= 0 or current_price <= 0:
+        return None
+    return ((target / current_price) - 1) * 100
+
+
+def target_dispersion(high: float | None, low: float | None, median_target: float | None) -> float | None:
+    if high is None or low is None or median_target is None or high <= 0 or low <= 0 or median_target <= 0:
+        return None
+    return ((high - low) / median_target) * 100
+
+
+def buy_equivalent_pct(snapshot: AnalystConsensusSnapshot | None) -> float | None:
+    if snapshot is None or not snapshot.total_rating_count:
+        return None
+    bullish = int(snapshot.strong_buy_count or 0) + int(snapshot.buy_count or 0)
+    return bullish / snapshot.total_rating_count * 100
+
+
+def sell_equivalent_pct(snapshot: AnalystConsensusSnapshot | None) -> float | None:
+    if snapshot is None or not snapshot.total_rating_count:
+        return None
+    bearish = int(snapshot.sell_count or 0) + int(snapshot.strong_sell_count or 0)
+    return bearish / snapshot.total_rating_count * 100
+
+
+def _delta(current: float | int | None, prior: float | int | None) -> float | None:
+    if current is None or prior is None:
+        return None
+    return float(current) - float(prior)
+
+
+def _target_consensus_values(row: dict[str, Any]) -> dict[str, float | None]:
+    return {
+        "price_target_high": _positive(_first_present(row, "targetHigh", "target_high")),
+        "price_target_low": _positive(_first_present(row, "targetLow", "target_low")),
+        "price_target_median": _positive(_first_present(row, "targetMedian", "target_median")),
+        "price_target_consensus": _positive(_first_present(row, "targetConsensus", "target_consensus", "consensus")),
+    }
+
+
+def _target_summary_values(row: dict[str, Any]) -> dict[str, float | int | None]:
+    all_time_avg = _positive(_first_present(row, "allTimeAvgPriceTarget", "allTimeAveragePriceTarget"))
+    last_year_avg = _positive(row.get("lastYearAvgPriceTarget"))
+    return {
+        "price_target_average": all_time_avg or last_year_avg,
+        "price_target_analyst_count": _int(_first_present(row, "allTimeCount", "lastYearCount")),
+    }
+
+
+def _availability(
+    *,
+    counts: dict[str, int | None],
+    targets: dict[str, float | None],
+    provider_error: str | None = None,
+) -> tuple[str, str]:
+    if provider_error:
+        has_any = any(value is not None for value in counts.values()) or any(value is not None for value in targets.values())
+        return ("partial" if has_any else "unavailable", "provider_error")
+    has_ratings = total_rating_count(counts) is not None
+    has_targets = any(targets.get(key) is not None for key in ("price_target_median", "price_target_consensus", "price_target_high", "price_target_low"))
+    if has_ratings and has_targets:
+        return "available", "available"
+    if has_ratings or has_targets:
+        return "partial", "available"
+    return "unavailable", "available"
+
+
+def latest_cached_price(db: Session, symbol: str) -> PricePoint:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return PricePoint(None, None, None)
+    quote = db.get(QuoteCache, normalized)
+    if quote and quote.price is not None and quote.price > 0:
+        as_of = quote.asof_ts
+        if as_of and as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        return PricePoint(float(quote.price), "quotes_cache", as_of)
+    price = db.execute(
+        select(PriceCache.date, PriceCache.close)
+        .where(PriceCache.symbol == normalized)
+        .order_by(PriceCache.date.desc())
+        .limit(1)
+    ).first()
+    if price and price.close is not None and price.close > 0:
+        as_of_date = _date(price.date)
+        as_of = datetime.combine(as_of_date, datetime.min.time(), tzinfo=timezone.utc) if as_of_date else None
+        return PricePoint(float(price.close), "price_cache", as_of)
+    return PricePoint(None, None, None)
+
+
+def build_snapshot_payload(
+    symbol: str,
+    *,
+    grades_summary_rows: list[dict[str, Any]],
+    price_target_consensus_rows: list[dict[str, Any]],
+    price_target_summary_rows: list[dict[str, Any]],
+    price: PricePoint | None = None,
+    observed_at: datetime | None = None,
+    provider_error: str | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        raise ValueError("invalid symbol")
+    observed = observed_at or utc_now()
+    summary_row = grades_summary_rows[0] if grades_summary_rows else {}
+    target_row = price_target_consensus_rows[0] if price_target_consensus_rows else {}
+    target_summary_row = price_target_summary_rows[0] if price_target_summary_rows else {}
+    counts = rating_counts_from_row(summary_row)
+    rating_count = total_rating_count(counts)
+    weighted = weighted_sentiment(counts)
+    targets = _target_consensus_values(target_row)
+    target_summary = _target_summary_values(target_summary_row)
+    current_price = price.price if price else None
+    availability_status, provider_status = _availability(counts=counts, targets=targets, provider_error=provider_error)
+    return {
+        "symbol": normalized,
+        "provider_symbol": _text(summary_row.get("symbol") or target_row.get("symbol") or target_summary_row.get("symbol")) or normalized,
+        "snapshot_date": observed.astimezone(timezone.utc).date() if observed.tzinfo else observed.date(),
+        **counts,
+        "total_rating_count": rating_count,
+        "weighted_rating_value": weighted,
+        "recommendation_label": recommendation_label(weighted, rating_count),
+        **targets,
+        **target_summary,
+        "current_price_at_snapshot": current_price,
+        "current_price_source": price.source if price else None,
+        "current_price_as_of": price.as_of if price else None,
+        "median_implied_upside_pct": implied_upside(targets["price_target_median"], current_price),
+        "consensus_implied_upside_pct": implied_upside(targets["price_target_consensus"] or target_summary["price_target_average"], current_price),
+        "target_dispersion_pct": target_dispersion(
+            targets["price_target_high"],
+            targets["price_target_low"],
+            targets["price_target_median"],
+        ),
+        "availability_status": availability_status,
+        "provider_status": provider_status,
+        "provider_error": provider_error,
+        "source": SOURCE,
+        "source_updated_at": None,
+        "methodology_version": METHODOLOGY_VERSION,
+        "raw_payload_json": _json(
+            {
+                "grades_consensus": grades_summary_rows,
+                "price_target_consensus": price_target_consensus_rows,
+                "price_target_summary": price_target_summary_rows,
+            }
+        ),
+        "ingested_at": observed,
+    }
+
+
+def upsert_consensus_snapshot(db: Session, values: dict[str, Any]) -> tuple[AnalystConsensusSnapshot, bool]:
+    symbol = values["symbol"]
+    snapshot_date = values["snapshot_date"]
+    row = db.execute(
+        select(AnalystConsensusSnapshot)
+        .where(AnalystConsensusSnapshot.symbol == symbol)
+        .where(AnalystConsensusSnapshot.snapshot_date == snapshot_date)
+    ).scalar_one_or_none()
+    created = row is None
+    if row is None:
+        row = AnalystConsensusSnapshot(symbol=symbol, snapshot_date=snapshot_date)
+        db.add(row)
+        db.flush()
+    for key, value in values.items():
+        setattr(row, key, value)
+    row.updated_at = values.get("ingested_at") or utc_now()
+    return row, created
+
+
+def normalize_action(action: Any) -> str | None:
+    raw = _text(action)
+    if not raw:
+        return None
+    cleaned = raw.lower().replace("_", " ").replace("-", " ").strip()
+    if "upgrade" in cleaned:
+        return "Upgrade"
+    if "downgrade" in cleaned:
+        return "Downgrade"
+    if "initiat" in cleaned:
+        return "Initiated"
+    if "reiterat" in cleaned:
+        return "Reiterated"
+    if "maintain" in cleaned:
+        return "Maintained"
+    if "resume" in cleaned:
+        return "Resumed"
+    if "suspend" in cleaned:
+        return "Suspended"
+    if cleaned in {"other", "unknown"}:
+        return cleaned.title()
+    return raw
+
+
+def event_fingerprint(symbol: str, row: dict[str, Any]) -> str:
+    provider_id = _text(row.get("id") or row.get("eventId") or row.get("providerEventId"))
+    if provider_id:
+        basis = {"provider_id": provider_id}
+    else:
+        basis = {
+            "symbol": normalize_symbol(symbol),
+            "date": _iso_date(_date(row.get("date") or row.get("publishedDate") or row.get("published_date"))),
+            "grading_company": _text(row.get("gradingCompany") or row.get("firm") or row.get("company")),
+            "analyst_name": _text(row.get("analystName") or row.get("analyst")),
+            "previous_grade": _text(row.get("previousGrade")),
+            "new_grade": _text(row.get("newGrade") or row.get("grade")),
+            "action": _text(row.get("action")),
+        }
+    return hashlib.sha256(_json(basis).encode("utf-8")).hexdigest()
+
+
+def event_values(symbol: str, row: dict[str, Any], *, ingested_at: datetime | None = None) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        raise ValueError("invalid symbol")
+    provider_action = _text(row.get("action"))
+    return {
+        "symbol": normalized,
+        "provider_symbol": _text(row.get("symbol")) or normalized,
+        "grading_company": _text(row.get("gradingCompany") or row.get("firm") or row.get("company")),
+        "analyst_name": _text(row.get("analystName") or row.get("analyst")),
+        "previous_grade": _text(row.get("previousGrade") or row.get("previous_grade")),
+        "new_grade": _text(row.get("newGrade") or row.get("new_grade") or row.get("grade")),
+        "action": normalize_action(provider_action),
+        "provider_action": provider_action,
+        "published_date": _date(row.get("date") or row.get("publishedDate") or row.get("published_date")),
+        "source_url": _text(row.get("url") or row.get("sourceUrl") or row.get("source_url")),
+        "provider_event_id": _text(row.get("id") or row.get("eventId") or row.get("providerEventId")),
+        "event_fingerprint": event_fingerprint(normalized, row),
+        "source": SOURCE,
+        "raw_payload_json": _json(row),
+        "ingested_at": ingested_at or utc_now(),
+    }
+
+
+def upsert_grade_event(db: Session, values: dict[str, Any]) -> tuple[AnalystGradeEvent, bool]:
+    row = db.execute(
+        select(AnalystGradeEvent)
+        .where(AnalystGradeEvent.source == values["source"])
+        .where(AnalystGradeEvent.event_fingerprint == values["event_fingerprint"])
+    ).scalar_one_or_none()
+    created = row is None
+    if row is None:
+        row = AnalystGradeEvent(
+            symbol=values["symbol"],
+            event_fingerprint=values["event_fingerprint"],
+            source=values["source"],
+        )
+        db.add(row)
+        db.flush()
+    for key, value in values.items():
+        setattr(row, key, value)
+    row.updated_at = values.get("ingested_at") or utc_now()
+    return row, created
+
+
+def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
+    normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
+    if rejection_reason or not normalized:
+        return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    observed = observed_at or utc_now()
+    provider_error: str | None = None
+    rows: dict[str, list[dict[str, Any]]] = {
+        "grades_summary": [],
+        "price_target_consensus": [],
+        "price_target_summary": [],
+    }
+    for key, fetcher in (
+        ("grades_summary", fetch_grades_summary),
+        ("price_target_consensus", fetch_price_target_consensus),
+        ("price_target_summary", fetch_price_target_summary),
+    ):
+        try:
+            rows[key] = fetcher(symbol=normalized, timeout_s=15)
+        except FMPSubscriptionRestrictedError as exc:
+            provider_error = f"subscription_restricted:{exc.__class__.__name__}"
+        except FMPClientError as exc:
+            provider_error = exc.__class__.__name__
+    price = latest_cached_price(db, normalized)
+    values = build_snapshot_payload(
+        normalized,
+        grades_summary_rows=rows["grades_summary"],
+        price_target_consensus_rows=rows["price_target_consensus"],
+        price_target_summary_rows=rows["price_target_summary"],
+        price=price,
+        observed_at=observed,
+        provider_error=provider_error,
+    )
+    snapshot, created = upsert_consensus_snapshot(db, values)
+    return {"symbol": normalized, "status": snapshot.availability_status, "created": created, "snapshot_id": snapshot.id, "provider_error": provider_error}
+
+
+def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
+    normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
+    if rejection_reason or not normalized:
+        return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    observed = observed_at or utc_now()
+    try:
+        rows = fetch_grade_events(symbol=normalized, timeout_s=20)
+    except FMPSubscriptionRestrictedError as exc:
+        return {"symbol": normalized, "status": "provider_error", "error": f"subscription_restricted:{exc.__class__.__name__}"}
+    except FMPClientError as exc:
+        return {"symbol": normalized, "status": "provider_error", "error": exc.__class__.__name__}
+    inserted = updated = skipped = 0
+    for row in rows:
+        try:
+            event, created = upsert_grade_event(db, event_values(normalized, row, ingested_at=observed))
+        except ValueError:
+            skipped += 1
+            continue
+        if event.id and created:
+            inserted += 1
+        else:
+            updated += 1
+    return {"symbol": normalized, "status": "available" if rows else "unavailable", "rows_seen": len(rows), "inserted": inserted, "updated": updated, "skipped": skipped}
+
+
+def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
+    if symbols is not None:
+        candidates = [analyst_symbol_rejection_reason(symbol)[0] for symbol in symbols]
+        result = sorted({symbol for symbol in candidates if symbol})
+        return result[:limit] if limit else result
+    rows = db.execute(
+        select(TickerMeta.symbol)
+        .order_by(TickerMeta.symbol.asc())
+        .limit(limit or 5000)
+    ).scalars().all()
+    if not rows:
+        rows = db.execute(select(Security.symbol).where(Security.asset_class == "stock").order_by(Security.symbol.asc()).limit(limit or 5000)).scalars().all()
+    result: list[str] = []
+    for raw in rows:
+        symbol, rejection = analyst_symbol_rejection_reason(raw)
+        if symbol and rejection is None:
+            result.append(symbol)
+    return sorted(set(result))[:limit] if limit else sorted(set(result))
+
+
+def start_ingestion_run(db: Session, job_name: str, *, metadata: dict[str, Any] | None = None) -> AnalystConsensusIngestionRun:
+    run = AnalystConsensusIngestionRun(
+        job_name=job_name,
+        started_at=utc_now(),
+        status="running",
+        metadata_json=_json(metadata or {}),
+    )
+    db.add(run)
+    db.flush()
+    return run
+
+
+def finish_ingestion_run(
+    run: AnalystConsensusIngestionRun,
+    *,
+    status: str,
+    attempted: int,
+    succeeded: int,
+    failed: int,
+    inserted: int,
+    updated: int,
+    provider_errors: list[dict[str, Any]] | None = None,
+    error_summary: str | None = None,
+) -> None:
+    run.completed_at = utc_now()
+    run.status = status
+    run.symbols_attempted = attempted
+    run.symbols_succeeded = succeeded
+    run.symbols_failed = failed
+    run.records_inserted = inserted
+    run.records_updated = updated
+    run.provider_errors_json = _json(provider_errors or [])
+    run.error_summary = error_summary
+    if provider_errors and any("429" in str(item.get("error")) for item in provider_errors):
+        run.rate_limit_response = "429"
+
+
+def _nearest_prior_snapshot(db: Session, symbol: str, on_or_before: date) -> AnalystConsensusSnapshot | None:
+    return db.execute(
+        select(AnalystConsensusSnapshot)
+        .where(AnalystConsensusSnapshot.symbol == symbol)
+        .where(AnalystConsensusSnapshot.snapshot_date <= on_or_before)
+        .where(AnalystConsensusSnapshot.availability_status.in_(("available", "partial", "stale")))
+        .order_by(AnalystConsensusSnapshot.snapshot_date.desc(), AnalystConsensusSnapshot.ingested_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def consensus_changes(db: Session, current: AnalystConsensusSnapshot | None) -> dict[str, Any]:
+    if current is None:
+        return {"days30": {}, "days90": {}}
+    result: dict[str, Any] = {}
+    for days in (30, 90):
+        prior = _nearest_prior_snapshot(db, current.symbol, current.snapshot_date - timedelta(days=days))
+        result[f"days{days}"] = {
+            "comparisonDate": _iso_date(prior.snapshot_date) if prior else None,
+            "weightedSentimentChange": _delta(current.weighted_rating_value, prior.weighted_rating_value if prior else None),
+            "medianTargetChange": _delta(current.price_target_median, prior.price_target_median if prior else None),
+            "consensusTargetChange": _delta(current.price_target_consensus, prior.price_target_consensus if prior else None),
+            "analystCountChange": _delta(current.total_rating_count, prior.total_rating_count if prior else None),
+            "buyEquivalentPctChange": _delta(buy_equivalent_pct(current), buy_equivalent_pct(prior)),
+            "sellEquivalentPctChange": _delta(sell_equivalent_pct(current), sell_equivalent_pct(prior)),
+            "targetDispersionChange": _delta(current.target_dispersion_pct, prior.target_dispersion_pct if prior else None),
+        }
+    return result
+
+
+def grade_event_stats(db: Session, symbol: str, *, as_of: date | None = None) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {}
+    today = as_of or utc_now().date()
+    rows = db.execute(
+        select(AnalystGradeEvent)
+        .where(AnalystGradeEvent.symbol == normalized)
+        .where(AnalystGradeEvent.published_date >= today - timedelta(days=90))
+        .order_by(AnalystGradeEvent.published_date.desc(), AnalystGradeEvent.id.desc())
+    ).scalars().all()
+    stats: dict[str, Any] = {}
+    for days in (30, 90):
+        cutoff = today - timedelta(days=days)
+        scoped = [row for row in rows if row.published_date and row.published_date >= cutoff]
+        upgrades = sum(1 for row in scoped if row.action == "Upgrade")
+        downgrades = sum(1 for row in scoped if row.action == "Downgrade")
+        stats[f"days{days}"] = {"upgrades": upgrades, "downgrades": downgrades, "netActions": upgrades - downgrades}
+    recent = rows[0] if rows else None
+    stats["mostRecentEvent"] = grade_event_payload(recent) if recent else None
+    stats["daysSinceMostRecentEvent"] = (today - recent.published_date).days if recent and recent.published_date else None
+    return stats
+
+
+def coverage_confidence(snapshot: AnalystConsensusSnapshot | None, changes: dict[str, Any]) -> dict[str, Any]:
+    if snapshot is None:
+        return {"level": "Insufficient", "reasons": ["No stored analyst consensus snapshot is available."]}
+    reasons: list[str] = []
+    rating_count = snapshot.total_rating_count or 0
+    target_count = snapshot.price_target_analyst_count or 0
+    freshness_days = (utc_now().date() - snapshot.snapshot_date).days
+    if rating_count >= 15:
+        reasons.append("Rating coverage is broad.")
+    elif rating_count >= 5:
+        reasons.append("Rating coverage is moderate.")
+    elif rating_count > 0:
+        reasons.append("Rating coverage is thin.")
+    else:
+        reasons.append("Rating coverage is unavailable.")
+    if target_count >= 10:
+        reasons.append("Price-target coverage is broad.")
+    elif target_count > 0:
+        reasons.append("Price-target coverage is available but limited.")
+    else:
+        reasons.append("Price-target analyst count is unavailable.")
+    if freshness_days <= FRESHNESS_DAYS:
+        reasons.append("Snapshot is fresh.")
+    else:
+        reasons.append("Snapshot is older than the freshness threshold.")
+    has_history = any((changes.get(key) or {}).get("comparisonDate") for key in ("days30", "days90"))
+    if has_history:
+        reasons.append("Historical comparison observations are available.")
+    if rating_count >= 15 and target_count >= 10 and freshness_days <= FRESHNESS_DAYS and has_history:
+        level = "High"
+    elif rating_count >= 5 and freshness_days <= STALE_DAYS:
+        level = "Moderate"
+    elif rating_count > 0 or target_count > 0:
+        level = "Low"
+    else:
+        level = "Insufficient"
+    return {"level": level, "reasons": reasons}
+
+
+def target_dispersion_level(value: float | None) -> str:
+    if value is None:
+        return "Unavailable"
+    if value < 20:
+        return "Low"
+    if value < 50:
+        return "Moderate"
+    return "High"
+
+
+def interpret_consensus(snapshot: AnalystConsensusSnapshot | None, changes: dict[str, Any], event_stats: dict[str, Any]) -> dict[str, Any]:
+    if snapshot is None:
+        return {
+            "currentAnalystDirection": "Unavailable",
+            "trendDirection": "Unavailable",
+            "combinedLabel": "Unavailable",
+            "coverageLevel": "Insufficient",
+            "targetDispersionLevel": "Unavailable",
+            "supportingFacts": [],
+            "contradictingFacts": [],
+            "freshness": {"status": "unavailable"},
+            "dataAvailability": "unavailable",
+        }
+    freshness_days = (utc_now().date() - snapshot.snapshot_date).days
+    freshness_status = "fresh" if freshness_days <= FRESHNESS_DAYS else "stale" if freshness_days > STALE_DAYS else "aging"
+    current = snapshot.recommendation_label or "Insufficient Coverage"
+    change30 = changes.get("days30") or {}
+    change90 = changes.get("days90") or {}
+    score = 0.0
+    for weight, bucket in ((1.0, change30), (0.5, change90)):
+        score += weight * (bucket.get("weightedSentimentChange") or 0)
+        score += weight * ((bucket.get("medianTargetChange") or 0) / max(abs(snapshot.current_price_at_snapshot or 1), 1))
+        score += weight * ((bucket.get("consensusTargetChange") or 0) / max(abs(snapshot.current_price_at_snapshot or 1), 1))
+    score += 0.25 * ((event_stats.get("days30") or {}).get("netActions") or 0)
+    if snapshot.consensus_implied_upside_pct is not None:
+        score += max(min(snapshot.consensus_implied_upside_pct / 100, 0.3), -0.3)
+    if score > 0.25:
+        trend = "Improving"
+    elif score < -0.25:
+        trend = "Weakening"
+    else:
+        trend = "Stable"
+    base = "Neutral"
+    if "Bullish" in current:
+        base = "Bullish"
+    elif "Bearish" in current:
+        base = "Bearish"
+    if current == "Insufficient Coverage":
+        combined = "Insufficient coverage"
+    elif base == "Bullish" and trend == "Improving":
+        combined = "Bullish and improving"
+    elif base == "Bullish" and trend == "Weakening":
+        combined = "Bullish but weakening"
+    elif base == "Bullish":
+        combined = "Bullish and stable"
+    elif base == "Bearish" and trend == "Improving":
+        combined = "Bearish but improving"
+    elif base == "Bearish" and trend == "Weakening":
+        combined = "Bearish and worsening"
+    elif base == "Bearish":
+        combined = "Bearish and stable"
+    elif trend == "Improving":
+        combined = "Neutral and improving"
+    elif trend == "Weakening":
+        combined = "Neutral and weakening"
+    else:
+        combined = "Neutral"
+    supporting: list[str] = []
+    contradicting: list[str] = []
+    if snapshot.consensus_implied_upside_pct is not None:
+        fact = f"Consensus target implies {round(snapshot.consensus_implied_upside_pct, 1)}% upside/downside."
+        (supporting if snapshot.consensus_implied_upside_pct >= 0 else contradicting).append(fact)
+    if (event_stats.get("days30") or {}).get("netActions"):
+        supporting.append(f"Net rating actions over 30 days: {(event_stats.get('days30') or {}).get('netActions')}.")
+    confidence = coverage_confidence(snapshot, changes)
+    return {
+        "currentAnalystDirection": current,
+        "trendDirection": trend,
+        "combinedLabel": combined,
+        "coverageLevel": confidence["level"],
+        "targetDispersionLevel": target_dispersion_level(snapshot.target_dispersion_pct),
+        "supportingFacts": supporting,
+        "contradictingFacts": contradicting,
+        "freshness": {"status": freshness_status, "daysOld": freshness_days},
+        "dataAvailability": snapshot.availability_status,
+        "methodologyVersion": METHODOLOGY_VERSION,
+    }
+
+
+def latest_snapshot(db: Session, symbol: str) -> AnalystConsensusSnapshot | None:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return None
+    return db.execute(
+        select(AnalystConsensusSnapshot)
+        .where(AnalystConsensusSnapshot.symbol == normalized)
+        .order_by(AnalystConsensusSnapshot.snapshot_date.desc(), AnalystConsensusSnapshot.ingested_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _snapshot_availability(snapshot: AnalystConsensusSnapshot) -> str:
+    days_old = (utc_now().date() - snapshot.snapshot_date).days
+    if snapshot.provider_status == "provider_error":
+        return "provider_error"
+    if days_old > STALE_DAYS:
+        return "stale"
+    return snapshot.availability_status
+
+
+def snapshot_payload(snapshot: AnalystConsensusSnapshot | None) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    return {
+        "symbol": snapshot.symbol,
+        "snapshotDate": _iso_date(snapshot.snapshot_date),
+        "recommendationDistribution": {
+            "strongBuy": snapshot.strong_buy_count,
+            "buy": snapshot.buy_count,
+            "hold": snapshot.hold_count,
+            "sell": snapshot.sell_count,
+            "strongSell": snapshot.strong_sell_count,
+            "total": snapshot.total_rating_count,
+        },
+        "weightedRatingValue": snapshot.weighted_rating_value,
+        "recommendationLabel": snapshot.recommendation_label,
+        "priceTargetRange": {
+            "high": snapshot.price_target_high,
+            "low": snapshot.price_target_low,
+            "median": snapshot.price_target_median,
+            "consensus": snapshot.price_target_consensus,
+            "average": snapshot.price_target_average,
+            "analystCount": snapshot.price_target_analyst_count,
+        },
+        "currentPriceAtSnapshot": snapshot.current_price_at_snapshot,
+        "currentPriceSource": snapshot.current_price_source,
+        "currentPriceAsOf": _iso_dt(snapshot.current_price_as_of),
+        "impliedUpside": {
+            "medianPct": snapshot.median_implied_upside_pct,
+            "consensusPct": snapshot.consensus_implied_upside_pct,
+        },
+        "targetDispersionPct": snapshot.target_dispersion_pct,
+        "availabilityStatus": _snapshot_availability(snapshot),
+        "providerStatus": snapshot.provider_status,
+        "providerError": snapshot.provider_error,
+        "source": snapshot.source,
+        "sourceUpdatedAt": _iso_dt(snapshot.source_updated_at),
+        "ingestedAt": _iso_dt(snapshot.ingested_at),
+    }
+
+
+def current_consensus_payload(db: Session, symbol: str) -> dict[str, Any]:
+    normalized, rejection = analyst_symbol_rejection_reason(symbol)
+    if rejection or not normalized:
+        return {
+            "symbol": normalized or symbol,
+            "availability": {"status": "unsupported", "reason": rejection},
+            "providerStatus": {"status": "unsupported"},
+        }
+    snapshot = latest_snapshot(db, normalized)
+    changes = consensus_changes(db, snapshot)
+    event_stats = grade_event_stats(db, normalized, as_of=snapshot.snapshot_date if snapshot else None)
+    interpretation = interpret_consensus(snapshot, changes, event_stats)
+    confidence = coverage_confidence(snapshot, changes)
+    availability = _snapshot_availability(snapshot) if snapshot else "unavailable"
+    return {
+        "symbol": normalized,
+        "currentSnapshot": snapshot_payload(snapshot),
+        "changes": changes,
+        "gradeEventStats": event_stats,
+        "interpretation": interpretation,
+        "coverage": confidence,
+        "freshness": interpretation.get("freshness"),
+        "availability": {"status": availability},
+        "providerStatus": {
+            "status": snapshot.provider_status if snapshot else "unavailable",
+            "error": snapshot.provider_error if snapshot else None,
+        },
+    }
+
+
+def history_payload(
+    db: Session,
+    symbol: str,
+    *,
+    days: int | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {"symbol": symbol, "points": [], "availability": {"status": "unsupported"}}
+    bounded_days = max(1, min(int(days or DEFAULT_HISTORY_DAYS), MAX_HISTORY_DAYS))
+    end = end_date or utc_now().date()
+    start = start_date or (end - timedelta(days=bounded_days))
+    if (end - start).days > MAX_HISTORY_DAYS:
+        start = end - timedelta(days=MAX_HISTORY_DAYS)
+    rows = db.execute(
+        select(AnalystConsensusSnapshot)
+        .where(AnalystConsensusSnapshot.symbol == normalized)
+        .where(AnalystConsensusSnapshot.snapshot_date >= start)
+        .where(AnalystConsensusSnapshot.snapshot_date <= end)
+        .order_by(AnalystConsensusSnapshot.snapshot_date.asc(), AnalystConsensusSnapshot.id.asc())
+    ).scalars().all()
+    return {
+        "symbol": normalized,
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "maxDays": MAX_HISTORY_DAYS,
+        "points": [
+            {
+                "date": _iso_date(row.snapshot_date),
+                "weightedSentiment": row.weighted_rating_value,
+                "recommendationCounts": {
+                    "strongBuy": row.strong_buy_count,
+                    "buy": row.buy_count,
+                    "hold": row.hold_count,
+                    "sell": row.sell_count,
+                    "strongSell": row.strong_sell_count,
+                    "total": row.total_rating_count,
+                },
+                "medianTarget": row.price_target_median,
+                "consensusTarget": row.price_target_consensus,
+                "highTarget": row.price_target_high,
+                "lowTarget": row.price_target_low,
+                "currentPriceAtSnapshot": row.current_price_at_snapshot,
+                "targetAnalystCount": row.price_target_analyst_count,
+                "medianImpliedUpsidePct": row.median_implied_upside_pct,
+                "consensusImpliedUpsidePct": row.consensus_implied_upside_pct,
+                "targetDispersionPct": row.target_dispersion_pct,
+                "availabilityStatus": row.availability_status,
+            }
+            for row in rows
+        ],
+    }
+
+
+def grade_event_payload(row: AnalystGradeEvent | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "symbol": row.symbol,
+        "gradingCompany": row.grading_company,
+        "analystName": row.analyst_name,
+        "previousGrade": row.previous_grade,
+        "newGrade": row.new_grade,
+        "action": row.action,
+        "providerAction": row.provider_action,
+        "publishedDate": _iso_date(row.published_date),
+        "source": row.source,
+        "ingestedAt": _iso_dt(row.ingested_at),
+    }
+
+
+def events_payload(
+    db: Session,
+    symbol: str,
+    *,
+    limit: int = 100,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    action: str | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {"symbol": symbol, "items": [], "availability": {"status": "unsupported"}}
+    bounded_limit = max(1, min(int(limit or 100), 500))
+    statement = select(AnalystGradeEvent).where(AnalystGradeEvent.symbol == normalized)
+    if start_date:
+        statement = statement.where(AnalystGradeEvent.published_date >= start_date)
+    if end_date:
+        statement = statement.where(AnalystGradeEvent.published_date <= end_date)
+    normalized_action = normalize_action(action)
+    if normalized_action:
+        statement = statement.where(AnalystGradeEvent.action == normalized_action)
+    rows = db.execute(
+        statement.order_by(AnalystGradeEvent.published_date.desc(), AnalystGradeEvent.id.desc()).limit(bounded_limit)
+    ).scalars().all()
+    return {"symbol": normalized, "limit": bounded_limit, "items": [grade_event_payload(row) for row in rows]}
+
+
+def compare_consensus_payload(db: Session, symbols: Iterable[str], *, max_symbols: int = 8) -> dict[str, Any]:
+    normalized_symbols = []
+    for raw in symbols:
+        normalized = normalize_symbol(raw)
+        if normalized and normalized not in normalized_symbols:
+            normalized_symbols.append(normalized)
+    normalized_symbols = normalized_symbols[:max_symbols]
+    if not normalized_symbols:
+        return {"symbols": [], "items": {}, "maxSymbols": max_symbols}
+    latest_dates = (
+        select(
+            AnalystConsensusSnapshot.symbol.label("symbol"),
+            func.max(AnalystConsensusSnapshot.snapshot_date).label("snapshot_date"),
+        )
+        .where(AnalystConsensusSnapshot.symbol.in_(normalized_symbols))
+        .group_by(AnalystConsensusSnapshot.symbol)
+        .subquery()
+    )
+    rows = db.execute(
+        select(AnalystConsensusSnapshot)
+        .join(
+            latest_dates,
+            (AnalystConsensusSnapshot.symbol == latest_dates.c.symbol)
+            & (AnalystConsensusSnapshot.snapshot_date == latest_dates.c.snapshot_date),
+        )
+    ).scalars().all()
+    by_symbol = {
+        row.symbol: {
+            "symbol": row.symbol,
+            "currentSnapshot": snapshot_payload(row),
+            "summary": {
+                "recommendationLabel": row.recommendation_label,
+                "weightedRatingValue": row.weighted_rating_value,
+                "consensusImpliedUpsidePct": row.consensus_implied_upside_pct,
+                "targetDispersionPct": row.target_dispersion_pct,
+                "availabilityStatus": _snapshot_availability(row),
+                "providerStatus": row.provider_status,
+            },
+        }
+        for row in rows
+    }
+    return {
+        "symbols": normalized_symbols,
+        "maxSymbols": max_symbols,
+        "items": {
+            symbol: by_symbol.get(symbol)
+            or {
+                "symbol": symbol,
+                "currentSnapshot": None,
+                "summary": {"availabilityStatus": "unavailable", "providerStatus": "unavailable"},
+            }
+            for symbol in normalized_symbols
+        },
+    }
+
+
+def analyst_consensus_component_inputs(db: Session, symbol: str) -> dict[str, Any]:
+    snapshot = latest_snapshot(db, symbol)
+    changes = consensus_changes(db, snapshot)
+    event_stats = grade_event_stats(db, normalize_symbol(symbol) or symbol, as_of=snapshot.snapshot_date if snapshot else None)
+    confidence = coverage_confidence(snapshot, changes)
+    return {
+        "symbol": normalize_symbol(symbol),
+        "methodologyVersion": METHODOLOGY_VERSION,
+        "liveWeightAssigned": False,
+        "inputs": {
+            "weightedRatingValue": snapshot.weighted_rating_value if snapshot else None,
+            "weightedSentimentChange30d": (changes.get("days30") or {}).get("weightedSentimentChange"),
+            "weightedSentimentChange90d": (changes.get("days90") or {}).get("weightedSentimentChange"),
+            "netRatingActions30d": (event_stats.get("days30") or {}).get("netActions"),
+            "netRatingActions90d": (event_stats.get("days90") or {}).get("netActions"),
+            "medianTargetChange30d": (changes.get("days30") or {}).get("medianTargetChange"),
+            "consensusTargetChange30d": (changes.get("days30") or {}).get("consensusTargetChange"),
+            "consensusImpliedUpsidePct": snapshot.consensus_implied_upside_pct if snapshot else None,
+            "coverageLevel": confidence["level"],
+            "targetDispersionPct": snapshot.target_dispersion_pct if snapshot else None,
+            "freshnessStatus": _snapshot_availability(snapshot) if snapshot else "unavailable",
+        },
+        "notes": [
+            "Analyst consensus is kept separate from Walnut's live confirmation score.",
+            "No live component weight should be assigned without coverage, backtesting, correlation, and double-counting review.",
+        ],
+    }

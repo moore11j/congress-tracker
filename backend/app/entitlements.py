@@ -52,6 +52,8 @@ FeatureKey = Literal[
     "institutional_filters",
     "macro_positioning",
     "market_pressure",
+    "analyst_consensus",
+    "analyst_consensus_history",
     "api_webhooks",
 ]
 
@@ -122,6 +124,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_filters": 0,
             "macro_positioning": 0,
             "market_pressure": 0,
+            "analyst_consensus": 1,
+            "analyst_consensus_history": 0,
             "api_webhooks": 0,
         },
         features=frozenset(
@@ -137,6 +141,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "government_contracts_feed",
                 "insider_feed",
                 "congress_feed",
+                "analyst_consensus",
             }
         ),
     ),
@@ -177,6 +182,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_filters": 0,
             "macro_positioning": 0,
             "market_pressure": 0,
+            "analyst_consensus": 1,
+            "analyst_consensus_history": 1,
             "api_webhooks": 0,
         },
         features=frozenset(
@@ -204,6 +211,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "government_contracts_filters",
                 "insider_feed",
                 "congress_feed",
+                "analyst_consensus",
+                "analyst_consensus_history",
             }
         ),
     ),
@@ -244,6 +253,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_filters": 1,
             "macro_positioning": 1,
             "market_pressure": 1,
+            "analyst_consensus": 1,
+            "analyst_consensus_history": 1,
             "api_webhooks": 1,
         },
         features=frozenset(
@@ -280,6 +291,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "institutional_filters",
                 "macro_positioning",
                 "market_pressure",
+                "analyst_consensus",
+                "analyst_consensus_history",
                 "api_webhooks",
             }
         ),
@@ -418,6 +431,14 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "market_pressure": {
         "required_tier": "pro",
         "description": "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
+    },
+    "analyst_consensus": {
+        "required_tier": "free",
+        "description": "Current analyst consensus snapshots for ticker research.",
+    },
+    "analyst_consensus_history": {
+        "required_tier": "premium",
+        "description": "Analyst consensus history and detailed grade-event data.",
     },
     "api_webhooks": {
         "required_tier": "pro",
@@ -696,6 +717,22 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_plural": "",
         "sort_order": 116,
         "pricing_description": "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
+    },
+    "analyst_consensus": {
+        "label": "Analyst Consensus",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 117,
+        "pricing_description": "Current analyst consensus snapshots on ticker research pages.",
+    },
+    "analyst_consensus_history": {
+        "label": "Analyst Consensus History",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 118,
+        "pricing_description": "Analyst consensus history and detailed grade-event data.",
     },
     "api_webhooks": {
         "label": "API and webhooks",
