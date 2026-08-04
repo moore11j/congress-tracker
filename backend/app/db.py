@@ -1548,55 +1548,60 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                 add_pg_column("analyst_consensus_ingestion_runs", name, "INTEGER NOT NULL DEFAULT 0")
             add_pg_column("analyst_consensus_ingestion_runs", "started_at", "TIMESTAMPTZ")
             add_pg_column("analyst_consensus_ingestion_runs", "completed_at", "TIMESTAMPTZ")
-        conn.execute(
-            text(
+        index_statements = {
+            "ix_analyst_consensus_snapshots_symbol_date": (
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_symbol_date "
                 "ON analyst_consensus_snapshots (symbol, snapshot_date)"
-            )
-        )
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_consensus_snapshots_source_ingested": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_source_ingested "
                 "ON analyst_consensus_snapshots (source, ingested_at)"
-            )
-        )
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_consensus_snapshots_availability": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_availability "
                 "ON analyst_consensus_snapshots (availability_status)"
-            )
-        )
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_grade_events_source_fingerprint": (
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_grade_events_source_fingerprint "
                 "ON analyst_grade_events (source, event_fingerprint)"
-            )
-        )
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_grade_events_symbol_date": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_symbol_date "
                 "ON analyst_grade_events (symbol, published_date)"
-            )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_action ON analyst_grade_events (action)"))
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_grade_events_action": "CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_action ON analyst_grade_events (action)",
+            "ix_analyst_grade_events_provider_id": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_provider_id "
                 "ON analyst_grade_events (provider_event_id)"
-            )
-        )
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_consensus_runs_job_started": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_runs_job_started "
                 "ON analyst_consensus_ingestion_runs (job_name, started_at)"
-            )
-        )
-        conn.execute(
-            text(
+            ),
+            "ix_analyst_consensus_runs_status": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_runs_status "
                 "ON analyst_consensus_ingestion_runs (status)"
-            )
-        )
+            ),
+        }
+        existing_indexes: set[str] = set()
+        if dialect_name != "sqlite":
+            existing_indexes = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT indexname
+                        FROM pg_indexes
+                        WHERE schemaname = 'public'
+                          AND indexname = ANY(:index_names)
+                        """
+                    ),
+                    {"index_names": list(index_statements.keys())},
+                )
+            }
+        for index_name, statement in index_statements.items():
+            if dialect_name == "sqlite" or index_name not in existing_indexes:
+                conn.execute(text(statement))
 
 
 def ensure_search_and_insights_schema(bind=engine) -> None:
