@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteAdminResearchBriefDraft,
   getAdminResearchBriefDraft,
@@ -183,12 +183,20 @@ function Button({
   );
 }
 
-function articleToMarkdown(article: AdminResearchBriefArticle) {
-  return (article.sections || []).map((section) => `## ${section.heading}\n\n${section.body_markdown}`).join("\n\n");
-}
-
 const PAYWALL_MARKER = "<!-- walnut:paywall -->";
 const paywallMarkerPattern = /^\s*(?:<!--\s*walnut:paywall\s*-->|::walnut-paywall::|\[\[WALNUT_PAYWALL\]\])\s*$/im;
+
+function articleToMarkdown(article: AdminResearchBriefArticle) {
+  const sections = article.sections || [];
+  const markdownSections = sections.map((section) => `## ${section.heading}\n\n${section.body_markdown}`);
+  const markdown = markdownSections.join("\n\n");
+  if (paywallMarkerPattern.test(markdown)) return markdown;
+  const previewCount = typeof article.preview_section_count === "number" ? Math.max(0, Math.min(article.preview_section_count, markdownSections.length)) : null;
+  if (previewCount === null) return markdown;
+  if (previewCount === 0) return `${PAYWALL_MARKER}\n\n${markdown}`.trim();
+  if (previewCount >= markdownSections.length) return `${markdown}\n\n${PAYWALL_MARKER}`.trim();
+  return [...markdownSections.slice(0, previewCount), PAYWALL_MARKER, ...markdownSections.slice(previewCount)].join("\n\n");
+}
 
 function researchBriefJobTimedOut(job: AdminResearchBriefJob) {
   const timestamp = job.updated_at || job.started_at || job.created_at;
@@ -1390,6 +1398,7 @@ function EditorPanel({
   blockingWarnings: number;
   walnutCallInvalid: boolean;
 }) {
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   if (!draft || !article) {
     return (
       <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
@@ -1417,8 +1426,35 @@ function EditorPanel({
     });
   }
   function insertPaywallMarker() {
-    const separator = bodyMarkdown.trim() ? "\n\n" : "";
-    onBodyChange(`${bodyMarkdown.trimEnd()}${separator}${PAYWALL_MARKER}\n\n`);
+    const textarea = bodyTextareaRef.current;
+    let text = bodyMarkdown;
+    let start = textarea?.selectionStart ?? text.length;
+    let end = textarea?.selectionEnd ?? start;
+    const existing = text.match(paywallMarkerPattern);
+    if (existing && typeof existing.index === "number") {
+      const existingStart = existing.index;
+      const existingEnd = existingStart + existing[0].length;
+      const selectionContainsExisting = start <= existingStart && end >= existingEnd;
+      if (!selectionContainsExisting) {
+        text = `${text.slice(0, existingStart)}${text.slice(existingEnd)}`;
+        if (existingStart < start) {
+          const removedLength = existingEnd - existingStart;
+          start = Math.max(existingStart, start - removedLength);
+          end = Math.max(start, end - removedLength);
+        }
+      }
+    }
+    const before = text.slice(0, start).trimEnd();
+    const after = text.slice(end).trimStart();
+    const prefix = before ? `${before}\n\n` : "";
+    const suffix = after ? `\n\n${after}` : "";
+    const nextBody = `${prefix}${PAYWALL_MARKER}${suffix}`;
+    const nextCursor = prefix.length + PAYWALL_MARKER.length;
+    onBodyChange(nextBody);
+    window.requestAnimationFrame(() => {
+      bodyTextareaRef.current?.focus();
+      bodyTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   }
   return (
     <section className="grid gap-4 rounded-lg border border-white/10 bg-slate-950/55 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -1458,7 +1494,7 @@ function EditorPanel({
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
             <Button type="button" onClick={insertPaywallMarker}>Insert Paywall Marker</Button>
           </span>
-          <textarea value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
+          <textarea ref={bodyTextareaRef} value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
         </label>
         {article.reddit_post ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
