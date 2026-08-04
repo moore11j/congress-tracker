@@ -99,7 +99,7 @@ export function writePrivacyConsent(input: { analytics: boolean; marketing: bool
 
 export function hasPrivacyConsent(category: ConsentCategory): boolean {
   const consent = readPrivacyConsent();
-  if (!consent) return false;
+  if (!consent) return category === "analytics";
   return consent[category] === true;
 }
 

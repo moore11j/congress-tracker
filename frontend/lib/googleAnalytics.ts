@@ -29,7 +29,7 @@ export function ensureGoogleAnalytics(): boolean {
   if (win.__walnutGoogleAnalyticsLoaded) return true;
   win.__walnutGoogleAnalyticsLoaded = true;
   win.gtag("consent", "default", {
-    analytics_storage: "denied",
+    analytics_storage: "granted",
     ad_storage: "denied",
     ad_user_data: "denied",
     ad_personalization: "denied",

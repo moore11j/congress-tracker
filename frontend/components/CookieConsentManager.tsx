@@ -50,7 +50,7 @@ function loadRedditPixel(): void {
 
 function applyConsent(consent: PrivacyConsent | null): void {
   ensureGoogleAnalytics();
-  updateGoogleAnalyticsConsent(Boolean(consent?.analytics), Boolean(consent?.marketing));
+  updateGoogleAnalyticsConsent(consent?.analytics ?? true, Boolean(consent?.marketing));
   if (consent?.marketing) loadRedditPixel();
 }
 
@@ -89,7 +89,7 @@ export function CookieConsentManager() {
   function saveConsent(next: { analytics: boolean; marketing: boolean }) {
     const stored = writePrivacyConsent(next);
     const disabledLoadedCategory = Boolean(
-      (consent?.analytics && !stored.analytics) || (consent?.marketing && !stored.marketing),
+      ((consent?.analytics ?? true) && !stored.analytics) || (consent?.marketing && !stored.marketing),
     );
     setConsent(stored);
     setAnalyticsEnabled(stored.analytics);
@@ -104,7 +104,7 @@ export function CookieConsentManager() {
 
   return (
     <>
-      {consent?.analytics ? <SpeedInsights /> : null}
+      {(consent?.analytics ?? true) ? <SpeedInsights /> : null}
 
       {showBanner ? (
         <div className="fixed inset-x-0 bottom-0 z-[2000] border-t border-white/10 bg-slate-950/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 text-slate-100 shadow-2xl backdrop-blur">
