@@ -32,6 +32,7 @@ test("cookie consent manager offers bottom-bar choices and gates optional script
   assert.match(manager, /Analytics/);
   assert.match(manager, /Marketing/);
   assert.match(manager, /loadGoogleAnalytics/);
+  assert.match(manager, /send_page_view: false/);
   assert.match(manager, /loadRedditPixel/);
   assert.match(manager, /consent\?\.analytics \? <SpeedInsights \/> : null/);
   assert.match(manager, /hasGlobalPrivacyControl/);
@@ -42,6 +43,9 @@ test("first-party analytics does not write session storage before analytics cons
   assert.match(api, /export function recordPageView[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*window\.sessionStorage\.getItem\(sessionKey\)/);
   assert.match(api, /export function recordProductEvent[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*const eventName = payload\.event_name\.trim\(\)/);
   assert.match(tracker, /privacyConsentChangedEvent/);
+  assert.match(tracker, /recordGoogleAnalyticsPageView/);
+  assert.match(tracker, /gtag\("event", "page_view"/);
+  assert.match(tracker, /page_location/);
   assert.match(tracker, /setConsentRefresh\(\(current\) => current \+ 1\)/);
 });
 

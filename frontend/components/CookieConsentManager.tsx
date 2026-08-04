@@ -40,7 +40,7 @@ function loadGoogleAnalytics(): void {
   };
   loadScript("walnut-google-analytics", `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ANALYTICS_ID}`);
   win.gtag("js", new Date());
-  win.gtag("config", GOOGLE_ANALYTICS_ID);
+  win.gtag("config", GOOGLE_ANALYTICS_ID, { send_page_view: false });
 }
 
 function loadRedditPixel(): void {

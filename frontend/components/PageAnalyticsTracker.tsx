@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { recordPageView } from "@/lib/api";
-import { privacyConsentChangedEvent } from "@/lib/privacyConsent";
+import { hasPrivacyConsent, privacyConsentChangedEvent } from "@/lib/privacyConsent";
+
+type WindowWithGoogleAnalytics = Window & {
+  gtag?: (...args: unknown[]) => void;
+};
 
 function safePath(value: string | null | undefined) {
   const raw = (value || "").trim();
@@ -18,6 +22,19 @@ function safePath(value: string | null | undefined) {
 
 function shouldTrack(path: string) {
   return Boolean(path) && !path.startsWith("/_next/") && !path.startsWith("/api/") && !path.includes(".");
+}
+
+function recordGoogleAnalyticsPageView(path: string, title: string | null): boolean {
+  if (!hasPrivacyConsent("analytics")) return true;
+  const gtag = (window as WindowWithGoogleAnalytics).gtag;
+  if (!gtag) return false;
+  const location = new URL(path, window.location.origin).toString();
+  gtag("event", "page_view", {
+    page_location: location,
+    page_path: path,
+    page_title: title || undefined,
+  });
+  return true;
 }
 
 export function PageAnalyticsTracker() {
@@ -36,14 +53,22 @@ export function PageAnalyticsTracker() {
     if (!shouldTrack(path)) return;
     const referrer = previousPath.current || safePath(document.referrer);
     previousPath.current = path;
+    let retryTimer: number | null = null;
     const timer = window.setTimeout(() => {
+      const title = document.title || null;
       recordPageView({
         path,
         referrer_path: referrer && referrer !== path ? referrer : null,
-        title: document.title || null,
+        title,
       });
+      if (!recordGoogleAnalyticsPageView(path, title)) {
+        retryTimer = window.setTimeout(() => recordGoogleAnalyticsPageView(path, title), 750);
+      }
     }, 250);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
   }, [pathname, consentRefresh]);
 
   return null;
