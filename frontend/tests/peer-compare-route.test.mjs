@@ -48,6 +48,9 @@ test("peer compare uses the full app width and shared loading treatment", () => 
   assert.doesNotMatch(compareLoading, /from-cyan-300 via-emerald-300 to-violet-300/);
   assert.match(globalStyles, /\.terminal-loading-progress-fill/);
   assert.match(globalStyles, /\.terminal-loading-message/);
+  assert.match(globalStyles, /animation: terminal-loading-message 4\.8s step-end infinite/);
+  assert.doesNotMatch(globalStyles, /terminal-loading-message 4\.8s ease-in-out/);
+  assert.doesNotMatch(globalStyles, /transform: translateY/);
   assert.doesNotMatch(globalStyles, /peer-compare-progress-fill/);
 });
 

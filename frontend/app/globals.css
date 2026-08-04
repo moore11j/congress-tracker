@@ -53,7 +53,9 @@ body {
   position: absolute;
   inset: 0 auto auto 0;
   opacity: 0;
-  animation: terminal-loading-message 4.8s ease-in-out infinite;
+  transform: none;
+  visibility: hidden;
+  animation: terminal-loading-message 4.8s step-end infinite;
 }
 
 .terminal-loading-message span:nth-child(2) {
@@ -133,19 +135,15 @@ body {
 }
 
 @keyframes terminal-loading-message {
-  0% {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  8%,
-  18% {
+  0%,
+  12.49% {
     opacity: 1;
-    transform: translateY(0);
+    visibility: visible;
   }
-  26%,
+  12.5%,
   100% {
     opacity: 0;
-    transform: translateY(-4px);
+    visibility: hidden;
   }
 }
 
