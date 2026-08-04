@@ -7,13 +7,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_analyst_consensus_schema
-from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, PriceCache
+from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, PriceCache, TickerMeta
 from app.entitlements import ENTITLEMENTS, require_feature
 from app.services.analyst_consensus import (
     build_snapshot_payload,
     compare_consensus_payload,
     consensus_changes,
     current_consensus_payload,
+    eligible_equity_symbols,
     event_values,
     grade_event_stats,
     implied_upside,
@@ -291,5 +292,55 @@ def test_compare_consensus_redacts_details_for_free():
         assert free_payload["items"]["MSFT"]["summary"]["targetDispersionPct"] is None
         assert "priceTargetRange" not in free_payload["items"]["MSFT"]["currentSnapshot"]
         assert premium_payload["items"]["MSFT"]["summary"]["weightedRatingValue"] == 0.5
+    finally:
+        db.close()
+
+
+def test_limited_eligible_symbols_prioritizes_missing_then_oldest_snapshots():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"),
+                TickerMeta(symbol="META", company_name="Meta Platforms", exchange="NASDAQ"),
+                TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"),
+                TickerMeta(symbol="NVDA", company_name="NVIDIA Corporation", exchange="NASDAQ"),
+            ]
+        )
+        db.add_all(
+            [
+                AnalystConsensusSnapshot(
+                    symbol="AAPL",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystConsensusSnapshot(
+                    symbol="META",
+                    snapshot_date=date(2026, 7, 1),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystConsensusSnapshot(
+                    symbol="MSFT",
+                    snapshot_date=date(2026, 7, 15),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+            ]
+        )
+        db.commit()
+
+        assert eligible_equity_symbols(db, limit=3) == ["NVDA", "META", "MSFT"]
     finally:
         db.close()

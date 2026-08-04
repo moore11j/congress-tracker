@@ -506,19 +506,44 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
         candidates = [analyst_symbol_rejection_reason(symbol)[0] for symbol in symbols]
         result = sorted({symbol for symbol in candidates if symbol})
         return result[:limit] if limit else result
+    latest_snapshot_dates = (
+        select(
+            AnalystConsensusSnapshot.symbol.label("symbol"),
+            func.max(AnalystConsensusSnapshot.snapshot_date).label("latest_snapshot_date"),
+        )
+        .group_by(AnalystConsensusSnapshot.symbol)
+        .subquery()
+    )
     rows = db.execute(
         select(TickerMeta.symbol)
-        .order_by(TickerMeta.symbol.asc())
+        .outerjoin(latest_snapshot_dates, TickerMeta.symbol == latest_snapshot_dates.c.symbol)
+        .order_by(
+            latest_snapshot_dates.c.latest_snapshot_date.is_(None).desc(),
+            latest_snapshot_dates.c.latest_snapshot_date.asc(),
+            TickerMeta.symbol.asc(),
+        )
         .limit(limit or 5000)
     ).scalars().all()
     if not rows:
-        rows = db.execute(select(Security.symbol).where(Security.asset_class == "stock").order_by(Security.symbol.asc()).limit(limit or 5000)).scalars().all()
+        rows = db.execute(
+            select(Security.symbol)
+            .outerjoin(latest_snapshot_dates, Security.symbol == latest_snapshot_dates.c.symbol)
+            .where(Security.asset_class == "stock")
+            .order_by(
+                latest_snapshot_dates.c.latest_snapshot_date.is_(None).desc(),
+                latest_snapshot_dates.c.latest_snapshot_date.asc(),
+                Security.symbol.asc(),
+            )
+            .limit(limit or 5000)
+        ).scalars().all()
     result: list[str] = []
+    seen: set[str] = set()
     for raw in rows:
         symbol, rejection = analyst_symbol_rejection_reason(raw)
-        if symbol and rejection is None:
+        if symbol and rejection is None and symbol not in seen:
             result.append(symbol)
-    return sorted(set(result))[:limit] if limit else sorted(set(result))
+            seen.add(symbol)
+    return result[:limit] if limit else result
 
 
 def start_ingestion_run(db: Session, job_name: str, *, metadata: dict[str, Any] | None = None) -> AnalystConsensusIngestionRun:
