@@ -22,8 +22,6 @@ type PremiumResearchGateProps = MuPremiumGateProps & {
 
 const primaryClassName =
   "inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-wait disabled:opacity-70";
-const secondaryClassName =
-  "inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/50 hover:text-emerald-100";
 
 function paywallProperties(
   entitlement: string,
@@ -61,7 +59,6 @@ export function PremiumResearchGate({
   const [status, setStatus] = useState<string | null>(null);
   const trackedRef = useRef(false);
   const signupHref = useMemo(() => registerHref(returnTo), [returnTo]);
-  const plansHref = useMemo(() => `/pricing?returnTo=${encodeURIComponent(returnTo)}`, [returnTo]);
   const checkoutPlan = requiredPlan === "pro" ? "pro" : "premium";
   const primaryLabel = checkoutPlan === "pro" ? "Unlock with Pro" : "Unlock with Premium";
 
@@ -130,35 +127,22 @@ export function PremiumResearchGate({
               recordProductEvent({
                 event_name: "research_paywall_cta_clicked",
                 path: returnTo,
-                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "create_account_to_continue", required_plan: checkoutPlan }),
+                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "subscribe_to_premium", required_plan: checkoutPlan }),
               });
               recordProductEvent({
                 event_name: "research_signup_started",
                 path: returnTo,
-                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "create_account_to_continue", required_plan: checkoutPlan }),
+                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "subscribe_to_premium", required_plan: checkoutPlan }),
               });
             }}
           >
-            Create an Account to Continue
+            Subscribe to Premium
           </Link>
         ) : (
           <button type="button" onClick={startCheckout} disabled={loading} className={primaryClassName}>
             {loading ? "Starting Checkout" : primaryLabel}
           </button>
         )}
-        <Link
-          href={plansHref}
-          className={secondaryClassName}
-          onClick={() => {
-            recordProductEvent({
-              event_name: "research_paywall_cta_clicked",
-              path: returnTo,
-              properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "view_premium_plans", required_plan: checkoutPlan }),
-            });
-          }}
-        >
-          View Premium Plans
-        </Link>
       </div>
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
     </section>

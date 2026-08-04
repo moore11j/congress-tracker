@@ -93,9 +93,9 @@ test("mu premium gate uses requested copy, CTAs, and analytics events", () => {
   const gate = read("components/research/MuPremiumGate.tsx");
   assert.match(gate, /heading="Unlock Walnut's Full MU Conclusion"/);
   assert.match(gate, /See the confirmation score, directional judgment, supporting evidence, catalysts, risks, and what could change the outlook\./);
-  assert.match(gate, /Create an Account to Continue/);
+  assert.match(gate, /Subscribe to Premium/);
   assert.match(gate, /Unlock with Premium/);
-  assert.match(gate, /View Premium Plans/);
+  assert.doesNotMatch(gate, /View Premium Plans/);
   for (const eventName of [
     "research_preview_viewed",
     "research_paywall_viewed",
