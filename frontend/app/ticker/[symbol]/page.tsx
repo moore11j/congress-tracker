@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
+import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
@@ -1220,33 +1221,6 @@ function decisionDotClass(category: string): string {
 function decisionDateLabel(item: TickerDecisionItem): string | null {
   if (item.date) return formatDateShort(item.date);
   return item.freshness ?? null;
-}
-
-function DecisionTrendChart({ history, direction }: { history?: { date: string; score: number }[]; direction?: string | null }) {
-  const points = Array.isArray(history) ? history.filter((point) => Number.isFinite(point.score)).slice(-30) : [];
-  if (points.length < 2) {
-    return (
-      <div className="flex h-24 items-center justify-center rounded-md border border-white/10 bg-slate-950/35 px-3 text-xs font-medium text-slate-500">
-        Score history unavailable
-      </div>
-    );
-  }
-  const width = 220;
-  const height = 72;
-  const step = width / Math.max(points.length - 1, 1);
-  const path = points.map((point, index) => {
-    const x = Math.round(index * step);
-    const y = Math.round(height - (Math.max(0, Math.min(100, point.score)) / 100) * height);
-    return `${x},${y}`;
-  }).join(" ");
-  const stroke = direction === "bearish" ? "stroke-rose-400" : direction === "mixed" ? "stroke-amber-300" : "stroke-emerald-300";
-  return (
-    <svg className="h-24 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Confirmation score history">
-      <line x1="0" y1={height} x2={width} y2={height} className="stroke-white/10" />
-      <line x1="0" y1={Math.round(height / 2)} x2={width} y2={Math.round(height / 2)} className="stroke-white/10" />
-      <polyline points={path} fill="none" className={stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
 }
 
 function DecisionItemList({ items, empty }: { items?: TickerDecisionItem[]; empty: string }) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { TickerOwnershipHolder, TickerOwnershipPoint, TickerOwnershipResponse } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
@@ -83,6 +83,7 @@ function normalizedHistory(history: TickerOwnershipPoint[]): ChartPoint[] {
 }
 
 function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const points = normalizedHistory(history);
   const trend = trendFor(points);
   const width = 680;
@@ -98,6 +99,9 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
   const yFor = (value: number) => top + ((100 - value) / 100) * chartHeight;
   const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(index)} ${yFor(point.value)}`).join(" ");
   const retailPath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(index)} ${yFor(point.retail)}`).join(" ");
+  const activePoint = activeIndex === null ? null : points[activeIndex] ?? null;
+  const activeX = activeIndex === null ? 0 : xFor(activeIndex);
+  const activeY = activePoint ? Math.min(yFor(activePoint.value), yFor(activePoint.retail)) : 0;
 
   if (points.length === 0) {
     return <EmptyState message="Ownership history is not available for this ticker yet." />;
@@ -113,7 +117,29 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
           <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 border-t border-dashed border-emerald-300" />Trend</span>
         </div>
       </div>
-      <div className="relative h-[280px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]">
+      <div className="relative h-[240px] overflow-hidden rounded-xl border border-white/10 bg-[#07111d]" onMouseLeave={() => setActiveIndex(null)}>
+        {activePoint ? (
+          <div
+            className="pointer-events-none absolute z-10 w-48 rounded-lg border border-white/15 bg-slate-950/95 p-3 text-xs shadow-[0_18px_45px_rgba(0,0,0,0.45)]"
+            style={{
+              left: `${(activeX / width) * 100}%`,
+              top: `${(activeY / height) * 100}%`,
+              transform: activeX > width * 0.72 ? "translate(-104%, -18%)" : "translate(12px, -18%)",
+            }}
+          >
+            <p className="font-semibold text-white">{activePoint.period}</p>
+            <div className="mt-2 space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1.5 text-slate-400"><span className="h-2 w-2 rounded-full bg-blue-400" />Institutional</span>
+                <span className="font-semibold tabular-nums text-blue-200">{formatPct(activePoint.value)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1.5 text-slate-400"><span className="h-2 w-2 rounded-full bg-emerald-400" />Retail</span>
+                <span className="font-semibold tabular-nums text-emerald-200">{formatPct(activePoint.retail)}</span>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" role="img" aria-label="Institutional ownership history with trend line">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = yFor(tick);
@@ -145,6 +171,26 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
               <g key={`${point.period}-${index}`}>
                 <circle cx={x} cy={y} r="5" fill="#60a5fa" stroke="#bfdbfe" strokeWidth="1.5" />
                 <circle cx={x} cy={retailY} r="4" fill="#34d399" stroke="#bbf7d0" strokeWidth="1.2" />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="13"
+                  fill="transparent"
+                  className="cursor-crosshair"
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onFocus={() => setActiveIndex(index)}
+                  onBlur={() => setActiveIndex(null)}
+                  tabIndex={0}
+                  aria-label={`${point.period}: institutional ${formatPct(point.value)}, retail ${formatPct(point.retail)}`}
+                />
+                <circle
+                  cx={x}
+                  cy={retailY}
+                  r="13"
+                  fill="transparent"
+                  className="cursor-crosshair"
+                  onMouseEnter={() => setActiveIndex(index)}
+                />
                 <text x={x} y={height - 15} textAnchor="middle" className="fill-slate-500 text-[10px]">
                   {point.period.replace(" 20", " '")}
                 </text>
@@ -166,30 +212,30 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
     return <p className="text-sm text-slate-400">Holder-level records are not available.</p>;
   }
   return (
-    <div className="max-h-80 overflow-y-auto pr-1">
-      <div className="space-y-2">
-        {visible.map((holder) => {
-          const pct = clampPct(holder.ownership_pct) ?? 0;
-          return (
-            <div key={`${holder.cik}-${holder.holder_name}`} className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-100">{holder.holder_name || "Institution"}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {formatCompactCurrency(holder.value_usd)} reported value{isFiniteNumber(holder.shares) ? ` / ${formatNumber(holder.shares)} sh` : ""}
-                  </p>
-                </div>
-                <p className="shrink-0 text-sm font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : `${formatNumber(holder.shares)} sh`}</p>
-              </div>
-              {pct > 0 ? (
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
-                  <div className="h-full rounded-full bg-blue-400" style={{ width: `${pct}%` }} />
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+    <div className="max-h-44 overflow-auto rounded-xl border border-white/10 bg-slate-950/70">
+      <table className="min-w-full table-fixed text-left text-xs">
+        <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#07111d] text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+          <tr>
+            <th scope="col" className="w-[42%] px-3 py-2">Holder</th>
+            <th scope="col" className="w-[20%] px-3 py-2 text-right">Reported Value</th>
+            <th scope="col" className="w-[22%] px-3 py-2 text-right">Shares</th>
+            <th scope="col" className="w-[16%] px-3 py-2 text-right">Ownership</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {visible.map((holder) => {
+            const pct = clampPct(holder.ownership_pct) ?? 0;
+            return (
+              <tr key={`${holder.cik}-${holder.holder_name}`} className="hover:bg-white/[0.035]">
+                <td className="truncate px-3 py-2 font-semibold text-slate-100">{holder.holder_name || "Institution"}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-slate-300">{formatCompactCurrency(holder.value_usd)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-slate-300">{formatNumber(holder.shares)}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : "-"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -197,8 +243,8 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
 function InstitutionalHoldersSection({ data }: { data: TickerOwnershipResponse }) {
   const latest = data.latest;
   return (
-    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-white">Institutional Holders</h3>
           <p className="mt-1 text-xs text-slate-500">
@@ -328,7 +374,7 @@ function LockedState() {
 
 export function TickerOwnershipSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SkeletonBlock className="h-40 rounded-2xl" />
       <SkeletonBlock className="h-72 rounded-2xl" />
     </div>

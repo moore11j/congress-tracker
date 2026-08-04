@@ -1232,7 +1232,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
               </div>
               <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Pro</span>
             </div>
-            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+            <div className="min-h-0 flex-1 overflow-hidden pr-1">
               {canViewOwnership && (loadingOwnership || !ownership) ? (
                 <TickerOwnershipSkeleton />
               ) : (
