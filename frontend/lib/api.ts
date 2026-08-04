@@ -506,7 +506,6 @@ const eventsPromises = new Map<string, Promise<EventsResponse>>();
 const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
 const tickerDataPromises = new Map<string, Promise<unknown>>();
 const serverPublicJsonCache = new Map<string, { value: unknown; expiresAt: number }>();
-const serverPublicJsonPromises = new Map<string, Promise<unknown>>();
 const SERVER_PUBLIC_CACHE_TTL_MS = 30_000;
 const SERVER_PLAN_CONFIG_CACHE_TTL_MS = 60_000;
 const SERVER_PUBLIC_CACHE_MAX_ENTRIES = 512;
@@ -582,24 +581,14 @@ async function serverCachedJson<T>(
   const cached = serverPublicJsonCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.value as T;
 
-  const pending = serverPublicJsonPromises.get(cacheKey) as Promise<T> | undefined;
-  if (pending) return pending;
-
-  const next = request()
-    .then((response) => {
-      while (serverPublicJsonCache.size >= SERVER_PUBLIC_CACHE_MAX_ENTRIES) {
-        const oldestKey = serverPublicJsonCache.keys().next().value;
-        if (!oldestKey) break;
-        serverPublicJsonCache.delete(oldestKey);
-      }
-      serverPublicJsonCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
-      return response;
-    })
-    .finally(() => {
-      serverPublicJsonPromises.delete(cacheKey);
-    });
-  serverPublicJsonPromises.set(cacheKey, next);
-  return next;
+  const response = await request();
+  while (serverPublicJsonCache.size >= SERVER_PUBLIC_CACHE_MAX_ENTRIES) {
+    const oldestKey = serverPublicJsonCache.keys().next().value;
+    if (!oldestKey) break;
+    serverPublicJsonCache.delete(oldestKey);
+  }
+  serverPublicJsonCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
+  return response;
 }
 
 async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
