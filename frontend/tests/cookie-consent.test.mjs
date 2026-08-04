@@ -42,12 +42,13 @@ test("cookie consent manager offers bottom-bar choices and gates optional script
 
 test("google analytics defaults analytics on while keeping marketing storage denied", () => {
   assert.match(googleAnalytics, /GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH"/);
+  assert.match(googleAnalytics, /type GoogleAnalyticsOptions/);
   assert.match(googleAnalytics, /gtag\("consent", "default"/);
-  assert.match(googleAnalytics, /analytics_storage: "granted"/);
-  assert.match(googleAnalytics, /ad_storage: "denied"/);
-  assert.match(googleAnalytics, /ad_user_data: "denied"/);
-  assert.match(googleAnalytics, /ad_personalization: "denied"/);
-  assert.match(googleAnalytics, /send_page_view: false/);
+  assert.match(googleAnalytics, /analytics_storage: analyticsGranted \? "granted" : "denied"/);
+  assert.match(googleAnalytics, /ad_storage: marketingGranted \? "granted" : "denied"/);
+  assert.match(googleAnalytics, /ad_user_data: marketingGranted \? "granted" : "denied"/);
+  assert.match(googleAnalytics, /ad_personalization: marketingGranted \? "granted" : "denied"/);
+  assert.match(googleAnalytics, /send_page_view: sendInitialPageView/);
   assert.match(googleAnalytics, /analytics_storage: analyticsGranted \? "granted" : "denied"/);
   assert.match(googleAnalytics, /gtag\("event", "page_view"/);
 });
@@ -57,11 +58,13 @@ test("analytics runs by default and stops after an explicit opt out", () => {
   assert.match(api, /export function recordPageView[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*window\.sessionStorage\.getItem\(sessionKey\)/);
   assert.match(api, /export function recordProductEvent[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*const eventName = payload\.event_name\.trim\(\)/);
   assert.match(consent, /if \(!consent\) return category === "analytics";/);
-  assert.match(manager, /updateGoogleAnalyticsConsent\(consent\?\.analytics \?\? true, Boolean\(consent\?\.marketing\)\)/);
+  assert.match(manager, /sendInitialPageView: analyticsGranted/);
+  assert.match(manager, /updateGoogleAnalyticsConsent\(analyticsGranted, marketingGranted\)/);
   assert.match(manager, /\(consent\?\.analytics \?\? true\) && !stored\.analytics/);
   assert.match(tracker, /privacyConsentChangedEvent/);
   assert.match(tracker, /recordGoogleAnalyticsPageView/);
-  assert.match(tracker, /hasPrivacyConsent\("analytics"\) && !recordGoogleAnalyticsPageView/);
+  assert.match(tracker, /initialGoogleAnalyticsPath/);
+  assert.match(tracker, /initialGoogleAnalyticsPath\.current !== path && !recordGoogleAnalyticsPageView/);
   assert.match(tracker, /setConsentRefresh\(\(current\) => current \+ 1\)/);
 });
 

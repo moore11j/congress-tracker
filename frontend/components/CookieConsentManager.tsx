@@ -49,8 +49,14 @@ function loadRedditPixel(): void {
 }
 
 function applyConsent(consent: PrivacyConsent | null): void {
-  ensureGoogleAnalytics();
-  updateGoogleAnalyticsConsent(consent?.analytics ?? true, Boolean(consent?.marketing));
+  const analyticsGranted = consent?.analytics ?? true;
+  const marketingGranted = Boolean(consent?.marketing);
+  ensureGoogleAnalytics({
+    analyticsGranted,
+    marketingGranted,
+    sendInitialPageView: analyticsGranted,
+  });
+  updateGoogleAnalyticsConsent(analyticsGranted, marketingGranted);
   if (consent?.marketing) loadRedditPixel();
 }
 

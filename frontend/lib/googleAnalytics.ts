@@ -8,6 +8,12 @@ type WindowWithGoogleAnalytics = Window & {
   __walnutGoogleAnalyticsLoaded?: boolean;
 };
 
+type GoogleAnalyticsOptions = {
+  analyticsGranted?: boolean;
+  marketingGranted?: boolean;
+  sendInitialPageView?: boolean;
+};
+
 function loadScript(id: string, src: string): void {
   if (document.getElementById(id)) return;
   const script = document.createElement("script");
@@ -17,8 +23,11 @@ function loadScript(id: string, src: string): void {
   document.head.appendChild(script);
 }
 
-export function ensureGoogleAnalytics(): boolean {
+export function ensureGoogleAnalytics(options: GoogleAnalyticsOptions = {}): boolean {
   if (typeof window === "undefined") return false;
+  const analyticsGranted = options.analyticsGranted ?? true;
+  const marketingGranted = options.marketingGranted ?? false;
+  const sendInitialPageView = options.sendInitialPageView ?? analyticsGranted;
   const win = window as WindowWithGoogleAnalytics;
   if (!win.gtag) {
     win.dataLayer = win.dataLayer || [];
@@ -29,15 +38,15 @@ export function ensureGoogleAnalytics(): boolean {
   if (win.__walnutGoogleAnalyticsLoaded) return true;
   win.__walnutGoogleAnalyticsLoaded = true;
   win.gtag("consent", "default", {
-    analytics_storage: "granted",
-    ad_storage: "denied",
-    ad_user_data: "denied",
-    ad_personalization: "denied",
+    analytics_storage: analyticsGranted ? "granted" : "denied",
+    ad_storage: marketingGranted ? "granted" : "denied",
+    ad_user_data: marketingGranted ? "granted" : "denied",
+    ad_personalization: marketingGranted ? "granted" : "denied",
     wait_for_update: 500,
   });
   loadScript("walnut-google-analytics", `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ANALYTICS_ID}`);
   win.gtag("js", new Date());
-  win.gtag("config", GOOGLE_ANALYTICS_ID, { send_page_view: false });
+  win.gtag("config", GOOGLE_ANALYTICS_ID, { send_page_view: sendInitialPageView });
   return true;
 }
 

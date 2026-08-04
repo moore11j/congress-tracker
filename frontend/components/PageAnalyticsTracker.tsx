@@ -24,6 +24,7 @@ function shouldTrack(path: string) {
 export function PageAnalyticsTracker() {
   const pathname = usePathname();
   const previousPath = useRef<string | null>(null);
+  const initialGoogleAnalyticsPath = useRef<string | null>(null);
   const [consentRefresh, setConsentRefresh] = useState(0);
 
   useEffect(() => {
@@ -45,9 +46,13 @@ export function PageAnalyticsTracker() {
         referrer_path: referrer && referrer !== path ? referrer : null,
         title,
       });
-      if (hasPrivacyConsent("analytics") && !recordGoogleAnalyticsPageView(path, title)) {
+      if (initialGoogleAnalyticsPath.current === null) {
+        initialGoogleAnalyticsPath.current = path;
+        return;
+      }
+      if (hasPrivacyConsent("analytics") && initialGoogleAnalyticsPath.current !== path && !recordGoogleAnalyticsPageView(path, title)) {
         retryTimer = window.setTimeout(() => {
-          if (hasPrivacyConsent("analytics")) recordGoogleAnalyticsPageView(path, title);
+          if (hasPrivacyConsent("analytics") && initialGoogleAnalyticsPath.current !== path) recordGoogleAnalyticsPageView(path, title);
         }, 750);
       }
     }, 250);
