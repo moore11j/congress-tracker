@@ -1115,9 +1115,10 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           <button
             type="button"
             onClick={() => setActiveTab("consensus")}
-            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-emerald-400/55 bg-emerald-500/10 text-emerald-100 shadow-[0_0_18px_rgba(16,185,129,0.12)] ${activeTab === "consensus" ? "border-emerald-300 bg-emerald-500/20 text-emerald-50" : "hover:bg-emerald-500/15 hover:text-white"}`}
+            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "consensus" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
           >
             <span>Consensus</span>
+            <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
           </button>
         </div>
       </div>

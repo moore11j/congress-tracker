@@ -121,10 +121,14 @@ test("analyst consensus tab is lazy and shows free summary with premium detail g
 
   assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events" \| "macro" \| "valuation" \| "consensus"/);
   assert.match(card, /onClick=\{\(\) => setActiveTab\("consensus"\)\}/);
+  assert.match(card, /<span>Consensus<\/span>\s*<span className="ml-2 rounded bg-indigo-400 px-1\.5 py-0\.5 text-\[9px\] font-bold uppercase tracking-\[0\.08em\] text-white">New<\/span>/);
   assert.match(card, /<TickerAnalystConsensusTab data=\{analystConsensus\} symbol=\{symbol\} \/>/);
   assert.match(api, /export async function getTickerAnalystConsensus/);
   assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/consensus/);
   assert.match(panel, /Current analyst summary for \{symbol\} is not available yet/);
+  assert.match(panel, /const BACKFILL_LABEL = "Backfill"/);
+  assert.match(panel, /snapshot\?\.recommendationDistribution\?\.total/);
+  assert.match(panel, /Backfill in progress/);
   assert.match(panel, /Free users get the current summary/);
   assert.match(panel, /Rating Distribution/);
   assert.match(panel, /Price Targets/);

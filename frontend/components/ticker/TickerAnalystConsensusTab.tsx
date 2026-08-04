@@ -14,6 +14,7 @@ type Props = {
 };
 
 const panelClass = "rounded-lg border border-white/10 bg-slate-950/55";
+const BACKFILL_LABEL = "Backfill";
 
 function asNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -40,6 +41,10 @@ function formatMoney(value: number | null | undefined) {
     currency: "USD",
     maximumFractionDigits: Math.abs(numeric) >= 100 ? 0 : 2,
   }).format(numeric);
+}
+
+function formatNumberOrBackfill(value: number | null | undefined, options?: Intl.NumberFormatOptions) {
+  return asNumber(value) === null ? BACKFILL_LABEL : formatNumber(value, options);
 }
 
 function toneForLabel(value: string | null | undefined) {
@@ -166,19 +171,22 @@ function PriceTargetRange({ snapshot }: { snapshot: TickerAnalystConsensusSnapsh
 }
 
 function ChangeRow({ label, change }: { label: string; change?: TickerAnalystConsensusChange }) {
+  const hasComparison = Boolean(change?.comparisonDate);
+  const sentimentTone = hasComparison ? toneForPercent(change?.weightedSentimentChange) : "text-slate-400";
+  const targetTone = hasComparison ? toneForPercent(change?.consensusTargetChange) : "text-slate-400";
   return (
     <div className="grid gap-2 rounded-lg border border-white/10 bg-slate-950/50 p-3 sm:grid-cols-3">
       <div>
         <p className="text-xs font-semibold text-white">{label}</p>
-        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : "No comparison yet"}</p>
+        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : "Backfill in progress"}</p>
       </div>
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sentiment</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${toneForPercent(change?.weightedSentimentChange)}`}>{formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 })}</p>
+        <p className={`mt-1 text-sm font-semibold tabular-nums ${sentimentTone}`}>{hasComparison ? formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 }) : BACKFILL_LABEL}</p>
       </div>
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Target</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${toneForPercent(change?.consensusTargetChange)}`}>{formatMoney(change?.consensusTargetChange)}</p>
+        <p className={`mt-1 text-sm font-semibold tabular-nums ${targetTone}`}>{hasComparison ? formatMoney(change?.consensusTargetChange) : BACKFILL_LABEL}</p>
       </div>
     </div>
   );
@@ -236,6 +244,9 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
   const consensusUpside = summary?.consensusImpliedUpsidePct ?? snapshot?.consensusImpliedUpsidePct ?? snapshot?.impliedUpside?.consensusPct ?? null;
   const medianUpside = summary?.medianImpliedUpsidePct ?? snapshot?.medianImpliedUpsidePct ?? snapshot?.impliedUpside?.medianPct ?? null;
   const freshness = data?.freshness ?? interpretation?.freshness ?? null;
+  const totalRatings = asNumber(snapshot?.totalRatingCount) ?? asNumber(snapshot?.recommendationDistribution?.total);
+  const historyBackfilling = !data?.changes?.days30?.comparisonDate && !data?.changes?.days90?.comparisonDate;
+  const actionWindowsBackfilling = historyBackfilling || (!data?.gradeEventStats?.days30 && !data?.gradeEventStats?.days90);
 
   if (!data || !snapshot) {
     return (
@@ -267,7 +278,7 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <DetailMetric label="Median Upside" value={formatPercent(medianUpside, { signed: true })} tone={toneForPercent(medianUpside)} />
-          <DetailMetric label="Ratings" value={formatNumber(snapshot.totalRatingCount, { maximumFractionDigits: 0 })} />
+          <DetailMetric label="Ratings" value={formatNumber(totalRatings, { maximumFractionDigits: 0 })} />
           <DetailMetric label="Freshness" value={freshness?.daysOld === 0 ? "Today" : freshness?.daysOld != null ? `${freshness.daysOld}d old` : statusCopy(availability)} tone="text-slate-200" />
         </div>
         {snapshot.snapshotDate ? (
@@ -293,8 +304,16 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
           <section className={`${panelClass} p-4`}>
             <p className="text-sm font-semibold text-white">Rating Actions</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <DetailMetric label="30d Net" value={formatNumber(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 })} tone={toneForPercent(data.gradeEventStats?.days30?.netActions)} />
-              <DetailMetric label="90d Net" value={formatNumber(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 })} tone={toneForPercent(data.gradeEventStats?.days90?.netActions)} />
+              <DetailMetric
+                label="30d Net"
+                value={actionWindowsBackfilling ? BACKFILL_LABEL : formatNumberOrBackfill(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 })}
+                tone={actionWindowsBackfilling ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days30?.netActions)}
+              />
+              <DetailMetric
+                label="90d Net"
+                value={actionWindowsBackfilling ? BACKFILL_LABEL : formatNumberOrBackfill(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 })}
+                tone={actionWindowsBackfilling ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days90?.netActions)}
+              />
               <DetailMetric label="Latest" value={data.gradeEventStats?.mostRecentEvent?.action ?? "-"} tone="text-slate-200" />
             </div>
           </section>
