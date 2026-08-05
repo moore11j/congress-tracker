@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from app.db import SessionLocal, engine, ensure_analyst_consensus_schema
 from app.services.analyst_consensus import (
-    eligible_equity_symbols,
+    eligible_historical_grade_symbols,
     finish_ingestion_run,
     ingest_symbol_historical_grade_events,
     start_ingestion_run,
@@ -30,7 +30,7 @@ def backfill_historical_analyst_grades(
     ensure_analyst_consensus_schema(engine)
     observed_at = datetime.now(timezone.utc)
     with SessionLocal() as db:
-        planned = eligible_equity_symbols(db, symbols, limit=limit)
+        planned = eligible_historical_grade_symbols(db, symbols, limit=limit)
         run = start_ingestion_run(
             db,
             "analyst_historical_grade_events_backfill",

@@ -15,6 +15,7 @@ from app.services.analyst_consensus import (
     consensus_changes,
     current_consensus_payload,
     eligible_equity_symbols,
+    eligible_historical_grade_symbols,
     event_values,
     grade_event_stats,
     implied_upside,
@@ -421,5 +422,44 @@ def test_limited_eligible_symbols_prioritizes_missing_then_oldest_snapshots():
         db.commit()
 
         assert eligible_equity_symbols(db, limit=3) == ["NVDA", "META", "MSFT"]
+    finally:
+        db.close()
+
+
+def test_historical_grade_symbols_prioritize_missing_then_oldest_ingests():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"),
+                TickerMeta(symbol="META", company_name="Meta Platforms", exchange="NASDAQ"),
+                TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"),
+                TickerMeta(symbol="NVDA", company_name="NVIDIA Corporation", exchange="NASDAQ"),
+            ]
+        )
+        db.add_all(
+            [
+                AnalystGradeEvent(
+                    symbol="AAPL",
+                    event_fingerprint="aapl-old",
+                    source="fmp",
+                    published_date=date(2025, 1, 1),
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                ),
+                AnalystGradeEvent(
+                    symbol="MSFT",
+                    event_fingerprint="msft-new",
+                    source="fmp",
+                    published_date=date(2025, 1, 1),
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        assert eligible_historical_grade_symbols(db, limit=4) == ["META", "NVDA", "AAPL", "MSFT"]
     finally:
         db.close()

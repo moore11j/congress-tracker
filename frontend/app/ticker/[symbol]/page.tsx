@@ -53,7 +53,7 @@ import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/l
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { noindexFollowMetadata, tickerHasIndexableContent } from "@/lib/seoQuality";
+import { isApprovedSeoPilotPath, noindexFollowMetadata, tickerHasIndexableContent } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -269,13 +269,18 @@ function publicTickerMetadataDescription(symbol: string, companyName?: string | 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { symbol } = await params;
   const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
-  const canonicalUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
-  const profile = await getTickerProfile(normalizedSymbol, { source: "TickerMetadata" }).catch(() => null);
+  const canonicalPath = canonicalTickerPathForSymbol(normalizedSymbol);
+  const canonicalUrl = appCanonicalUrl(canonicalPath);
+  const approvedPilot = isApprovedSeoPilotPath(canonicalPath);
+  const profile = approvedPilot
+    ? await getTickerProfile(normalizedSymbol, { source: "TickerMetadata" }).catch(() => null)
+    : null;
   const companyName = profile?.ticker?.name ?? null;
 
   const title = publicTickerMetadataTitle(normalizedSymbol, companyName);
   const description = publicTickerMetadataDescription(normalizedSymbol, companyName);
-  if (!tickerHasIndexableContent(profile)) {
+  const hasLiveIndexableContent = tickerHasIndexableContent(profile);
+  if (!approvedPilot && !hasLiveIndexableContent) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -340,7 +345,7 @@ function headerIncludes(headersList: HeaderReader, name: string, expected: strin
 function userAgentLooksInteractiveBrowser(userAgent: string | null): boolean {
   const ua = (userAgent ?? "").toLowerCase();
   if (!ua) return false;
-  if (/bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
+  if (/googlebot|google-inspectiontool|adsbot-google|bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
   return /mozilla|chrome|safari|firefox|edg\//.test(ua);
 }
 

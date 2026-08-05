@@ -718,6 +718,49 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
     return result[:limit] if limit else result
 
 
+def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
+    if symbols is not None:
+        return eligible_equity_symbols(db, symbols, limit=limit)
+    latest_grade_ingests = (
+        select(
+            AnalystGradeEvent.symbol.label("symbol"),
+            func.max(AnalystGradeEvent.ingested_at).label("latest_grade_ingested_at"),
+        )
+        .group_by(AnalystGradeEvent.symbol)
+        .subquery()
+    )
+    rows = db.execute(
+        select(Security.symbol)
+        .outerjoin(latest_grade_ingests, Security.symbol == latest_grade_ingests.c.symbol)
+        .where(func.lower(Security.asset_class).in_(("stock", "equity")))
+        .order_by(
+            latest_grade_ingests.c.latest_grade_ingested_at.is_(None).desc(),
+            latest_grade_ingests.c.latest_grade_ingested_at.asc(),
+            Security.symbol.asc(),
+        )
+        .limit(5000)
+    ).scalars().all()
+    if not rows:
+        rows = db.execute(
+            select(TickerMeta.symbol)
+            .outerjoin(latest_grade_ingests, TickerMeta.symbol == latest_grade_ingests.c.symbol)
+            .order_by(
+                latest_grade_ingests.c.latest_grade_ingested_at.is_(None).desc(),
+                latest_grade_ingests.c.latest_grade_ingested_at.asc(),
+                TickerMeta.symbol.asc(),
+            )
+            .limit(5000)
+        ).scalars().all()
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in rows:
+        symbol, rejection = analyst_symbol_rejection_reason(raw)
+        if symbol and rejection is None and symbol not in seen:
+            result.append(symbol)
+            seen.add(symbol)
+    return result[:limit] if limit else result
+
+
 def start_ingestion_run(db: Session, job_name: str, *, metadata: dict[str, Any] | None = None) -> AnalystConsensusIngestionRun:
     run = AnalystConsensusIngestionRun(
         job_name=job_name,

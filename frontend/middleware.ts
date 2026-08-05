@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isBioguideId, nameToSlug } from "./lib/memberSlug";
+import { isApprovedSeoPilotPath } from "./lib/seoQuality";
 
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
@@ -85,6 +86,11 @@ function isPublicTickerRoute(pathname: string): boolean {
   return normalized === "/ticker" || normalized.startsWith("/ticker/");
 }
 
+function isApprovedTickerPilotPath(pathname: string): boolean {
+  const normalized = (pathname || "/").replace(/\/+$/, "");
+  return /^\/ticker\/[^/]+$/i.test(normalized) && isApprovedSeoPilotPath(normalized);
+}
+
 function isPublicMarketingAsset(pathname: string): boolean {
   const normalized = (pathname || "/").toLowerCase();
   return normalized === "/sitemap.xml"
@@ -151,13 +157,13 @@ function isPrefetchRequest(request: NextRequest): boolean {
 }
 
 function isBotUserAgent(userAgent: string): boolean {
-  return /bot|crawler|spider|slurp|duckduckbot|baiduspider|yandex|semrush|ahrefs|bytespider|gptbot|claudebot|anthropic|perplexity|facebookexternalhit|twitterbot|linkedinbot|discordbot|telegrambot|whatsapp|preview/i.test(userAgent);
+  return /googlebot|google-inspectiontool|adsbot-google|bot|crawler|spider|slurp|duckduckbot|baiduspider|yandex|semrush|ahrefs|bytespider|gptbot|claudebot|anthropic|perplexity|facebookexternalhit|twitterbot|linkedinbot|discordbot|telegrambot|whatsapp|preview/i.test(userAgent);
 }
 
 function isInteractiveBrowserUserAgent(userAgent: string): boolean {
   const ua = userAgent.toLowerCase();
   if (!ua) return false;
-  if (/bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
+  if (/googlebot|google-inspectiontool|adsbot-google|bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
   return /mozilla|chrome|safari|firefox|edg\//.test(ua);
 }
 
@@ -172,11 +178,13 @@ function isAnonymousPublicPageRenderCandidate(request: NextRequest, host: string
   if (request.headers.get("authorization")) return false;
   if (request.headers.get("x-ct-entitlement-tier")) return false;
   if (isPrefetchRequest(request)) return false;
+  const userAgent = request.headers.get("user-agent") ?? "";
+  const bot = isBotUserAgent(userAgent);
   const cacheControl = (request.headers.get("cache-control") ?? "").toLowerCase();
   const pragma = (request.headers.get("pragma") ?? "").toLowerCase();
-  if (cacheControl.includes("no-cache") || cacheControl.includes("no-store") || pragma.includes("no-cache")) return false;
+  if (!bot && (cacheControl.includes("no-cache") || cacheControl.includes("no-store") || pragma.includes("no-cache"))) return false;
   const normalized = (pathname || "/").toLowerCase();
-  const isTickerPage = /^\/ticker\/[^/]+\/?$/.test(normalized);
+  const isTickerPage = isApprovedTickerPilotPath(pathname);
   const isScreenerPage = normalized === "/screener";
   if (!isTickerPage && !isScreenerPage) return false;
   const accept = (request.headers.get("accept") ?? "").toLowerCase();
@@ -238,7 +246,7 @@ async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> 
 function anonymousPublicRenderPath(pathname: string): string | null {
   const normalized = (pathname || "/").toLowerCase();
   const tickerMatch = normalized.match(/^\/ticker\/([^/]+)\/?$/);
-  if (tickerMatch?.[1]) return `/walnut-public/ticker/${tickerMatch[1]}`;
+  if (tickerMatch?.[1] && isApprovedTickerPilotPath(pathname)) return `/walnut-public/ticker/${tickerMatch[1]}`;
   if (normalized === "/screener") return "/walnut-public/screener";
   return null;
 }
