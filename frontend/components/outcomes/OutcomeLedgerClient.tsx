@@ -38,6 +38,12 @@ function formatPercent(value?: number | null, { signed = true }: { signed?: bool
   return `${prefix}${value.toFixed(1)}%`;
 }
 
+function outcomeValueLabel(outcome?: OutcomeHorizonResult) {
+  if (outcome?.status === "matured" && typeof outcome.return_pct === "number") return formatPercent(outcome.return_pct);
+  if (outcome?.status === "missing_price" || outcome?.status === "missing_reference_price") return "Missing price";
+  return "Pending";
+}
+
 function formatDirection(value?: string | null) {
   if (!value) return "-";
   return value
@@ -58,6 +64,14 @@ function outcomeFor(snapshot: OutcomeSnapshot, horizon: string): OutcomeHorizonR
 function maturedOutcome(snapshot: OutcomeSnapshot, horizon = "30D") {
   const outcome = outcomeFor(snapshot, horizon);
   return outcome?.status === "matured" && typeof outcome.return_pct === "number" ? outcome : undefined;
+}
+
+function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D") {
+  if (!snapshot) return "Pending";
+  const outcome = outcomeFor(snapshot, horizon);
+  if (outcome?.status === "matured") return "Matured";
+  if (outcome?.status === "missing_price" || outcome?.status === "missing_reference_price") return "Missing price";
+  return "Pending";
 }
 
 function openedDate(snapshot: OutcomeSnapshot) {
@@ -375,13 +389,13 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
                       const matured = outcome?.status === "matured" && typeof outcome.return_pct === "number";
                       return (
                         <td key={horizon} className={`px-4 py-2.5 ${pctClassName(outcome?.return_pct)}`}>
-                          {matured ? formatPercent(outcome.return_pct) : "Pending"}
+                          {matured ? formatPercent(outcome.return_pct) : outcomeValueLabel(outcome)}
                         </td>
                       );
                     })}
                     <td className="px-4 py-2.5">
                       <span className={`rounded-md px-3 py-1 text-xs ${hasMaturedOutcome ? "bg-emerald-400/15 text-emerald-100" : "bg-slate-700/60 text-slate-100"}`}>
-                        {hasMaturedOutcome ? "Matured" : "Tracking"}
+                        {hasMaturedOutcome ? "Matured" : outcomeStatusLabel(snapshot) === "Missing price" ? "Needs price" : "Tracking"}
                       </span>
                     </td>
                   </tr>
@@ -433,7 +447,7 @@ function DetailPanel({ selected }: { selected?: OutcomeSnapshot }) {
               ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
               ["Public Eligible", "Yes"],
-              ["Outcome", thirtyDay ? "Matured" : "Pending"],
+              ["Outcome", selected ? outcomeStatusLabel(selected) : "Pending"],
             ].map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-slate-400">{label}</dt>
@@ -498,7 +512,7 @@ export function OutcomeLedgerClient({
     if (initialStatus && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 25, calculation_type: "live" })])
+    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 100, calculation_type: "live" })])
       .then(([nextStatus, nextSnapshots]) => {
         if (!alive) return;
         setStatus(nextStatus);
@@ -517,7 +531,7 @@ export function OutcomeLedgerClient({
   }, [initialStatus, initialSnapshots]);
 
   const snapshotItems = useMemo(() => (snapshots?.items ?? []).map(hydrateDemoOutcomes), [snapshots?.items]);
-  const publicPreviewSnapshots = useMemo(() => {
+  const uniqueSnapshotItems = useMemo(() => {
     const seen = new Set<string>();
     const deduped: OutcomeSnapshot[] = [];
     snapshotItems.forEach((snapshot) => {
@@ -526,10 +540,11 @@ export function OutcomeLedgerClient({
       seen.add(key);
       deduped.push(snapshot);
     });
-    return deduped.slice(0, 10);
+    return deduped;
   }, [snapshotItems]);
+  const publicPreviewSnapshots = useMemo(() => uniqueSnapshotItems.slice(0, 10), [uniqueSnapshotItems]);
   const outcomeMetrics = useMemo(() => {
-    const matured30 = publicPreviewSnapshots
+    const matured30 = uniqueSnapshotItems
       .map((snapshot) => maturedOutcome(snapshot))
       .filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
     const directional30 = matured30.filter((outcome) => typeof outcome.directionally_correct === "boolean");
@@ -543,12 +558,12 @@ export function OutcomeLedgerClient({
     const directionalExcessReturns = matured30
       .map((outcome) => outcome.directional_excess_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const pendingHorizonCount = publicPreviewSnapshots.reduce(
+    const pendingHorizonCount = uniqueSnapshotItems.reduce(
       (total, snapshot) =>
         total +
         horizonColumns.filter((horizon) => {
           const outcome = outcomeFor(snapshot, horizon);
-          return outcome?.status !== "matured";
+          return outcome?.status === "pending";
         }).length,
       0,
     );
@@ -559,7 +574,7 @@ export function OutcomeLedgerClient({
       medianDirectionalExcessReturn: median(directionalExcessReturns),
       pendingHorizonCount,
     };
-  }, [publicPreviewSnapshots]);
+  }, [uniqueSnapshotItems]);
   const selectedSnapshot = publicPreviewSnapshots[0];
   const hasMaturedOutcomes = outcomeMetrics.completedEvents > 0;
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
@@ -578,9 +593,9 @@ export function OutcomeLedgerClient({
       formatPrice(snapshot.reference_price),
       ...horizonColumns.map((horizon) => {
         const outcome = outcomeFor(snapshot, horizon);
-        return outcome?.status === "matured" && typeof outcome.return_pct === "number" ? formatPercent(outcome.return_pct) : "Pending";
+        return outcomeValueLabel(outcome);
       }),
-      maturedOutcome(snapshot) ? "Matured" : "Tracking",
+      maturedOutcome(snapshot) ? "Matured" : outcomeStatusLabel(snapshot) === "Missing price" ? "Needs price" : "Tracking",
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -629,7 +644,7 @@ export function OutcomeLedgerClient({
           </div>
 
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-            <MetricCard icon="OK" label="Completed Events" value={outcomeMetrics.completedEvents} detail="Matured confirmation events in preview" />
+            <MetricCard icon="OK" label="Completed Events" value={outcomeMetrics.completedEvents} detail="Matured confirmation events loaded" />
             <MetricCard
               icon="30"
               label="30D Directional Accuracy"
@@ -652,8 +667,8 @@ export function OutcomeLedgerClient({
           </div>
 
           <div className="grid gap-2 xl:grid-cols-[0.82fr_1.18fr]">
-            <BarChartPanel snapshots={publicPreviewSnapshots} />
-            <ScatterPanel snapshots={publicPreviewSnapshots} />
+            <BarChartPanel snapshots={uniqueSnapshotItems} />
+            <ScatterPanel snapshots={uniqueSnapshotItems} />
           </div>
 
           <EventsTable snapshots={publicPreviewSnapshots} />

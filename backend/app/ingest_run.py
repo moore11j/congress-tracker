@@ -25,6 +25,7 @@ from app.models import (
     Event,
     IndexMembership,
     PriceCache,
+    ConfirmationScoreSnapshot,
     ReplicatedPortfolioRun,
     SavedScreenSnapshot,
     Security,
@@ -43,7 +44,7 @@ from app.services.saved_screen_monitoring import refresh_due_saved_screen_monito
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 from app.services.confirmation_score import confirmation_active_source_count, get_confirmation_score_bundles_for_tickers
 from app.services.institutional_ingest_job import run_scheduled_latest_once
-from app.services.outcome_ledger import capture_live_confirmation_score_snapshot, outcome_ledger_enabled
+from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
@@ -87,6 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "enrichment-queue",
             "priority-ticker-prewarm",
             "outcome-ledger-hydrator",
+            "outcome-ledger-price-hydrator",
             "portfolio-simulation-refresh",
             "portfolio-methodology-guard",
             "all",
@@ -1227,6 +1229,105 @@ def _run_outcome_ledger_hydrator_job() -> dict[str, object]:
     return result
 
 
+def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
+    if os.getenv("OUTCOME_LEDGER_PRICE_HYDRATOR_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
+        logger.info("outcome_ledger_price_hydrator_skipped reason=price_hydrator_disabled")
+        return {"job": "outcome-ledger-price-hydrator", "status": "skipped", "reason": "price_hydrator_disabled"}
+    guard = check_background_job_guard("outcome-ledger-price-hydrator")
+    if not guard.proceed:
+        logger.info("outcome_ledger_price_hydrator_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {**background_job_skip_payload("outcome-ledger-price-hydrator", guard), "hydrated_symbols": 0, "snapshot_count": 0}
+
+    ensure_price_cache_volume_columns(engine)
+    ensure_outcome_ledger_schema(engine)
+    snapshot_limit = int(os.getenv("OUTCOME_LEDGER_PRICE_HYDRATOR_SNAPSHOT_LIMIT", "100") or 100)
+    max_seconds = int(os.getenv("OUTCOME_LEDGER_PRICE_HYDRATOR_MAX_SECONDS", "240") or 240)
+    started = time.monotonic()
+    expected_date = get_expected_latest_market_date()
+    earliest_matured_date = expected_date - timedelta(days=min(OUTCOME_HORIZONS))
+
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(ConfirmationScoreSnapshot)
+            .where(ConfirmationScoreSnapshot.calculation_type == "live")
+            .where(ConfirmationScoreSnapshot.reference_price.is_not(None))
+            .where(ConfirmationScoreSnapshot.market_date <= earliest_matured_date)
+            .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
+            .limit(max(1, snapshot_limit))
+        ).scalars().all()
+
+        windows: dict[str, tuple[date, date]] = {}
+
+        def add_window(symbol: str, start_day: date, end_day: date) -> None:
+            normalized = normalize_symbol(symbol)
+            if not normalized:
+                return
+            current = windows.get(normalized)
+            if current is None:
+                windows[normalized] = (start_day, end_day)
+                return
+            windows[normalized] = (min(current[0], start_day), max(current[1], end_day))
+
+        benchmark_symbol = normalize_symbol(os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY")) or "SPY"
+        for snapshot in rows:
+            matured_targets = [
+                snapshot.market_date + timedelta(days=days)
+                for days in OUTCOME_HORIZONS
+                if snapshot.market_date + timedelta(days=days) <= expected_date
+            ]
+            if not matured_targets:
+                continue
+            end_day = min(max(matured_targets) + timedelta(days=7), expected_date)
+            add_window(snapshot.ticker_at_time, snapshot.market_date, end_day)
+            add_window(benchmark_symbol, snapshot.market_date, end_day)
+
+        hydrated_symbols = 0
+        total_points = 0
+        failures: list[dict[str, object]] = []
+        items: list[dict[str, object]] = []
+        for symbol, (start_day, end_day) in sorted(windows.items()):
+            if time.monotonic() - started > max_seconds:
+                logger.info("outcome_ledger_price_hydrator_time_budget_exhausted hydrated_symbols=%s", hydrated_symbols)
+                break
+            try:
+                series = get_daily_close_series_with_fallback(
+                    db,
+                    symbol,
+                    start_day.isoformat(),
+                    end_day.isoformat(),
+                    release_connection_before_provider=True,
+                )
+                hydrated_symbols += 1
+                total_points += len(series)
+                if len(items) < 25:
+                    items.append(
+                        {
+                            "symbol": symbol,
+                            "start_date": start_day.isoformat(),
+                            "end_date": end_day.isoformat(),
+                            "points": len(series),
+                        }
+                    )
+            except Exception as exc:
+                logger.warning("outcome_ledger_price_hydrator_failed symbol=%s error=%s", symbol, exc)
+                if len(failures) < 10:
+                    failures.append({"symbol": symbol, "error": exc.__class__.__name__})
+
+    result = {
+        "job": "outcome-ledger-price-hydrator",
+        "status": "ok",
+        "snapshot_count": len(rows),
+        "window_count": len(windows),
+        "hydrated_symbols": hydrated_symbols,
+        "total_points": total_points,
+        "duration_seconds": round(time.monotonic() - started, 3),
+        "items": items,
+        "failures": failures,
+    }
+    logger.info("outcome_ledger_price_hydrator_finished result=%s", result)
+    return result
+
+
 def _run_job_payload(job: str) -> dict[str, object]:
     if job == "core":
         return _run_core_job()
@@ -1262,6 +1363,8 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return _run_priority_ticker_prewarm_job()
     if job == "outcome-ledger-hydrator":
         return _run_outcome_ledger_hydrator_job()
+    if job == "outcome-ledger-price-hydrator":
+        return _run_outcome_ledger_price_hydrator_job()
     if job == "portfolio-simulation-refresh":
         return _run_portfolio_simulation_refresh_job()
     if job == "portfolio-methodology-guard":
