@@ -8,7 +8,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base, ensure_outcome_ledger_schema
-from app.models import ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, PriceCache
+from app.models import ConfirmationMethodologyVersion, ConfirmationMonitoringEvent, ConfirmationScoreSnapshot, PriceCache
+from app.backfill_outcome_ledger_history import backfill_outcome_ledger_history
 from app.services import outcome_ledger as outcome_ledger_module
 from app.services.outcome_ledger import (
     capture_live_confirmation_score_snapshot,
@@ -190,3 +191,54 @@ def test_pending_snapshot_listing_skips_price_outcome_lookups(monkeypatch):
 
         assert crm["outcomes"]["7D"]["status"] == "pending"
         assert crm["outcomes"]["30D"]["status"] == "pending"
+
+
+def test_backfill_history_creates_matured_rows_from_monitoring_events():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_at = datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=60)
+        entry_day = observed_at.date().isoformat()
+        thirty_day = (observed_at.date() + outcome_ledger_module.timedelta(days=30)).isoformat()
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=entry_day, close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=thirty_day, close=112.0, price_source="test"),
+                PriceCache(symbol="SPY", date=entry_day, close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=thirty_day, close=510.0, price_source="test"),
+                ConfirmationMonitoringEvent(
+                    user_id=1,
+                    watchlist_id=1,
+                    ticker="CRM",
+                    event_type="confirmation_upgraded",
+                    title="CRM confirmation score rose",
+                    body=None,
+                    score_before=52,
+                    score_after=70,
+                    band_before="moderate",
+                    band_after="strong",
+                    direction_before="bullish",
+                    direction_after="bullish",
+                    source_count_before=1,
+                    source_count_after=3,
+                    payload_json="{}",
+                    created_at=observed_at,
+                ),
+            ]
+        )
+        db.commit()
+
+        report = backfill_outcome_ledger_history(
+            db,
+            since_days=120,
+            limit=10,
+            min_score=40,
+            min_source_count=1,
+            hydrate_prices=False,
+        )
+        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
+        crm = next(item for item in response["items"] if item["ticker"] == "CRM" and item["score"] == 70)
+
+        assert report["created"] == 2
+        assert crm["outcomes"]["30D"]["status"] == "matured"
+        assert crm["outcomes"]["30D"]["return_pct"] == 12.0
+        assert crm["outcomes"]["30D"]["spy_return_pct"] == 2.0

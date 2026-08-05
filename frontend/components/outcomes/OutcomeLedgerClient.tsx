@@ -33,15 +33,14 @@ function formatPrice(value?: number | null) {
 }
 
 function formatPercent(value?: number | null, { signed = true }: { signed?: boolean } = {}) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "Pending";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   const prefix = signed && value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(1)}%`;
 }
 
 function outcomeValueLabel(outcome?: OutcomeHorizonResult) {
   if (outcome?.status === "matured" && typeof outcome.return_pct === "number") return formatPercent(outcome.return_pct);
-  if (outcome?.status === "missing_price" || outcome?.status === "missing_reference_price") return "Missing price";
-  return "Pending";
+  return "-";
 }
 
 function formatDirection(value?: string | null) {
@@ -67,11 +66,10 @@ function maturedOutcome(snapshot: OutcomeSnapshot, horizon = "30D") {
 }
 
 function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D") {
-  if (!snapshot) return "Pending";
+  if (!snapshot) return "-";
   const outcome = outcomeFor(snapshot, horizon);
   if (outcome?.status === "matured") return "Matured";
-  if (outcome?.status === "missing_price" || outcome?.status === "missing_reference_price") return "Missing price";
-  return "Pending";
+  return "-";
 }
 
 function openedDate(snapshot: OutcomeSnapshot) {
@@ -395,7 +393,7 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
                     })}
                     <td className="px-4 py-2.5">
                       <span className={`rounded-md px-3 py-1 text-xs ${hasMaturedOutcome ? "bg-emerald-400/15 text-emerald-100" : "bg-slate-700/60 text-slate-100"}`}>
-                        {hasMaturedOutcome ? "Matured" : outcomeStatusLabel(snapshot) === "Missing price" ? "Needs price" : "Tracking"}
+                        {hasMaturedOutcome ? "Matured" : "Tracking"}
                       </span>
                     </td>
                   </tr>
@@ -558,12 +556,12 @@ export function OutcomeLedgerClient({
     const directionalExcessReturns = matured30
       .map((outcome) => outcome.directional_excess_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const pendingHorizonCount = uniqueSnapshotItems.reduce(
+    const maturedHorizonCount = uniqueSnapshotItems.reduce(
       (total, snapshot) =>
         total +
         horizonColumns.filter((horizon) => {
           const outcome = outcomeFor(snapshot, horizon);
-          return outcome?.status === "pending";
+          return outcome?.status === "matured" && typeof outcome.return_pct === "number";
         }).length,
       0,
     );
@@ -572,7 +570,7 @@ export function OutcomeLedgerClient({
       accuracy,
       medianDirectionalReturn: median(directionalReturns),
       medianDirectionalExcessReturn: median(directionalExcessReturns),
-      pendingHorizonCount,
+      maturedHorizonCount,
     };
   }, [uniqueSnapshotItems]);
   const selectedSnapshot = publicPreviewSnapshots[0];
@@ -595,7 +593,7 @@ export function OutcomeLedgerClient({
         const outcome = outcomeFor(snapshot, horizon);
         return outcomeValueLabel(outcome);
       }),
-      maturedOutcome(snapshot) ? "Matured" : outcomeStatusLabel(snapshot) === "Missing price" ? "Needs price" : "Tracking",
+      maturedOutcome(snapshot) ? "Matured" : "Tracking",
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -663,7 +661,7 @@ export function OutcomeLedgerClient({
               value={formatPercent(outcomeMetrics.medianDirectionalExcessReturn)}
               detail="Directional benchmark excess at 30D"
             />
-            <MetricCard icon="..." label="Pending Horizons" value={outcomeMetrics.pendingHorizonCount} detail={`${statusLabel(status, loading)} tracked horizons still awaiting maturity`} />
+            <MetricCard icon="..." label="Scored Horizons" value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells with price returns`} />
           </div>
 
           <div className="grid gap-2 xl:grid-cols-[0.82fr_1.18fr]">

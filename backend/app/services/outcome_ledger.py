@@ -7,7 +7,7 @@ import os
 from datetime import date, datetime, time, timezone, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -614,8 +614,13 @@ def list_outcome_snapshots(
         end_date=end_date,
     )
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar() or 0
+    thirty_day_matured_cutoff = datetime.now(timezone.utc).date() - timedelta(days=30)
     rows = db.execute(
-        base.order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
+        base.order_by(
+            case((ConfirmationScoreSnapshot.market_date <= thirty_day_matured_cutoff, 1), else_=0).desc(),
+            ConfirmationScoreSnapshot.calculated_at.desc(),
+            ConfirmationScoreSnapshot.id.desc(),
+        )
         .offset(bounded_page * bounded_limit)
         .limit(bounded_limit)
     ).scalars().all()
