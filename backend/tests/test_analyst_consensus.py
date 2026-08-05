@@ -136,7 +136,7 @@ def test_snapshot_upsert_is_idempotent_and_change_uses_nearest_prior_snapshot():
         db.close()
 
 
-def test_consensus_change_event_is_alertable_and_idempotent():
+def test_consensus_change_event_is_not_materialized_into_feed_events():
     SessionLocal, _ = _session()
     db = SessionLocal()
     try:
@@ -160,13 +160,11 @@ def test_consensus_change_event_is_alertable_and_idempotent():
         current, _ = upsert_consensus_snapshot(db, second_values)
         observed = datetime(2026, 8, 4, 13, 0, tzinfo=timezone.utc)
 
-        assert _create_consensus_change_event(db, current, prior, observed) is True
+        assert _create_consensus_change_event(db, current, prior, observed) is False
         assert _create_consensus_change_event(db, current, prior, observed) is False
         db.commit()
 
-        event = db.query(Event).filter_by(event_type="analyst_consensus_change", symbol="AAPL").one()
-        assert event.source_filing_id == "analyst_consensus:AAPL:2026-08-04"
-        assert "consensusUpsideDeltaPct" in event.payload_json
+        assert db.query(Event).filter_by(event_type="analyst_consensus_change", symbol="AAPL").count() == 0
     finally:
         db.close()
 

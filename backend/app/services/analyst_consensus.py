@@ -24,7 +24,6 @@ from app.models import (
     AnalystConsensusIngestionRun,
     AnalystConsensusSnapshot,
     AnalystGradeEvent,
-    Event,
     PriceCache,
     QuoteCache,
     Security,
@@ -452,43 +451,7 @@ def _create_consensus_change_event(
     prior: AnalystConsensusSnapshot | None,
     observed_at: datetime,
 ) -> bool:
-    if prior is None or current.snapshot_date is None:
-        return False
-    payload = _consensus_change_payload(current, prior)
-    if payload is None:
-        return False
-    source_filing_id = f"analyst_consensus:{current.symbol}:{current.snapshot_date.isoformat()}"
-    existing_id = db.execute(
-        select(Event.id)
-        .where(Event.event_type == "analyst_consensus_change")
-        .where(Event.symbol == current.symbol)
-        .where(Event.source_filing_id == source_filing_id)
-        .limit(1)
-    ).scalar_one_or_none()
-    if existing_id is not None:
-        return False
-    magnitude = max(
-        abs(float(payload.get("consensusUpsideDeltaPct") or 0.0)),
-        abs(float(payload.get("weightedRatingDelta") or 0.0)) * 20.0,
-        abs(float(payload.get("priceTargetConsensusDeltaPct") or 0.0)),
-    )
-    event = Event(
-        event_type="analyst_consensus_change",
-        ts=observed_at,
-        event_date=datetime(current.snapshot_date.year, current.snapshot_date.month, current.snapshot_date.day, tzinfo=timezone.utc),
-        symbol=current.symbol,
-        source=SOURCE,
-        impact_score=min(100.0, max(10.0, magnitude * 2.0)),
-        payload_json=_json(payload),
-        trade_type=payload.get("direction"),
-        data_source=SOURCE,
-        source_provider=SOURCE,
-        source_filing_id=source_filing_id,
-        parser_version=METHODOLOGY_VERSION,
-    )
-    db.add(event)
-    db.flush()
-    return True
+    return False
 
 
 def normalize_action(action: Any) -> str | None:
@@ -609,10 +572,15 @@ def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime |
         observed_at=observed,
         provider_error=provider_error,
     )
-    prior_snapshot = _previous_consensus_snapshot(db, normalized, values["snapshot_date"])
     snapshot, created = upsert_consensus_snapshot(db, values)
-    event_created = _create_consensus_change_event(db, snapshot, prior_snapshot, observed)
-    return {"symbol": normalized, "status": snapshot.availability_status, "created": created, "snapshot_id": snapshot.id, "provider_error": provider_error, "change_event_created": event_created}
+    return {
+        "symbol": normalized,
+        "status": snapshot.availability_status,
+        "created": created,
+        "snapshot_id": snapshot.id,
+        "provider_error": provider_error,
+        "change_event_created": False,
+    }
 
 
 def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
