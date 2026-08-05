@@ -512,7 +512,7 @@ export function OutcomeLedgerClient({
     if (initialStatus && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 100, calculation_type: "live" })])
+    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 500, calculation_type: "live" })])
       .then(([nextStatus, nextSnapshots]) => {
         if (!alive) return;
         setStatus(nextStatus);

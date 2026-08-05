@@ -18,7 +18,7 @@ export default async function OutcomesPage() {
   try {
     const [status, snapshots] = await Promise.all([
       getOutcomeLedgerStatus(),
-      getOutcomeSnapshots({ limit: 100, calculation_type: "live" }),
+      getOutcomeSnapshots({ limit: 500, calculation_type: "live" }),
     ]);
     return <OutcomeLedgerClient initialStatus={status} initialSnapshots={snapshots} />;
   } catch {
