@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { MemberProfile, TickerProfile } from "@/lib/types";
 import type { DepartmentProfileResponse, InsiderSummary, InstitutionProfileResponse } from "@/lib/api";
 
-export type SeoEntityType = "ticker" | "member" | "insider" | "institution" | "department" | "research" | "comparison";
+export type SeoEntityType = "ticker" | "member" | "insider" | "institution" | "department" | "research" | "comparison" | "screener" | "market";
 
 export type SeoPilotPage = {
   type: SeoEntityType;
@@ -78,6 +78,16 @@ export const seoIndexationRules: Record<SeoEntityType, readonly string[]> = {
     "Approved editorial pilot pair",
     "Server-rendered comparison context",
     "Canonical pair URL with no arbitrary pair indexing",
+  ],
+  screener: [
+    "Public route must answer a durable research intent, not expose arbitrary filtered result parameters",
+    "Indexable screen pages require an editorially named preset, stable canonical URL, and meaningful result set",
+    "Private, user-specific, empty, paginated, or query-driven screens stay out of public sitemaps",
+  ],
+  market: [
+    "Market or sector page must describe a real, stable universe with useful public context",
+    "Indexable pages require available data, clear methodology, and crawlable links to relevant public ticker pages",
+    "Thin sector shells, transient market states, and authenticated-only views stay noindex or excluded",
   ],
 };
 

@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const seoQuality = read("lib/seoQuality.ts");
 const evergreenSeo = read("lib/evergreenSeo.ts");
+const phase3Audit = fs.readFileSync(path.join(root, "..", "docs", "seo-phase3-audit.md"), "utf8");
 const sitemapRoutes = [
   "app/sitemap-tickers.xml/route.ts",
   "app/sitemap-members.xml/route.ts",
@@ -19,12 +20,16 @@ const sitemapRoutes = [
 ];
 
 test("phase 3 defines explicit SEO quality gates and pilot pages", () => {
-  for (const entityType of ["ticker", "member", "insider", "institution", "department", "research", "comparison"]) {
+  for (const entityType of ["ticker", "member", "insider", "institution", "department", "research", "comparison", "screener", "market"]) {
     assert.match(seoQuality, new RegExp(`${entityType}:\\s*\\[`), `${entityType} quality rules should be documented`);
   }
   for (const collection of ["tickers", "members", "insiders", "institutions", "departments", "research", "comparisons"]) {
     assert.match(seoQuality, new RegExp(`${collection}:\\s*\\[`), `${collection} pilot set should exist`);
   }
+  assert.doesNotMatch(seoQuality, /screeners:\s*\[/);
+  assert.doesNotMatch(seoQuality, /markets:\s*\[/);
+  assert.match(seoQuality, /Private, user-specific, empty, paginated, or query-driven screens stay out of public sitemaps/);
+  assert.match(seoQuality, /Thin sector shells, transient market states, and authenticated-only views stay noindex or excluded/);
   assert.match(seoQuality, /rationale:/);
   assert.match(seoQuality, /lastmod:/);
 });
@@ -67,4 +72,11 @@ test("evergreen SEO foundation requires editorial approval before indexing", () 
   assert.match(evergreenSeo, /editorialStatus === "published"/);
   assert.match(evergreenSeo, /isApprovedSeoPilotPath\(page\.canonicalPath\)/);
   assert.doesNotMatch(evergreenSeo, /Array\.from|for \(let i = 0; i < 1000/);
+});
+
+test("phase 3 audit covers held-back screener and market page families", () => {
+  assert.match(phase3Audit, /Screener-related pages/);
+  assert.match(phase3Audit, /Sector or market pages/);
+  assert.match(phase3Audit, /No screener, sector, or market sitemap segment is created in Phase 3/);
+  assert.match(phase3Audit, /Newly Excluded Or Held Back/);
 });

@@ -1,6 +1,6 @@
 # Phase 3 SEO Foundation Audit
 
-Date checked: 2026-08-01
+Date checked: 2026-08-04
 
 ## Page-Type Audit
 
@@ -13,6 +13,8 @@ Date checked: 2026-08-01
 | Department contract pages | `/departments/[slug]` | App-domain public pages, pilot sitemap only | Empty department shells | `departmentHasIndexableContent` requires contract or linked ticker context |
 | Research briefs | `/research/[slug]` | Marketing-domain indexable only when published | Draft or missing generated briefs | Existing unavailable metadata remains `noindex, follow` |
 | Stock comparisons | `/compare/[left]/[right]` | App-domain approved pilot only | Bulk indexing arbitrary ticker pairs | Non-pilot pairs are `noindex, follow` |
+| Screener-related pages | `/screener` plus query-filtered states | Protected app page, excluded from public SEO sitemaps | Query-param combinations, user-specific saved views, and empty result sets | `screener` quality rules require editorial presets before any future indexable screen route |
+| Sector or market pages | `/market-pressure`, `/feed/macro-positioning`, `/insights/[category]` | App-domain product/insight pages, not bulk-expanded for SEO | Thin sector shells, transient market states, and authenticated data boundaries | `market` quality rules require stable universe, methodology, and public ticker links before indexing |
 | Marketing comparison pages | `/compare/walnut-markets-vs-*` | Marketing-domain static pages | Competitor claim drift | Phase 1 centralizes source URLs and checked dates |
 | Commercial feature pages | Phase 2 static routes | Marketing-domain static pages | Cannibalization against older tools pages | Distinct intent and internal-link map from Phase 2 |
 
@@ -34,6 +36,10 @@ Research briefs must be published and visible. Draft or missing generated briefs
 
 Ticker comparison pages must be in the approved pilot registry before indexing.
 
+Screener-related pages are not newly indexable in Phase 3. Any future indexable screener page needs an editorially named preset, a stable canonical URL without arbitrary query parameters, and a meaningful public result set.
+
+Sector or market pages are not bulk-published in Phase 3. Any future indexable market page needs a real stable universe, visible methodology, useful public context, and crawlable links to relevant public ticker pages.
+
 ## Sitemap Architecture
 
 The app-domain sitemap is already segmented:
@@ -47,6 +53,30 @@ The app-domain sitemap is already segmented:
 - `/sitemap-comparisons.xml`
 
 Phase 3 keeps these segmented files and moves approved pilot URLs into a centralized registry. Each URL now carries `lastmod`. The system intentionally avoids database-wide sitemap expansion.
+
+No screener, sector, or market sitemap segment is created in Phase 3 because those page families do not yet have approved public pilot URLs.
+
+## Newly Indexable Pilot Pages
+
+Phase 3 adds app-domain pilot sitemap coverage only for the centralized approved set:
+
+- Tickers: `/ticker/NVDA`, `/ticker/AAPL`, `/ticker/MSFT`, `/ticker/TSLA`, `/ticker/PLTR`, `/ticker/LMT`
+- Member: `/member/nancy-pelosi`
+- Insider: `/insider/tim-cook-0001214156`
+- Institution: `/institution/0001364742`
+- Departments: `/departments/department-of-defense`, `/departments/nasa`
+- Research: `/research/nbis-vs-crwv-ai-neoclouds`, `/research/ai-earnings-dd`, `/research/mu-dd`
+- Comparison: `/compare/NVDA/MU`
+
+## Newly Excluded Or Held Back
+
+Phase 3 deliberately holds back:
+
+- Arbitrary ticker symbols not in the approved pilot registry
+- Non-pilot ticker comparison pairs
+- Screener query states, user saved views, pagination states, and empty result combinations
+- Sector or market pages without stable public methodology and approved pilot status
+- Draft, unavailable, or unpublished research briefs
 
 ## Programmatic Evergreen Foundation
 
