@@ -24,6 +24,7 @@ OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
 CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v1"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
+PriceRowsBySymbol = dict[str, list[PriceCache]]
 
 
 def outcome_ledger_enabled(db: Session | None = None) -> bool:
@@ -359,6 +360,65 @@ def _price_on_or_after(db: Session, symbol: str, target_date: date) -> PriceCach
     ).scalar_one_or_none()
 
 
+def _price_date(row: PriceCache) -> date | None:
+    try:
+        return date.fromisoformat(str(row.date)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _price_on_or_after_from_rows(rows_by_symbol: PriceRowsBySymbol, symbol: str, target_date: date) -> PriceCache | None:
+    for row in rows_by_symbol.get(symbol.strip().upper(), []):
+        row_date = _price_date(row)
+        if row_date is not None and row_date >= target_date:
+            return row
+    return None
+
+
+def _prefetch_outcome_price_rows(db: Session, snapshots: list[ConfirmationScoreSnapshot]) -> PriceRowsBySymbol:
+    if not snapshots:
+        return {}
+
+    today = datetime.now(timezone.utc).date()
+    min_needed_date: date | None = None
+    max_needed_date: date | None = None
+    symbols = {"SPY"}
+    for snapshot in snapshots:
+        if snapshot.reference_price is None or snapshot.market_date is None:
+            continue
+        matured_targets = [
+            snapshot.market_date + timedelta(days=days)
+            for days in OUTCOME_HORIZONS
+            if snapshot.market_date + timedelta(days=days) <= today
+        ]
+        if not matured_targets:
+            continue
+        symbols.add(snapshot.ticker_at_time.strip().upper())
+        matured_targets.append(snapshot.market_date)
+        snapshot_min = min(matured_targets)
+        snapshot_max = max(matured_targets)
+        min_needed_date = snapshot_min if min_needed_date is None else min(min_needed_date, snapshot_min)
+        max_needed_date = snapshot_max if max_needed_date is None else max(max_needed_date, snapshot_max)
+
+    if min_needed_date is None or max_needed_date is None:
+        return {}
+
+    max_lookup_date = max_needed_date + timedelta(days=7)
+    rows = db.execute(
+        select(PriceCache)
+        .where(
+            func.upper(PriceCache.symbol).in_(symbols),
+            PriceCache.date >= min_needed_date.isoformat(),
+            PriceCache.date <= max_lookup_date.isoformat(),
+        )
+        .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
+    ).scalars().all()
+    rows_by_symbol: PriceRowsBySymbol = {}
+    for row in rows:
+        rows_by_symbol.setdefault(str(row.symbol).strip().upper(), []).append(row)
+    return rows_by_symbol
+
+
 def _price_return_pct(start_price: float | None, end_price: float | None) -> float | None:
     if start_price is None or end_price is None or start_price == 0:
         return None
@@ -383,7 +443,12 @@ def _directionally_correct(direction: str, raw_return_pct: float | None) -> bool
     return directional_return > 0
 
 
-def _snapshot_outcomes(db: Session, snapshot: ConfirmationScoreSnapshot) -> dict[str, Any]:
+def _snapshot_outcomes(
+    db: Session,
+    snapshot: ConfirmationScoreSnapshot,
+    *,
+    price_rows_by_symbol: PriceRowsBySymbol | None = None,
+) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
     if snapshot.reference_price is None or snapshot.market_date is None:
         return {
@@ -392,8 +457,23 @@ def _snapshot_outcomes(db: Session, snapshot: ConfirmationScoreSnapshot) -> dict
         }
 
     today = datetime.now(timezone.utc).date()
+    if snapshot.market_date + timedelta(days=min(OUTCOME_HORIZONS)) > today:
+        return {
+            f"{days}D": {
+                "status": "pending",
+                "horizon_days": days,
+                "target_date": (snapshot.market_date + timedelta(days=days)).isoformat(),
+            }
+            for days in OUTCOME_HORIZONS
+        }
+
     symbol = snapshot.ticker_at_time.upper()
-    spy_entry = _price_on_or_after(db, "SPY", snapshot.market_date)
+    price_lookup = (
+        (lambda lookup_symbol, lookup_date: _price_on_or_after_from_rows(price_rows_by_symbol, lookup_symbol, lookup_date))
+        if price_rows_by_symbol is not None
+        else (lambda lookup_symbol, lookup_date: _price_on_or_after(db, lookup_symbol, lookup_date))
+    )
+    spy_entry = price_lookup("SPY", snapshot.market_date)
     for days in OUTCOME_HORIZONS:
         label = f"{days}D"
         target_date = snapshot.market_date + timedelta(days=days)
@@ -405,7 +485,7 @@ def _snapshot_outcomes(db: Session, snapshot: ConfirmationScoreSnapshot) -> dict
             }
             continue
 
-        price_row = _price_on_or_after(db, symbol, target_date)
+        price_row = price_lookup(symbol, target_date)
         if price_row is None:
             outcomes[label] = {
                 "status": "missing_price",
@@ -416,7 +496,7 @@ def _snapshot_outcomes(db: Session, snapshot: ConfirmationScoreSnapshot) -> dict
 
         raw_return_pct = _price_return_pct(snapshot.reference_price, price_row.close)
         spy_return_pct = None
-        spy_target = _price_on_or_after(db, "SPY", target_date)
+        spy_target = price_lookup("SPY", target_date)
         if spy_entry is not None and spy_target is not None:
             spy_return_pct = _price_return_pct(spy_entry.close, spy_target.close)
         outcomes[label] = {
@@ -442,7 +522,13 @@ def _snapshot_outcomes(db: Session, snapshot: ConfirmationScoreSnapshot) -> dict
     return outcomes
 
 
-def _snapshot_row(db: Session, snapshot: ConfirmationScoreSnapshot, *, include_internal: bool = False) -> dict[str, Any]:
+def _snapshot_row(
+    db: Session,
+    snapshot: ConfirmationScoreSnapshot,
+    *,
+    include_internal: bool = False,
+    price_rows_by_symbol: PriceRowsBySymbol | None = None,
+) -> dict[str, Any]:
     row = {
         "id": snapshot.id,
         "ticker": snapshot.ticker_at_time,
@@ -457,7 +543,7 @@ def _snapshot_row(db: Session, snapshot: ConfirmationScoreSnapshot, *, include_i
         "active_source_count": snapshot.active_source_count,
         "active_sources": _json_loads(snapshot.active_sources_json, []),
         "methodology": None,
-        "outcomes": _snapshot_outcomes(db, snapshot),
+        "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol),
         "calculation_type": snapshot.calculation_type,
         "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
     }
@@ -535,9 +621,10 @@ def list_outcome_snapshots(
         row.id: row.version
         for row in db.execute(select(ConfirmationMethodologyVersion)).scalars().all()
     }
+    price_rows_by_symbol = _prefetch_outcome_price_rows(db, rows)
     items = []
     for snapshot in rows:
-        item = _snapshot_row(db, snapshot, include_internal=include_internal)
+        item = _snapshot_row(db, snapshot, include_internal=include_internal, price_rows_by_symbol=price_rows_by_symbol)
         item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
         items.append(item)
     return {

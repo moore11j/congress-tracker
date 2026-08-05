@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base, ensure_outcome_ledger_schema
 from app.models import ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, PriceCache
+from app.services import outcome_ledger as outcome_ledger_module
 from app.services.outcome_ledger import (
     capture_live_confirmation_score_snapshot,
     current_confirmation_methodology,
@@ -168,3 +169,24 @@ def test_hydrated_demo_seeder_populates_matured_outcomes_and_skips_reruns():
         assert nvda["outcomes"]["30D"]["return_pct"] == 8.6
         assert nvda["outcomes"]["30D"]["directionally_correct"] is True
         assert nvda["outcomes"]["30D"]["spy_return_pct"] == 3.4
+
+
+def test_pending_snapshot_listing_skips_price_outcome_lookups(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        today = datetime.now(timezone.utc).date()
+        db.add(PriceCache(symbol="CRM", date=today.isoformat(), close=101.25, price_source="test"))
+        db.commit()
+        snapshot = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(), calculated_at=datetime.now(timezone.utc))
+        assert snapshot is not None
+
+        def fail_price_lookup(*_args, **_kwargs):
+            raise AssertionError("pending horizons should not query outcome prices")
+
+        monkeypatch.setattr(outcome_ledger_module, "_price_on_or_after", fail_price_lookup)
+
+        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
+        crm = next(item for item in response["items"] if item["ticker"] == "CRM")
+
+        assert crm["outcomes"]["7D"]["status"] == "pending"
+        assert crm["outcomes"]["30D"]["status"] == "pending"
