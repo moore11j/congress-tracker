@@ -18,6 +18,7 @@ from app.services.analyst_consensus import (
     event_values,
     grade_event_stats,
     implied_upside,
+    ingest_symbol_historical_grade_events,
     latest_cached_price,
     PricePoint,
     recommendation_label,
@@ -197,6 +198,47 @@ def test_grade_event_deduplication_and_trailing_stats():
         assert stats["days30"] == {"upgrades": 1, "downgrades": 1, "netActions": 0}
         assert stats["mostRecentEvent"]["action"] == "Upgrade"
         assert stats["daysSinceMostRecentEvent"] == 3
+    finally:
+        db.close()
+
+
+def test_historical_grade_ingestion_uses_true_historical_provider(monkeypatch):
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        now = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)
+
+        def fake_historical_grades(*, symbol: str, timeout_s: int = 30):
+            assert symbol == "MSFT"
+            assert timeout_s == 30
+            return [
+                {
+                    "symbol": "MSFT",
+                    "date": "2025-07-01",
+                    "gradingCompany": "Firm A",
+                    "previousGrade": "Hold",
+                    "newGrade": "Buy",
+                    "action": "upgrade",
+                },
+                {
+                    "symbol": "MSFT",
+                    "date": "2025-06-01",
+                    "gradingCompany": "Firm B",
+                    "previousGrade": "Buy",
+                    "newGrade": "Hold",
+                    "action": "downgrade",
+                },
+            ]
+
+        monkeypatch.setattr("app.services.analyst_consensus.fetch_historical_grades", fake_historical_grades)
+        result = ingest_symbol_historical_grade_events(db, "MSFT", observed_at=now)
+        db.commit()
+
+        assert result["source"] == "grades-historical"
+        assert result["status"] == "available"
+        assert result["inserted"] == 2
+        assert db.query(AnalystGradeEvent).count() == 2
+        assert grade_event_stats(db, "MSFT", as_of=date(2025, 7, 15))["days90"]["netActions"] == 0
     finally:
         db.close()
 

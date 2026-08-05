@@ -16,6 +16,7 @@ from app.clients.fmp import (
     FMPSubscriptionRestrictedError,
     fetch_grade_events,
     fetch_grades_summary,
+    fetch_historical_grades,
     fetch_price_target_consensus,
     fetch_price_target_summary,
 )
@@ -637,6 +638,39 @@ def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetim
         else:
             updated += 1
     return {"symbol": normalized, "status": "available" if rows else "unavailable", "rows_seen": len(rows), "inserted": inserted, "updated": updated, "skipped": skipped}
+
+
+def ingest_symbol_historical_grade_events(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
+    normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
+    if rejection_reason or not normalized:
+        return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    observed = observed_at or utc_now()
+    try:
+        rows = fetch_historical_grades(symbol=normalized, timeout_s=30)
+    except FMPSubscriptionRestrictedError as exc:
+        return {"symbol": normalized, "status": "provider_error", "error": f"subscription_restricted:{exc.__class__.__name__}"}
+    except FMPClientError as exc:
+        return {"symbol": normalized, "status": "provider_error", "error": exc.__class__.__name__}
+    inserted = updated = skipped = 0
+    for row in rows:
+        try:
+            event, created = upsert_grade_event(db, event_values(normalized, row, ingested_at=observed))
+        except ValueError:
+            skipped += 1
+            continue
+        if event.id and created:
+            inserted += 1
+        else:
+            updated += 1
+    return {
+        "symbol": normalized,
+        "status": "available" if rows else "unavailable",
+        "source": "grades-historical",
+        "rows_seen": len(rows),
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+    }
 
 
 def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:

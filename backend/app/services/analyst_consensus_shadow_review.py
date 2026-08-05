@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     AnalystConsensusSnapshot,
+    AnalystGradeEvent,
     ConfirmationMonitoringEvent,
     ConfirmationMonitoringSnapshot,
     PriceCache,
@@ -88,8 +89,11 @@ def shadow_review_payload(
     normalized_symbols = sorted({symbol for symbol in (normalize_symbol(item) for item in (symbols or [])) if symbol})
     start_day = end_day - timedelta(days=bounded_days - 1)
     snapshots = _load_snapshots(db, start_day, end_day, normalized_symbols, bounded_limit)
-    samples = _forward_return_samples(db, snapshots, bounded_horizon)
-    confirmation_samples = _confirmation_correlation_samples(db, snapshots)
+    snapshot_samples = _forward_return_samples(db, snapshots, bounded_horizon)
+    historical_grade_events = _load_grade_events(db, start_day, end_day, normalized_symbols, bounded_limit)
+    grade_event_samples = _grade_event_forward_return_samples(db, historical_grade_events, bounded_horizon)
+    samples = snapshot_samples + grade_event_samples
+    confirmation_samples = _confirmation_correlation_samples(db, snapshots, historical_grade_events)
     backtest = _backtest_summary(samples, min_samples=min_samples, min_symbols=min_symbols, horizon_days=bounded_horizon)
     correlation = _correlation_summary(
         samples,
@@ -121,6 +125,9 @@ def shadow_review_payload(
         "coverage": {
             "snapshotCount": len(snapshots),
             "sampleCount": len(samples),
+            "snapshotSampleCount": len(snapshot_samples),
+            "historicalGradeEventCount": len(historical_grade_events),
+            "historicalGradeEventSampleCount": len(grade_event_samples),
             "symbolCount": len({sample["symbol"] for sample in samples}),
             "confirmationCorrelationSampleCount": len(confirmation_samples),
         },
@@ -189,8 +196,76 @@ def _forward_return_samples(
                 "symbol": symbol,
                 "snapshotDate": snapshot.snapshot_date.isoformat(),
                 "componentScore": component_score,
+                "sourceType": "consensus_snapshot",
                 "weightedRatingValue": _number(snapshot.weighted_rating_value),
                 "consensusImpliedUpsidePct": _number(snapshot.consensus_implied_upside_pct),
+                "forwardReturnPct": round(((end_price / start_price) - 1.0) * 100.0, 4),
+                "horizonDays": horizon_days,
+            }
+        )
+    return samples
+
+
+def _load_grade_events(
+    db: Session,
+    start_day: date,
+    end_day: date,
+    symbols: list[str],
+    max_events: int,
+) -> list[AnalystGradeEvent]:
+    filters = [
+        AnalystGradeEvent.published_date >= start_day,
+        AnalystGradeEvent.published_date <= end_day,
+    ]
+    if symbols:
+        filters.append(func.upper(AnalystGradeEvent.symbol).in_(symbols))
+    return list(
+        db.execute(
+            select(AnalystGradeEvent)
+            .where(*filters)
+            .order_by(AnalystGradeEvent.published_date.asc(), AnalystGradeEvent.symbol.asc(), AnalystGradeEvent.id.asc())
+            .limit(max_events)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _grade_event_forward_return_samples(
+    db: Session,
+    events: list[AnalystGradeEvent],
+    horizon_days: int,
+) -> list[dict[str, Any]]:
+    scoped = [event for event in events if event.published_date and event.symbol]
+    if not scoped:
+        return []
+    symbols = sorted({event.symbol.upper() for event in scoped if event.symbol})
+    min_day = min(event.published_date for event in scoped if event.published_date)
+    max_day = max(event.published_date for event in scoped if event.published_date) + timedelta(days=horizon_days + 7)
+    prices = _load_prices(db, symbols, min_day, max_day)
+    samples: list[dict[str, Any]] = []
+    for event in scoped:
+        symbol = (event.symbol or "").upper()
+        published = event.published_date
+        if published is None:
+            continue
+        points = prices.get(symbol) or []
+        start_price = _first_close_on_or_after(points, published)
+        end_price = _first_close_on_or_after(points, published + timedelta(days=horizon_days))
+        if start_price is None or end_price is None or start_price <= 0:
+            continue
+        component_score = _grade_event_component_score(event)
+        if component_score is None:
+            continue
+        samples.append(
+            {
+                "symbol": symbol,
+                "snapshotDate": published.isoformat(),
+                "componentScore": component_score,
+                "sourceType": "historical_grade_event",
+                "action": event.action,
+                "newGrade": event.new_grade,
+                "previousGrade": event.previous_grade,
                 "forwardReturnPct": round(((end_price / start_price) - 1.0) * 100.0, 4),
                 "horizonDays": horizon_days,
             }
@@ -229,12 +304,22 @@ def _first_close_on_or_after(points: list[tuple[date, float]], target_day: date)
 def _confirmation_correlation_samples(
     db: Session,
     snapshots: list[AnalystConsensusSnapshot],
+    grade_events: list[AnalystGradeEvent],
 ) -> list[dict[str, Any]]:
-    if not snapshots:
+    if not snapshots and not grade_events:
         return []
-    symbols = sorted({snapshot.symbol.upper() for snapshot in snapshots if snapshot.symbol})
-    min_day = min(snapshot.snapshot_date for snapshot in snapshots)
-    max_day = max(snapshot.snapshot_date for snapshot in snapshots)
+    symbols = sorted(
+        {
+            *[snapshot.symbol.upper() for snapshot in snapshots if snapshot.symbol],
+            *[event.symbol.upper() for event in grade_events if event.symbol],
+        }
+    )
+    candidate_days = [snapshot.snapshot_date for snapshot in snapshots]
+    candidate_days.extend(event.published_date for event in grade_events if event.published_date)
+    if not symbols or not candidate_days:
+        return []
+    min_day = min(candidate_days)
+    max_day = max(candidate_days)
     history = _load_confirmation_history(db, symbols, min_day, max_day)
     samples: list[dict[str, Any]] = []
     for snapshot in snapshots:
@@ -248,6 +333,24 @@ def _confirmation_correlation_samples(
                 "symbol": symbol,
                 "snapshotDate": snapshot.snapshot_date.isoformat(),
                 "componentScore": score,
+                "sourceType": "consensus_snapshot",
+                "confirmationScore": confirmation_score,
+            }
+        )
+    for event in grade_events:
+        if event.published_date is None:
+            continue
+        symbol = (event.symbol or "").upper()
+        score = _grade_event_component_score(event)
+        confirmation_score = (history.get(symbol) or {}).get(event.published_date)
+        if score is None or confirmation_score is None:
+            continue
+        samples.append(
+            {
+                "symbol": symbol,
+                "snapshotDate": event.published_date.isoformat(),
+                "componentScore": score,
+                "sourceType": "historical_grade_event",
                 "confirmationScore": confirmation_score,
             }
         )
@@ -337,6 +440,7 @@ def _backtest_summary(
         "averageForwardReturnPct": _average([sample["forwardReturnPct"] for sample in samples]),
         "scoreForwardReturnCorrelation": score_return_correlation,
         "bullishMinusBearishReturnPct": spread,
+        "sourceBreakdown": _source_breakdown(samples),
         "buckets": bucket_payload,
     }
 
@@ -408,6 +512,21 @@ def _double_counting_summary(correlation: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _source_breakdown(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    source_types = sorted({str(sample.get("sourceType") or "unknown") for sample in samples})
+    return {
+        source_type: {
+            "sampleCount": sum(1 for sample in samples if str(sample.get("sourceType") or "unknown") == source_type),
+            "averageForwardReturnPct": _average(
+                sample["forwardReturnPct"]
+                for sample in samples
+                if str(sample.get("sourceType") or "unknown") == source_type
+            ),
+        }
+        for source_type in source_types
+    }
+
+
 def _activation_review(
     backtest: dict[str, Any],
     correlation: dict[str, Any],
@@ -433,6 +552,46 @@ def _activation_review(
         "gateStatuses": gate_statuses,
         "liveWeight": 0 if not can_activate else None,
     }
+
+
+def _grade_event_component_score(event: AnalystGradeEvent) -> int | None:
+    base = _grade_text_component_score(event.new_grade) or _grade_text_component_score(event.previous_grade)
+    action = str(event.action or event.provider_action or "").strip().lower()
+    if base is None:
+        if "upgrade" in action:
+            base = 65
+        elif "downgrade" in action:
+            base = 35
+        elif "initiat" in action or "resume" in action:
+            base = 55
+        elif "suspend" in action:
+            base = 45
+    if base is None:
+        return None
+    if "upgrade" in action:
+        base = max(base, 65)
+    elif "downgrade" in action:
+        base = min(base, 35)
+    elif "suspend" in action:
+        base = min(base, 45)
+    return int(max(0, min(100, round(base))))
+
+
+def _grade_text_component_score(value: Any) -> int | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if any(token in text for token in ("strong buy", "conviction buy", "top pick")):
+        return 85
+    if any(token in text for token in ("buy", "outperform", "overweight", "accumulate", "positive")):
+        return 72
+    if any(token in text for token in ("hold", "neutral", "market perform", "sector perform", "equal-weight", "equal weight", "peer perform")):
+        return 50
+    if any(token in text for token in ("underperform", "underweight", "reduce", "negative")):
+        return 30
+    if "sell" in text:
+        return 20
+    return None
 
 
 def _inputs_from_snapshot(snapshot: AnalystConsensusSnapshot) -> dict[str, Any]:

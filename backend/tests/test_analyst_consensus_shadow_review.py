@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import AnalystConsensusSnapshot, ConfirmationMonitoringEvent, PriceCache
+from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, ConfirmationMonitoringEvent, PriceCache
 from app.services.analyst_consensus_shadow_review import (
     analyst_consensus_shadow_component_score,
     shadow_review_payload,
@@ -132,6 +132,82 @@ def test_shadow_review_backtests_cached_forward_returns_without_activation():
     assert payload["activationReview"]["canActivateLiveWeight"] is False
     assert payload["activationReview"]["recommendation"] == "keep_shadow_only"
     assert payload["doubleCountingReview"]["status"] == "manual_review_required"
+
+
+def test_shadow_review_uses_historical_grade_events_as_true_historical_source():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    start = date(2026, 1, 1)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                AnalystGradeEvent(
+                    symbol="AAA",
+                    provider_symbol="AAA",
+                    grading_company="Firm A",
+                    previous_grade="Hold",
+                    new_grade="Buy",
+                    action="Upgrade",
+                    provider_action="upgrade",
+                    published_date=start,
+                    event_fingerprint="aaa-upgrade",
+                    source="fmp",
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                AnalystGradeEvent(
+                    symbol="BBB",
+                    provider_symbol="BBB",
+                    grading_company="Firm B",
+                    previous_grade="Buy",
+                    new_grade="Hold",
+                    action="Downgrade",
+                    provider_action="downgrade",
+                    published_date=start,
+                    event_fingerprint="bbb-downgrade",
+                    source="fmp",
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                AnalystGradeEvent(
+                    symbol="CCC",
+                    provider_symbol="CCC",
+                    grading_company="Firm C",
+                    previous_grade="Neutral",
+                    new_grade="Neutral",
+                    action="Maintained",
+                    provider_action="maintained",
+                    published_date=start,
+                    event_fingerprint="ccc-maintained",
+                    source="fmp",
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                _price("AAA", start, 100),
+                _price("AAA", start + timedelta(days=30), 114),
+                _price("BBB", start, 100),
+                _price("BBB", start + timedelta(days=30), 90),
+                _price("CCC", start, 100),
+                _price("CCC", start + timedelta(days=30), 101),
+            ]
+        )
+        db.commit()
+
+        payload = shadow_review_payload(
+            db,
+            days=60,
+            horizon_days=30,
+            min_backtest_samples=3,
+            min_backtest_symbols=3,
+            as_of=date(2026, 2, 15),
+        )
+
+    assert payload["coverage"]["snapshotSampleCount"] == 0
+    assert payload["coverage"]["historicalGradeEventSampleCount"] == 3
+    assert payload["backtest"]["status"] == "passed"
+    assert payload["backtest"]["sourceBreakdown"]["historical_grade_event"]["sampleCount"] == 3
+    assert payload["activationReview"]["canActivateLiveWeight"] is False
 
 
 def test_confirmation_bundle_exposes_shadow_component_without_live_source_weight():
