@@ -22,6 +22,11 @@ from app.services.intelligence_overlays import (
 )
 from app.services.options_flow import get_options_flow_summary
 from app.services.analyst_consensus import analyst_consensus_component_inputs
+from app.services.analyst_consensus_shadow_review import (
+    analyst_consensus_confidence_adjustment,
+    analyst_consensus_live_weight_enabled,
+    analyst_consensus_shadow_component_score,
+)
 from app.services.macro_positioning import get_macro_positioning_summary, get_macro_positioning_summaries_for_symbols
 from app.services.price_lookup import get_daily_close_series_with_fallback, get_eod_close_series
 from app.services.signal_freshness import slim_signal_freshness_bundle
@@ -610,29 +615,6 @@ def analyst_consensus_shadow_enabled() -> bool:
     return str(os.getenv("ANALYST_CONSENSUS_SHADOW_ENABLED", "1")).strip().lower() not in {"0", "false", "off", "no"}
 
 
-def _analyst_consensus_shadow_component_score(inputs: dict[str, Any]) -> int | None:
-    if not isinstance(inputs, dict):
-        return None
-    rating = inputs.get("weightedRatingValue")
-    upside = inputs.get("consensusImpliedUpsidePct")
-    if rating is None and upside is None:
-        return None
-    score = 50.0
-    if rating is not None:
-        score += max(-25.0, min(25.0, float(rating) * 12.5))
-    if upside is not None:
-        score += max(-20.0, min(20.0, float(upside) / 2.0))
-    return int(round(max(0.0, min(100.0, score))))
-
-
-def _analyst_consensus_confidence_adjustment(inputs: dict[str, Any]) -> float:
-    level = str(inputs.get("coverageLevel") or "").strip().lower()
-    freshness = str(inputs.get("freshnessStatus") or "").strip().lower()
-    coverage_factor = {"high": 1.0, "moderate": 0.75, "low": 0.5, "insufficient": 0.25}.get(level, 0.25)
-    freshness_factor = {"fresh": 1.0, "stale": 0.6, "unavailable": 0.25}.get(freshness, 0.8)
-    return round(max(0.0, min(1.0, coverage_factor * freshness_factor)), 2)
-
-
 def _analyst_consensus_shadow_output(db: Session, symbol: str) -> dict[str, Any] | None:
     if not analyst_consensus_shadow_enabled():
         return None
@@ -641,19 +623,22 @@ def _analyst_consensus_shadow_output(db: Session, symbol: str) -> dict[str, Any]
     except Exception:
         return None
     inputs = component.get("inputs") if isinstance(component.get("inputs"), dict) else {}
-    component_score = _analyst_consensus_shadow_component_score(inputs)
+    component_score = analyst_consensus_shadow_component_score(inputs)
+    live_weight_flag = analyst_consensus_live_weight_enabled()
     return {
         "activation_state": "shadow",
         "included_in_score": False,
         "live_weight_assigned": False,
+        "live_weight_flag_enabled": live_weight_flag,
         "methodology_version": component.get("methodologyVersion"),
         "component_score": component_score,
-        "confidence_adjustment": _analyst_consensus_confidence_adjustment(inputs),
+        "confidence_adjustment": analyst_consensus_confidence_adjustment(inputs),
         "inputs": inputs,
         "review_gates": {
-            "historical_backtest": {"status": "not_run", "required_before_activation": True},
+            "historical_backtest": {"status": "pending", "required_before_activation": True},
             "correlation_review": {"status": "pending", "required_before_activation": True},
             "double_counting_review": {"status": "pending", "required_before_activation": True},
+            "explicit_live_flag": {"status": "enabled" if live_weight_flag else "disabled", "required_before_activation": True},
         },
         "notes": component.get("notes") if isinstance(component.get("notes"), list) else [],
     }

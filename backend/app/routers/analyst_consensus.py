@@ -13,6 +13,7 @@ from app.services.analyst_consensus import (
     events_payload,
     history_payload,
 )
+from app.services.analyst_consensus_shadow_review import shadow_review_payload
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["analyst-consensus"])
@@ -90,3 +91,30 @@ def compare_consensus(
     )
     _cache_headers(response)
     return payload
+
+
+@router.get("/analyst-consensus/shadow-review")
+def analyst_consensus_shadow_review(
+    response: Response,
+    request: Request,
+    symbols: str | None = Query(default=None),
+    days: int = Query(default=365, ge=1, le=1825),
+    horizon_days: int = Query(default=30, ge=1, le=365),
+    max_snapshots: int = Query(default=5000, ge=1, le=25000),
+    db: Session = Depends(get_db),
+):
+    entitlements = current_entitlements(request, db)
+    require_feature(
+        entitlements,
+        "analyst_consensus_history",
+        message="Analyst consensus shadow review is included with Premium.",
+    )
+    parsed = [normalize_symbol(part) for part in (symbols or "").split(",")]
+    _cache_headers(response, seconds=900)
+    return shadow_review_payload(
+        db,
+        symbols=[symbol for symbol in parsed if symbol],
+        days=days,
+        horizon_days=horizon_days,
+        max_snapshots=max_snapshots,
+    )
