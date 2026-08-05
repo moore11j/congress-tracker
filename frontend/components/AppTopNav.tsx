@@ -104,11 +104,11 @@ export function AppTopNav() {
   }
 
   return (
-    <div className="relative order-3 min-w-0 basis-full lg:order-none lg:ml-auto lg:basis-auto">
+    <div className="relative order-3 min-w-0 basis-full lg:order-none lg:min-w-[34rem] lg:flex-1 lg:basis-0">
       <nav
         ref={scrollRef}
         onScroll={updateScrollState}
-        className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] lg:gap-4 xl:gap-5 [&::-webkit-scrollbar]:hidden"
       >
         {topNavLinks.map((link) => {
           const active = isActiveNavLink(pathname, link.href);
