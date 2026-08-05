@@ -12,3 +12,14 @@ def test_macro_positioning_refresh_runs_weekly_after_cot_release_window():
     assert "CRON_TZ=America/Los_Angeles" in crontab
     assert "45 13 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning" in crontab
     assert "45 5 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning" not in crontab
+
+
+def test_outcome_ledger_hydrator_runs_during_market_window_and_after_close():
+    crontab = (BACKEND_ROOT / "crontab").read_text()
+    ingest_run = (BACKEND_ROOT / "app" / "ingest_run.py").read_text()
+    fly_config = (BACKEND_ROOT / "fly.toml").read_text()
+
+    assert "10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator" in crontab
+    assert "35 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator" in crontab
+    assert '"outcome-ledger-hydrator"' in ingest_run
+    assert 'OUTCOME_LEDGER_HYDRATOR_ENABLED = "true"' in fly_config

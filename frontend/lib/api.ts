@@ -7155,6 +7155,122 @@ export async function getTickerProfiles(symbols: string[], options?: { source?: 
   return data as TickerProfilesMap;
 }
 
+export type OutcomeLedgerStatus = {
+  enabled: boolean;
+  tracking_status: string;
+  current_methodology_version: string;
+  first_live_snapshot_date?: string | null;
+  most_recent_snapshot_timestamp?: string | null;
+  unique_securities_captured: number;
+  total_live_snapshots: number;
+  data_quality_status: string;
+};
+
+export type AdminOutcomeLedgerStatus = OutcomeLedgerStatus & {
+  snapshots_created_past_24h: number;
+  duplicate_attempts_ignored: number;
+  persistence_errors: number;
+  missing_reference_prices: number;
+  missing_security_ids: number;
+  missing_source_contribution_payloads: number;
+  methodology?: {
+    id: number;
+    version: string;
+    description: string;
+    configuration: Record<string, unknown>;
+    code_commit_sha?: string | null;
+    deployed_at?: string | null;
+    retired_at?: string | null;
+    is_current: boolean;
+  };
+};
+
+export type OutcomeSnapshot = {
+  id: number;
+  ticker: string;
+  calculated_at?: string | null;
+  market_date?: string | null;
+  score: number;
+  direction: string;
+  strength: string;
+  reference_price?: number | null;
+  reference_price_at?: string | null;
+  reference_price_source?: string | null;
+  active_source_count: number;
+  active_sources: string[];
+  methodology?: string | null;
+  outcomes?: Record<string, OutcomeHorizonResult>;
+  calculation_type: string;
+  created_at?: string | null;
+  security_id?: number;
+  input_hash?: string;
+  code_commit_sha?: string | null;
+  source_contributions?: Record<string, unknown>;
+  source_freshness?: Record<string, unknown>;
+};
+
+export type OutcomeHorizonResult = {
+  status: "matured" | "pending" | "missing_price" | "missing_reference_price" | string;
+  horizon_days: number;
+  target_date?: string | null;
+  price?: number | null;
+  price_date?: string | null;
+  return_pct?: number | null;
+  directional_return_pct?: number | null;
+  directionally_correct?: boolean | null;
+  spy_return_pct?: number | null;
+  excess_return_pct?: number | null;
+  directional_excess_return_pct?: number | null;
+};
+
+export type OutcomeSnapshotsResponse = {
+  items: OutcomeSnapshot[];
+  page: number;
+  limit: number;
+  total: number;
+  has_next: boolean;
+};
+
+export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
+  return fetchJson<OutcomeLedgerStatus>(buildApiUrl("/api/outcomes/status"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "OutcomeLedgerPage",
+  });
+}
+
+export async function getOutcomeSnapshots(params: QueryParams = {}): Promise<OutcomeSnapshotsResponse> {
+  return fetchJson<OutcomeSnapshotsResponse>(buildApiUrl("/api/outcomes/snapshots", params), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "OutcomeLedgerPage",
+  });
+}
+
+export async function getAdminOutcomeLedgerStatus(): Promise<AdminOutcomeLedgerStatus> {
+  return fetchJson<AdminOutcomeLedgerStatus>(buildApiUrl("/api/admin/outcomes/status"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminOutcomes",
+  });
+}
+
+export async function getAdminOutcomeSnapshots(params: QueryParams = {}): Promise<OutcomeSnapshotsResponse> {
+  return fetchJson<OutcomeSnapshotsResponse>(buildApiUrl("/api/admin/outcomes/snapshots", params), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminOutcomes",
+  });
+}
+
+export async function getAdminOutcomeSnapshotDetail(snapshotId: number): Promise<OutcomeSnapshot> {
+  return fetchJson<OutcomeSnapshot>(buildApiUrl(`/api/admin/outcomes/snapshots/${encodeURIComponent(String(snapshotId))}`), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminOutcomes",
+  });
+}
+
 export async function listWatchlists(authToken?: string): Promise<WatchlistSummary[]> {
   return fetchJson<WatchlistSummary[]>(buildApiUrl("/api/watchlists"), { headers: authHeaders(authToken) });
 }

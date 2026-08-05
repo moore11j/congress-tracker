@@ -4561,6 +4561,134 @@ def ensure_reddit_ads_assistant_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reddit_ad_drafts_token_hash ON reddit_ad_drafts (extension_token_hash)"))
 
 
+def ensure_outcome_ledger_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn, statement_timeout="10s")
+        if dialect_name == "postgresql":
+            id_column = "BIGSERIAL PRIMARY KEY"
+            timestamp_type = "TIMESTAMPTZ"
+            bool_type = "BOOLEAN"
+            bool_false = "false"
+            bool_true = "true"
+            current_unique_sql = (
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_confirmation_methodology_versions_current "
+                "ON confirmation_methodology_versions (is_current) WHERE is_current"
+            )
+        else:
+            id_column = "INTEGER PRIMARY KEY"
+            timestamp_type = "TIMESTAMP"
+            bool_type = "BOOLEAN"
+            bool_false = "0"
+            bool_true = "1"
+            current_unique_sql = (
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_confirmation_methodology_versions_current "
+                "ON confirmation_methodology_versions (is_current) WHERE is_current = 1"
+            )
+
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS confirmation_methodology_versions (
+                    id {id_column},
+                    version TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    configuration_json TEXT NOT NULL DEFAULT '{{}}',
+                    code_commit_sha TEXT,
+                    deployed_at {timestamp_type} NOT NULL,
+                    retired_at {timestamp_type},
+                    is_current {bool_type} NOT NULL DEFAULT {bool_false},
+                    created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS confirmation_score_snapshots (
+                    id {id_column},
+                    security_id INTEGER NOT NULL,
+                    ticker_at_time TEXT NOT NULL,
+                    calculated_at {timestamp_type} NOT NULL,
+                    market_date DATE NOT NULL,
+                    score INTEGER NOT NULL,
+                    direction TEXT NOT NULL,
+                    strength TEXT NOT NULL,
+                    reference_price FLOAT,
+                    reference_price_at {timestamp_type},
+                    reference_price_source TEXT,
+                    active_source_count INTEGER NOT NULL DEFAULT 0,
+                    active_sources_json TEXT NOT NULL DEFAULT '[]',
+                    source_contributions_json TEXT NOT NULL DEFAULT '{{}}',
+                    source_freshness_json TEXT NOT NULL DEFAULT '{{}}',
+                    input_hash TEXT NOT NULL,
+                    methodology_version_id INTEGER NOT NULL,
+                    calculation_type TEXT NOT NULL DEFAULT 'live',
+                    code_commit_sha TEXT,
+                    supersedes_snapshot_id INTEGER,
+                    correction_reason TEXT,
+                    created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_confirmation_methodology_versions_version ON confirmation_methodology_versions (version)"))
+        conn.execute(text(current_unique_sql))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_confirmation_score_snapshots_live_input "
+                "ON confirmation_score_snapshots (security_id, methodology_version_id, market_date, input_hash, calculation_type)"
+            )
+        )
+        for statement in (
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_security_calculated ON confirmation_score_snapshots (security_id, calculated_at)",
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_market_date ON confirmation_score_snapshots (market_date)",
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_methodology ON confirmation_score_snapshots (methodology_version_id)",
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_type ON confirmation_score_snapshots (calculation_type)",
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_input_hash ON confirmation_score_snapshots (input_hash)",
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_created ON confirmation_score_snapshots (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_confirmation_score_snapshots_ticker ON confirmation_score_snapshots (ticker_at_time)",
+        ):
+            conn.execute(text(statement))
+
+        existing_current = conn.execute(
+            text("SELECT id FROM confirmation_methodology_versions WHERE is_current = :current LIMIT 1"),
+            {"current": True if dialect_name == "postgresql" else 1},
+        ).fetchone()
+        if existing_current is None:
+            configuration_json = (
+                '{"classification_version":"confirmation_direction_v3","lookback_days":30,'
+                '"source_order":["congress","insiders","signals","price_volume","fundamentals",'
+                '"options_flow","government_contracts","institutional_activity","macro_positioning"],'
+                '"phase":"outcome-ledger-phase-1"}'
+            )
+            commit_sha = (
+                os.getenv("SOURCE_COMMIT_SHA")
+                or os.getenv("GIT_COMMIT_SHA")
+                or os.getenv("VERCEL_GIT_COMMIT_SHA")
+                or os.getenv("FLY_COMMIT_SHA")
+                or "unknown"
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO confirmation_methodology_versions
+                        (version, description, configuration_json, code_commit_sha, deployed_at, is_current)
+                    VALUES
+                        (:version, :description, :configuration_json, :code_commit_sha, CURRENT_TIMESTAMP, :is_current)
+                    """
+                ),
+                {
+                    "version": "confirmation-v1",
+                    "description": "Initial version record for the currently deployed Walnut confirmation score methodology.",
+                    "configuration_json": configuration_json,
+                    "code_commit_sha": commit_sha,
+                    "is_current": True if dialect_name == "postgresql" else 1,
+                },
+            )
+
+
 def get_db():
     context = get_request_context()
     session_started = perf_counter()

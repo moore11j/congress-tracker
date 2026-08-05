@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, Index, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Index, Text, UniqueConstraint, event, func, inspect, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -1618,6 +1618,102 @@ class MarketPressureSnapshot(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class ConfirmationMethodologyVersion(Base):
+    __tablename__ = "confirmation_methodology_versions"
+    __table_args__ = (
+        UniqueConstraint("version", name="uq_confirmation_methodology_versions_version"),
+        Index(
+            "uq_confirmation_methodology_versions_current",
+            "is_current",
+            unique=True,
+            sqlite_where=text("is_current = 1"),
+            postgresql_where=text("is_current"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    configuration_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    code_commit_sha: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deployed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    retired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConfirmationScoreSnapshot(Base):
+    __tablename__ = "confirmation_score_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "security_id",
+            "methodology_version_id",
+            "market_date",
+            "input_hash",
+            "calculation_type",
+            name="uq_confirmation_score_snapshots_live_input",
+        ),
+        Index("ix_confirmation_score_snapshots_security_calculated", "security_id", "calculated_at"),
+        Index("ix_confirmation_score_snapshots_market_date", "market_date"),
+        Index("ix_confirmation_score_snapshots_methodology", "methodology_version_id"),
+        Index("ix_confirmation_score_snapshots_type", "calculation_type"),
+        Index("ix_confirmation_score_snapshots_input_hash", "input_hash"),
+        Index("ix_confirmation_score_snapshots_created", "created_at"),
+        Index("ix_confirmation_score_snapshots_ticker", "ticker_at_time"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    security_id: Mapped[int] = mapped_column(nullable=False)
+    ticker_at_time: Mapped[str] = mapped_column(Text, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    market_date: Mapped[date] = mapped_column(nullable=False)
+    score: Mapped[int] = mapped_column(nullable=False)
+    direction: Mapped[str] = mapped_column(Text, nullable=False)
+    strength: Mapped[str] = mapped_column(Text, nullable=False)
+    reference_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    reference_price_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reference_price_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    active_source_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    active_sources_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    source_contributions_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    source_freshness_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    input_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    methodology_version_id: Mapped[int] = mapped_column(nullable=False)
+    calculation_type: Mapped[str] = mapped_column(Text, default="live", server_default="live", nullable=False)
+    code_commit_sha: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    supersedes_snapshot_id: Mapped[Optional[int]] = mapped_column(nullable=True)
+    correction_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def _prevent_snapshot_mutation(_mapper, _connection, target: ConfirmationScoreSnapshot) -> None:
+    raise ValueError("confirmation score snapshots are immutable")
+
+
+def _prevent_used_methodology_mutation(_mapper, connection, target: ConfirmationMethodologyVersion) -> None:
+    state = inspect(target)
+    immutable_fields = {
+        "version",
+        "description",
+        "configuration_json",
+        "code_commit_sha",
+        "deployed_at",
+    }
+    if not any(state.attrs[name].history.has_changes() for name in immutable_fields):
+        return
+    count = connection.execute(
+        text("SELECT COUNT(1) FROM confirmation_score_snapshots WHERE methodology_version_id = :id"),
+        {"id": target.id},
+    ).scalar()
+    if count:
+        raise ValueError("used confirmation methodology versions are immutable")
+
+
+event.listen(ConfirmationScoreSnapshot, "before_update", _prevent_snapshot_mutation)
+event.listen(ConfirmationScoreSnapshot, "before_delete", _prevent_snapshot_mutation)
+event.listen(ConfirmationMethodologyVersion, "before_update", _prevent_used_methodology_mutation)
 
 
 class TickerMeta(Base):

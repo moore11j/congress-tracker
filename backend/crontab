@@ -8,6 +8,8 @@ CRON_TZ=America/Los_Angeles
 5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh
 */15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
 */30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
+10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator
+35 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator
 5 7-13 * * 1-5 cd /app && python -m app.jobs.refresh_market_pressure_snapshots --all
 17 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily
 */5 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh

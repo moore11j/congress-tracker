@@ -49,6 +49,7 @@ from app.db import (
     ensure_macro_positioning_schema,
     ensure_market_pressure_snapshot_schema,
     ensure_monitoring_alert_columns,
+    ensure_outcome_ledger_schema,
     ensure_page_analytics_schema,
     ensure_provider_control_schema,
     ensure_provider_usage_schema,
@@ -115,6 +116,8 @@ from app.models import (
     CongressMemberAlias,
     ConfirmationMonitoringEvent,
     ConfirmationMonitoringSnapshot,
+    ConfirmationMethodologyVersion,
+    ConfirmationScoreSnapshot,
     Event,
     Filing,
     FundamentalsCache,
@@ -249,6 +252,13 @@ from app.services.ticker_identity import resolve_ticker_identity, safe_company_i
 from app.services.confirmation_monitoring import (
     event_to_dict as confirmation_monitoring_event_to_dict,
     refresh_watchlist_confirmation_monitoring,
+)
+from app.services.outcome_ledger import (
+    capture_live_confirmation_score_snapshot,
+    get_outcome_snapshot_detail,
+    list_outcome_snapshots,
+    outcome_ledger_enabled,
+    outcome_ledger_status,
 )
 from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
@@ -3932,6 +3942,7 @@ def _startup_create_tables():
         ("schema_house_annual_disclosure", ensure_house_annual_disclosure_schema),
         ("schema_trade_outcomes_amount_bigint", ensure_trade_outcomes_amount_bigint),
         ("schema_government_contracts", lambda: ensure_government_contracts_schema(engine)),
+        ("schema_outcome_ledger", lambda: ensure_outcome_ledger_schema(engine)),
     )
     for name, fn in schema_steps:
         _run_required_startup_step(name, fn)
@@ -5856,6 +5867,100 @@ def market_quotes(request: Request, symbols: str | None = Query(None)):
 @app.get("/api/tickers/{symbol}")
 def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     return _ticker_profile_response(symbol, db)
+
+
+def _parse_outcome_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Date filters must use YYYY-MM-DD")
+
+
+def _outcomes_disabled_response() -> None:
+    raise HTTPException(status_code=404, detail="Outcome Ledger is not enabled")
+
+
+@app.get("/api/outcomes/status")
+def outcomes_status(response: Response, db: Session = Depends(get_db)):
+    if not outcome_ledger_enabled(db):
+        _outcomes_disabled_response()
+    response.headers["Cache-Control"] = "private, max-age=30"
+    return outcome_ledger_status(db)
+
+
+@app.get("/api/outcomes/snapshots")
+def outcomes_snapshots(
+    response: Response,
+    ticker: str | None = Query(None),
+    page: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    methodology: str | None = Query(None),
+    calculation_type: str = Query("live", pattern="^(live|historical_reconstruction|data_correction|manual_test)$"),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    if not outcome_ledger_enabled(db):
+        _outcomes_disabled_response()
+    response.headers["Cache-Control"] = "private, max-age=30"
+    return list_outcome_snapshots(
+        db,
+        page=page,
+        limit=limit,
+        ticker=ticker,
+        methodology=methodology,
+        calculation_type=calculation_type,
+        start_date=_parse_outcome_date(start_date),
+        end_date=_parse_outcome_date(end_date),
+        include_internal=False,
+    )
+
+
+@app.get("/api/admin/outcomes/status")
+def admin_outcomes_status(request: Request, response: Response, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    response.headers["Cache-Control"] = "no-store"
+    return outcome_ledger_status(db, include_admin=True)
+
+
+@app.get("/api/admin/outcomes/snapshots")
+def admin_outcomes_snapshots(
+    request: Request,
+    response: Response,
+    ticker: str | None = Query(None),
+    page: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    methodology: str | None = Query(None),
+    calculation_type: str | None = Query(None, pattern="^(live|historical_reconstruction|data_correction|manual_test)$"),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    response.headers["Cache-Control"] = "no-store"
+    return list_outcome_snapshots(
+        db,
+        page=page,
+        limit=limit,
+        ticker=ticker,
+        methodology=methodology,
+        calculation_type=calculation_type,
+        start_date=_parse_outcome_date(start_date),
+        end_date=_parse_outcome_date(end_date),
+        include_internal=True,
+    )
+
+
+@app.get("/api/admin/outcomes/snapshots/{snapshot_id}")
+def admin_outcome_snapshot_detail(snapshot_id: int, request: Request, response: Response, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    response.headers["Cache-Control"] = "no-store"
+    detail = get_outcome_snapshot_detail(db, snapshot_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return detail
 
 
 _TICKER_CONTEXT_BUNDLE_VERSION = 2
@@ -8340,6 +8445,7 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             )
         except Exception:
             logger.info("ticker_confirmation_fresh_context_merge_failed symbol=%s", normalized_symbol, exc_info=True)
+        capture_live_confirmation_score_snapshot(db, normalized_symbol, bundle)
         bundle = with_confirmation_score_history(
             db,
             bundle,
