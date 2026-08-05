@@ -216,9 +216,10 @@ def _resolve_security(db: Session, symbol: str) -> Security | None:
 
 
 def _latest_reference_price(db: Session, symbol: str) -> tuple[float | None, datetime | None, str | None, date]:
+    normalized_symbol = symbol.strip().upper()
     row = db.execute(
         select(PriceCache)
-        .where(func.upper(PriceCache.symbol) == symbol)
+        .where(PriceCache.symbol == normalized_symbol)
         .order_by(PriceCache.date.desc())
         .limit(1)
     ).scalar_one_or_none()
@@ -349,10 +350,11 @@ def capture_live_confirmation_score_snapshot(
 
 
 def _price_on_or_after(db: Session, symbol: str, target_date: date) -> PriceCache | None:
+    normalized_symbol = symbol.strip().upper()
     return db.execute(
         select(PriceCache)
         .where(
-            func.upper(PriceCache.symbol) == symbol.strip().upper(),
+            PriceCache.symbol == normalized_symbol,
             PriceCache.date >= target_date.isoformat(),
         )
         .order_by(PriceCache.date.asc())
@@ -407,7 +409,7 @@ def _prefetch_outcome_price_rows(db: Session, snapshots: list[ConfirmationScoreS
     rows = db.execute(
         select(PriceCache)
         .where(
-            func.upper(PriceCache.symbol).in_(symbols),
+            PriceCache.symbol.in_(symbols),
             PriceCache.date >= min_needed_date.isoformat(),
             PriceCache.date <= max_lookup_date.isoformat(),
         )
