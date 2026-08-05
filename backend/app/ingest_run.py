@@ -1089,6 +1089,13 @@ def _outcome_ledger_hydrator_symbols(db, *, limit: int, lookback_days: int) -> l
     symbols: list[str] = []
     seen: set[str] = set()
 
+    featured_symbols = os.getenv(
+        "OUTCOME_LEDGER_HYDRATOR_FEATURED_SYMBOLS",
+        "NVDA,BMNR,AAPL,PLTR,AMZN,META,GOOGL,MSFT",
+    )
+    for symbol in featured_symbols.split(","):
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
     event_since = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
     event_rows = db.execute(
         select(func.upper(Event.symbol), func.max(func.coalesce(Event.event_date, Event.ts)).label("latest_ts"))
