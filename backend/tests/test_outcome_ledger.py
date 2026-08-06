@@ -235,10 +235,13 @@ def test_backfill_history_creates_matured_rows_from_monitoring_events():
             min_source_count=1,
             hydrate_prices=False,
         )
-        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
+        response = list_outcome_snapshots(db, limit=10, calculation_type="historical_reconstruction")
         crm = next(item for item in response["items"] if item["ticker"] == "CRM" and item["score"] == 70)
+        live_response = list_outcome_snapshots(db, limit=10, calculation_type="live")
 
         assert report["created"] == 2
+        assert live_response["total"] == 0
         assert crm["outcomes"]["30D"]["status"] == "matured"
         assert crm["outcomes"]["30D"]["return_pct"] == 12.0
         assert crm["outcomes"]["30D"]["spy_return_pct"] == 2.0
+        assert crm["calculation_type"] == "historical_reconstruction"

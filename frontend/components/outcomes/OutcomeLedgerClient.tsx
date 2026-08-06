@@ -20,7 +20,9 @@ const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
 const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
 const outcomeTablePageSizes = [10, 25, 50] as const;
 const cohortFilterOptions = [
+  { value: "all", label: "All Cohorts" },
   { value: "live", label: "Live Tracked" },
+  { value: "historical", label: "Historical Reconstruction" },
   { value: "matured", label: "Matured Only" },
   { value: "tracking", label: "Tracking Only" },
 ] as const;
@@ -236,7 +238,7 @@ function FilterSelect({
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-md bg-transparent text-transparent outline-none"
+        className="absolute inset-0 z-10 h-full w-full cursor-pointer rounded-md opacity-0 outline-none"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value} className="bg-slate-950 text-slate-100">
@@ -615,6 +617,8 @@ function matchesOutcomeFilters(
   },
 ) {
   const outcome = outcomeFor(snapshot, horizon);
+  if (cohort === "live" && snapshot.calculation_type !== "live") return false;
+  if (cohort === "historical" && snapshot.calculation_type !== "historical_reconstruction") return false;
   if (cohort === "matured" && !(outcome?.status === "matured" && typeof outcome.return_pct === "number")) return false;
   if (cohort === "tracking" && outcome?.status === "matured" && typeof outcome.return_pct === "number") return false;
   if (direction !== "All" && formatDirection(snapshot.direction) !== direction) return false;
@@ -1050,7 +1054,7 @@ export function OutcomeLedgerClient({
   const [loading, setLoading] = useState(!initialStatus || !initialSnapshots);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
-  const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("live");
+  const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
   const [horizonFilter, setHorizonFilter] = useState("30D");
   const [directionFilter, setDirectionFilter] = useState("All");
   const [scoreBandFilter, setScoreBandFilter] = useState("All Scores");
@@ -1078,7 +1082,7 @@ export function OutcomeLedgerClient({
     if (initialStatus && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 500, calculation_type: "live" })])
+    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 5000 })])
       .then(([nextStatus, nextSnapshots]) => {
         if (!alive) return;
         setStatus(nextStatus);
@@ -1101,7 +1105,7 @@ export function OutcomeLedgerClient({
     const seen = new Set<string>();
     const deduped: OutcomeSnapshot[] = [];
     snapshotItems.forEach((snapshot) => {
-      const key = snapshot.ticker.toUpperCase();
+      const key = String(snapshot.id);
       if (seen.has(key)) return;
       seen.add(key);
       deduped.push(snapshot);

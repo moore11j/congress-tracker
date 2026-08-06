@@ -21,5 +21,8 @@ def test_outcome_ledger_hydrator_runs_during_market_window_and_after_close():
 
     assert "10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator" in crontab
     assert "35 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator" in crontab
+    assert "20 17 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-history-backfill" in crontab
     assert '"outcome-ledger-hydrator"' in ingest_run
+    assert '"outcome-ledger-history-backfill"' in ingest_run
     assert 'OUTCOME_LEDGER_HYDRATOR_ENABLED = "true"' in fly_config
+    assert 'OUTCOME_LEDGER_HISTORY_BACKFILL_ENABLED = "true"' in fly_config

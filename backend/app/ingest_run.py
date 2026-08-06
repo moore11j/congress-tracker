@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal, engine, ensure_outcome_ledger_schema, ensure_price_cache_volume_columns, ensure_ticker_financials_cache_schema
@@ -48,6 +48,7 @@ from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmat
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
+from app.backfill_outcome_ledger_history import backfill_outcome_ledger_history
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "priority-ticker-prewarm",
             "outcome-ledger-hydrator",
             "outcome-ledger-price-hydrator",
+            "outcome-ledger-history-backfill",
             "portfolio-simulation-refresh",
             "portfolio-methodology-guard",
             "all",
@@ -1335,6 +1337,51 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
     return result
 
 
+def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
+    if os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        logger.info("outcome_ledger_history_backfill_skipped reason=history_backfill_disabled")
+        return {"job": "outcome-ledger-history-backfill", "status": "skipped", "reason": "history_backfill_disabled"}
+    guard = check_background_job_guard("outcome-ledger-history-backfill")
+    if not guard.proceed:
+        logger.info("outcome_ledger_history_backfill_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {**background_job_skip_payload("outcome-ledger-history-backfill", guard), "created": 0, "candidate_points": 0}
+
+    ensure_price_cache_volume_columns(engine)
+    ensure_outcome_ledger_schema(engine)
+    since_days = int(os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_SINCE_DAYS", "1095") or 1095)
+    limit = int(os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_LIMIT", "5000") or 5000)
+    min_score = int(os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_MIN_SCORE", "40") or 40)
+    min_source_count = int(os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_MIN_SOURCE_COUNT", "1") or 1)
+    hydrate_prices = os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_HYDRATE_PRICES", "true").strip().lower() in {"1", "true", "yes", "on"}
+    include_before = os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_INCLUDE_BEFORE", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+    with SessionLocal() as db:
+        if not outcome_ledger_enabled(db):
+            return {"job": "outcome-ledger-history-backfill", "status": "skipped", "reason": "outcome_ledger_disabled"}
+        corrected_existing = db.execute(
+            update(ConfirmationScoreSnapshot)
+            .where(ConfirmationScoreSnapshot.calculation_type == "live")
+            .where(ConfirmationScoreSnapshot.correction_reason.like("backfilled:%"))
+            .values(calculation_type="historical_reconstruction")
+        ).rowcount or 0
+        if corrected_existing:
+            db.commit()
+        report = backfill_outcome_ledger_history(
+            db,
+            since_days=max(1, since_days),
+            limit=max(1, limit),
+            min_score=max(0, min_score),
+            min_source_count=max(0, min_source_count),
+            include_before=include_before,
+            hydrate_prices=hydrate_prices,
+            dry_run=False,
+            calculation_type="historical_reconstruction",
+        )
+    payload = {"job": "outcome-ledger-history-backfill", "status": "ok", "reclassified_backfilled_live_rows": int(corrected_existing), **report}
+    logger.info("outcome_ledger_history_backfill_finished result=%s", payload)
+    return payload
+
+
 def _run_job_payload(job: str) -> dict[str, object]:
     if job == "core":
         return _run_core_job()
@@ -1372,6 +1419,8 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return _run_outcome_ledger_hydrator_job()
     if job == "outcome-ledger-price-hydrator":
         return _run_outcome_ledger_price_hydrator_job()
+    if job == "outcome-ledger-history-backfill":
+        return _run_outcome_ledger_history_backfill_job()
     if job == "portfolio-simulation-refresh":
         return _run_portfolio_simulation_refresh_job()
     if job == "portfolio-methodology-guard":

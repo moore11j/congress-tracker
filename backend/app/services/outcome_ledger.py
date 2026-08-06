@@ -604,7 +604,7 @@ def list_outcome_snapshots(
     include_internal: bool = False,
 ) -> dict[str, Any]:
     bounded_page = max(0, int(page or 0))
-    bounded_limit = max(1, min(int(limit or 25), 500))
+    bounded_limit = max(1, min(int(limit or 25), 5000))
     base = _apply_snapshot_filters(
         select(ConfirmationScoreSnapshot),
         ticker=ticker,

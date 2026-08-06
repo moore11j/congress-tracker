@@ -297,7 +297,7 @@ def backfill_outcome_ledger_history(
     include_before: bool = True,
     hydrate_prices: bool = True,
     dry_run: bool = False,
-    calculation_type: str = "live",
+    calculation_type: str = "historical_reconstruction",
 ) -> dict[str, Any]:
     methodology = current_confirmation_methodology(db)
     since = datetime.now(timezone.utc) - timedelta(days=max(1, int(since_days or 365)))
@@ -407,6 +407,12 @@ def main() -> None:
     parser.add_argument("--skip-before", action="store_true", help="Only write the post-change score from each monitoring event.")
     parser.add_argument("--skip-price-hydration", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--calculation-type",
+        choices=("historical_reconstruction", "data_correction", "manual_test"),
+        default="historical_reconstruction",
+        help="Ledger calculation type to use for reconstructed historical rows.",
+    )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
@@ -423,6 +429,7 @@ def main() -> None:
             include_before=not args.skip_before,
             hydrate_prices=not args.skip_price_hydration,
             dry_run=args.dry_run,
+            calculation_type=args.calculation_type,
         )
     print(json.dumps(report, indent=2, sort_keys=True))
 
