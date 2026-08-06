@@ -554,7 +554,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
             <p className={pctClassName(hoverPoint.returnValue)}>Return {formatPercent(hoverPoint.returnValue)}</p>
             <p>SPY {formatPercent(hoverPoint.outcome.spy_return_pct)}</p>
             <p className={pctClassName(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}>
-              Excess {formatPercent(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}
+              +/- {formatPercent(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}
             </p>
           </div>
         ) : null}
@@ -716,17 +716,20 @@ function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | 
             </>
           ) : null}
         </svg>
-        {hover && hoverX !== null ? (
-          <div
-            className="pointer-events-none absolute z-10 w-48 rounded-md border border-white/10 bg-slate-950/95 p-3 text-xs leading-5 text-slate-300 shadow-2xl shadow-black/30"
-            style={{ left: `min(calc(100% - 12rem), max(0.25rem, ${(hoverX / 320) * 100}%))`, top: "0.5rem" }}
-          >
+      </div>
+      <div className="mt-2 min-h-[4.75rem] rounded-md border border-white/10 bg-slate-950/55 p-3 text-xs leading-5 text-slate-300">
+        {hover ? (
+          <>
             <p className="font-semibold text-white">{hover.label}</p>
-            <p className={pctClassName(hover.stockReturn)}>Ticker {formatPercent(hover.stockReturn)}</p>
-            <p className={pctClassName(hover.spyReturn)}>SPY {formatPercent(hover.spyReturn)}</p>
-            <p className={pctClassName(hover.excessReturn)}>Excess {formatPercent(hover.excessReturn)}</p>
-          </div>
-        ) : null}
+            <div className="mt-1 grid grid-cols-3 gap-2">
+              <p className={pctClassName(hover.stockReturn)}>Ticker {formatPercent(hover.stockReturn)}</p>
+              <p className={pctClassName(hover.spyReturn)}>SPY {formatPercent(hover.spyReturn)}</p>
+              <p className={pctClassName(hover.excessReturn)}>+/- {formatPercent(hover.excessReturn)}</p>
+            </div>
+          </>
+        ) : (
+          <p className="text-slate-400">Hover the chart to inspect ticker, SPY, and +/- returns.</p>
+        )}
       </div>
     </div>
   );
