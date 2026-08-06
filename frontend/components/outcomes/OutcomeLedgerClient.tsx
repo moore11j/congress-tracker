@@ -595,16 +595,16 @@ function linePath(points: PricePathPoint[], valueKey: "stockReturn" | "spyReturn
 function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | null; loading: boolean }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const points = useMemo(() => pricePathPointsFromBundle(bundle), [bundle]);
-  if (loading) return <p className="text-sm leading-6 text-slate-300">Loading 1-minute price path...</p>;
+  if (loading) return <p className="text-sm leading-6 text-slate-300">Loading historical 1D price path...</p>;
   if (points.length < 2) return <p className="text-sm leading-6 text-slate-300">No SPY benchmark chart is available yet for this event window.</p>;
 
   const values = points.flatMap((point) => [point.stockReturn, point.spyReturn]);
   const minValue = Math.min(...values, 0);
   const maxValue = Math.max(...values, 0);
   const valueRange = Math.max(1, maxValue - minValue);
-  const hover = hoverIndex === null ? points[points.length - 1] : points[hoverIndex];
-  const hoverX = hoverIndex === null ? 300 : 34 + (hoverIndex / Math.max(1, points.length - 1)) * 266;
-  const hoverY = 122 - ((hover.stockReturn - minValue) / valueRange) * 92;
+  const hover = hoverIndex === null ? null : points[hoverIndex];
+  const hoverX = hoverIndex === null ? null : 34 + (hoverIndex / Math.max(1, points.length - 1)) * 266;
+  const hoverY = hover && hoverX !== null ? 122 - ((hover.stockReturn - minValue) / valueRange) * 92 : null;
   const ticks = [0, Math.floor((points.length - 1) / 2), points.length - 1].map((index) => ({ index, point: points[index] }));
 
   return (
@@ -618,7 +618,7 @@ function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | 
           <span className="h-2 w-5 rounded-full bg-slate-300" />
           SPY
         </span>
-        <span className="ml-auto text-slate-400">{bundle?.resolution === "1min" ? "Historical 1-min" : "Daily close"}</span>
+        <span className="ml-auto text-slate-400">Historical 1D</span>
       </div>
       <div className="relative h-44">
         <svg viewBox="0 0 320 160" className="h-full w-full overflow-visible" onMouseLeave={() => setHoverIndex(null)}>
@@ -637,18 +637,24 @@ function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | 
             const x = 34 + (index / Math.max(1, points.length - 1)) * 266;
             return <rect key={point.date} x={x - 4} y="20" width="8" height="112" fill="transparent" onMouseEnter={() => setHoverIndex(index)} />;
           })}
-          <line x1={hoverX} x2={hoverX} y1="22" y2="126" stroke="rgba(226,232,240,0.38)" />
-          <circle cx={hoverX} cy={hoverY} r="4" fill="#84cc16" />
+          {hover && hoverX !== null && hoverY !== null ? (
+            <>
+              <line x1={hoverX} x2={hoverX} y1="22" y2="126" stroke="rgba(226,232,240,0.38)" />
+              <circle cx={hoverX} cy={hoverY} r="4" fill="#84cc16" />
+            </>
+          ) : null}
         </svg>
-        <div
-          className="pointer-events-none absolute z-10 w-48 rounded-md border border-white/10 bg-slate-950/95 p-3 text-xs leading-5 text-slate-300 shadow-2xl shadow-black/30"
-          style={{ left: `min(calc(100% - 12rem), max(0.25rem, ${(hoverX / 320) * 100}%))`, top: "0.5rem" }}
-        >
-          <p className="font-semibold text-white">{hover.label}</p>
-          <p className={pctClassName(hover.stockReturn)}>Ticker {formatPercent(hover.stockReturn)}</p>
-          <p className={pctClassName(hover.spyReturn)}>SPY {formatPercent(hover.spyReturn)}</p>
-          <p className={pctClassName(hover.excessReturn)}>Excess {formatPercent(hover.excessReturn)}</p>
-        </div>
+        {hover && hoverX !== null ? (
+          <div
+            className="pointer-events-none absolute z-10 w-48 rounded-md border border-white/10 bg-slate-950/95 p-3 text-xs leading-5 text-slate-300 shadow-2xl shadow-black/30"
+            style={{ left: `min(calc(100% - 12rem), max(0.25rem, ${(hoverX / 320) * 100}%))`, top: "0.5rem" }}
+          >
+            <p className="font-semibold text-white">{hover.label}</p>
+            <p className={pctClassName(hover.stockReturn)}>Ticker {formatPercent(hover.stockReturn)}</p>
+            <p className={pctClassName(hover.spyReturn)}>SPY {formatPercent(hover.spyReturn)}</p>
+            <p className={pctClassName(hover.excessReturn)}>Excess {formatPercent(hover.excessReturn)}</p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -838,7 +844,7 @@ function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot
     }
     const controller = new AbortController();
     setChartLoading(true);
-    getTickerChartBundle(selected.ticker, 5, { signal: controller.signal, source: "OutcomeLedgerPricePath" })
+    getTickerChartBundle(selected.ticker, 30, { signal: controller.signal, source: "OutcomeLedgerPricePath" })
       .then((bundle) => setChartBundle(bundle))
       .catch((error) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -1043,9 +1049,6 @@ export function OutcomeLedgerClient({
     const directionalExcessReturns = matured30
       .map((outcome) => outcome.directional_excess_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const spyReturns = matured30
-      .map((outcome) => outcome.spy_return_pct)
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
     const maturedHorizonCount = uniqueSnapshotItems.reduce(
       (total, snapshot) =>
         total +
@@ -1060,7 +1063,6 @@ export function OutcomeLedgerClient({
       accuracy,
       medianDirectionalReturn: median(directionalReturns),
       medianDirectionalExcessReturn: median(directionalExcessReturns),
-      medianSpyReturn: median(spyReturns),
       benchmarkedEvents: directionalExcessReturns.length,
       maturedHorizonCount,
     };
@@ -1150,7 +1152,7 @@ export function OutcomeLedgerClient({
               value={formatPercent(outcomeMetrics.medianDirectionalExcessReturn)}
               detail={
                 outcomeMetrics.benchmarkedEvents
-                  ? `Median 30D excess vs SPY across ${outcomeMetrics.benchmarkedEvents} benchmarked events; median SPY ${formatPercent(outcomeMetrics.medianSpyReturn)}`
+                  ? `Median event excess: 30D scored return minus SPY (${outcomeMetrics.benchmarkedEvents} events)`
                   : "Pending SPY benchmark samples at 30D"
               }
             />
