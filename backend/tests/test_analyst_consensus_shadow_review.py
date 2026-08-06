@@ -210,6 +210,74 @@ def test_shadow_review_uses_historical_grade_events_as_true_historical_source():
     assert payload["activationReview"]["canActivateLiveWeight"] is False
 
 
+def test_shadow_review_scores_historical_rating_count_events():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    start = date(2026, 1, 1)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                AnalystGradeEvent(
+                    symbol="AAA",
+                    provider_symbol="AAA",
+                    published_date=start,
+                    event_fingerprint="aaa-rating-counts",
+                    source="fmp",
+                    raw_payload_json=(
+                        '{"analystRatingsStrongBuy":6,"analystRatingsBuy":12,'
+                        '"analystRatingsHold":2,"analystRatingsSell":0,"analystRatingsStrongSell":0}'
+                    ),
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                AnalystGradeEvent(
+                    symbol="BBB",
+                    provider_symbol="BBB",
+                    published_date=start,
+                    event_fingerprint="bbb-rating-counts",
+                    source="fmp",
+                    raw_payload_json=(
+                        '{"analystRatingsStrongBuy":0,"analystRatingsBuy":1,'
+                        '"analystRatingsHold":2,"analystRatingsSell":8,"analystRatingsStrongSell":4}'
+                    ),
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                AnalystGradeEvent(
+                    symbol="CCC",
+                    provider_symbol="CCC",
+                    published_date=start,
+                    event_fingerprint="ccc-rating-counts",
+                    source="fmp",
+                    raw_payload_json=(
+                        '{"analystRatingsStrongBuy":0,"analystRatingsBuy":2,'
+                        '"analystRatingsHold":9,"analystRatingsSell":2,"analystRatingsStrongSell":0}'
+                    ),
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                _price("AAA", start, 100),
+                _price("AAA", start + timedelta(days=30), 113),
+                _price("BBB", start, 100),
+                _price("BBB", start + timedelta(days=30), 88),
+                _price("CCC", start, 100),
+                _price("CCC", start + timedelta(days=30), 100.5),
+            ]
+        )
+        db.commit()
+
+        payload = shadow_review_payload(
+            db,
+            days=60,
+            horizon_days=30,
+            min_backtest_samples=3,
+            min_backtest_symbols=3,
+            as_of=date(2026, 2, 15),
+        )
+
+    assert payload["coverage"]["historicalGradeEventSampleCount"] == 3
+    assert payload["coverage"]["symbolCount"] == 3
+    assert payload["backtest"]["status"] == "passed"
+
+
 def test_shadow_review_samples_historical_grade_events_across_symbols():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)

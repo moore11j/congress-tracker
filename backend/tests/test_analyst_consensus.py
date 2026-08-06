@@ -242,6 +242,27 @@ def test_historical_grade_ingestion_uses_true_historical_provider(monkeypatch):
         db.close()
 
 
+def test_event_values_labels_historical_rating_count_rows():
+    values = event_values(
+        "AAPL",
+        {
+            "symbol": "AAPL",
+            "date": "2026-07-01",
+            "analystRatingsStrongBuy": 8,
+            "analystRatingsBuy": 16,
+            "analystRatingsHold": 4,
+            "analystRatingsSell": 0,
+            "analystRatingsStrongSell": 0,
+        },
+        ingested_at=datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert values["new_grade"] == "Bullish"
+    assert values["action"] is None
+    assert values["provider_action"] is None
+    assert values["published_date"] == date(2026, 7, 1)
+
+
 def test_current_payload_reports_unavailable_without_zero_counts():
     SessionLocal, _ = _session()
     db = SessionLocal()

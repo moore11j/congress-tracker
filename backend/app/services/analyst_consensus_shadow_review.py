@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from bisect import bisect_left
@@ -17,6 +18,7 @@ from app.models import (
     ConfirmationMonitoringSnapshot,
     PriceCache,
 )
+from app.services.analyst_consensus import rating_counts_from_row, total_rating_count, weighted_sentiment
 from app.utils.symbols import normalize_symbol
 
 METHODOLOGY_VERSION = "analyst_consensus_shadow_review_v1"
@@ -580,7 +582,11 @@ def _activation_review(
 
 
 def _grade_event_component_score(event: AnalystGradeEvent) -> int | None:
-    base = _grade_text_component_score(event.new_grade) or _grade_text_component_score(event.previous_grade)
+    base = (
+        _grade_text_component_score(event.new_grade)
+        or _grade_text_component_score(event.previous_grade)
+        or _grade_event_rating_counts_component_score(event)
+    )
     action = str(event.action or event.provider_action or "").strip().lower()
     if base is None:
         if "upgrade" in action:
@@ -600,6 +606,23 @@ def _grade_event_component_score(event: AnalystGradeEvent) -> int | None:
     elif "suspend" in action:
         base = min(base, 45)
     return int(max(0, min(100, round(base))))
+
+
+def _grade_event_rating_counts_component_score(event: AnalystGradeEvent) -> int | None:
+    try:
+        raw = json.loads(event.raw_payload_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    counts = rating_counts_from_row(raw)
+    total = total_rating_count(counts)
+    if total is None or total <= 0:
+        return None
+    weighted = weighted_sentiment(counts)
+    if weighted is None:
+        return None
+    return int(max(0, min(100, round(((weighted + 2) / 4) * 100))))
 
 
 def _grade_text_component_score(value: Any) -> int | None:

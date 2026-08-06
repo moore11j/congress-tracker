@@ -486,11 +486,11 @@ def event_fingerprint(symbol: str, row: dict[str, Any]) -> str:
         basis = {
             "symbol": normalize_symbol(symbol),
             "date": _iso_date(_date(row.get("date") or row.get("publishedDate") or row.get("published_date"))),
-            "grading_company": _text(row.get("gradingCompany") or row.get("firm") or row.get("company")),
-            "analyst_name": _text(row.get("analystName") or row.get("analyst")),
-            "previous_grade": _text(row.get("previousGrade")),
-            "new_grade": _text(row.get("newGrade") or row.get("grade")),
-            "action": _text(row.get("action")),
+            "grading_company": _text(_first_present(row, "gradingCompany", "grading_company", "firm", "company", "analystRatingsCompany")),
+            "analyst_name": _text(_first_present(row, "analystName", "analyst_name", "analyst")),
+            "previous_grade": _text(_first_present(row, "previousGrade", "previous_grade", "previousRating", "fromGrade", "oldGrade")),
+            "new_grade": _text(_first_present(row, "newGrade", "new_grade", "newRating", "toGrade", "grade", "rating")),
+            "action": _text(_first_present(row, "action", "ratingAction", "gradeAction")),
         }
     return hashlib.sha256(_json(basis).encode("utf-8")).hexdigest()
 
@@ -499,14 +499,17 @@ def event_values(symbol: str, row: dict[str, Any], *, ingested_at: datetime | No
     normalized = normalize_symbol(symbol)
     if not normalized:
         raise ValueError("invalid symbol")
-    provider_action = _text(row.get("action"))
+    provider_action = _text(_first_present(row, "action", "ratingAction", "gradeAction"))
+    counts = rating_counts_from_row(row)
+    rating_count = total_rating_count(counts)
+    derived_grade = recommendation_label(weighted_sentiment(counts), rating_count) if rating_count else None
     return {
         "symbol": normalized,
         "provider_symbol": _text(row.get("symbol")) or normalized,
-        "grading_company": _text(row.get("gradingCompany") or row.get("firm") or row.get("company")),
-        "analyst_name": _text(row.get("analystName") or row.get("analyst")),
-        "previous_grade": _text(row.get("previousGrade") or row.get("previous_grade")),
-        "new_grade": _text(row.get("newGrade") or row.get("new_grade") or row.get("grade")),
+        "grading_company": _text(_first_present(row, "gradingCompany", "grading_company", "firm", "company", "analystRatingsCompany")),
+        "analyst_name": _text(_first_present(row, "analystName", "analyst_name", "analyst")),
+        "previous_grade": _text(_first_present(row, "previousGrade", "previous_grade", "previousRating", "fromGrade", "oldGrade")),
+        "new_grade": _text(_first_present(row, "newGrade", "new_grade", "newRating", "toGrade", "grade", "rating")) or derived_grade,
         "action": normalize_action(provider_action),
         "provider_action": provider_action,
         "published_date": _date(row.get("date") or row.get("publishedDate") or row.get("published_date")),
