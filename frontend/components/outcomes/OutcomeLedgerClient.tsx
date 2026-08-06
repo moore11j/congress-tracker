@@ -752,7 +752,19 @@ function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | 
   );
 }
 
-function EventsTable({ snapshots, entitlementTier, horizon }: { snapshots: OutcomeSnapshot[]; entitlementTier: EntitlementTier; horizon: string }) {
+function EventsTable({
+  snapshots,
+  entitlementTier,
+  horizon,
+  selectedSnapshotId,
+  onSelectSnapshot,
+}: {
+  snapshots: OutcomeSnapshot[];
+  entitlementTier: EntitlementTier;
+  horizon: string;
+  selectedSnapshotId: number | null;
+  onSelectSnapshot: (snapshot: OutcomeSnapshot) => void;
+}) {
   const hasPremiumTable = canUsePremiumOutcomeTable(entitlementTier);
   const [sort, setSort] = useState<OutcomeSort>(null);
   const [pageSize, setPageSize] = useState<(typeof outcomeTablePageSizes)[number]>(10);
@@ -852,8 +864,23 @@ function EventsTable({ snapshots, entitlementTier, horizon }: { snapshots: Outco
             {visibleSnapshots.length ? (
               visibleSnapshots.map((snapshot) => {
                 const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
+                const isSelected = selectedSnapshotId === snapshot.id;
                 return (
-                  <tr key={snapshot.id} className="hover:bg-white/[0.03]">
+                  <tr
+                    key={snapshot.id}
+                    tabIndex={0}
+                    aria-selected={isSelected}
+                    onClick={() => onSelectSnapshot(snapshot)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelectSnapshot(snapshot);
+                      }
+                    }}
+                    className={`cursor-pointer outline-none hover:bg-white/[0.04] focus-visible:bg-white/[0.05] ${
+                      isSelected ? "bg-emerald-400/[0.08] ring-1 ring-inset ring-emerald-400/30" : ""
+                    }`}
+                  >
                     <td className="px-4 py-2.5 font-semibold text-white">{snapshot.ticker}</td>
                     <td className="px-4 py-2.5 text-slate-300">{openedDate(snapshot)}</td>
                     <td className="px-4 py-2.5 text-slate-200">{snapshot.score}</td>
@@ -1074,6 +1101,7 @@ export function OutcomeLedgerClient({
   const [methodologyFilter, setMethodologyFilter] = useState("All Methodologies");
   const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilterValue>("phase1");
   const [eventDetailOpen, setEventDetailOpen] = useState(true);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(null);
 
   useEffect(() => {
     setEntitlementTier(clientEntitlementTier());
@@ -1153,6 +1181,19 @@ export function OutcomeLedgerClient({
     const recentFill = filteredSnapshotItems.filter((snapshot) => !featuredIds.has(snapshot.id));
     return [...featured, ...recentFill];
   }, [filteredSnapshotItems]);
+  const selectedSnapshot = useMemo(
+    () => publicPreviewSnapshots.find((snapshot) => snapshot.id === selectedSnapshotId) ?? publicPreviewSnapshots[0],
+    [publicPreviewSnapshots, selectedSnapshotId],
+  );
+  useEffect(() => {
+    if (!publicPreviewSnapshots.length) {
+      if (selectedSnapshotId !== null) setSelectedSnapshotId(null);
+      return;
+    }
+    if (selectedSnapshotId === null || !publicPreviewSnapshots.some((snapshot) => snapshot.id === selectedSnapshotId)) {
+      setSelectedSnapshotId(publicPreviewSnapshots[0].id);
+    }
+  }, [publicPreviewSnapshots, selectedSnapshotId]);
   const outcomeMetrics = useMemo(() => {
     const maturedForHorizon = filteredSnapshotItems
       .map((snapshot) => maturedOutcome(snapshot, horizonFilter))
@@ -1196,8 +1237,12 @@ export function OutcomeLedgerClient({
       maturedHorizonCount,
     };
   }, [filteredSnapshotItems, horizonFilter]);
-  const selectedSnapshot = publicPreviewSnapshots[0];
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
+
+  function handleSelectSnapshot(snapshot: OutcomeSnapshot) {
+    setSelectedSnapshotId(snapshot.id);
+    setEventDetailOpen(true);
+  }
 
   function handleExportCsv() {
     if (!canExportCsv) {
@@ -1259,7 +1304,10 @@ export function OutcomeLedgerClient({
             {!eventDetailOpen ? (
               <button
                 type="button"
-                onClick={() => setEventDetailOpen(true)}
+                onClick={() => {
+                  if (!selectedSnapshot && publicPreviewSnapshots[0]) setSelectedSnapshotId(publicPreviewSnapshots[0].id);
+                  setEventDetailOpen(true);
+                }}
                 className="h-12 shrink-0 whitespace-nowrap rounded-md border border-white/10 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 hover:border-emerald-300/30 hover:bg-emerald-400/10"
               >
                 Event Detail
@@ -1299,7 +1347,13 @@ export function OutcomeLedgerClient({
             <ScatterPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
           </div>
 
-          <EventsTable snapshots={publicPreviewSnapshots} entitlementTier={entitlementTier} horizon={horizonFilter} />
+          <EventsTable
+            snapshots={publicPreviewSnapshots}
+            entitlementTier={entitlementTier}
+            horizon={horizonFilter}
+            selectedSnapshotId={selectedSnapshot?.id ?? null}
+            onSelectSnapshot={handleSelectSnapshot}
+          />
         </main>
 
         {eventDetailOpen ? <DetailPanel selected={selectedSnapshot} entitlementTier={entitlementTier} horizon={horizonFilter} onClose={() => setEventDetailOpen(false)} /> : null}
