@@ -1366,6 +1366,26 @@ def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
         ).rowcount or 0
         if corrected_existing:
             db.commit()
+        max_stale_days = int(os.getenv("OUTCOME_LEDGER_LIVE_REFERENCE_MAX_STALE_DAYS", "5") or 5)
+        stale_live_rows = db.execute(
+            select(ConfirmationScoreSnapshot)
+            .where(ConfirmationScoreSnapshot.calculation_type == "live")
+            .where(ConfirmationScoreSnapshot.market_date < datetime.now(timezone.utc).date() - timedelta(days=max(1, max_stale_days)))
+        ).scalars().all()
+        reclassified_stale_live_rows = 0
+        for snapshot in stale_live_rows:
+            if snapshot.calculated_at is None or snapshot.market_date is None:
+                continue
+            calculated = snapshot.calculated_at
+            if calculated.tzinfo is None:
+                calculated = calculated.replace(tzinfo=timezone.utc)
+            if snapshot.market_date >= calculated.date() - timedelta(days=max(1, max_stale_days)):
+                continue
+            snapshot.calculation_type = "data_correction"
+            snapshot.correction_reason = snapshot.correction_reason or "stale_live_reference_price"
+            reclassified_stale_live_rows += 1
+        if reclassified_stale_live_rows:
+            db.commit()
         report = backfill_outcome_ledger_history(
             db,
             since_days=max(1, since_days),
@@ -1377,7 +1397,13 @@ def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
             dry_run=False,
             calculation_type="historical_reconstruction",
         )
-    payload = {"job": "outcome-ledger-history-backfill", "status": "ok", "reclassified_backfilled_live_rows": int(corrected_existing), **report}
+    payload = {
+        "job": "outcome-ledger-history-backfill",
+        "status": "ok",
+        "reclassified_backfilled_live_rows": int(corrected_existing),
+        "reclassified_stale_live_rows": int(reclassified_stale_live_rows),
+        **report,
+    }
     logger.info("outcome_ledger_history_backfill_finished result=%s", payload)
     return payload
 

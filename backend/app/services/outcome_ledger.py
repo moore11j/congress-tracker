@@ -20,6 +20,7 @@ OUTCOMES_LEDGER_SETTING_KEY = "outcomes_ledger_enabled"
 OUTCOMES_LEDGER_DUPLICATES_KEY = "outcome_ledger_duplicate_attempts_ignored"
 OUTCOMES_LEDGER_ERRORS_KEY = "outcome_ledger_persistence_errors"
 OUTCOMES_LEDGER_MISSING_PRICE_KEY = "outcome_ledger_missing_reference_prices"
+OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_prices"
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
 CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v1"
@@ -279,18 +280,23 @@ def capture_live_confirmation_score_snapshot(
             _increment_counter(db, OUTCOMES_LEDGER_MISSING_SECURITY_KEY)
             db.commit()
             return None
+        calculated = calculated_at or datetime.now(timezone.utc)
+        if calculated.tzinfo is None:
+            calculated = calculated.replace(tzinfo=timezone.utc)
         reference_price, reference_price_at, reference_price_source, market_date = _latest_reference_price(db, normalized_symbol)
         if reference_price is None:
             _increment_counter(db, OUTCOMES_LEDGER_MISSING_PRICE_KEY)
+        max_stale_days = int(os.getenv("OUTCOME_LEDGER_LIVE_REFERENCE_MAX_STALE_DAYS", "5") or 5)
+        if reference_price is None or market_date < calculated.date() - timedelta(days=max(1, max_stale_days)):
+            _increment_counter(db, OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY)
+            db.commit()
+            return None
         active_sources = bundle.get("active_sources") if isinstance(bundle.get("active_sources"), list) else []
         source_contributions = source_contributions_from_bundle(bundle)
         source_freshness = source_freshness_from_bundle(bundle)
         if not source_contributions:
             _increment_counter(db, OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY)
         input_hash = input_hash_for_confirmation_bundle(bundle, methodology)
-        calculated = calculated_at or datetime.now(timezone.utc)
-        if calculated.tzinfo is None:
-            calculated = calculated.replace(tzinfo=timezone.utc)
 
         existing = db.execute(
             select(ConfirmationScoreSnapshot).where(
@@ -690,6 +696,7 @@ def outcome_ledger_status(db: Session, *, include_admin: bool = False) -> dict[s
                 "duplicate_attempts_ignored": _counter_value(db, OUTCOMES_LEDGER_DUPLICATES_KEY),
                 "persistence_errors": _counter_value(db, OUTCOMES_LEDGER_ERRORS_KEY),
                 "missing_reference_prices": missing_prices + _counter_value(db, OUTCOMES_LEDGER_MISSING_PRICE_KEY),
+                "stale_reference_prices": _counter_value(db, OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY),
                 "missing_security_ids": _counter_value(db, OUTCOMES_LEDGER_MISSING_SECURITY_KEY),
                 "missing_source_contribution_payloads": missing_source_payloads + _counter_value(db, OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY),
                 "methodology": {

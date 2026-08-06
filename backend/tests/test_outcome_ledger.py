@@ -193,6 +193,23 @@ def test_pending_snapshot_listing_skips_price_outcome_lookups(monkeypatch):
         assert crm["outcomes"]["30D"]["status"] == "pending"
 
 
+def test_live_capture_skips_stale_reference_price():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add(PriceCache(symbol="CRM", date="2026-01-15", close=101.25, price_source="test"))
+        db.commit()
+
+        snapshot = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(),
+            calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc),
+        )
+
+        assert snapshot is None
+        assert db.execute(select(ConfirmationScoreSnapshot)).scalars().all() == []
+
+
 def test_backfill_history_creates_matured_rows_from_monitoring_events():
     engine = _engine()
     with Session(engine) as db:

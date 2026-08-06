@@ -19,6 +19,7 @@ const scoreBands = ["0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
 const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
 const outcomeTablePageSizes = [10, 25, 50] as const;
+const publicOutcomeCalculationTypes = new Set(["live", "historical_reconstruction"]);
 const cohortFilterOptions = [
   { value: "all", label: "All Cohorts" },
   { value: "live", label: "Live Tracked" },
@@ -617,6 +618,7 @@ function matchesOutcomeFilters(
   },
 ) {
   const outcome = outcomeFor(snapshot, horizon);
+  if (!publicOutcomeCalculationTypes.has(snapshot.calculation_type)) return false;
   if (cohort === "live" && snapshot.calculation_type !== "live") return false;
   if (cohort === "historical" && snapshot.calculation_type !== "historical_reconstruction") return false;
   if (cohort === "matured" && !(outcome?.status === "matured" && typeof outcome.return_pct === "number")) return false;
