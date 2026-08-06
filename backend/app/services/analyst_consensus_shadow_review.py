@@ -88,9 +88,10 @@ def shadow_review_payload(
 
     normalized_symbols = sorted({symbol for symbol in (normalize_symbol(item) for item in (symbols or [])) if symbol})
     start_day = end_day - timedelta(days=bounded_days - 1)
-    snapshots = _load_snapshots(db, start_day, end_day, normalized_symbols, bounded_limit)
+    sample_ready_end_day = end_day - timedelta(days=bounded_horizon)
+    snapshots = _load_snapshots(db, start_day, sample_ready_end_day, normalized_symbols, bounded_limit)
     snapshot_samples = _forward_return_samples(db, snapshots, bounded_horizon)
-    historical_grade_events = _load_grade_events(db, start_day, end_day, normalized_symbols, bounded_limit)
+    historical_grade_events = _load_grade_events(db, start_day, sample_ready_end_day, normalized_symbols, bounded_limit)
     grade_event_samples = _grade_event_forward_return_samples(db, historical_grade_events, bounded_horizon)
     samples = snapshot_samples + grade_event_samples
     confirmation_samples = _confirmation_correlation_samples(db, snapshots, historical_grade_events)
@@ -121,6 +122,7 @@ def shadow_review_payload(
             "maxSnapshots": bounded_limit,
             "startDate": start_day.isoformat(),
             "endDate": end_day.isoformat(),
+            "sampleReadyEndDate": sample_ready_end_day.isoformat(),
         },
         "coverage": {
             "snapshotCount": len(snapshots),
