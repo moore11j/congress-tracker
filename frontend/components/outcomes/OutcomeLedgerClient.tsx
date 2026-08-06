@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ApiError,
+  getEntitlements,
   getOutcomeLedgerStatus,
   getOutcomeSnapshots,
   type OutcomeHorizonResult,
@@ -14,6 +15,7 @@ import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/li
 
 const scoreBands = ["60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
+const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
 
 function cleanError(error: unknown) {
   if (error instanceof ApiError && error.status === 404) return "Live Outcome Ledger data is not available in this environment yet.";
@@ -156,6 +158,10 @@ function canExportOutcomesCsv(tier: EntitlementTier) {
   return tier === "pro" || tier === "admin";
 }
 
+function canViewPremiumOutcomes(tier: EntitlementTier) {
+  return tier === "premium" || tier === "pro" || tier === "admin";
+}
+
 function clientEntitlementTier(): EntitlementTier {
   const stored = storedEntitlementTier();
   if (stored) return normalizeTier(stored);
@@ -171,6 +177,40 @@ function clientEntitlementTier(): EntitlementTier {
 function csvValue(value: string | number | null | undefined) {
   const text = value == null ? "" : String(value);
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function sourceLabel(value: string) {
+  return value
+    .split("_")
+    .join(" ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function contributionRows(snapshot?: OutcomeSnapshot) {
+  const contributions = snapshot?.source_contributions;
+  if (contributions && typeof contributions === "object") {
+    const rows = Object.entries(contributions).flatMap(([key, raw]) => {
+      if (!raw || typeof raw !== "object") return [];
+      const row = raw as { label?: unknown; direction?: unknown; strength?: unknown; score_contribution?: unknown };
+      return [
+        {
+          key,
+          label: typeof row.label === "string" && row.label ? row.label : sourceLabel(key),
+          direction: typeof row.direction === "string" ? formatDirection(row.direction) : "-",
+          strength: typeof row.strength === "number" ? String(row.strength) : typeof row.strength === "string" ? row.strength : "-",
+          score: typeof row.score_contribution === "number" ? row.score_contribution : null,
+        },
+      ];
+    });
+    if (rows.length) return rows;
+  }
+  return (snapshot?.active_sources ?? []).map((source) => ({
+    key: source,
+    label: sourceLabel(source),
+    direction: "-",
+    strength: "-",
+    score: null,
+  }));
 }
 
 function ExportGateModal({ onClose }: { onClose: () => void }) {
@@ -356,7 +396,7 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
             </button>
           ))}
         </div>
-        <p className="ml-auto text-xs text-slate-300">Public preview: latest {Math.min(snapshots.length, 10)} live-tracked events</p>
+        <p className="ml-auto text-xs text-slate-300">Public preview: featured tickers plus latest live-tracked events</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[920px] text-left text-sm">
@@ -420,8 +460,15 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
   );
 }
 
-function DetailPanel({ selected }: { selected?: OutcomeSnapshot }) {
+function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot; entitlementTier: EntitlementTier }) {
   const thirtyDay = selected ? maturedOutcome(selected) : undefined;
+  const canViewPremium = canViewPremiumOutcomes(entitlementTier);
+  const maturedHorizons = selected
+    ? horizonColumns
+        .map((horizon) => ({ horizon, outcome: outcomeFor(selected, horizon) }))
+        .filter((item): item is { horizon: string; outcome: OutcomeHorizonResult } => item.outcome?.status === "matured" && typeof item.outcome.return_pct === "number")
+    : [];
+  const sourceRows = contributionRows(selected);
   return (
     <aside className="rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
@@ -466,6 +513,21 @@ function DetailPanel({ selected }: { selected?: OutcomeSnapshot }) {
                 <dt>Excess</dt>
                 <dd className={`text-right ${pctClassName(thirtyDay.excess_return_pct)}`}>{formatPercent(thirtyDay.excess_return_pct)}</dd>
               </dl>
+            ) : canViewPremium ? (
+              maturedHorizons.length ? (
+                <dl className="grid grid-cols-2 gap-y-2">
+                  {maturedHorizons.map(({ horizon, outcome }) => (
+                    <div key={horizon} className="contents">
+                      <dt>{horizon} Return</dt>
+                      <dd className={`text-right ${pctClassName(outcome.return_pct)}`}>{formatPercent(outcome.return_pct)}</dd>
+                      <dt>{horizon} vs SPY</dt>
+                      <dd className={`text-right ${pctClassName(outcome.excess_return_pct)}`}>{formatPercent(outcome.excess_return_pct)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                "No benchmark return is available yet for this live snapshot. The price path will populate when its first horizon matures."
+              )
             ) : (
               "Premium will show benchmark comparisons after event horizons mature."
             )}
@@ -474,13 +536,32 @@ function DetailPanel({ selected }: { selected?: OutcomeSnapshot }) {
         <div className="border-t border-white/10 pt-4">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Source Contributions <span className="text-slate-400">i</span></h3>
           <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-300">
-            Premium will show original source contributions and score evolution for each event.
+            {canViewPremium ? (
+              sourceRows.length ? (
+                <div className="space-y-2">
+                  {sourceRows.map((row) => (
+                    <div key={row.key} className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-white/[0.06] pb-2 last:border-0 last:pb-0">
+                      <span className="text-slate-100">{row.label}</span>
+                      <span className="text-right text-lime-300">{row.score === null ? "active" : `${row.score > 0 ? "+" : ""}${row.score}`}</span>
+                      <span className="text-xs text-slate-400">{row.direction}</span>
+                      <span className="text-right text-xs text-slate-400">{row.strength}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                "No active source contribution payload was captured for this event."
+              )
+            ) : (
+              "Premium will show original source contributions and score evolution for each event."
+            )}
           </div>
         </div>
         <div className="border-t border-white/10 pt-4">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Methodology</h3>
           <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm leading-5 text-slate-300">
-            Events are created from live confirmation-score snapshots and closed only after their evaluation horizons mature.
+            {selected
+              ? `${selected.methodology ?? "confirmation-v1"} preserved ${selected.ticker} at ${openedDate(selected)} with a ${selected.score}/100 ${formatDirection(selected.direction)} score. Outcomes close only after their evaluation horizons mature.`
+              : "Events are created from live confirmation-score snapshots and closed only after their evaluation horizons mature."}
           </p>
         </div>
       </div>
@@ -504,6 +585,18 @@ export function OutcomeLedgerClient({
 
   useEffect(() => {
     setEntitlementTier(clientEntitlementTier());
+    let alive = true;
+    getEntitlements(undefined, { source: "OutcomeLedgerEntitlements" })
+      .then((entitlements) => {
+        if (!alive) return;
+        setEntitlementTier(normalizeTier(entitlements.effective_tier ?? entitlements.tier));
+      })
+      .catch(() => {
+        if (alive) setEntitlementTier(clientEntitlementTier());
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -540,7 +633,16 @@ export function OutcomeLedgerClient({
     });
     return deduped;
   }, [snapshotItems]);
-  const publicPreviewSnapshots = useMemo(() => uniqueSnapshotItems.slice(0, 10), [uniqueSnapshotItems]);
+  const publicPreviewSnapshots = useMemo(() => {
+    const byTicker = new Map(uniqueSnapshotItems.map((snapshot) => [snapshot.ticker.toUpperCase(), snapshot]));
+    const featured = featuredOutcomeTickers.flatMap((ticker) => {
+      const snapshot = byTicker.get(ticker);
+      return snapshot ? [snapshot] : [];
+    });
+    const featuredIds = new Set(featured.map((snapshot) => snapshot.id));
+    const recentFill = uniqueSnapshotItems.filter((snapshot) => !featuredIds.has(snapshot.id));
+    return [...featured, ...recentFill].slice(0, 10);
+  }, [uniqueSnapshotItems]);
   const outcomeMetrics = useMemo(() => {
     const matured30 = uniqueSnapshotItems
       .map((snapshot) => maturedOutcome(snapshot))
@@ -672,7 +774,7 @@ export function OutcomeLedgerClient({
           <EventsTable snapshots={publicPreviewSnapshots} />
         </main>
 
-        <DetailPanel selected={selectedSnapshot} />
+        <DetailPanel selected={selectedSnapshot} entitlementTier={entitlementTier} />
       </div>
     </div>
   );
