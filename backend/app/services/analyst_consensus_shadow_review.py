@@ -219,15 +219,38 @@ def _load_grade_events(
     ]
     if symbols:
         filters.append(func.upper(AnalystGradeEvent.symbol).in_(symbols))
+    symbol_count = (
+        db.execute(select(func.count(func.distinct(func.upper(AnalystGradeEvent.symbol)))).where(*filters)).scalar_one()
+        or 0
+    )
+    if symbol_count <= 0:
+        return []
+    per_symbol_limit = max(1, int(max_events) // int(symbol_count))
+    ranked_events = (
+        select(
+            AnalystGradeEvent.id.label("event_id"),
+            func.row_number()
+            .over(
+                partition_by=func.upper(AnalystGradeEvent.symbol),
+                order_by=(AnalystGradeEvent.published_date.desc(), AnalystGradeEvent.id.desc()),
+            )
+            .label("symbol_rank"),
+        )
+        .where(*filters)
+        .subquery()
+    )
+    selected_ids = (
+        select(ranked_events.c.event_id)
+        .where(ranked_events.c.symbol_rank <= per_symbol_limit)
+        .subquery()
+    )
     return list(
         db.execute(
             select(AnalystGradeEvent)
-            .where(*filters)
-            .order_by(AnalystGradeEvent.published_date.asc(), AnalystGradeEvent.symbol.asc(), AnalystGradeEvent.id.asc())
+            .join(selected_ids, AnalystGradeEvent.id == selected_ids.c.event_id)
+            .order_by(AnalystGradeEvent.symbol.asc(), AnalystGradeEvent.published_date.desc(), AnalystGradeEvent.id.desc())
             .limit(max_events)
-        )
-        .scalars()
-        .all()
+        ).scalars().all()
     )
 
 
