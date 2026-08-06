@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_analyst_consensus_schema
-from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, Event, PriceCache, Security, TickerMeta
+from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, AnalystPriceTargetEvent, Event, PriceCache, Security, TickerMeta
 from app.entitlements import ENTITLEMENTS, require_feature
 from app.services.analyst_consensus import (
     build_snapshot_payload,
@@ -16,10 +16,12 @@ from app.services.analyst_consensus import (
     current_consensus_payload,
     eligible_equity_symbols,
     eligible_historical_grade_symbols,
+    eligible_price_target_event_symbols,
     event_values,
     grade_event_stats,
     implied_upside,
     ingest_symbol_historical_grade_events,
+    ingest_symbol_price_target_events,
     latest_cached_price,
     PricePoint,
     recommendation_label,
@@ -579,5 +581,154 @@ def test_consensus_changes_falls_back_to_historical_rating_counts():
         assert changes["days30"]["comparisonSource"] == "historical_rating_distribution"
         assert changes["days30"]["weightedSentimentChange"] == 0.5
         assert changes["days30"]["consensusTargetChange"] is None
+    finally:
+        db.close()
+
+
+def test_price_target_news_ingestion_and_deduplication(monkeypatch):
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        now = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)
+
+        def fake_price_target_news(*, symbol: str, page: int = 0, limit: int = 100, timeout_s: int = 30):
+            assert symbol == "NVDA"
+            assert page == 0
+            assert limit == 100
+            return [
+                {
+                    "symbol": "NVDA",
+                    "publishedDate": "2026-07-14T09:47:55.000Z",
+                    "newsURL": "https://thefly.com/ajax/news_get.php?id=4384216",
+                    "newsTitle": "Nvidia price target raised to $330 from $310 at KeyBanc",
+                    "analystName": "John Vinh",
+                    "priceTarget": 330,
+                    "adjPriceTarget": 330,
+                    "priceWhenPosted": 203.53,
+                    "newsPublisher": "TheFly",
+                    "analystCompany": "KeyBanc",
+                }
+            ]
+
+        monkeypatch.setattr("app.services.analyst_consensus.fetch_price_target_news", fake_price_target_news)
+        first = ingest_symbol_price_target_events(db, "NVDA", observed_at=now)
+        second = ingest_symbol_price_target_events(db, "NVDA", observed_at=now)
+        db.commit()
+
+        event = db.query(AnalystPriceTargetEvent).filter_by(symbol="NVDA").one()
+        assert first["inserted"] == 1
+        assert second["updated"] == 1
+        assert event.price_target == 330
+        assert event.adjusted_price_target == 330
+        assert event.published_date == date(2026, 7, 14)
+        assert event.analyst_company == "KeyBanc"
+    finally:
+        db.close()
+
+
+def test_consensus_changes_falls_back_to_historical_price_targets():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            AnalystConsensusSnapshot(
+                symbol="NVDA",
+                snapshot_date=date(2026, 8, 4),
+                total_rating_count=10,
+                weighted_rating_value=0.75,
+                price_target_median=300,
+                price_target_consensus=319,
+                availability_status="available",
+                provider_status="available",
+                source="fmp",
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                raw_payload_json="{}",
+            )
+        )
+        db.add_all(
+            [
+                AnalystPriceTargetEvent(
+                    symbol="NVDA",
+                    event_fingerprint="nvda-target-330",
+                    source="fmp",
+                    published_date=date(2026, 7, 1),
+                    published_at=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+                    adjusted_price_target=330,
+                    price_target=330,
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+                AnalystPriceTargetEvent(
+                    symbol="NVDA",
+                    event_fingerprint="nvda-target-310",
+                    source="fmp",
+                    published_date=date(2026, 6, 20),
+                    published_at=datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc),
+                    adjusted_price_target=310,
+                    price_target=310,
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        current = db.query(AnalystConsensusSnapshot).filter_by(symbol="NVDA").one()
+        changes = consensus_changes(db, current)
+
+        assert changes["days30"]["comparisonDate"] == "2026-07-01"
+        assert changes["days30"]["targetComparisonSource"] == "historical_price_target_news"
+        assert changes["days30"]["medianTargetChange"] == -20.0
+        assert changes["days30"]["consensusTargetChange"] == -1.0
+        assert changes["days30"]["targetObservationCount"] == 2
+    finally:
+        db.close()
+
+
+def test_price_target_event_symbols_prefers_current_consensus_coverage():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                Security(symbol="AAGIY", name="Thin OTC Name", asset_class="stock"),
+                TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"),
+                TickerMeta(symbol="NVDA", company_name="NVIDIA Corporation", exchange="NASDAQ"),
+            ]
+        )
+        db.add_all(
+            [
+                AnalystConsensusSnapshot(
+                    symbol="AAPL",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystConsensusSnapshot(
+                    symbol="NVDA",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystPriceTargetEvent(
+                    symbol="AAPL",
+                    event_fingerprint="aapl-existing-target-history",
+                    source="fmp",
+                    published_date=date(2026, 7, 1),
+                    adjusted_price_target=250,
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        assert eligible_price_target_event_symbols(db, limit=2) == ["NVDA", "AAPL"]
     finally:
         db.close()

@@ -467,6 +467,24 @@ def fetch_price_target_summary(*, symbol: str, timeout_s: int = 30) -> list[dict
     )
 
 
+def fetch_price_target_news(
+    *,
+    symbol: str,
+    page: int = 0,
+    limit: int = 100,
+    timeout_s: int = 30,
+) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    bounded_limit = max(1, min(int(limit or 100), 100))
+    return _request_stable_rows(
+        "price-target-news",
+        params={"symbol": provider_symbol, "page": max(0, int(page or 0)), "limit": bounded_limit},
+        category="analyst-consensus:price-target-news",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
 def fetch_bulk_upgrades_downgrades_consensus(*, timeout_s: int = 60) -> list[dict[str, Any]]:
     return _request_stable_rows(
         "upgrades-downgrades-consensus-bulk",

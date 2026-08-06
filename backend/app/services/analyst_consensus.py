@@ -6,6 +6,7 @@ import math
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from statistics import median
 from typing import Any, Iterable
 
 from sqlalchemy import func, select
@@ -18,12 +19,14 @@ from app.clients.fmp import (
     fetch_grades_summary,
     fetch_historical_grades,
     fetch_price_target_consensus,
+    fetch_price_target_news,
     fetch_price_target_summary,
 )
 from app.models import (
     AnalystConsensusIngestionRun,
     AnalystConsensusSnapshot,
     AnalystGradeEvent,
+    AnalystPriceTargetEvent,
     PriceCache,
     QuoteCache,
     Security,
@@ -116,6 +119,25 @@ def _date(value: Any) -> date | None:
         return date.fromisoformat(text_value[:10])
     except ValueError:
         return None
+
+
+def _datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text_value = _text(value)
+        if not text_value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        except ValueError:
+            parsed_date = _date(text_value)
+            if parsed_date is None:
+                return None
+            parsed = datetime.combine(parsed_date, datetime.min.time(), tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _iso_dt(value: datetime | None) -> str | None:
@@ -543,6 +565,70 @@ def upsert_grade_event(db: Session, values: dict[str, Any]) -> tuple[AnalystGrad
     return row, created
 
 
+def price_target_event_fingerprint(symbol: str, row: dict[str, Any]) -> str:
+    provider_id = _text(row.get("id") or row.get("eventId") or row.get("providerEventId") or row.get("newsURL"))
+    if provider_id:
+        basis = {"provider_id": provider_id}
+    else:
+        basis = {
+            "symbol": normalize_symbol(symbol),
+            "published_at": _iso_dt(_datetime(row.get("publishedDate") or row.get("published_at"))),
+            "analyst_company": _text(row.get("analystCompany") or row.get("analyst_company")),
+            "analyst_name": _text(row.get("analystName") or row.get("analyst_name")),
+            "price_target": _number(row.get("priceTarget") or row.get("price_target")),
+            "adjusted_price_target": _number(row.get("adjPriceTarget") or row.get("adjusted_price_target")),
+            "news_title": _text(row.get("newsTitle") or row.get("news_title")),
+        }
+    return hashlib.sha256(_json(basis).encode("utf-8")).hexdigest()
+
+
+def price_target_event_values(symbol: str, row: dict[str, Any], *, ingested_at: datetime | None = None) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        raise ValueError("invalid symbol")
+    published_at = _datetime(row.get("publishedDate") or row.get("published_at"))
+    return {
+        "symbol": normalized,
+        "provider_symbol": _text(row.get("symbol")) or normalized,
+        "analyst_company": _text(row.get("analystCompany") or row.get("analyst_company")),
+        "analyst_name": _text(row.get("analystName") or row.get("analyst_name")),
+        "price_target": _positive(row.get("priceTarget") or row.get("price_target")),
+        "adjusted_price_target": _positive(row.get("adjPriceTarget") or row.get("adjusted_price_target")),
+        "price_when_posted": _positive(row.get("priceWhenPosted") or row.get("price_when_posted")),
+        "published_at": published_at,
+        "published_date": published_at.date() if published_at else _date(row.get("publishedDate") or row.get("date")),
+        "news_title": _text(row.get("newsTitle") or row.get("news_title")),
+        "news_publisher": _text(row.get("newsPublisher") or row.get("news_publisher")),
+        "news_url": _text(row.get("newsURL") or row.get("newsUrl") or row.get("url") or row.get("news_url")),
+        "provider_event_id": _text(row.get("id") or row.get("eventId") or row.get("providerEventId") or row.get("newsURL")),
+        "event_fingerprint": price_target_event_fingerprint(normalized, row),
+        "source": SOURCE,
+        "raw_payload_json": _json(row),
+        "ingested_at": ingested_at or utc_now(),
+    }
+
+
+def upsert_price_target_event(db: Session, values: dict[str, Any]) -> tuple[AnalystPriceTargetEvent, bool]:
+    row = db.execute(
+        select(AnalystPriceTargetEvent)
+        .where(AnalystPriceTargetEvent.source == values["source"])
+        .where(AnalystPriceTargetEvent.event_fingerprint == values["event_fingerprint"])
+    ).scalar_one_or_none()
+    created = row is None
+    if row is None:
+        row = AnalystPriceTargetEvent(
+            symbol=values["symbol"],
+            event_fingerprint=values["event_fingerprint"],
+            source=values["source"],
+        )
+        db.add(row)
+        db.flush()
+    for key, value in values.items():
+        setattr(row, key, value)
+    row.updated_at = values.get("ingested_at") or utc_now()
+    return row, created
+
+
 def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
@@ -638,6 +724,54 @@ def ingest_symbol_historical_grade_events(db: Session, symbol: str, *, observed_
         "status": "available" if rows else "unavailable",
         "source": "grades-historical",
         "rows_seen": len(rows),
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+    }
+
+
+def ingest_symbol_price_target_events(
+    db: Session,
+    symbol: str,
+    *,
+    observed_at: datetime | None = None,
+    pages: int = 1,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
+    if rejection_reason or not normalized:
+        return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    observed = observed_at or utc_now()
+    inserted = updated = skipped = rows_seen = 0
+    bounded_pages = max(1, min(int(pages or 1), 10))
+    bounded_page_size = max(1, min(int(page_size or 100), 100))
+    for page in range(bounded_pages):
+        try:
+            rows = fetch_price_target_news(symbol=normalized, page=page, limit=bounded_page_size, timeout_s=30)
+        except FMPSubscriptionRestrictedError as exc:
+            return {"symbol": normalized, "status": "provider_error", "error": f"subscription_restricted:{exc.__class__.__name__}"}
+        except FMPClientError as exc:
+            return {"symbol": normalized, "status": "provider_error", "error": exc.__class__.__name__}
+        rows_seen += len(rows)
+        if not rows:
+            break
+        for row in rows:
+            try:
+                event, created = upsert_price_target_event(db, price_target_event_values(normalized, row, ingested_at=observed))
+            except ValueError:
+                skipped += 1
+                continue
+            if event.id and created:
+                inserted += 1
+            else:
+                updated += 1
+        if len(rows) < bounded_page_size:
+            break
+    return {
+        "symbol": normalized,
+        "status": "available" if rows_seen else "unavailable",
+        "source": "price-target-news",
+        "rows_seen": rows_seen,
         "inserted": inserted,
         "updated": updated,
         "skipped": skipped,
@@ -750,6 +884,75 @@ def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None
         .order_by(
             latest_grade_ingests.c.latest_grade_ingested_at.is_(None).desc(),
             latest_grade_ingests.c.latest_grade_ingested_at.asc(),
+            Security.symbol.asc(),
+        )
+        .limit(5000)
+    ).scalars().all()
+    append_rows(security_rows)
+    return result[:limit] if limit else result
+
+
+def eligible_price_target_event_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
+    if symbols is not None:
+        return eligible_equity_symbols(db, symbols, limit=limit)
+    latest_target_ingests = (
+        select(
+            AnalystPriceTargetEvent.symbol.label("symbol"),
+            func.max(AnalystPriceTargetEvent.ingested_at).label("latest_target_ingested_at"),
+        )
+        .group_by(AnalystPriceTargetEvent.symbol)
+        .subquery()
+    )
+    result: list[str] = []
+    seen: set[str] = set()
+
+    def append_rows(rows: Iterable[str | None]) -> None:
+        for raw in rows:
+            if limit and len(result) >= limit:
+                return
+            symbol, rejection = analyst_symbol_rejection_reason(raw)
+            if symbol and rejection is None and symbol not in seen:
+                result.append(symbol)
+                seen.add(symbol)
+
+    consensus_rows = db.execute(
+        select(AnalystConsensusSnapshot.symbol)
+        .outerjoin(latest_target_ingests, AnalystConsensusSnapshot.symbol == latest_target_ingests.c.symbol)
+        .where(AnalystConsensusSnapshot.availability_status.in_(("available", "partial", "stale")))
+        .group_by(AnalystConsensusSnapshot.symbol, latest_target_ingests.c.latest_target_ingested_at)
+        .order_by(
+            latest_target_ingests.c.latest_target_ingested_at.is_(None).desc(),
+            latest_target_ingests.c.latest_target_ingested_at.asc(),
+            AnalystConsensusSnapshot.symbol.asc(),
+        )
+        .limit(5000)
+    ).scalars().all()
+    append_rows(consensus_rows)
+    if limit and len(result) >= limit:
+        return result
+
+    ticker_rows = db.execute(
+        select(TickerMeta.symbol)
+        .outerjoin(latest_target_ingests, TickerMeta.symbol == latest_target_ingests.c.symbol)
+        .where(func.upper(TickerMeta.exchange).in_(("NASDAQ", "NYSE", "AMEX", "NYSE AMERICAN")))
+        .order_by(
+            latest_target_ingests.c.latest_target_ingested_at.is_(None).desc(),
+            latest_target_ingests.c.latest_target_ingested_at.asc(),
+            TickerMeta.symbol.asc(),
+        )
+        .limit(5000)
+    ).scalars().all()
+    append_rows(ticker_rows)
+    if limit and len(result) >= limit:
+        return result
+
+    security_rows = db.execute(
+        select(Security.symbol)
+        .outerjoin(latest_target_ingests, Security.symbol == latest_target_ingests.c.symbol)
+        .where(func.lower(Security.asset_class).in_(("stock", "equity")))
+        .order_by(
+            latest_target_ingests.c.latest_target_ingested_at.is_(None).desc(),
+            latest_target_ingests.c.latest_target_ingested_at.asc(),
             Security.symbol.asc(),
         )
         .limit(5000)
@@ -872,14 +1075,81 @@ def _consensus_change_from_grade_counts(
     }
 
 
+def _target_value(row: AnalystPriceTargetEvent) -> float | None:
+    return _positive(row.adjusted_price_target) or _positive(row.price_target)
+
+
+def _price_target_event_summary(
+    db: Session,
+    symbol: str,
+    on_or_before: date,
+    *,
+    window_days: int = 45,
+) -> dict[str, Any] | None:
+    rows = db.execute(
+        select(AnalystPriceTargetEvent)
+        .where(AnalystPriceTargetEvent.symbol == symbol)
+        .where(AnalystPriceTargetEvent.published_date <= on_or_before)
+        .where(AnalystPriceTargetEvent.published_date >= on_or_before - timedelta(days=window_days))
+        .order_by(AnalystPriceTargetEvent.published_date.desc(), AnalystPriceTargetEvent.id.desc())
+        .limit(250)
+    ).scalars().all()
+    values = [value for row in rows if (value := _target_value(row)) is not None]
+    if not values:
+        fallback = db.execute(
+            select(AnalystPriceTargetEvent)
+            .where(AnalystPriceTargetEvent.symbol == symbol)
+            .where(AnalystPriceTargetEvent.published_date <= on_or_before)
+            .order_by(AnalystPriceTargetEvent.published_date.desc(), AnalystPriceTargetEvent.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        fallback_value = _target_value(fallback) if fallback else None
+        if fallback is None or fallback_value is None:
+            return None
+        rows = [fallback]
+        values = [fallback_value]
+    latest_date = max((row.published_date for row in rows if row.published_date), default=None)
+    return {
+        "comparisonDate": _iso_date(latest_date),
+        "medianTarget": float(median(values)),
+        "consensusTarget": sum(values) / len(values),
+        "targetObservationCount": len(values),
+        "comparisonSource": "historical_price_target_news",
+    }
+
+
+def _apply_price_target_change_fallback(
+    db: Session,
+    current: AnalystConsensusSnapshot,
+    change: dict[str, Any],
+    on_or_before: date,
+) -> dict[str, Any]:
+    if change.get("medianTargetChange") is not None or change.get("consensusTargetChange") is not None:
+        return change
+    summary = _price_target_event_summary(db, current.symbol, on_or_before)
+    if not summary:
+        return change
+    enriched = dict(change)
+    enriched["comparisonDate"] = enriched.get("comparisonDate") or summary.get("comparisonDate")
+    enriched["medianTargetChange"] = _delta(current.price_target_median, summary.get("medianTarget"))
+    enriched["consensusTargetChange"] = _delta(current.price_target_consensus, summary.get("consensusTarget"))
+    enriched["targetObservationCount"] = summary.get("targetObservationCount")
+    existing_source = enriched.get("comparisonSource")
+    enriched["targetComparisonSource"] = summary.get("comparisonSource")
+    if not existing_source:
+        enriched["comparisonSource"] = summary.get("comparisonSource")
+    return enriched
+
+
 def consensus_changes(db: Session, current: AnalystConsensusSnapshot | None) -> dict[str, Any]:
     if current is None:
         return {"days30": {}, "days90": {}}
     result: dict[str, Any] = {}
     for days in (30, 90):
-        prior = _nearest_prior_snapshot(db, current.symbol, current.snapshot_date - timedelta(days=days))
+        comparison_day = current.snapshot_date - timedelta(days=days)
+        prior = _nearest_prior_snapshot(db, current.symbol, comparison_day)
         if prior:
-            result[f"days{days}"] = {
+            change = {
                 "comparisonDate": _iso_date(prior.snapshot_date),
                 "weightedSentimentChange": _delta(current.weighted_rating_value, prior.weighted_rating_value),
                 "medianTargetChange": _delta(current.price_target_median, prior.price_target_median),
@@ -890,9 +1160,10 @@ def consensus_changes(db: Session, current: AnalystConsensusSnapshot | None) -> 
                 "targetDispersionChange": _delta(current.target_dispersion_pct, prior.target_dispersion_pct),
                 "comparisonSource": "consensus_snapshot",
             }
+            result[f"days{days}"] = _apply_price_target_change_fallback(db, current, change, comparison_day)
             continue
-        prior_event = _nearest_prior_grade_counts_event(db, current.symbol, current.snapshot_date - timedelta(days=days))
-        result[f"days{days}"] = _consensus_change_from_grade_counts(current, prior_event) or {
+        prior_event = _nearest_prior_grade_counts_event(db, current.symbol, comparison_day)
+        change = _consensus_change_from_grade_counts(current, prior_event) or {
             "comparisonDate": None,
             "weightedSentimentChange": None,
             "medianTargetChange": None,
@@ -902,6 +1173,7 @@ def consensus_changes(db: Session, current: AnalystConsensusSnapshot | None) -> 
             "sellEquivalentPctChange": None,
             "targetDispersionChange": None,
         }
+        result[f"days{days}"] = _apply_price_target_change_fallback(db, current, change, comparison_day)
     return result
 
 

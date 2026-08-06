@@ -1256,6 +1256,23 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
         "source",
         "raw_payload_json",
     )
+    price_target_numeric_columns = (
+        "price_target",
+        "adjusted_price_target",
+        "price_when_posted",
+    )
+    price_target_text_columns = (
+        "provider_symbol",
+        "analyst_company",
+        "analyst_name",
+        "news_title",
+        "news_publisher",
+        "news_url",
+        "provider_event_id",
+        "event_fingerprint",
+        "source",
+        "raw_payload_json",
+    )
     run_int_columns = (
         "symbols_attempted",
         "symbols_succeeded",
@@ -1363,6 +1380,33 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_price_target_events (
+                        id INTEGER PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider_symbol TEXT,
+                        analyst_company TEXT,
+                        analyst_name TEXT,
+                        price_target FLOAT,
+                        adjusted_price_target FLOAT,
+                        price_when_posted FLOAT,
+                        published_at TIMESTAMP,
+                        published_date DATE,
+                        news_title TEXT,
+                        news_publisher TEXT,
+                        news_url TEXT,
+                        provider_event_id TEXT,
+                        event_fingerprint TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        raw_payload_json TEXT NOT NULL DEFAULT '{}',
+                        ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
             table_columns = {
                 table: {
                     row[1]
@@ -1372,6 +1416,7 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                 for table in (
                     "analyst_consensus_snapshots",
                     "analyst_grade_events",
+                    "analyst_price_target_events",
                     "analyst_consensus_ingestion_runs",
                 )
             }
@@ -1396,6 +1441,16 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             }.items():
                 if name not in table_columns["analyst_grade_events"]:
                     conn.execute(text(f"ALTER TABLE analyst_grade_events ADD COLUMN {name} {column_type}"))
+            for name, column_type in {
+                "published_at": "TIMESTAMP",
+                "published_date": "DATE",
+                "ingested_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                **{name: "FLOAT" for name in price_target_numeric_columns},
+                **{name: "TEXT" for name in price_target_text_columns},
+            }.items():
+                if name not in table_columns["analyst_price_target_events"]:
+                    conn.execute(text(f"ALTER TABLE analyst_price_target_events ADD COLUMN {name} {column_type}"))
             for name, column_type in {
                 "started_at": "TIMESTAMP",
                 "completed_at": "TIMESTAMP",
@@ -1493,9 +1548,37 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS analyst_price_target_events (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider_symbol TEXT,
+                        analyst_company TEXT,
+                        analyst_name TEXT,
+                        price_target DOUBLE PRECISION,
+                        adjusted_price_target DOUBLE PRECISION,
+                        price_when_posted DOUBLE PRECISION,
+                        published_at TIMESTAMPTZ,
+                        published_date DATE,
+                        news_title TEXT,
+                        news_publisher TEXT,
+                        news_url TEXT,
+                        provider_event_id TEXT,
+                        event_fingerprint TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'fmp',
+                        raw_payload_json TEXT NOT NULL DEFAULT '{}',
+                        ingested_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
             table_columns = {
                 "analyst_consensus_snapshots": set(),
                 "analyst_grade_events": set(),
+                "analyst_price_target_events": set(),
                 "analyst_consensus_ingestion_runs": set(),
             }
             rows = conn.execute(
@@ -1507,6 +1590,7 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                       AND table_name IN (
                         'analyst_consensus_snapshots',
                         'analyst_grade_events',
+                        'analyst_price_target_events',
                         'analyst_consensus_ingestion_runs'
                       )
                     """
@@ -1540,6 +1624,16 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             add_pg_column("analyst_grade_events", "published_date", "DATE")
             add_pg_column("analyst_grade_events", "ingested_at", "TIMESTAMPTZ DEFAULT now()")
             add_pg_column("analyst_grade_events", "updated_at", "TIMESTAMPTZ DEFAULT now()")
+            for name in price_target_text_columns:
+                default = " DEFAULT 'fmp'" if name == "source" else " DEFAULT '{}'" if name == "raw_payload_json" else ""
+                not_null = " NOT NULL" if name in {"event_fingerprint", "source", "raw_payload_json"} else ""
+                add_pg_column("analyst_price_target_events", name, f"TEXT{default}{not_null}")
+            for name in price_target_numeric_columns:
+                add_pg_column("analyst_price_target_events", name, "DOUBLE PRECISION")
+            add_pg_column("analyst_price_target_events", "published_at", "TIMESTAMPTZ")
+            add_pg_column("analyst_price_target_events", "published_date", "DATE")
+            add_pg_column("analyst_price_target_events", "ingested_at", "TIMESTAMPTZ DEFAULT now()")
+            add_pg_column("analyst_price_target_events", "updated_at", "TIMESTAMPTZ DEFAULT now()")
             for name in run_text_columns:
                 default = " DEFAULT 'running'" if name == "status" else " DEFAULT '[]'" if name == "provider_errors_json" else " DEFAULT '{}'" if name == "metadata_json" else ""
                 not_null = " NOT NULL" if name in {"job_name", "status", "provider_errors_json", "metadata_json"} else ""
@@ -1573,6 +1667,18 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             "ix_analyst_grade_events_provider_id": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_grade_events_provider_id "
                 "ON analyst_grade_events (provider_event_id)"
+            ),
+            "ix_analyst_price_target_events_source_fingerprint": (
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_price_target_events_source_fingerprint "
+                "ON analyst_price_target_events (source, event_fingerprint)"
+            ),
+            "ix_analyst_price_target_events_symbol_date": (
+                "CREATE INDEX IF NOT EXISTS ix_analyst_price_target_events_symbol_date "
+                "ON analyst_price_target_events (symbol, published_date)"
+            ),
+            "ix_analyst_price_target_events_provider_id": (
+                "CREATE INDEX IF NOT EXISTS ix_analyst_price_target_events_provider_id "
+                "ON analyst_price_target_events (provider_event_id)"
             ),
             "ix_analyst_consensus_runs_job_started": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_runs_job_started "

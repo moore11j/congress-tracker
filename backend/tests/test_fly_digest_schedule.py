@@ -59,6 +59,9 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
     assert "*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
+    assert "*/30 * * * * cd /app && python -m app.jobs.backfill_current_analyst_consensus --limit 25 --sleep-seconds 0.2" in crontab
+    assert "*/30 * * * * cd /app && python -m app.jobs.backfill_historical_analyst_grades --limit 100 --sleep-seconds 0.1" in crontab
+    assert "*/30 * * * * cd /app && python -m app.jobs.backfill_historical_analyst_price_targets --limit 100 --pages 1 --sleep-seconds 0.1" in crontab
     assert "17 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab

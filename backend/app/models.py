@@ -1941,6 +1941,40 @@ class AnalystGradeEvent(Base):
     )
 
 
+class AnalystPriceTargetEvent(Base):
+    __tablename__ = "analyst_price_target_events"
+    __table_args__ = (
+        UniqueConstraint("source", "event_fingerprint", name="uq_analyst_price_target_events_source_fingerprint"),
+        Index("ix_analyst_price_target_events_symbol_date", "symbol", "published_date"),
+        Index("ix_analyst_price_target_events_provider_id", "provider_event_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    analyst_company: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    analyst_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_target: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    adjusted_price_target: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_when_posted: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    news_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    news_publisher: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    news_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    provider_event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    raw_payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class AnalystConsensusIngestionRun(Base):
     __tablename__ = "analyst_consensus_ingestion_runs"
     __table_args__ = (
