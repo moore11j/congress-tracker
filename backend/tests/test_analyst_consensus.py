@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -681,6 +682,75 @@ def test_consensus_changes_falls_back_to_historical_price_targets():
         assert changes["days30"]["medianTargetChange"] == -20.0
         assert changes["days30"]["consensusTargetChange"] == -1.0
         assert changes["days30"]["targetObservationCount"] == 2
+    finally:
+        db.close()
+
+
+def test_current_consensus_payload_includes_90_day_trend_series():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            AnalystConsensusSnapshot(
+                symbol="NVDA",
+                snapshot_date=date(2026, 8, 4),
+                total_rating_count=10,
+                weighted_rating_value=0.75,
+                recommendation_label="Bullish",
+                price_target_median=300,
+                price_target_consensus=319,
+                price_target_analyst_count=25,
+                availability_status="available",
+                provider_status="available",
+                source="fmp",
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                raw_payload_json="{}",
+            )
+        )
+        db.add(
+            AnalystGradeEvent(
+                symbol="NVDA",
+                event_fingerprint="nvda-rating-counts-2026-07-01",
+                source="fmp",
+                published_date=date(2026, 7, 1),
+                action="Bullish",
+                raw_payload_json=json.dumps(
+                    {
+                        "analystRatingsStrongBuy": 1,
+                        "analystRatingsBuy": 5,
+                        "analystRatingsHold": 4,
+                        "analystRatingsSell": 0,
+                        "analystRatingsStrongSell": 0,
+                    }
+                ),
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            AnalystPriceTargetEvent(
+                symbol="NVDA",
+                event_fingerprint="nvda-target-2026-07-10",
+                source="fmp",
+                published_date=date(2026, 7, 10),
+                published_at=datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc),
+                adjusted_price_target=330,
+                price_target=330,
+                raw_payload_json="{}",
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        payload = current_consensus_payload(db, "NVDA", include_details=True)
+        series = payload["trendSeries"]
+        points = series["points"]
+
+        assert series["startDate"] == "2026-05-06"
+        assert series["endDate"] == "2026-08-04"
+        assert any(point["date"] == "2026-07-10" and point["consensusTarget"] == 330 for point in points)
+        assert points[-1]["date"] == "2026-08-04"
+        assert points[-1]["consensusTarget"] == 319
+        assert points[-1]["weightedSentiment"] == 0.75
     finally:
         db.close()
 

@@ -1118,6 +1118,88 @@ def _price_target_event_summary(
     }
 
 
+def analyst_trend_series(db: Session, current: AnalystConsensusSnapshot | None, *, days: int = 90) -> dict[str, Any]:
+    if current is None:
+        return {"startDate": None, "endDate": None, "points": []}
+    bounded_days = max(1, min(int(days or 90), 365))
+    end = current.snapshot_date
+    start = end - timedelta(days=bounded_days)
+    target_rows = db.execute(
+        select(AnalystPriceTargetEvent.published_date)
+        .where(AnalystPriceTargetEvent.symbol == current.symbol)
+        .where(AnalystPriceTargetEvent.published_date >= start)
+        .where(AnalystPriceTargetEvent.published_date <= end)
+        .where(AnalystPriceTargetEvent.published_date.is_not(None))
+        .group_by(AnalystPriceTargetEvent.published_date)
+        .order_by(AnalystPriceTargetEvent.published_date.asc())
+    ).scalars().all()
+    grade_rows = db.execute(
+        select(AnalystGradeEvent)
+        .where(AnalystGradeEvent.symbol == current.symbol)
+        .where(AnalystGradeEvent.published_date >= start)
+        .where(AnalystGradeEvent.published_date <= end)
+        .where(AnalystGradeEvent.published_date.is_not(None))
+        .order_by(AnalystGradeEvent.published_date.asc(), AnalystGradeEvent.id.asc())
+    ).scalars().all()
+    sentiment_by_date: dict[date, dict[str, Any]] = {}
+    for row in grade_rows:
+        if row.published_date is None:
+            continue
+        parsed = _grade_event_counts(row)
+        if parsed is None:
+            continue
+        counts, total, weighted = parsed
+        sentiment_by_date[row.published_date] = {
+            "weightedSentiment": weighted,
+            "ratingCount": total,
+            "recommendationLabel": recommendation_label(weighted, total),
+            "source": "historical_rating_distribution",
+            "buyEquivalentPct": _buy_equivalent_pct_from_counts(counts, total),
+            "sellEquivalentPct": _sell_equivalent_pct_from_counts(counts, total),
+        }
+    dates = {start, end, *[value for value in target_rows if value], *sentiment_by_date.keys()}
+    points: list[dict[str, Any]] = []
+    latest_sentiment: dict[str, Any] | None = None
+    for point_date in sorted(dates):
+        if point_date in sentiment_by_date:
+            latest_sentiment = sentiment_by_date[point_date]
+        target_summary = _price_target_event_summary(db, current.symbol, point_date)
+        if point_date == end:
+            target_summary = {
+                "comparisonDate": _iso_date(end),
+                "medianTarget": current.price_target_median,
+                "consensusTarget": current.price_target_consensus or current.price_target_average,
+                "targetObservationCount": current.price_target_analyst_count,
+                "comparisonSource": "consensus_snapshot",
+            }
+            latest_sentiment = {
+                "weightedSentiment": current.weighted_rating_value,
+                "ratingCount": current.total_rating_count,
+                "recommendationLabel": current.recommendation_label,
+                "source": "consensus_snapshot",
+                "buyEquivalentPct": buy_equivalent_pct(current),
+                "sellEquivalentPct": sell_equivalent_pct(current),
+            }
+        if not target_summary and not latest_sentiment:
+            continue
+        points.append(
+            {
+                "date": _iso_date(point_date),
+                "consensusTarget": target_summary.get("consensusTarget") if target_summary else None,
+                "medianTarget": target_summary.get("medianTarget") if target_summary else None,
+                "targetObservationCount": target_summary.get("targetObservationCount") if target_summary else None,
+                "targetSource": target_summary.get("comparisonSource") if target_summary else None,
+                "weightedSentiment": latest_sentiment.get("weightedSentiment") if latest_sentiment else None,
+                "ratingCount": latest_sentiment.get("ratingCount") if latest_sentiment else None,
+                "recommendationLabel": latest_sentiment.get("recommendationLabel") if latest_sentiment else None,
+                "sentimentSource": latest_sentiment.get("source") if latest_sentiment else None,
+                "buyEquivalentPct": latest_sentiment.get("buyEquivalentPct") if latest_sentiment else None,
+                "sellEquivalentPct": latest_sentiment.get("sellEquivalentPct") if latest_sentiment else None,
+            }
+        )
+    return {"startDate": _iso_date(start), "endDate": _iso_date(end), "points": points}
+
+
 def _apply_price_target_change_fallback(
     db: Session,
     current: AnalystConsensusSnapshot,
@@ -1465,6 +1547,7 @@ def current_consensus_payload(db: Session, symbol: str, *, include_details: bool
         "access": access,
         "currentSnapshot": snapshot_payload(snapshot),
         "changes": changes,
+        "trendSeries": analyst_trend_series(db, snapshot, days=90),
         "gradeEventStats": event_stats,
         "interpretation": interpretation,
         "coverage": confidence,

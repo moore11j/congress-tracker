@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type {
-  TickerAnalystConsensusChange,
   TickerAnalystConsensusResponse,
   TickerAnalystConsensusSnapshot,
+  TickerAnalystConsensusTrendPoint,
 } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
@@ -171,25 +171,109 @@ function PriceTargetRange({ snapshot }: { snapshot: TickerAnalystConsensusSnapsh
   );
 }
 
-function ChangeRow({ label, change }: { label: string; change?: TickerAnalystConsensusChange }) {
-  const hasComparison = Boolean(change?.comparisonDate);
-  const sentimentTone = hasComparison ? toneForPercent(change?.weightedSentimentChange) : "text-slate-400";
-  const targetTone = hasComparison ? toneForPercent(change?.consensusTargetChange) : "text-slate-400";
+function dateValue(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00Z`).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function linePath(points: Array<{ x: number; y: number }>) {
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+}
+
+function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnalystConsensusTrendPoint[]; startDate?: string | null; endDate?: string | null }) {
+  const dated = points
+    .map((point) => ({ ...point, time: dateValue(point.date) }))
+    .filter((point): point is TickerAnalystConsensusTrendPoint & { time: number } => point.time !== null)
+    .sort((a, b) => a.time - b.time);
+  const targetPoints = dated.filter((point) => asNumber(point.consensusTarget) !== null);
+  const sentimentPoints = dated.filter((point) => asNumber(point.weightedSentiment) !== null);
+  const firstTime = dateValue(startDate) ?? dated[0]?.time ?? null;
+  const lastTime = dateValue(endDate) ?? dated[dated.length - 1]?.time ?? null;
+  const targetValues = targetPoints.map((point) => asNumber(point.consensusTarget)).filter((value): value is number => value !== null);
+  const hasChart = firstTime !== null && lastTime !== null && lastTime > firstTime && (targetPoints.length >= 2 || sentimentPoints.length >= 2);
+  const width = 720;
+  const height = 268;
+  const margin = { top: 24, right: 58, bottom: 42, left: 66 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const targetMinRaw = targetValues.length ? Math.min(...targetValues) : 0;
+  const targetMaxRaw = targetValues.length ? Math.max(...targetValues) : 1;
+  const targetPadding = Math.max((targetMaxRaw - targetMinRaw) * 0.12, targetMaxRaw * 0.02, 1);
+  const targetMin = Math.max(0, targetMinRaw - targetPadding);
+  const targetMax = targetMaxRaw + targetPadding;
+  const x = (time: number) => margin.left + ((time - (firstTime ?? time)) / Math.max((lastTime ?? time) - (firstTime ?? time), 1)) * plotWidth;
+  const targetY = (value: number) => margin.top + (1 - (value - targetMin) / Math.max(targetMax - targetMin, 1)) * plotHeight;
+  const sentimentY = (value: number) => margin.top + (1 - (Math.max(-2, Math.min(2, value)) + 2) / 4) * plotHeight;
+  const targetPath = linePath(targetPoints.map((point) => ({ x: x(point.time), y: targetY(asNumber(point.consensusTarget) ?? 0) })));
+  const sentimentPath = linePath(sentimentPoints.map((point) => ({ x: x(point.time), y: sentimentY(asNumber(point.weightedSentiment) ?? 0) })));
+  const latest = dated[dated.length - 1] ?? null;
+  const targetTicks = [targetMin, (targetMin + targetMax) / 2, targetMax];
+  const sentimentTicks = [-2, 0, 2];
+  const xTicks = [
+    { label: startDate ? formatDateShort(startDate) : "", value: firstTime },
+    { label: endDate ? formatDateShort(endDate) : "", value: lastTime },
+  ].filter((tick): tick is { label: string; value: number } => Boolean(tick.label) && tick.value !== null);
+
   return (
-    <div className="grid gap-2 rounded-lg border border-white/10 bg-slate-950/50 p-3 sm:grid-cols-3">
-      <div>
-        <p className="text-xs font-semibold text-white">{label}</p>
-        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : EMPTY_LABEL}</p>
+    <section className={`${panelClass} p-4`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Target & Sentiment Trend</p>
+          <p className="mt-1 text-xs text-slate-400">Last 90 days</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className="inline-flex items-center gap-2 text-sky-200"><span className="h-2 w-6 rounded-full bg-sky-400" />Consensus target</span>
+          <span className="inline-flex items-center gap-2 text-amber-200"><span className="h-2 w-6 rounded-full bg-amber-300" />Sentiment</span>
+        </div>
       </div>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sentiment</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${sentimentTone}`}>{hasComparison ? formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 }) : EMPTY_LABEL}</p>
+      {hasChart ? (
+        <div className="mt-4 overflow-hidden rounded-lg border border-white/10 bg-slate-950/50">
+          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Analyst consensus target and sentiment over the last 90 days" className="h-[268px] w-full">
+            <rect x="0" y="0" width={width} height={height} fill="transparent" />
+            {[0, 0.5, 1].map((step) => {
+              const y = margin.top + step * plotHeight;
+              return <line key={step} x1={margin.left} x2={width - margin.right} y1={y} y2={y} stroke="rgba(148,163,184,0.16)" strokeWidth="1" />;
+            })}
+            <line x1={margin.left} x2={margin.left} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.32)" />
+            <line x1={width - margin.right} x2={width - margin.right} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.32)" />
+            <line x1={margin.left} x2={width - margin.right} y1={height - margin.bottom} y2={height - margin.bottom} stroke="rgba(148,163,184,0.25)" />
+            {targetTicks.map((tick) => (
+              <text key={`target-${tick}`} x={margin.left - 10} y={targetY(tick) + 4} textAnchor="end" className="fill-slate-400 text-[11px] tabular-nums">
+                {formatMoney(tick)}
+              </text>
+            ))}
+            {sentimentTicks.map((tick) => (
+              <text key={`sentiment-${tick}`} x={width - margin.right + 10} y={sentimentY(tick) + 4} textAnchor="start" className="fill-slate-400 text-[11px] tabular-nums">
+                {formatNumber(tick, { maximumFractionDigits: 0 })}
+              </text>
+            ))}
+            {xTicks.map((tick) => (
+              <text key={tick.label} x={x(tick.value)} y={height - 15} textAnchor={tick.value === firstTime ? "start" : "end"} className="fill-slate-500 text-[11px]">
+                {tick.label}
+              </text>
+            ))}
+            <text x={margin.left} y={14} className="fill-sky-200 text-[11px] font-semibold">Target</text>
+            <text x={width - margin.right} y={14} textAnchor="end" className="fill-amber-200 text-[11px] font-semibold">Sentiment</text>
+            {targetPath ? <path d={targetPath} fill="none" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /> : null}
+            {sentimentPath ? <path d={sentimentPath} fill="none" stroke="#fbbf24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /> : null}
+            {targetPoints.map((point) => (
+              <circle key={`target-${point.date}`} cx={x(point.time)} cy={targetY(asNumber(point.consensusTarget) ?? 0)} r="3.5" fill="#38bdf8" stroke="#0f172a" strokeWidth="1.5" />
+            ))}
+            {sentimentPoints.map((point) => (
+              <circle key={`sentiment-${point.date}`} cx={x(point.time)} cy={sentimentY(asNumber(point.weightedSentiment) ?? 0)} r="3" fill="#fbbf24" stroke="#0f172a" strokeWidth="1.5" />
+            ))}
+          </svg>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-400">-</div>
+      )}
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <DetailMetric label="Current Target" value={formatMoney(latest?.consensusTarget)} tone="text-sky-100" />
+        <DetailMetric label="Current Sentiment" value={formatNumber(latest?.weightedSentiment, { maximumFractionDigits: 2 })} tone="text-amber-100" />
+        <DetailMetric label="Observations" value={formatNumber(dated.length, { maximumFractionDigits: 0 })} tone="text-slate-200" />
       </div>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Target</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${targetTone}`}>{hasComparison ? formatMoney(change?.consensusTargetChange) : EMPTY_LABEL}</p>
-      </div>
-    </div>
+    </section>
   );
 }
 
@@ -294,13 +378,7 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
             <RatingDistribution snapshot={snapshot} />
             <PriceTargetRange snapshot={snapshot} />
           </div>
-          <section className={`${panelClass} p-4`}>
-            <p className="text-sm font-semibold text-white">Trend Changes</p>
-            <div className="mt-3 grid gap-3">
-              <ChangeRow label="30 days" change={data.changes?.days30} />
-              <ChangeRow label="90 days" change={data.changes?.days90} />
-            </div>
-          </section>
+          <AnalystTrendChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
           <section className={`${panelClass} p-4`}>
             <p className="text-sm font-semibold text-white">Rating Actions</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">

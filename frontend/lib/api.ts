@@ -4127,6 +4127,20 @@ export type TickerAnalystConsensusChange = {
   consensusTargetChange?: number | null;
 };
 
+export type TickerAnalystConsensusTrendPoint = {
+  date: string;
+  consensusTarget?: number | null;
+  medianTarget?: number | null;
+  targetObservationCount?: number | null;
+  targetSource?: string | null;
+  weightedSentiment?: number | null;
+  ratingCount?: number | null;
+  recommendationLabel?: string | null;
+  sentimentSource?: string | null;
+  buyEquivalentPct?: number | null;
+  sellEquivalentPct?: number | null;
+};
+
 export type TickerAnalystConsensusGradeWindow = {
   upgrades?: number | null;
   downgrades?: number | null;
@@ -4148,6 +4162,11 @@ export type TickerAnalystConsensusResponse = {
   changes?: {
     days30?: TickerAnalystConsensusChange;
     days90?: TickerAnalystConsensusChange;
+  };
+  trendSeries?: {
+    startDate?: string | null;
+    endDate?: string | null;
+    points: TickerAnalystConsensusTrendPoint[];
   };
   gradeEventStats?: {
     days30?: TickerAnalystConsensusGradeWindow;
