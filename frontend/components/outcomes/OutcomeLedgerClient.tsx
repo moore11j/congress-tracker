@@ -16,6 +16,19 @@ import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/li
 const scoreBands = ["60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
 const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
+const outcomeTablePageSizes = [10, 25, 50] as const;
+
+type OutcomeSortKey = "ticker" | "opened" | "score" | "direction" | "entry";
+type OutcomeSortDirection = "asc" | "desc";
+type OutcomeSort = { key: OutcomeSortKey; direction: OutcomeSortDirection } | null;
+
+const outcomeSortableColumns: Record<OutcomeSortKey, string> = {
+  ticker: "Ticker",
+  opened: "Opened",
+  score: "Score",
+  direction: "Direction",
+  entry: "Entry Price",
+};
 
 function cleanError(error: unknown) {
   if (error instanceof ApiError && error.status === 404) return "Live Outcome Ledger data is not available in this environment yet.";
@@ -76,6 +89,13 @@ function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D") {
 
 function openedDate(snapshot: OutcomeSnapshot) {
   return formatDate(snapshot.market_date ?? snapshot.calculated_at ?? snapshot.created_at);
+}
+
+function openedTime(snapshot: OutcomeSnapshot) {
+  const raw = snapshot.market_date ?? snapshot.calculated_at ?? snapshot.created_at;
+  if (!raw) return 0;
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function median(values: number[]) {
@@ -162,6 +182,10 @@ function canViewPremiumOutcomes(tier: EntitlementTier) {
   return tier === "premium" || tier === "pro" || tier === "admin";
 }
 
+function canUsePremiumOutcomeTable(tier: EntitlementTier) {
+  return canViewPremiumOutcomes(tier);
+}
+
 function clientEntitlementTier(): EntitlementTier {
   const stored = storedEntitlementTier();
   if (stored) return normalizeTier(stored);
@@ -237,6 +261,37 @@ function ExportGateModal({ onClose }: { onClose: () => void }) {
           </button>
           <a href="/pricing" className="rounded-md border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-50 hover:bg-emerald-400/25">
             Upgrade to Pro
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OutcomeTableGateModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="outcomes-table-gate-title">
+      <div className="w-full max-w-md rounded-md border border-emerald-300/20 bg-slate-950 p-5 shadow-2xl shadow-black/40">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">Premium Feature</p>
+            <h2 id="outcomes-table-gate-title" className="mt-2 text-xl font-semibold text-white">
+              Upgrade to Premium
+            </h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-2 py-1 text-sm text-slate-300 hover:bg-white/5" aria-label="Close table upgrade prompt">
+            x
+          </button>
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-300">
+          Premium unlocks the full Outcome Ledger table, column sorting, pagination, and 25 or 50 row views.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5">
+            Not now
+          </button>
+          <a href="/pricing" className="rounded-md border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-50 hover:bg-emerald-400/25">
+            Upgrade to Premium
           </a>
         </div>
       </div>
@@ -384,9 +439,70 @@ function ScatterPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
   );
 }
 
-function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
+function sortedOutcomeSnapshots(snapshots: OutcomeSnapshot[], sort: OutcomeSort) {
+  if (!sort) return snapshots;
+  return snapshots
+    .map((snapshot, index) => ({ snapshot, index }))
+    .sort((left, right) => {
+      const a = left.snapshot;
+      const b = right.snapshot;
+      let value = 0;
+      if (sort.key === "ticker") value = a.ticker.localeCompare(b.ticker);
+      if (sort.key === "opened") value = openedTime(a) - openedTime(b);
+      if (sort.key === "score") value = a.score - b.score;
+      if (sort.key === "direction") value = formatDirection(a.direction).localeCompare(formatDirection(b.direction));
+      if (sort.key === "entry") value = (a.reference_price ?? 0) - (b.reference_price ?? 0);
+      if (value === 0) value = left.index - right.index;
+      return sort.direction === "asc" ? value : -value;
+    })
+    .map((item) => item.snapshot);
+}
+
+function EventsTable({ snapshots, entitlementTier }: { snapshots: OutcomeSnapshot[]; entitlementTier: EntitlementTier }) {
+  const hasPremiumTable = canUsePremiumOutcomeTable(entitlementTier);
+  const [sort, setSort] = useState<OutcomeSort>(null);
+  const [pageSize, setPageSize] = useState<(typeof outcomeTablePageSizes)[number]>(10);
+  const [page, setPage] = useState(0);
+  const [tableGateOpen, setTableGateOpen] = useState(false);
+  const sortedSnapshots = useMemo(() => sortedOutcomeSnapshots(snapshots, hasPremiumTable ? sort : null), [snapshots, hasPremiumTable, sort]);
+  const totalRows = hasPremiumTable ? sortedSnapshots.length : Math.min(10, sortedSnapshots.length);
+  const effectivePageSize = hasPremiumTable ? pageSize : 10;
+  const pageCount = Math.max(1, Math.ceil(totalRows / effectivePageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const visibleSnapshots = sortedSnapshots.slice(safePage * effectivePageSize, safePage * effectivePageSize + effectivePageSize);
+  const pageStart = totalRows ? safePage * effectivePageSize + 1 : 0;
+  const pageEnd = totalRows ? Math.min(totalRows, safePage * effectivePageSize + visibleSnapshots.length) : 0;
+
+  useEffect(() => {
+    setPage(0);
+  }, [snapshots.length, pageSize, sort?.key, sort?.direction, hasPremiumTable]);
+
+  function gatePremiumTable() {
+    if (!hasPremiumTable) setTableGateOpen(true);
+    return hasPremiumTable;
+  }
+
+  function handleSort(key: OutcomeSortKey) {
+    if (!gatePremiumTable()) return;
+    setSort((current) => {
+      if (current?.key !== key) return { key, direction: "asc" };
+      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+    });
+  }
+
+  function handlePageSize(nextPageSize: (typeof outcomeTablePageSizes)[number]) {
+    if (nextPageSize > 10 && !gatePremiumTable()) return;
+    setPageSize(nextPageSize);
+  }
+
+  function handlePage(nextPage: number) {
+    if (!gatePremiumTable()) return;
+    setPage(Math.max(0, Math.min(pageCount - 1, nextPage)));
+  }
+
   return (
     <section className="overflow-hidden rounded-md border border-white/10 bg-slate-900/55">
+      {tableGateOpen ? <OutcomeTableGateModal onClose={() => setTableGateOpen(false)} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Confirmation Events</h2>
         <div className="flex overflow-hidden rounded-md border border-white/10 bg-slate-950/60 p-0.5 text-xs font-semibold text-slate-200">
@@ -396,13 +512,42 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
             </button>
           ))}
         </div>
-        <p className="ml-auto text-xs text-slate-300">Public preview: featured tickers plus latest live-tracked events</p>
+        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Full table: featured tickers plus live-tracked history" : "Free preview: first 10 featured and recent events"}</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-xs text-slate-300">
+        <span>
+          Showing {pageStart}-{pageEnd} of {hasPremiumTable ? snapshots.length : Math.min(10, snapshots.length)}
+        </span>
+        <div className="flex items-center gap-2">
+          <span>Rows</span>
+          <div className="flex overflow-hidden rounded-md border border-white/10 bg-slate-950/60 p-0.5">
+            {outcomeTablePageSizes.map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => handlePageSize(size)}
+                className={`min-w-9 px-2 py-1 font-semibold ${effectivePageSize === size ? "rounded bg-emerald-400/15 text-emerald-100" : "text-slate-300 hover:text-white"}`}
+              >
+                {size}
+                {size > 10 && !hasPremiumTable ? <span className="ml-1 text-[10px] text-emerald-300">Premium</span> : null}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[920px] text-left text-sm">
           <thead className="border-b border-white/10 text-xs text-slate-300">
             <tr>
-              {["Ticker", "Opened", "Score", "Direction", "Entry Price", ...horizonColumns, "Status"].map((label) => (
+              {(Object.entries(outcomeSortableColumns) as [OutcomeSortKey, string][]).map(([key, label]) => (
+                <th key={key} className="px-4 py-3 font-medium">
+                  <button type="button" onClick={() => handleSort(key)} className="inline-flex items-center gap-1 rounded-sm text-left hover:text-white">
+                    {label}
+                    <span className="text-[10px] text-slate-500">{sort?.key === key ? (sort.direction === "asc" ? "^" : "v") : hasPremiumTable ? "Sort" : "Premium"}</span>
+                  </button>
+                </th>
+              ))}
+              {[...horizonColumns, "Status"].map((label) => (
                 <th key={label} className="px-4 py-3 font-medium">
                   {label}
                 </th>
@@ -410,8 +555,8 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.06]">
-            {snapshots.length ? (
-              snapshots.slice(0, 10).map((snapshot) => {
+            {visibleSnapshots.length ? (
+              visibleSnapshots.map((snapshot) => {
                 const hasMaturedOutcome = Boolean(maturedOutcome(snapshot));
                 return (
                   <tr key={snapshot.id} className="hover:bg-white/[0.03]">
@@ -453,8 +598,25 @@ function EventsTable({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
         </table>
       </div>
       <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-400">
-        <span>Showing public Phase 1 tracking data only</span>
-        <span>Full history and advanced cohorts unlock later</span>
+        <span>{hasPremiumTable ? `Page ${safePage + 1} of ${pageCount}` : "Free users are locked to one 10-row page"}</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handlePage(safePage - 1)}
+            disabled={hasPremiumTable && safePage === 0}
+            className="rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePage(safePage + 1)}
+            disabled={hasPremiumTable && safePage >= pageCount - 1}
+            className="rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -641,7 +803,7 @@ export function OutcomeLedgerClient({
     });
     const featuredIds = new Set(featured.map((snapshot) => snapshot.id));
     const recentFill = uniqueSnapshotItems.filter((snapshot) => !featuredIds.has(snapshot.id));
-    return [...featured, ...recentFill].slice(0, 10);
+    return [...featured, ...recentFill];
   }, [uniqueSnapshotItems]);
   const outcomeMetrics = useMemo(() => {
     const matured30 = uniqueSnapshotItems
@@ -768,7 +930,7 @@ export function OutcomeLedgerClient({
             <ScatterPanel snapshots={uniqueSnapshotItems} />
           </div>
 
-          <EventsTable snapshots={publicPreviewSnapshots} />
+          <EventsTable snapshots={publicPreviewSnapshots} entitlementTier={entitlementTier} />
         </main>
 
         <DetailPanel selected={selectedSnapshot} entitlementTier={entitlementTier} />
