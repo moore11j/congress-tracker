@@ -806,21 +806,101 @@ def _nearest_prior_snapshot(db: Session, symbol: str, on_or_before: date) -> Ana
     ).scalar_one_or_none()
 
 
+def _grade_event_counts(row: AnalystGradeEvent | None) -> tuple[dict[str, int | None], int | None, float | None] | None:
+    if row is None:
+        return None
+    try:
+        raw = json.loads(row.raw_payload_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    counts = rating_counts_from_row(raw)
+    total = total_rating_count(counts)
+    weighted = weighted_sentiment(counts)
+    if total is None or weighted is None:
+        return None
+    return counts, total, weighted
+
+
+def _nearest_prior_grade_counts_event(db: Session, symbol: str, on_or_before: date) -> AnalystGradeEvent | None:
+    rows = db.execute(
+        select(AnalystGradeEvent)
+        .where(AnalystGradeEvent.symbol == symbol)
+        .where(AnalystGradeEvent.published_date <= on_or_before)
+        .order_by(AnalystGradeEvent.published_date.desc(), AnalystGradeEvent.id.desc())
+        .limit(20)
+    ).scalars().all()
+    for row in rows:
+        if _grade_event_counts(row) is not None:
+            return row
+    return None
+
+
+def _buy_equivalent_pct_from_counts(counts: dict[str, int | None], total: int | None) -> float | None:
+    if not total:
+        return None
+    bullish = int(counts.get("strong_buy_count") or 0) + int(counts.get("buy_count") or 0)
+    return bullish / total * 100
+
+
+def _sell_equivalent_pct_from_counts(counts: dict[str, int | None], total: int | None) -> float | None:
+    if not total:
+        return None
+    bearish = int(counts.get("sell_count") or 0) + int(counts.get("strong_sell_count") or 0)
+    return bearish / total * 100
+
+
+def _consensus_change_from_grade_counts(
+    current: AnalystConsensusSnapshot,
+    prior_event: AnalystGradeEvent | None,
+) -> dict[str, Any] | None:
+    parsed = _grade_event_counts(prior_event)
+    if parsed is None or prior_event is None:
+        return None
+    prior_counts, prior_total, prior_weighted = parsed
+    return {
+        "comparisonDate": _iso_date(prior_event.published_date),
+        "weightedSentimentChange": _delta(current.weighted_rating_value, prior_weighted),
+        "medianTargetChange": None,
+        "consensusTargetChange": None,
+        "analystCountChange": _delta(current.total_rating_count, prior_total),
+        "buyEquivalentPctChange": _delta(buy_equivalent_pct(current), _buy_equivalent_pct_from_counts(prior_counts, prior_total)),
+        "sellEquivalentPctChange": _delta(sell_equivalent_pct(current), _sell_equivalent_pct_from_counts(prior_counts, prior_total)),
+        "targetDispersionChange": None,
+        "comparisonSource": "historical_rating_distribution",
+    }
+
+
 def consensus_changes(db: Session, current: AnalystConsensusSnapshot | None) -> dict[str, Any]:
     if current is None:
         return {"days30": {}, "days90": {}}
     result: dict[str, Any] = {}
     for days in (30, 90):
         prior = _nearest_prior_snapshot(db, current.symbol, current.snapshot_date - timedelta(days=days))
-        result[f"days{days}"] = {
-            "comparisonDate": _iso_date(prior.snapshot_date) if prior else None,
-            "weightedSentimentChange": _delta(current.weighted_rating_value, prior.weighted_rating_value if prior else None),
-            "medianTargetChange": _delta(current.price_target_median, prior.price_target_median if prior else None),
-            "consensusTargetChange": _delta(current.price_target_consensus, prior.price_target_consensus if prior else None),
-            "analystCountChange": _delta(current.total_rating_count, prior.total_rating_count if prior else None),
-            "buyEquivalentPctChange": _delta(buy_equivalent_pct(current), buy_equivalent_pct(prior)),
-            "sellEquivalentPctChange": _delta(sell_equivalent_pct(current), sell_equivalent_pct(prior)),
-            "targetDispersionChange": _delta(current.target_dispersion_pct, prior.target_dispersion_pct if prior else None),
+        if prior:
+            result[f"days{days}"] = {
+                "comparisonDate": _iso_date(prior.snapshot_date),
+                "weightedSentimentChange": _delta(current.weighted_rating_value, prior.weighted_rating_value),
+                "medianTargetChange": _delta(current.price_target_median, prior.price_target_median),
+                "consensusTargetChange": _delta(current.price_target_consensus, prior.price_target_consensus),
+                "analystCountChange": _delta(current.total_rating_count, prior.total_rating_count),
+                "buyEquivalentPctChange": _delta(buy_equivalent_pct(current), buy_equivalent_pct(prior)),
+                "sellEquivalentPctChange": _delta(sell_equivalent_pct(current), sell_equivalent_pct(prior)),
+                "targetDispersionChange": _delta(current.target_dispersion_pct, prior.target_dispersion_pct),
+                "comparisonSource": "consensus_snapshot",
+            }
+            continue
+        prior_event = _nearest_prior_grade_counts_event(db, current.symbol, current.snapshot_date - timedelta(days=days))
+        result[f"days{days}"] = _consensus_change_from_grade_counts(current, prior_event) or {
+            "comparisonDate": None,
+            "weightedSentimentChange": None,
+            "medianTargetChange": None,
+            "consensusTargetChange": None,
+            "analystCountChange": None,
+            "buyEquivalentPctChange": None,
+            "sellEquivalentPctChange": None,
+            "targetDispersionChange": None,
         }
     return result
 

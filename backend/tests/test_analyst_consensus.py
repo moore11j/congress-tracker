@@ -532,3 +532,52 @@ def test_historical_grade_symbols_prefers_current_consensus_coverage():
         assert eligible_historical_grade_symbols(db, limit=3) == ["TSLA", "AAPL", "ZZZZ"]
     finally:
         db.close()
+
+
+def test_consensus_changes_falls_back_to_historical_rating_counts():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            AnalystConsensusSnapshot(
+                symbol="NVDA",
+                snapshot_date=date(2026, 8, 4),
+                total_rating_count=10,
+                weighted_rating_value=0.75,
+                strong_buy_count=2,
+                buy_count=5,
+                hold_count=3,
+                sell_count=0,
+                strong_sell_count=0,
+                price_target_consensus=319,
+                availability_status="available",
+                provider_status="available",
+                source="fmp",
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                raw_payload_json="{}",
+            )
+        )
+        db.add(
+            AnalystGradeEvent(
+                symbol="NVDA",
+                event_fingerprint="nvda-july-rating-counts",
+                source="fmp",
+                published_date=date(2026, 7, 1),
+                raw_payload_json=(
+                    '{"analystRatingsStrongBuy":0,"analystRatingsBuy":2,'
+                    '"analystRatingsHold":6,"analystRatingsSell":0,"analystRatingsStrongSell":0}'
+                ),
+                ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        current = db.query(AnalystConsensusSnapshot).filter_by(symbol="NVDA").one()
+        changes = consensus_changes(db, current)
+
+        assert changes["days30"]["comparisonDate"] == "2026-07-01"
+        assert changes["days30"]["comparisonSource"] == "historical_rating_distribution"
+        assert changes["days30"]["weightedSentimentChange"] == 0.5
+        assert changes["days30"]["consensusTargetChange"] is None
+    finally:
+        db.close()
