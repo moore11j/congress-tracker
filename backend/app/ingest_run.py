@@ -1372,7 +1372,7 @@ def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
             .where(ConfirmationScoreSnapshot.calculation_type == "live")
             .where(ConfirmationScoreSnapshot.market_date < datetime.now(timezone.utc).date() - timedelta(days=max(1, max_stale_days)))
         ).scalars().all()
-        reclassified_stale_live_rows = 0
+        stale_live_ids: list[int] = []
         for snapshot in stale_live_rows:
             if snapshot.calculated_at is None or snapshot.market_date is None:
                 continue
@@ -1381,10 +1381,17 @@ def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
                 calculated = calculated.replace(tzinfo=timezone.utc)
             if snapshot.market_date >= calculated.date() - timedelta(days=max(1, max_stale_days)):
                 continue
-            snapshot.calculation_type = "data_correction"
-            snapshot.correction_reason = snapshot.correction_reason or "stale_live_reference_price"
-            reclassified_stale_live_rows += 1
-        if reclassified_stale_live_rows:
+            stale_live_ids.append(snapshot.id)
+        reclassified_stale_live_rows = 0
+        if stale_live_ids:
+            reclassified_stale_live_rows = db.execute(
+                update(ConfirmationScoreSnapshot)
+                .where(ConfirmationScoreSnapshot.id.in_(stale_live_ids))
+                .values(
+                    calculation_type="data_correction",
+                    correction_reason=func.coalesce(ConfirmationScoreSnapshot.correction_reason, "stale_live_reference_price"),
+                )
+            ).rowcount or 0
             db.commit()
         report = backfill_outcome_ledger_history(
             db,
