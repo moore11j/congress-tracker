@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ApiError,
   getEntitlements,
+  getTickerChartBundle,
   getOutcomeLedgerStatus,
   getOutcomeSnapshots,
   type OutcomeHorizonResult,
   type OutcomeLedgerStatus,
   type OutcomeSnapshot,
   type OutcomeSnapshotsResponse,
+  type TickerChartBundle,
 } from "@/lib/api";
 import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/lib/entitlements";
 
@@ -21,6 +23,21 @@ const outcomeTablePageSizes = [10, 25, 50] as const;
 type OutcomeSortKey = "ticker" | "opened" | "score" | "direction" | "entry";
 type OutcomeSortDirection = "asc" | "desc";
 type OutcomeSort = { key: OutcomeSortKey; direction: OutcomeSortDirection } | null;
+type EventOutcomePoint = {
+  snapshot: OutcomeSnapshot;
+  outcome: OutcomeHorizonResult;
+  opened: number;
+  openedLabel: string;
+  targetLabel: string;
+  returnValue: number;
+};
+type PricePathPoint = {
+  date: string;
+  label: string;
+  stockReturn: number;
+  spyReturn: number;
+  excessReturn: number;
+};
 
 const outcomeSortableColumns: Record<OutcomeSortKey, string> = {
   ticker: "Ticker",
@@ -96,6 +113,28 @@ function openedTime(snapshot: OutcomeSnapshot) {
   if (!raw) return 0;
   const time = new Date(raw).getTime();
   return Number.isFinite(time) ? time : 0;
+}
+
+function compactDate(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+}
+
+function compactDateTime(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value.replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function numericReturn(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function returnFromBase(price: number, base: number) {
+  return ((price / base) - 1) * 100;
 }
 
 function median(values: number[]) {
@@ -375,9 +414,40 @@ function BarChartPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
 }
 
 function ScatterPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
+  const [hoverPoint, setHoverPoint] = useState<(EventOutcomePoint & { x: number; y: number }) | null>(null);
   const points = snapshots
-    .map((snapshot, index) => ({ snapshot, outcome: maturedOutcome(snapshot), index }))
-    .filter((item): item is { snapshot: OutcomeSnapshot; outcome: OutcomeHorizonResult; index: number } => Boolean(item.outcome));
+    .map((snapshot) => {
+      const outcome = maturedOutcome(snapshot);
+      const opened = openedTime(snapshot);
+      const returnValue = numericReturn(outcome?.directional_return_pct ?? outcome?.return_pct);
+      if (!outcome || !opened || returnValue === null) return null;
+      return {
+        snapshot,
+        outcome,
+        opened,
+        openedLabel: openedDate(snapshot),
+        targetLabel: outcome.target_date ? compactDate(outcome.target_date) : "-",
+        returnValue,
+      };
+    })
+    .filter((item): item is EventOutcomePoint => item !== null)
+    .sort((a, b) => a.opened - b.opened);
+  const minOpened = Math.min(...points.map((point) => point.opened), Date.now());
+  const maxOpened = Math.max(...points.map((point) => point.opened), minOpened);
+  const xRange = Math.max(1, maxOpened - minOpened);
+  const xTicks = points.length
+    ? [
+        { label: compactDate(points[0]?.snapshot.market_date), x: 80 },
+        { label: compactDate(points[Math.floor((points.length - 1) / 2)]?.snapshot.market_date), x: 390 },
+        { label: compactDate(points[points.length - 1]?.snapshot.market_date), x: 700 },
+      ]
+    : [];
+
+  function pointCoordinates(point: EventOutcomePoint) {
+    const x = points.length <= 1 ? 390 : 80 + ((point.opened - minOpened) / xRange) * 620;
+    const y = 110 - Math.max(-25, Math.min(25, point.returnValue)) * 3.2;
+    return { x, y };
+  }
 
   return (
     <section className="rounded-md border border-white/10 bg-slate-900/55 p-4">
@@ -402,8 +472,8 @@ function ScatterPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
           ))}
           <line x1="40" x2="735" y1="110" y2="110" stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
           <line x1="40" x2="735" y1="190" y2="190" stroke="rgba(148,163,184,0.35)" />
-          {["Earliest", "Middle", "Latest"].map((label, index) => (
-            <text key={label} x={80 + index * 310} y="212" fill="#cbd5e1" fontSize="12" textAnchor="middle">
+          {xTicks.map(({ label, x }) => (
+            <text key={`${label}-${x}`} x={x} y="212" fill="#cbd5e1" fontSize="12" textAnchor="middle">
               {label}
             </text>
           ))}
@@ -411,23 +481,48 @@ function ScatterPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
             Return (%)
           </text>
           <text x="390" y="232" fill="#cbd5e1" fontSize="12" textAnchor="middle">
-            Matured Events
+            Opened Date
           </text>
-          {points.map(({ snapshot, outcome }, index) => {
-            const value = Math.max(-25, Math.min(25, outcome.directional_return_pct ?? outcome.return_pct ?? 0));
-            const x = 80 + index * Math.max(72, 620 / Math.max(1, points.length - 1));
-            const y = 110 - value * 3.2;
-            const positive = (outcome.directional_return_pct ?? outcome.return_pct ?? 0) >= 0;
+          {points.map((point) => {
+            const { x, y } = pointCoordinates(point);
+            const positive = point.returnValue >= 0;
             return (
-              <g key={snapshot.id}>
-                <circle cx={x} cy={y} r="5" fill={positive ? "#84cc16" : "#ef4444"} opacity="0.9" />
+              <g
+                key={point.snapshot.id}
+                onMouseEnter={() => setHoverPoint({ ...point, x, y })}
+                onMouseLeave={() => setHoverPoint(null)}
+                onFocus={() => setHoverPoint({ ...point, x, y })}
+                onBlur={() => setHoverPoint(null)}
+                tabIndex={0}
+                role="img"
+                aria-label={`${point.snapshot.ticker} opened ${point.openedLabel}, return ${formatPercent(point.returnValue)}`}
+              >
+                <circle cx={x} cy={y} r="6" fill={positive ? "#84cc16" : "#ef4444"} opacity="0.92" className="cursor-pointer" />
                 <text x={x} y={y - 10} fill="#cbd5e1" fontSize="10" textAnchor="middle">
-                  {snapshot.ticker}
+                  {point.snapshot.ticker}
                 </text>
               </g>
             );
           })}
         </svg>
+        {hoverPoint ? (
+          <div
+            className="pointer-events-none absolute z-10 w-52 rounded-md border border-white/10 bg-slate-950/95 p-3 text-xs leading-5 text-slate-300 shadow-2xl shadow-black/30"
+            style={{
+              left: `min(calc(100% - 13rem), max(0.5rem, ${(hoverPoint.x / 760) * 100}%))`,
+              top: `min(calc(100% - 7rem), max(0.5rem, ${(hoverPoint.y / 235) * 100}%))`,
+            }}
+          >
+            <p className="font-semibold text-white">{hoverPoint.snapshot.ticker}</p>
+            <p>Opened {hoverPoint.openedLabel}</p>
+            <p>30D target {hoverPoint.targetLabel}</p>
+            <p className={pctClassName(hoverPoint.returnValue)}>Return {formatPercent(hoverPoint.returnValue)}</p>
+            <p>SPY {formatPercent(hoverPoint.outcome.spy_return_pct)}</p>
+            <p className={pctClassName(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}>
+              Excess {formatPercent(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}
+            </p>
+          </div>
+        ) : null}
         {!points.length ? (
           <PendingOverlay>
             Walnut is preserving live judgments now. Points appear only after evaluation horizons mature.
@@ -456,6 +551,107 @@ function sortedOutcomeSnapshots(snapshots: OutcomeSnapshot[], sort: OutcomeSort)
       return sort.direction === "asc" ? value : -value;
     })
     .map((item) => item.snapshot);
+}
+
+function pricePathPointsFromBundle(bundle: TickerChartBundle | null): PricePathPoint[] {
+  const prices = [...(bundle?.prices ?? [])]
+    .filter((point) => Number.isFinite(point.close))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const benchmark = [...(bundle?.benchmark.points ?? [])]
+    .filter((point) => Number.isFinite(point.close))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const stockBase = prices[0]?.close;
+  const spyBase = benchmark[0]?.close;
+  if (!stockBase || !spyBase) return [];
+  const benchmarkByDate = new Map(benchmark.map((point) => [point.date, point.close]));
+  return prices.flatMap((point, index) => {
+    const spyClose = benchmarkByDate.get(point.date) ?? benchmark[index]?.close;
+    if (!spyClose) return [];
+    const stockReturn = returnFromBase(point.close, stockBase);
+    const spyReturn = returnFromBase(spyClose, spyBase);
+    return [
+      {
+        date: point.date,
+        label: point.date.includes(":") ? compactDateTime(point.date) : compactDate(point.date),
+        stockReturn,
+        spyReturn,
+        excessReturn: stockReturn - spyReturn,
+      },
+    ];
+  });
+}
+
+function linePath(points: PricePathPoint[], valueKey: "stockReturn" | "spyReturn", minValue: number, valueRange: number) {
+  if (points.length < 2) return "";
+  return points
+    .map((point, index) => {
+      const x = 34 + (index / Math.max(1, points.length - 1)) * 266;
+      const y = 122 - ((point[valueKey] - minValue) / valueRange) * 92;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | null; loading: boolean }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const points = useMemo(() => pricePathPointsFromBundle(bundle), [bundle]);
+  if (loading) return <p className="text-sm leading-6 text-slate-300">Loading 1-minute price path...</p>;
+  if (points.length < 2) return <p className="text-sm leading-6 text-slate-300">No SPY benchmark chart is available yet for this event window.</p>;
+
+  const values = points.flatMap((point) => [point.stockReturn, point.spyReturn]);
+  const minValue = Math.min(...values, 0);
+  const maxValue = Math.max(...values, 0);
+  const valueRange = Math.max(1, maxValue - minValue);
+  const hover = hoverIndex === null ? points[points.length - 1] : points[hoverIndex];
+  const hoverX = hoverIndex === null ? 300 : 34 + (hoverIndex / Math.max(1, points.length - 1)) * 266;
+  const hoverY = 122 - ((hover.stockReturn - minValue) / valueRange) * 92;
+  const ticks = [0, Math.floor((points.length - 1) / 2), points.length - 1].map((index) => ({ index, point: points[index] }));
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-slate-300">
+        <span className="flex items-center gap-2">
+          <span className="h-2 w-5 rounded-full bg-lime-400" />
+          {bundle?.symbol ?? "Ticker"}
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="h-2 w-5 rounded-full bg-slate-300" />
+          SPY
+        </span>
+        <span className="ml-auto text-slate-400">{bundle?.resolution === "1min" ? "Historical 1-min" : "Daily close"}</span>
+      </div>
+      <div className="relative h-44">
+        <svg viewBox="0 0 320 160" className="h-full w-full overflow-visible" onMouseLeave={() => setHoverIndex(null)}>
+          {[30, 76, 122].map((y) => (
+            <line key={y} x1="34" x2="300" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
+          ))}
+          <line x1="34" x2="300" y1={122 - ((0 - minValue) / valueRange) * 92} y2={122 - ((0 - minValue) / valueRange) * 92} stroke="rgba(226,232,240,0.4)" strokeDasharray="3 4" />
+          <path d={linePath(points, "spyReturn", minValue, valueRange)} fill="none" stroke="#cbd5e1" strokeWidth="2" opacity="0.85" />
+          <path d={linePath(points, "stockReturn", minValue, valueRange)} fill="none" stroke="#84cc16" strokeWidth="2.4" />
+          {ticks.map(({ index, point }) => (
+            <text key={`${point.date}-${index}`} x={34 + (index / Math.max(1, points.length - 1)) * 266} y="150" fill="#94a3b8" fontSize="9" textAnchor="middle">
+              {point.label}
+            </text>
+          ))}
+          {points.map((point, index) => {
+            const x = 34 + (index / Math.max(1, points.length - 1)) * 266;
+            return <rect key={point.date} x={x - 4} y="20" width="8" height="112" fill="transparent" onMouseEnter={() => setHoverIndex(index)} />;
+          })}
+          <line x1={hoverX} x2={hoverX} y1="22" y2="126" stroke="rgba(226,232,240,0.38)" />
+          <circle cx={hoverX} cy={hoverY} r="4" fill="#84cc16" />
+        </svg>
+        <div
+          className="pointer-events-none absolute z-10 w-48 rounded-md border border-white/10 bg-slate-950/95 p-3 text-xs leading-5 text-slate-300 shadow-2xl shadow-black/30"
+          style={{ left: `min(calc(100% - 12rem), max(0.25rem, ${(hoverX / 320) * 100}%))`, top: "0.5rem" }}
+        >
+          <p className="font-semibold text-white">{hover.label}</p>
+          <p className={pctClassName(hover.stockReturn)}>Ticker {formatPercent(hover.stockReturn)}</p>
+          <p className={pctClassName(hover.spyReturn)}>SPY {formatPercent(hover.spyReturn)}</p>
+          <p className={pctClassName(hover.excessReturn)}>Excess {formatPercent(hover.excessReturn)}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function EventsTable({ snapshots, entitlementTier }: { snapshots: OutcomeSnapshot[]; entitlementTier: EntitlementTier }) {
@@ -625,12 +821,35 @@ function EventsTable({ snapshots, entitlementTier }: { snapshots: OutcomeSnapsho
 function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot; entitlementTier: EntitlementTier }) {
   const thirtyDay = selected ? maturedOutcome(selected) : undefined;
   const canViewPremium = canViewPremiumOutcomes(entitlementTier);
+  const [chartBundle, setChartBundle] = useState<TickerChartBundle | null>(null);
+  const [chartLoading, setChartLoading] = useState(false);
   const maturedHorizons = selected
     ? horizonColumns
         .map((horizon) => ({ horizon, outcome: outcomeFor(selected, horizon) }))
         .filter((item): item is { horizon: string; outcome: OutcomeHorizonResult } => item.outcome?.status === "matured" && typeof item.outcome.return_pct === "number")
     : [];
   const sourceRows = contributionRows(selected);
+
+  useEffect(() => {
+    if (!selected?.ticker || !canViewPremium) {
+      setChartBundle(null);
+      setChartLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setChartLoading(true);
+    getTickerChartBundle(selected.ticker, 5, { signal: controller.signal, source: "OutcomeLedgerPricePath" })
+      .then((bundle) => setChartBundle(bundle))
+      .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setChartBundle(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setChartLoading(false);
+      });
+    return () => controller.abort();
+  }, [canViewPremium, selected?.ticker]);
+
   return (
     <aside className="rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
@@ -666,30 +885,34 @@ function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot
         <div className="border-t border-white/10 pt-4">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Price Path vs SPY</h3>
           <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-slate-300">
-            {thirtyDay ? (
-              <dl className="grid grid-cols-2 gap-y-2">
-                <dt>30D Return</dt>
-                <dd className={`text-right ${pctClassName(thirtyDay.return_pct)}`}>{formatPercent(thirtyDay.return_pct)}</dd>
-                <dt>SPY</dt>
-                <dd className={`text-right ${pctClassName(thirtyDay.spy_return_pct)}`}>{formatPercent(thirtyDay.spy_return_pct)}</dd>
-                <dt>Excess</dt>
-                <dd className={`text-right ${pctClassName(thirtyDay.excess_return_pct)}`}>{formatPercent(thirtyDay.excess_return_pct)}</dd>
-              </dl>
-            ) : canViewPremium ? (
-              maturedHorizons.length ? (
-                <dl className="grid grid-cols-2 gap-y-2">
-                  {maturedHorizons.map(({ horizon, outcome }) => (
-                    <div key={horizon} className="contents">
-                      <dt>{horizon} Return</dt>
-                      <dd className={`text-right ${pctClassName(outcome.return_pct)}`}>{formatPercent(outcome.return_pct)}</dd>
-                      <dt>{horizon} vs SPY</dt>
-                      <dd className={`text-right ${pctClassName(outcome.excess_return_pct)}`}>{formatPercent(outcome.excess_return_pct)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                "No benchmark return is available yet for this live snapshot. The price path will populate when its first horizon matures."
-              )
+            {canViewPremium ? (
+              <>
+                <PricePathVsSpyChart bundle={chartBundle} loading={chartLoading} />
+                <p className="mt-3 text-xs leading-5 text-slate-400">
+                  SPY is the benchmark. Horizon excess compares the ticker return from opened date to target date against SPY over that same window.
+                </p>
+                {thirtyDay ? (
+                  <dl className="mt-3 grid grid-cols-2 gap-y-2 border-t border-white/[0.08] pt-3">
+                    <dt>30D Return</dt>
+                    <dd className={`text-right ${pctClassName(thirtyDay.return_pct)}`}>{formatPercent(thirtyDay.return_pct)}</dd>
+                    <dt>SPY 30D</dt>
+                    <dd className={`text-right ${pctClassName(thirtyDay.spy_return_pct)}`}>{formatPercent(thirtyDay.spy_return_pct)}</dd>
+                    <dt>30D Excess</dt>
+                    <dd className={`text-right ${pctClassName(thirtyDay.excess_return_pct)}`}>{formatPercent(thirtyDay.excess_return_pct)}</dd>
+                  </dl>
+                ) : maturedHorizons.length ? (
+                  <dl className="mt-3 grid grid-cols-2 gap-y-2 border-t border-white/[0.08] pt-3">
+                    {maturedHorizons.map(({ horizon, outcome }) => (
+                      <div key={horizon} className="contents">
+                        <dt>{horizon} Return</dt>
+                        <dd className={`text-right ${pctClassName(outcome.return_pct)}`}>{formatPercent(outcome.return_pct)}</dd>
+                        <dt>{horizon} vs SPY</dt>
+                        <dd className={`text-right ${pctClassName(outcome.excess_return_pct)}`}>{formatPercent(outcome.excess_return_pct)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+              </>
             ) : (
               "Premium will show benchmark comparisons after event horizons mature."
             )}
@@ -820,6 +1043,9 @@ export function OutcomeLedgerClient({
     const directionalExcessReturns = matured30
       .map((outcome) => outcome.directional_excess_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    const spyReturns = matured30
+      .map((outcome) => outcome.spy_return_pct)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
     const maturedHorizonCount = uniqueSnapshotItems.reduce(
       (total, snapshot) =>
         total +
@@ -834,6 +1060,8 @@ export function OutcomeLedgerClient({
       accuracy,
       medianDirectionalReturn: median(directionalReturns),
       medianDirectionalExcessReturn: median(directionalExcessReturns),
+      medianSpyReturn: median(spyReturns),
+      benchmarkedEvents: directionalExcessReturns.length,
       maturedHorizonCount,
     };
   }, [uniqueSnapshotItems]);
@@ -920,7 +1148,11 @@ export function OutcomeLedgerClient({
               icon="SPY"
               label="Median Excess vs SPY"
               value={formatPercent(outcomeMetrics.medianDirectionalExcessReturn)}
-              detail="Directional benchmark excess at 30D"
+              detail={
+                outcomeMetrics.benchmarkedEvents
+                  ? `Median 30D excess vs SPY across ${outcomeMetrics.benchmarkedEvents} benchmarked events; median SPY ${formatPercent(outcomeMetrics.medianSpyReturn)}`
+                  : "Pending SPY benchmark samples at 30D"
+              }
             />
             <MetricCard icon="..." label="Scored Horizons" value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells with price returns`} />
           </div>
