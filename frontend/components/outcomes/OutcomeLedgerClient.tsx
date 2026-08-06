@@ -15,14 +15,29 @@ import {
 } from "@/lib/api";
 import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/lib/entitlements";
 
-const scoreBands = ["60-64", "65-69", "70-74", "75-79", "80+"];
+const scoreBands = ["0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
 const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
 const outcomeTablePageSizes = [10, 25, 50] as const;
+const cohortFilterOptions = [
+  { value: "live", label: "Live Tracked" },
+  { value: "matured", label: "Matured Only" },
+  { value: "tracking", label: "Tracking Only" },
+] as const;
+const directionFilterOptions = ["All", "Bullish", "Bearish", "Mixed", "Neutral"];
+const scoreBandFilterOptions = ["All Scores", ...scoreBands];
+const dateRangeFilterOptions = [
+  { value: "phase1", label: "Phase 1" },
+  { value: "30d", label: "Last 30D" },
+  { value: "90d", label: "Last 90D" },
+  { value: "12m", label: "Last 12M" },
+] as const;
 
 type OutcomeSortKey = "ticker" | "opened" | "score" | "direction" | "entry";
 type OutcomeSortDirection = "asc" | "desc";
 type OutcomeSort = { key: OutcomeSortKey; direction: OutcomeSortDirection } | null;
+type CohortFilterValue = (typeof cohortFilterOptions)[number]["value"];
+type DateRangeFilterValue = (typeof dateRangeFilterOptions)[number]["value"];
 type EventOutcomePoint = {
   snapshot: OutcomeSnapshot;
   outcome: OutcomeHorizonResult;
@@ -150,7 +165,9 @@ function scoreBandForScore(score: number) {
   if (score >= 75) return "75-79";
   if (score >= 70) return "70-74";
   if (score >= 65) return "65-69";
-  return "60-64";
+  if (score >= 60) return "60-64";
+  if (score >= 40) return "40-59";
+  return "0-39";
 }
 
 function pctClassName(value?: number | null) {
@@ -197,19 +214,37 @@ function hydrateDemoOutcomes(snapshot: OutcomeSnapshot): OutcomeSnapshot {
   };
 }
 
-function FilterBox({ label, value, locked = false }: { label: string; value: string; locked?: boolean }) {
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[] | readonly { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
   return (
-    <button
-      type="button"
-      disabled={locked}
-      className="flex h-12 min-w-[8.7rem] items-center justify-between rounded-md border border-white/10 bg-slate-900/70 px-3 text-left text-xs text-slate-300 shadow-inner shadow-white/[0.02] disabled:cursor-not-allowed disabled:opacity-60"
+    <label
+      className="flex h-12 min-w-[8.7rem] items-center justify-between rounded-md border border-white/10 bg-slate-900/70 px-3 text-left text-xs text-slate-300 shadow-inner shadow-white/[0.02]"
     >
       <span>
         <span className="block text-[10px] text-slate-400">{label}</span>
-        <span className="mt-0.5 block font-medium text-slate-100">{value}</span>
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-0.5 block w-full appearance-none bg-transparent pr-5 font-medium text-slate-100 outline-none"
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value} className="bg-slate-950 text-slate-100">
+              {option.label}
+            </option>
+          ))}
+        </select>
       </span>
-      <span className="text-slate-400">{locked ? "Pro" : "v"}</span>
-    </button>
+      <span className="pointer-events-none text-slate-400">v</span>
+    </label>
   );
 }
 
@@ -362,10 +397,10 @@ function PendingOverlay({ children }: { children: ReactNode }) {
   );
 }
 
-function BarChartPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
+function BarChartPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; horizon: string }) {
   const bandStats = scoreBands.map((band) => {
     const rows = snapshots.filter((snapshot) => scoreBandForScore(snapshot.score) === band);
-    const outcomes = rows.map((snapshot) => maturedOutcome(snapshot)).filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
+    const outcomes = rows.map((snapshot) => maturedOutcome(snapshot, horizon)).filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
     const directionalOutcomes = outcomes.filter((outcome) => typeof outcome.directionally_correct === "boolean");
     const accuracy =
       directionalOutcomes.length > 0
@@ -383,7 +418,7 @@ function BarChartPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
       </div>
       <p className="mt-3 flex items-center gap-2 text-xs text-slate-300">
         <span className="h-2 w-2 rounded-sm bg-lime-500" />
-        30D Directional Accuracy
+        {horizon} Directional Accuracy
       </p>
       <div className="relative mt-5 grid h-44 grid-cols-[2.5rem_1fr] gap-3 text-xs text-slate-400">
         <div className="flex flex-col justify-between py-1 text-right">
@@ -413,11 +448,11 @@ function BarChartPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
   );
 }
 
-function ScatterPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
+function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; horizon: string }) {
   const [hoverPoint, setHoverPoint] = useState<(EventOutcomePoint & { x: number; y: number }) | null>(null);
   const points = snapshots
     .map((snapshot) => {
-      const outcome = maturedOutcome(snapshot);
+      const outcome = maturedOutcome(snapshot, horizon);
       const opened = openedTime(snapshot);
       const returnValue = numericReturn(outcome?.directional_return_pct ?? outcome?.return_pct);
       if (!outcome || !opened || returnValue === null) return null;
@@ -515,7 +550,7 @@ function ScatterPanel({ snapshots }: { snapshots: OutcomeSnapshot[] }) {
           >
             <p className="font-semibold text-white">{hoverPoint.snapshot.ticker}</p>
             <p>Opened {hoverPoint.openedLabel}</p>
-            <p>30D target {hoverPoint.targetLabel}</p>
+            <p>{horizon} target {hoverPoint.targetLabel}</p>
             <p className={pctClassName(hoverPoint.returnValue)}>Return {formatPercent(hoverPoint.returnValue)}</p>
             <p>SPY {formatPercent(hoverPoint.outcome.spy_return_pct)}</p>
             <p className={pctClassName(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}>
@@ -551,6 +586,43 @@ function sortedOutcomeSnapshots(snapshots: OutcomeSnapshot[], sort: OutcomeSort)
       return sort.direction === "asc" ? value : -value;
     })
     .map((item) => item.snapshot);
+}
+
+function dateRangeCutoff(value: DateRangeFilterValue) {
+  const now = Date.now();
+  if (value === "30d") return now - 30 * 24 * 60 * 60 * 1000;
+  if (value === "90d") return now - 90 * 24 * 60 * 60 * 1000;
+  if (value === "12m") return now - 365 * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function matchesOutcomeFilters(
+  snapshot: OutcomeSnapshot,
+  {
+    cohort,
+    horizon,
+    direction,
+    scoreBand,
+    methodology,
+    dateRange,
+  }: {
+    cohort: CohortFilterValue;
+    horizon: string;
+    direction: string;
+    scoreBand: string;
+    methodology: string;
+    dateRange: DateRangeFilterValue;
+  },
+) {
+  const outcome = outcomeFor(snapshot, horizon);
+  if (cohort === "matured" && !(outcome?.status === "matured" && typeof outcome.return_pct === "number")) return false;
+  if (cohort === "tracking" && outcome?.status === "matured" && typeof outcome.return_pct === "number") return false;
+  if (direction !== "All" && formatDirection(snapshot.direction) !== direction) return false;
+  if (scoreBand !== "All Scores" && scoreBandForScore(snapshot.score) !== scoreBand) return false;
+  if (methodology !== "All Methodologies" && (snapshot.methodology ?? "-") !== methodology) return false;
+  const cutoff = dateRangeCutoff(dateRange);
+  if (cutoff !== null && openedTime(snapshot) < cutoff) return false;
+  return true;
 }
 
 function pricePathPointsFromBundle(bundle: TickerChartBundle | null): PricePathPoint[] {
@@ -660,7 +732,7 @@ function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | 
   );
 }
 
-function EventsTable({ snapshots, entitlementTier }: { snapshots: OutcomeSnapshot[]; entitlementTier: EntitlementTier }) {
+function EventsTable({ snapshots, entitlementTier, horizon }: { snapshots: OutcomeSnapshot[]; entitlementTier: EntitlementTier; horizon: string }) {
   const hasPremiumTable = canUsePremiumOutcomeTable(entitlementTier);
   const [sort, setSort] = useState<OutcomeSort>(null);
   const [pageSize, setPageSize] = useState<(typeof outcomeTablePageSizes)[number]>(10);
@@ -759,7 +831,7 @@ function EventsTable({ snapshots, entitlementTier }: { snapshots: OutcomeSnapsho
           <tbody className="divide-y divide-white/[0.06]">
             {visibleSnapshots.length ? (
               visibleSnapshots.map((snapshot) => {
-                const hasMaturedOutcome = Boolean(maturedOutcome(snapshot));
+                const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
                 return (
                   <tr key={snapshot.id} className="hover:bg-white/[0.03]">
                     <td className="px-4 py-2.5 font-semibold text-white">{snapshot.ticker}</td>
@@ -824,8 +896,8 @@ function EventsTable({ snapshots, entitlementTier }: { snapshots: OutcomeSnapsho
   );
 }
 
-function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot; entitlementTier: EntitlementTier }) {
-  const thirtyDay = selected ? maturedOutcome(selected) : undefined;
+function DetailPanel({ selected, entitlementTier, horizon, onClose }: { selected?: OutcomeSnapshot; entitlementTier: EntitlementTier; horizon: string; onClose: () => void }) {
+  const selectedHorizonOutcome = selected ? maturedOutcome(selected, horizon) : undefined;
   const canViewPremium = canViewPremiumOutcomes(entitlementTier);
   const [chartBundle, setChartBundle] = useState<TickerChartBundle | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
@@ -860,7 +932,9 @@ function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot
     <aside className="rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
         <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-white">Event Detail</h2>
-        <span className="text-xl text-slate-300">x</span>
+        <button type="button" onClick={onClose} className="rounded-md border border-transparent px-2 py-1 text-xl leading-none text-slate-300 hover:border-white/10 hover:bg-white/5" aria-label="Close event detail">
+          x
+        </button>
       </div>
       <div className="mt-5 space-y-5">
         <div>
@@ -879,7 +953,7 @@ function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot
               ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
               ["Public Eligible", "Yes"],
-              ["Outcome", selected ? outcomeStatusLabel(selected) : "Pending"],
+              ["Outcome", selected ? outcomeStatusLabel(selected, horizon) : "Pending"],
             ].map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-slate-400">{label}</dt>
@@ -897,14 +971,14 @@ function DetailPanel({ selected, entitlementTier }: { selected?: OutcomeSnapshot
                 <p className="mt-3 text-xs leading-5 text-slate-400">
                   SPY is the benchmark. Horizon excess compares the ticker return from opened date to target date against SPY over that same window.
                 </p>
-                {thirtyDay ? (
+                {selectedHorizonOutcome ? (
                   <dl className="mt-3 grid grid-cols-2 gap-y-2 border-t border-white/[0.08] pt-3">
-                    <dt>30D Return</dt>
-                    <dd className={`text-right ${pctClassName(thirtyDay.return_pct)}`}>{formatPercent(thirtyDay.return_pct)}</dd>
-                    <dt>SPY 30D</dt>
-                    <dd className={`text-right ${pctClassName(thirtyDay.spy_return_pct)}`}>{formatPercent(thirtyDay.spy_return_pct)}</dd>
-                    <dt>30D Excess</dt>
-                    <dd className={`text-right ${pctClassName(thirtyDay.excess_return_pct)}`}>{formatPercent(thirtyDay.excess_return_pct)}</dd>
+                    <dt>{horizon} Return</dt>
+                    <dd className={`text-right ${pctClassName(selectedHorizonOutcome.return_pct)}`}>{formatPercent(selectedHorizonOutcome.return_pct)}</dd>
+                    <dt>SPY {horizon}</dt>
+                    <dd className={`text-right ${pctClassName(selectedHorizonOutcome.spy_return_pct)}`}>{formatPercent(selectedHorizonOutcome.spy_return_pct)}</dd>
+                    <dt>{horizon} Excess</dt>
+                    <dd className={`text-right ${pctClassName(selectedHorizonOutcome.excess_return_pct)}`}>{formatPercent(selectedHorizonOutcome.excess_return_pct)}</dd>
                   </dl>
                 ) : maturedHorizons.length ? (
                   <dl className="mt-3 grid grid-cols-2 gap-y-2 border-t border-white/[0.08] pt-3">
@@ -973,6 +1047,13 @@ export function OutcomeLedgerClient({
   const [loading, setLoading] = useState(!initialStatus || !initialSnapshots);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
+  const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("live");
+  const [horizonFilter, setHorizonFilter] = useState("30D");
+  const [directionFilter, setDirectionFilter] = useState("All");
+  const [scoreBandFilter, setScoreBandFilter] = useState("All Scores");
+  const [methodologyFilter, setMethodologyFilter] = useState("All Methodologies");
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilterValue>("phase1");
+  const [eventDetailOpen, setEventDetailOpen] = useState(true);
 
   useEffect(() => {
     setEntitlementTier(clientEntitlementTier());
@@ -1024,32 +1105,50 @@ export function OutcomeLedgerClient({
     });
     return deduped;
   }, [snapshotItems]);
+  const methodologyOptions = useMemo(() => {
+    const values = [...new Set(uniqueSnapshotItems.map((snapshot) => snapshot.methodology ?? "-").filter(Boolean))].sort();
+    return ["All Methodologies", ...values].map((value) => ({ value, label: value }));
+  }, [uniqueSnapshotItems]);
+  const filteredSnapshotItems = useMemo(
+    () =>
+      uniqueSnapshotItems.filter((snapshot) =>
+        matchesOutcomeFilters(snapshot, {
+          cohort: cohortFilter,
+          horizon: horizonFilter,
+          direction: directionFilter,
+          scoreBand: scoreBandFilter,
+          methodology: methodologyFilter,
+          dateRange: dateRangeFilter,
+        }),
+      ),
+    [cohortFilter, dateRangeFilter, directionFilter, horizonFilter, methodologyFilter, scoreBandFilter, uniqueSnapshotItems],
+  );
   const publicPreviewSnapshots = useMemo(() => {
-    const byTicker = new Map(uniqueSnapshotItems.map((snapshot) => [snapshot.ticker.toUpperCase(), snapshot]));
+    const byTicker = new Map(filteredSnapshotItems.map((snapshot) => [snapshot.ticker.toUpperCase(), snapshot]));
     const featured = featuredOutcomeTickers.flatMap((ticker) => {
       const snapshot = byTicker.get(ticker);
       return snapshot ? [snapshot] : [];
     });
     const featuredIds = new Set(featured.map((snapshot) => snapshot.id));
-    const recentFill = uniqueSnapshotItems.filter((snapshot) => !featuredIds.has(snapshot.id));
+    const recentFill = filteredSnapshotItems.filter((snapshot) => !featuredIds.has(snapshot.id));
     return [...featured, ...recentFill];
-  }, [uniqueSnapshotItems]);
+  }, [filteredSnapshotItems]);
   const outcomeMetrics = useMemo(() => {
-    const matured30 = uniqueSnapshotItems
-      .map((snapshot) => maturedOutcome(snapshot))
+    const maturedForHorizon = filteredSnapshotItems
+      .map((snapshot) => maturedOutcome(snapshot, horizonFilter))
       .filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
-    const directional30 = matured30.filter((outcome) => typeof outcome.directionally_correct === "boolean");
+    const directionalForHorizon = maturedForHorizon.filter((outcome) => typeof outcome.directionally_correct === "boolean");
     const accuracy =
-      directional30.length > 0
-        ? Math.round((directional30.filter((outcome) => outcome.directionally_correct).length / directional30.length) * 100)
+      directionalForHorizon.length > 0
+        ? Math.round((directionalForHorizon.filter((outcome) => outcome.directionally_correct).length / directionalForHorizon.length) * 100)
         : null;
-    const directionalReturns = matured30
+    const directionalReturns = maturedForHorizon
       .map((outcome) => outcome.directional_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const directionalExcessReturns = matured30
+    const directionalExcessReturns = maturedForHorizon
       .map((outcome) => outcome.directional_excess_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const maturedHorizonCount = uniqueSnapshotItems.reduce(
+    const maturedHorizonCount = filteredSnapshotItems.reduce(
       (total, snapshot) =>
         total +
         horizonColumns.filter((horizon) => {
@@ -1059,14 +1158,14 @@ export function OutcomeLedgerClient({
       0,
     );
     return {
-      completedEvents: matured30.length,
+      completedEvents: maturedForHorizon.length,
       accuracy,
       medianDirectionalReturn: median(directionalReturns),
       medianDirectionalExcessReturn: median(directionalExcessReturns),
       benchmarkedEvents: directionalExcessReturns.length,
       maturedHorizonCount,
     };
-  }, [uniqueSnapshotItems]);
+  }, [filteredSnapshotItems, horizonFilter]);
   const selectedSnapshot = publicPreviewSnapshots[0];
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
 
@@ -1086,7 +1185,7 @@ export function OutcomeLedgerClient({
         const outcome = outcomeFor(snapshot, horizon);
         return outcomeValueLabel(outcome);
       }),
-      maturedOutcome(snapshot) ? "Matured" : "Tracking",
+      maturedOutcome(snapshot, horizonFilter) ? "Matured" : "Tracking",
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -1101,7 +1200,7 @@ export function OutcomeLedgerClient({
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-5 text-slate-100 sm:px-6">
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
+      <div className={`grid gap-4 ${eventDetailOpen ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
         <main className="min-w-0 space-y-4">
           <header>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">OUTCOMES</p>
@@ -1114,12 +1213,12 @@ export function OutcomeLedgerClient({
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
-            <FilterBox label="Cohort" value="Live Tracked" />
-            <FilterBox label="Horizon" value="30D" />
-            <FilterBox label="Direction" value="All" />
-            <FilterBox label="Score Band" value="All Scores" />
-            <FilterBox label="Methodology" value={status?.current_methodology_version ?? "-"} />
-            <FilterBox label="Date Range" value="Phase 1" />
+            <FilterSelect label="Cohort" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
+            <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={setHorizonFilter} />
+            <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
+            <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
+            <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
+            <FilterSelect label="Date Range" value={dateRangeFilter} options={dateRangeFilterOptions} onChange={(value) => setDateRangeFilter(value as DateRangeFilterValue)} />
             <button
               type="button"
               onClick={handleExportCsv}
@@ -1127,21 +1226,30 @@ export function OutcomeLedgerClient({
             >
               Export CSV
             </button>
+            {!eventDetailOpen ? (
+              <button
+                type="button"
+                onClick={() => setEventDetailOpen(true)}
+                className="h-12 shrink-0 whitespace-nowrap rounded-md border border-white/10 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 hover:border-emerald-300/30 hover:bg-emerald-400/10"
+              >
+                Event Detail
+              </button>
+            ) : null}
           </div>
 
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard icon="OK" label="Completed Events" value={outcomeMetrics.completedEvents} detail="Matured confirmation events loaded" />
             <MetricCard
-              icon="30"
-              label="30D Directional Accuracy"
+              icon={horizonFilter.replace("D", "")}
+              label={`${horizonFilter} Directional Accuracy`}
               value={outcomeMetrics.accuracy === null ? "Pending" : `${outcomeMetrics.accuracy}%`}
-              detail="Bullish and bearish calls measured at 30D"
+              detail={`Bullish and bearish calls measured at ${horizonFilter}`}
             />
             <MetricCard
               icon="+/-"
               label="Median Directional Return"
               value={formatPercent(outcomeMetrics.medianDirectionalReturn)}
-              detail="Median 30D outcome in the scored direction"
+              detail={`Median ${horizonFilter} outcome in the scored direction`}
             />
             <MetricCard
               icon="SPY"
@@ -1149,22 +1257,22 @@ export function OutcomeLedgerClient({
               value={formatPercent(outcomeMetrics.medianDirectionalExcessReturn)}
               detail={
                 outcomeMetrics.benchmarkedEvents
-                  ? `Median event excess: 30D scored return minus SPY (${outcomeMetrics.benchmarkedEvents} events)`
-                  : "Pending SPY benchmark samples at 30D"
+                  ? `Median event excess: ${horizonFilter} scored return minus SPY (${outcomeMetrics.benchmarkedEvents} events)`
+                  : `Pending SPY benchmark samples at ${horizonFilter}`
               }
             />
             <MetricCard icon="..." label="Scored Horizons" value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells with price returns`} />
           </div>
 
           <div className="grid gap-2 xl:grid-cols-[0.82fr_1.18fr]">
-            <BarChartPanel snapshots={uniqueSnapshotItems} />
-            <ScatterPanel snapshots={uniqueSnapshotItems} />
+            <BarChartPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
+            <ScatterPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
           </div>
 
-          <EventsTable snapshots={publicPreviewSnapshots} entitlementTier={entitlementTier} />
+          <EventsTable snapshots={publicPreviewSnapshots} entitlementTier={entitlementTier} horizon={horizonFilter} />
         </main>
 
-        <DetailPanel selected={selectedSnapshot} entitlementTier={entitlementTier} />
+        {eventDetailOpen ? <DetailPanel selected={selectedSnapshot} entitlementTier={entitlementTier} horizon={horizonFilter} onClose={() => setEventDetailOpen(false)} /> : null}
       </div>
     </div>
   );
