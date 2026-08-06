@@ -1103,11 +1103,8 @@ export function OutcomeLedgerClient({
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
         <main className="min-w-0 space-y-4">
-          <div className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm leading-6 text-emerald-50">
-            Walnut is preserving live confirmation-score judgments and showing matured outcomes, including wins and misses.
-          </div>
-
           <header>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">OUTCOMES</p>
             <p className="text-sm font-bold uppercase tracking-[0.36em] text-white">Outcome Ledger</p>
             <p className="mt-1 text-sm text-slate-300">Track what Walnut believed at the time - and what happened next.</p>
           </header>
