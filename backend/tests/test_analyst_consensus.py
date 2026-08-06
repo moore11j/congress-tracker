@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_analyst_consensus_schema
-from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, Event, PriceCache, TickerMeta
+from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, Event, PriceCache, Security, TickerMeta
 from app.entitlements import ENTITLEMENTS, require_feature
 from app.services.analyst_consensus import (
     build_snapshot_payload,
@@ -480,5 +480,55 @@ def test_historical_grade_symbols_prioritize_missing_then_oldest_ingests():
         db.commit()
 
         assert eligible_historical_grade_symbols(db, limit=4) == ["META", "NVDA", "AAPL", "MSFT"]
+    finally:
+        db.close()
+
+
+def test_historical_grade_symbols_prefers_current_consensus_coverage():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                Security(symbol="AAGIY", name="Thin OTC Name", asset_class="stock"),
+                Security(symbol="AAM", name="Stale Common Name", asset_class="stock"),
+                TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"),
+                TickerMeta(symbol="TSLA", company_name="Tesla Inc.", exchange="NASDAQ"),
+                TickerMeta(symbol="ZZZZ", company_name="Later Listed Name", exchange="NASDAQ"),
+            ]
+        )
+        db.add_all(
+            [
+                AnalystConsensusSnapshot(
+                    symbol="AAPL",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystConsensusSnapshot(
+                    symbol="TSLA",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystGradeEvent(
+                    symbol="AAPL",
+                    event_fingerprint="aapl-existing-history",
+                    source="fmp",
+                    published_date=date(2025, 1, 1),
+                    raw_payload_json="{}",
+                    ingested_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        assert eligible_historical_grade_symbols(db, limit=3) == ["TSLA", "AAPL", "ZZZZ"]
     finally:
         db.close()

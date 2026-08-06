@@ -700,7 +700,50 @@ def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None
         .group_by(AnalystGradeEvent.symbol)
         .subquery()
     )
-    rows = db.execute(
+    result: list[str] = []
+    seen: set[str] = set()
+
+    def append_rows(rows: Iterable[str | None]) -> None:
+        for raw in rows:
+            if limit and len(result) >= limit:
+                return
+            symbol, rejection = analyst_symbol_rejection_reason(raw)
+            if symbol and rejection is None and symbol not in seen:
+                result.append(symbol)
+                seen.add(symbol)
+
+    consensus_rows = db.execute(
+        select(AnalystConsensusSnapshot.symbol)
+        .outerjoin(latest_grade_ingests, AnalystConsensusSnapshot.symbol == latest_grade_ingests.c.symbol)
+        .where(AnalystConsensusSnapshot.availability_status.in_(("available", "partial", "stale")))
+        .group_by(AnalystConsensusSnapshot.symbol, latest_grade_ingests.c.latest_grade_ingested_at)
+        .order_by(
+            latest_grade_ingests.c.latest_grade_ingested_at.is_(None).desc(),
+            latest_grade_ingests.c.latest_grade_ingested_at.asc(),
+            AnalystConsensusSnapshot.symbol.asc(),
+        )
+        .limit(5000)
+    ).scalars().all()
+    append_rows(consensus_rows)
+    if limit and len(result) >= limit:
+        return result
+
+    ticker_rows = db.execute(
+        select(TickerMeta.symbol)
+        .outerjoin(latest_grade_ingests, TickerMeta.symbol == latest_grade_ingests.c.symbol)
+        .where(func.upper(TickerMeta.exchange).in_(("NASDAQ", "NYSE", "AMEX", "NYSE AMERICAN")))
+        .order_by(
+            latest_grade_ingests.c.latest_grade_ingested_at.is_(None).desc(),
+            latest_grade_ingests.c.latest_grade_ingested_at.asc(),
+            TickerMeta.symbol.asc(),
+        )
+        .limit(5000)
+    ).scalars().all()
+    append_rows(ticker_rows)
+    if limit and len(result) >= limit:
+        return result
+
+    security_rows = db.execute(
         select(Security.symbol)
         .outerjoin(latest_grade_ingests, Security.symbol == latest_grade_ingests.c.symbol)
         .where(func.lower(Security.asset_class).in_(("stock", "equity")))
@@ -711,24 +754,7 @@ def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None
         )
         .limit(5000)
     ).scalars().all()
-    if not rows:
-        rows = db.execute(
-            select(TickerMeta.symbol)
-            .outerjoin(latest_grade_ingests, TickerMeta.symbol == latest_grade_ingests.c.symbol)
-            .order_by(
-                latest_grade_ingests.c.latest_grade_ingested_at.is_(None).desc(),
-                latest_grade_ingests.c.latest_grade_ingested_at.asc(),
-                TickerMeta.symbol.asc(),
-            )
-            .limit(5000)
-        ).scalars().all()
-    result: list[str] = []
-    seen: set[str] = set()
-    for raw in rows:
-        symbol, rejection = analyst_symbol_rejection_reason(raw)
-        if symbol and rejection is None and symbol not in seen:
-            result.append(symbol)
-            seen.add(symbol)
+    append_rows(security_rows)
     return result[:limit] if limit else result
 
 
