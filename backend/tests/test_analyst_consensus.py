@@ -545,13 +545,13 @@ def test_consensus_changes_falls_back_to_historical_rating_counts():
             AnalystConsensusSnapshot(
                 symbol="NVDA",
                 snapshot_date=date(2026, 8, 4),
-                total_rating_count=10,
-                weighted_rating_value=0.75,
                 strong_buy_count=2,
                 buy_count=5,
                 hold_count=3,
                 sell_count=0,
                 strong_sell_count=0,
+                total_rating_count=10,
+                weighted_rating_value=0.75,
                 price_target_consensus=319,
                 availability_status="available",
                 provider_status="available",
@@ -635,6 +635,11 @@ def test_consensus_changes_falls_back_to_historical_price_targets():
             AnalystConsensusSnapshot(
                 symbol="NVDA",
                 snapshot_date=date(2026, 8, 4),
+                strong_buy_count=2,
+                buy_count=5,
+                hold_count=3,
+                sell_count=0,
+                strong_sell_count=0,
                 total_rating_count=10,
                 weighted_rating_value=0.75,
                 price_target_median=300,
@@ -694,6 +699,11 @@ def test_current_consensus_payload_includes_90_day_trend_series():
             AnalystConsensusSnapshot(
                 symbol="NVDA",
                 snapshot_date=date(2026, 8, 4),
+                strong_buy_count=2,
+                buy_count=5,
+                hold_count=3,
+                sell_count=0,
+                strong_sell_count=0,
                 total_rating_count=10,
                 weighted_rating_value=0.75,
                 recommendation_label="Bullish",
@@ -751,6 +761,17 @@ def test_current_consensus_payload_includes_90_day_trend_series():
         assert points[-1]["date"] == "2026-08-04"
         assert points[-1]["consensusTarget"] == 319
         assert points[-1]["weightedSentiment"] == 0.75
+        assert points[-1]["strongBuyCount"] == 2
+        assert points[-1]["buyCount"] == 5
+        assert points[-1]["holdCount"] == 3
+        assert points[-1]["sellCount"] == 0
+        assert points[-1]["strongSellCount"] == 0
+        historical_rating_point = next(point for point in points if point["date"] == "2026-07-01")
+        assert historical_rating_point["strongBuyCount"] == 1
+        assert historical_rating_point["buyCount"] == 5
+        assert historical_rating_point["holdCount"] == 4
+        assert historical_rating_point["sellCount"] == 0
+        assert historical_rating_point["strongSellCount"] == 0
     finally:
         db.close()
 

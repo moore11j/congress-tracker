@@ -4137,6 +4137,11 @@ export type TickerAnalystConsensusTrendPoint = {
   ratingCount?: number | null;
   recommendationLabel?: string | null;
   sentimentSource?: string | null;
+  strongBuyCount?: number | null;
+  buyCount?: number | null;
+  holdCount?: number | null;
+  sellCount?: number | null;
+  strongSellCount?: number | null;
   buyEquivalentPct?: number | null;
   sellEquivalentPct?: number | null;
 };

@@ -44,10 +44,6 @@ function formatMoney(value: number | null | undefined) {
   }).format(numeric);
 }
 
-function formatNumberOrLoading(value: number | null | undefined, options?: Intl.NumberFormatOptions) {
-  return asNumber(value) === null ? EMPTY_LABEL : formatNumber(value, options);
-}
-
 function toneForLabel(value: string | null | undefined) {
   const normalized = (value ?? "").toLowerCase();
   if (normalized.includes("bull") || normalized.includes("buy") || normalized.includes("improving")) return "text-emerald-300";
@@ -277,6 +273,119 @@ function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnaly
   );
 }
 
+const ratingSeries = [
+  { key: "strongBuyCount", label: "Strong Buy", color: "#34d399", tone: "text-emerald-200" },
+  { key: "buyCount", label: "Buy", color: "#2dd4bf", tone: "text-teal-200" },
+  { key: "holdCount", label: "Hold", color: "#facc15", tone: "text-yellow-200" },
+  { key: "sellCount", label: "Sell", color: "#fb923c", tone: "text-orange-200" },
+  { key: "strongSellCount", label: "Strong Sell", color: "#fb7185", tone: "text-rose-200" },
+] as const;
+
+function ratingPointValue(point: TickerAnalystConsensusTrendPoint, key: (typeof ratingSeries)[number]["key"]) {
+  return asNumber(point[key]);
+}
+
+function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalystConsensusTrendPoint[]; startDate?: string | null; endDate?: string | null }) {
+  const dated = points
+    .map((point) => ({ ...point, time: dateValue(point.date) }))
+    .filter((point): point is TickerAnalystConsensusTrendPoint & { time: number } => point.time !== null)
+    .sort((a, b) => a.time - b.time);
+  const ratingPoints = dated.filter((point) => ratingSeries.some((series) => ratingPointValue(point, series.key) !== null));
+  const firstTime = dateValue(startDate) ?? dated[0]?.time ?? null;
+  const lastTime = dateValue(endDate) ?? dated[dated.length - 1]?.time ?? null;
+  const maxRating = Math.max(
+    1,
+    ...ratingPoints.flatMap((point) => ratingSeries.map((series) => ratingPointValue(point, series.key) ?? 0)),
+  );
+  const width = 720;
+  const height = 278;
+  const margin = { top: 24, right: 28, bottom: 42, left: 54 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const yMax = Math.ceil(maxRating * 1.12);
+  const hasChart = firstTime !== null && lastTime !== null && lastTime > firstTime && ratingPoints.length >= 2;
+  const x = (time: number) => margin.left + ((time - (firstTime ?? time)) / Math.max((lastTime ?? time) - (firstTime ?? time), 1)) * plotWidth;
+  const y = (value: number) => margin.top + (1 - value / Math.max(yMax, 1)) * plotHeight;
+  const yTicks = [0, yMax / 2, yMax].map((tick) => Math.round(tick));
+  const xTicks = [
+    { label: startDate ? formatDateShort(startDate) : "", value: firstTime },
+    { label: endDate ? formatDateShort(endDate) : "", value: lastTime },
+  ].filter((tick): tick is { label: string; value: number } => Boolean(tick.label) && tick.value !== null);
+  const latest = ratingPoints[ratingPoints.length - 1] ?? null;
+
+  return (
+    <section className={`${panelClass} p-4`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Rating Mix Trend</p>
+          <p className="mt-1 text-xs text-slate-400">Last 90 days</p>
+        </div>
+        <div className="flex max-w-xl flex-wrap items-center justify-end gap-3 text-xs">
+          {ratingSeries.map((series) => (
+            <span key={series.key} className={`inline-flex items-center gap-2 ${series.tone}`}>
+              <span className="h-2 w-5 rounded-full" style={{ backgroundColor: series.color }} />
+              {series.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      {hasChart ? (
+        <div className="mt-4 overflow-hidden rounded-lg border border-white/10 bg-slate-950/50">
+          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Analyst rating counts by category over the last 90 days" className="h-[278px] w-full">
+            <rect x="0" y="0" width={width} height={height} fill="transparent" />
+            {[0, 0.5, 1].map((step) => {
+              const lineY = margin.top + step * plotHeight;
+              return <line key={step} x1={margin.left} x2={width - margin.right} y1={lineY} y2={lineY} stroke="rgba(148,163,184,0.16)" strokeWidth="1" />;
+            })}
+            <line x1={margin.left} x2={margin.left} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.32)" />
+            <line x1={margin.left} x2={width - margin.right} y1={height - margin.bottom} y2={height - margin.bottom} stroke="rgba(148,163,184,0.25)" />
+            {yTicks.map((tick) => (
+              <text key={tick} x={margin.left - 10} y={y(tick) + 4} textAnchor="end" className="fill-slate-400 text-[11px] tabular-nums">
+                {formatNumber(tick, { maximumFractionDigits: 0 })}
+              </text>
+            ))}
+            {xTicks.map((tick) => (
+              <text key={tick.label} x={x(tick.value)} y={height - 15} textAnchor={tick.value === firstTime ? "start" : "end"} className="fill-slate-500 text-[11px]">
+                {tick.label}
+              </text>
+            ))}
+            <text x={margin.left} y={14} className="fill-slate-300 text-[11px] font-semibold">Ratings</text>
+            {ratingSeries.map((series) => {
+              const seriesPoints = ratingPoints
+                .map((point) => {
+                  const value = ratingPointValue(point, series.key);
+                  return value === null ? null : { x: x(point.time), y: y(value), value, date: point.date };
+                })
+                .filter((point): point is { x: number; y: number; value: number; date: string } => point !== null);
+              const path = linePath(seriesPoints);
+              return (
+                <g key={series.key}>
+                  {path ? <path d={path} fill="none" stroke={series.color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /> : null}
+                  {seriesPoints.map((point) => (
+                    <circle key={`${series.key}-${point.date}`} cx={point.x} cy={point.y} r="2.8" fill={series.color} stroke="#0f172a" strokeWidth="1.4" />
+                  ))}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-400">-</div>
+      )}
+      <div className="mt-3 grid gap-2 sm:grid-cols-5">
+        {ratingSeries.map((series) => (
+          <DetailMetric
+            key={series.key}
+            label={series.label}
+            value={formatNumber(ratingPointValue(latest ?? ({} as TickerAnalystConsensusTrendPoint), series.key), { maximumFractionDigits: 0 })}
+            tone={series.tone}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function PremiumLocked() {
   return (
     <section className={`${panelClass} p-4`}>
@@ -330,7 +439,6 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
   const medianUpside = summary?.medianImpliedUpsidePct ?? snapshot?.medianImpliedUpsidePct ?? snapshot?.impliedUpside?.medianPct ?? null;
   const freshness = data?.freshness ?? interpretation?.freshness ?? null;
   const totalRatings = asNumber(snapshot?.totalRatingCount) ?? asNumber(snapshot?.recommendationDistribution?.total);
-  const hasActionWindows = Boolean(data?.gradeEventStats?.days30 || data?.gradeEventStats?.days90);
 
   if (!data || !snapshot) {
     return (
@@ -379,22 +487,7 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
             <PriceTargetRange snapshot={snapshot} />
           </div>
           <AnalystTrendChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
-          <section className={`${panelClass} p-4`}>
-            <p className="text-sm font-semibold text-white">Rating Actions</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <DetailMetric
-                label="30d Net"
-                value={hasActionWindows ? formatNumberOrLoading(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 }) : EMPTY_LABEL}
-                tone={hasActionWindows ? toneForPercent(data.gradeEventStats?.days30?.netActions) : "text-slate-400"}
-              />
-              <DetailMetric
-                label="90d Net"
-                value={hasActionWindows ? formatNumberOrLoading(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 }) : EMPTY_LABEL}
-                tone={hasActionWindows ? toneForPercent(data.gradeEventStats?.days90?.netActions) : "text-slate-400"}
-              />
-              <DetailMetric label="Latest" value={data.gradeEventStats?.mostRecentEvent?.action ?? "-"} tone="text-slate-200" />
-            </div>
-          </section>
+          <RatingsMixChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
         </>
       )}
     </div>
