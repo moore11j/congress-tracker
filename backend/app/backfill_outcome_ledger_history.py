@@ -250,18 +250,18 @@ def _load_points(
         .scalars()
         .all()
     )
-    points: list[HistoricalScorePoint] = []
-    seen: set[tuple[str, date, int, str, str]] = set()
+    points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint] = {}
     for event in rows:
         for point in _event_points(event, include_before=include_before):
             if point.score < min_score and point.source_count < min_source_count:
                 continue
-            key = (point.ticker, point.observed_at.date(), point.score, point.direction)
-            if key in seen:
-                continue
-            seen.add(key)
-            points.append(point)
-    return points
+            key = (point.ticker, point.observed_at.date())
+            current = points_by_visible_event.get(key)
+            if current is None or point.observed_at > current.observed_at or (
+                point.observed_at == current.observed_at and point.source_count > current.source_count
+            ):
+                points_by_visible_event[key] = point
+    return list(points_by_visible_event.values())
 
 
 def _snapshot_exists(
@@ -270,7 +270,6 @@ def _snapshot_exists(
     security_id: int,
     methodology_id: int,
     market_date: date,
-    input_hash: str,
     calculation_type: str,
 ) -> bool:
     return (
@@ -279,7 +278,6 @@ def _snapshot_exists(
                 ConfirmationScoreSnapshot.security_id == security_id,
                 ConfirmationScoreSnapshot.methodology_version_id == methodology_id,
                 ConfirmationScoreSnapshot.market_date == market_date,
-                ConfirmationScoreSnapshot.input_hash == input_hash,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             )
         ).scalar_one_or_none()
@@ -345,7 +343,6 @@ def backfill_outcome_ledger_history(
             security_id=security.id,
             methodology_id=methodology.id,
             market_date=entry_day,
-            input_hash=input_hash,
             calculation_type=calculation_type,
         ):
             report["skipped_existing"] += 1

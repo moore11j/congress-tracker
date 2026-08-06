@@ -317,8 +317,6 @@ def capture_live_confirmation_score_snapshot(
                 ConfirmationScoreSnapshot.security_id == security.id,
                 ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
                 ConfirmationScoreSnapshot.market_date == market_date,
-                ConfirmationScoreSnapshot.score == int(bundle.get("score") or 0),
-                ConfirmationScoreSnapshot.direction == str(bundle.get("direction") or "neutral"),
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             )
         ).scalar_one_or_none()
@@ -612,6 +610,15 @@ def _apply_snapshot_filters(query, *, ticker: str | None = None, methodology: st
     return query
 
 
+def _visible_snapshot_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int, date]:
+    return (
+        snapshot.calculation_type,
+        snapshot.security_id,
+        snapshot.methodology_version_id,
+        snapshot.market_date,
+    )
+
+
 def list_outcome_snapshots(
     db: Session,
     *,
@@ -634,17 +641,20 @@ def list_outcome_snapshots(
         start_date=start_date,
         end_date=end_date,
     )
-    total = db.execute(select(func.count()).select_from(base.subquery())).scalar() or 0
     thirty_day_matured_cutoff = datetime.now(timezone.utc).date() - timedelta(days=30)
-    rows = db.execute(
+    ordered_rows = db.execute(
         base.order_by(
             case((ConfirmationScoreSnapshot.market_date <= thirty_day_matured_cutoff, 1), else_=0).desc(),
             ConfirmationScoreSnapshot.calculated_at.desc(),
             ConfirmationScoreSnapshot.id.desc(),
         )
-        .offset(bounded_page * bounded_limit)
-        .limit(bounded_limit)
     ).scalars().all()
+    canonical_by_visible_event: dict[tuple[str, int, int, date], ConfirmationScoreSnapshot] = {}
+    for row in ordered_rows:
+        canonical_by_visible_event.setdefault(_visible_snapshot_key(row), row)
+    canonical_rows = list(canonical_by_visible_event.values())
+    total = len(canonical_rows)
+    rows = canonical_rows[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
     methodology_by_id = {
         row.id: row.version
         for row in db.execute(select(ConfirmationMethodologyVersion)).scalars().all()

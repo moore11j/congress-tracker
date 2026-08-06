@@ -82,7 +82,7 @@ def test_methodology_seed_and_single_current_version():
         assert [row.version for row in current_rows] == ["confirmation-v1"]
 
 
-def test_live_capture_dedupes_identical_input_and_preserves_new_input():
+def test_live_capture_dedupes_visible_daily_event_even_when_score_changes():
     engine = _engine()
     with Session(engine) as db:
         db.add(PriceCache(symbol="CRM", date="2026-08-04", close=101.25, price_source="test"))
@@ -97,9 +97,9 @@ def test_live_capture_dedupes_identical_input_and_preserves_new_input():
         assert duplicate is not None
         assert changed is not None
         assert duplicate.id == first.id
-        assert len(rows) == 2
+        assert changed.id == first.id
+        assert len(rows) == 1
         assert rows[0].score == 67
-        assert rows[1].score == 68
         assert rows[0].calculation_type == "live"
         assert rows[0].reference_price == 101.25
         assert json.loads(rows[0].active_sources_json) == ["insiders", "price_volume"]
@@ -275,7 +275,7 @@ def test_backfill_history_creates_matured_rows_from_monitoring_events():
         crm = next(item for item in response["items"] if item["ticker"] == "CRM" and item["score"] == 70)
         live_response = list_outcome_snapshots(db, limit=10, calculation_type="live")
 
-        assert report["created"] == 2
+        assert report["created"] == 1
         assert live_response["total"] == 0
         assert crm["outcomes"]["30D"]["status"] == "matured"
         assert crm["outcomes"]["30D"]["return_pct"] == 12.0
@@ -323,3 +323,4 @@ def test_backfill_history_dedupes_same_visible_daily_point():
         assert report["created"] == 1
         assert response["total"] == 1
         assert response["items"][0]["ticker"] == "DRAM"
+        assert response["items"][0]["active_source_count"] == 2
