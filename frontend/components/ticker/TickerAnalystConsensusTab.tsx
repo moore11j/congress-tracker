@@ -15,6 +15,7 @@ type Props = {
 
 const panelClass = "rounded-lg border border-white/10 bg-slate-950/55";
 const LOADING_LABEL = "Loading";
+const EMPTY_LABEL = "-";
 
 function asNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -44,7 +45,7 @@ function formatMoney(value: number | null | undefined) {
 }
 
 function formatNumberOrLoading(value: number | null | undefined, options?: Intl.NumberFormatOptions) {
-  return asNumber(value) === null ? LOADING_LABEL : formatNumber(value, options);
+  return asNumber(value) === null ? EMPTY_LABEL : formatNumber(value, options);
 }
 
 function toneForLabel(value: string | null | undefined) {
@@ -178,15 +179,15 @@ function ChangeRow({ label, change }: { label: string; change?: TickerAnalystCon
     <div className="grid gap-2 rounded-lg border border-white/10 bg-slate-950/50 p-3 sm:grid-cols-3">
       <div>
         <p className="text-xs font-semibold text-white">{label}</p>
-        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : LOADING_LABEL}</p>
+        <p className="mt-1 text-[11px] text-slate-500">{change?.comparisonDate ? `vs ${formatDateShort(change.comparisonDate)}` : EMPTY_LABEL}</p>
       </div>
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sentiment</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${sentimentTone}`}>{hasComparison ? formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 }) : LOADING_LABEL}</p>
+        <p className={`mt-1 text-sm font-semibold tabular-nums ${sentimentTone}`}>{hasComparison ? formatNumber(change?.weightedSentimentChange, { maximumFractionDigits: 2 }) : EMPTY_LABEL}</p>
       </div>
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Target</p>
-        <p className={`mt-1 text-sm font-semibold tabular-nums ${targetTone}`}>{hasComparison ? formatMoney(change?.consensusTargetChange) : LOADING_LABEL}</p>
+        <p className={`mt-1 text-sm font-semibold tabular-nums ${targetTone}`}>{hasComparison ? formatMoney(change?.consensusTargetChange) : EMPTY_LABEL}</p>
       </div>
     </div>
   );
@@ -245,8 +246,7 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
   const medianUpside = summary?.medianImpliedUpsidePct ?? snapshot?.medianImpliedUpsidePct ?? snapshot?.impliedUpside?.medianPct ?? null;
   const freshness = data?.freshness ?? interpretation?.freshness ?? null;
   const totalRatings = asNumber(snapshot?.totalRatingCount) ?? asNumber(snapshot?.recommendationDistribution?.total);
-  const historyLoading = !data?.changes?.days30?.comparisonDate && !data?.changes?.days90?.comparisonDate;
-  const actionWindowsLoading = historyLoading || (!data?.gradeEventStats?.days30 && !data?.gradeEventStats?.days90);
+  const hasActionWindows = Boolean(data?.gradeEventStats?.days30 || data?.gradeEventStats?.days90);
 
   if (!data || !snapshot) {
     return (
@@ -306,13 +306,13 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <DetailMetric
                 label="30d Net"
-                value={actionWindowsLoading ? LOADING_LABEL : formatNumberOrLoading(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 })}
-                tone={actionWindowsLoading ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days30?.netActions)}
+                value={hasActionWindows ? formatNumberOrLoading(data.gradeEventStats?.days30?.netActions, { maximumFractionDigits: 0 }) : EMPTY_LABEL}
+                tone={hasActionWindows ? toneForPercent(data.gradeEventStats?.days30?.netActions) : "text-slate-400"}
               />
               <DetailMetric
                 label="90d Net"
-                value={actionWindowsLoading ? LOADING_LABEL : formatNumberOrLoading(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 })}
-                tone={actionWindowsLoading ? "text-slate-400" : toneForPercent(data.gradeEventStats?.days90?.netActions)}
+                value={hasActionWindows ? formatNumberOrLoading(data.gradeEventStats?.days90?.netActions, { maximumFractionDigits: 0 }) : EMPTY_LABEL}
+                tone={hasActionWindows ? toneForPercent(data.gradeEventStats?.days90?.netActions) : "text-slate-400"}
               />
               <DetailMetric label="Latest" value={data.gradeEventStats?.mostRecentEvent?.action ?? "-"} tone="text-slate-200" />
             </div>
