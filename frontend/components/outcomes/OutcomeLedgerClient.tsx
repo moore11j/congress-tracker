@@ -222,25 +222,28 @@ function FilterSelect({
   options: { value: string; label: string }[] | readonly { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
   return (
     <label
-      className="flex h-12 min-w-[8.7rem] items-center justify-between rounded-md border border-white/10 bg-slate-900/70 px-3 text-left text-xs text-slate-300 shadow-inner shadow-white/[0.02]"
+      className="relative flex h-12 min-w-[8.7rem] cursor-pointer items-center justify-between rounded-md border border-white/10 bg-slate-900/70 px-3 text-left text-xs text-slate-300 shadow-inner shadow-white/[0.02] focus-within:border-emerald-300/40"
     >
-      <span>
+      <span className="min-w-0 pr-6">
         <span className="block text-[10px] text-slate-400">{label}</span>
-        <select
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="mt-0.5 block w-full appearance-none bg-transparent pr-5 font-medium text-slate-100 outline-none"
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value} className="bg-slate-950 text-slate-100">
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <span className="mt-0.5 block truncate font-medium text-slate-100">{selectedLabel}</span>
       </span>
-      <span className="pointer-events-none text-slate-400">v</span>
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">v</span>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-md bg-transparent text-transparent outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value} className="bg-slate-950 text-slate-100">
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
