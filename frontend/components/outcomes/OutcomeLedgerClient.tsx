@@ -152,12 +152,9 @@ function returnFromBase(price: number, base: number) {
   return ((price / base) - 1) * 100;
 }
 
-function median(values: number[]) {
+function average(values: number[]) {
   if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2) return sorted[middle];
-  return (sorted[middle - 1] + sorted[middle]) / 2;
+  return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
 function scoreBandForScore(score: number) {
@@ -1145,9 +1142,18 @@ export function OutcomeLedgerClient({
     const directionalReturns = maturedForHorizon
       .map((outcome) => outcome.directional_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-    const directionalExcessReturns = maturedForHorizon
-      .map((outcome) => outcome.directional_excess_return_pct)
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    const benchmarkedDirectionalOutcomes = maturedForHorizon.filter(
+      (outcome) =>
+        typeof outcome.directional_return_pct === "number" &&
+        Number.isFinite(outcome.directional_return_pct) &&
+        typeof outcome.spy_return_pct === "number" &&
+        Number.isFinite(outcome.spy_return_pct),
+    );
+    const averageDirectionalReturn = average(directionalReturns);
+    const averageBenchmarkedDirectionalReturn = average(benchmarkedDirectionalOutcomes.map((outcome) => outcome.directional_return_pct as number));
+    const averageSpyReturn = average(benchmarkedDirectionalOutcomes.map((outcome) => outcome.spy_return_pct as number));
+    const averageDirectionalExcessReturn =
+      averageBenchmarkedDirectionalReturn !== null && averageSpyReturn !== null ? Number((averageBenchmarkedDirectionalReturn - averageSpyReturn).toFixed(2)) : null;
     const maturedHorizonCount = filteredSnapshotItems.reduce(
       (total, snapshot) =>
         total +
@@ -1160,9 +1166,10 @@ export function OutcomeLedgerClient({
     return {
       completedEvents: maturedForHorizon.length,
       accuracy,
-      medianDirectionalReturn: median(directionalReturns),
-      medianDirectionalExcessReturn: median(directionalExcessReturns),
-      benchmarkedEvents: directionalExcessReturns.length,
+      averageDirectionalReturn,
+      averageSpyReturn,
+      averageDirectionalExcessReturn,
+      benchmarkedEvents: benchmarkedDirectionalOutcomes.length,
       maturedHorizonCount,
     };
   }, [filteredSnapshotItems, horizonFilter]);
@@ -1247,17 +1254,17 @@ export function OutcomeLedgerClient({
             />
             <MetricCard
               icon="+/-"
-              label="Median Directional Return"
-              value={formatPercent(outcomeMetrics.medianDirectionalReturn)}
-              detail={`Median ${horizonFilter} outcome in the scored direction`}
+              label="Average Directional Return"
+              value={formatPercent(outcomeMetrics.averageDirectionalReturn)}
+              detail={`Average ${horizonFilter} outcome in the scored direction`}
             />
             <MetricCard
               icon="SPY"
-              label="Median Excess vs SPY"
-              value={formatPercent(outcomeMetrics.medianDirectionalExcessReturn)}
+              label="Average Excess vs SPY"
+              value={formatPercent(outcomeMetrics.averageDirectionalExcessReturn)}
               detail={
                 outcomeMetrics.benchmarkedEvents
-                  ? `Median event excess: ${horizonFilter} scored return minus SPY (${outcomeMetrics.benchmarkedEvents} events)`
+                  ? `Average scored return minus average SPY ${formatPercent(outcomeMetrics.averageSpyReturn)} (${outcomeMetrics.benchmarkedEvents} events)`
                   : `Pending SPY benchmark samples at ${horizonFilter}`
               }
             />
