@@ -105,6 +105,25 @@ def test_live_capture_dedupes_identical_input_and_preserves_new_input():
         assert json.loads(rows[0].active_sources_json) == ["insiders", "price_volume"]
 
 
+def test_live_capture_dedupes_same_visible_daily_event_when_hash_changes():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add(PriceCache(symbol="CRM", date="2026-08-04", close=101.25, price_source="test"))
+        db.commit()
+
+        changed_freshness = _bundle(67)
+        changed_freshness["sources"]["price_volume"]["freshness_days"] = 2
+
+        first = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(67), calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc))
+        duplicate = capture_live_confirmation_score_snapshot(db, "CRM", changed_freshness, calculated_at=datetime(2026, 8, 4, 16, tzinfo=timezone.utc))
+
+        rows = db.execute(select(ConfirmationScoreSnapshot).order_by(ConfirmationScoreSnapshot.id)).scalars().all()
+        assert first is not None
+        assert duplicate is not None
+        assert duplicate.id == first.id
+        assert len(rows) == 1
+
+
 def test_input_hash_is_deterministic_and_excludes_calculation_time():
     engine = _engine()
     with Session(engine) as db:
@@ -262,3 +281,45 @@ def test_backfill_history_creates_matured_rows_from_monitoring_events():
         assert crm["outcomes"]["30D"]["return_pct"] == 12.0
         assert crm["outcomes"]["30D"]["spy_return_pct"] == 2.0
         assert crm["calculation_type"] == "historical_reconstruction"
+
+
+def test_backfill_history_dedupes_same_visible_daily_point():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_at = datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=60)
+        entry_day = observed_at.date().isoformat()
+        thirty_day = (observed_at.date() + outcome_ledger_module.timedelta(days=30)).isoformat()
+        db.add_all(
+            [
+                PriceCache(symbol="DRAM", date=entry_day, close=60.0, price_source="test"),
+                PriceCache(symbol="DRAM", date=thirty_day, close=63.0, price_source="test"),
+                PriceCache(symbol="SPY", date=entry_day, close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=thirty_day, close=510.0, price_source="test"),
+                ConfirmationMonitoringEvent(
+                    user_id=1,
+                    watchlist_id=1,
+                    ticker="DRAM",
+                    event_type="confirmation_changed",
+                    title="DRAM confirmation changed",
+                    body=None,
+                    score_before=39,
+                    score_after=39,
+                    band_before="weak",
+                    band_after="weak",
+                    direction_before="bullish",
+                    direction_after="bullish",
+                    source_count_before=1,
+                    source_count_after=2,
+                    payload_json="{}",
+                    created_at=observed_at,
+                ),
+            ]
+        )
+        db.commit()
+
+        report = backfill_outcome_ledger_history(db, since_days=120, limit=10, min_score=0, min_source_count=1, hydrate_prices=False)
+        response = list_outcome_snapshots(db, limit=10, calculation_type="historical_reconstruction")
+
+        assert report["created"] == 1
+        assert response["total"] == 1
+        assert response["items"][0]["ticker"] == "DRAM"

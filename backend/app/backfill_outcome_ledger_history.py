@@ -256,7 +256,7 @@ def _load_points(
         for point in _event_points(event, include_before=include_before):
             if point.score < min_score and point.source_count < min_source_count:
                 continue
-            key = (point.ticker, point.observed_at.date(), point.score, point.direction, point.source_kind)
+            key = (point.ticker, point.observed_at.date(), point.score, point.direction)
             if key in seen:
                 continue
             seen.add(key)

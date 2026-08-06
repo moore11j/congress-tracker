@@ -133,6 +133,17 @@ function openedTime(snapshot: OutcomeSnapshot) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function calculatedTime(snapshot: OutcomeSnapshot) {
+  const raw = snapshot.calculated_at ?? snapshot.created_at ?? snapshot.market_date;
+  if (!raw) return 0;
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function visibleOutcomeEventKey(snapshot: OutcomeSnapshot) {
+  return [snapshot.calculation_type, snapshot.ticker.toUpperCase(), snapshot.market_date ?? snapshot.calculated_at?.slice(0, 10) ?? snapshot.created_at?.slice(0, 10) ?? "unknown"].join(":");
+}
+
 function compactDate(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -1104,15 +1115,15 @@ export function OutcomeLedgerClient({
 
   const snapshotItems = useMemo(() => (snapshots?.items ?? []).map(hydrateDemoOutcomes), [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {
-    const seen = new Set<string>();
-    const deduped: OutcomeSnapshot[] = [];
+    const byVisibleEvent = new Map<string, OutcomeSnapshot>();
     snapshotItems.forEach((snapshot) => {
-      const key = String(snapshot.id);
-      if (seen.has(key)) return;
-      seen.add(key);
-      deduped.push(snapshot);
+      const key = visibleOutcomeEventKey(snapshot);
+      const current = byVisibleEvent.get(key);
+      if (!current || calculatedTime(snapshot) > calculatedTime(current) || (calculatedTime(snapshot) === calculatedTime(current) && snapshot.id > current.id)) {
+        byVisibleEvent.set(key, snapshot);
+      }
     });
-    return deduped;
+    return [...byVisibleEvent.values()];
   }, [snapshotItems]);
   const methodologyOptions = useMemo(() => {
     const values = [...new Set(uniqueSnapshotItems.map((snapshot) => snapshot.methodology ?? "-").filter(Boolean))].sort();

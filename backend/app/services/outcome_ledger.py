@@ -312,6 +312,21 @@ def capture_live_confirmation_score_snapshot(
             db.commit()
             return existing
 
+        visible_duplicate = db.execute(
+            select(ConfirmationScoreSnapshot).where(
+                ConfirmationScoreSnapshot.security_id == security.id,
+                ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
+                ConfirmationScoreSnapshot.market_date == market_date,
+                ConfirmationScoreSnapshot.score == int(bundle.get("score") or 0),
+                ConfirmationScoreSnapshot.direction == str(bundle.get("direction") or "neutral"),
+                ConfirmationScoreSnapshot.calculation_type == calculation_type,
+            )
+        ).scalar_one_or_none()
+        if visible_duplicate is not None:
+            _increment_counter(db, OUTCOMES_LEDGER_DUPLICATES_KEY)
+            db.commit()
+            return visible_duplicate
+
         snapshot = ConfirmationScoreSnapshot(
             security_id=security.id,
             ticker_at_time=normalized_symbol,
