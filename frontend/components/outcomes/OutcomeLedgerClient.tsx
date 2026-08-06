@@ -676,7 +676,6 @@ export function OutcomeLedgerClient({
     };
   }, [uniqueSnapshotItems]);
   const selectedSnapshot = publicPreviewSnapshots[0];
-  const hasMaturedOutcomes = outcomeMetrics.completedEvents > 0;
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
 
   function handleExportCsv() {
@@ -712,6 +711,10 @@ export function OutcomeLedgerClient({
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
         <main className="min-w-0 space-y-4">
+          <div className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm leading-6 text-emerald-50">
+            Walnut is preserving live confirmation-score judgments and showing matured outcomes, including wins and misses.
+          </div>
+
           <header>
             <p className="text-sm font-bold uppercase tracking-[0.36em] text-white">Outcome Ledger</p>
             <p className="mt-1 text-sm text-slate-300">Track what Walnut believed at the time - and what happened next.</p>
@@ -720,12 +723,6 @@ export function OutcomeLedgerClient({
           {error ? (
             <div className="rounded-md border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">{error}</div>
           ) : null}
-
-          <div className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm leading-6 text-emerald-50">
-            {hasMaturedOutcomes
-              ? "Walnut is preserving live confirmation-score judgments and showing matured outcomes, including wins and misses."
-              : "Walnut is now preserving live confirmation-score judgments. Outcome measurements will appear as each evaluation horizon matures."}
-          </div>
 
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <FilterBox label="Cohort" value="Live Tracked" />
