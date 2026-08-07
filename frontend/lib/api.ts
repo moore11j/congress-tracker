@@ -6214,8 +6214,8 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
 
 export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKey: string, options?: { source?: string; signal?: AbortSignal }): Promise<SeoSnapshotResponse> {
   return fetchJson<SeoSnapshotResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`), {
-    cache: "force-cache",
-    next: { revalidate: 1800 },
+    cache: "no-store",
+    next: { revalidate: 0 },
     signal: options?.signal,
     source: options?.source ?? "SeoSnapshot",
     requestSource: "ssr",
