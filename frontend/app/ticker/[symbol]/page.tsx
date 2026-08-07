@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -19,6 +19,7 @@ import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignals
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { ResearchActions } from "@/components/research/ResearchActions";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
+import { SeoSnapshotBaseline } from "@/components/seo/SeoSnapshotBaseline";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { entitlementsFromTierHint, hasEntitlement, isAdminEntitlement, type Entitlements } from "@/lib/entitlements";
 import {
@@ -53,7 +54,7 @@ import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/l
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { isApprovedSeoPilotPath, noindexFollowMetadata, tickerHasIndexableContent } from "@/lib/seoQuality";
+import { noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -271,16 +272,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
   const canonicalPath = canonicalTickerPathForSymbol(normalizedSymbol);
   const canonicalUrl = appCanonicalUrl(canonicalPath);
-  const approvedPilot = isApprovedSeoPilotPath(canonicalPath);
-  const profile = approvedPilot
-    ? await getTickerProfile(normalizedSymbol, { source: "TickerMetadata" }).catch(() => null)
-    : null;
-  const companyName = profile?.ticker?.name ?? null;
+  const snapshot = await getSeoSnapshot("ticker", normalizedSymbol, { source: "TickerMetadataSnapshot" })
+    .then((response) => response.snapshot)
+    .catch(() => null);
+  const companyName = typeof snapshot?.payload?.company_name === "string" ? snapshot.payload.company_name : null;
 
-  const title = publicTickerMetadataTitle(normalizedSymbol, companyName);
-  const description = publicTickerMetadataDescription(normalizedSymbol, companyName);
-  const hasLiveIndexableContent = tickerHasIndexableContent(profile);
-  if (!approvedPilot && !hasLiveIndexableContent) {
+  const title = snapshot?.title ?? publicTickerMetadataTitle(normalizedSymbol, companyName);
+  const description = snapshot?.meta_description ?? publicTickerMetadataDescription(normalizedSymbol, companyName);
+  if (!snapshot?.indexable) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -3888,10 +3887,16 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const canonicalTickerUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
   const activityDetailsRequested = one(sp, "activity_details") === "1";
   const lookbackDays = Number(lookback);
+  const snapshot = await getSeoSnapshot("ticker", normalizedSymbol, { source: "TickerPageSnapshot" })
+    .then((response) => response.snapshot)
+    .catch(() => null);
   const authState = requestMayHavePageAuthState(requestHeaders)
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
+  if (!authToken && !authState.hasAuthHint && !activityDetailsRequested && snapshot?.indexable) {
+    return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Ticker Research Snapshot" />;
+  }
   const entitlements = authToken
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);

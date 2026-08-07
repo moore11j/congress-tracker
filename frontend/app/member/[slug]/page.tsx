@@ -5,14 +5,16 @@ import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { MemberAnalyticsClient } from "@/components/member/MemberAnalyticsClient";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
+import { SeoSnapshotBaseline } from "@/components/seo/SeoSnapshotBaseline";
 import {
   getMemberAlphaSummary,
   getMemberProfile,
   getMemberProfileBySlug,
   getMemberTrades,
+  getSeoSnapshot,
 } from "@/lib/api";
 import { chamberBadge, partyBadge } from "@/lib/format";
-import { isBioguideId, nameToSlug } from "@/lib/memberSlug";
+import { nameToSlug } from "@/lib/memberSlug";
 import {
   DEFAULT_PORTFOLIO_LOOKBACK_DAYS,
   PORTFOLIO_LOOKBACK_OPTIONS,
@@ -174,26 +176,17 @@ function VerifiedBadge() {
   );
 }
 
-async function resolveMetadataMemberSlug(slug: string) {
-  if (!isBioguideId(slug)) return slug;
-  try {
-    const data = await getMemberProfileBySlug(slug, { include_trades: false });
-    return nameToSlug(profileMemberName(data.member.name, slug));
-  } catch {
-    return slug;
-  }
-}
-
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const sp = (await searchParams) ?? {};
-  const prettySlug = await resolveMetadataMemberSlug(slug);
-  const canonicalPath = `/member/${prettySlug}`;
-  const member = await getMemberProfileBySlug(prettySlug, { include_trades: false, source: "MemberMetadata" }).catch(() => null);
-  const memberName = profileMemberName(member?.member?.name, prettySlug);
-  const title = `${memberName} Stock Trades & Portfolio Performance | Walnut Markets`;
-  const description = `Research ${memberName}'s reported stock trades, portfolio simulation, performance context, recent disclosures, and ticker exposure in Walnut Markets.`;
-  if (!member?.member?.name) {
+  await searchParams;
+  const snapshot = await getSeoSnapshot("member", slug, { source: "MemberMetadataSnapshot" })
+    .then((response) => response.snapshot)
+    .catch(() => null);
+  const canonicalPath = snapshot?.canonical_path ?? `/member/${slug}`;
+  const memberName = typeof snapshot?.payload?.member_name === "string" ? snapshot.payload.member_name : profileMemberName(null, slug);
+  const title = snapshot?.title ?? `${memberName} Stock Trades & Congressional Activity | Walnut Markets`;
+  const description = snapshot?.meta_description ?? `Research ${memberName}'s stored congressional disclosure activity and public profile in Walnut Markets.`;
+  if (!snapshot?.indexable) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -219,6 +212,12 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const portfolioLookbackDays = getPortfolioLookbackParam(sp);
   const portfolioMode = getPortfolioModeParam(sp);
   const lb = lbRaw === "90" || lbRaw === "180" ? Number(lbRaw) : 365;
+  const snapshot = await getSeoSnapshot("member", slug, { source: "MemberPageSnapshot" })
+    .then((response) => response.snapshot)
+    .catch(() => null);
+  if (snapshot?.indexable && Object.keys(sp).length === 0) {
+    return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Congress Activity Snapshot" />;
+  }
 
   const upperSlug = slug.toUpperCase();
   if (upperSlug.startsWith("FMP_")) {

@@ -188,9 +188,9 @@ function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnaly
   const lastTime = dateValue(endDate) ?? dated[dated.length - 1]?.time ?? null;
   const targetValues = targetPoints.map((point) => asNumber(point.consensusTarget)).filter((value): value is number => value !== null);
   const hasChart = firstTime !== null && lastTime !== null && lastTime > firstTime && (targetPoints.length >= 2 || sentimentPoints.length >= 2);
-  const width = 720;
-  const height = 268;
-  const margin = { top: 24, right: 58, bottom: 42, left: 66 };
+  const width = 640;
+  const height = 236;
+  const margin = { top: 22, right: 42, bottom: 34, left: 52 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const targetMinRaw = targetValues.length ? Math.min(...targetValues) : 0;
@@ -212,20 +212,20 @@ function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnaly
   ].filter((tick): tick is { label: string; value: number } => Boolean(tick.label) && tick.value !== null);
 
   return (
-    <section className={`${panelClass} p-4`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className={`${panelClass} min-w-0 p-3`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-white">Target & Sentiment Trend</p>
           <p className="mt-1 text-xs text-slate-400">Last 90 days</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="inline-flex items-center gap-2 text-sky-200"><span className="h-2 w-6 rounded-full bg-sky-400" />Consensus target</span>
-          <span className="inline-flex items-center gap-2 text-amber-200"><span className="h-2 w-6 rounded-full bg-amber-300" />Sentiment</span>
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 text-sky-200"><span className="h-1.5 w-5 rounded-full bg-sky-400" />Target</span>
+          <span className="inline-flex items-center gap-1.5 text-amber-200"><span className="h-1.5 w-5 rounded-full bg-amber-300" />Sentiment</span>
         </div>
       </div>
       {hasChart ? (
-        <div className="mt-4 overflow-hidden rounded-lg border border-white/10 bg-slate-950/50">
-          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Analyst consensus target and sentiment over the last 90 days" className="h-[268px] w-full">
+        <div className="mt-3 min-w-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950/50">
+          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Analyst consensus target and sentiment over the last 90 days" className="h-[236px] w-full">
             <rect x="0" y="0" width={width} height={height} fill="transparent" />
             {[0, 0.5, 1].map((step) => {
               const y = margin.top + step * plotHeight;
@@ -245,7 +245,7 @@ function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnaly
               </text>
             ))}
             {xTicks.map((tick) => (
-              <text key={tick.label} x={x(tick.value)} y={height - 15} textAnchor={tick.value === firstTime ? "start" : "end"} className="fill-slate-500 text-[11px]">
+              <text key={tick.label} x={x(tick.value)} y={height - 11} textAnchor={tick.value === firstTime ? "start" : "end"} className="fill-slate-500 text-[11px]">
                 {tick.label}
               </text>
             ))}
@@ -262,7 +262,7 @@ function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnaly
           </svg>
         </div>
       ) : (
-        <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-400">-</div>
+        <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-400">-</div>
       )}
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
         <DetailMetric label="Current Target" value={formatMoney(latest?.consensusTarget)} tone="text-sky-100" />
@@ -297,9 +297,9 @@ function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalyst
     1,
     ...ratingPoints.flatMap((point) => ratingSeries.map((series) => ratingPointValue(point, series.key) ?? 0)),
   );
-  const width = 720;
-  const height = 278;
-  const margin = { top: 24, right: 28, bottom: 42, left: 54 };
+  const width = 640;
+  const height = 236;
+  const margin = { top: 22, right: 16, bottom: 34, left: 40 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const yMax = Math.ceil(maxRating * 1.12);
@@ -314,24 +314,24 @@ function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalyst
   const latest = ratingPoints[ratingPoints.length - 1] ?? null;
 
   return (
-    <section className={`${panelClass} p-4`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className={`${panelClass} min-w-0 p-3`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-white">Rating Mix Trend</p>
           <p className="mt-1 text-xs text-slate-400">Last 90 days</p>
         </div>
-        <div className="flex max-w-xl flex-wrap items-center justify-end gap-3 text-xs">
+        <div className="flex max-w-md flex-wrap items-center justify-end gap-x-2.5 gap-y-1 text-[11px]">
           {ratingSeries.map((series) => (
-            <span key={series.key} className={`inline-flex items-center gap-2 ${series.tone}`}>
-              <span className="h-2 w-5 rounded-full" style={{ backgroundColor: series.color }} />
+            <span key={series.key} className={`inline-flex items-center gap-1.5 ${series.tone}`}>
+              <span className="h-1.5 w-4 rounded-full" style={{ backgroundColor: series.color }} />
               {series.label}
             </span>
           ))}
         </div>
       </div>
       {hasChart ? (
-        <div className="mt-4 overflow-hidden rounded-lg border border-white/10 bg-slate-950/50">
-          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Analyst rating counts by category over the last 90 days" className="h-[278px] w-full">
+        <div className="mt-3 min-w-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950/50">
+          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Analyst rating counts by category over the last 90 days" className="h-[236px] w-full">
             <rect x="0" y="0" width={width} height={height} fill="transparent" />
             {[0, 0.5, 1].map((step) => {
               const lineY = margin.top + step * plotHeight;
@@ -345,7 +345,7 @@ function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalyst
               </text>
             ))}
             {xTicks.map((tick) => (
-              <text key={tick.label} x={x(tick.value)} y={height - 15} textAnchor={tick.value === firstTime ? "start" : "end"} className="fill-slate-500 text-[11px]">
+              <text key={tick.label} x={x(tick.value)} y={height - 11} textAnchor={tick.value === firstTime ? "start" : "end"} className="fill-slate-500 text-[11px]">
                 {tick.label}
               </text>
             ))}
@@ -370,7 +370,7 @@ function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalyst
           </svg>
         </div>
       ) : (
-        <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-400">-</div>
+        <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/50 p-5 text-sm text-slate-400">-</div>
       )}
       <div className="mt-3 grid gap-2 sm:grid-cols-5">
         {ratingSeries.map((series) => (
@@ -454,27 +454,36 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
 
   return (
     <div className="grid gap-4">
-      <section className={`${panelClass} p-5`}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Current View</p>
-            <h3 className={`mt-2 text-2xl font-semibold ${toneForLabel(label)}`}>{label}</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              {trend} analyst sentiment with {summary?.coverageLevel ?? interpretation?.coverageLevel ?? "insufficient"} coverage.
+      <section className={`${panelClass} p-4`}>
+        <div className="grid gap-3 md:grid-cols-5">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Current View</p>
+            <p className={`mt-1 truncate text-lg font-semibold ${toneForLabel(label)}`}>{label}</p>
+            <p className="mt-1 truncate text-xs text-slate-400">
+              {trend} / {summary?.coverageLevel ?? interpretation?.coverageLevel ?? "insufficient"} coverage
             </p>
           </div>
-          <div className="text-right">
-            <p className={`text-3xl font-semibold tabular-nums ${toneForPercent(consensusUpside)}`}>{formatPercent(consensusUpside, { signed: true })}</p>
-            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Consensus upside</p>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Consensus Upside</p>
+            <p className={`mt-1 text-lg font-semibold tabular-nums ${toneForPercent(consensusUpside)}`}>{formatPercent(consensusUpside, { signed: true })}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Median Upside</p>
+            <p className={`mt-1 text-lg font-semibold tabular-nums ${toneForPercent(medianUpside)}`}>{formatPercent(medianUpside, { signed: true })}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500"># Ratings</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-white">{formatNumber(totalRatings, { maximumFractionDigits: 0 })}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Freshness</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-200">
+              {freshness?.daysOld === 0 ? "Today" : freshness?.daysOld != null ? `${freshness.daysOld}d old` : statusCopy(availability)}
+            </p>
           </div>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <DetailMetric label="Median Upside" value={formatPercent(medianUpside, { signed: true })} tone={toneForPercent(medianUpside)} />
-          <DetailMetric label="Ratings" value={formatNumber(totalRatings, { maximumFractionDigits: 0 })} />
-          <DetailMetric label="Freshness" value={freshness?.daysOld === 0 ? "Today" : freshness?.daysOld != null ? `${freshness.daysOld}d old` : statusCopy(availability)} tone="text-slate-200" />
-        </div>
         {snapshot.snapshotDate ? (
-          <p className="mt-4 text-xs text-slate-500">Snapshot {formatDateShort(snapshot.snapshotDate)}</p>
+          <p className="mt-3 text-xs text-slate-500">Snapshot {formatDateShort(snapshot.snapshotDate)}</p>
         ) : null}
       </section>
 
@@ -486,8 +495,10 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
             <RatingDistribution snapshot={snapshot} />
             <PriceTargetRange snapshot={snapshot} />
           </div>
-          <AnalystTrendChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
-          <RatingsMixChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
+          <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+            <AnalystTrendChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
+            <RatingsMixChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
+          </div>
         </>
       )}
     </div>

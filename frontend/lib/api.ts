@@ -3717,6 +3717,39 @@ export type SymbolSuggestResponse = {
 
 export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency" | "institution" | "event";
 
+export type SeoSnapshotEntityType = "ticker" | "member" | "insider";
+export type SeoSnapshotLink = { label: string; href: string };
+export type SeoSnapshotSection = { heading: string; body: string };
+export type SeoEntitySnapshot = {
+  entity_type: SeoSnapshotEntityType;
+  entity_key: string;
+  canonical_path: string;
+  title: string;
+  meta_description: string;
+  indexable: boolean;
+  payload: Record<string, unknown> & {
+    sections?: SeoSnapshotSection[];
+    links?: SeoSnapshotLink[];
+    recent_activity?: Record<string, unknown>[];
+  };
+  content_hash?: string | null;
+  schema_version: number;
+  data_as_of?: string | null;
+  generated_at?: string | null;
+  updated_at?: string | null;
+};
+export type SeoSnapshotResponse = {
+  status: "ok" | "missing";
+  entity_type: SeoSnapshotEntityType;
+  entity_key: string;
+  snapshot: SeoEntitySnapshot | null;
+};
+export type SeoSnapshotIndexResponse = {
+  status: "ok";
+  entity_type: SeoSnapshotEntityType;
+  items: SeoEntitySnapshot[];
+};
+
 export type SearchSuggestResult = {
   kind: SearchSuggestKind;
   id: string;
@@ -6177,6 +6210,26 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
       source: options?.source ?? "TickerProfile",
     }),
   );
+}
+
+export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKey: string, options?: { source?: string; signal?: AbortSignal }): Promise<SeoSnapshotResponse> {
+  return fetchJson<SeoSnapshotResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`), {
+    cache: "force-cache",
+    next: { revalidate: 1800 },
+    signal: options?.signal,
+    source: options?.source ?? "SeoSnapshot",
+    requestSource: "ssr",
+  });
+}
+
+export async function getSeoSnapshotIndex(entityType: SeoSnapshotEntityType, options?: { source?: string; signal?: AbortSignal; limit?: number }): Promise<SeoSnapshotIndexResponse> {
+  return fetchJson<SeoSnapshotIndexResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}`, { limit: options?.limit }), {
+    cache: "force-cache",
+    next: { revalidate: 1800 },
+    signal: options?.signal,
+    source: options?.source ?? "SeoSnapshotIndex",
+    requestSource: "ssr",
+  });
 }
 
 export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; activeUser?: boolean; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {

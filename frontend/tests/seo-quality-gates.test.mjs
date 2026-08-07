@@ -34,8 +34,14 @@ test("phase 3 defines explicit SEO quality gates and pilot pages", () => {
   assert.match(seoQuality, /lastmod:/);
 });
 
-test("segmented app sitemaps consume the centralized pilot registry", () => {
-  for (const routePath of sitemapRoutes) {
+test("segmented app sitemaps consume controlled whitelist sources", () => {
+  for (const routePath of sitemapRoutes.slice(0, 3)) {
+    const source = read(routePath);
+    assert.match(source, /getSeoSnapshotIndex/);
+    assert.match(source, /sitemapUrlset/);
+    assert.doesNotMatch(source, /const PATHS|const TICKERS/);
+  }
+  for (const routePath of sitemapRoutes.slice(3)) {
     const source = read(routePath);
     assert.match(source, /seoPilotPages/);
     assert.match(source, /sitemapUrlset/);
@@ -51,9 +57,10 @@ test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pag
   const departmentPage = read("app/departments/[slug]/page.tsx");
   const comparePage = read("app/compare/[left]/[right]/page.tsx");
 
-  assert.match(tickerPage, /tickerHasIndexableContent\(profile\)/);
+  assert.match(tickerPage, /getSeoSnapshot\("ticker"/);
   assert.match(memberPage, /noindexFollowMetadata/);
-  assert.match(insiderPage, /insiderHasIndexableContent\(summary\)/);
+  assert.match(memberPage, /getSeoSnapshot\("member"/);
+  assert.match(insiderPage, /getSeoSnapshot\("insider"/);
   assert.match(institutionPage, /institutionHasIndexableContent\(profile\)/);
   assert.match(departmentPage, /departmentHasIndexableContent\(department\)/);
   assert.match(comparePage, /isApprovedSeoPilotPath\(canonicalPath\)/);

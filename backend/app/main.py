@@ -296,6 +296,7 @@ from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_valuation import get_ticker_valuation
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
+from app.services.seo_snapshots import get_seo_snapshot, list_indexable_seo_snapshots
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -5862,6 +5863,41 @@ def market_quotes(request: Request, symbols: str | None = Query(None)):
     if low_value_cached is not None:
         return low_value_cached
     return _build_market_quotes_response(symbols)
+
+
+@app.get("/api/seo-snapshots/{entity_type}/{entity_key:path}")
+def seo_entity_snapshot(entity_type: str, entity_key: str, response: Response, db: Session = Depends(get_db)):
+    normalized_type = (entity_type or "").strip().lower()
+    if normalized_type not in {"ticker", "member", "insider"}:
+        raise HTTPException(status_code=404, detail="SEO snapshot type not found")
+    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600"
+    snapshot = get_seo_snapshot(db, normalized_type, entity_key)
+    if snapshot is None:
+        return {
+            "status": "missing",
+            "entity_type": normalized_type,
+            "entity_key": entity_key,
+            "snapshot": None,
+        }
+    return {
+        "status": "ok",
+        "entity_type": normalized_type,
+        "entity_key": snapshot["entity_key"],
+        "snapshot": snapshot,
+    }
+
+
+@app.get("/api/seo-snapshots/{entity_type}")
+def seo_entity_snapshot_index(entity_type: str, response: Response, limit: int = Query(50000, ge=1, le=50000), db: Session = Depends(get_db)):
+    normalized_type = (entity_type or "").strip().lower()
+    if normalized_type not in {"ticker", "member", "insider"}:
+        raise HTTPException(status_code=404, detail="SEO snapshot type not found")
+    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600"
+    return {
+        "status": "ok",
+        "entity_type": normalized_type,
+        "items": list_indexable_seo_snapshots(db, normalized_type, limit=limit),
+    }
 
 
 @app.get("/api/tickers/{symbol}")

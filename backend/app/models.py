@@ -1583,6 +1583,33 @@ class PriceCache(Base):
     )
 
 
+class SeoEntitySnapshot(Base):
+    __tablename__ = "seo_entity_snapshots"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_key", name="uq_seo_entity_snapshots_type_key"),
+        Index("ix_seo_entity_snapshots_canonical_path", "canonical_path"),
+        Index("ix_seo_entity_snapshots_indexable", "entity_type", "indexable", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_key: Mapped[str] = mapped_column(Text, nullable=False)
+    canonical_path: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    meta_description: Mapped[str] = mapped_column(Text, nullable=False)
+    indexable: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    content_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    schema_version: Mapped[int] = mapped_column(default=1, server_default=text("1"), nullable=False)
+    data_as_of: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class MarketPressureSnapshot(Base):
     __tablename__ = "market_pressure_snapshots"
     __table_args__ = (

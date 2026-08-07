@@ -1,0 +1,29 @@
+# Proposed robots.txt / middleware robots change
+#
+# Do not deploy this until snapshot-backed pages have been reviewed and approved.
+# Current production behavior should remain unchanged until owner approval.
+
+diff --git a/frontend/middleware.ts b/frontend/middleware.ts
+--- a/frontend/middleware.ts
++++ b/frontend/middleware.ts
+@@
+ const robotsDisallowPaths = [
+   "/api/",
+   "/account",
+   "/billing",
+   "/settings",
+   "/admin",
+ ];
+
+# Keep the private and internal blocks above.
+# Do not add broad blocks for:
+#   /ticker/
+#   /member/
+#   /insider/
+#
+# Indexability should be controlled by:
+#   1. precomputed seo_entity_snapshots.indexable
+#   2. snapshot-backed metadata robots tags
+#   3. snapshot-backed sitemap inclusion
+#
+# Continue omitting thin or missing snapshots from sitemaps and returning noindex, follow.

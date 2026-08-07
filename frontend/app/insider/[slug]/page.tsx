@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades } from "@/lib/api";
+import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades, getSeoSnapshot } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { InsiderProfileHeaderClient } from "@/components/insider/InsiderProfileHeaderClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
+import { SeoSnapshotBaseline } from "@/components/seo/SeoSnapshotBaseline";
 import {
   getInsiderDisplayName,
   insiderDisplayNameFromSlug,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { insiderHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
+import { noindexFollowMetadata } from "@/lib/seoQuality";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -205,18 +206,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
-  const summary = await getInsiderSummary(reportingCik, 90, undefined, { source: "InsiderMetadata" }).catch(() => null);
-  const insiderName = getInsiderDisplayName(summary?.insider_name, insiderDisplayNameFromSlug(slug)) ?? "Insider";
-  const companyName = firstText(summary?.primary_company_name, summary?.primary_symbol);
-  const canonicalSlug = insiderSlug(insiderName, reportingCik) ?? slug;
-  const canonicalPath = cleanInsiderCanonicalPath(canonicalSlug);
-  const title = companyName
-    ? `${insiderName} Insider Trading Activity at ${companyName} | Walnut Markets`
-    : `${insiderName} Insider Trading Activity | Walnut Markets`;
-  const description = companyName
-    ? `Research ${insiderName}'s reported insider trading activity, ownership changes, transaction history, and ${companyName} ticker context in Walnut Markets.`
-    : `Research ${insiderName}'s reported insider trading activity, ownership changes, transaction history, and ticker context in Walnut Markets.`;
-  if (!insiderHasIndexableContent(summary)) {
+  const snapshot = await getSeoSnapshot("insider", reportingCik, { source: "InsiderMetadataSnapshot" })
+    .then((response) => response.snapshot)
+    .catch(() => null);
+  const insiderName = typeof snapshot?.payload?.insider_name === "string" ? snapshot.payload.insider_name : (getInsiderDisplayName(insiderDisplayNameFromSlug(slug)) ?? "Insider");
+  const canonicalPath = snapshot?.canonical_path ?? cleanInsiderCanonicalPath(insiderSlug(insiderName, reportingCik) ?? slug);
+  const title = snapshot?.title ?? `${insiderName} Insider Trades & Form 4 Activity | Walnut Markets`;
+  const description = snapshot?.meta_description ?? `Research ${insiderName}'s stored Form 4 insider trading activity and issuer context in Walnut Markets.`;
+  if (!snapshot?.indexable) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -256,6 +253,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const issuer = one(sp, "issuer").trim().toUpperCase();
   const chartSymbol = one(sp, "symbol").trim().toUpperCase();
   const recentTradesPage = clampPage(one(sp, "recent_trades_page"));
+  const snapshot = await getSeoSnapshot("insider", reportingCik, { source: "InsiderPageSnapshot" })
+    .then((response) => response.snapshot)
+    .catch(() => null);
+  if (snapshot?.indexable && Object.keys(sp).length === 0) {
+    return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Insider Activity Snapshot" />;
+  }
 
   const lookbackDays = Number(lookback);
   const normalizedIssuer = issuer || undefined;

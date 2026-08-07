@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server";
-import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
+import { getSeoSnapshotIndex } from "@/lib/api";
+import { sitemapUrlset } from "@/lib/seoQuality";
 
 const APP_URL = "https://app.walnutmarkets.com";
 
-export const dynamic = "force-static";
+export const dynamic = "force-dynamic";
+export const revalidate = 1800;
 
-export function GET() {
-  return xmlResponse(sitemapUrlset(APP_URL, seoPilotPages.tickers));
+export async function GET() {
+  const pages = await getSeoSnapshotIndex("ticker", { source: "TickerSitemap" })
+    .then((response) => response.items.map((item) => ({
+      type: "ticker" as const,
+      path: item.canonical_path,
+      lastmod: (item.data_as_of ?? item.updated_at ?? new Date().toISOString()).slice(0, 10),
+      rationale: "Indexable precomputed ticker SEO snapshot.",
+    })))
+    .catch(() => []);
+  return xmlResponse(sitemapUrlset(APP_URL, pages));
 }
 
 function xmlResponse(body: string) {
