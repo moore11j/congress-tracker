@@ -481,9 +481,8 @@ def backfill_outcome_ledger_history(
         else:
             db.add(snapshot)
             db.flush()
+            db.commit()
             report["created"] += 1
-            if report["created"] % 25 == 0:
-                db.commit()
         if len(report["items"]) < 25:
             report["items"].append(
                 {
