@@ -53,6 +53,13 @@ def backfill_historical_analyst_grades(
                 succeeded += 1
                 inserted += int(result.get("inserted") or 0)
                 updated += int(result.get("updated") or 0)
+            if not dry_run:
+                run.symbols_attempted = attempted
+                run.symbols_succeeded = succeeded
+                run.symbols_failed = failed
+                run.records_inserted = inserted
+                run.records_updated = updated
+                db.commit()
             if sleep_seconds > 0:
                 time.sleep(sleep_seconds)
         status = "success" if failed == 0 else "partial"
