@@ -1,10 +1,15 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
+  TickerAnalystGradeEvent,
   TickerAnalystConsensusResponse,
   TickerAnalystConsensusSnapshot,
   TickerAnalystConsensusTrendPoint,
+  TickerAnalystPriceTargetEvent,
 } from "@/lib/api";
+import { getTickerAnalystConsensusEvents } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
@@ -148,9 +153,29 @@ function PriceTargetRange({ snapshot }: { snapshot: TickerAnalystConsensusSnapsh
       <div className="mt-5">
         <div className="relative h-2 rounded-full bg-white/10">
           <div className="absolute inset-y-0 rounded-full bg-slate-600/80" style={{ left: `${position(low)}%`, right: `${100 - position(high)}%` }} />
-          {current !== null ? <span className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded bg-white" style={{ left: `${position(current)}%` }} /> : null}
+          {current !== null ? (
+            <span
+              aria-hidden="true"
+              className="absolute top-1/2 z-20 h-0 w-0 -translate-x-1/2 -translate-y-[135%] border-b-[10px] border-l-[6px] border-r-[6px] border-b-white border-l-transparent border-r-transparent drop-shadow-[0_0_6px_rgba(255,255,255,0.35)]"
+              style={{ left: `${position(current)}%` }}
+            />
+          ) : null}
           {consensus !== null ? <span className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-200 bg-sky-400" style={{ left: `${position(consensus)}%` }} /> : null}
           {median !== null ? <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-100 bg-emerald-300" style={{ left: `${position(median)}%` }} /> : null}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-semibold text-slate-300">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-0 w-0 border-b-[8px] border-l-[5px] border-r-[5px] border-b-white border-l-transparent border-r-transparent" />
+            Current {formatMoney(current)}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-sky-200">
+            <span className="h-3 w-3 rounded-full border-2 border-sky-100 bg-sky-400" />
+            Consensus {formatMoney(consensus)}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-emerald-200">
+            <span className="h-3 w-3 rounded-full border border-emerald-100 bg-emerald-300" />
+            Median {formatMoney(median)}
+          </span>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
           <span className="text-slate-400">Low {formatMoney(low)}</span>
@@ -177,7 +202,110 @@ function linePath(points: Array<{ x: number; y: number }>) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
 }
 
-function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnalystConsensusTrendPoint[]; startDate?: string | null; endDate?: string | null }) {
+function formatEventDate(value: string | null | undefined) {
+  if (!value) return "-";
+  return formatDateShort(value.slice(0, 10));
+}
+
+function targetEventName(event: TickerAnalystPriceTargetEvent) {
+  return event.analystCompany ?? event.analystName ?? event.newsPublisher ?? "Analyst";
+}
+
+function ratingEventName(event: TickerAnalystGradeEvent) {
+  return event.gradingCompany ?? event.analystName ?? "Analyst";
+}
+
+function formatRatingAction(action: string | null | undefined) {
+  const normalized = (action ?? "").replace(/_/g, " ").trim();
+  if (!normalized) return "Rating change";
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatRatingChange(event: TickerAnalystGradeEvent) {
+  const previous = event.previousGrade?.trim();
+  const next = event.newGrade?.trim();
+  if (previous && next && previous.toLowerCase() !== next.toLowerCase()) return `${previous} -> ${next}`;
+  if (next) return next;
+  return formatRatingAction(event.action ?? event.providerAction);
+}
+
+function formatTargetChange(event: TickerAnalystPriceTargetEvent) {
+  const target = asNumber(event.adjustedPriceTarget) ?? asNumber(event.priceTarget);
+  const posted = asNumber(event.priceWhenPosted);
+  if (target !== null && posted !== null) return `${formatMoney(target)} target, ${formatMoney(posted)} posted`;
+  if (target !== null) return `${formatMoney(target)} target`;
+  return event.newsTitle ?? "Target update";
+}
+
+function TargetHistoryTable({ events, loading }: { events: TickerAnalystPriceTargetEvent[]; loading: boolean }) {
+  const rows = events.slice(0, 6);
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Target Change History</p>
+        <p className="text-[11px] text-slate-500">Who / when / target</p>
+      </div>
+      <div className="mt-2 divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10">
+        {loading ? (
+          <div className="px-3 py-2 text-xs font-semibold text-slate-400">Loading</div>
+        ) : rows.length ? (
+          rows.map((event, index) => (
+            <div key={`${event.id ?? event.publishedDate ?? "target"}-${index}`} className="grid grid-cols-[4.8rem_minmax(0,1fr)_minmax(0,1.15fr)] gap-2 px-3 py-2 text-xs">
+              <span className="tabular-nums text-slate-500">{formatEventDate(event.publishedDate ?? event.publishedAt)}</span>
+              <span className="truncate font-semibold text-slate-200" title={targetEventName(event)}>{targetEventName(event)}</span>
+              <span className="truncate text-right font-semibold text-sky-200" title={formatTargetChange(event)}>{formatTargetChange(event)}</span>
+            </div>
+          ))
+        ) : (
+          <div className="px-3 py-2 text-xs text-slate-500">-</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RatingHistoryTable({ events, loading }: { events: TickerAnalystGradeEvent[]; loading: boolean }) {
+  const rows = events.slice(0, 6);
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Rating Change History</p>
+        <p className="text-[11px] text-slate-500">Who / when / action</p>
+      </div>
+      <div className="mt-2 divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10">
+        {loading ? (
+          <div className="px-3 py-2 text-xs font-semibold text-slate-400">Loading</div>
+        ) : rows.length ? (
+          rows.map((event, index) => (
+            <div key={`${event.id ?? event.publishedDate ?? "rating"}-${index}`} className="grid grid-cols-[4.8rem_minmax(0,1fr)_minmax(0,1.1fr)] gap-2 px-3 py-2 text-xs">
+              <span className="tabular-nums text-slate-500">{formatEventDate(event.publishedDate)}</span>
+              <span className="truncate font-semibold text-slate-200" title={ratingEventName(event)}>{ratingEventName(event)}</span>
+              <span className={`truncate text-right font-semibold ${toneForLabel(formatRatingChange(event))}`} title={`${formatRatingAction(event.action ?? event.providerAction)}: ${formatRatingChange(event)}`}>
+                {formatRatingChange(event)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="px-3 py-2 text-xs text-slate-500">-</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnalystTrendChart({
+  points,
+  startDate,
+  endDate,
+  targetEvents,
+  eventsLoading,
+}: {
+  points: TickerAnalystConsensusTrendPoint[];
+  startDate?: string | null;
+  endDate?: string | null;
+  targetEvents: TickerAnalystPriceTargetEvent[];
+  eventsLoading: boolean;
+}) {
   const dated = points
     .map((point) => ({ ...point, time: dateValue(point.date) }))
     .filter((point): point is TickerAnalystConsensusTrendPoint & { time: number } => point.time !== null)
@@ -269,6 +397,7 @@ function AnalystTrendChart({ points, startDate, endDate }: { points: TickerAnaly
         <DetailMetric label="Current Sentiment" value={formatNumber(latest?.weightedSentiment, { maximumFractionDigits: 2 })} tone="text-amber-100" />
         <DetailMetric label="Observations" value={formatNumber(dated.length, { maximumFractionDigits: 0 })} tone="text-slate-200" />
       </div>
+      <TargetHistoryTable events={targetEvents} loading={eventsLoading} />
     </section>
   );
 }
@@ -285,7 +414,19 @@ function ratingPointValue(point: TickerAnalystConsensusTrendPoint, key: (typeof 
   return asNumber(point[key]);
 }
 
-function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalystConsensusTrendPoint[]; startDate?: string | null; endDate?: string | null }) {
+function RatingsMixChart({
+  points,
+  startDate,
+  endDate,
+  gradeEvents,
+  eventsLoading,
+}: {
+  points: TickerAnalystConsensusTrendPoint[];
+  startDate?: string | null;
+  endDate?: string | null;
+  gradeEvents: TickerAnalystGradeEvent[];
+  eventsLoading: boolean;
+}) {
   const dated = points
     .map((point) => ({ ...point, time: dateValue(point.date) }))
     .filter((point): point is TickerAnalystConsensusTrendPoint & { time: number } => point.time !== null)
@@ -382,6 +523,7 @@ function RatingsMixChart({ points, startDate, endDate }: { points: TickerAnalyst
           />
         ))}
       </div>
+      <RatingHistoryTable events={gradeEvents} loading={eventsLoading} />
     </section>
   );
 }
@@ -428,6 +570,9 @@ export function TickerAnalystConsensusSkeleton() {
 }
 
 export function TickerAnalystConsensusTab({ data, symbol }: Props) {
+  const [gradeEvents, setGradeEvents] = useState<TickerAnalystGradeEvent[]>([]);
+  const [targetEvents, setTargetEvents] = useState<TickerAnalystPriceTargetEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const snapshot = data?.currentSnapshot ?? null;
   const summary = data?.currentSummary ?? null;
   const interpretation = data?.interpretation ?? null;
@@ -439,6 +584,41 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
   const medianUpside = summary?.medianImpliedUpsidePct ?? snapshot?.medianImpliedUpsidePct ?? snapshot?.impliedUpside?.medianPct ?? null;
   const freshness = data?.freshness ?? interpretation?.freshness ?? null;
   const totalRatings = asNumber(snapshot?.totalRatingCount) ?? asNumber(snapshot?.recommendationDistribution?.total);
+  const recentGradeEvents = useMemo(() => gradeEvents.filter((event) => event.publishedDate || event.newGrade || event.previousGrade || event.action), [gradeEvents]);
+  const recentTargetEvents = useMemo(
+    () => targetEvents.filter((event) => event.publishedDate || event.publishedAt || asNumber(event.adjustedPriceTarget) !== null || asNumber(event.priceTarget) !== null),
+    [targetEvents],
+  );
+
+  useEffect(() => {
+    if (locked || !snapshot) {
+      setGradeEvents([]);
+      setTargetEvents([]);
+      setEventsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setEventsLoading(true);
+    getTickerAnalystConsensusEvents(symbol, {
+      limit: 24,
+      signal: controller.signal,
+      source: "TickerAnalystConsensusTab",
+    })
+      .then((response) => {
+        setGradeEvents(response.items ?? []);
+        setTargetEvents(response.targetItems ?? []);
+      })
+      .catch((error: unknown) => {
+        if ((error as { name?: string })?.name !== "AbortError") {
+          setGradeEvents([]);
+          setTargetEvents([]);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setEventsLoading(false);
+      });
+    return () => controller.abort();
+  }, [locked, snapshot?.snapshotDate, snapshot?.symbol, symbol]);
 
   if (!data || !snapshot) {
     return (
@@ -496,8 +676,20 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
             <PriceTargetRange snapshot={snapshot} />
           </div>
           <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-            <AnalystTrendChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
-            <RatingsMixChart points={data.trendSeries?.points ?? []} startDate={data.trendSeries?.startDate} endDate={data.trendSeries?.endDate} />
+            <AnalystTrendChart
+              points={data.trendSeries?.points ?? []}
+              startDate={data.trendSeries?.startDate}
+              endDate={data.trendSeries?.endDate}
+              targetEvents={recentTargetEvents}
+              eventsLoading={eventsLoading}
+            />
+            <RatingsMixChart
+              points={data.trendSeries?.points ?? []}
+              startDate={data.trendSeries?.startDate}
+              endDate={data.trendSeries?.endDate}
+              gradeEvents={recentGradeEvents}
+              eventsLoading={eventsLoading}
+            />
           </div>
         </>
       )}

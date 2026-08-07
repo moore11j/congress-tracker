@@ -1649,6 +1649,27 @@ def grade_event_payload(row: AnalystGradeEvent | None) -> dict[str, Any] | None:
     }
 
 
+def price_target_event_payload(row: AnalystPriceTargetEvent | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "symbol": row.symbol,
+        "analystCompany": row.analyst_company,
+        "analystName": row.analyst_name,
+        "priceTarget": row.price_target,
+        "adjustedPriceTarget": row.adjusted_price_target,
+        "priceWhenPosted": row.price_when_posted,
+        "publishedDate": _iso_date(row.published_date),
+        "publishedAt": _iso_dt(row.published_at),
+        "newsTitle": row.news_title,
+        "newsPublisher": row.news_publisher,
+        "newsUrl": row.news_url,
+        "source": row.source,
+        "ingestedAt": _iso_dt(row.ingested_at),
+    }
+
+
 def events_payload(
     db: Session,
     symbol: str,
@@ -1673,7 +1694,20 @@ def events_payload(
     rows = db.execute(
         statement.order_by(AnalystGradeEvent.published_date.desc(), AnalystGradeEvent.id.desc()).limit(bounded_limit)
     ).scalars().all()
-    return {"symbol": normalized, "limit": bounded_limit, "items": [grade_event_payload(row) for row in rows]}
+    target_statement = select(AnalystPriceTargetEvent).where(AnalystPriceTargetEvent.symbol == normalized)
+    if start_date:
+        target_statement = target_statement.where(AnalystPriceTargetEvent.published_date >= start_date)
+    if end_date:
+        target_statement = target_statement.where(AnalystPriceTargetEvent.published_date <= end_date)
+    target_rows = db.execute(
+        target_statement.order_by(AnalystPriceTargetEvent.published_date.desc(), AnalystPriceTargetEvent.id.desc()).limit(bounded_limit)
+    ).scalars().all()
+    return {
+        "symbol": normalized,
+        "limit": bounded_limit,
+        "items": [grade_event_payload(row) for row in rows],
+        "targetItems": [price_target_event_payload(row) for row in target_rows],
+    }
 
 
 def compare_consensus_payload(

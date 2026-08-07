@@ -4284,10 +4284,28 @@ export type TickerAnalystGradeEvent = {
   ingestedAt?: string | null;
 };
 
+export type TickerAnalystPriceTargetEvent = {
+  id?: number | string | null;
+  symbol?: string | null;
+  analystCompany?: string | null;
+  analystName?: string | null;
+  priceTarget?: number | null;
+  adjustedPriceTarget?: number | null;
+  priceWhenPosted?: number | null;
+  publishedDate?: string | null;
+  publishedAt?: string | null;
+  newsTitle?: string | null;
+  newsPublisher?: string | null;
+  newsUrl?: string | null;
+  source?: string | null;
+  ingestedAt?: string | null;
+};
+
 export type TickerAnalystConsensusEventsResponse = {
   symbol: string;
   limit?: number | null;
   items: TickerAnalystGradeEvent[];
+  targetItems?: TickerAnalystPriceTargetEvent[];
   availability?: { status?: string | null; reason?: string | null };
 };
 

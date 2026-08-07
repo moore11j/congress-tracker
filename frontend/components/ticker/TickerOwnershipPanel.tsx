@@ -214,19 +214,19 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
 function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
   const visible = holders
     .filter((holder) => isFiniteNumber(holder.ownership_pct) || isFiniteNumber(holder.value_usd) || isFiniteNumber(holder.shares))
-    .slice(0, 12);
+    .slice(0, 15);
   if (visible.length === 0) {
     return <p className="text-sm text-slate-400">Holder-level records are not available.</p>;
   }
   return (
-    <div className="max-h-44 overflow-auto rounded-xl border border-white/10 bg-slate-950/70">
+    <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-white/10 bg-slate-950/70">
       <table className="min-w-full table-fixed text-left text-xs">
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#07111d] text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
           <tr>
-            <th scope="col" className="w-[42%] px-3 py-2">Holder</th>
-            <th scope="col" className="w-[20%] px-3 py-2 text-right">Reported Value</th>
-            <th scope="col" className="w-[22%] px-3 py-2 text-right">Shares</th>
-            <th scope="col" className="w-[16%] px-3 py-2 text-right">Ownership</th>
+            <th scope="col" className="w-[42%] px-3 py-1.5">Holder</th>
+            <th scope="col" className="w-[20%] px-3 py-1.5 text-right">Reported Value</th>
+            <th scope="col" className="w-[22%] px-3 py-1.5 text-right">Shares</th>
+            <th scope="col" className="w-[16%] px-3 py-1.5 text-right">Ownership</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/10">
@@ -235,10 +235,10 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
             const holderName = displayHolderName(holder);
             return (
               <tr key={`${holder.cik}-${holder.holder_name}`} className="hover:bg-white/[0.035]">
-                <td className="truncate px-3 py-2 font-semibold text-slate-100" title={holderName}>{holderName}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-300">{formatCompactCurrency(holder.value_usd)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-300">{formatNumber(holder.shares)}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : "-"}</td>
+                <td className="truncate px-3 py-1.5 font-semibold text-slate-100" title={holderName}>{holderName}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-slate-300">{formatCompactCurrency(holder.value_usd)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-slate-300">{formatNumber(holder.shares)}</td>
+                <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : "-"}</td>
               </tr>
             );
           })}
@@ -404,11 +404,13 @@ export function TickerOwnershipPanel({ data, locked = false }: { data: TickerOwn
   return (
     <div className="space-y-4">
       {hasOwnershipPct(displayData) ? (
-        <>
-          <OwnershipSplit data={displayData} />
-          <OwnershipChart history={displayData.history} />
+        <div className="space-y-4 xl:grid xl:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1fr)] xl:items-start xl:gap-4 xl:space-y-0">
+          <div className="space-y-4">
+            <OwnershipSplit data={displayData} />
+            <OwnershipChart history={displayData.history} />
+          </div>
           <InstitutionalHoldersSection data={displayData} />
-        </>
+        </div>
       ) : (
         <ReportedHoldingsSummary data={displayData} />
       )}
