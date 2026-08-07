@@ -163,23 +163,51 @@ def _existing_snapshot_keys(db: Session, entity_type: SeoEntityType) -> set[str]
 
 def _ticker_batch_candidates(db: Session, limit: int, *, include_existing: bool) -> list[str]:
     existing = set() if include_existing else _existing_snapshot_keys(db, "ticker")
+    price_symbol = func.upper(PriceCache.symbol).label("symbol")
+    event_symbol = func.upper(func.coalesce(Event.symbol, "")).label("symbol")
+    index_symbol = func.upper(IndexMembership.symbol).label("symbol")
+    latest_price = (
+        select(
+            price_symbol,
+            func.max(PriceCache.updated_at).label("latest_price_at"),
+        )
+        .group_by(price_symbol)
+        .subquery()
+    )
+    event_counts = (
+        select(
+            event_symbol,
+            func.count(Event.id).label("event_count"),
+        )
+        .where(Event.symbol.is_not(None))
+        .group_by(event_symbol)
+        .subquery()
+    )
+    index_counts = (
+        select(
+            index_symbol,
+            func.count(IndexMembership.id).label("index_count"),
+        )
+        .where(IndexMembership.is_active.is_(True))
+        .group_by(index_symbol)
+        .subquery()
+    )
+    ticker_symbol = func.upper(TickerMeta.symbol)
+    event_count = func.coalesce(event_counts.c.event_count, 0)
+    index_count = func.coalesce(index_counts.c.index_count, 0)
     rows = db.execute(
         select(
             TickerMeta.symbol,
-            func.max(PriceCache.updated_at).label("latest_price_at"),
-            func.count(func.distinct(Event.id)).label("event_count"),
-            func.count(func.distinct(IndexMembership.id)).label("index_count"),
+            latest_price.c.latest_price_at,
+            event_count.label("event_count"),
+            index_count.label("index_count"),
         )
-        .join(PriceCache, func.upper(PriceCache.symbol) == func.upper(TickerMeta.symbol))
-        .outerjoin(Event, func.upper(func.coalesce(Event.symbol, "")) == func.upper(TickerMeta.symbol))
-        .outerjoin(
-            IndexMembership,
-            (func.upper(IndexMembership.symbol) == func.upper(TickerMeta.symbol)) & (IndexMembership.is_active.is_(True)),
-        )
+        .join(latest_price, latest_price.c.symbol == ticker_symbol)
+        .outerjoin(event_counts, event_counts.c.symbol == ticker_symbol)
+        .outerjoin(index_counts, index_counts.c.symbol == ticker_symbol)
         .where(TickerMeta.company_name.is_not(None))
-        .group_by(TickerMeta.symbol)
-        .having((func.count(func.distinct(Event.id)) > 0) | (func.count(func.distinct(IndexMembership.id)) > 0))
-        .order_by(desc("event_count"), desc("latest_price_at"), TickerMeta.symbol)
+        .where((event_count > 0) | (index_count > 0))
+        .order_by(desc(event_count), desc(latest_price.c.latest_price_at), TickerMeta.symbol)
         .limit(limit * 4)
     ).all()
     candidates: list[str] = []
