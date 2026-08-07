@@ -84,6 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "government-contracts-weekly",
             "daily-repair",
             "market-data-refresh-daily",
+            "monitoring-alert-refresh",
             "fundamentals-cache-daily",
             "institutional-latest-daily",
             "enrichment-queue",
@@ -653,6 +654,36 @@ def _run_watchlist_confirmation_monitoring_refresh() -> dict[str, object]:
     )
     logger.info("Finished scheduled watchlist confirmation monitoring refresh: %s", result)
     return result
+
+
+def _run_monitoring_alert_refresh_job() -> dict[str, object]:
+    guard = check_background_job_guard("monitoring-alert-refresh")
+    if not guard.proceed:
+        logger.info("monitoring_alert_refresh_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return background_job_skip_payload("monitoring-alert-refresh", guard)
+
+    try:
+        with SessionLocal() as db:
+            saved_screen_result = refresh_due_saved_screen_monitoring(
+                db,
+                limit=int(os.getenv("SCREEN_MONITORING_LIMIT", "25")),
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("Saved screen monitoring refresh failed: %s", exc)
+        saved_screen_result = {"status": "failed", "error": str(exc)}
+
+    try:
+        watchlist_result = _run_watchlist_confirmation_monitoring_refresh()
+    except Exception as exc:
+        logger.warning("Watchlist confirmation monitoring refresh failed: %s", exc)
+        watchlist_result = {"status": "failed", "error": str(exc)}
+
+    return {
+        "job": "monitoring-alert-refresh",
+        "screen_monitoring": saved_screen_result,
+        "watchlist_confirmation_monitoring": watchlist_result,
+    }
 
 
 def _run_institutional_ingest(*, pages: int, limit: int, days: int) -> dict[str, object]:
@@ -1434,6 +1465,8 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return _run_daily_outcome_repair()
     if job == "market-data-refresh-daily":
         return _run_market_data_refresh_job()
+    if job == "monitoring-alert-refresh":
+        return _run_monitoring_alert_refresh_job()
     if job == "fundamentals-cache-daily":
         return {
             "job": job,

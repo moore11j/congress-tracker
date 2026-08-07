@@ -195,6 +195,28 @@ def test_scheduled_latest_once_processes_fixed_window_and_advances_cursor(job_en
     assert run.next_cursor_page == 10
 
 
+def test_scheduled_latest_once_can_reset_cursor_to_start_page_each_run(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=42, first_empty_page=99, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE", "0")
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN", "true")
+    calls = []
+
+    def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        return _fake_result(start_page=0)
+
+    monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", fake_ingest)
+
+    result = job_module.run_scheduled_latest_once()
+
+    assert result["status"] == "success"
+    assert calls == [{"start_page": 0, "pages": 1, "limit": 25, "max_filings": 5}]
+    state = _state(job_env)
+    assert state.cursor_page == 1
+    assert state.first_empty_page is None
+
+
 def test_job_cursor_advances_after_successful_all_skipped_window(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=9, enabled=True)
     monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")

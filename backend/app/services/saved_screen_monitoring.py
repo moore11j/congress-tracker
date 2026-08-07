@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -22,6 +23,19 @@ SAVED_SCREEN_MONITORING_BASELINE_VERSION = "confirmation_filters_v2"
 SCREEN_MEMBERSHIP_FLOOD_THRESHOLD = 25
 SCREEN_MEMBERSHIP_FLOOD_RATIO = 0.30
 logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def saved_screen_refresh_interval() -> timedelta:
+    minutes = _env_int("SCREEN_MONITORING_REFRESH_INTERVAL_MINUTES", 60, minimum=5, maximum=1440)
+    return timedelta(minutes=minutes)
 
 BAND_RANK = {
     "inactive": 0,
@@ -332,7 +346,7 @@ def refresh_due_saved_screen_monitoring(
     user_id: int | None = None,
 ) -> dict[str, Any]:
     observed_at = now or datetime.now(timezone.utc)
-    cutoff = observed_at - SCREEN_REFRESH_INTERVAL
+    cutoff = observed_at - saved_screen_refresh_interval()
 
     q = select(SavedScreen).where(
         or_(

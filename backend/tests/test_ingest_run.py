@@ -16,6 +16,7 @@ from app.ingest_run import (
     _payload_json,
     _run_enrichment_queue_job,
     _run_institutional_ingest,
+    _run_monitoring_alert_refresh_job,
     _run_portfolio_methodology_guard_job,
     _run_portfolio_simulation_refresh_job,
     _run_priority_ticker_prewarm_job,
@@ -200,6 +201,12 @@ def test_market_data_refresh_job_is_accepted_by_parser() -> None:
     assert args.job == "market-data-refresh-daily"
 
 
+def test_monitoring_alert_refresh_job_is_accepted_by_parser() -> None:
+    args = _build_parser().parse_args(["--job", "monitoring-alert-refresh"])
+
+    assert args.job == "monitoring-alert-refresh"
+
+
 def test_portfolio_simulation_refresh_job_is_accepted_by_parser() -> None:
     args = _build_parser().parse_args(["--job", "portfolio-simulation-refresh"])
 
@@ -357,6 +364,64 @@ def test_enrichment_queue_job_skips_when_background_guard_blocks(monkeypatch) ->
     assert result["status"] == "skipped"
     assert result["reason"] == "db_active_connection_pressure"
     assert result["processed"] == 0
+
+
+def test_monitoring_alert_refresh_runs_screen_and_watchlist_refreshes(monkeypatch) -> None:
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def commit(self):
+            calls.append(("commit", None))
+
+    calls = []
+
+    def fake_screen_refresh(db, *, limit):
+        calls.append(("screen", db, limit))
+        return {"status": "ok", "checked": 2}
+
+    def fake_watchlist_refresh():
+        calls.append(("watchlist", None))
+        return {"status": "ok", "processed": 3}
+
+    monkeypatch.setenv("SCREEN_MONITORING_LIMIT", "17")
+    monkeypatch.setattr(
+        "app.ingest_run.check_background_job_guard",
+        lambda job: SimpleNamespace(proceed=True, reason="ok", to_dict=lambda: {"job": job}),
+    )
+    monkeypatch.setattr("app.ingest_run.SessionLocal", FakeSession)
+    monkeypatch.setattr("app.ingest_run.refresh_due_saved_screen_monitoring", fake_screen_refresh)
+    monkeypatch.setattr("app.ingest_run._run_watchlist_confirmation_monitoring_refresh", fake_watchlist_refresh)
+
+    result = _run_monitoring_alert_refresh_job()
+
+    assert result["job"] == "monitoring-alert-refresh"
+    assert result["screen_monitoring"] == {"status": "ok", "checked": 2}
+    assert result["watchlist_confirmation_monitoring"] == {"status": "ok", "processed": 3}
+    assert calls[0][0] == "screen"
+    assert calls[0][2] == 17
+    assert calls[1] == ("commit", None)
+    assert calls[2] == ("watchlist", None)
+
+
+def test_monitoring_alert_refresh_skips_when_background_guard_blocks(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.ingest_run.check_background_job_guard",
+        lambda job: SimpleNamespace(proceed=False, reason="db_active_connection_pressure", to_dict=lambda: {"job": job}),
+    )
+    monkeypatch.setattr(
+        "app.ingest_run.refresh_due_saved_screen_monitoring",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("screen monitoring should not run")),
+    )
+
+    result = _run_monitoring_alert_refresh_job()
+
+    assert result["job"] == "monitoring-alert-refresh"
+    assert result["status"] == "skipped"
+    assert result["reason"] == "db_active_connection_pressure"
 
 
 def test_data_enrichment_queue_processes_trade_outcome_jobs(monkeypatch) -> None:

@@ -4,24 +4,24 @@ PYTHONPATH=/app
 CRON_TZ=America/Los_Angeles
 
 0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
-*/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh
+1-56/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh
 5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh
-*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
-*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
+2,17,32,47 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
+3,18,33,48 6-12 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh
+4,19,34,49 6-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
+0 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
+12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
 10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator
 35 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator
-45 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-price-hydrator
+41 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-price-hydrator
 5 7-13 * * 1-5 cd /app && python -m app.jobs.refresh_market_pressure_snapshots --all
-17 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily
-*/15 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh
-30 15 * * 1-5 cd /app && python -m app.ingest_run --job market-data-refresh-daily
-15 16 * * 1-5 cd /app && python -m app.ingest_run --job portfolio-simulation-refresh
-45 16 * * 1-5 cd /app && python -m app.refresh_institutional_performance_cache --calls-per-minute 400 --progress-every 50
+12 14 * * 1-5 cd /app && python -m app.ingest_run --job institutional-latest-daily
+7,22,37,52 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh
+34 15 * * 1-5 cd /app && python -m app.ingest_run --job market-data-refresh-daily
+18 16 * * 1-5 cd /app && python -m app.ingest_run --job portfolio-simulation-refresh
+52 16 * * 1-5 cd /app && python -m app.refresh_institutional_performance_cache --calls-per-minute 400 --progress-every 50
 20 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_consensus --sleep-seconds 0.2
 35 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_events --limit 250 --pages 1 --sleep-seconds 0.3
 20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache
 45 13 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning
 */15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all
-30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
-0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
-0 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh

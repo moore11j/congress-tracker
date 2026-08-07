@@ -24,13 +24,20 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "30"
     assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "300"
     assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "240"
-    assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "false"
+    assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "true"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"
     assert fly_config["env"]["INSIDER_ANALYTICS_PREWARM_ENABLED"] == "false"
-    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "false"
-    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "9"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "true"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "0"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN"] == "true"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS"] == "900"
+    assert fly_config["env"]["INSTITUTIONAL_HISTORICAL_BACKFILL_ENABLED"] == "true"
+    assert fly_config["env"]["SCREEN_MONITORING_REFRESH_INTERVAL_MINUTES"] == "15"
+    assert fly_config["env"]["EMAIL_ALERT_INTRADAY_ENABLED"] == "true"
+    assert fly_config["env"]["EMAIL_ALERT_SCHEDULE_DRY_RUN"] == "false"
+    assert fly_config["env"]["EMAIL_ALERT_SWEEP_LOOKBACK_MINUTES"] == "20"
+    assert fly_config["env"]["EMAIL_ALERT_SWEEP_LIMIT"] == "100"
     assert fly_config["env"]["BACKGROUND_DB_PRESSURE_GUARD_ENABLED"] == "true"
     assert fly_config["env"]["BACKGROUND_DB_PRESSURE_GUARD_FAIL_CLOSED"] == "true"
     assert fly_config["env"]["CRON_DB_POOL_SIZE"] == "2"
@@ -53,23 +60,26 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "run_email_digest_schedule.sh watchlist_activity" not in crontab
     assert "run_email_digest_schedule.sh signals" not in crontab
-    assert "*/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh" in crontab
+    assert "1-56/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh" in crontab
     assert "*/5 6-8 * * * cd /app && python -m app.jobs.run_ai_growth_campaigns" not in crontab
     assert "*/5 6-10 * * * cd /app && python -m app.jobs.run_ai_growth_campaigns" not in crontab
     assert "5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
-    assert "*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
-    assert "*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
+    assert "2,17,32,47 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "3,18,33,48 6-12 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh" in crontab
+    assert "4,19,34,49 6-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
+    assert "12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
     assert "20 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_consensus --sleep-seconds 0.2" in crontab
     assert "35 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_events --limit 250 --pages 1 --sleep-seconds 0.3" in crontab
     assert "backfill_current_analyst_consensus" not in crontab
     assert "backfill_historical_analyst_grades" not in crontab
     assert "backfill_historical_analyst_price_targets" not in crontab
-    assert "17 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
+    assert "12 14 * * 1-5 cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
+    assert "7,22,37,52 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh" in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" not in crontab
-    assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
-    assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
+    assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
+    assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
     assert "0 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "billing" not in crontab.lower()
     assert "monthly" not in crontab.lower()

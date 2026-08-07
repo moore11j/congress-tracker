@@ -25,6 +25,7 @@ SCHEDULED_LIMIT = 25
 SCHEDULED_MAX_FILINGS = 5
 SCHEDULED_ENABLED_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"
 SCHEDULED_START_PAGE_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"
+SCHEDULED_RESET_CURSOR_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -501,6 +502,9 @@ def run_scheduled_latest_once() -> dict[str, Any]:
         if state is None:
             state = get_or_create_latest_job_state(db)
         _apply_scheduled_window(state)
+        if _env_bool(SCHEDULED_RESET_CURSOR_ENV, False):
+            state.cursor_page = _env_int(SCHEDULED_START_PAGE_ENV, 0, minimum=0, maximum=10_000)
+            state.first_empty_page = None
         now = _now()
         if _is_stale_running(state, now):
             state.last_status = "failed"
