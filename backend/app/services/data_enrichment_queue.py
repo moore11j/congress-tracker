@@ -246,6 +246,81 @@ def skip_invalid_symbol_jobs(db: Session) -> int:
     return skipped
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def recover_stale_running_enrichment_jobs(
+    db: Session,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if not _env_bool("DATA_ENRICHMENT_QUEUE_RECOVER_STALE_RUNNING_ENABLED", True):
+        return {"recovered": 0, "requeued": 0, "failed": 0}
+
+    current_time = now or datetime.now(timezone.utc)
+    stale_minutes = _env_int(
+        "DATA_ENRICHMENT_QUEUE_STALE_RUNNING_MINUTES",
+        120,
+        minimum=5,
+        maximum=24 * 60,
+    )
+    recovery_limit = _env_int(
+        "DATA_ENRICHMENT_QUEUE_STALE_RUNNING_RECOVERY_LIMIT",
+        1000,
+        minimum=1,
+        maximum=5000,
+    )
+    cutoff = current_time - timedelta(minutes=stale_minutes)
+    stale_jobs = db.execute(
+        select(DataEnrichmentJob)
+        .where(DataEnrichmentJob.status == "running")
+        .where(DataEnrichmentJob.updated_at < cutoff)
+        .order_by(DataEnrichmentJob.updated_at.asc(), DataEnrichmentJob.id.asc())
+        .limit(recovery_limit)
+    ).scalars().all()
+
+    requeued = 0
+    failed = 0
+    for job in stale_jobs:
+        attempts = int(job.attempts or 0) + 1
+        max_attempts = int(job.max_attempts or 5)
+        exhausted = attempts >= max_attempts
+        job.attempts = attempts
+        job.status = "failed" if exhausted else "queued"
+        job.reason = "stale_running_exhausted" if exhausted else "stale_running_recovered"
+        job.error = job.reason
+        job.next_run_at = current_time
+        job.updated_at = current_time
+        if exhausted:
+            failed += 1
+        else:
+            requeued += 1
+
+    if stale_jobs:
+        db.commit()
+        logger.warning(
+            "data_enrichment_stale_running_recovered recovered=%s requeued=%s failed=%s cutoff=%s",
+            len(stale_jobs),
+            requeued,
+            failed,
+            cutoff.isoformat(),
+        )
+
+    return {"recovered": len(stale_jobs), "requeued": requeued, "failed": failed}
+
+
 def _job_completed_recently(job: DataEnrichmentJob, now: datetime) -> bool:
     updated_at = job.updated_at or job.created_at
     if updated_at is None:
@@ -700,6 +775,7 @@ def process_data_enrichment_jobs(
     deadline = time.monotonic() + max_seconds if max_seconds and max_seconds > 0 else None
     try:
         now = datetime.now(timezone.utc)
+        recover_stale_running_enrichment_jobs(db, now=now)
         statement = (
             select(DataEnrichmentJob)
             .where(DataEnrichmentJob.status == "queued")

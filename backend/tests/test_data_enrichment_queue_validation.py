@@ -15,6 +15,7 @@ from app.services.data_enrichment_queue import (
     enrichment_queue_summary,
     is_valid_enrichment_symbol,
     process_data_enrichment_jobs,
+    recover_stale_running_enrichment_jobs,
     skip_invalid_symbol_jobs,
 )
 from app.request_priority import get_request_context, reset_request_context, set_request_context
@@ -155,6 +156,87 @@ def test_quote_enrichment_refreshes_stale_cache_in_worker(monkeypatch):
     assert captured["symbols"] == ["AAPL"]
     assert captured["allow_cache_write"] is True
     assert captured["stale_while_revalidate"] is False
+
+
+def test_enrichment_queue_recovers_stale_running_jobs(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(queue_module, "SessionLocal", Session)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
+    monkeypatch.setenv("DATA_ENRICHMENT_QUEUE_PER_JOB_GUARD_ENABLED", "false")
+    processed_symbols: list[str] = []
+    now = datetime.now(timezone.utc)
+
+    def fake_process_one(_db, job):
+        processed_symbols.append(job.symbol)
+
+    monkeypatch.setattr(queue_module, "_process_one", fake_process_one)
+    db = Session()
+    try:
+        db.add(
+            DataEnrichmentJob(
+                job_type="quote",
+                symbol="AAPL",
+                dedupe_key="quote|AAPL||",
+                priority=10,
+                status="running",
+                attempts=0,
+                max_attempts=3,
+                source="test",
+                reason="test",
+                next_run_at=now - timedelta(hours=3),
+                updated_at=now - timedelta(hours=3),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    summary = process_data_enrichment_jobs(limit=1)
+
+    db = Session()
+    try:
+        row = db.execute(select(DataEnrichmentJob)).scalar_one()
+        assert summary == {"processed": 1, "succeeded": 1, "failed": 0, "skipped": 0}
+        assert processed_symbols == ["AAPL"]
+        assert row.status == "done"
+        assert row.reason == "stale_running_recovered"
+        assert row.attempts == 1
+    finally:
+        db.close()
+
+
+def test_stale_running_recovery_exhausts_max_attempts():
+    Session = _session_factory()
+    db = Session()
+    now = datetime.now(timezone.utc)
+    try:
+        db.add(
+            DataEnrichmentJob(
+                job_type="quote",
+                symbol="MSFT",
+                dedupe_key="quote|MSFT||",
+                priority=10,
+                status="running",
+                attempts=2,
+                max_attempts=3,
+                source="test",
+                reason="test",
+                next_run_at=now - timedelta(hours=3),
+                updated_at=now - timedelta(hours=3),
+            )
+        )
+        db.commit()
+
+        result = recover_stale_running_enrichment_jobs(db, now=now)
+        row = db.execute(select(DataEnrichmentJob)).scalar_one()
+
+        assert result == {"recovered": 1, "requeued": 0, "failed": 1}
+        assert row.status == "failed"
+        assert row.reason == "stale_running_exhausted"
+        assert row.error == "stale_running_exhausted"
+        assert row.attempts == 3
+    finally:
+        db.close()
 
 
 def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
