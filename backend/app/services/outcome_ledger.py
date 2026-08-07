@@ -318,7 +318,7 @@ def capture_live_confirmation_score_snapshot(
                 ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
                 ConfirmationScoreSnapshot.market_date == market_date,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
-            )
+            ).order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc()).limit(1)
         ).scalar_one_or_none()
         if visible_duplicate is not None:
             _increment_counter(db, OUTCOMES_LEDGER_DUPLICATES_KEY)

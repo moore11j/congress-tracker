@@ -279,7 +279,7 @@ def _snapshot_exists(
                 ConfirmationScoreSnapshot.methodology_version_id == methodology_id,
                 ConfirmationScoreSnapshot.market_date == market_date,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
-            )
+            ).limit(1)
         ).scalar_one_or_none()
         is not None
     )
