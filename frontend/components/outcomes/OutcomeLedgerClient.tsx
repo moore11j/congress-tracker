@@ -19,7 +19,7 @@ const scoreBands = ["0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
 const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
 const outcomeTablePageSizes = [10, 25, 50] as const;
-const outcomeTableFilterOptions = ["All", "Bullish", "Bearish", "Matured", "Pending"] as const;
+const outcomeTableFilterOptions = ["All", "Bullish", "Bearish", "Matured", "Open", "Closed"] as const;
 const minimumHeadlineDirectionalSamples = 30;
 const minimumScoreBandDirectionalSamples = 5;
 const publicOutcomeCalculationTypes = new Set(["live", "historical_reconstruction"]);
@@ -117,16 +117,9 @@ function maturedOutcome(snapshot: OutcomeSnapshot, horizon = "30D") {
   return outcome?.status === "matured" && typeof outcome.return_pct === "number" ? outcome : undefined;
 }
 
-function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D", isReplaced = false) {
+function outcomeLifecycleStatusLabel(snapshot?: OutcomeSnapshot, isClosed = false) {
   if (!snapshot) return "-";
-  const outcome = outcomeFor(snapshot, horizon);
-  if (outcome?.status === "matured") return `${horizon} Matured`;
-  if (outcome?.status === "replaced") return "Replaced";
-  if (isReplaced) return "Replaced";
-  if (outcome?.status === "pending") return `${horizon} Pending`;
-  if (outcome?.status === "missing_price") return `${horizon} Missing Price`;
-  if (outcome?.status === "missing_reference_price") return "Missing Entry";
-  return `${horizon} Tracking`;
+  return isClosed ? "Closed" : "Open";
 }
 
 function openedDate(snapshot: OutcomeSnapshot) {
@@ -813,10 +806,11 @@ function EventsTable({
       snapshots.filter((snapshot) => {
         const selectedOutcome = outcomeFor(snapshot, horizon);
         const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
-        const isReplaced = selectedOutcome?.status === "replaced" || (replacedSnapshotIds.has(snapshot.id) && !hasMaturedOutcome);
+        const isClosed = selectedOutcome?.status === "replaced" || replacedSnapshotIds.has(snapshot.id);
         if (tableFilter === "Bullish" || tableFilter === "Bearish") return formatDirection(snapshot.direction) === tableFilter;
         if (tableFilter === "Matured") return hasMaturedOutcome;
-        if (tableFilter === "Pending") return !hasMaturedOutcome && !isReplaced;
+        if (tableFilter === "Open") return !isClosed;
+        if (tableFilter === "Closed") return isClosed;
         return true;
       }),
     [horizon, replacedSnapshotIds, snapshots, tableFilter],
@@ -909,7 +903,7 @@ function EventsTable({
                   </button>
                 </th>
               ))}
-              {[...horizonColumns, `${horizon} Status`].map((label) => (
+              {[...horizonColumns, "Status"].map((label) => (
                 <th key={label} className="px-4 py-3 font-medium">
                   {label}
                 </th>
@@ -919,8 +913,7 @@ function EventsTable({
           <tbody className="divide-y divide-white/[0.06]">
             {visibleSnapshots.length ? (
               visibleSnapshots.map((snapshot) => {
-                const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
-                const isReplaced = outcomeFor(snapshot, horizon)?.status === "replaced" || (replacedSnapshotIds.has(snapshot.id) && !hasMaturedOutcome);
+                const isClosed = outcomeFor(snapshot, horizon)?.status === "replaced" || replacedSnapshotIds.has(snapshot.id);
                 const isSelected = selectedSnapshotId === snapshot.id;
                 return (
                   <tr
@@ -957,10 +950,10 @@ function EventsTable({
                     <td className="px-4 py-2.5">
                       <span
                         className={`rounded-md px-3 py-1 text-xs ${
-                          hasMaturedOutcome ? "bg-emerald-400/15 text-emerald-100" : isReplaced ? "bg-amber-400/15 text-amber-100" : "bg-slate-700/60 text-slate-100"
+                          isClosed ? "bg-amber-400/15 text-amber-100" : "bg-emerald-400/15 text-emerald-100"
                         }`}
                       >
-                        {outcomeStatusLabel(snapshot, horizon, isReplaced)}
+                        {outcomeLifecycleStatusLabel(snapshot, isClosed)}
                       </span>
                     </td>
                   </tr>
@@ -1073,7 +1066,7 @@ function DetailPanel({
               ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
               ["Public Eligible", "Yes"],
-              [`${horizon} Outcome`, selected ? outcomeStatusLabel(selected, horizon, isSelectedReplaced && !selectedHorizonOutcome) : `${horizon} Pending`],
+              ["Status", selected ? outcomeLifecycleStatusLabel(selected, isSelectedReplaced) : "-"],
             ].map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-slate-400">{label}</dt>
@@ -1146,7 +1139,7 @@ function DetailPanel({
           <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm leading-5 text-slate-300">
             {selected
               ? `${selected.methodology ?? "confirmation-v1"} preserved ${selected.ticker} at ${openedDate(selected)} with an opened ${selected.score}/100 ${formatDirection(selected.direction)} score. The live ticker page can move after this snapshot.`
-              : "Events are created from live confirmation-score snapshots and closed only after their evaluation horizons mature."}
+              : "Events are created from live confirmation-score snapshots. Outcome windows mature independently while the event remains open until the thesis is replaced."}
           </p>
         </div>
       </div>
@@ -1338,19 +1331,23 @@ export function OutcomeLedgerClient({
       setExportGateOpen(true);
       return;
     }
-    const header = ["Ticker", "Opened", "Opened Score", "Opened Direction", "Entry Price", "7D", "30D", "90D", "180D", "365D", `${horizonFilter} Status`];
-    const rows = publicPreviewSnapshots.map((snapshot) => [
-      snapshot.ticker,
-      openedDate(snapshot),
-      snapshot.score,
-      formatDirection(snapshot.direction),
-      formatPrice(snapshot.reference_price),
-      ...horizonColumns.map((horizon) => {
-        const outcome = outcomeFor(snapshot, horizon);
-        return outcomeValueLabel(outcome);
-      }),
-      outcomeStatusLabel(snapshot, horizonFilter, replacedSnapshotIds.has(snapshot.id) && !maturedOutcome(snapshot, horizonFilter)),
-    ]);
+    const header = ["Ticker", "Opened", "Opened Score", "Opened Direction", "Entry Price", "7D", "30D", "90D", "180D", "365D", "Status"];
+    const rows = publicPreviewSnapshots.map((snapshot) => {
+      const selectedOutcome = outcomeFor(snapshot, horizonFilter);
+      const isClosed = selectedOutcome?.status === "replaced" || replacedSnapshotIds.has(snapshot.id);
+      return [
+        snapshot.ticker,
+        openedDate(snapshot),
+        snapshot.score,
+        formatDirection(snapshot.direction),
+        formatPrice(snapshot.reference_price),
+        ...horizonColumns.map((horizon) => {
+          const outcome = outcomeFor(snapshot, horizon);
+          return outcomeValueLabel(outcome);
+        }),
+        outcomeLifecycleStatusLabel(snapshot, isClosed),
+      ];
+    });
     const csv = [header, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -1466,7 +1463,7 @@ export function OutcomeLedgerClient({
         {eventDetailOpen ? (
           <DetailPanel
             selected={selectedSnapshot}
-            isSelectedReplaced={selectedSnapshot ? replacedSnapshotIds.has(selectedSnapshot.id) : false}
+            isSelectedReplaced={selectedSnapshot ? replacedSnapshotIds.has(selectedSnapshot.id) || outcomeFor(selectedSnapshot, horizonFilter)?.status === "replaced" : false}
             entitlementTier={entitlementTier}
             horizon={horizonFilter}
             onClose={() => setEventDetailOpen(false)}
