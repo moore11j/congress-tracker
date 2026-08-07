@@ -184,9 +184,8 @@ function isAnonymousPublicPageRenderCandidate(request: NextRequest, host: string
   const pragma = (request.headers.get("pragma") ?? "").toLowerCase();
   if (!bot && (cacheControl.includes("no-cache") || cacheControl.includes("no-store") || pragma.includes("no-cache"))) return false;
   const normalized = (pathname || "/").toLowerCase();
-  const isTickerPage = isApprovedTickerPilotPath(pathname);
   const isScreenerPage = normalized === "/screener";
-  if (!isTickerPage && !isScreenerPage) return false;
+  if (!isScreenerPage) return false;
   const accept = (request.headers.get("accept") ?? "").toLowerCase();
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
@@ -245,8 +244,6 @@ async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> 
 
 function anonymousPublicRenderPath(pathname: string): string | null {
   const normalized = (pathname || "/").toLowerCase();
-  const tickerMatch = normalized.match(/^\/ticker\/([^/]+)\/?$/);
-  if (tickerMatch?.[1] && isApprovedTickerPilotPath(pathname)) return `/walnut-public/ticker/${tickerMatch[1]}`;
   if (normalized === "/screener") return "/walnut-public/screener";
   return null;
 }

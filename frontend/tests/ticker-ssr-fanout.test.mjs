@@ -103,20 +103,18 @@ test("middleware bypasses inactive anonymous terminal SSR before app render", ()
   assert.match(middleware, /!hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
 });
 
-test("middleware rewrites only anonymous complete public page renders without self-fetch caching", () => {
+test("middleware rewrites only anonymous screener public renders without self-fetch caching", () => {
   const middleware = read("middleware.ts");
   const helper = read("lib/anonymousPublicRender.ts");
-  const publicTicker = read("app/walnut-public/ticker/[symbol]/page.tsx");
   const publicScreener = read("app/walnut-public/screener/page.tsx");
 
   assert.match(middleware, /function isAnonymousPublicPageRenderCandidate\(request: NextRequest, host: string, pathname: string\): boolean/);
   assert.match(middleware, /if \(hasWalnutAuthCookie\(request\)\) return false/);
   assert.match(middleware, /request\.headers\.get\("authorization"\)/);
   assert.match(middleware, /request\.headers\.get\("x-ct-entitlement-tier"\)/);
-  assert.match(middleware, /const isTickerPage = isApprovedTickerPilotPath\(pathname\)/);
   assert.match(middleware, /const isScreenerPage = normalized === "\/screener"/);
   assert.match(middleware, /function rewriteAnonymousPublicRender\(request: NextRequest, pathname: string\): NextResponse/);
-  assert.match(middleware, /if \(tickerMatch\?\.\[1\] && isApprovedTickerPilotPath\(pathname\)\) return `\/walnut-public\/ticker\/\$\{tickerMatch\[1\]\}`/);
+  assert.doesNotMatch(middleware, /walnut-public\/ticker/);
   assert.match(middleware, /if \(normalized === "\/screener"\) return "\/walnut-public\/screener"/);
   assert.match(middleware, /requestHeaders\.delete\("cookie"\)/);
   assert.match(middleware, /requestHeaders\.set\(anonymousPublicRenderHeaderName, "1"\)/);
@@ -124,6 +122,5 @@ test("middleware rewrites only anonymous complete public page renders without se
   assert.match(middleware, /response\.headers\.set\("cache-control", "private, no-store"\)/);
   assert.doesNotMatch(middleware, /fetchMaterializedPublicPage|publicPageRenderInflight|x-walnut-public-page-render-coalesce/);
   assert.match(helper, /x-walnut-anonymous-public-render/);
-  assert.match(publicTicker, /TickerPageRenderer/);
   assert.match(publicScreener, /ScreenerPageRenderer/);
 });
