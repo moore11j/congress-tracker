@@ -60,8 +60,8 @@ type PricePathPoint = {
 const outcomeSortableColumns: Record<OutcomeSortKey, string> = {
   ticker: "Ticker",
   opened: "Opened",
-  score: "Score",
-  direction: "Direction",
+  score: "Opened Score",
+  direction: "Opened Direction",
   entry: "Entry Price",
 };
 
@@ -118,8 +118,11 @@ function maturedOutcome(snapshot: OutcomeSnapshot, horizon = "30D") {
 function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D") {
   if (!snapshot) return "-";
   const outcome = outcomeFor(snapshot, horizon);
-  if (outcome?.status === "matured") return "Matured";
-  return "-";
+  if (outcome?.status === "matured") return `${horizon} Matured`;
+  if (outcome?.status === "pending") return `${horizon} Pending`;
+  if (outcome?.status === "missing_price") return `${horizon} Missing Price`;
+  if (outcome?.status === "missing_reference_price") return "Missing Entry";
+  return `${horizon} Tracking`;
 }
 
 function openedDate(snapshot: OutcomeSnapshot) {
@@ -853,7 +856,7 @@ function EventsTable({
                   </button>
                 </th>
               ))}
-              {[...horizonColumns, "Status"].map((label) => (
+              {[...horizonColumns, `${horizon} Status`].map((label) => (
                 <th key={label} className="px-4 py-3 font-medium">
                   {label}
                 </th>
@@ -899,7 +902,7 @@ function EventsTable({
                     })}
                     <td className="px-4 py-2.5">
                       <span className={`rounded-md px-3 py-1 text-xs ${hasMaturedOutcome ? "bg-emerald-400/15 text-emerald-100" : "bg-slate-700/60 text-slate-100"}`}>
-                        {hasMaturedOutcome ? "Matured" : "Tracking"}
+                        {outcomeStatusLabel(snapshot, horizon)}
                       </span>
                     </td>
                   </tr>
@@ -1000,7 +1003,7 @@ function DetailPanel({ selected, entitlementTier, horizon, onClose }: { selected
               ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
               ["Public Eligible", "Yes"],
-              ["Outcome", selected ? outcomeStatusLabel(selected, horizon) : "Pending"],
+              [`${horizon} Outcome`, selected ? outcomeStatusLabel(selected, horizon) : `${horizon} Pending`],
             ].map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-slate-400">{label}</dt>
@@ -1072,7 +1075,7 @@ function DetailPanel({ selected, entitlementTier, horizon, onClose }: { selected
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Methodology</h3>
           <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm leading-5 text-slate-300">
             {selected
-              ? `${selected.methodology ?? "confirmation-v1"} preserved ${selected.ticker} at ${openedDate(selected)} with a ${selected.score}/100 ${formatDirection(selected.direction)} score. Outcomes close only after their evaluation horizons mature.`
+              ? `${selected.methodology ?? "confirmation-v1"} preserved ${selected.ticker} at ${openedDate(selected)} with an opened ${selected.score}/100 ${formatDirection(selected.direction)} score. The live ticker page can move after this snapshot.`
               : "Events are created from live confirmation-score snapshots and closed only after their evaluation horizons mature."}
           </p>
         </div>
@@ -1249,7 +1252,7 @@ export function OutcomeLedgerClient({
       setExportGateOpen(true);
       return;
     }
-    const header = ["Ticker", "Opened", "Score", "Direction", "Entry Price", "7D", "30D", "90D", "180D", "365D", "Status"];
+    const header = ["Ticker", "Opened", "Opened Score", "Opened Direction", "Entry Price", "7D", "30D", "90D", "180D", "365D", `${horizonFilter} Status`];
     const rows = publicPreviewSnapshots.map((snapshot) => [
       snapshot.ticker,
       openedDate(snapshot),
@@ -1260,7 +1263,7 @@ export function OutcomeLedgerClient({
         const outcome = outcomeFor(snapshot, horizon);
         return outcomeValueLabel(outcome);
       }),
-      maturedOutcome(snapshot, horizonFilter) ? "Matured" : "Tracking",
+      outcomeStatusLabel(snapshot, horizonFilter),
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
