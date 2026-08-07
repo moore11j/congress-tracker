@@ -476,7 +476,14 @@ def backfill_outcome_ledger_history(
             code_commit_sha=current_code_commit_sha(),
             correction_reason=f"backfilled:{point.source_kind}:{point.source_id}",
         )
-        report["created"] += 1
+        if dry_run:
+            report["created"] += 1
+        else:
+            db.add(snapshot)
+            db.flush()
+            report["created"] += 1
+            if report["created"] % 25 == 0:
+                db.commit()
         if len(report["items"]) < 25:
             report["items"].append(
                 {
@@ -489,10 +496,6 @@ def backfill_outcome_ledger_history(
                     "status": "would_create" if dry_run else "created",
                 }
             )
-        if not dry_run:
-            db.add(snapshot)
-            if report["created"] % 100 == 0:
-                db.commit()
 
     if dry_run:
         db.rollback()
