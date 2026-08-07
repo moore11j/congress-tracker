@@ -788,16 +788,32 @@ def ingest_symbol_price_target_events(
     }
 
 
-def _latest_backfill_attempts(job_name: str):
-    return (
+def _latest_backfill_progress(db: Session, *, job_name: str, event_model: Any) -> dict[str, datetime]:
+    progress: dict[str, datetime] = {}
+    attempt_rows = db.execute(
         select(
-            AnalystSymbolBackfillStatus.symbol.label("symbol"),
-            func.max(AnalystSymbolBackfillStatus.last_attempted_at).label("last_attempted_at"),
+            AnalystSymbolBackfillStatus.symbol,
+            func.max(AnalystSymbolBackfillStatus.last_attempted_at),
         )
         .where(AnalystSymbolBackfillStatus.job_name == job_name)
         .group_by(AnalystSymbolBackfillStatus.symbol)
-        .subquery()
-    )
+    ).all()
+    for symbol, attempted_at in attempt_rows:
+        if symbol and attempted_at:
+            progress[symbol] = attempted_at
+    event_rows = db.execute(
+        select(
+            event_model.symbol,
+            func.max(event_model.ingested_at),
+        ).group_by(event_model.symbol)
+    ).all()
+    for symbol, ingested_at in event_rows:
+        if not symbol or not ingested_at:
+            continue
+        current = progress.get(symbol)
+        if current is None or ingested_at > current:
+            progress[symbol] = ingested_at
+    return progress
 
 
 def _backfill_attempt_status(result: dict[str, Any]) -> str:
@@ -887,146 +903,90 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
 def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
     if symbols is not None:
         return eligible_equity_symbols(db, symbols, limit=limit)
-    latest_grade_attempts = _latest_backfill_attempts(GRADE_BACKFILL_JOB)
-    latest_grade_ingests = (
-        select(
-            AnalystGradeEvent.symbol.label("symbol"),
-            func.max(AnalystGradeEvent.ingested_at).label("latest_grade_ingested_at"),
-        )
-        .group_by(AnalystGradeEvent.symbol)
-        .subquery()
-    )
-    grade_progress = func.coalesce(latest_grade_attempts.c.last_attempted_at, latest_grade_ingests.c.latest_grade_ingested_at)
+    progress = _latest_backfill_progress(db, job_name=GRADE_BACKFILL_JOB, event_model=AnalystGradeEvent)
     result: list[str] = []
     seen: set[str] = set()
+    order: dict[str, int] = {}
+    category: dict[str, int] = {}
 
-    def append_rows(rows: Iterable[str | None]) -> None:
+    def append_rows(rows: Iterable[str | None], category_rank: int) -> None:
         for raw in rows:
-            if limit and len(result) >= limit:
-                return
             symbol, rejection = analyst_symbol_rejection_reason(raw)
             if symbol and rejection is None and symbol not in seen:
+                order[symbol] = len(order)
+                category[symbol] = category_rank
                 result.append(symbol)
                 seen.add(symbol)
 
     consensus_rows = db.execute(
         select(AnalystConsensusSnapshot.symbol)
-        .outerjoin(latest_grade_attempts, AnalystConsensusSnapshot.symbol == latest_grade_attempts.c.symbol)
-        .outerjoin(latest_grade_ingests, AnalystConsensusSnapshot.symbol == latest_grade_ingests.c.symbol)
         .where(AnalystConsensusSnapshot.availability_status.in_(("available", "partial", "stale")))
-        .order_by(
-            grade_progress.is_(None).desc(),
-            grade_progress.asc(),
-            AnalystConsensusSnapshot.symbol.asc(),
-        )
+        .order_by(AnalystConsensusSnapshot.symbol.asc())
         .limit(5000)
     ).scalars().all()
-    append_rows(consensus_rows)
-    if limit and len(result) >= limit:
-        return result
+    append_rows(consensus_rows, 0)
 
     ticker_rows = db.execute(
         select(TickerMeta.symbol)
-        .outerjoin(latest_grade_attempts, TickerMeta.symbol == latest_grade_attempts.c.symbol)
-        .outerjoin(latest_grade_ingests, TickerMeta.symbol == latest_grade_ingests.c.symbol)
         .where(func.upper(TickerMeta.exchange).in_(("NASDAQ", "NYSE", "AMEX", "NYSE AMERICAN")))
-        .order_by(
-            grade_progress.is_(None).desc(),
-            grade_progress.asc(),
-            TickerMeta.symbol.asc(),
-        )
+        .order_by(TickerMeta.symbol.asc())
         .limit(5000)
     ).scalars().all()
-    append_rows(ticker_rows)
-    if limit and len(result) >= limit:
-        return result
+    append_rows(ticker_rows, 1)
 
     security_rows = db.execute(
         select(Security.symbol)
-        .outerjoin(latest_grade_attempts, Security.symbol == latest_grade_attempts.c.symbol)
-        .outerjoin(latest_grade_ingests, Security.symbol == latest_grade_ingests.c.symbol)
         .where(func.lower(Security.asset_class).in_(("stock", "equity")))
-        .order_by(
-            grade_progress.is_(None).desc(),
-            grade_progress.asc(),
-            Security.symbol.asc(),
-        )
+        .order_by(Security.symbol.asc())
         .limit(5000)
     ).scalars().all()
-    append_rows(security_rows)
+    append_rows(security_rows, 2)
+    result.sort(key=lambda symbol: (category[symbol], progress.get(symbol) is not None, progress.get(symbol) or datetime.min.replace(tzinfo=timezone.utc), order[symbol], symbol))
     return result[:limit] if limit else result
 
 
 def eligible_price_target_event_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
     if symbols is not None:
         return eligible_equity_symbols(db, symbols, limit=limit)
-    latest_target_attempts = _latest_backfill_attempts(PRICE_TARGET_BACKFILL_JOB)
-    latest_target_ingests = (
-        select(
-            AnalystPriceTargetEvent.symbol.label("symbol"),
-            func.max(AnalystPriceTargetEvent.ingested_at).label("latest_target_ingested_at"),
-        )
-        .group_by(AnalystPriceTargetEvent.symbol)
-        .subquery()
-    )
-    target_progress = func.coalesce(latest_target_attempts.c.last_attempted_at, latest_target_ingests.c.latest_target_ingested_at)
+    progress = _latest_backfill_progress(db, job_name=PRICE_TARGET_BACKFILL_JOB, event_model=AnalystPriceTargetEvent)
     result: list[str] = []
     seen: set[str] = set()
+    order: dict[str, int] = {}
+    category: dict[str, int] = {}
 
-    def append_rows(rows: Iterable[str | None]) -> None:
+    def append_rows(rows: Iterable[str | None], category_rank: int) -> None:
         for raw in rows:
-            if limit and len(result) >= limit:
-                return
             symbol, rejection = analyst_symbol_rejection_reason(raw)
             if symbol and rejection is None and symbol not in seen:
+                order[symbol] = len(order)
+                category[symbol] = category_rank
                 result.append(symbol)
                 seen.add(symbol)
 
     consensus_rows = db.execute(
         select(AnalystConsensusSnapshot.symbol)
-        .outerjoin(latest_target_attempts, AnalystConsensusSnapshot.symbol == latest_target_attempts.c.symbol)
-        .outerjoin(latest_target_ingests, AnalystConsensusSnapshot.symbol == latest_target_ingests.c.symbol)
         .where(AnalystConsensusSnapshot.availability_status.in_(("available", "partial", "stale")))
-        .order_by(
-            target_progress.is_(None).desc(),
-            target_progress.asc(),
-            AnalystConsensusSnapshot.symbol.asc(),
-        )
+        .order_by(AnalystConsensusSnapshot.symbol.asc())
         .limit(5000)
     ).scalars().all()
-    append_rows(consensus_rows)
-    if limit and len(result) >= limit:
-        return result
+    append_rows(consensus_rows, 0)
 
     ticker_rows = db.execute(
         select(TickerMeta.symbol)
-        .outerjoin(latest_target_attempts, TickerMeta.symbol == latest_target_attempts.c.symbol)
-        .outerjoin(latest_target_ingests, TickerMeta.symbol == latest_target_ingests.c.symbol)
         .where(func.upper(TickerMeta.exchange).in_(("NASDAQ", "NYSE", "AMEX", "NYSE AMERICAN")))
-        .order_by(
-            target_progress.is_(None).desc(),
-            target_progress.asc(),
-            TickerMeta.symbol.asc(),
-        )
+        .order_by(TickerMeta.symbol.asc())
         .limit(5000)
     ).scalars().all()
-    append_rows(ticker_rows)
-    if limit and len(result) >= limit:
-        return result
+    append_rows(ticker_rows, 1)
 
     security_rows = db.execute(
         select(Security.symbol)
-        .outerjoin(latest_target_attempts, Security.symbol == latest_target_attempts.c.symbol)
-        .outerjoin(latest_target_ingests, Security.symbol == latest_target_ingests.c.symbol)
         .where(func.lower(Security.asset_class).in_(("stock", "equity")))
-        .order_by(
-            target_progress.is_(None).desc(),
-            target_progress.asc(),
-            Security.symbol.asc(),
-        )
+        .order_by(Security.symbol.asc())
         .limit(5000)
     ).scalars().all()
-    append_rows(security_rows)
+    append_rows(security_rows, 2)
+    result.sort(key=lambda symbol: (category[symbol], progress.get(symbol) is not None, progress.get(symbol) or datetime.min.replace(tzinfo=timezone.utc), order[symbol], symbol))
     return result[:limit] if limit else result
 
 
