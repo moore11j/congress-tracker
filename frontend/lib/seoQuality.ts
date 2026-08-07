@@ -26,9 +26,7 @@ export const seoPilotPages = {
   insiders: [
     { type: "insider", path: "/insider/tim-cook-0001214156", lastmod: "2026-08-01", rationale: "Canonical public insider pilot with issuer relationship and filing history." },
   ],
-  institutions: [
-    { type: "institution", path: "/institution/0001364742", lastmod: "2026-08-01", rationale: "Institution pilot with reported holdings context." },
-  ],
+  institutions: [],
   departments: [
     { type: "department", path: "/departments/department-of-defense", lastmod: "2026-08-01", rationale: "Department pilot with public-company contract exposure." },
     { type: "department", path: "/departments/nasa", lastmod: "2026-08-01", rationale: "Department pilot with public-company contract exposure." },
