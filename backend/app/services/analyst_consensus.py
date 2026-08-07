@@ -700,13 +700,19 @@ def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetim
     return {"symbol": normalized, "status": "available" if rows else "unavailable", "rows_seen": len(rows), "inserted": inserted, "updated": updated, "skipped": skipped}
 
 
-def ingest_symbol_historical_grade_events(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
+def ingest_symbol_historical_grade_events(
+    db: Session,
+    symbol: str,
+    *,
+    observed_at: datetime | None = None,
+    timeout_s: int = 30,
+) -> dict[str, Any]:
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
     observed = observed_at or utc_now()
     try:
-        rows = fetch_historical_grades(symbol=normalized, timeout_s=30)
+        rows = fetch_historical_grades(symbol=normalized, timeout_s=timeout_s)
     except FMPSubscriptionRestrictedError as exc:
         return {"symbol": normalized, "status": "provider_error", "error": f"subscription_restricted:{exc.__class__.__name__}"}
     except FMPClientError as exc:
@@ -740,6 +746,7 @@ def ingest_symbol_price_target_events(
     observed_at: datetime | None = None,
     pages: int = 1,
     page_size: int = 100,
+    timeout_s: int = 30,
 ) -> dict[str, Any]:
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
@@ -750,7 +757,7 @@ def ingest_symbol_price_target_events(
     bounded_page_size = max(1, min(int(page_size or 100), 100))
     for page in range(bounded_pages):
         try:
-            rows = fetch_price_target_news(symbol=normalized, page=page, limit=bounded_page_size, timeout_s=30)
+            rows = fetch_price_target_news(symbol=normalized, page=page, limit=bounded_page_size, timeout_s=timeout_s)
         except FMPSubscriptionRestrictedError as exc:
             return {"symbol": normalized, "status": "provider_error", "error": f"subscription_restricted:{exc.__class__.__name__}"}
         except FMPClientError as exc:

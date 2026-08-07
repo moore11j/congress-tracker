@@ -30,6 +30,7 @@ def backfill_historical_analyst_price_targets(
     page_size: int = 100,
     dry_run: bool = False,
     sleep_seconds: float = 0.0,
+    timeout_seconds: int = 30,
 ) -> dict[str, object]:
     ensure_analyst_consensus_schema(engine)
     observed_at = datetime.now(timezone.utc)
@@ -57,6 +58,7 @@ def backfill_historical_analyst_price_targets(
                 observed_at=observed_at,
                 pages=pages,
                 page_size=page_size,
+                timeout_s=timeout_seconds,
             )
             record_symbol_backfill_attempt(db, job_name=PRICE_TARGET_BACKFILL_JOB, symbol=symbol, result=result, attempted_at=observed_at)
             results.append(result)
@@ -115,6 +117,7 @@ def main() -> None:
     parser.add_argument("--page-size", type=int, default=100, help="Rows per page, capped at 100.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--sleep-seconds", type=float, default=0.0, help="Optional delay between symbols for rate-limit control.")
+    parser.add_argument("--timeout-seconds", type=int, default=30, help="Provider timeout per symbol. Defaults to 30.")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -125,6 +128,7 @@ def main() -> None:
                 page_size=args.page_size,
                 dry_run=args.dry_run,
                 sleep_seconds=args.sleep_seconds,
+                timeout_seconds=args.timeout_seconds,
             ),
             sort_keys=True,
             default=str,
