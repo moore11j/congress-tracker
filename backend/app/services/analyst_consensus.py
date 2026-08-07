@@ -1766,7 +1766,7 @@ def analyst_consensus_component_inputs(db: Session, symbol: str) -> dict[str, An
             "freshnessStatus": _snapshot_availability(snapshot) if snapshot else "unavailable",
         },
         "notes": [
-            "Analyst consensus is kept separate from Walnut's live confirmation score.",
-            "No live component weight should be assigned without coverage, backtesting, correlation, and double-counting review.",
+            "Analyst consensus is treated as a capped Walnut confirmation input.",
+            "Live weighting remains behind the analyst-consensus live-weight kill switch.",
         ],
     }

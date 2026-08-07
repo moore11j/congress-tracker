@@ -203,6 +203,7 @@ export type ConfirmationScoreBundle = {
     congress: ConfirmationScoreSource;
     insiders: ConfirmationScoreSource;
     signals: ConfirmationScoreSource;
+    analysts: ConfirmationScoreSource;
     price_volume: ConfirmationScoreSource;
     fundamentals: ConfirmationScoreSource;
     options_flow: ConfirmationScoreSource;

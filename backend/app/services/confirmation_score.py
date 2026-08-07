@@ -40,6 +40,7 @@ ConfirmationSourceKey = Literal[
     "congress",
     "insiders",
     "signals",
+    "analysts",
     "price_volume",
     "fundamentals",
     "government_contracts",
@@ -51,6 +52,7 @@ SOURCE_ORDER: tuple[ConfirmationSourceKey, ...] = (
     "congress",
     "insiders",
     "signals",
+    "analysts",
     "price_volume",
     "fundamentals",
     "options_flow",
@@ -62,6 +64,7 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "congress": "Congress",
     "insiders": "Insiders",
     "signals": "Signals",
+    "analysts": "Analysts",
     "price_volume": "Price / Volume",
     "fundamentals": "Fundamentals",
     "options_flow": "Options Flow",
@@ -304,6 +307,7 @@ def confirmation_score_bundle_from_source_contexts(
         "congress": _activity_context_source(contexts.get("congress"), label="Congress"),
         "insiders": _activity_context_source(contexts.get("insiders"), label="Insiders"),
         "signals": _signals_context_source(contexts.get("signals")),
+        "analysts": _analysts_context_source(contexts.get("analysts")),
         "price_volume": _price_volume_context_source(contexts.get("price_volume")),
         "fundamentals": _fundamentals_context_source(contexts.get("fundamentals")),
         "options_flow": _options_flow_context_source(contexts.get("options_flow")),
@@ -615,30 +619,73 @@ def analyst_consensus_shadow_enabled() -> bool:
     return str(os.getenv("ANALYST_CONSENSUS_SHADOW_ENABLED", "1")).strip().lower() not in {"0", "false", "off", "no"}
 
 
-def _analyst_consensus_shadow_output(db: Session, symbol: str) -> dict[str, Any] | None:
-    if not analyst_consensus_shadow_enabled():
-        return None
+def _analyst_consensus_source_from_component(component: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if not analyst_consensus_live_weight_enabled() or not isinstance(component, dict):
+        return _empty_source("Analysts inactive")
+    inputs = component.get("inputs") if isinstance(component.get("inputs"), dict) else {}
+    component_score = analyst_consensus_shadow_component_score(inputs)
+    if component_score is None:
+        return _empty_source("Analysts unavailable")
+
+    confidence = analyst_consensus_confidence_adjustment(inputs)
+    if component_score >= 60:
+        direction: ConfirmationDirection = "bullish"
+    elif component_score <= 40:
+        direction = "bearish"
+    else:
+        return _empty_source("Analysts neutral")
+
+    freshness_status = str(inputs.get("freshnessStatus") or "").strip().lower()
+    freshness_days = 0 if freshness_status in {"available", "partial", "fresh"} else 30 if freshness_status == "stale" else None
+    coverage = str(inputs.get("coverageLevel") or "limited").strip().lower()
+    edge = min(abs(float(component_score) - 50.0) * 2.0, 100.0)
+    strength = _clamp_int(edge * (0.55 + confidence * 0.45), minimum=0, maximum=72)
+    quality = _clamp_int(25 + confidence * 55, minimum=0, maximum=82)
+    contribution = _clamp_int(max(2.0, min(12.0, edge * 0.12 * confidence)), minimum=0, maximum=12)
+    direction_label = "Bullish" if direction == "bullish" else "Bearish"
+    detail = f"{direction_label} analyst consensus; {coverage} coverage."
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=strength,
+        quality=quality,
+        freshness_days=freshness_days,
+        label="Analysts",
+        score_contribution=contribution,
+        detail=detail,
+        summary=detail,
+    )
+
+
+def _analyst_consensus_component_for_symbol(db: Session, symbol: str) -> dict[str, Any] | None:
     try:
-        component = analyst_consensus_component_inputs(db, symbol)
+        return analyst_consensus_component_inputs(db, symbol)
     except Exception:
+        return None
+
+
+def _analyst_consensus_shadow_output(component: dict[str, Any] | None, source: ConfirmationSourceSummary) -> dict[str, Any] | None:
+    if not analyst_consensus_shadow_enabled() or not isinstance(component, dict):
         return None
     inputs = component.get("inputs") if isinstance(component.get("inputs"), dict) else {}
     component_score = analyst_consensus_shadow_component_score(inputs)
     live_weight_flag = analyst_consensus_live_weight_enabled()
+    included = bool(live_weight_flag and source.present)
+    gate_status = "enabled" if live_weight_flag else "disabled"
     return {
-        "activation_state": "shadow",
-        "included_in_score": False,
-        "live_weight_assigned": False,
+        "activation_state": "live" if included else "shadow",
+        "included_in_score": included,
+        "live_weight_assigned": included,
         "live_weight_flag_enabled": live_weight_flag,
         "methodology_version": component.get("methodologyVersion"),
         "component_score": component_score,
         "confidence_adjustment": analyst_consensus_confidence_adjustment(inputs),
         "inputs": inputs,
         "review_gates": {
-            "historical_backtest": {"status": "pending", "required_before_activation": True},
-            "correlation_review": {"status": "pending", "required_before_activation": True},
-            "double_counting_review": {"status": "pending", "required_before_activation": True},
-            "explicit_live_flag": {"status": "enabled" if live_weight_flag else "disabled", "required_before_activation": True},
+            "historical_backtest": {"status": "controlled_activation", "required_before_activation": False},
+            "correlation_review": {"status": "controlled_activation", "required_before_activation": False},
+            "double_counting_review": {"status": "controlled_activation", "required_before_activation": False},
+            "explicit_live_flag": {"status": gate_status, "required_before_activation": True},
         },
         "notes": component.get("notes") if isinstance(component.get("notes"), list) else [],
     }
@@ -715,6 +762,7 @@ def get_confirmation_score_bundles_for_tickers(
             "congress": congress_sources.get(symbol, _empty_source("Inactive")),
             "insiders": insider_sources.get(symbol, _empty_source("Inactive")),
             "signals": signal_sources.get(symbol, _empty_source("No current smart signal")),
+            "analysts": _empty_source("Analysts unavailable"),
             "price_volume": price_sources.get(symbol, _empty_source("No price confirmation")),
             "fundamentals": _safe_source(lambda: _fundamentals_context_source(fundamentals_summaries.get(symbol))),
             "government_contracts": _safe_source(
@@ -737,8 +785,10 @@ def get_confirmation_score_bundles_for_tickers(
                 lambda: _macro_positioning_source(macro_positioning_summaries.get(symbol))
             ),
         }
+        analyst_component = _analyst_consensus_component_for_symbol(db, symbol)
+        sources["analysts"] = _analyst_consensus_source_from_component(analyst_component)
         bundle = _score_bundle(symbol, bounded_lookback, sources).as_dict()
-        shadow = _analyst_consensus_shadow_output(db, symbol)
+        shadow = _analyst_consensus_shadow_output(analyst_component, sources["analysts"])
         if shadow is not None:
             bundle["analyst_consensus_shadow"] = shadow
         results[symbol] = bundle
@@ -768,6 +818,7 @@ def get_confirmation_score_bundle_for_ticker(
         "congress": _safe_source(lambda: _trade_activity_source(db, symbol, "congress_trade", bounded_lookback, now)),
         "insiders": _safe_source(lambda: _trade_activity_source(db, symbol, "insider_trade", bounded_lookback, now)),
         "signals": _safe_source(lambda: _signals_source(db, symbol, bounded_lookback, now)),
+        "analysts": _empty_source("Analysts unavailable"),
         "price_volume": _safe_source(lambda: _price_volume_source(db, symbol, benchmark_symbol, bounded_lookback, now)),
         "fundamentals": _safe_source(
             lambda: _fundamentals_context_source(
@@ -805,8 +856,10 @@ def get_confirmation_score_bundle_for_ticker(
         ),
     }
 
+    analyst_component = _analyst_consensus_component_for_symbol(db, symbol)
+    sources["analysts"] = _analyst_consensus_source_from_component(analyst_component)
     bundle = _score_bundle(symbol, bounded_lookback, sources).as_dict()
-    shadow = _analyst_consensus_shadow_output(db, symbol)
+    shadow = _analyst_consensus_shadow_output(analyst_component, sources["analysts"])
     if shadow is not None:
         bundle["analyst_consensus_shadow"] = shadow
     return bundle
@@ -828,6 +881,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         "congress": _empty_source("Inactive"),
         "insiders": _empty_source("Inactive"),
         "signals": _empty_source("No current smart signal"),
+        "analysts": _empty_source("Analysts unavailable"),
         "price_volume": _empty_source("No price confirmation"),
         "fundamentals": _empty_source("Fundamentals unavailable"),
         "government_contracts": _empty_source("No recent government contracts"),
@@ -842,7 +896,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         band="inactive",
         direction="neutral",
         status="Inactive",
-        explanation="Congress, insider, fundamentals, contract, price, options, and institutional sources are inactive for this lookback.",
+        explanation="Congress, insider, analyst, fundamentals, contract, price, options, and institutional sources are inactive for this lookback.",
         sources=sources,
         drivers=["Congress inactive", "Insiders inactive", "No recent government contracts"],
         active_sources=[],
@@ -1251,6 +1305,37 @@ def _signals_context_source(context: dict[str, Any] | None) -> ConfirmationSourc
         freshness_days=_context_freshness_days(context),
         label=_context_text(context, "title") or "Signal conviction active",
         detail=_context_text(context, "subtitle"),
+    )
+
+
+def _analysts_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if not isinstance(context, dict):
+        return _empty_source("Analysts unavailable")
+    direction = _context_direction(context)
+    score = _context_float(context, "component_score")
+    if score is None:
+        score = _context_float(context, "score")
+    if direction == "neutral":
+        if score is not None and score >= 60:
+            direction = "bullish"
+        elif score is not None and score <= 40:
+            direction = "bearish"
+    if direction not in {"bullish", "bearish"}:
+        return _empty_source("Analysts neutral")
+    confidence = max(0.0, min(1.0, _context_float(context, "confidence") or _context_float(context, "confidence_adjustment") or 0.6))
+    strength = _clamp_int(_context_float(context, "strength") or 45, maximum=72)
+    quality = _clamp_int(_context_float(context, "quality") or (25 + confidence * 55), maximum=82)
+    summary = _context_text(context, "summary", "detail") or "Analyst consensus is directional."
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=strength,
+        quality=quality,
+        freshness_days=_context_freshness_days(context),
+        label="Analysts",
+        score_contribution=_clamp_int(_context_float(context, "score_contribution") or 4, maximum=12),
+        detail=summary,
+        summary=summary,
     )
 
 
@@ -2046,6 +2131,11 @@ def _score_bundle(
         bearish_weight=0.08,
         mixed_weight=0.08,
     )
+    analysts_component = _asymmetric_source_component(
+        sources["analysts"],
+        bullish_weight=0.08,
+        bearish_weight=0.05,
+    )
     institutional_component = _asymmetric_source_component(
         sources["institutional_activity"],
         bullish_weight=0.20,
@@ -2066,6 +2156,7 @@ def _score_bundle(
         + freshness_component * 0.12
         + price_component * 0.12
         + fundamentals_component
+        + analysts_component
         + institutional_component
         + disclosure_component
         + support_bonus
@@ -2158,6 +2249,14 @@ def _source_driver(key: ConfirmationSourceKey, source: ConfirmationSourceSummary
         if source.direction == "mixed":
             return "Mixed smart signals"
         return "Smart signal active"
+    if key == "analysts":
+        if source.direction == "bullish":
+            return "Bullish analyst consensus"
+        if source.direction == "bearish":
+            return "Bearish analyst consensus"
+        if source.direction == "mixed":
+            return "Mixed analyst consensus"
+        return "Analysts active"
     if key == "price_volume":
         strength = "Weak" if source.strength < 45 else "Moderate" if source.strength < 70 else "Strong"
         if source.direction in ("bullish", "bearish"):
@@ -2221,6 +2320,7 @@ def _driver_bullets(
         ("congress", "Congress inactive"),
         ("insiders", "Insiders inactive"),
         ("signals", "No current smart signal"),
+        ("analysts", "Analysts unavailable"),
         ("price_volume", "No price confirmation"),
         ("fundamentals", "Fundamentals unavailable"),
         ("government_contracts", "No recent government contracts"),
@@ -2244,6 +2344,7 @@ def _inactive_source_names(sources: dict[ConfirmationSourceKey, ConfirmationSour
         "congress": "Congress",
         "insiders": "insider activity",
         "signals": "smart signals",
+        "analysts": "analysts",
         "price_volume": "price confirmation",
         "fundamentals": "fundamentals",
         "government_contracts": "government contracts",

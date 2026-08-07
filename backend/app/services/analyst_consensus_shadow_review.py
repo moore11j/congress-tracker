@@ -31,7 +31,7 @@ DEFAULT_MAX_CONFIRMATION_CORRELATION = 0.65
 
 
 def analyst_consensus_live_weight_enabled() -> bool:
-    return str(os.getenv("ANALYST_CONSENSUS_LIVE_WEIGHT_ENABLED", "0")).strip().lower() in {
+    return str(os.getenv("ANALYST_CONSENSUS_LIVE_WEIGHT_ENABLED", "1")).strip().lower() in {
         "1",
         "true",
         "on",

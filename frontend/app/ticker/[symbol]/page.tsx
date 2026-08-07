@@ -1122,6 +1122,7 @@ function tickerContextSourceEntitlements(entitlements: Entitlements | null, auth
   return {
     price_volume: meta("price_volume", null, false),
     fundamentals: meta("fundamentals", null, false),
+    analysts: meta("analysts", null, false),
     insiders: meta("insiders", null, false),
     congress: meta("congress", null, false),
     government_contracts: meta("government_contracts", null, false),
@@ -1152,6 +1153,7 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
       congress: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
       insiders: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
       signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current signal conviction" },
+      analysts: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Analysts unavailable" },
       price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
       fundamentals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Fundamentals unavailable", status: "unavailable" },
       options_flow: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Options flow not confirming" },
@@ -1217,6 +1219,7 @@ function decisionToneClass(direction?: string | null): string {
 function decisionDotClass(category: string): string {
   if (category === "fundamentals" || category === "government_contracts") return "bg-emerald-300";
   if (category === "price_volume" || category === "signals") return "bg-sky-300";
+  if (category === "analysts") return "bg-cyan-300";
   if (category === "insiders" || category === "congress") return "bg-violet-300";
   if (category === "institutional_activity" || category === "options_flow") return "bg-indigo-300";
   if (category === "macro_positioning") return "bg-amber-300";
@@ -1436,6 +1439,7 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
       congress: { ...fallback.sources.congress, ...(bundle.sources?.congress ?? {}) },
       insiders: { ...fallback.sources.insiders, ...(bundle.sources?.insiders ?? {}) },
       signals: { ...fallback.sources.signals, ...(bundle.sources?.signals ?? {}) },
+      analysts: { ...fallback.sources.analysts, ...(bundle.sources?.analysts ?? {}) },
       price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
       fundamentals: { ...fallback.sources.fundamentals, ...(bundle.sources?.fundamentals ?? {}) },
       options_flow: { ...fallback.sources.options_flow, ...(bundle.sources?.options_flow ?? {}) },
@@ -1496,6 +1500,7 @@ const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   congress: "Congress",
   insiders: "Insiders",
   signals: "Signals",
+  analysts: "Analysts",
   price_volume: "Price / Volume",
   fundamentals: "Fundamentals",
   options_flow: "Options Flow",
@@ -1508,6 +1513,7 @@ const confirmationSourceOrder: ConfirmationSourceKey[] = [
   "congress",
   "insiders",
   "signals",
+  "analysts",
   "price_volume",
   "fundamentals",
   "options_flow",
@@ -1538,7 +1544,6 @@ function sourceUnavailable(source: ConfirmationScoreBundle["sources"][Confirmati
 
 function sourceStateLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
   if (sourceUnavailable(source)) return "UNAVAILABLE";
-  if (source.present && source.score_contribution && source.score_contribution > 0) return "BULLISH SUPPORT";
   return source.present ? source.direction.toUpperCase() : "INACTIVE";
 }
 
@@ -1783,6 +1788,11 @@ function overviewBullets({
     else if (confirmationBundle.sources.signals.direction === "bullish") bullets.add("Signals: confirmed bullish");
     else bullets.add("Signals: mixed");
   }
+  if (confirmationBundle.sources.analysts.present) {
+    if (confirmationBundle.sources.analysts.direction === "bearish") bullets.add("Analysts: bearish consensus");
+    else if (confirmationBundle.sources.analysts.direction === "bullish") bullets.add("Analysts: bullish consensus");
+    else bullets.add("Analysts: mixed");
+  }
   if (confirmationBundle.sources.price_volume.present) {
     if (confirmationBundle.sources.price_volume.direction === "bearish") bullets.add("Price / Volume: bearish tape");
     else if (confirmationBundle.sources.price_volume.direction === "bullish") bullets.add("Price / Volume: bullish tape");
@@ -1817,8 +1827,8 @@ function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
   if (bundle.sources.government_contracts.present && bundle.direction === "neutral") {
     return "Government contracts are active, but broader directional confirmation is still limited.";
   }
-  if (!bundle.sources.price_volume.present && !bundle.sources.fundamentals.present && !bundle.sources.options_flow.present) {
-    return "Price / volume, fundamentals, and options flow are inactive.";
+  if (!bundle.sources.price_volume.present && !bundle.sources.fundamentals.present && !bundle.sources.analysts.present && !bundle.sources.options_flow.present) {
+    return "Price / volume, fundamentals, analysts, and options flow are inactive.";
   }
   return null;
 }
@@ -2141,6 +2151,17 @@ function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBu
   }
   if (key === "signals") return topSignal ? "Signal conviction active" : "Signal source active";
   return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
+}
+
+function analystSourceBody(source: ConfirmationScoreBundle["sources"]["analysts"], lookbackDays: number): string {
+  if (!source.present) return "Analyst consensus inactive";
+  return normalizeUpperCardWindowCopy(source.detail ?? source.summary ?? source.label, lookbackDays) ?? source.label;
+}
+
+function analystSourceSupport(source: ConfirmationScoreBundle["sources"]["analysts"]): string {
+  if (!source.present) return "No directional analyst source in this window.";
+  const contribution = typeof source.score_contribution === "number" ? Math.round(source.score_contribution) : null;
+  return contribution !== null ? `Capped contribution ${contribution}` : "Capped confirmation input";
 }
 
 function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
@@ -3179,6 +3200,13 @@ async function DeferredTickerContent({
                 source={congressCardSource}
                 body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
                 support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+              />
+              <SourceEvidenceCard
+                title="Analysts"
+                icon="signals"
+                source={confirmationBundle.sources.analysts}
+                body={analystSourceBody(confirmationBundle.sources.analysts, confirmationLookbackDays)}
+                support={analystSourceSupport(confirmationBundle.sources.analysts)}
               />
               {institutionalCardLocked ? (
                 <LockedSourceEvidenceCard

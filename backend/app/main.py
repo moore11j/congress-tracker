@@ -8445,7 +8445,10 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             )
         except Exception:
             logger.info("ticker_confirmation_fresh_context_merge_failed symbol=%s", normalized_symbol, exc_info=True)
-        capture_live_confirmation_score_snapshot(db, normalized_symbol, bundle)
+        try:
+            capture_live_confirmation_score_snapshot(db, normalized_symbol, bundle)
+        except Exception:
+            logger.info("ticker_confirmation_outcome_capture_failed symbol=%s", normalized_symbol, exc_info=True)
         bundle = with_confirmation_score_history(
             db,
             bundle,
@@ -8975,6 +8978,7 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
     return {
         "price_volume": source_meta("price_volume", None, False),
         "fundamentals": source_meta("fundamentals", None, False),
+        "analysts": source_meta("analysts", None, False),
         "insiders": source_meta("insiders", None, False),
         "congress": source_meta("congress", None, False),
         "government_contracts": source_meta("government_contracts", None, False),
@@ -9822,6 +9826,7 @@ _TICKER_CONFIRMATION_SOURCE_ORDER = (
     "congress",
     "insiders",
     "signals",
+    "analysts",
     "price_volume",
     "fundamentals",
     "options_flow",

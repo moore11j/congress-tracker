@@ -13,6 +13,7 @@ SOURCE_LABELS = {
     "congress": "Congress activity",
     "insiders": "Insider activity",
     "signals": "Signals",
+    "analysts": "Analysts",
     "price_volume": "Price / volume",
     "fundamentals": "Fundamentals",
     "options_flow": "Options flow",
@@ -23,6 +24,7 @@ SOURCE_LABELS = {
 SOURCE_ORDER = (
     "price_volume",
     "fundamentals",
+    "analysts",
     "insiders",
     "congress",
     "signals",
@@ -304,6 +306,7 @@ def _what_changed(confirmation: dict[str, Any], sources: dict[str, Any], context
         ("congress", "New Congress disclosure"),
         ("government_contracts", "Government-contract activity updated"),
         ("institutional_activity", "Reported institutional activity"),
+        ("analysts", "Analyst consensus updated"),
     ):
         source = _source(sources, key)
         if not _present(sources, key):
@@ -324,6 +327,7 @@ def _catalysts(sources: dict[str, Any], contexts: dict[str, Any]) -> list[Decisi
     items: list[DecisionItem] = []
     for key, title in (
         ("fundamentals", "Fundamental strength"),
+        ("analysts", "Bullish analyst consensus"),
         ("price_volume", "Bullish tape confirmation"),
         ("signals", "Signal activity confirming"),
         ("congress", "Congress buy-skewed activity"),
@@ -354,6 +358,7 @@ def _risks(sources: dict[str, Any], contexts: dict[str, Any]) -> list[DecisionIt
     for key, title in (
         ("price_volume", "Weak price and volume confirmation"),
         ("fundamentals", "Fundamental pressure"),
+        ("analysts", "Bearish analyst consensus"),
         ("signals", "Bearish signal activity"),
         ("insiders", "Sell-skewed insider activity"),
         ("congress", "Sell-skewed Congress activity"),
@@ -464,6 +469,7 @@ def _watch_label(category: str) -> str:
         "price_volume": "Tape confirmation",
         "fundamentals": "Fundamental durability",
         "signals": "Signal follow-through",
+        "analysts": "Analyst consensus",
         "insiders": "Insider disclosure skew",
         "congress": "Congress disclosure skew",
         "government_contracts": "Contract activity",
@@ -480,6 +486,8 @@ def _watch_description(category: str, *, negative: bool) -> str:
         return "Watch whether upcoming reported metrics confirm durability."
     if category == "signals":
         return "Watch whether signal activity broadens or fades."
+    if category == "analysts":
+        return "Watch whether analyst targets and rating mix keep confirming."
     if category in {"insiders", "congress"}:
         return "Watch whether new disclosures reinforce the current skew."
     if category == "government_contracts":

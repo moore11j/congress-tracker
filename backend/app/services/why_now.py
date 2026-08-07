@@ -11,6 +11,7 @@ _SOURCE_ORDER = (
     "congress",
     "insiders",
     "signals",
+    "analysts",
     "price_volume",
     "fundamentals",
     "government_contracts",
@@ -163,6 +164,7 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "congress": _source(raw_sources.get("congress"), "Inactive"),
         "insiders": _source(raw_sources.get("insiders"), "Inactive"),
         "signals": _source(raw_sources.get("signals"), "No current smart signal"),
+        "analysts": _source(raw_sources.get("analysts"), "Analysts unavailable"),
         "price_volume": _source(raw_sources.get("price_volume"), "No price confirmation"),
         "fundamentals": _source(raw_sources.get("fundamentals"), "Fundamentals unavailable"),
         "government_contracts": _source(raw_sources.get("government_contracts"), "No recent government contracts"),
@@ -257,6 +259,14 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
         if direction == "mixed":
             return "Mixed smart signals"
         return "Smart signal active"
+    if key == "analysts":
+        if direction == "bullish":
+            return "Bullish analyst consensus"
+        if direction == "bearish":
+            return "Bearish analyst consensus"
+        if direction == "mixed":
+            return "Mixed analyst consensus"
+        return "Analysts active"
     if key == "price_volume":
         strength = "Weak" if source["strength"] < 45 else "Moderate" if source["strength"] < 70 else "Strong"
         if direction in {"bullish", "bearish"}:
@@ -332,6 +342,7 @@ def _evidence(
         "congress": "Congress activity remains inactive",
         "insiders": "Insider activity remains inactive",
         "signals": "No current smart signal",
+        "analysts": "Analysts unavailable",
         "price_volume": "No price confirmation",
         "fundamentals": "Fundamentals unavailable",
         "government_contracts": "No recent government contracts",

@@ -9,6 +9,7 @@ type ConfirmationSourceKey =
   | "congress"
   | "insiders"
   | "signals"
+  | "analysts"
   | "price_volume"
   | "fundamentals"
   | "options_flow"
@@ -20,6 +21,7 @@ const labels: Record<ConfirmationSourceKey, string> = {
   congress: "Congress",
   insiders: "Insiders",
   signals: "Signals",
+  analysts: "Analysts",
   price_volume: "Price / Volume",
   fundamentals: "Fundamentals",
   options_flow: "Options Flow",

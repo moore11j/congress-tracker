@@ -359,10 +359,10 @@ def test_shadow_review_samples_historical_grade_events_across_symbols():
     assert payload["backtest"]["sourceBreakdown"]["historical_grade_event"]["sampleCount"] == 3
 
 
-def test_confirmation_bundle_exposes_shadow_component_without_live_source_weight():
+def test_confirmation_bundle_includes_capped_live_analyst_source():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
-    snapshot_date = date(2026, 1, 1)
+    snapshot_date = datetime.now(timezone.utc).date()
 
     with Session(engine) as db:
         db.add(_snapshot("AAA", snapshot_date, weighted_rating_value=1.0, upside=20))
@@ -374,9 +374,13 @@ def test_confirmation_bundle_exposes_shadow_component_without_live_source_weight
         {"weightedRatingValue": 1.0, "consensusImpliedUpsidePct": 20}
     )
     shadow = bundle["analyst_consensus_shadow"]
-    assert bundle["score"] == 0
-    assert shadow["activation_state"] == "shadow"
-    assert shadow["included_in_score"] is False
-    assert shadow["live_weight_assigned"] is False
+    assert bundle["score"] > 0
+    assert bundle["score"] <= 39
+    assert bundle["direction"] == "bullish"
+    assert bundle["sources"]["analysts"]["present"] is True
+    assert bundle["sources"]["analysts"]["score_contribution"] <= 12
+    assert shadow["activation_state"] == "live"
+    assert shadow["included_in_score"] is True
+    assert shadow["live_weight_assigned"] is True
     assert shadow["component_score"] == expected_score
-    assert shadow["review_gates"]["explicit_live_flag"]["status"] == "disabled"
+    assert shadow["review_gates"]["explicit_live_flag"]["status"] == "enabled"

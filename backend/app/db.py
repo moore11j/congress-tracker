@@ -4765,7 +4765,7 @@ def ensure_outcome_ledger_schema(bind=engine) -> None:
         if existing_current is None:
             configuration_json = (
                 '{"classification_version":"confirmation_direction_v3","lookback_days":30,'
-                '"source_order":["congress","insiders","signals","price_volume","fundamentals",'
+                '"source_order":["congress","insiders","signals","analysts","price_volume","fundamentals",'
                 '"options_flow","government_contracts","institutional_activity","macro_positioning"],'
                 '"phase":"outcome-ledger-phase-1"}'
             )
