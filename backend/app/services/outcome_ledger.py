@@ -320,7 +320,8 @@ def capture_live_confirmation_score_snapshot(
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             ).order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc()).limit(1)
         ).scalar_one_or_none()
-        if visible_duplicate is not None:
+        normalized_direction = str(bundle.get("direction") or "neutral")
+        if visible_duplicate is not None and visible_duplicate.direction == normalized_direction:
             _increment_counter(db, OUTCOMES_LEDGER_DUPLICATES_KEY)
             db.commit()
             return visible_duplicate
@@ -331,7 +332,7 @@ def capture_live_confirmation_score_snapshot(
             calculated_at=calculated,
             market_date=market_date,
             score=int(bundle.get("score") or 0),
-            direction=str(bundle.get("direction") or "neutral"),
+            direction=normalized_direction,
             strength=_strength_from_bundle(bundle),
             reference_price=reference_price,
             reference_price_at=reference_price_at,
@@ -344,6 +345,7 @@ def capture_live_confirmation_score_snapshot(
             methodology_version_id=methodology.id,
             calculation_type=calculation_type,
             code_commit_sha=current_code_commit_sha(),
+            supersedes_snapshot_id=visible_duplicate.id if visible_duplicate is not None else None,
         )
         db.add(snapshot)
         db.commit()
@@ -610,12 +612,13 @@ def _apply_snapshot_filters(query, *, ticker: str | None = None, methodology: st
     return query
 
 
-def _visible_snapshot_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int, date]:
+def _visible_snapshot_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int, date, str]:
     return (
         snapshot.calculation_type,
         snapshot.security_id,
         snapshot.methodology_version_id,
         snapshot.market_date,
+        snapshot.direction,
     )
 
 

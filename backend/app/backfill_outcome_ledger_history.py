@@ -299,8 +299,8 @@ def _market_pressure_snapshot_point(snapshot: MarketPressureSnapshot) -> Histori
     )
 
 
-def _keep_latest_visible_point(points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint], point: HistoricalScorePoint) -> None:
-    key = (point.ticker, point.observed_at.date())
+def _keep_latest_visible_point(points_by_visible_event: dict[tuple[str, date, str], HistoricalScorePoint], point: HistoricalScorePoint) -> None:
+    key = (point.ticker, point.observed_at.date(), point.direction)
     current = points_by_visible_event.get(key)
     if current is None or point.observed_at > current.observed_at or (
         point.observed_at == current.observed_at and point.source_count > current.source_count
@@ -351,7 +351,7 @@ def _load_points(
         .scalars()
         .all()
     )
-    points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint] = {}
+    points_by_visible_event: dict[tuple[str, date, str], HistoricalScorePoint] = {}
     for event in event_rows:
         for point in _event_points(event, include_before=include_before):
             if point.score < min_score and point.source_count < min_source_count:
@@ -376,6 +376,7 @@ def _snapshot_exists(
     security_id: int,
     methodology_id: int,
     market_date: date,
+    direction: str,
     calculation_type: str,
 ) -> bool:
     return (
@@ -384,6 +385,7 @@ def _snapshot_exists(
                 ConfirmationScoreSnapshot.security_id == security_id,
                 ConfirmationScoreSnapshot.methodology_version_id == methodology_id,
                 ConfirmationScoreSnapshot.market_date == market_date,
+                ConfirmationScoreSnapshot.direction == direction,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             ).limit(1)
         ).scalar_one_or_none()
@@ -449,11 +451,24 @@ def backfill_outcome_ledger_history(
             security_id=security.id,
             methodology_id=methodology.id,
             market_date=entry_day,
+            direction=point.direction,
             calculation_type=calculation_type,
         ):
             report["skipped_existing"] += 1
             continue
 
+        prior_visible = db.execute(
+            select(ConfirmationScoreSnapshot)
+            .where(
+                ConfirmationScoreSnapshot.security_id == security.id,
+                ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
+                ConfirmationScoreSnapshot.market_date == entry_day,
+                ConfirmationScoreSnapshot.calculation_type == calculation_type,
+                ConfirmationScoreSnapshot.direction != point.direction,
+            )
+            .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
         active_sources = _active_sources_placeholder(point)
         snapshot = ConfirmationScoreSnapshot(
             security_id=security.id,
@@ -474,6 +489,7 @@ def backfill_outcome_ledger_history(
             methodology_version_id=methodology.id,
             calculation_type=calculation_type,
             code_commit_sha=current_code_commit_sha(),
+            supersedes_snapshot_id=prior_visible.id if prior_visible is not None else None,
             correction_reason=f"backfilled:{point.source_kind}:{point.source_id}",
         )
         if dry_run:

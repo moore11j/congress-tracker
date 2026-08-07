@@ -27,19 +27,19 @@ def _engine():
     return engine
 
 
-def _bundle(score: int = 67) -> dict:
+def _bundle(score: int = 67, direction: str = "bearish") -> dict:
     return {
         "ticker": "CRM",
         "score": score,
         "band": "strong" if score >= 60 else "moderate",
-        "direction": "bearish",
-        "status": "2-source bearish confirmation",
+        "direction": direction,
+        "status": f"2-source {direction} confirmation",
         "classification_version": "confirmation_direction_v3",
         "active_sources": ["insiders", "price_volume"],
         "sources": {
             "insiders": {
                 "present": True,
-                "direction": "bearish",
+                "direction": direction,
                 "strength": 82,
                 "quality": 80,
                 "freshness_days": 4,
@@ -48,7 +48,7 @@ def _bundle(score: int = 67) -> dict:
             },
             "price_volume": {
                 "present": True,
-                "direction": "bearish",
+                "direction": direction,
                 "strength": 74,
                 "quality": 76,
                 "freshness_days": 1,
@@ -103,6 +103,27 @@ def test_live_capture_dedupes_visible_daily_event_even_when_score_changes():
         assert rows[0].calculation_type == "live"
         assert rows[0].reference_price == 101.25
         assert json.loads(rows[0].active_sources_json) == ["insiders", "price_volume"]
+
+
+def test_live_capture_opens_new_event_when_direction_changes():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add(PriceCache(symbol="CRM", date="2026-08-04", close=101.25, price_source="test"))
+        db.commit()
+
+        mixed = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(59, "mixed"), calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc))
+        bullish = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(64, "bullish"), calculated_at=datetime(2026, 8, 4, 17, tzinfo=timezone.utc))
+
+        rows = db.execute(select(ConfirmationScoreSnapshot).order_by(ConfirmationScoreSnapshot.id)).scalars().all()
+        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
+
+        assert mixed is not None
+        assert bullish is not None
+        assert bullish.id != mixed.id
+        assert bullish.supersedes_snapshot_id == mixed.id
+        assert len(rows) == 2
+        assert {row.direction for row in rows} == {"mixed", "bullish"}
+        assert response["total"] == 2
 
 
 def test_live_capture_dedupes_same_visible_daily_event_when_hash_changes():

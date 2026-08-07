@@ -199,10 +199,10 @@ function demoReturnForSnapshot(snapshot: OutcomeSnapshot, horizon: string) {
   const spyReturns = [0.9, 2.8, 6.1, 9.7, 14.8];
   const scoreAdjustment = Math.max(-1.5, Math.min(2.5, (snapshot.score - 68) * 0.08));
   const isBearish = snapshot.direction?.toLowerCase().includes("bear");
-  const isNeutral = snapshot.direction?.toLowerCase().includes("neutral");
-  const seededMiss = snapshot.score % 7 === 1 || isNeutral;
+  const isNonDirectional = snapshot.direction?.toLowerCase().includes("neutral") || snapshot.direction?.toLowerCase().includes("mixed");
+  const seededMiss = snapshot.score % 7 === 1 || isNonDirectional;
   const directionalReturn = baseReturns[horizonIndex] + scoreAdjustment - (seededMiss ? (horizonIndex + 1) * 4.5 : 0);
-  const rawReturn = isNeutral ? directionalReturn / 2 : isBearish ? -directionalReturn : directionalReturn;
+  const rawReturn = isNonDirectional ? directionalReturn / 2 : isBearish ? -directionalReturn : directionalReturn;
   const spyReturn = spyReturns[horizonIndex];
   const excessReturn = rawReturn - spyReturn;
   return {
@@ -211,11 +211,11 @@ function demoReturnForSnapshot(snapshot: OutcomeSnapshot, horizon: string) {
     target_date: snapshot.market_date ?? null,
     price: typeof snapshot.reference_price === "number" ? Number((snapshot.reference_price * (1 + rawReturn / 100)).toFixed(2)) : null,
     return_pct: Number(rawReturn.toFixed(2)),
-    directional_return_pct: isNeutral ? null : Number((isBearish ? -rawReturn : rawReturn).toFixed(2)),
-    directionally_correct: isNeutral ? null : (isBearish ? -rawReturn : rawReturn) > 0,
+    directional_return_pct: isNonDirectional ? null : Number((isBearish ? -rawReturn : rawReturn).toFixed(2)),
+    directionally_correct: isNonDirectional ? null : (isBearish ? -rawReturn : rawReturn) > 0,
     spy_return_pct: spyReturn,
     excess_return_pct: Number(excessReturn.toFixed(2)),
-    directional_excess_return_pct: isNeutral ? null : Number((isBearish ? -excessReturn : excessReturn).toFixed(2)),
+    directional_excess_return_pct: isNonDirectional ? null : Number((isBearish ? -excessReturn : excessReturn).toFixed(2)),
   } satisfies OutcomeHorizonResult;
 }
 
