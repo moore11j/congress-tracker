@@ -39,6 +39,8 @@ METHODOLOGY_VERSION = "analyst_consensus_v1"
 SOURCE = "fmp"
 GRADE_BACKFILL_JOB = "analyst_historical_grade_events_backfill"
 PRICE_TARGET_BACKFILL_JOB = "analyst_historical_price_targets_backfill"
+GRADE_DAILY_REFRESH_JOB = "analyst_grade_events_daily_refresh"
+PRICE_TARGET_DAILY_REFRESH_JOB = "analyst_price_target_events_daily_refresh"
 DEFAULT_HISTORY_DAYS = 365
 MAX_HISTORY_DAYS = 730
 FRESHNESS_DAYS = 7
@@ -900,10 +902,16 @@ def eligible_equity_symbols(db: Session, symbols: Iterable[str] | None = None, *
     return result[:limit] if limit else result
 
 
-def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
+def eligible_historical_grade_symbols(
+    db: Session,
+    symbols: Iterable[str] | None = None,
+    *,
+    limit: int | None = None,
+    job_name: str = GRADE_BACKFILL_JOB,
+) -> list[str]:
     if symbols is not None:
         return eligible_equity_symbols(db, symbols, limit=limit)
-    progress = _latest_backfill_progress(db, job_name=GRADE_BACKFILL_JOB, event_model=AnalystGradeEvent)
+    progress = _latest_backfill_progress(db, job_name=job_name, event_model=AnalystGradeEvent)
     result: list[str] = []
     seen: set[str] = set()
     order: dict[str, int] = {}
@@ -945,10 +953,16 @@ def eligible_historical_grade_symbols(db: Session, symbols: Iterable[str] | None
     return result[:limit] if limit else result
 
 
-def eligible_price_target_event_symbols(db: Session, symbols: Iterable[str] | None = None, *, limit: int | None = None) -> list[str]:
+def eligible_price_target_event_symbols(
+    db: Session,
+    symbols: Iterable[str] | None = None,
+    *,
+    limit: int | None = None,
+    job_name: str = PRICE_TARGET_BACKFILL_JOB,
+) -> list[str]:
     if symbols is not None:
         return eligible_equity_symbols(db, symbols, limit=limit)
-    progress = _latest_backfill_progress(db, job_name=PRICE_TARGET_BACKFILL_JOB, event_model=AnalystPriceTargetEvent)
+    progress = _latest_backfill_progress(db, job_name=job_name, event_model=AnalystPriceTargetEvent)
     result: list[str] = []
     seen: set[str] = set()
     order: dict[str, int] = {}

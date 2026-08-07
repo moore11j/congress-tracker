@@ -18,6 +18,7 @@ CRON_TZ=America/Los_Angeles
 15 16 * * 1-5 cd /app && python -m app.ingest_run --job portfolio-simulation-refresh
 45 16 * * 1-5 cd /app && python -m app.refresh_institutional_performance_cache --calls-per-minute 400 --progress-every 50
 20 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_consensus --sleep-seconds 0.2
+35 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_events --limit 250 --pages 1 --sleep-seconds 0.3
 20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache
 45 13 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning
 */15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all
