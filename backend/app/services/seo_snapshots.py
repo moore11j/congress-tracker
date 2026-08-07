@@ -47,6 +47,13 @@ def _iso(value: datetime | date | None) -> str | None:
     return value.isoformat()
 
 
+def _cap_data_as_of(value: datetime | None, generated_at: datetime) -> datetime | None:
+    if value is None:
+        return None
+    comparable = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return min(comparable, generated_at)
+
+
 def _normalize_symbol(symbol: str) -> str:
     return re.sub(r"[^A-Z0-9.\-]", "", (symbol or "").strip().upper())
 
@@ -163,7 +170,7 @@ def _upsert_snapshot(
     row.payload_json = _json_dumps(payload)
     row.content_hash = _content_hash(payload)
     row.schema_version = SEO_SNAPSHOT_SCHEMA_VERSION
-    row.data_as_of = data_as_of
+    row.data_as_of = _cap_data_as_of(data_as_of, now)
     row.generated_at = now
     row.updated_at = now
     db.flush()
