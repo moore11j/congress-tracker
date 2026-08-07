@@ -119,6 +119,7 @@ function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D", isRepla
   if (!snapshot) return "-";
   const outcome = outcomeFor(snapshot, horizon);
   if (outcome?.status === "matured") return `${horizon} Matured`;
+  if (outcome?.status === "replaced") return "Replaced";
   if (isReplaced) return "Replaced";
   if (outcome?.status === "pending") return `${horizon} Pending`;
   if (outcome?.status === "missing_price") return `${horizon} Missing Price`;
@@ -149,7 +150,6 @@ function visibleOutcomeEventKey(snapshot: OutcomeSnapshot) {
     snapshot.calculation_type,
     snapshot.ticker.toUpperCase(),
     snapshot.market_date ?? snapshot.calculated_at?.slice(0, 10) ?? snapshot.created_at?.slice(0, 10) ?? "unknown",
-    snapshot.direction?.toLowerCase() ?? "unknown",
   ].join(":");
 }
 
@@ -169,8 +169,9 @@ function replacedOutcomeSnapshotIds(snapshots: OutcomeSnapshot[]) {
       const snapshot = sorted[index];
       if (!snapshot) continue;
       const direction = snapshot.direction?.toLowerCase() ?? "";
-      if ([...laterDirections].some((laterDirection) => laterDirection !== direction)) ids.add(snapshot.id);
-      laterDirections.add(direction);
+      const scoreDirection = `${snapshot.score}:${direction}`;
+      if ([...laterDirections].some((laterDirection) => laterDirection !== scoreDirection)) ids.add(snapshot.id);
+      laterDirections.add(scoreDirection);
     }
   });
   return ids;
@@ -898,7 +899,7 @@ function EventsTable({
             {visibleSnapshots.length ? (
               visibleSnapshots.map((snapshot) => {
                 const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
-                const isReplaced = replacedSnapshotIds.has(snapshot.id) && !hasMaturedOutcome;
+                const isReplaced = outcomeFor(snapshot, horizon)?.status === "replaced" || (replacedSnapshotIds.has(snapshot.id) && !hasMaturedOutcome);
                 const isSelected = selectedSnapshotId === snapshot.id;
                 return (
                   <tr

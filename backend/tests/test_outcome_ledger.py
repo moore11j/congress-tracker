@@ -82,7 +82,7 @@ def test_methodology_seed_and_single_current_version():
         assert [row.version for row in current_rows] == ["confirmation-v1"]
 
 
-def test_live_capture_dedupes_visible_daily_event_even_when_score_changes():
+def test_live_capture_shows_latest_visible_daily_event_when_score_changes():
     engine = _engine()
     with Session(engine) as db:
         db.add(PriceCache(symbol="CRM", date="2026-08-04", close=101.25, price_source="test"))
@@ -97,11 +97,17 @@ def test_live_capture_dedupes_visible_daily_event_even_when_score_changes():
         assert duplicate is not None
         assert changed is not None
         assert duplicate.id == first.id
-        assert changed.id == first.id
-        assert len(rows) == 1
+        assert changed.id != first.id
+        assert changed.supersedes_snapshot_id == first.id
+        assert len(rows) == 2
         assert rows[0].score == 67
-        assert rows[0].calculation_type == "live"
-        assert rows[0].reference_price == 101.25
+        assert rows[1].score == 68
+
+        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
+        assert response["total"] == 1
+        assert response["items"][0]["score"] == 68
+        assert response["items"][0]["calculation_type"] == "live"
+        assert response["items"][0]["reference_price"] == 101.25
         assert json.loads(rows[0].active_sources_json) == ["insiders", "price_volume"]
 
 
@@ -123,7 +129,50 @@ def test_live_capture_opens_new_event_when_direction_changes():
         assert bullish.supersedes_snapshot_id == mixed.id
         assert len(rows) == 2
         assert {row.direction for row in rows} == {"mixed", "bullish"}
-        assert response["total"] == 2
+        assert response["total"] == 1
+        assert response["items"][0]["direction"] == "bullish"
+        assert response["items"][0]["score"] == 64
+
+
+def test_replaced_snapshot_horizons_do_not_mature():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=60)).date()
+        seven_day = observed_day + outcome_ledger_module.timedelta(days=7)
+        thirty_day = observed_day + outcome_ledger_module.timedelta(days=30)
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=observed_day.isoformat(), close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=seven_day.isoformat(), close=110.0, price_source="test"),
+                PriceCache(symbol="CRM", date=thirty_day.isoformat(), close=115.0, price_source="test"),
+                PriceCache(symbol="SPY", date=observed_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=seven_day.isoformat(), close=505.0, price_source="test"),
+                PriceCache(symbol="SPY", date=thirty_day.isoformat(), close=510.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        mixed = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(59, "mixed"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=15),
+        )
+        bullish = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(64, "bullish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=17),
+        )
+
+        assert mixed is not None
+        assert bullish is not None
+        replacement_date = outcome_ledger_module._replacement_date(mixed, [mixed, bullish])
+        row = outcome_ledger_module._snapshot_row(db, mixed, replaced_at=replacement_date)
+
+        assert row["outcomes"]["7D"]["status"] == "replaced"
+        assert row["outcomes"]["30D"]["status"] == "replaced"
+        assert "return_pct" not in row["outcomes"]["7D"]
 
 
 def test_live_capture_dedupes_same_visible_daily_event_when_hash_changes():

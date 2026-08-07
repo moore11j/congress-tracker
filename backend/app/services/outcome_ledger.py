@@ -321,7 +321,8 @@ def capture_live_confirmation_score_snapshot(
             ).order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc()).limit(1)
         ).scalar_one_or_none()
         normalized_direction = str(bundle.get("direction") or "neutral")
-        if visible_duplicate is not None and visible_duplicate.direction == normalized_direction:
+        normalized_score = int(bundle.get("score") or 0)
+        if visible_duplicate is not None and visible_duplicate.direction == normalized_direction and visible_duplicate.score == normalized_score:
             _increment_counter(db, OUTCOMES_LEDGER_DUPLICATES_KEY)
             db.commit()
             return visible_duplicate
@@ -331,7 +332,7 @@ def capture_live_confirmation_score_snapshot(
             ticker_at_time=normalized_symbol,
             calculated_at=calculated,
             market_date=market_date,
-            score=int(bundle.get("score") or 0),
+            score=normalized_score,
             direction=normalized_direction,
             strength=_strength_from_bundle(bundle),
             reference_price=reference_price,
@@ -471,6 +472,7 @@ def _snapshot_outcomes(
     snapshot: ConfirmationScoreSnapshot,
     *,
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
+    replaced_at: date | None = None,
 ) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
     if snapshot.reference_price is None or snapshot.market_date is None:
@@ -500,6 +502,14 @@ def _snapshot_outcomes(
     for days in OUTCOME_HORIZONS:
         label = f"{days}D"
         target_date = snapshot.market_date + timedelta(days=days)
+        if replaced_at is not None and replaced_at <= target_date:
+            outcomes[label] = {
+                "status": "replaced",
+                "horizon_days": days,
+                "target_date": target_date.isoformat(),
+                "replaced_at": replaced_at.isoformat(),
+            }
+            continue
         if target_date > today:
             outcomes[label] = {
                 "status": "pending",
@@ -551,6 +561,7 @@ def _snapshot_row(
     *,
     include_internal: bool = False,
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
+    replaced_at: date | None = None,
 ) -> dict[str, Any]:
     row = {
         "id": snapshot.id,
@@ -566,7 +577,7 @@ def _snapshot_row(
         "active_source_count": snapshot.active_source_count,
         "active_sources": _json_loads(snapshot.active_sources_json, []),
         "methodology": None,
-        "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol),
+        "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol, replaced_at=replaced_at),
         "calculation_type": snapshot.calculation_type,
         "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
     }
@@ -612,14 +623,30 @@ def _apply_snapshot_filters(query, *, ticker: str | None = None, methodology: st
     return query
 
 
-def _visible_snapshot_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int, date, str]:
+def _visible_snapshot_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int, date]:
     return (
         snapshot.calculation_type,
         snapshot.security_id,
         snapshot.methodology_version_id,
         snapshot.market_date,
-        snapshot.direction,
     )
+
+
+def _replacement_date(snapshot: ConfirmationScoreSnapshot, rows: list[ConfirmationScoreSnapshot]) -> date | None:
+    snapshot_time = snapshot.calculated_at or datetime.combine(snapshot.market_date, time.min, tzinfo=timezone.utc)
+    for row in rows:
+        if row.id == snapshot.id:
+            continue
+        if row.calculation_type != snapshot.calculation_type:
+            continue
+        if row.security_id != snapshot.security_id or row.methodology_version_id != snapshot.methodology_version_id:
+            continue
+        row_time = row.calculated_at or datetime.combine(row.market_date, time.min, tzinfo=timezone.utc)
+        if row_time > snapshot_time:
+            return row.market_date
+        if row_time == snapshot_time and row.id > snapshot.id:
+            return row.market_date
+    return None
 
 
 def list_outcome_snapshots(
@@ -665,7 +692,13 @@ def list_outcome_snapshots(
     price_rows_by_symbol = _prefetch_outcome_price_rows(db, rows)
     items = []
     for snapshot in rows:
-        item = _snapshot_row(db, snapshot, include_internal=include_internal, price_rows_by_symbol=price_rows_by_symbol)
+        item = _snapshot_row(
+            db,
+            snapshot,
+            include_internal=include_internal,
+            price_rows_by_symbol=price_rows_by_symbol,
+            replaced_at=_replacement_date(snapshot, ordered_rows),
+        )
         item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
         items.append(item)
     return {

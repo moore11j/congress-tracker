@@ -299,8 +299,8 @@ def _market_pressure_snapshot_point(snapshot: MarketPressureSnapshot) -> Histori
     )
 
 
-def _keep_latest_visible_point(points_by_visible_event: dict[tuple[str, date, str], HistoricalScorePoint], point: HistoricalScorePoint) -> None:
-    key = (point.ticker, point.observed_at.date(), point.direction)
+def _keep_latest_visible_point(points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint], point: HistoricalScorePoint) -> None:
+    key = (point.ticker, point.observed_at.date())
     current = points_by_visible_event.get(key)
     if current is None or point.observed_at > current.observed_at or (
         point.observed_at == current.observed_at and point.source_count > current.source_count
@@ -351,7 +351,7 @@ def _load_points(
         .scalars()
         .all()
     )
-    points_by_visible_event: dict[tuple[str, date, str], HistoricalScorePoint] = {}
+    points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint] = {}
     for event in event_rows:
         for point in _event_points(event, include_before=include_before):
             if point.score < min_score and point.source_count < min_source_count:
@@ -370,26 +370,26 @@ def _load_points(
     return list(points_by_visible_event.values())
 
 
-def _snapshot_exists(
+def _same_day_snapshot(
     db: Session,
     *,
     security_id: int,
     methodology_id: int,
     market_date: date,
-    direction: str,
     calculation_type: str,
-) -> bool:
+) -> ConfirmationScoreSnapshot | None:
     return (
         db.execute(
-            select(ConfirmationScoreSnapshot.id).where(
+            select(ConfirmationScoreSnapshot)
+            .where(
                 ConfirmationScoreSnapshot.security_id == security_id,
                 ConfirmationScoreSnapshot.methodology_version_id == methodology_id,
                 ConfirmationScoreSnapshot.market_date == market_date,
-                ConfirmationScoreSnapshot.direction == direction,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
-            ).limit(1)
+            )
+            .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
+            .limit(1)
         ).scalar_one_or_none()
-        is not None
     )
 
 
@@ -446,29 +446,18 @@ def backfill_outcome_ledger_history(
             continue
 
         input_hash = _input_hash(point, methodology)
-        if _snapshot_exists(
+        existing_same_day = _same_day_snapshot(
             db,
             security_id=security.id,
             methodology_id=methodology.id,
             market_date=entry_day,
-            direction=point.direction,
             calculation_type=calculation_type,
-        ):
+        )
+        if existing_same_day is not None and existing_same_day.calculated_at >= point.observed_at:
             report["skipped_existing"] += 1
             continue
 
-        prior_visible = db.execute(
-            select(ConfirmationScoreSnapshot)
-            .where(
-                ConfirmationScoreSnapshot.security_id == security.id,
-                ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
-                ConfirmationScoreSnapshot.market_date == entry_day,
-                ConfirmationScoreSnapshot.calculation_type == calculation_type,
-                ConfirmationScoreSnapshot.direction != point.direction,
-            )
-            .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
-            .limit(1)
-        ).scalar_one_or_none()
+        prior_visible = existing_same_day
         active_sources = _active_sources_placeholder(point)
         snapshot = ConfirmationScoreSnapshot(
             security_id=security.id,
