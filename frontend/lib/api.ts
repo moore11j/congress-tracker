@@ -6242,8 +6242,8 @@ export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKe
 
 export async function getSeoSnapshotIndex(entityType: SeoSnapshotEntityType, options?: { source?: string; signal?: AbortSignal; limit?: number }): Promise<SeoSnapshotIndexResponse> {
   return fetchJson<SeoSnapshotIndexResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}`, { limit: options?.limit }), {
-    cache: "force-cache",
-    next: { revalidate: 1800 },
+    cache: "no-store",
+    next: { revalidate: 0 },
     signal: options?.signal,
     source: options?.source ?? "SeoSnapshotIndex",
     requestSource: "ssr",
