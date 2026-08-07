@@ -15,7 +15,9 @@ from app.db import Base, SessionLocal, engine, ensure_outcome_ledger_schema, ens
 from app.models import (
     ConfirmationMethodologyVersion,
     ConfirmationMonitoringEvent,
+    ConfirmationMonitoringSnapshot,
     ConfirmationScoreSnapshot,
+    MarketPressureSnapshot,
     PriceCache,
     Security,
     TickerMeta,
@@ -81,9 +83,24 @@ def _coerce_band(value: Any, score: int) -> str:
 
 def _coerce_direction(value: Any) -> str:
     text = str(value or "").strip().lower()
+    if "bull" in text:
+        return "bullish"
+    if "bear" in text:
+        return "bearish"
+    if text in {"conflicted", "conflict", "mixed"}:
+        return "mixed"
     if text in {"bullish", "bearish", "neutral", "mixed"}:
         return text
     return "neutral"
+
+
+def _coerce_source_count(*values: Any, fallback: int = 0) -> int:
+    for value in values:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            continue
+    return max(0, fallback)
 
 
 def _resolve_security(db: Session, symbol: str) -> Security | None:
@@ -230,6 +247,67 @@ def _event_points(event: ConfirmationMonitoringEvent, *, include_before: bool) -
     return points
 
 
+def _monitoring_snapshot_point(snapshot: ConfirmationMonitoringSnapshot) -> HistoricalScorePoint | None:
+    ticker = normalize_symbol(snapshot.ticker)
+    score = _coerce_score(snapshot.score)
+    if not ticker or score is None or snapshot.observed_at is None:
+        return None
+    return HistoricalScorePoint(
+        ticker=ticker,
+        observed_at=_utc(snapshot.observed_at),
+        score=score,
+        band=_coerce_band(snapshot.band, score),
+        direction=_coerce_direction(snapshot.direction),
+        source_count=_coerce_source_count(snapshot.source_count),
+        status=str(snapshot.status or "Historical monitoring snapshot"),
+        source_kind="confirmation_monitoring_snapshot",
+        source_id=int(snapshot.id),
+    )
+
+
+def _market_pressure_snapshot_point(snapshot: MarketPressureSnapshot) -> HistoricalScorePoint | None:
+    ticker = normalize_symbol(snapshot.symbol)
+    score = _coerce_score(snapshot.confirmation_score)
+    observed_at = snapshot.confirmation_as_of or snapshot.generated_at
+    if not ticker or score is None or observed_at is None:
+        return None
+    payload = _parse_payload(snapshot.tile_json)
+    source_count = _coerce_source_count(
+        payload.get("confirmationSourceCount"),
+        payload.get("confirmation_source_count"),
+        payload.get("sourceCount"),
+        payload.get("source_count"),
+        payload.get("availableSourceCount"),
+        fallback=1 if score > 0 else 0,
+    )
+    direction = _coerce_direction(
+        snapshot.confirmation_direction
+        or payload.get("confirmationDirection")
+        or payload.get("direction")
+        or payload.get("divergence")
+    )
+    return HistoricalScorePoint(
+        ticker=ticker,
+        observed_at=_utc(observed_at),
+        score=score,
+        band=_coerce_band(payload.get("confirmationBand") or payload.get("band"), score),
+        direction=direction,
+        source_count=source_count,
+        status=str(payload.get("dataState") or payload.get("confirmationStatus") or "Market pressure score snapshot"),
+        source_kind="market_pressure_snapshot",
+        source_id=int(snapshot.id),
+    )
+
+
+def _keep_latest_visible_point(points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint], point: HistoricalScorePoint) -> None:
+    key = (point.ticker, point.observed_at.date())
+    current = points_by_visible_event.get(key)
+    if current is None or point.observed_at > current.observed_at or (
+        point.observed_at == current.observed_at and point.source_count > current.source_count
+    ):
+        points_by_visible_event[key] = point
+
+
 def _load_points(
     db: Session,
     *,
@@ -239,7 +317,7 @@ def _load_points(
     min_source_count: int,
     include_before: bool,
 ) -> list[HistoricalScorePoint]:
-    rows = (
+    event_rows = (
         db.execute(
             select(ConfirmationMonitoringEvent)
             .where(ConfirmationMonitoringEvent.created_at >= since)
@@ -250,17 +328,45 @@ def _load_points(
         .scalars()
         .all()
     )
+    snapshot_rows = (
+        db.execute(
+            select(ConfirmationMonitoringSnapshot)
+            .where(ConfirmationMonitoringSnapshot.observed_at >= since)
+            .where(ConfirmationMonitoringSnapshot.ticker.is_not(None))
+            .order_by(ConfirmationMonitoringSnapshot.observed_at.asc(), ConfirmationMonitoringSnapshot.id.asc())
+            .limit(max(1, limit))
+        )
+        .scalars()
+        .all()
+    )
+    market_pressure_rows = (
+        db.execute(
+            select(MarketPressureSnapshot)
+            .where(MarketPressureSnapshot.confirmation_score.is_not(None))
+            .where(MarketPressureSnapshot.symbol.is_not(None))
+            .where(func.coalesce(MarketPressureSnapshot.confirmation_as_of, MarketPressureSnapshot.generated_at) >= since)
+            .order_by(func.coalesce(MarketPressureSnapshot.confirmation_as_of, MarketPressureSnapshot.generated_at).asc(), MarketPressureSnapshot.id.asc())
+            .limit(max(1, limit))
+        )
+        .scalars()
+        .all()
+    )
     points_by_visible_event: dict[tuple[str, date], HistoricalScorePoint] = {}
-    for event in rows:
+    for event in event_rows:
         for point in _event_points(event, include_before=include_before):
             if point.score < min_score and point.source_count < min_source_count:
                 continue
-            key = (point.ticker, point.observed_at.date())
-            current = points_by_visible_event.get(key)
-            if current is None or point.observed_at > current.observed_at or (
-                point.observed_at == current.observed_at and point.source_count > current.source_count
-            ):
-                points_by_visible_event[key] = point
+            _keep_latest_visible_point(points_by_visible_event, point)
+    for snapshot in snapshot_rows:
+        point = _monitoring_snapshot_point(snapshot)
+        if point is None or point.score < min_score or point.source_count < min_source_count:
+            continue
+        _keep_latest_visible_point(points_by_visible_event, point)
+    for snapshot in market_pressure_rows:
+        point = _market_pressure_snapshot_point(snapshot)
+        if point is None or point.score < min_score or point.source_count < min_source_count:
+            continue
+        _keep_latest_visible_point(points_by_visible_event, point)
     return list(points_by_visible_event.values())
 
 

@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base, ensure_outcome_ledger_schema
-from app.models import ConfirmationMethodologyVersion, ConfirmationMonitoringEvent, ConfirmationScoreSnapshot, PriceCache
+from app.models import ConfirmationMethodologyVersion, ConfirmationMonitoringEvent, ConfirmationScoreSnapshot, MarketPressureSnapshot, PriceCache
 from app.backfill_outcome_ledger_history import backfill_outcome_ledger_history
 from app.services import outcome_ledger as outcome_ledger_module
 from app.services.outcome_ledger import (
@@ -324,3 +324,47 @@ def test_backfill_history_dedupes_same_visible_daily_point():
         assert response["total"] == 1
         assert response["items"][0]["ticker"] == "DRAM"
         assert response["items"][0]["active_source_count"] == 2
+
+
+def test_backfill_history_uses_market_pressure_score_snapshots():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_at = datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=60)
+        entry_day = observed_at.date().isoformat()
+        thirty_day = (observed_at.date() + outcome_ledger_module.timedelta(days=30)).isoformat()
+        db.add_all(
+            [
+                PriceCache(symbol="PLTR", date=entry_day, close=50.0, price_source="test"),
+                PriceCache(symbol="PLTR", date=thirty_day, close=60.0, price_source="test"),
+                PriceCache(symbol="SPY", date=entry_day, close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=thirty_day, close=525.0, price_source="test"),
+                MarketPressureSnapshot(
+                    universe="test",
+                    period="1d",
+                    symbol="PLTR",
+                    confirmation_score=72,
+                    confirmation_direction="aligned_bullish",
+                    confirmation_as_of=observed_at,
+                    generated_at=observed_at,
+                    tile_json=json.dumps(
+                        {
+                            "confirmationBand": "strong",
+                            "confirmationSourceCount": 4,
+                            "dataState": "complete",
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        report = backfill_outcome_ledger_history(db, since_days=120, limit=10, min_score=0, min_source_count=1, hydrate_prices=False)
+        response = list_outcome_snapshots(db, limit=10, calculation_type="historical_reconstruction")
+        pltr = next(item for item in response["items"] if item["ticker"] == "PLTR")
+
+        assert report["created"] == 1
+        assert pltr["score"] == 72
+        assert pltr["direction"] == "bullish"
+        assert pltr["active_source_count"] == 4
+        assert pltr["outcomes"]["30D"]["return_pct"] == 20.0
+        assert pltr["outcomes"]["30D"]["spy_return_pct"] == 5.0
