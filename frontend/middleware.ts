@@ -86,6 +86,20 @@ function isPublicTickerRoute(pathname: string): boolean {
   return normalized === "/ticker" || normalized.startsWith("/ticker/");
 }
 
+function isPublicMemberRoute(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase().replace(/\/+$/, "");
+  return /^\/member\/[^/]+$/.test(normalized);
+}
+
+function isPublicInsiderRoute(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase().replace(/\/+$/, "");
+  return /^\/insider\/[^/]+$/.test(normalized);
+}
+
+function isPublicSeoEntityRoute(pathname: string): boolean {
+  return isPublicTickerRoute(pathname) || isPublicMemberRoute(pathname) || isPublicInsiderRoute(pathname);
+}
+
 function isApprovedTickerPilotPath(pathname: string): boolean {
   const normalized = (pathname || "/").replace(/\/+$/, "");
   return /^\/ticker\/[^/]+$/i.test(normalized) && isApprovedSeoPilotPath(normalized);
@@ -385,7 +399,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(appUrl, 307);
   }
 
-  if (isTerminalRoute(pathname) && !isPublicTickerRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot || !isInteractiveBrowserUserAgent(userAgent))) {
+  if (isTerminalRoute(pathname) && !isPublicSeoEntityRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot || !isInteractiveBrowserUserAgent(userAgent))) {
     return terminalShellResponse(pathname, host, prefetch ? "prefetch" : bot ? "bot" : "inactive");
   }
 

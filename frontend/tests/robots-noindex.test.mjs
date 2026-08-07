@@ -124,6 +124,9 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /canonicalUrl\.port = ""/);
   assert.match(middleware, /"\/\(\(\?!_next\/static\|_next\/image\|favicon\.ico\|apple-icon\.png\|icon\.png\)\.\*\)"/);
   assert.match(middleware, /function isPublicTickerRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /function isPublicMemberRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /function isPublicInsiderRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /function isPublicSeoEntityRoute\(pathname: string\): boolean/);
   assert.match(middleware, /function isPublicMarketingAsset\(pathname: string\): boolean/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicMarketingAsset\(pathname\)/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicTickerRoute\(pathname\)/);
@@ -131,5 +134,5 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !isPublicComparisonRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
   assert.match(middleware, /return NextResponse\.redirect\(appUrl, 307\)/);
-  assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicTickerRoute\(pathname\) && !hasBackendSession/);
+  assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicSeoEntityRoute\(pathname\) && !hasBackendSession/);
 });
