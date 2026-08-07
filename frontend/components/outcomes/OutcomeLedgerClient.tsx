@@ -115,10 +115,11 @@ function maturedOutcome(snapshot: OutcomeSnapshot, horizon = "30D") {
   return outcome?.status === "matured" && typeof outcome.return_pct === "number" ? outcome : undefined;
 }
 
-function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D") {
+function outcomeStatusLabel(snapshot?: OutcomeSnapshot, horizon = "30D", isReplaced = false) {
   if (!snapshot) return "-";
   const outcome = outcomeFor(snapshot, horizon);
   if (outcome?.status === "matured") return `${horizon} Matured`;
+  if (isReplaced) return "Replaced";
   if (outcome?.status === "pending") return `${horizon} Pending`;
   if (outcome?.status === "missing_price") return `${horizon} Missing Price`;
   if (outcome?.status === "missing_reference_price") return "Missing Entry";
@@ -144,7 +145,35 @@ function calculatedTime(snapshot: OutcomeSnapshot) {
 }
 
 function visibleOutcomeEventKey(snapshot: OutcomeSnapshot) {
-  return [snapshot.calculation_type, snapshot.ticker.toUpperCase(), snapshot.market_date ?? snapshot.calculated_at?.slice(0, 10) ?? snapshot.created_at?.slice(0, 10) ?? "unknown"].join(":");
+  return [
+    snapshot.calculation_type,
+    snapshot.ticker.toUpperCase(),
+    snapshot.market_date ?? snapshot.calculated_at?.slice(0, 10) ?? snapshot.created_at?.slice(0, 10) ?? "unknown",
+    snapshot.direction?.toLowerCase() ?? "unknown",
+  ].join(":");
+}
+
+function replacedOutcomeSnapshotIds(snapshots: OutcomeSnapshot[]) {
+  const ids = new Set<number>();
+  const byTicker = new Map<string, OutcomeSnapshot[]>();
+  snapshots.forEach((snapshot) => {
+    const key = snapshot.ticker.toUpperCase();
+    const rows = byTicker.get(key);
+    if (rows) rows.push(snapshot);
+    else byTicker.set(key, [snapshot]);
+  });
+  byTicker.forEach((rows) => {
+    const sorted = [...rows].sort((a, b) => openedTime(a) - openedTime(b) || calculatedTime(a) - calculatedTime(b) || a.id - b.id);
+    const laterDirections = new Set<string>();
+    for (let index = sorted.length - 1; index >= 0; index -= 1) {
+      const snapshot = sorted[index];
+      if (!snapshot) continue;
+      const direction = snapshot.direction?.toLowerCase() ?? "";
+      if ([...laterDirections].some((laterDirection) => laterDirection !== direction)) ids.add(snapshot.id);
+      laterDirections.add(direction);
+    }
+  });
+  return ids;
 }
 
 function compactDate(value?: string | null) {
@@ -757,12 +786,14 @@ function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | 
 
 function EventsTable({
   snapshots,
+  replacedSnapshotIds,
   entitlementTier,
   horizon,
   selectedSnapshotId,
   onSelectSnapshot,
 }: {
   snapshots: OutcomeSnapshot[];
+  replacedSnapshotIds: Set<number>;
   entitlementTier: EntitlementTier;
   horizon: string;
   selectedSnapshotId: number | null;
@@ -867,6 +898,7 @@ function EventsTable({
             {visibleSnapshots.length ? (
               visibleSnapshots.map((snapshot) => {
                 const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
+                const isReplaced = replacedSnapshotIds.has(snapshot.id) && !hasMaturedOutcome;
                 const isSelected = selectedSnapshotId === snapshot.id;
                 return (
                   <tr
@@ -901,8 +933,12 @@ function EventsTable({
                       );
                     })}
                     <td className="px-4 py-2.5">
-                      <span className={`rounded-md px-3 py-1 text-xs ${hasMaturedOutcome ? "bg-emerald-400/15 text-emerald-100" : "bg-slate-700/60 text-slate-100"}`}>
-                        {outcomeStatusLabel(snapshot, horizon)}
+                      <span
+                        className={`rounded-md px-3 py-1 text-xs ${
+                          hasMaturedOutcome ? "bg-emerald-400/15 text-emerald-100" : isReplaced ? "bg-amber-400/15 text-amber-100" : "bg-slate-700/60 text-slate-100"
+                        }`}
+                      >
+                        {outcomeStatusLabel(snapshot, horizon, isReplaced)}
                       </span>
                     </td>
                   </tr>
@@ -946,7 +982,19 @@ function EventsTable({
   );
 }
 
-function DetailPanel({ selected, entitlementTier, horizon, onClose }: { selected?: OutcomeSnapshot; entitlementTier: EntitlementTier; horizon: string; onClose: () => void }) {
+function DetailPanel({
+  selected,
+  isSelectedReplaced,
+  entitlementTier,
+  horizon,
+  onClose,
+}: {
+  selected?: OutcomeSnapshot;
+  isSelectedReplaced: boolean;
+  entitlementTier: EntitlementTier;
+  horizon: string;
+  onClose: () => void;
+}) {
   const selectedHorizonOutcome = selected ? maturedOutcome(selected, horizon) : undefined;
   const canViewPremium = canViewPremiumOutcomes(entitlementTier);
   const [chartBundle, setChartBundle] = useState<TickerChartBundle | null>(null);
@@ -1003,7 +1051,7 @@ function DetailPanel({ selected, entitlementTier, horizon, onClose }: { selected
               ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
               ["Public Eligible", "Yes"],
-              [`${horizon} Outcome`, selected ? outcomeStatusLabel(selected, horizon) : `${horizon} Pending`],
+              [`${horizon} Outcome`, selected ? outcomeStatusLabel(selected, horizon, isSelectedReplaced && !selectedHorizonOutcome) : `${horizon} Pending`],
             ].map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-slate-400">{label}</dt>
@@ -1156,6 +1204,7 @@ export function OutcomeLedgerClient({
     });
     return [...byVisibleEvent.values()];
   }, [snapshotItems]);
+  const replacedSnapshotIds = useMemo(() => replacedOutcomeSnapshotIds(uniqueSnapshotItems), [uniqueSnapshotItems]);
   const methodologyOptions = useMemo(() => {
     const values = [...new Set(uniqueSnapshotItems.map((snapshot) => snapshot.methodology ?? "-").filter(Boolean))].sort();
     return ["All Methodologies", ...values].map((value) => ({ value, label: value }));
@@ -1175,15 +1224,27 @@ export function OutcomeLedgerClient({
     [cohortFilter, dateRangeFilter, directionFilter, horizonFilter, methodologyFilter, scoreBandFilter, uniqueSnapshotItems],
   );
   const publicPreviewSnapshots = useMemo(() => {
-    const byTicker = new Map(filteredSnapshotItems.map((snapshot) => [snapshot.ticker.toUpperCase(), snapshot]));
+    const byTicker = new Map<string, OutcomeSnapshot[]>();
+    filteredSnapshotItems.forEach((snapshot) => {
+      const key = snapshot.ticker.toUpperCase();
+      const rows = byTicker.get(key);
+      if (rows) rows.push(snapshot);
+      else byTicker.set(key, [snapshot]);
+    });
     const featured = featuredOutcomeTickers.flatMap((ticker) => {
-      const snapshot = byTicker.get(ticker);
+      const snapshot = [...(byTicker.get(ticker) ?? [])].sort(
+        (a, b) =>
+          Number(replacedSnapshotIds.has(a.id)) - Number(replacedSnapshotIds.has(b.id)) ||
+          openedTime(b) - openedTime(a) ||
+          calculatedTime(b) - calculatedTime(a) ||
+          b.id - a.id,
+      )[0];
       return snapshot ? [snapshot] : [];
     });
     const featuredIds = new Set(featured.map((snapshot) => snapshot.id));
     const recentFill = filteredSnapshotItems.filter((snapshot) => !featuredIds.has(snapshot.id));
     return [...featured, ...recentFill];
-  }, [filteredSnapshotItems]);
+  }, [filteredSnapshotItems, replacedSnapshotIds]);
   const selectedSnapshot = useMemo(
     () => publicPreviewSnapshots.find((snapshot) => snapshot.id === selectedSnapshotId) ?? publicPreviewSnapshots[0],
     [publicPreviewSnapshots, selectedSnapshotId],
@@ -1263,7 +1324,7 @@ export function OutcomeLedgerClient({
         const outcome = outcomeFor(snapshot, horizon);
         return outcomeValueLabel(outcome);
       }),
-      outcomeStatusLabel(snapshot, horizonFilter),
+      outcomeStatusLabel(snapshot, horizonFilter, replacedSnapshotIds.has(snapshot.id) && !maturedOutcome(snapshot, horizonFilter)),
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -1352,6 +1413,7 @@ export function OutcomeLedgerClient({
 
           <EventsTable
             snapshots={publicPreviewSnapshots}
+            replacedSnapshotIds={replacedSnapshotIds}
             entitlementTier={entitlementTier}
             horizon={horizonFilter}
             selectedSnapshotId={selectedSnapshot?.id ?? null}
@@ -1359,7 +1421,15 @@ export function OutcomeLedgerClient({
           />
         </main>
 
-        {eventDetailOpen ? <DetailPanel selected={selectedSnapshot} entitlementTier={entitlementTier} horizon={horizonFilter} onClose={() => setEventDetailOpen(false)} /> : null}
+        {eventDetailOpen ? (
+          <DetailPanel
+            selected={selectedSnapshot}
+            isSelectedReplaced={selectedSnapshot ? replacedSnapshotIds.has(selectedSnapshot.id) : false}
+            entitlementTier={entitlementTier}
+            horizon={horizonFilter}
+            onClose={() => setEventDetailOpen(false)}
+          />
+        ) : null}
       </div>
     </div>
   );
