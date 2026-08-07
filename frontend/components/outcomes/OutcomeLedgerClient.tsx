@@ -19,18 +19,19 @@ const scoreBands = ["0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
 const featuredOutcomeTickers = ["NVDA", "BMNR", "AAPL", "PLTR", "AMZN", "META", "GOOGL", "MSFT"];
 const outcomeTablePageSizes = [10, 25, 50] as const;
+const outcomeTableFilterOptions = ["All", "Bullish", "Bearish", "Matured", "Pending"] as const;
+const minimumHeadlineDirectionalSamples = 30;
+const minimumScoreBandDirectionalSamples = 5;
 const publicOutcomeCalculationTypes = new Set(["live", "historical_reconstruction"]);
 const cohortFilterOptions = [
-  { value: "all", label: "All Cohorts" },
+  { value: "all", label: "All" },
   { value: "live", label: "Live Tracked" },
-  { value: "historical", label: "Historical Reconstruction" },
-  { value: "matured", label: "Matured Only" },
-  { value: "tracking", label: "Tracking Only" },
+  { value: "matured", label: "Matured" },
 ] as const;
 const directionFilterOptions = ["All", "Bullish", "Bearish", "Mixed", "Neutral"];
 const scoreBandFilterOptions = ["All Scores", ...scoreBands];
 const dateRangeFilterOptions = [
-  { value: "phase1", label: "Phase 1" },
+  { value: "all", label: "All Available" },
   { value: "30d", label: "Last 30D" },
   { value: "90d", label: "Last 90D" },
   { value: "12m", label: "Last 12M" },
@@ -39,6 +40,7 @@ const dateRangeFilterOptions = [
 type OutcomeSortKey = "ticker" | "opened" | "score" | "direction" | "entry";
 type OutcomeSortDirection = "asc" | "desc";
 type OutcomeSort = { key: OutcomeSortKey; direction: OutcomeSortDirection } | null;
+type OutcomeTableFilterValue = (typeof outcomeTableFilterOptions)[number];
 type CohortFilterValue = (typeof cohortFilterOptions)[number]["value"];
 type DateRangeFilterValue = (typeof dateRangeFilterOptions)[number]["value"];
 type EventOutcomePoint = {
@@ -453,7 +455,8 @@ function BarChartPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; h
       directionalOutcomes.length > 0
         ? Math.round((directionalOutcomes.filter((outcome) => outcome.directionally_correct).length / directionalOutcomes.length) * 100)
         : null;
-    return { band, accuracy, count: directionalOutcomes.length };
+    const reliable = directionalOutcomes.length >= minimumScoreBandDirectionalSamples;
+    return { band, accuracy, count: directionalOutcomes.length, reliable };
   });
   const hasOutcomes = bandStats.some((stat) => stat.count > 0);
 
@@ -467,7 +470,7 @@ function BarChartPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; h
         <span className="h-2 w-2 rounded-sm bg-lime-500" />
         {horizon} Directional Accuracy
       </p>
-      <div className="relative mt-5 grid h-44 grid-cols-[2.5rem_1fr] gap-3 text-xs text-slate-400">
+      <div className="relative mt-5 grid h-52 grid-cols-[2.5rem_1fr] gap-3 text-xs text-slate-400">
         <div className="flex flex-col justify-between py-1 text-right">
           {["100%", "80%", "60%", "40%", "20%", "0%"].map((tick) => (
             <span key={tick}>{tick}</span>
@@ -476,11 +479,12 @@ function BarChartPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; h
         <div className="relative flex items-end justify-around border-b border-slate-500/60 bg-[linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[length:100%_20%] px-4">
           {bandStats.map((stat) => (
             <div key={stat.band} className="flex w-16 flex-col items-center gap-2">
-              <span className="text-[11px] text-slate-200">{stat.accuracy === null ? "-" : `${stat.accuracy}%`}</span>
+              <span className="text-[11px] text-slate-200">{stat.accuracy === null ? "-" : stat.reliable ? `${stat.accuracy}%` : `n=${stat.count}`}</span>
               <div
-                className={`w-9 rounded-t-sm border border-lime-400/35 bg-gradient-to-t from-lime-500/75 to-lime-300/80 ${stat.accuracy === null ? "opacity-20" : ""}`}
-                style={{ height: `${Math.max(12, ((stat.accuracy ?? 18) / 100) * 150)}px` }}
+                className={`w-9 rounded-t-sm border border-lime-400/35 bg-gradient-to-t from-lime-500/75 to-lime-300/80 ${stat.accuracy === null ? "opacity-20" : stat.reliable ? "" : "opacity-35"}`}
+                style={{ height: `${Math.max(12, ((stat.accuracy ?? 18) / 100) * 130)}px` }}
               />
+              <span className="text-[10px] text-slate-500">{stat.count ? `${stat.count} calls` : "no calls"}</span>
               <span>{stat.band}</span>
             </div>
           ))}
@@ -664,9 +668,7 @@ function matchesOutcomeFilters(
   const outcome = outcomeFor(snapshot, horizon);
   if (!publicOutcomeCalculationTypes.has(snapshot.calculation_type)) return false;
   if (cohort === "live" && snapshot.calculation_type !== "live") return false;
-  if (cohort === "historical" && snapshot.calculation_type !== "historical_reconstruction") return false;
   if (cohort === "matured" && !(outcome?.status === "matured" && typeof outcome.return_pct === "number")) return false;
-  if (cohort === "tracking" && outcome?.status === "matured" && typeof outcome.return_pct === "number") return false;
   if (direction !== "All" && formatDirection(snapshot.direction) !== direction) return false;
   if (scoreBand !== "All Scores" && scoreBandForScore(snapshot.score) !== scoreBand) return false;
   if (methodology !== "All Methodologies" && (snapshot.methodology ?? "-") !== methodology) return false;
@@ -802,10 +804,24 @@ function EventsTable({
 }) {
   const hasPremiumTable = canUsePremiumOutcomeTable(entitlementTier);
   const [sort, setSort] = useState<OutcomeSort>(null);
+  const [tableFilter, setTableFilter] = useState<OutcomeTableFilterValue>("All");
   const [pageSize, setPageSize] = useState<(typeof outcomeTablePageSizes)[number]>(10);
   const [page, setPage] = useState(0);
   const [tableGateOpen, setTableGateOpen] = useState(false);
-  const sortedSnapshots = useMemo(() => sortedOutcomeSnapshots(snapshots, hasPremiumTable ? sort : null), [snapshots, hasPremiumTable, sort]);
+  const tableSnapshots = useMemo(
+    () =>
+      snapshots.filter((snapshot) => {
+        const selectedOutcome = outcomeFor(snapshot, horizon);
+        const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
+        const isReplaced = selectedOutcome?.status === "replaced" || (replacedSnapshotIds.has(snapshot.id) && !hasMaturedOutcome);
+        if (tableFilter === "Bullish" || tableFilter === "Bearish") return formatDirection(snapshot.direction) === tableFilter;
+        if (tableFilter === "Matured") return hasMaturedOutcome;
+        if (tableFilter === "Pending") return !hasMaturedOutcome && !isReplaced;
+        return true;
+      }),
+    [horizon, replacedSnapshotIds, snapshots, tableFilter],
+  );
+  const sortedSnapshots = useMemo(() => sortedOutcomeSnapshots(tableSnapshots, hasPremiumTable ? sort : null), [tableSnapshots, hasPremiumTable, sort]);
   const totalRows = hasPremiumTable ? sortedSnapshots.length : Math.min(10, sortedSnapshots.length);
   const effectivePageSize = hasPremiumTable ? pageSize : 10;
   const pageCount = Math.max(1, Math.ceil(totalRows / effectivePageSize));
@@ -816,7 +832,7 @@ function EventsTable({
 
   useEffect(() => {
     setPage(0);
-  }, [snapshots.length, pageSize, sort?.key, sort?.direction, hasPremiumTable]);
+  }, [snapshots.length, pageSize, sort?.key, sort?.direction, hasPremiumTable, tableFilter]);
 
   function gatePremiumTable() {
     if (!hasPremiumTable) setTableGateOpen(true);
@@ -847,8 +863,13 @@ function EventsTable({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Confirmation Events</h2>
         <div className="flex overflow-hidden rounded-md border border-white/10 bg-slate-950/60 p-0.5 text-xs font-semibold text-slate-200">
-          {["All", "Bullish", "Bearish", "Matured", "Pending"].map((label) => (
-            <button key={label} type="button" className={`px-4 py-1.5 ${label === "All" ? "rounded bg-emerald-400/15 text-emerald-100" : ""}`}>
+          {outcomeTableFilterOptions.map((label) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setTableFilter(label)}
+              className={`px-4 py-1.5 ${label === tableFilter ? "rounded bg-emerald-400/15 text-emerald-100" : "hover:text-white"}`}
+            >
               {label}
             </button>
           ))}
@@ -857,7 +878,7 @@ function EventsTable({
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-xs text-slate-300">
         <span>
-          Showing {pageStart}-{pageEnd} of {hasPremiumTable ? snapshots.length : Math.min(10, snapshots.length)}
+          Showing {pageStart}-{pageEnd} of {totalRows}
         </span>
         <div className="flex items-center gap-2">
           <span>Rows</span>
@@ -1038,7 +1059,7 @@ function DetailPanel({
       <div className="mt-5 space-y-5">
         <div>
           <p className="text-2xl font-semibold text-white">
-            {selected?.ticker ?? "Phase 1"} <span className="px-1 text-sm text-slate-400">-</span>{" "}
+            {selected?.ticker ?? "Outcome"} <span className="px-1 text-sm text-slate-400">-</span>{" "}
             <span className="text-lime-400">{selected ? formatDirection(selected.direction) : "Live Tracking"}</span>
             {selected ? (
               <>
@@ -1151,7 +1172,7 @@ export function OutcomeLedgerClient({
   const [directionFilter, setDirectionFilter] = useState("All");
   const [scoreBandFilter, setScoreBandFilter] = useState("All Scores");
   const [methodologyFilter, setMethodologyFilter] = useState("All Methodologies");
-  const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilterValue>("phase1");
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilterValue>("all");
   const [eventDetailOpen, setEventDetailOpen] = useState(true);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(null);
 
@@ -1268,6 +1289,7 @@ export function OutcomeLedgerClient({
       directionalForHorizon.length > 0
         ? Math.round((directionalForHorizon.filter((outcome) => outcome.directionally_correct).length / directionalForHorizon.length) * 100)
         : null;
+    const accuracyReliable = directionalForHorizon.length >= minimumHeadlineDirectionalSamples;
     const directionalReturns = maturedForHorizon
       .map((outcome) => outcome.directional_return_pct)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -1295,6 +1317,8 @@ export function OutcomeLedgerClient({
     return {
       completedEvents: maturedForHorizon.length,
       accuracy,
+      accuracyReliable,
+      directionalSampleCount: directionalForHorizon.length,
       averageDirectionalReturn,
       averageSpyReturn,
       averageDirectionalExcessReturn,
@@ -1353,7 +1377,7 @@ export function OutcomeLedgerClient({
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
-            <FilterSelect label="Cohort" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
+            <FilterSelect label="Outcome Set" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
             <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={setHorizonFilter} />
             <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
             <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
@@ -1381,18 +1405,35 @@ export function OutcomeLedgerClient({
           </div>
 
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-            <MetricCard icon="OK" label="Completed Events" value={outcomeMetrics.completedEvents} detail="Matured confirmation events loaded" />
+            <MetricCard
+              icon="OK"
+              label="Completed Events"
+              value={outcomeMetrics.completedEvents}
+              detail={`${horizonFilter} matured rows loaded; mixed/neutral excluded from accuracy`}
+            />
             <MetricCard
               icon={horizonFilter.replace("D", "")}
               label={`${horizonFilter} Directional Accuracy`}
-              value={outcomeMetrics.accuracy === null ? "Pending" : `${outcomeMetrics.accuracy}%`}
-              detail={`Bullish and bearish calls measured at ${horizonFilter}`}
+              value={
+                outcomeMetrics.accuracy === null
+                  ? "Pending"
+                  : outcomeMetrics.accuracyReliable
+                    ? `${outcomeMetrics.accuracy}%`
+                    : "Building"
+              }
+              detail={
+                outcomeMetrics.accuracy === null
+                  ? `No bullish or bearish calls matured at ${horizonFilter}`
+                  : outcomeMetrics.accuracyReliable
+                    ? `${outcomeMetrics.directionalSampleCount} bullish/bearish calls measured at ${horizonFilter}`
+                    : `${outcomeMetrics.directionalSampleCount}/${minimumHeadlineDirectionalSamples} directional samples; show percent at 30`
+              }
             />
             <MetricCard
               icon="+/-"
               label="Average Directional Return"
               value={formatPercent(outcomeMetrics.averageDirectionalReturn)}
-              detail={`Average ${horizonFilter} outcome in the scored direction`}
+              detail={`Average ${horizonFilter} outcome across ${outcomeMetrics.directionalSampleCount} directional samples`}
             />
             <MetricCard
               icon="SPY"
