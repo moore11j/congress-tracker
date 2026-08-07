@@ -1383,6 +1383,24 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             conn.execute(
                 text(
                     """
+                    CREATE TABLE IF NOT EXISTS analyst_symbol_backfill_status (
+                        id INTEGER PRIMARY KEY,
+                        job_name TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'unknown',
+                        rows_seen INTEGER NOT NULL DEFAULT 0,
+                        records_inserted INTEGER NOT NULL DEFAULT 0,
+                        records_updated INTEGER NOT NULL DEFAULT 0,
+                        error_summary TEXT,
+                        last_attempted_at TIMESTAMP NOT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                     CREATE TABLE IF NOT EXISTS analyst_price_target_events (
                         id INTEGER PRIMARY KEY,
                         symbol TEXT NOT NULL,
@@ -1418,6 +1436,7 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                     "analyst_grade_events",
                     "analyst_price_target_events",
                     "analyst_consensus_ingestion_runs",
+                    "analyst_symbol_backfill_status",
                 )
             }
             snapshot_columns = {
@@ -1459,6 +1478,19 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             }.items():
                 if name not in table_columns["analyst_consensus_ingestion_runs"]:
                     conn.execute(text(f"ALTER TABLE analyst_consensus_ingestion_runs ADD COLUMN {name} {column_type}"))
+            for name, column_type in {
+                "job_name": "TEXT",
+                "symbol": "TEXT",
+                "status": "TEXT NOT NULL DEFAULT 'unknown'",
+                "error_summary": "TEXT",
+                "last_attempted_at": "TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "rows_seen": "INTEGER NOT NULL DEFAULT 0",
+                "records_inserted": "INTEGER NOT NULL DEFAULT 0",
+                "records_updated": "INTEGER NOT NULL DEFAULT 0",
+            }.items():
+                if name not in table_columns["analyst_symbol_backfill_status"]:
+                    conn.execute(text(f"ALTER TABLE analyst_symbol_backfill_status ADD COLUMN {name} {column_type}"))
         else:
             conn.execute(
                 text(
@@ -1551,6 +1583,24 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             conn.execute(
                 text(
                     """
+                    CREATE TABLE IF NOT EXISTS analyst_symbol_backfill_status (
+                        id SERIAL PRIMARY KEY,
+                        job_name TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'unknown',
+                        rows_seen INTEGER NOT NULL DEFAULT 0,
+                        records_inserted INTEGER NOT NULL DEFAULT 0,
+                        records_updated INTEGER NOT NULL DEFAULT 0,
+                        error_summary TEXT,
+                        last_attempted_at TIMESTAMPTZ NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                     CREATE TABLE IF NOT EXISTS analyst_price_target_events (
                         id SERIAL PRIMARY KEY,
                         symbol TEXT NOT NULL,
@@ -1580,6 +1630,7 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                 "analyst_grade_events": set(),
                 "analyst_price_target_events": set(),
                 "analyst_consensus_ingestion_runs": set(),
+                "analyst_symbol_backfill_status": set(),
             }
             rows = conn.execute(
                 text(
@@ -1591,7 +1642,8 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                         'analyst_consensus_snapshots',
                         'analyst_grade_events',
                         'analyst_price_target_events',
-                        'analyst_consensus_ingestion_runs'
+                        'analyst_consensus_ingestion_runs',
+                        'analyst_symbol_backfill_status'
                       )
                     """
                 )
@@ -1642,6 +1694,14 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
                 add_pg_column("analyst_consensus_ingestion_runs", name, "INTEGER NOT NULL DEFAULT 0")
             add_pg_column("analyst_consensus_ingestion_runs", "started_at", "TIMESTAMPTZ")
             add_pg_column("analyst_consensus_ingestion_runs", "completed_at", "TIMESTAMPTZ")
+            for name in ("job_name", "symbol"):
+                add_pg_column("analyst_symbol_backfill_status", name, "TEXT")
+            add_pg_column("analyst_symbol_backfill_status", "status", "TEXT NOT NULL DEFAULT 'unknown'")
+            add_pg_column("analyst_symbol_backfill_status", "error_summary", "TEXT")
+            add_pg_column("analyst_symbol_backfill_status", "last_attempted_at", "TIMESTAMPTZ")
+            add_pg_column("analyst_symbol_backfill_status", "updated_at", "TIMESTAMPTZ DEFAULT now()")
+            for name in ("rows_seen", "records_inserted", "records_updated"):
+                add_pg_column("analyst_symbol_backfill_status", name, "INTEGER NOT NULL DEFAULT 0")
         index_statements = {
             "ix_analyst_consensus_snapshots_symbol_date": (
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_consensus_snapshots_symbol_date "
@@ -1687,6 +1747,18 @@ def ensure_analyst_consensus_schema(bind=engine) -> None:
             "ix_analyst_consensus_runs_status": (
                 "CREATE INDEX IF NOT EXISTS ix_analyst_consensus_runs_status "
                 "ON analyst_consensus_ingestion_runs (status)"
+            ),
+            "ix_analyst_symbol_backfill_status_job_symbol": (
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyst_symbol_backfill_status_job_symbol "
+                "ON analyst_symbol_backfill_status (job_name, symbol)"
+            ),
+            "ix_analyst_symbol_backfill_status_job_attempted": (
+                "CREATE INDEX IF NOT EXISTS ix_analyst_symbol_backfill_status_job_attempted "
+                "ON analyst_symbol_backfill_status (job_name, last_attempted_at)"
+            ),
+            "ix_analyst_symbol_backfill_status_symbol": (
+                "CREATE INDEX IF NOT EXISTS ix_analyst_symbol_backfill_status_symbol "
+                "ON analyst_symbol_backfill_status (symbol)"
             ),
         }
         existing_indexes: set[str] = set()

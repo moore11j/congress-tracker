@@ -2025,6 +2025,31 @@ class AnalystConsensusIngestionRun(Base):
     metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
 
 
+class AnalystSymbolBackfillStatus(Base):
+    __tablename__ = "analyst_symbol_backfill_status"
+    __table_args__ = (
+        UniqueConstraint("job_name", "symbol", name="uq_analyst_symbol_backfill_status_job_symbol"),
+        Index("ix_analyst_symbol_backfill_status_job_attempted", "job_name", "last_attempted_at"),
+        Index("ix_analyst_symbol_backfill_status_symbol", "symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_name: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="unknown", server_default="unknown", nullable=False)
+    rows_seen: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    records_inserted: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    records_updated: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class TickerFinancialsCache(Base):
     __tablename__ = "ticker_financials_cache"
     __table_args__ = (

@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 
 from app.db import SessionLocal, engine, ensure_analyst_consensus_schema
 from app.services.analyst_consensus import (
+    GRADE_BACKFILL_JOB,
     eligible_historical_grade_symbols,
     finish_ingestion_run,
     ingest_symbol_historical_grade_events,
+    record_symbol_backfill_attempt,
     start_ingestion_run,
 )
 
@@ -33,7 +35,7 @@ def backfill_historical_analyst_grades(
         planned = eligible_historical_grade_symbols(db, symbols, limit=limit)
         run = start_ingestion_run(
             db,
-            "analyst_historical_grade_events_backfill",
+            GRADE_BACKFILL_JOB,
             metadata={"dry_run": dry_run, "limit": limit, "requested_symbols": symbols or []},
         )
         attempted = succeeded = failed = inserted = updated = 0
@@ -42,6 +44,7 @@ def backfill_historical_analyst_grades(
         for symbol in planned:
             attempted += 1
             result = ingest_symbol_historical_grade_events(db, symbol, observed_at=observed_at)
+            record_symbol_backfill_attempt(db, job_name=GRADE_BACKFILL_JOB, symbol=symbol, result=result, attempted_at=observed_at)
             results.append(result)
             if result.get("status") in {"unsupported", "provider_error"}:
                 failed += 1

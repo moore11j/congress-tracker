@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_analyst_consensus_schema
-from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, AnalystPriceTargetEvent, Event, PriceCache, Security, TickerMeta
+from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, AnalystPriceTargetEvent, AnalystSymbolBackfillStatus, Event, PriceCache, Security, TickerMeta
 from app.entitlements import ENTITLEMENTS, require_feature
 from app.services.analyst_consensus import (
     build_snapshot_payload,
@@ -26,6 +26,7 @@ from app.services.analyst_consensus import (
     latest_cached_price,
     PricePoint,
     recommendation_label,
+    record_symbol_backfill_attempt,
     target_dispersion,
     total_rating_count,
     upsert_consensus_snapshot,
@@ -821,5 +822,52 @@ def test_price_target_event_symbols_prefers_current_consensus_coverage():
         db.commit()
 
         assert eligible_price_target_event_symbols(db, limit=2) == ["NVDA", "AAPL"]
+    finally:
+        db.close()
+
+
+def test_price_target_backfill_attempt_with_no_provider_data_advances_queue():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                AnalystConsensusSnapshot(
+                    symbol="AAPL",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+                AnalystConsensusSnapshot(
+                    symbol="NVDA",
+                    snapshot_date=date(2026, 8, 4),
+                    availability_status="available",
+                    provider_status="available",
+                    source="fmp",
+                    ingested_at=datetime(2026, 8, 4, tzinfo=timezone.utc),
+                    raw_payload_json="{}",
+                ),
+            ]
+        )
+        db.commit()
+
+        assert eligible_price_target_event_symbols(db, limit=1) == ["AAPL"]
+
+        record_symbol_backfill_attempt(
+            db,
+            job_name="analyst_historical_price_targets_backfill",
+            symbol="AAPL",
+            result={"symbol": "AAPL", "status": "unavailable", "rows_seen": 0, "inserted": 0, "updated": 0},
+            attempted_at=datetime(2026, 8, 7, 12, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+        row = db.query(AnalystSymbolBackfillStatus).filter_by(job_name="analyst_historical_price_targets_backfill", symbol="AAPL").one()
+        assert row.status == "no_provider_data"
+        assert row.rows_seen == 0
+        assert eligible_price_target_event_symbols(db, limit=1) == ["NVDA"]
     finally:
         db.close()

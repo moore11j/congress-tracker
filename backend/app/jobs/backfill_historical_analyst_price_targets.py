@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 
 from app.db import SessionLocal, engine, ensure_analyst_consensus_schema
 from app.services.analyst_consensus import (
+    PRICE_TARGET_BACKFILL_JOB,
     eligible_price_target_event_symbols,
     finish_ingestion_run,
     ingest_symbol_price_target_events,
+    record_symbol_backfill_attempt,
     start_ingestion_run,
 )
 
@@ -35,7 +37,7 @@ def backfill_historical_analyst_price_targets(
         planned = eligible_price_target_event_symbols(db, symbols, limit=limit)
         run = start_ingestion_run(
             db,
-            "analyst_historical_price_targets_backfill",
+            PRICE_TARGET_BACKFILL_JOB,
             metadata={
                 "dry_run": dry_run,
                 "limit": limit,
@@ -56,6 +58,7 @@ def backfill_historical_analyst_price_targets(
                 pages=pages,
                 page_size=page_size,
             )
+            record_symbol_backfill_attempt(db, job_name=PRICE_TARGET_BACKFILL_JOB, symbol=symbol, result=result, attempted_at=observed_at)
             results.append(result)
             if result.get("status") in {"unsupported", "provider_error"}:
                 failed += 1
