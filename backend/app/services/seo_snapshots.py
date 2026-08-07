@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Event,
+    IndexMembership,
     InsiderTransaction,
     InsiderTransactionNormalized,
     Member,
@@ -22,6 +23,7 @@ from app.models import (
 
 SeoEntityType = Literal["ticker", "member", "insider"]
 SEO_SNAPSHOT_SCHEMA_VERSION = 1
+SEO_BATCH_MAX_LIMIT = 250
 
 
 def _now() -> datetime:
@@ -72,6 +74,10 @@ def _member_name(member: Member) -> str:
     return " ".join(part for part in [member.first_name, member.last_name] if _clean_text(part)).strip() or member.bioguide_id
 
 
+def _clamped_batch_limit(limit: int) -> int:
+    return max(1, min(int(limit or 1), SEO_BATCH_MAX_LIMIT))
+
+
 def get_seo_snapshot(db: Session, entity_type: SeoEntityType, entity_key: str) -> dict[str, Any] | None:
     normalized_key = normalize_snapshot_key(entity_type, entity_key)
     if not normalized_key:
@@ -98,6 +104,23 @@ def list_indexable_seo_snapshots(db: Session, entity_type: SeoEntityType, *, lim
         .limit(max(1, min(limit, 50000)))
     ).scalars().all()
     return [seo_snapshot_row_payload(row) for row in rows]
+
+
+def list_seo_snapshot_batch_candidates(
+    db: Session,
+    entity_type: SeoEntityType,
+    *,
+    limit: int,
+    include_existing: bool = False,
+) -> list[str]:
+    capped_limit = _clamped_batch_limit(limit)
+    if entity_type == "ticker":
+        return _ticker_batch_candidates(db, capped_limit, include_existing=include_existing)
+    if entity_type == "member":
+        return _member_batch_candidates(db, capped_limit, include_existing=include_existing)
+    if entity_type == "insider":
+        return _insider_batch_candidates(db, capped_limit, include_existing=include_existing)
+    raise ValueError(f"Unsupported SEO snapshot entity type: {entity_type}")
 
 
 def seo_snapshot_row_payload(row: SeoEntitySnapshot) -> dict[str, Any]:
@@ -129,6 +152,103 @@ def normalize_snapshot_key(entity_type: SeoEntityType, entity_key: str) -> str:
     if entity_type == "insider":
         return _normalize_cik(entity_key)
     return _slugify(entity_key)
+
+
+def _existing_snapshot_keys(db: Session, entity_type: SeoEntityType) -> set[str]:
+    rows = db.execute(
+        select(SeoEntitySnapshot.entity_key).where(SeoEntitySnapshot.entity_type == entity_type)
+    ).scalars().all()
+    return {row for row in rows if row}
+
+
+def _ticker_batch_candidates(db: Session, limit: int, *, include_existing: bool) -> list[str]:
+    existing = set() if include_existing else _existing_snapshot_keys(db, "ticker")
+    rows = db.execute(
+        select(
+            TickerMeta.symbol,
+            func.max(PriceCache.updated_at).label("latest_price_at"),
+            func.count(func.distinct(Event.id)).label("event_count"),
+            func.count(func.distinct(IndexMembership.id)).label("index_count"),
+        )
+        .join(PriceCache, func.upper(PriceCache.symbol) == func.upper(TickerMeta.symbol))
+        .outerjoin(Event, func.upper(func.coalesce(Event.symbol, "")) == func.upper(TickerMeta.symbol))
+        .outerjoin(
+            IndexMembership,
+            (func.upper(IndexMembership.symbol) == func.upper(TickerMeta.symbol)) & (IndexMembership.is_active.is_(True)),
+        )
+        .where(TickerMeta.company_name.is_not(None))
+        .group_by(TickerMeta.symbol)
+        .having((func.count(func.distinct(Event.id)) > 0) | (func.count(func.distinct(IndexMembership.id)) > 0))
+        .order_by(desc("event_count"), desc("latest_price_at"), TickerMeta.symbol)
+        .limit(limit * 4)
+    ).all()
+    candidates: list[str] = []
+    for row in rows:
+        key = _normalize_symbol(row.symbol)
+        if not key or key in existing or key in candidates:
+            continue
+        candidates.append(key)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def _member_batch_candidates(db: Session, limit: int, *, include_existing: bool) -> list[str]:
+    existing = set() if include_existing else _existing_snapshot_keys(db, "member")
+    rows = db.execute(
+        select(
+            Member,
+            func.count(Transaction.id).label("trade_count"),
+            func.max(Transaction.report_date).label("latest_report_date"),
+        )
+        .join(Transaction, Transaction.member_id == Member.id)
+        .group_by(Member.id)
+        .having(func.count(Transaction.id) > 0)
+        .order_by(desc("latest_report_date"), desc("trade_count"), Member.last_name, Member.first_name)
+        .limit(limit * 4)
+    ).all()
+    candidates: list[str] = []
+    for member, _trade_count, _latest_report_date in rows:
+        key = _slugify(_member_name(member))
+        if not key or key in existing or key in candidates:
+            continue
+        candidates.append(key)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def _insider_batch_candidates(db: Session, limit: int, *, include_existing: bool) -> list[str]:
+    existing = set() if include_existing else _existing_snapshot_keys(db, "insider")
+    rows = db.execute(
+        select(
+            InsiderTransactionNormalized.reporting_owner_cik,
+            InsiderTransactionNormalized.reporting_owner_name,
+            func.count(InsiderTransactionNormalized.id).label("filing_count"),
+            func.max(InsiderTransactionNormalized.filing_date).label("latest_filing_date"),
+        )
+        .where(
+            InsiderTransactionNormalized.reporting_owner_cik.is_not(None),
+            InsiderTransactionNormalized.reporting_owner_name.is_not(None),
+            InsiderTransactionNormalized.is_duplicate.is_(False),
+        )
+        .group_by(
+            InsiderTransactionNormalized.reporting_owner_cik,
+            InsiderTransactionNormalized.reporting_owner_name,
+        )
+        .having(func.count(InsiderTransactionNormalized.id) > 0)
+        .order_by(desc("latest_filing_date"), desc("filing_count"), InsiderTransactionNormalized.reporting_owner_name)
+        .limit(limit * 4)
+    ).all()
+    candidates: list[str] = []
+    for reporting_cik, reporting_owner_name, _filing_count, _latest_filing_date in rows:
+        key = _normalize_cik(reporting_cik or "")
+        if not key or not _clean_text(reporting_owner_name) or key in existing or key in candidates:
+            continue
+        candidates.append(key)
+        if len(candidates) >= limit:
+            break
+    return candidates
 
 
 def _upsert_snapshot(
