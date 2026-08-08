@@ -430,6 +430,20 @@ function MetricCard({ icon, label, value, detail }: { icon: string; label: strin
   );
 }
 
+function ScoredHorizonsPill({ value, detail }: { value: string | number; detail: string }) {
+  return (
+    <div className="flex h-12 min-w-[14.25rem] items-center rounded-md border border-white/10 bg-slate-900/70 px-3 shadow-inner shadow-white/[0.02]">
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300">Scored Horizons</p>
+        <p className="mt-0.5 truncate text-xs text-slate-300">
+          <span className="mr-2 align-middle text-xl font-semibold leading-none text-white">{value}</span>
+          {detail}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function PendingOverlay({ children }: { children: ReactNode }) {
   return (
     <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-md border border-white/10 bg-slate-950/85 p-4 text-center shadow-2xl shadow-black/30">
@@ -1380,6 +1394,7 @@ export function OutcomeLedgerClient({
             <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
             <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
             <FilterSelect label="Date Range" value={dateRangeFilter} options={dateRangeFilterOptions} onChange={(value) => setDateRangeFilter(value as DateRangeFilterValue)} />
+            <ScoredHorizonsPill value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells`} />
             <button
               type="button"
               onClick={handleExportCsv}
@@ -1401,7 +1416,7 @@ export function OutcomeLedgerClient({
             ) : null}
           </div>
 
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon="OK"
               label="Completed Events"
@@ -1442,7 +1457,6 @@ export function OutcomeLedgerClient({
                   : `Pending SPY benchmark samples at ${horizonFilter}`
               }
             />
-            <MetricCard icon="..." label="Scored Horizons" value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells with price returns`} />
           </div>
 
           <div className="grid gap-2 xl:grid-cols-[0.82fr_1.18fr]">
