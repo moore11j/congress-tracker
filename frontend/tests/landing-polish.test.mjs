@@ -57,9 +57,10 @@ test("landing mobile header uses feed-style login instead of terminal launch", (
 });
 
 test("landing header dropdowns layer above page content", () => {
-  assert.match(landingPage, /<header className="sticky top-0 z-\[1500\]/);
-  assert.match(landingPage, /<details className="group relative z-\[1600\]">[\s\S]*z-\[1700\][\s\S]*Research tools/);
-  assert.match(landingPage, /<details className="group relative z-\[1600\] lg:hidden">[\s\S]*z-\[1700\]/);
+  assert.match(landingPage, /<header className="sticky top-0 isolate z-\[8000\][\s\S]*style=\{\{ zIndex: 8000 \}\}/);
+  assert.match(landingPage, /<details className="group relative isolate z-\[9000\]" style=\{\{ zIndex: 9000 \}\}>[\s\S]*z-\[10000\][\s\S]*bg-\[#030712\][\s\S]*style=\{\{ zIndex: 10000 \}\}[\s\S]*Research tools/);
+  assert.match(landingPage, /<details className="group relative isolate z-\[9000\] lg:hidden" style=\{\{ zIndex: 9000 \}\}>[\s\S]*z-\[10000\][\s\S]*bg-\[#030712\]/);
+  assert.doesNotMatch(landingPage, /bg-slate-950\/96/);
   assert.match(landingSearch, /relative z-\[80\][\s\S]*z-\[1400\]/);
 });
 
@@ -99,7 +100,9 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis\./);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
-  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingSearch, /buttonOutside[\s\S]*font-medium text-slate-950/);
+  assert.doesNotMatch(landingSearch, /font-bold text-slate-950/);
   assert.match(landingSearch, /Search tickers, companies, Congress members, insiders, institutions, departments\.\.\./);
   assert.match(landingPage, /See How It Works/);
   assert.match(landingPage, /href="#how-it-works"/);

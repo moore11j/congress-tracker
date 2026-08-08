@@ -113,7 +113,7 @@ export function LandingSearch({
     ? "flex min-w-0 items-center gap-3 rounded-lg border border-emerald-300/25 bg-slate-950/80 px-4 py-3 shadow-2xl shadow-black/25 ring-1 ring-white/10"
     : "flex min-w-0 items-center gap-3 rounded-md bg-white/[0.035] px-3 py-3";
   const buttonClassName = buttonOutside
-    ? "rounded-lg bg-emerald-300 px-6 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+    ? "rounded-lg bg-emerald-300 px-6 py-3 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
     : "rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15";
 
   return (

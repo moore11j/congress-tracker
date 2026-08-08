@@ -759,14 +759,14 @@ function ToolsMenuItems({ mobile = false }: { mobile?: boolean }) {
 
 function DesktopToolsMenu() {
   return (
-    <details className="group relative z-[1600]">
+    <details className="group relative isolate z-[9000]" style={{ zIndex: 9000 }}>
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1 py-1 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 [&::-webkit-details-marker]:hidden">
         <span>Tools</span>
         <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
           &#9662;
         </span>
       </summary>
-      <div className="absolute left-1/2 top-full z-[1700] mt-3 w-80 -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950/96 p-2 shadow-2xl shadow-black/45 ring-1 ring-black/20">
+      <div className="absolute left-1/2 top-full z-[10000] mt-3 w-80 -translate-x-1/2 rounded-lg border border-white/15 bg-[#030712] p-2 shadow-2xl shadow-black ring-1 ring-black" style={{ zIndex: 10000 }}>
         <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Research tools</div>
         <div className="grid gap-1">
           <ToolsMenuItems />
@@ -778,14 +778,14 @@ function DesktopToolsMenu() {
 
 function MobileNavigationMenu() {
   return (
-    <details className="group relative z-[1600] lg:hidden">
+    <details className="group relative isolate z-[9000] lg:hidden" style={{ zIndex: 9000 }}>
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/35 hover:text-white [&::-webkit-details-marker]:hidden">
         <span>Menu</span>
         <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
           &#9662;
         </span>
       </summary>
-      <div className="absolute right-0 top-full z-[1700] mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/10 bg-slate-950/96 p-3 shadow-2xl shadow-black/45 ring-1 ring-black/20">
+      <div className="absolute right-0 top-full z-[10000] mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/15 bg-[#030712] p-3 shadow-2xl shadow-black ring-1 ring-black" style={{ zIndex: 10000 }}>
         <nav aria-label="Mobile primary navigation" className="grid gap-1 text-sm">
           {navLinks.slice(0, navLinksBeforeToolsCount).map((link) => (
             <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
@@ -824,7 +824,7 @@ export default async function LandingPage() {
     <main className="min-h-screen overflow-hidden bg-[#030712] text-slate-100">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
-      <header className="sticky top-0 z-[1500] border-b border-white/10 bg-slate-950/88 backdrop-blur">
+      <header className="sticky top-0 isolate z-[8000] border-b border-white/10 bg-slate-950/95 backdrop-blur" style={{ zIndex: 8000 }}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
             <WalnutBrandMark
@@ -879,7 +879,7 @@ export default async function LandingPage() {
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis.
             </p>
-            <LandingSearch appUrl={appUrl} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
+            <LandingSearch appUrl={appUrl} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
             <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
               <span>See How It Works</span>
               <span aria-hidden="true">&darr;</span>
