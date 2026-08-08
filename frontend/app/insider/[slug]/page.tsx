@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades, getSeoSnapshot } from "@/lib/api";
@@ -16,6 +17,7 @@ import {
   shouldRedirectToCanonicalInsiderSlug,
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
+import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 import { noindexFollowMetadata } from "@/lib/seoQuality";
 
@@ -256,7 +258,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const snapshot = await getSeoSnapshot("insider", reportingCik, { source: "InsiderPageSnapshot" })
     .then((response) => response.snapshot)
     .catch(() => null);
-  if (snapshot?.indexable && Object.keys(sp).length === 0) {
+  const requestHeaders = await headers();
+  const authState = requestMayHavePageAuthState(requestHeaders)
+    ? await optionalPageAuthState()
+    : { token: null, hasAuthHint: false, entitlementHint: null };
+  if (!authState.token && !authState.hasAuthHint && snapshot?.indexable && Object.keys(sp).length === 0) {
     return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Insider Activity Snapshot" />;
   }
 

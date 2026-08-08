@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
@@ -23,6 +24,7 @@ import {
   isPortfolioLookbackDays,
 } from "@/lib/portfolioPerformance.mjs";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
+import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 import { noindexFollowMetadata } from "@/lib/seoQuality";
 
@@ -215,7 +217,11 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const snapshot = await getSeoSnapshot("member", slug, { source: "MemberPageSnapshot" })
     .then((response) => response.snapshot)
     .catch(() => null);
-  if (snapshot?.indexable && Object.keys(sp).length === 0) {
+  const requestHeaders = await headers();
+  const authState = requestMayHavePageAuthState(requestHeaders)
+    ? await optionalPageAuthState()
+    : { token: null, hasAuthHint: false, entitlementHint: null };
+  if (!authState.token && !authState.hasAuthHint && snapshot?.indexable && Object.keys(sp).length === 0) {
     return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Congress Activity Snapshot" />;
   }
 
