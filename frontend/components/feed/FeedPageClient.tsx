@@ -5,7 +5,6 @@ import { FeedEntitledResultsClient } from "@/components/feed/FeedEntitledResults
 import { FeedFiltersServer } from "@/components/feed/FeedFiltersServer";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { FeedShellFallback } from "@/components/feed/FeedShellFallback";
-import { LandingSearch } from "@/components/landing/LandingSearch";
 import { isCompactFeedFilterMode, isValidFeedMode, type FeedMode } from "@/lib/feedModes";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -25,7 +24,6 @@ const feedParamKeys = [
 ] as const;
 
 const DEFAULT_FEED_PAGE_SIZE = 25;
-const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
@@ -194,22 +192,10 @@ export function FeedPageClient() {
             </div>
           ) : null}
           <div>
-            <div className="pt-4 text-center sm:pt-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Search Walnut Markets</p>
-              <h1 className="mx-auto mt-3 max-w-2xl text-2xl font-semibold leading-tight text-white sm:text-3xl">
-                Search stocks. Follow the insiders.
-              </h1>
-              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                Find tickers, Congress members, insiders, institutions and government departments or browse the latest disclosed activity below.
-              </p>
-            </div>
-            <div className="pt-1 sm:pt-0">
-              <LandingSearch appUrl={appUrl} />
-            </div>
-            <div className="mt-8 flex flex-col items-center gap-2 text-center sm:mt-9 lg:mt-10">
+            <div className="pt-4 text-left sm:pt-5">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
-              <h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades.</h2>
-              <p className="max-w-2xl text-sm text-slate-400">
+              <h1 className="mt-3 max-w-2xl text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades.</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
                 One intelligence workflow: switch between All, Congress, Insider, Government Contracts, and Institutional Activity with mode-aware filters.
               </p>
             </div>

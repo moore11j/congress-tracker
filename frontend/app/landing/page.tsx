@@ -46,12 +46,15 @@ type MarketInstrument = {
 };
 
 const navLinks = [
-  { label: "Research", href: "/research" },
-  { label: "Outcomes", href: `${appUrl}/outcomes` },
+  { label: "Feed", href: researchStartUrl },
   { label: "Insights", href: `${appUrl}/insights` },
+  { label: "Profiles", href: `${appUrl}/profiles` },
+  { label: "Signals", href: `${appUrl}/signals` },
+  { label: "Outcomes", href: `${appUrl}/outcomes` },
+  { label: "Leaderboards", href: `${appUrl}/leaderboards/congress-traders` },
   { label: "Pricing", href: "#pricing" },
-  { label: "About", href: "/about" },
 ] as const;
+const navLinksBeforeToolsCount = 6;
 
 const toolsNavLinks = [
   { label: "Stock Screener", href: `${appUrl}/screener`, description: "Screen public companies by Walnut evidence and market data." },
@@ -756,14 +759,14 @@ function ToolsMenuItems({ mobile = false }: { mobile?: boolean }) {
 
 function DesktopToolsMenu() {
   return (
-    <details className="group relative">
+    <details className="group relative z-[1600]">
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1 py-1 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 [&::-webkit-details-marker]:hidden">
         <span>Tools</span>
         <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
           &#9662;
         </span>
       </summary>
-      <div className="absolute left-1/2 top-full z-50 mt-3 w-80 -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950/96 p-2 shadow-2xl shadow-black/45 ring-1 ring-black/20">
+      <div className="absolute left-1/2 top-full z-[1700] mt-3 w-80 -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950/96 p-2 shadow-2xl shadow-black/45 ring-1 ring-black/20">
         <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Research tools</div>
         <div className="grid gap-1">
           <ToolsMenuItems />
@@ -775,16 +778,16 @@ function DesktopToolsMenu() {
 
 function MobileNavigationMenu() {
   return (
-    <details className="group relative lg:hidden">
+    <details className="group relative z-[1600] lg:hidden">
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/35 hover:text-white [&::-webkit-details-marker]:hidden">
         <span>Menu</span>
         <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
           &#9662;
         </span>
       </summary>
-      <div className="absolute right-0 top-full z-50 mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/10 bg-slate-950/96 p-3 shadow-2xl shadow-black/45 ring-1 ring-black/20">
+      <div className="absolute right-0 top-full z-[1700] mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/10 bg-slate-950/96 p-3 shadow-2xl shadow-black/45 ring-1 ring-black/20">
         <nav aria-label="Mobile primary navigation" className="grid gap-1 text-sm">
-          {navLinks.slice(0, 3).map((link) => (
+          {navLinks.slice(0, navLinksBeforeToolsCount).map((link) => (
             <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
           ))}
           <details className="group/tools">
@@ -798,7 +801,7 @@ function MobileNavigationMenu() {
               <ToolsMenuItems mobile />
             </div>
           </details>
-          {navLinks.slice(3).map((link) => (
+          {navLinks.slice(navLinksBeforeToolsCount).map((link) => (
             <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
           ))}
         </nav>
@@ -821,7 +824,7 @@ export default async function LandingPage() {
     <main className="min-h-screen overflow-hidden bg-[#030712] text-slate-100">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/88 backdrop-blur">
+      <header className="sticky top-0 z-[1500] border-b border-white/10 bg-slate-950/88 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
             <WalnutBrandMark
@@ -834,11 +837,11 @@ export default async function LandingPage() {
             </span>
           </a>
           <nav className="hidden items-center gap-3 text-xs font-medium text-slate-300 lg:flex xl:gap-5 xl:text-sm" aria-label="Primary navigation">
-            {navLinks.slice(0, 3).map((link) => (
+            {navLinks.slice(0, navLinksBeforeToolsCount).map((link) => (
               <LandingNavLink key={link.label} href={link.href} label={link.label} />
             ))}
             <DesktopToolsMenu />
-            {navLinks.slice(3).map((link) => (
+            {navLinks.slice(navLinksBeforeToolsCount).map((link) => (
               <LandingNavLink key={link.label} href={link.href} label={link.label} />
             ))}
           </nav>

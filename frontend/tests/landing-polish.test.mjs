@@ -56,16 +56,28 @@ test("landing mobile header uses feed-style login instead of terminal launch", (
   );
 });
 
+test("landing header dropdowns layer above page content", () => {
+  assert.match(landingPage, /<header className="sticky top-0 z-\[1500\]/);
+  assert.match(landingPage, /<details className="group relative z-\[1600\]">[\s\S]*z-\[1700\][\s\S]*Research tools/);
+  assert.match(landingPage, /<details className="group relative z-\[1600\] lg:hidden">[\s\S]*z-\[1700\]/);
+  assert.match(landingSearch, /relative z-\[80\][\s\S]*z-\[1400\]/);
+});
+
 test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /Explore Ticker Research/);
   assert.doesNotMatch(landingPage, /View Congress Trades/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
   assert.doesNotMatch(landingPage, /\["Trends", "#signals"\]/);
-  assert.match(landingPage, /\{ label: "Research", href: "\/research" \}/);
-  assert.match(landingPage, /\{ label: "Outcomes", href: `\$\{appUrl\}\/outcomes` \}/);
+  assert.match(landingPage, /\{ label: "Feed", href: researchStartUrl \}/);
   assert.match(landingPage, /\{ label: "Insights", href: `\$\{appUrl\}\/insights` \}/);
+  assert.match(landingPage, /\{ label: "Profiles", href: `\$\{appUrl\}\/profiles` \}/);
+  assert.match(landingPage, /\{ label: "Signals", href: `\$\{appUrl\}\/signals` \}/);
+  assert.match(landingPage, /\{ label: "Outcomes", href: `\$\{appUrl\}\/outcomes` \}/);
+  assert.match(landingPage, /\{ label: "Leaderboards", href: `\$\{appUrl\}\/leaderboards\/congress-traders` \}/);
   assert.match(landingPage, /\{ label: "Pricing", href: "#pricing" \}/);
-  assert.match(landingPage, /\{ label: "About", href: "\/about" \}/);
+  assert.match(landingPage, /Feed[\s\S]*Insights[\s\S]*Profiles[\s\S]*Signals[\s\S]*Outcomes[\s\S]*Leaderboards[\s\S]*Pricing/);
+  assert.match(landingPage, /const navLinksBeforeToolsCount = 6/);
+  assert.match(landingPage, /navLinks\.slice\(0, navLinksBeforeToolsCount\)[\s\S]*<DesktopToolsMenu \/>[\s\S]*navLinks\.slice\(navLinksBeforeToolsCount\)/);
   assert.doesNotMatch(landingPage, /\["Congress", "#congress"\]|\["Insiders", "#insiders"\]|\["Stock Comparisons", "#compare"\]|\["Stock Screener", "#screener"\]/);
   assert.match(landingPage, /const toolsNavLinks = \[/);
   assert.match(landingPage, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);

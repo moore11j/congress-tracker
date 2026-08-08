@@ -56,27 +56,23 @@ test("feed autosuggest popovers render above result cards", () => {
   }
 });
 
-test("feed page adds compact search intro above global search", () => {
+test("feed page starts with a left-aligned live market flow intro", () => {
   const pageClient = read("components/feed/FeedPageClient.tsx");
   const fallback = read("components/feed/FeedShellFallback.tsx");
 
-  assert.match(pageClient, /Search Walnut Markets/);
-  assert.match(pageClient, /<div className="pt-4 text-center sm:pt-5">/);
-  assert.match(pageClient, /<h1 className="mx-auto mt-3 max-w-2xl text-2xl/);
-  assert.match(pageClient, /Search stocks\. Follow the insiders\./);
-  assert.match(pageClient, /Find tickers, Congress members, insiders, institutions and government departments/);
+  assert.doesNotMatch(pageClient, /Search Walnut Markets/);
+  assert.doesNotMatch(pageClient, /Search stocks\. Follow the insiders\./);
+  assert.doesNotMatch(pageClient, /Find tickers, Congress members, insiders, institutions and government departments/);
+  assert.doesNotMatch(pageClient, /LandingSearch|appUrl/);
 
-  assert.match(pageClient, /Search stocks\. Follow the insiders\.[\s\S]*<LandingSearch appUrl=\{appUrl\} \/>[\s\S]*Live Market Flow/);
-  assert.match(pageClient, /className="pt-1 sm:pt-0"/);
-  assert.match(pageClient, /className="mt-8 flex flex-col items-center gap-2 text-center sm:mt-9 lg:mt-10"/);
-  assert.doesNotMatch(pageClient, /<h1 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h1>/);
-  assert.match(pageClient, /<h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h2>/);
+  assert.match(pageClient, /<div className="pt-4 text-left sm:pt-5">[\s\S]*Live Market Flow/);
+  assert.match(pageClient, /<h1 className="mt-3 max-w-2xl text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h1>/);
+  assert.match(pageClient, /One intelligence workflow: switch between All, Congress, Insider, Government Contracts, and Institutional Activity with mode-aware filters\./);
   assert.match(read("components/landing/LandingSearch.tsx"), /relative z-\[80\][\s\S]*z-\[1400\]/);
 
-  assert.match(fallback, /Search Walnut Markets/);
-  assert.match(fallback, /Search stocks\. Follow the insiders\./);
-  assert.match(fallback, /sm:mt-8/);
-  assert.match(fallback, /<h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h2>/);
+  assert.doesNotMatch(fallback, /Search Walnut Markets|Search stocks\. Follow the insiders\.|sm:mt-8/);
+  assert.match(fallback, /<div className="pt-4 text-left sm:pt-5">[\s\S]*Live Market Flow/);
+  assert.match(fallback, /<h1 className="mt-3 max-w-2xl text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h1>/);
 });
 
 test("visible feed results load client-side with bounded gain/loss enrichment", () => {
