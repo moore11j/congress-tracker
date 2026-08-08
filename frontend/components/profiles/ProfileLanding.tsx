@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
-import type { ProfileActivityItem, ProfileMetric, ProfileSectorPeriod, ProfileSummaryCard } from "@/lib/api";
+import type { ProfileActivityItem, ProfileDirectory, ProfileDirectoryItem, ProfileMetric, ProfileSectorPeriod, ProfileSummaryCard } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 
@@ -37,7 +37,7 @@ export function SummaryCards({ cards }: { cards: ProfileSummaryCard[] }) {
         <Link key={card.kind} href={card.href} prefetch={false} className={`${cardClassName} group min-h-56 p-5 transition hover:border-emerald-300/30 hover:bg-slate-900/85`}>
           <div className="flex items-start justify-between gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 text-lg text-emerald-200">
-              {iconForKind(card.kind)}
+              <ProfileIcon kind={card.kind} />
             </span>
             {card.locked ? <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100">Pro</span> : null}
           </div>
@@ -55,7 +55,54 @@ export function SummaryCards({ cards }: { cards: ProfileSummaryCard[] }) {
   );
 }
 
-export function MetricGrid({ metrics }: { metrics: ProfileMetric[] }) {
+export function ProfileDirectoryGrid({ directories }: { directories?: ProfileDirectory[] }) {
+  const visibleDirectories = directories ?? [];
+  if (!visibleDirectories.length) return null;
+
+  return (
+    <section className="min-w-0 space-y-3">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Profile Directories</h2>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">Jump into the live profile sets with the current leaders, tracked totals, and the most useful starting points.</p>
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        {visibleDirectories.map((directory) => (
+          <article key={directory.kind} className={`${cardClassName} min-w-0 p-5`}>
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 text-emerald-200">
+                  <ProfileIcon kind={directory.kind} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-white">{directory.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">{directory.description}</p>
+                </div>
+              </div>
+              {directory.locked ? <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100">Pro</span> : null}
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {directory.metrics.slice(0, 2).map((metric) => (
+                <MetricMini key={metric.label} metric={metric} />
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <DirectoryList title={directory.primary_title} items={directory.primary_items} lockedMessage={directory.locked ? directory.message : null} />
+              <DirectoryList title={directory.secondary_title} items={directory.secondary_items} lockedMessage={directory.locked ? directory.message : null} />
+            </div>
+
+            <Link href={directory.href} className="mt-5 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100" prefetch={false}>
+              {directory.cta_label} -&gt;
+            </Link>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function MetricGrid({ metrics, comparisonLabel = "previous period" }: { metrics: ProfileMetric[]; comparisonLabel?: string }) {
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {metrics.map((metric) => (
@@ -64,8 +111,10 @@ export function MetricGrid({ metrics }: { metrics: ProfileMetric[] }) {
           <p className="mt-3 truncate text-2xl font-semibold tabular-nums text-white">{formatMetricValue(metric)}</p>
           {typeof metric.change_pct === "number" ? (
             <p className={`mt-2 text-xs font-semibold tabular-nums ${metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-              {metric.change_pct >= 0 ? "+" : ""}{metric.change_pct.toFixed(1)}% vs prior
+              {metric.change_pct >= 0 ? "+" : ""}{metric.change_pct.toFixed(1)}% vs {comparisonLabel}
             </p>
+          ) : typeof metric.previous_value === "number" ? (
+            <p className="mt-2 text-xs text-slate-500">Previous: {formatMetricValue({ ...metric, value: metric.previous_value })}</p>
           ) : (
             <p className="mt-2 text-xs text-slate-500">Latest available period</p>
           )}
@@ -230,39 +279,54 @@ export function DataPanel({
 }
 
 export function SectorStackedChart({ title, rows, note }: { title: string; rows: ProfileSectorPeriod[]; note?: string }) {
+  const labels = Array.from(new Set(rows.flatMap((row) => row.segments.map((segment) => segment.label))));
+  const latestSegments = rows[rows.length - 1]?.segments ?? [];
+
   return (
     <section className={`${cardClassName} min-w-0`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-white">{title}</h2>
-          <p className="mt-1 text-sm text-slate-400">Allocation share by reported value.</p>
+          <p className="mt-1 text-sm text-slate-400">Value share by reported ticker sector.</p>
         </div>
-        <div className="inline-flex rounded-xl border border-white/10 bg-slate-950/50 p-1">
-          {["Top 5", "Top 8", "All"].map((label, index) => (
-            <span key={label} className={`rounded-lg px-3 py-1 text-xs font-semibold ${index === 1 ? "bg-emerald-400/15 text-emerald-100" : "text-slate-500"}`}>{label}</span>
-          ))}
-        </div>
+        <span className="rounded-full border border-white/10 bg-slate-950/50 px-3 py-1.5 text-xs font-semibold text-slate-300">All tracked sectors</span>
       </div>
       {!rows.length ? (
         <EmptyState>No sector exposure available for this period.</EmptyState>
       ) : (
-        <div className="mt-5 space-y-4">
-          {rows.map((row) => (
-            <div key={row.period} className="grid gap-2 md:grid-cols-[5rem_minmax(0,1fr)] md:items-center">
-              <div className="text-xs font-semibold text-slate-400">{row.period}</div>
-              <div className="flex h-8 min-w-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950/60">
-                {row.segments.slice(0, 8).map((segment, index) => (
-                  <span
-                    key={`${row.period}-${segment.label}`}
-                    title={`${segment.label}: ${segment.percent.toFixed(1)}%`}
-                    className="h-full"
-                    style={{ width: `${Math.max(segment.percent, 1)}%`, backgroundColor: chartColors[index % chartColors.length] }}
-                  />
-                ))}
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="space-y-4">
+            {rows.map((row) => (
+              <div key={row.period} className="grid gap-2 md:grid-cols-[5rem_minmax(0,1fr)] md:items-center">
+                <div className="text-xs font-semibold text-slate-400">{row.period}</div>
+                <div className="flex h-9 min-w-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950/60">
+                  {row.segments.map((segment) => (
+                    <span
+                      key={`${row.period}-${segment.label}`}
+                      title={`${segment.label}: ${segment.percent.toFixed(1)}%`}
+                      className="h-full"
+                      style={{ width: `${Math.max(segment.percent, 1)}%`, backgroundColor: colorForLabel(segment.label, labels) }}
+                    />
+                  ))}
+                </div>
               </div>
+            ))}
+            <Legend labels={labels} />
+          </div>
+          <div className="min-w-0 rounded-xl border border-white/10 bg-slate-950/35 p-4">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Latest Quarter Mix</h3>
+            <div className="mt-3 space-y-3">
+              {latestSegments.map((segment) => (
+                <div key={segment.label} className="grid grid-cols-[minmax(0,1fr)_4rem] gap-3 text-sm">
+                  <span className="flex min-w-0 items-center gap-2 text-slate-300">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorForLabel(segment.label, labels) }} />
+                    <span className="truncate">{segment.label}</span>
+                  </span>
+                  <span className="text-right font-semibold tabular-nums text-white">{segment.percent.toFixed(1)}%</span>
+                </div>
+              ))}
             </div>
-          ))}
-          <Legend labels={rows[rows.length - 1]?.segments.slice(0, 8).map((segment) => segment.label) ?? []} />
+          </div>
         </div>
       )}
       {note ? <p className="mt-4 text-xs leading-5 text-slate-500">{note}</p> : null}
@@ -331,6 +395,43 @@ function MetricMini({ metric }: { metric: ProfileMetric }) {
   );
 }
 
+function DirectoryList({ title, items, lockedMessage }: { title: string; items: ProfileDirectoryItem[]; lockedMessage?: string | null }) {
+  return (
+    <div className="min-w-0">
+      <h4 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</h4>
+      {lockedMessage ? (
+        <p className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm leading-6 text-amber-100">{lockedMessage}</p>
+      ) : items.length ? (
+        <div className="mt-2 divide-y divide-white/5">
+          {items.map((item, index) => {
+            const content = (
+              <>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-white">{item.label}</span>
+                  {item.detail ? <span className="mt-0.5 block truncate text-xs text-slate-500">{item.detail}</span> : null}
+                </span>
+                <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-slate-200">{directoryItemValue(item)}</span>
+              </>
+            );
+
+            return item.href ? (
+              <Link key={`${item.label}-${index}`} href={item.href} prefetch={false} className="flex min-w-0 items-center justify-between gap-3 py-2.5 text-sm hover:text-emerald-100">
+                {content}
+              </Link>
+            ) : (
+              <div key={`${item.label}-${index}`} className="flex min-w-0 items-center justify-between gap-3 py-2.5 text-sm text-slate-300">
+                {content}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-3 rounded-xl border border-dashed border-white/10 bg-slate-950/35 p-3 text-sm text-slate-500">No ranked profiles available yet.</p>
+      )}
+    </div>
+  );
+}
+
 function TypePill({ type }: { type: string }) {
   return <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-semibold text-slate-200">{type}</span>;
 }
@@ -352,8 +453,13 @@ function Legend({ labels }: { labels: string[] }) {
   );
 }
 
+function colorForLabel(label: string, labels: string[]) {
+  const index = labels.indexOf(label);
+  return chartColors[Math.max(index, 0) % chartColors.length];
+}
+
 function cellValue(row: Record<string, unknown>, column: { key: string; format?: string }) {
-  const href = typeof row.href === "string" ? row.href : null;
+  const href = linkForCell(row, column.key);
   const value = row[column.key];
   if (column.format === "currency") return <span className="font-semibold text-white">{formatCompactCurrency(numericOrNull(value))}</span>;
   if (column.format === "number") return formatNumber(numericOrNull(value));
@@ -369,12 +475,67 @@ function cellValue(row: Record<string, unknown>, column: { key: string; format?:
   return typeof value === "string" || typeof value === "number" ? String(value) : "-";
 }
 
-function iconForKind(kind: string) {
-  if (kind === "congress") return "C";
-  if (kind === "insiders") return "I";
-  if (kind === "institutions") return "13F";
-  if (kind === "departments") return "G";
-  return "P";
+function linkForCell(row: Record<string, unknown>, key: string) {
+  const value = key === "symbol" ? row.ticker_href : key === "profile" ? row.profile_href : row.href;
+  return typeof value === "string" && value ? value : null;
+}
+
+function ProfileIcon({ kind }: { kind: string }) {
+  if (kind === "congress") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+        <path d="M4 10h16" />
+        <path d="M5 18h14" />
+        <path d="M7 10v8" />
+        <path d="M12 10v8" />
+        <path d="M17 10v8" />
+        <path d="M12 4 4.5 8h15L12 4Z" />
+      </svg>
+    );
+  }
+  if (kind === "insiders") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+        <path d="M16 20v-2a4 4 0 0 0-8 0v2" />
+        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+        <path d="M17 8h3" />
+        <path d="M18.5 6.5v3" />
+      </svg>
+    );
+  }
+  if (kind === "institutions") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+        <path d="M4 21h16" />
+        <path d="M6 10h12" />
+        <path d="M7 10v8" />
+        <path d="M12 10v8" />
+        <path d="M17 10v8" />
+        <path d="M12 3 5 7h14l-7-4Z" />
+      </svg>
+    );
+  }
+  if (kind === "departments") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+        <path d="M12 3 5 6v5c0 4.5 2.8 8 7 10 4.2-2 7-5.5 7-10V6l-7-3Z" />
+        <path d="M9 12h6" />
+        <path d="M12 9v6" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+      <path d="M5 5h14v14H5z" />
+      <path d="M9 9h6" />
+      <path d="M9 13h4" />
+    </svg>
+  );
+}
+
+function directoryItemValue(item: ProfileDirectoryItem) {
+  if (item.value_format === "currency") return formatCompactCurrency(item.value);
+  return formatNumber(item.value);
 }
 
 export function formatMetricValue(metric: ProfileMetric) {

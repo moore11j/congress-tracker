@@ -4737,12 +4737,13 @@ def profiles_institutions_overview(
 def profiles_departments_overview(
     request: Request,
     fiscal_year: int | None = Query(None, ge=2000, le=2100),
+    period_days: int = Query(365, ge=30, le=1095),
     db: Session = Depends(get_db),
 ):
     prefetch_response = _api_prefetch_response(request, endpoint="profiles_departments_overview")
     if prefetch_response is not None:
         return prefetch_response
-    return build_departments_overview(db, fiscal_year=fiscal_year)
+    return build_departments_overview(db, fiscal_year=fiscal_year, period_days=period_days)
 
 
 @app.get("/api/members/by-slug/{slug}")

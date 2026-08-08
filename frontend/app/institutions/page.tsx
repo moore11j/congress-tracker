@@ -13,6 +13,7 @@ export default async function InstitutionsPage() {
   const authState = await optionalPageAuthState();
   const data = await getInstitutionsOverview({ authToken: authState.token });
   const period = data.report_year && data.report_quarter ? `Q${data.report_quarter} ${data.report_year}` : "Latest available 13F quarter";
+  const comparisonPeriod = data.previous_report_year && data.previous_report_quarter ? `Q${data.previous_report_quarter} ${data.previous_report_year}` : "previous quarter";
 
   return (
     <div className="min-w-0 space-y-6 overflow-x-hidden">
@@ -22,7 +23,7 @@ export default async function InstitutionsPage() {
         subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure."
         actions={<div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-2 text-sm font-semibold text-slate-200">{period}</div>}
       />
-      <MetricGrid metrics={data.summary} />
+      <MetricGrid metrics={data.summary} comparisonLabel={comparisonPeriod} />
       {data.locked ? <LockedPanel message={data.message} /> : null}
       <section className="grid min-w-0 gap-3 xl:grid-cols-2">
         <DataPanel

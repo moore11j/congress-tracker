@@ -5,13 +5,15 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, select, tuple_
+from sqlalchemy import case, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.models import (
     Event,
     GovernmentContract,
     GovernmentContractAction,
+    InsiderTransaction,
+    InsiderTransactionNormalized,
     InstitutionalActivityEvent,
     InstitutionalFiling,
     InstitutionalHolder,
@@ -40,6 +42,10 @@ PROFILE_ACTIVITY_TYPES = (
     "government_contract",
 )
 
+MAX_REASONABLE_INSIDER_TRADE_VALUE = 10_000_000_000
+
+TECH_PLATFORM_SECTOR_SYMBOLS = {"AAPL", "NVDA", "MSFT", "GOOG", "GOOGL", "AMZN", "META"}
+
 
 def profiles_summary(db: Session, *, activity_type: str = "all", activity_limit: int = 25, include_institutions: bool = False) -> dict[str, Any]:
     return {
@@ -62,7 +68,7 @@ def profiles_summary(db: Session, *, activity_type: str = "all", activity_limit:
                 "/insiders",
                 [
                     {"label": "Trades", "value": _count_events(db, "insider_trade")},
-                    {"label": "Active Insiders", "value": _count_distinct_event_field(db, "insider_trade", Event.member_bioguide_id)},
+                    {"label": "Active Insiders", "value": _active_insider_count(db)},
                 ],
             ),
             _profile_card(
@@ -88,6 +94,7 @@ def profiles_summary(db: Session, *, activity_type: str = "all", activity_limit:
                 ],
             ),
         ],
+        "directories": profile_directories(db, include_institutions=include_institutions),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions),
     }
 
@@ -137,33 +144,37 @@ def insiders_overview(db: Session, *, period_days: int = 365, sector: str | None
     since = datetime.now(timezone.utc) - timedelta(days=period_days)
     sector_value = (sector or "").strip()
     symbols = _symbols_for_sector(db, sector_value) if sector_value else None
-    base = _event_query("insider_trade", since=since, symbols=symbols)
-    previous = _event_query("insider_trade", since=since - timedelta(days=period_days), before=since, symbols=symbols)
+    base = _insider_transaction_filters(since=since.date(), symbols=symbols)
+    previous = _insider_transaction_filters(since=(since - timedelta(days=period_days)).date(), before=since.date(), symbols=symbols)
+    buy_base = [*base, _insider_side_clause("buy")]
+    sell_base = [*base, _insider_side_clause("sell")]
+    previous_buy = [*previous, _insider_side_clause("buy")]
+    previous_sell = [*previous, _insider_side_clause("sell")]
 
-    total_trades = db.execute(select(func.count()).select_from(Event).where(*base)).scalar_one()
-    previous_trades = db.execute(select(func.count()).select_from(Event).where(*previous)).scalar_one()
-    buy_value = _sum_amount(db, base, sides=("buy", "purchase", "p-purchase"))
-    sell_value = _sum_amount(db, base, sides=("sell", "sale", "s-sale"))
-    active_insiders = db.execute(select(func.count(func.distinct(Event.member_bioguide_id))).where(*base, Event.member_bioguide_id.is_not(None))).scalar_one()
-    average_trade_size = db.execute(select(func.avg(func.coalesce(Event.amount_max, Event.amount_min))).where(*base)).scalar_one()
+    total_trades = db.execute(select(func.count()).select_from(InsiderTransactionNormalized).where(*base)).scalar_one()
+    previous_trades = db.execute(select(func.count()).select_from(InsiderTransactionNormalized).where(*previous)).scalar_one()
+    buy_value = _sum_insider_transaction_value(db, buy_base)
+    sell_value = _sum_insider_transaction_value(db, sell_base)
+    active_insiders = _active_insider_count(db, since=since.date(), symbols=symbols)
+    average_trade_size = db.execute(select(func.avg(InsiderTransactionNormalized.value)).where(*base)).scalar_one()
 
     return {
         "status": "ok",
         "period_days": period_days,
         "sector": sector_value or "all",
         "summary": [
-            _metric("Total Insider Trades", total_trades, previous_trades),
-            _metric("Buy Value", buy_value, _sum_amount(db, previous, sides=("buy", "purchase", "p-purchase")), "currency"),
-            _metric("Sell Value", sell_value, _sum_amount(db, previous, sides=("sell", "sale", "s-sale")), "currency"),
+            _metric("Open-Market Trades", total_trades, previous_trades),
+            _metric("Buy Value", buy_value, _sum_insider_transaction_value(db, previous_buy), "currency"),
+            _metric("Sell Value", sell_value, _sum_insider_transaction_value(db, previous_sell), "currency"),
             _metric("Active Insiders", active_insiders, None),
             _metric("Average Trade Size", average_trade_size, None, "currency"),
         ],
         "top_insiders": _top_insiders(db, base),
-        "most_traded_stocks": _most_traded_event_stocks(db, base),
-        "sector_activity": _event_sector_exposure(db, "insider_trade", since=since, symbols=symbols),
-        "recent_purchases": _recent_event_rows(db, [*base, _side_clause(("buy", "purchase", "p-purchase"))], limit=8),
-        "largest_buys": _largest_event_rows(db, [*base, _side_clause(("buy", "purchase", "p-purchase"))], limit=8),
-        "cluster_buying": _cluster_buying(db, since=since),
+        "most_traded_stocks": _most_traded_insider_stocks(db, base),
+        "sector_activity": _insider_sector_activity(db, base),
+        "recent_purchases": _recent_insider_transactions(db, buy_base, limit=8),
+        "largest_buys": _largest_insider_transactions(db, buy_base, limit=8),
+        "cluster_buying": _cluster_buying(db, since=since, symbols=symbols),
     }
 
 
@@ -194,24 +205,35 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
     if period is None:
         return {"status": "no_data", "summary": [], "top_institutions": [], "position_changes": [], "sector_exposure": [], "recent_filings": []}
     report_year, report_quarter = period
+    prev_year, prev_quarter = _previous_quarter(report_year, report_quarter)
     period_filter = [InstitutionalPosition.report_year == report_year, InstitutionalPosition.report_quarter == report_quarter]
     change_filter = [InstitutionalPositionChange.report_year == report_year, InstitutionalPositionChange.report_quarter == report_quarter]
+    previous_position_filter = [InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter]
+    previous_change_filter = [InstitutionalPositionChange.report_year == prev_year, InstitutionalPositionChange.report_quarter == prev_quarter]
 
     total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*period_filter)).scalar_one()
+    previous_total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*previous_position_filter)).scalar_one()
+    tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*period_filter)).scalar_one()
+    previous_tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*previous_position_filter)).scalar_one()
     increases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*change_filter, InstitutionalPositionChange.shares_delta > 0)).scalar_one()
+    previous_increases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*previous_change_filter, InstitutionalPositionChange.shares_delta > 0)).scalar_one()
     decreases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*change_filter, InstitutionalPositionChange.shares_delta < 0)).scalar_one()
+    previous_decreases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*previous_change_filter, InstitutionalPositionChange.shares_delta < 0)).scalar_one()
     net_change = db.execute(select(func.sum(InstitutionalPositionChange.value_delta_usd)).where(*change_filter)).scalar_one()
+    previous_net_change = db.execute(select(func.sum(InstitutionalPositionChange.value_delta_usd)).where(*previous_change_filter)).scalar_one()
 
     return {
         "status": "ok",
         "report_year": report_year,
         "report_quarter": report_quarter,
+        "previous_report_year": prev_year,
+        "previous_report_quarter": prev_quarter,
         "summary": [
-            _metric("Tracked Institutions", _count_rows(db, InstitutionalHolder.cik), None),
-            _metric("Total Portfolio Value", total_value, None, "currency"),
-            _metric("Total Position Increases", increases, None),
-            _metric("Total Position Decreases", decreases, None),
-            _metric("Net Reported Value Change", net_change, None, "currency"),
+            _metric("Tracked Institutions", tracked_institutions, previous_tracked_institutions),
+            _metric("Total Portfolio Value", total_value, previous_total_value, "currency"),
+            _metric("Total Position Increases", increases, previous_increases),
+            _metric("Total Position Decreases", decreases, previous_decreases),
+            _metric("Net Reported Value Change", net_change, previous_net_change, "currency"),
         ],
         "top_institutions": _top_institutions(db, report_year, report_quarter),
         "position_changes": _institutional_position_changes(db, report_year, report_quarter),
@@ -223,36 +245,39 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
     }
 
 
-def departments_overview(db: Session, *, fiscal_year: int | None = None) -> dict[str, Any]:
-    departments = list_departments(db).get("items", [])
-    contract_count = _count_rows(db, GovernmentContract.id) + _count_rows(db, GovernmentContractAction.id)
-    total_value = _government_contract_total(db)
-    active_vendors = _active_vendor_count(db)
-    average_size = (total_value / contract_count) if contract_count else None
-    modification_count = _count_rows(db, GovernmentContractAction.id)
+def departments_overview(db: Session, *, fiscal_year: int | None = None, period_days: int = 365) -> dict[str, Any]:
+    period_days = _bounded_period(period_days)
+    today = date.today()
+    since = today - timedelta(days=period_days)
+    previous_since = since - timedelta(days=period_days)
+
+    current = _government_contract_period_metrics(db, since=since, before=today + timedelta(days=1))
+    previous = _government_contract_period_metrics(db, since=previous_since, before=since)
 
     return {
         "status": "ok",
         "fiscal_year": fiscal_year,
+        "period_days": period_days,
         "summary": [
-            _metric("Total Contracts", contract_count, None),
-            _metric("Total Contract Value", total_value, None, "currency"),
-            _metric("Active Vendors", active_vendors, None),
-            _metric("Average Contract Size", average_size, None, "currency"),
-            _metric("Contract Modifications", modification_count, None),
+            _metric("Total Contracts", current["contract_count"], previous["contract_count"]),
+            _metric("Total Contract Value", current["total_value"], previous["total_value"], "currency"),
+            _metric("Active Vendors", current["active_vendors"], previous["active_vendors"]),
+            _metric("Average Contract Size", current["average_size"], previous["average_size"], "currency"),
+            _metric("Contract Modifications", current["modification_count"], previous["modification_count"]),
         ],
-        "top_departments": _top_departments(departments),
-        "top_vendors": _top_vendors(db),
-        "contract_value_over_time": _contract_value_over_time(db),
-        "largest_recent_awards": _largest_recent_awards(db),
-        "fastest_growing_vendors": _fastest_growing_vendors(db),
-        "most_active_departments": _most_active_departments(departments),
+        "top_departments": _top_departments(db, since=since, before=today + timedelta(days=1), previous_since=previous_since),
+        "top_vendors": _top_vendors(db, since=since, before=today + timedelta(days=1)),
+        "contract_value_over_time": _contract_value_by_sector_over_time(db),
+        "largest_recent_awards": _largest_recent_awards(db, since=since, before=today + timedelta(days=1)),
+        "fastest_growing_vendors": _fastest_growing_vendors(db, period_days=period_days),
+        "most_active_departments": _most_active_departments(db, since=since, before=today + timedelta(days=1)),
     }
 
 
 def profile_activity(db: Session, *, activity_type: str = "all", limit: int = 25, include_institutions: bool = False) -> list[dict[str, Any]]:
     bounded_limit = max(1, min(int(limit or 25), 100))
     requested = (activity_type or "all").strip().lower()
+    now = datetime.now(timezone.utc) + timedelta(days=1)
     event_types = list(PROFILE_ACTIVITY_TYPES)
     if requested == "congress":
         event_types = ["congress_trade"]
@@ -267,6 +292,7 @@ def profile_activity(db: Session, *, activity_type: str = "all", limit: int = 25
     rows = db.execute(
         select(Event)
         .where(Event.event_type.in_(event_types))
+        .where(Event.ts <= now)
         .order_by(Event.ts.desc(), Event.id.desc())
         .limit(bounded_limit)
     ).scalars().all()
@@ -274,8 +300,222 @@ def profile_activity(db: Session, *, activity_type: str = "all", limit: int = 25
     return [_activity_payload(row, company_names) for row in rows]
 
 
+def profile_directories(db: Session, *, include_institutions: bool = False) -> list[dict[str, Any]]:
+    since = datetime.now(timezone.utc) - timedelta(days=365)
+    congress_base = _event_query("congress_trade", since=since)
+    insider_base = _insider_transaction_filters(since=since.date())
+    departments = list_departments(db).get("items", [])
+    institutional_period = _latest_institutional_period(db)
+
+    directories = [
+        _profile_directory(
+            "congress",
+            "Congress",
+            "/members",
+            "Member profiles, disclosure history, traded tickers, and chamber-level activity.",
+            [
+                {"label": "Trades", "value": _count_events(db, "congress_trade")},
+                {"label": "Active Members", "value": _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)},
+            ],
+            "Most Active Members",
+            [
+                _directory_item(
+                    row.get("name"),
+                    row.get("href"),
+                    row.get("value"),
+                    "currency",
+                    f"{int(row.get('trades') or 0):,} trades",
+                )
+                for row in _top_congress_members(db, congress_base, limit=4)
+            ],
+            "Most Traded Tickers",
+            [
+                _directory_item(
+                    row.get("symbol") or row.get("company"),
+                    row.get("href"),
+                    row.get("value"),
+                    "currency",
+                    row.get("company") if row.get("company") != row.get("symbol") else None,
+                )
+                for row in _most_traded_event_stocks(db, congress_base, limit=4)
+            ],
+            "Open Congress profiles",
+        ),
+        _profile_directory(
+            "insiders",
+            "Insiders",
+            "/insiders",
+            "Corporate officers, directors, major shareholders, and their recent Form 4 activity.",
+            [
+                {"label": "Trades", "value": _count_events(db, "insider_trade")},
+                {"label": "Active Insiders", "value": _active_insider_count(db)},
+            ],
+            "Largest Net Buyers",
+            [
+                _directory_item(
+                    row.get("name"),
+                    row.get("href"),
+                    row.get("net_buy_value"),
+                    "currency",
+                    " - ".join(part for part in [str(row.get("symbol") or ""), f"{int(row.get('trades') or 0):,} trades"] if part),
+                )
+                for row in _top_insiders(db, insider_base, limit=4)
+            ],
+            "Cluster Buying",
+            [
+                _directory_item(
+                    row.get("symbol") or row.get("company"),
+                    row.get("href"),
+                    row.get("buy_value"),
+                    "currency",
+                    f"{int(row.get('unique_insiders') or 0):,} insiders",
+                )
+                for row in _cluster_buying(db, since=since, limit=4)
+            ],
+            "Open insider profiles",
+        ),
+    ]
+
+    if include_institutions and institutional_period is not None:
+        year, quarter = institutional_period
+        directories.append(
+            _profile_directory(
+                "institutions",
+                "Institutions",
+                "/institutions",
+                "13F managers, portfolio value, holdings concentration, and quarter-over-quarter changes.",
+                [
+                    {"label": "Institutions", "value": _count_rows(db, InstitutionalHolder.cik)},
+                    {"label": f"Q{quarter} {year} Value", "value": _latest_institutional_value(db), "format": "currency"},
+                ],
+                "Largest Portfolios",
+                [
+                    _directory_item(
+                        row.get("name"),
+                        row.get("href"),
+                        row.get("portfolio_value"),
+                        "currency",
+                        f"{int(row.get('positions') or 0):,} positions",
+                    )
+                    for row in _top_institutions(db, year, quarter, limit=4)
+                ],
+                "Widely Held Tickers",
+                [
+                    _directory_item(
+                        row.get("symbol") or row.get("company"),
+                        row.get("href"),
+                        row.get("value"),
+                        "currency",
+                        f"{int(row.get('holders') or 0):,} holders",
+                    )
+                    for row in _most_widely_held(db, year, quarter, limit=4)
+                ],
+                "Open institution profiles",
+            )
+        )
+    else:
+        directories.append(
+            _profile_directory(
+                "institutions",
+                "Institutions",
+                "/institutions",
+                "13F managers, portfolio value, holdings concentration, and quarter-over-quarter changes.",
+                [
+                    {"label": "Institutions", "value": _count_rows(db, InstitutionalHolder.cik)},
+                    {"label": "Portfolio Value", "value": _latest_institutional_value(db), "format": "currency"},
+                ],
+                "Largest Portfolios",
+                [],
+                "Widely Held Tickers",
+                [],
+                "Open institution profiles",
+                locked=not include_institutions,
+                message="Upgrade to Pro to unlock institution rankings and holding-level detail.",
+            )
+        )
+
+    directories.append(
+        _profile_directory(
+            "departments",
+            "Departments",
+            "/departments",
+            "Government agencies, contract awards, public-company vendors, and spending leaders.",
+            [
+                {"label": "Departments / Agencies", "value": len(departments)},
+                {"label": "Contract Value", "value": _government_contract_total(db), "format": "currency"},
+            ],
+            "Largest Agencies",
+            [
+                _directory_item(
+                    row.get("name"),
+                    row.get("href"),
+                    row.get("contract_value"),
+                    "currency",
+                    f"{int(row.get('contracts') or 0):,} contracts",
+                )
+                for row in _top_departments(db, limit=4)
+            ],
+            "Top Vendors",
+            [
+                _directory_item(
+                    row.get("symbol") or row.get("vendor"),
+                    row.get("href"),
+                    row.get("contract_value"),
+                    "currency",
+                    row.get("vendor") if row.get("vendor") != row.get("symbol") else None,
+                )
+                for row in _top_vendors(db, limit=4)
+            ],
+            "Open department profiles",
+        )
+    )
+
+    return directories
+
+
 def _profile_card(kind: str, title: str, description: str, href: str, metrics: list[dict[str, Any]], *, locked: bool = False, required_plan: str | None = None) -> dict[str, Any]:
     return {"kind": kind, "title": title, "description": description, "href": href, "metrics": metrics, "locked": locked, "required_plan": required_plan}
+
+
+def _profile_directory(
+    kind: str,
+    title: str,
+    href: str,
+    description: str,
+    metrics: list[dict[str, Any]],
+    primary_title: str,
+    primary_items: list[dict[str, Any]],
+    secondary_title: str,
+    secondary_items: list[dict[str, Any]],
+    cta_label: str,
+    *,
+    locked: bool = False,
+    message: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "title": title,
+        "href": href,
+        "description": description,
+        "metrics": metrics,
+        "primary_title": primary_title,
+        "primary_items": primary_items,
+        "secondary_title": secondary_title,
+        "secondary_items": secondary_items,
+        "cta_label": cta_label,
+        "locked": locked,
+        "message": message,
+    }
+
+
+def _directory_item(label: Any, href: Any, value: Any, value_format: str = "number", detail: Any = None) -> dict[str, Any]:
+    return {
+        "label": str(label or "Profile unavailable"),
+        "href": href if isinstance(href, str) and href else None,
+        "value": _float_or_int(value),
+        "value_format": value_format,
+        "detail": str(detail) if detail else None,
+    }
 
 
 def _metric(label: str, value: Any, previous: Any = None, format_type: str = "number") -> dict[str, Any]:
@@ -319,6 +559,31 @@ def _count_distinct_event_field(db: Session, event_type: str, column: Any) -> in
     return int(db.execute(select(func.count(func.distinct(column))).where(Event.event_type == event_type, column.is_not(None))).scalar_one() or 0)
 
 
+def _active_insider_count(db: Session, *, since: date | None = None, symbols: set[str] | None = None) -> int:
+    normalized_owner = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
+    normalized_filters = [*_insider_transaction_filters(since=since, symbols=symbols), normalized_owner.is_not(None)]
+    normalized_count = int(db.execute(select(func.count(func.distinct(normalized_owner))).where(*normalized_filters)).scalar_one() or 0)
+    if normalized_count:
+        return normalized_count
+
+    legacy_owner = func.coalesce(InsiderTransaction.reporting_cik, InsiderTransaction.insider_name)
+    legacy_filters = [legacy_owner.is_not(None)]
+    if since is not None:
+        legacy_filters.append(InsiderTransaction.transaction_date >= since)
+    if symbols is not None:
+        legacy_filters.append(func.upper(InsiderTransaction.symbol).in_(symbols))
+    legacy_count = int(db.execute(select(func.count(func.distinct(legacy_owner))).where(*legacy_filters)).scalar_one() or 0)
+    if legacy_count:
+        return legacy_count
+
+    event_filters = [Event.event_type == "insider_trade", Event.member_name.is_not(None)]
+    if since is not None:
+        event_filters.append(Event.ts >= datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
+    if symbols is not None:
+        event_filters.append(func.upper(Event.symbol).in_(symbols))
+    return int(db.execute(select(func.count(func.distinct(Event.member_name))).where(*event_filters)).scalar_one() or 0)
+
+
 def _event_query(event_type: str, *, since: datetime, before: datetime | None = None, chamber: str = "all", symbols: set[str] | None = None) -> list[Any]:
     clauses = [Event.event_type == event_type, Event.ts >= since]
     if before is not None:
@@ -337,6 +602,38 @@ def _side_clause(sides: tuple[str, ...]) -> Any:
 
 def _sum_amount(db: Session, clauses: list[Any], *, sides: tuple[str, ...]) -> float | None:
     return _float_or_int(db.execute(select(func.sum(func.coalesce(Event.amount_max, Event.amount_min))).where(*clauses, _side_clause(sides))).scalar_one())
+
+
+def _insider_transaction_filters(*, since: date | None = None, before: date | None = None, symbols: set[str] | None = None) -> list[Any]:
+    clauses = [
+        InsiderTransactionNormalized.ticker_normalized.is_not(None),
+        InsiderTransactionNormalized.transaction_date.is_not(None),
+        InsiderTransactionNormalized.value.is_not(None),
+        InsiderTransactionNormalized.value > 0,
+        InsiderTransactionNormalized.value <= MAX_REASONABLE_INSIDER_TRADE_VALUE,
+        InsiderTransactionNormalized.is_duplicate.is_(False),
+        InsiderTransactionNormalized.is_derivative.is_(False),
+        or_(_insider_side_clause("buy"), _insider_side_clause("sell")),
+    ]
+    if since is not None:
+        clauses.append(InsiderTransactionNormalized.transaction_date >= since)
+    if before is not None:
+        clauses.append(InsiderTransactionNormalized.transaction_date < before)
+    if symbols is not None:
+        clauses.append(func.upper(InsiderTransactionNormalized.ticker_normalized).in_(symbols))
+    return clauses
+
+
+def _insider_side_clause(side: str) -> Any:
+    code = func.lower(func.coalesce(InsiderTransactionNormalized.transaction_code, ""))
+    kind = func.lower(func.coalesce(InsiderTransactionNormalized.transaction_type_normalized, ""))
+    if side == "buy":
+        return or_(code == "p", kind.in_(("purchase", "open_market_purchase")), kind.like("%purchase%"))
+    return or_(code == "s", kind.in_(("sale", "sell", "open_market_sale")), kind.like("%sale%"))
+
+
+def _sum_insider_transaction_value(db: Session, clauses: list[Any]) -> float | None:
+    return _float_or_int(db.execute(select(func.sum(InsiderTransactionNormalized.value)).where(*clauses)).scalar_one())
 
 
 def _top_congress_members(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
@@ -371,10 +668,17 @@ def _top_congress_members(db: Session, clauses: list[Any], *, limit: int = 10) -
 
 
 def _top_event_actors(db: Session, clauses: list[Any], *, sides: tuple[str, ...], limit: int = 8) -> list[dict[str, Any]]:
+    actor_key = func.lower(func.trim(Event.member_name))
     rows = db.execute(
-        select(Event.member_name, Event.member_bioguide_id, func.count(Event.id), func.sum(func.coalesce(Event.amount_max, Event.amount_min)), func.max(Event.ts))
-        .where(*clauses, _side_clause(sides))
-        .group_by(Event.member_name, Event.member_bioguide_id)
+        select(
+            func.max(Event.member_name),
+            func.max(Event.member_bioguide_id),
+            func.count(Event.id),
+            func.sum(func.coalesce(Event.amount_max, Event.amount_min)),
+            func.max(Event.ts),
+        )
+        .where(*clauses, _side_clause(sides), Event.member_name.is_not(None), actor_key != "")
+        .group_by(actor_key)
         .order_by(func.sum(func.coalesce(Event.amount_max, Event.amount_min)).desc().nullslast())
         .limit(limit)
     ).all()
@@ -431,38 +735,160 @@ def _event_sector_exposure(db: Session, event_type: str, *, since: datetime, cha
 
 
 def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
-    side_value = func.coalesce(Event.amount_max, Event.amount_min)
+    owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
+    symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
+    buy_value = func.sum(case((_insider_side_clause("buy"), InsiderTransactionNormalized.value), else_=0))
+    sell_value = func.sum(case((_insider_side_clause("sell"), InsiderTransactionNormalized.value), else_=0))
     rows = db.execute(
         select(
-            Event.member_name,
-            Event.member_bioguide_id,
-            func.upper(Event.symbol).label("symbol"),
-            func.sum(case((_side_clause(("buy", "purchase", "p-purchase")), side_value), else_=0)).label("buy_value"),
-            func.sum(case((_side_clause(("sell", "sale", "s-sale")), side_value), else_=0)).label("sell_value"),
-            func.count(Event.id).label("trades"),
-            func.max(Event.ts).label("latest"),
-            func.max(Event.payload_json).label("payload_json"),
+            func.max(InsiderTransactionNormalized.reporting_owner_name),
+            func.max(InsiderTransactionNormalized.reporting_owner_cik),
+            symbol_key,
+            func.max(InsiderTransactionNormalized.issuer_name),
+            func.max(InsiderTransactionNormalized.officer_title),
+            func.max(InsiderTransactionNormalized.is_director),
+            func.max(InsiderTransactionNormalized.is_officer),
+            func.max(InsiderTransactionNormalized.is_ten_percent_owner),
+            buy_value,
+            sell_value,
+            func.count(InsiderTransactionNormalized.id),
+            func.max(InsiderTransactionNormalized.transaction_date),
         )
         .where(*clauses)
-        .group_by(Event.member_name, Event.member_bioguide_id, func.upper(Event.symbol))
-        .order_by((func.sum(case((_side_clause(("buy", "purchase", "p-purchase")), side_value), else_=0)) - func.sum(case((_side_clause(("sell", "sale", "s-sale")), side_value), else_=0))).desc())
+        .where(owner_key.is_not(None), symbol_key.is_not(None))
+        .group_by(owner_key, symbol_key)
+        .having((buy_value - sell_value) > 0)
+        .order_by((buy_value - sell_value).desc())
         .limit(limit)
     ).all()
-    company_names = _company_names(db, [row.symbol for row in rows])
+    company_names = _company_names(db, [row[2] for row in rows])
     return [
         {
-            "name": row.member_name or "Insider unavailable",
-            "reporting_cik": row.member_bioguide_id,
-            "symbol": row.symbol,
-            "company": company_names.get(row.symbol) or row.symbol,
-            "role": _payload_text(row.payload_json, "role", "officerTitle", "insiderRole", "position", "typeOfOwner"),
-            "net_buy_value": _float_or_int((row.buy_value or 0) - (row.sell_value or 0)),
-            "trades": int(row.trades or 0),
-            "last_transaction": _date_iso(row.latest),
-            "href": _insider_href(row.member_name, row.member_bioguide_id),
+            "name": row[0] or "Named insider",
+            "reporting_cik": row[1],
+            "symbol": row[2],
+            "company": company_names.get(row[2]) or row[3] or row[2],
+            "role": _insider_role(row[4], row[5], row[6], row[7]),
+            "net_buy_value": _float_or_int((row[8] or 0) - (row[9] or 0)),
+            "trades": int(row[10] or 0),
+            "last_transaction": _date_iso(row[11]),
+            "href": _insider_href(row[0], row[1]),
         }
         for row in rows
     ]
+
+
+def _most_traded_insider_stocks(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
+    owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
+    symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
+    buy_value = func.sum(case((_insider_side_clause("buy"), InsiderTransactionNormalized.value), else_=0))
+    sell_value = func.sum(case((_insider_side_clause("sell"), InsiderTransactionNormalized.value), else_=0))
+    rows = db.execute(
+        select(
+            symbol_key,
+            func.max(InsiderTransactionNormalized.issuer_name),
+            buy_value,
+            sell_value,
+            func.count(func.distinct(owner_key)),
+        )
+        .where(*clauses, symbol_key.is_not(None))
+        .group_by(symbol_key)
+        .order_by((buy_value + sell_value).desc().nullslast())
+        .limit(limit)
+    ).all()
+    company_names = _company_names(db, [row[0] for row in rows])
+    return [
+        {
+            "symbol": row[0],
+            "company": company_names.get(row[0]) or row[1] or row[0],
+            "buy_value": _float_or_int(row[2]),
+            "sell_value": _float_or_int(row[3]),
+            "net_value": _float_or_int((row[2] or 0) - (row[3] or 0)),
+            "actor_count": int(row[4] or 0),
+            "href": f"/ticker/{row[0]}" if row[0] else None,
+        }
+        for row in rows
+    ]
+
+
+def _insider_sector_activity(db: Session, clauses: list[Any]) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(InsiderTransactionNormalized.transaction_date, func.upper(InsiderTransactionNormalized.ticker_normalized), InsiderTransactionNormalized.value)
+        .where(*clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
+        .order_by(InsiderTransactionNormalized.transaction_date.asc())
+        .limit(10000)
+    ).all()
+    sector_by_symbol = _sectors(db, [row[1] for row in rows])
+    buckets: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for transaction_date, symbol, value in rows:
+        sector = sector_by_symbol.get(symbol)
+        if not sector:
+            continue
+        buckets[_quarter_label_for_date(transaction_date)][sector] += float(value or 0)
+    return _allocation_payload(buckets)
+
+
+def _recent_insider_transactions(db: Session, clauses: list[Any], *, limit: int) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(InsiderTransactionNormalized)
+        .where(*clauses)
+        .order_by(InsiderTransactionNormalized.transaction_date.desc(), InsiderTransactionNormalized.id.desc())
+        .limit(limit)
+    ).scalars().all()
+    return _insider_transaction_payloads(db, rows)
+
+
+def _largest_insider_transactions(db: Session, clauses: list[Any], *, limit: int) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(InsiderTransactionNormalized)
+        .where(*clauses)
+        .order_by(InsiderTransactionNormalized.value.desc().nullslast(), InsiderTransactionNormalized.transaction_date.desc())
+        .limit(limit)
+    ).scalars().all()
+    return _insider_transaction_payloads(db, rows)
+
+
+def _insider_transaction_payloads(db: Session, rows: list[InsiderTransactionNormalized]) -> list[dict[str, Any]]:
+    company_names = _company_names(db, [row.ticker_normalized or row.ticker_raw for row in rows])
+    return [_insider_transaction_payload(row, company_names) for row in rows]
+
+
+def _insider_transaction_payload(row: InsiderTransactionNormalized, company_names: dict[str, str]) -> dict[str, Any]:
+    symbol = normalize_symbol(row.ticker_normalized or row.ticker_raw)
+    owner_name = row.reporting_owner_name or "Named insider"
+    return {
+        "id": row.id,
+        "time": _date_iso(row.transaction_date or row.filing_date),
+        "type": "Insider",
+        "profile": owner_name,
+        "profile_href": _insider_href(owner_name, row.reporting_owner_cik),
+        "symbol": symbol,
+        "company": company_names.get(symbol or "") or row.issuer_name or symbol,
+        "ticker_href": f"/ticker/{symbol}" if symbol else None,
+        "activity": "Open-Market Purchase" if _is_buy_transaction(row) else "Open-Market Sale",
+        "value": _float_or_int(row.value),
+        "metric": None,
+    }
+
+
+def _is_buy_transaction(row: InsiderTransactionNormalized) -> bool:
+    code = (row.transaction_code or "").strip().lower()
+    kind = (row.transaction_type_normalized or "").strip().lower()
+    return code == "p" or "purchase" in kind
+
+
+def _insider_role(officer_title: Any, is_director: Any, is_officer: Any, is_ten_percent_owner: Any) -> str:
+    roles: list[str] = []
+    title = str(officer_title).strip() if officer_title else ""
+    if title:
+        roles.append(title)
+    elif is_officer:
+        roles.append("Officer")
+    if is_director:
+        roles.append("Director")
+    if is_ten_percent_owner:
+        roles.append("10 percent owner")
+    return ", ".join(dict.fromkeys(roles)) or "-"
 
 
 def _recent_event_rows(db: Session, clauses: list[Any], *, limit: int) -> list[dict[str, Any]]:
@@ -477,18 +903,21 @@ def _largest_event_rows(db: Session, clauses: list[Any], *, limit: int) -> list[
     return [_activity_payload(row, company_names) for row in rows]
 
 
-def _cluster_buying(db: Session, *, since: datetime, limit: int = 8) -> list[dict[str, Any]]:
+def _cluster_buying(db: Session, *, since: datetime, symbols: set[str] | None = None, limit: int = 8) -> list[dict[str, Any]]:
+    owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
+    symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
+    clauses = [*_insider_transaction_filters(since=since.date(), symbols=symbols), _insider_side_clause("buy")]
     rows = db.execute(
-        select(func.upper(Event.symbol), func.count(func.distinct(Event.member_bioguide_id)), func.sum(func.coalesce(Event.amount_max, Event.amount_min)), func.max(Event.ts))
-        .where(Event.event_type == "insider_trade", Event.ts >= since, Event.symbol.is_not(None), _side_clause(("buy", "purchase", "p-purchase")))
-        .group_by(func.upper(Event.symbol))
-        .having(func.count(func.distinct(Event.member_bioguide_id)) >= 2)
-        .order_by(func.count(func.distinct(Event.member_bioguide_id)).desc(), func.sum(func.coalesce(Event.amount_max, Event.amount_min)).desc().nullslast())
+        select(symbol_key, func.max(InsiderTransactionNormalized.issuer_name), func.count(func.distinct(owner_key)), func.sum(InsiderTransactionNormalized.value), func.max(InsiderTransactionNormalized.transaction_date))
+        .where(*clauses, owner_key.is_not(None), symbol_key.is_not(None))
+        .group_by(symbol_key)
+        .having(func.count(func.distinct(owner_key)) >= 2)
+        .order_by(func.count(func.distinct(owner_key)).desc(), func.sum(InsiderTransactionNormalized.value).desc().nullslast())
         .limit(limit)
     ).all()
     company_names = _company_names(db, [row[0] for row in rows])
     return [
-        {"symbol": row[0], "company": company_names.get(row[0]) or row[0], "unique_insiders": int(row[1] or 0), "buy_value": _float_or_int(row[2]), "last_transaction": _date_iso(row[3]), "href": f"/ticker/{row[0]}"}
+        {"symbol": row[0], "company": company_names.get(row[0]) or row[1] or row[0], "unique_insiders": int(row[2] or 0), "buy_value": _float_or_int(row[3]), "last_transaction": _date_iso(row[4]), "href": f"/ticker/{row[0]}"}
         for row in rows
     ]
 
@@ -503,6 +932,10 @@ def _latest_institutional_period(db: Session, *, year: int | None = None, quarte
         .limit(1)
     ).first()
     return (int(row[0]), int(row[1])) if row else None
+
+
+def _previous_quarter(year: int, quarter: int) -> tuple[int, int]:
+    return (year - 1, 4) if quarter == 1 else (year, quarter - 1)
 
 
 def _latest_institutional_value(db: Session) -> float | None:
@@ -552,7 +985,7 @@ def _top_institutions(db: Session, year: int, quarter: int, *, limit: int = 15) 
 
 
 def _previous_institution_value(db: Session, cik: str, year: int, quarter: int) -> float | None:
-    prev_year, prev_quarter = (year - 1, 4) if quarter == 1 else (year, quarter - 1)
+    prev_year, prev_quarter = _previous_quarter(year, quarter)
     return _float_or_int(db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(InstitutionalPosition.cik == cik, InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter)).scalar_one())
 
 
@@ -604,16 +1037,21 @@ def _institution_sector_exposure(db: Session) -> list[dict[str, Any]]:
         return []
     period_set = {(int(y), int(q)) for y, q in periods}
     rows = db.execute(
-        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol), InstitutionalPosition.value_usd)
+        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol), func.sum(InstitutionalPosition.value_usd))
         .where(
-            tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(period_set)  # type: ignore[name-defined]
+            tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(period_set),  # type: ignore[name-defined]
+            InstitutionalPosition.normalized_symbol.is_not(None),
+            InstitutionalPosition.value_usd.is_not(None),
         )
-        .limit(10000)
+        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol))
     ).all()
     sectors = _sectors(db, [row[2] for row in rows])
     buckets: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for year, quarter, symbol, value in rows:
-        buckets[f"Q{quarter} {year}"][sectors.get(symbol) or "Other"] += float(value or 0)
+        sector = _normalize_sector_label(sectors.get(symbol))
+        if not sector:
+            continue
+        buckets[f"Q{quarter} {year}"][sector] += float(value or 0)
     return _allocation_payload(buckets)
 
 
@@ -642,29 +1080,47 @@ def _recent_filings(db: Session, *, limit: int = 8) -> list[dict[str, Any]]:
     ]
 
 
-def _top_departments(items: list[dict[str, Any]], *, limit: int = 10) -> list[dict[str, Any]]:
+def _top_departments(db: Session, *, since: date | None = None, before: date | None = None, previous_since: date | None = None, limit: int = 10) -> list[dict[str, Any]]:
+    current_rows = _department_value_rows(db, since=since, before=before)
+    previous_rows = _department_value_rows(db, since=previous_since, before=since) if previous_since and since else {}
+    names = list(current_rows.keys())[:limit]
+    top_vendors = _top_vendor_by_department(db, names, since=since, before=before)
     return [
         {
-            "name": item.get("name"),
-            "href": f"/departments/{item.get('slug')}",
-            "contract_value": item.get("totalAwarded"),
-            "previous_value": None,
-            "change_pct": None,
-            "contracts": item.get("contractCount"),
-            "top_vendor": None,
+            "name": name,
+            "href": f"/departments/{department_slug(name)}",
+            "contract_value": _float_or_int(values["value"]),
+            "previous_value": _float_or_int(previous_rows.get(name, {}).get("value", 0)),
+            "change_pct": _float_or_int(_change_pct(values["value"], previous_rows.get(name, {}).get("value", 0))),
+            "contracts": int(values["contracts"] or 0),
+            "top_vendor": top_vendors.get(name) or "No vendor concentration",
         }
-        for item in sorted(items, key=lambda row: -(row.get("totalAwarded") or 0))[:limit]
+        for name, values in list(current_rows.items())[:limit]
     ]
 
 
-def _most_active_departments(items: list[dict[str, Any]], *, limit: int = 8) -> list[dict[str, Any]]:
-    return [{"name": item.get("name"), "href": f"/departments/{item.get('slug')}", "contracts": item.get("contractCount"), "contract_value": item.get("totalAwarded")} for item in sorted(items, key=lambda row: -(row.get("contractCount") or 0))[:limit]]
+def _most_active_departments(db: Session, *, since: date | None = None, before: date | None = None, limit: int = 8) -> list[dict[str, Any]]:
+    rows = _department_value_rows(db, since=since, before=before, sort_by="contracts")
+    return [
+        {
+            "name": name,
+            "href": f"/departments/{department_slug(name)}",
+            "contracts": int(values["contracts"] or 0),
+            "contract_value": _float_or_int(values["value"]),
+        }
+        for name, values in list(rows.items())[:limit]
+    ]
 
 
-def _top_vendors(db: Session, *, limit: int = 10) -> list[dict[str, Any]]:
+def _top_vendors(db: Session, *, since: date | None = None, before: date | None = None, limit: int = 10) -> list[dict[str, Any]]:
+    filters = [GovernmentContract.symbol.is_not(None)]
+    if since is not None:
+        filters.append(GovernmentContract.award_date >= since)
+    if before is not None:
+        filters.append(GovernmentContract.award_date < before)
     rows = db.execute(
         select(func.upper(GovernmentContract.symbol), func.max(GovernmentContract.recipient_name), func.sum(GovernmentContract.award_amount), func.count(GovernmentContract.id), func.max(GovernmentContract.awarding_agency))
-        .where(GovernmentContract.symbol.is_not(None))
+        .where(*filters)
         .group_by(func.upper(GovernmentContract.symbol))
         .order_by(func.sum(GovernmentContract.award_amount).desc().nullslast())
         .limit(limit)
@@ -673,21 +1129,41 @@ def _top_vendors(db: Session, *, limit: int = 10) -> list[dict[str, Any]]:
     return [{"vendor": company_names.get(row[0]) or row[1] or row[0], "symbol": row[0], "href": f"/ticker/{row[0]}" if row[0] else None, "contract_value": _float_or_int(row[2]), "contracts": int(row[3] or 0), "top_department": row[4]} for row in rows]
 
 
-def _contract_value_over_time(db: Session) -> list[dict[str, Any]]:
-    rows = db.execute(select(GovernmentContract.award_date, GovernmentContract.award_amount).order_by(GovernmentContract.award_date.asc()).limit(5000)).all()
-    buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {"period": "", "value": 0.0, "contracts": 0})
-    for award_date, amount in rows:
+def _contract_value_by_sector_over_time(db: Session) -> list[dict[str, Any]]:
+    today = date.today() + timedelta(days=1)
+    contract_rows = db.execute(
+        select(GovernmentContract.award_date, func.upper(GovernmentContract.symbol), func.sum(GovernmentContract.award_amount))
+        .where(GovernmentContract.symbol.is_not(None), GovernmentContract.award_date < today)
+        .group_by(GovernmentContract.award_date, func.upper(GovernmentContract.symbol))
+        .order_by(GovernmentContract.award_date.asc())
+    ).all()
+    action_rows = db.execute(
+        select(GovernmentContractAction.action_date, func.upper(GovernmentContractAction.symbol), func.sum(GovernmentContractAction.obligated_amount))
+        .where(GovernmentContractAction.symbol.is_not(None), GovernmentContractAction.action_date < today)
+        .group_by(GovernmentContractAction.action_date, func.upper(GovernmentContractAction.symbol))
+        .order_by(GovernmentContractAction.action_date.asc())
+    ).all()
+    rows = [*contract_rows, *action_rows]
+    sectors = _sectors(db, [row[1] for row in rows])
+    buckets: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for award_date, symbol, amount in rows:
         if not isinstance(award_date, date):
             continue
+        sector = _normalize_sector_label(sectors.get(symbol))
+        if not sector:
+            continue
         period = f"Q{((award_date.month - 1) // 3) + 1} {award_date.year}"
-        buckets[period]["period"] = period
-        buckets[period]["value"] += float(amount or 0)
-        buckets[period]["contracts"] += 1
-    return list(buckets.values())[-12:]
+        buckets[period][sector] += float(amount or 0)
+    return _allocation_payload(buckets)
 
 
-def _largest_recent_awards(db: Session, *, limit: int = 8) -> list[dict[str, Any]]:
-    rows = db.execute(select(GovernmentContract).order_by(GovernmentContract.award_date.desc(), GovernmentContract.award_amount.desc()).limit(limit)).scalars().all()
+def _largest_recent_awards(db: Session, *, since: date | None = None, before: date | None = None, limit: int = 8) -> list[dict[str, Any]]:
+    filters = []
+    if since is not None:
+        filters.append(GovernmentContract.award_date >= since)
+    if before is not None:
+        filters.append(GovernmentContract.award_date < before)
+    rows = db.execute(select(GovernmentContract).where(*filters).order_by(GovernmentContract.award_date.desc(), GovernmentContract.award_amount.desc()).limit(limit)).scalars().all()
     company_names = _company_names(db, [row.symbol for row in rows])
     return [
         {"symbol": normalize_symbol(row.symbol), "company": company_names.get(normalize_symbol(row.symbol) or "") or row.recipient_name, "department": row.awarding_agency, "value": _float_or_int(row.award_amount), "date": _date_iso(row.award_date), "description": row.description, "href": f"/ticker/{normalize_symbol(row.symbol)}" if normalize_symbol(row.symbol) else None}
@@ -695,17 +1171,17 @@ def _largest_recent_awards(db: Session, *, limit: int = 8) -> list[dict[str, Any
     ]
 
 
-def _fastest_growing_vendors(db: Session, *, limit: int = 8) -> list[dict[str, Any]]:
+def _fastest_growing_vendors(db: Session, *, period_days: int = 365, limit: int = 8) -> list[dict[str, Any]]:
     today = date.today()
-    current_since = today - timedelta(days=365)
-    previous_since = today - timedelta(days=730)
+    current_since = today - timedelta(days=period_days)
+    previous_since = current_since - timedelta(days=period_days)
     rows = db.execute(
         select(
             func.upper(GovernmentContract.symbol),
             func.sum(case((GovernmentContract.award_date >= current_since, GovernmentContract.award_amount), else_=0)),
             func.sum(case((GovernmentContract.award_date < current_since, GovernmentContract.award_amount), else_=0)),
         )
-        .where(GovernmentContract.award_date >= previous_since, GovernmentContract.symbol.is_not(None))
+        .where(GovernmentContract.award_date >= previous_since, GovernmentContract.award_date < today + timedelta(days=1), GovernmentContract.symbol.is_not(None))
         .group_by(func.upper(GovernmentContract.symbol))
         .limit(100)
     ).all()
@@ -718,6 +1194,111 @@ def _fastest_growing_vendors(db: Session, *, limit: int = 8) -> list[dict[str, A
         scored.append({"symbol": symbol, "company": company_names.get(symbol) or symbol, "current_value": _float_or_int(current), "previous_value": _float_or_int(previous), "increase_value": _float_or_int(delta), "href": f"/ticker/{symbol}"})
     scored.sort(key=lambda item: -(item.get("increase_value") or 0))
     return scored[:limit]
+
+
+def _government_contract_period_metrics(db: Session, *, since: date, before: date) -> dict[str, Any]:
+    contract_filters = [GovernmentContract.award_date >= since, GovernmentContract.award_date < before]
+    action_filters = [GovernmentContractAction.action_date >= since, GovernmentContractAction.action_date < before]
+    contract_count = int(db.execute(select(func.count(GovernmentContract.id)).where(*contract_filters)).scalar_one() or 0)
+    modification_count = int(db.execute(select(func.count(GovernmentContractAction.id)).where(*action_filters)).scalar_one() or 0)
+    contract_value = float(db.execute(select(func.sum(GovernmentContract.award_amount)).where(*contract_filters)).scalar_one() or 0)
+    action_value = float(db.execute(select(func.sum(GovernmentContractAction.obligated_amount)).where(*action_filters)).scalar_one() or 0)
+    contract_symbols = db.execute(select(func.upper(GovernmentContract.symbol)).where(*contract_filters, GovernmentContract.symbol.is_not(None)).group_by(func.upper(GovernmentContract.symbol))).all()
+    action_symbols = db.execute(select(func.upper(GovernmentContractAction.symbol)).where(*action_filters, GovernmentContractAction.symbol.is_not(None)).group_by(func.upper(GovernmentContractAction.symbol))).all()
+    contract_count_total = contract_count + modification_count
+    total_value = contract_value + action_value
+    return {
+        "contract_count": contract_count_total,
+        "total_value": _float_or_int(total_value),
+        "active_vendors": len({row[0] for row in [*contract_symbols, *action_symbols] if row[0]}),
+        "average_size": _float_or_int(total_value / contract_count_total) if contract_count_total else None,
+        "modification_count": modification_count,
+    }
+
+
+def _department_value_rows(db: Session, *, since: date | None = None, before: date | None = None, sort_by: str = "value") -> dict[str, dict[str, float]]:
+    contract_filters = []
+    action_filters = []
+    if since is not None:
+        contract_filters.append(GovernmentContract.award_date >= since)
+        action_filters.append(GovernmentContractAction.action_date >= since)
+    if before is not None:
+        contract_filters.append(GovernmentContract.award_date < before)
+        action_filters.append(GovernmentContractAction.action_date < before)
+
+    buckets: dict[str, dict[str, float]] = defaultdict(lambda: {"value": 0.0, "contracts": 0.0})
+    contract_rows = db.execute(
+        select(GovernmentContract.awarding_agency, func.sum(GovernmentContract.award_amount), func.count(GovernmentContract.id))
+        .where(*contract_filters)
+        .group_by(GovernmentContract.awarding_agency)
+    ).all()
+    action_rows = db.execute(
+        select(GovernmentContractAction.awarding_agency, func.sum(GovernmentContractAction.obligated_amount), func.count(GovernmentContractAction.id))
+        .where(*action_filters)
+        .group_by(GovernmentContractAction.awarding_agency)
+    ).all()
+    for agency, value, count in [*contract_rows, *action_rows]:
+        name = (agency or "Unspecified Department").strip() or "Unspecified Department"
+        buckets[name]["value"] += float(value or 0)
+        buckets[name]["contracts"] += int(count or 0)
+
+    sort_key = "contracts" if sort_by == "contracts" else "value"
+    return dict(sorted(buckets.items(), key=lambda item: (-item[1][sort_key], item[0])))
+
+
+def _top_vendor_by_department(db: Session, names: list[str], *, since: date | None = None, before: date | None = None) -> dict[str, str]:
+    if not names:
+        return {}
+    name_set = set(names)
+    contract_filters = [GovernmentContract.awarding_agency.in_(names)]
+    action_filters = [GovernmentContractAction.awarding_agency.in_(names)]
+    if since is not None:
+        contract_filters.append(GovernmentContract.award_date >= since)
+        action_filters.append(GovernmentContractAction.action_date >= since)
+    if before is not None:
+        contract_filters.append(GovernmentContract.award_date < before)
+        action_filters.append(GovernmentContractAction.action_date < before)
+
+    buckets: dict[str, dict[str, dict[str, Any]]] = defaultdict(lambda: defaultdict(lambda: {"value": 0.0, "symbol": None, "name": None}))
+    contract_rows = db.execute(
+        select(GovernmentContract.awarding_agency, func.upper(GovernmentContract.symbol), func.max(GovernmentContract.recipient_name), func.sum(GovernmentContract.award_amount))
+        .where(*contract_filters)
+        .group_by(GovernmentContract.awarding_agency, func.upper(GovernmentContract.symbol))
+    ).all()
+    action_rows = db.execute(
+        select(GovernmentContractAction.awarding_agency, func.upper(GovernmentContractAction.symbol), func.max(func.coalesce(GovernmentContractAction.company_name, GovernmentContractAction.recipient_name)), func.sum(GovernmentContractAction.obligated_amount))
+        .where(*action_filters)
+        .group_by(GovernmentContractAction.awarding_agency, func.upper(GovernmentContractAction.symbol))
+    ).all()
+
+    symbols: list[str | None] = []
+    for agency, symbol, name, value in [*contract_rows, *action_rows]:
+        department = (agency or "Unspecified Department").strip() or "Unspecified Department"
+        if department not in name_set:
+            continue
+        key = symbol or name or "Unknown Vendor"
+        buckets[department][key]["value"] += float(value or 0)
+        buckets[department][key]["symbol"] = symbol
+        buckets[department][key]["name"] = name
+        symbols.append(symbol)
+
+    company_names = _company_names(db, symbols)
+    result: dict[str, str] = {}
+    for department, vendors in buckets.items():
+        top = max(vendors.values(), key=lambda item: item["value"], default=None)
+        if top:
+            symbol = normalize_symbol(top.get("symbol"))
+            result[department] = company_names.get(symbol or "") or top.get("name") or symbol or "Unknown Vendor"
+    return result
+
+
+def _change_pct(value: Any, previous: Any) -> float | None:
+    try:
+        if previous in (None, 0):
+            return None
+        return ((float(value or 0) - float(previous)) / abs(float(previous))) * 100.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
 
 def _government_contract_total(db: Session) -> float | None:
@@ -827,23 +1408,30 @@ def _sectors(db: Session, symbols: list[str | None]) -> dict[str, str]:
     normalized = sorted({normalize_symbol(symbol) for symbol in symbols if normalize_symbol(symbol)})
     if not normalized:
         return {}
-    return {
-        str(symbol): sector
-        for symbol, sector in db.execute(select(func.upper(Security.symbol), Security.sector).where(Security.symbol.is_not(None), func.upper(Security.symbol).in_(normalized))).all()
-        if symbol and sector
-    }
+    sectors: dict[str, str] = {symbol: "Technology" for symbol in normalized if symbol in TECH_PLATFORM_SECTOR_SYMBOLS}
+    for symbol, sector in db.execute(select(func.upper(Security.symbol), Security.sector).where(Security.symbol.is_not(None), func.upper(Security.symbol).in_(normalized))).all():
+        if symbol and sector and str(symbol) not in sectors:
+            sectors[str(symbol)] = sector
+    for symbol, sector in db.execute(select(func.upper(TickerMeta.symbol), TickerMeta.sector).where(func.upper(TickerMeta.symbol).in_(normalized))).all():
+        if symbol and sector and str(symbol) not in sectors:
+            sectors[str(symbol)] = sector
+    return sectors
 
 
 def _symbols_for_sector(db: Session, sector: str) -> set[str]:
     if not sector:
         return set()
-    rows = db.execute(select(func.upper(Security.symbol)).where(func.lower(func.coalesce(Security.sector, "")) == sector.lower())).all()
-    return {row[0] for row in rows if row[0]}
+    security_rows = db.execute(select(func.upper(Security.symbol)).where(func.lower(func.coalesce(Security.sector, "")) == sector.lower())).all()
+    meta_rows = db.execute(select(func.upper(TickerMeta.symbol)).where(func.lower(func.coalesce(TickerMeta.sector, "")) == sector.lower())).all()
+    symbols = {row[0] for row in [*security_rows, *meta_rows] if row[0]}
+    if sector.lower() == "technology":
+        symbols.update(TECH_PLATFORM_SECTOR_SYMBOLS)
+    return symbols
 
 
 def _allocation_payload(buckets: dict[str, dict[str, float]]) -> list[dict[str, Any]]:
     items = []
-    for period in sorted(buckets.keys())[-8:]:
+    for period in sorted(buckets.keys(), key=_period_sort_key)[-8:]:
         values = buckets[period]
         total = sum(values.values())
         items.append(
@@ -858,10 +1446,33 @@ def _allocation_payload(buckets: dict[str, dict[str, float]]) -> list[dict[str, 
     return items
 
 
+def _period_sort_key(label: str) -> tuple[int, int, str]:
+    parts = label.split()
+    if len(parts) == 2 and parts[0].startswith("Q"):
+        try:
+            return int(parts[1]), int(parts[0][1:]), label
+        except ValueError:
+            pass
+    return 0, 0, label
+
+
 def _quarter_label(value: datetime | None) -> str:
     if not isinstance(value, datetime):
         return "Unknown"
     return f"Q{((value.month - 1) // 3) + 1} {value.year}"
+
+
+def _quarter_label_for_date(value: date | None) -> str:
+    if not isinstance(value, date):
+        return "Unknown"
+    return f"Q{((value.month - 1) // 3) + 1} {value.year}"
+
+
+def _normalize_sector_label(value: str | None) -> str | None:
+    label = (value or "").strip()
+    if not label or label.lower() == "other":
+        return None
+    return "Technology" if label in {"Technology Services", "Electronic Technology"} else label
 
 
 def _pct(numerator: Any, denominator: Any) -> float | None:

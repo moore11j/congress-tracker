@@ -201,9 +201,33 @@ export type ProfileSummaryCard = {
   metrics: ProfileMetric[];
 };
 
+export type ProfileDirectoryItem = {
+  label: string;
+  href?: string | null;
+  value?: number | null;
+  value_format?: "number" | "currency" | string;
+  detail?: string | null;
+};
+
+export type ProfileDirectory = {
+  kind: "congress" | "insiders" | "institutions" | "departments" | string;
+  title: string;
+  description: string;
+  href: string;
+  locked?: boolean;
+  message?: string | null;
+  metrics: ProfileMetric[];
+  primary_title: string;
+  primary_items: ProfileDirectoryItem[];
+  secondary_title: string;
+  secondary_items: ProfileDirectoryItem[];
+  cta_label: string;
+};
+
 export type ProfilesSummaryResponse = {
   status: string;
   cards: ProfileSummaryCard[];
+  directories?: ProfileDirectory[];
   activity: ProfileActivityItem[];
 };
 
@@ -253,6 +277,8 @@ export type InstitutionsOverviewResponse = {
   message?: string | null;
   report_year?: number;
   report_quarter?: number;
+  previous_report_year?: number;
+  previous_report_quarter?: number;
   summary: ProfileMetric[];
   top_institutions: Array<Record<string, unknown>>;
   position_changes: Array<Record<string, unknown>>;
@@ -266,10 +292,11 @@ export type InstitutionsOverviewResponse = {
 export type DepartmentsOverviewResponse = {
   status: string;
   fiscal_year?: number | null;
+  period_days: number;
   summary: ProfileMetric[];
   top_departments: Array<Record<string, unknown>>;
   top_vendors: Array<Record<string, unknown>>;
-  contract_value_over_time: Array<Record<string, unknown>>;
+  contract_value_over_time: ProfileSectorPeriod[];
   largest_recent_awards: Array<Record<string, unknown>>;
   fastest_growing_vendors: Array<Record<string, unknown>>;
   most_active_departments: Array<Record<string, unknown>>;
@@ -7074,10 +7101,11 @@ export async function getInstitutionsOverview(params?: { year?: number; quarter?
   );
 }
 
-export async function getDepartmentsOverview(params?: { fiscal_year?: number; authToken?: string | null; signal?: AbortSignal }): Promise<DepartmentsOverviewResponse> {
+export async function getDepartmentsOverview(params?: { fiscal_year?: number; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<DepartmentsOverviewResponse> {
   return fetchJson<DepartmentsOverviewResponse>(
     buildApiUrl("/api/profiles/departments/overview", {
       fiscal_year: params?.fiscal_year,
+      period_days: params?.period_days,
     }),
     {
       headers: authHeaders(params?.authToken ?? undefined),
