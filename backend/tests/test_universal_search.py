@@ -89,6 +89,8 @@ def test_universal_search_acceptance_queries_rank_expected_entities():
             assert items[0]["kind"] == kind
             assert items[0]["label"] == label
             assert items[0]["href"] == href
+            hrefs = [item["href"] for item in items]
+            assert len(hrefs) == len(set(hrefs))
 
         nvda_items = search_suggestions(db, "NVDA", limit=8)["items"]
         assert nvda_items[0]["kind"] == "ticker"

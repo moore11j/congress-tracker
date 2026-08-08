@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Iterable
 
-from sqlalchemy import func, literal, or_, select, text
+from sqlalchemy import and_, case, func, literal, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -245,7 +245,7 @@ def _legacy_payload_role(row_role: object, payload: dict[str, Any]) -> str | Non
 def _role_keywords(role: str | None) -> list[str]:
     normalized = normalize_search_text(role)
     keywords = [role] if role else []
-    if "chief executive officer" in normalized:
+    if "chief executive officer" in normalized or "ceo" in normalized.split():
         keywords.append("CEO")
     if "chief financial officer" in normalized:
         keywords.append("CFO")
@@ -258,6 +258,17 @@ def _role_keywords(role: str | None) -> list[str]:
     if "director" in normalized:
         keywords.append("Director")
     return _unique_strings(keywords)
+
+
+def _insider_popularity_score(role: str | None) -> float:
+    normalized = normalize_search_text(role)
+    if "chief executive officer" in normalized or "ceo" in normalized.split() or "president" in normalized:
+        return 120.0
+    if "chief" in normalized or "officer" in normalized:
+        return 105.0
+    if "director" in normalized:
+        return 65.0
+    return 55.0 if role else 35.0
 
 
 def _search_text(*values: Any, aliases: Iterable[str] = (), keywords: Iterable[str] = ()) -> tuple[str, str, str]:
@@ -376,7 +387,7 @@ def _member_entities(db: Session) -> list[SearchEntity]:
         if not bioguide_id or not name:
             continue
         alias_row = alias_rows.get(bioguide_id)
-        aliases = [name, f"{row.last_name or ''} {row.first_name or ''}", f"{row.last_name or ''}, {row.first_name or ''}"]
+        aliases = [name, row.last_name, f"{row.last_name or ''} {row.first_name or ''}", f"{row.last_name or ''}, {row.first_name or ''}"]
         if alias_row is not None:
             aliases.extend([alias_row.member_name, alias_row.member_slug, alias_row.authoritative_member_id])
         subtitle = " - ".join(part for part in ["Member", _clean(row.chamber), _clean(row.party), _clean(row.state)] if part)
@@ -468,7 +479,7 @@ def _insider_entities(db: Session, company_names: dict[str, str]) -> list[Search
             keywords=keywords,
             subtitle=subtitle,
             canonical_url=href,
-            popularity_score=95.0 if role else 55.0,
+            popularity_score=_insider_popularity_score(role),
         )
         by_key[entity.entity_id] = entity
 
@@ -503,7 +514,7 @@ def _insider_entities(db: Session, company_names: dict[str, str]) -> list[Search
             keywords=[issuer_name, symbol, *_role_keywords(role), "insider", "executive"],
             subtitle=subtitle,
             canonical_url=href,
-            popularity_score=90.0 if role else 45.0,
+            popularity_score=_insider_popularity_score(role),
         )
     return list(by_key.values())
 
@@ -704,12 +715,48 @@ def _candidate_clause(query: str) -> Any:
     if q_compact:
         clauses.append(SearchEntity.compact_search_text.like(f"%{q_compact}%"))
         if len(q_compact) >= 2:
-            clauses.append(SearchEntity.compact_search_text.like(f"%{q_compact[:2]}%"))
             clauses.append(func.lower(SearchEntity.ticker).like(f"{q_compact[:2]}%"))
     for token in q_norm.split()[:4]:
         if len(token) >= 3:
             clauses.append(SearchEntity.normalized_search_text.like(f"%{token}%"))
     return or_(*clauses) if clauses else literal(False)
+
+
+def _high_confidence_candidate_clause(query: str) -> Any:
+    q_norm = normalize_search_text(query)
+    q_compact = compact_search_text(query)
+    clauses = []
+    if q_norm:
+        clauses.extend(
+            [
+                func.lower(SearchEntity.ticker) == q_norm,
+                func.lower(SearchEntity.display_name) == q_norm,
+                func.lower(SearchEntity.canonical_name) == q_norm,
+                SearchEntity.normalized_search_text.like(f"%{q_norm}%"),
+            ]
+        )
+    if q_compact:
+        clauses.append(SearchEntity.compact_search_text.like(f"%{q_compact}%"))
+    return or_(*clauses) if clauses else literal(False)
+
+
+def _candidate_order(query: str) -> Any:
+    q_norm = normalize_search_text(query)
+    q_compact = compact_search_text(query)
+    first_token = q_norm.split()[0] if q_norm.split() else ""
+    token_clauses = [
+        SearchEntity.normalized_search_text.like(f"%{token}%")
+        for token in q_norm.split()[:4]
+        if len(token) >= 3
+    ]
+    return case(
+        (func.lower(SearchEntity.ticker) == q_norm, 0),
+        (SearchEntity.compact_search_text.like(f"%{q_compact}%"), 1),
+        (SearchEntity.normalized_search_text.like(f"%{q_norm}%"), 2),
+        (func.lower(SearchEntity.display_name).like(f"{first_token}%"), 3) if first_token else (literal(False), 3),
+        (and_(*token_clauses), 3) if token_clauses else (literal(False), 3),
+        else_=4,
+    )
 
 
 def entity_to_suggest_item(entity: SearchEntity) -> dict[str, str | int | float | None]:
@@ -727,12 +774,25 @@ def entity_to_suggest_item(entity: SearchEntity) -> dict[str, str | int | float 
 class PostgresSearchProvider:
     def search(self, db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
         bounded_limit = max(1, min(int(limit or 8), 20))
-        rows = db.execute(
-            select(SearchEntity)
-            .where(_candidate_clause(query))
-            .order_by(SearchEntity.entity_type.asc(), SearchEntity.display_name.asc())
-            .limit(max(bounded_limit * 40, 160))
-        ).scalars().all()
+        rows = []
+        seen_ids: set[str] = set()
+        for pass_index, (clause, candidate_limit) in enumerate((
+            (_high_confidence_candidate_clause(query), max(bounded_limit * 25, 120)),
+            (_candidate_clause(query), max(bounded_limit * 120, 600)),
+        )):
+            for row in db.execute(
+                select(SearchEntity)
+                .where(clause)
+                .order_by(_candidate_order(query), SearchEntity.entity_type.asc(), SearchEntity.display_name.asc())
+                .limit(candidate_limit)
+            ).scalars():
+                if row.entity_id in seen_ids:
+                    continue
+                seen_ids.add(row.entity_id)
+                rows.append(row)
+            high_scores = [_entity_score(entity, query) for entity in rows]
+            if high_scores and max(high_scores) >= 7000 and (pass_index == 0 or len(rows) >= bounded_limit):
+                break
         scored: list[tuple[float, SearchEntity]] = []
         for entity in rows:
             score = _entity_score(entity, query)
@@ -746,7 +806,17 @@ class PostgresSearchProvider:
                 item[1].display_name,
             )
         )
-        return [entity_to_suggest_item(entity) for _, entity in scored[:bounded_limit]]
+        results: list[dict[str, str | int | float | None]] = []
+        seen_result_keys: set[str] = set()
+        for _, entity in scored:
+            result_key = entity.canonical_url or f"{entity.entity_type}:{entity.source_id or entity.entity_id}"
+            if result_key in seen_result_keys:
+                continue
+            seen_result_keys.add(result_key)
+            results.append(entity_to_suggest_item(entity))
+            if len(results) >= bounded_limit:
+                break
+        return results
 
 
 def search_entities(db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
