@@ -6,8 +6,6 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { searchSuggest, type SearchSuggestResult } from "@/lib/api";
 import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref } from "@/lib/searchNavigation";
 
-const KIND_ORDER: SearchSuggestResult["kind"][] = ["ticker", "institution", "member", "insider", "agency", "event"];
-
 const KIND_LABELS: Record<SearchSuggestResult["kind"], string> = {
   agency: "Departments",
   ticker: "Tickers",
@@ -31,7 +29,7 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
   const deduped: SearchSuggestResult[] = [];
   for (const result of results) {
     if (!result.href || !result.label) continue;
-    const key = `${result.kind}:${result.id || result.href}`;
+    const key = result.href || `${result.kind}:${result.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(result);
@@ -40,9 +38,16 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
 }
 
 function groupedResults(results: SearchSuggestResult[]) {
-  return KIND_ORDER
-    .map((kind) => ({ kind, items: results.filter((result) => result.kind === kind) }))
-    .filter((group) => group.items.length > 0);
+  const groups: Array<{ kind: SearchSuggestResult["kind"]; items: SearchSuggestResult[] }> = [];
+  for (const result of results) {
+    let group = groups.find((item) => item.kind === result.kind);
+    if (!group) {
+      group = { kind: result.kind, items: [] };
+      groups.push(group);
+    }
+    group.items.push(result);
+  }
+  return groups;
 }
 
 export function SearchResultsClient({ initialQuery }: { initialQuery: string }) {

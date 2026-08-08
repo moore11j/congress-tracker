@@ -283,6 +283,9 @@ test("global search UI advertises insider search and renders insider grouping", 
   assert.match(search, /insider: "Insiders"/);
   assert.match(search, /insider: "Insider"/);
   assert.match(search, /members, insiders/);
+  assert.match(search, /const key = result\.href/);
+  assert.match(search, /groups\.push\(group\)/);
+  assert.doesNotMatch(search, /\["ticker", "institution", "member", "insider", "agency", "event"\]/);
   assert.doesNotMatch(search, /Search is busy/);
   assert.doesNotMatch(search, /Press enter to search/);
   assert.match(search, /No matches found/);
@@ -315,6 +318,9 @@ test("search results page and invalid ticker fallback provide safe no-error sear
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(searchClient, /searchSuggest\(query, 20/);
+  assert.match(searchClient, /const key = result\.href/);
+  assert.match(searchClient, /groups\.push\(group\)/);
+  assert.doesNotMatch(searchClient, /KIND_ORDER/);
   assert.match(searchClient, /Did you mean/);
   assert.match(searchClient, /No exact matches/);
   assert.doesNotMatch(searchPage, /getTickerProfile/);

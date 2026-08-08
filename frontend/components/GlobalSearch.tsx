@@ -40,7 +40,7 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
   const deduped: SearchSuggestResult[] = [];
   for (const result of results) {
     if (!result.href || !result.label) continue;
-    const key = `${result.kind}:${result.id || result.href}`;
+    const key = result.href || `${result.kind}:${result.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(result);
@@ -94,12 +94,16 @@ function recentSearchMatches(query: string): SearchSuggestResult[] {
 }
 
 function groupedResults(results: SearchSuggestResult[]) {
-  return (["ticker", "institution", "member", "insider", "agency", "event"] as const)
-    .map((kind) => ({
-      kind,
-      items: results.filter((result) => result.kind === kind),
-    }))
-    .filter((group) => group.items.length > 0);
+  const groups: Array<{ kind: SearchSuggestResult["kind"]; items: SearchSuggestResult[] }> = [];
+  for (const result of results) {
+    let group = groups.find((item) => item.kind === result.kind);
+    if (!group) {
+      group = { kind: result.kind, items: [] };
+      groups.push(group);
+    }
+    group.items.push(result);
+  }
+  return groups;
 }
 
 function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
