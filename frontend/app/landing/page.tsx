@@ -97,7 +97,7 @@ const companyFooterLinks = [
 ] as const;
 
 const evidenceSources = ["Fundamentals", "Technicals", "Insiders", "Congress", "Institutions", "Contracts", "Analysts"] as const;
-const interpretedOutputs = ["What Changed", "Catalysts", "Risks", "What to Watch Next"] as const;
+const interpretedOutputs = ["Confirmation Score", "What Changed", "Catalysts", "Risks", "What to Watch Next"] as const;
 const heroEvidenceSources = ["Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"] as const;
 const heroFeaturedTicker = {
   kind: "ticker",
@@ -1228,9 +1228,9 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
           <div>
             <SectionEyebrow>Walnut Strategies - Coming Soon</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">From individual trends to repeatable strategies.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Why settle for average market returns?</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut Strategies will use Walnut's historical datasets to identify and evaluate repeatable investment approaches based on combinations of real market activity and historical outcomes.
+              Walnut Strategies will use its historical databases to identify and evaluate repeatable investment approaches based on combinations of real market activity and historic outcomes.
             </p>
             <p className="mt-4 text-sm leading-6 text-slate-500">These are not generic AI-generated stock strategies. The long-term product is structured around Walnut data and historical outcomes.</p>
           </div>

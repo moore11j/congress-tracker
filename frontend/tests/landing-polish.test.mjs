@@ -111,6 +111,7 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"/);
   assert.match(landingPage, /One research workflow\. Multiple sources of evidence\./);
   assert.match(landingPage, /Walnut brings together fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning/);
+  assert.match(landingPage, /const interpretedOutputs = \["Confirmation Score", "What Changed", "Catalysts", "Risks", "What to Watch Next"\]/);
   assert.match(landingPage, /Data is easy to find\. Context is harder\./);
   assert.match(landingPage, /<section id="how-it-works"/);
   assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
@@ -139,6 +140,8 @@ test("landing page adds real product proof and future product sections", () => {
   assert.match(landingPage, /Scores are research context, not predictions of future performance/);
   assert.match(landingPage, /<SectionEyebrow>Research Memory - Coming Soon<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Walnut Strategies - Coming Soon<\/SectionEyebrow>/);
+  assert.match(landingPage, /Why settle for average market returns\?/);
+  assert.match(landingPage, /Walnut Strategies will use its historical databases to identify and evaluate repeatable investment approaches based on combinations of real market activity and historic outcomes\./);
   assert.match(landingPage, /\["Cleo Fields Portfolio", "Congress Strategies", "58\.9%", "CAGR"\][\s\S]*\["Insider Open-Market Buys", "Insider Strategies", "37\.7%", "CAGR"\][\s\S]*\["Insider \+ Institutional Accumulation", "Hybrid Strategies", "52\.1%", "CAGR"\]/);
   assert.doesNotMatch(landingPage, /Awaiting validated backtest|Historical outcome|Historical CAGR[\s\S]*[0-9]+\%|Win rate[\s\S]*[0-9]+\%/);
   assert.ok(fs.existsSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")));
