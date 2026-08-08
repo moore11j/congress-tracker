@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { HorizontalScrollIndicators, useHorizontalScrollAffordance } from "@/components/ui/HorizontalScrollAffordance";
 
 const topNavLinks = [
@@ -11,6 +11,14 @@ const topNavLinks = [
   { href: "/signals", label: "Signals" },
   ...(process.env.NEXT_PUBLIC_OUTCOMES_LEDGER_ENABLED === "0" ? [] : [{ href: "/outcomes", label: "Outcomes" }]),
   { href: "/leaderboards/congress-traders", label: "Leaderboards" },
+] as const;
+
+const profilesNavItems = [
+  { href: "/profiles", label: "Overview", icon: "◈", description: "Explore Walnut profile datasets" },
+  { href: "/members", label: "Congress", icon: "◇", description: "Congress trading and member portfolios" },
+  { href: "/insiders", label: "Insiders", icon: "◎", description: "Executive and director transactions" },
+  { href: "/institutions", label: "Institutions", icon: "▣", description: "13F holdings and position changes" },
+  { href: "/departments", label: "Departments", icon: "▤", description: "Government contracts and vendors" },
 ] as const;
 
 const toolsNavGroups = [
@@ -43,15 +51,39 @@ function isActiveToolsLink(pathname: string | null) {
   return toolsNavGroups.some((group) => group.items.some((item) => isActiveNavLink(pathname, item.href)));
 }
 
+function isActiveProfilesLink(pathname: string | null) {
+  const path = pathname || "/";
+  return (
+    profilesNavItems.some((item) => isActiveNavLink(pathname, item.href)) ||
+    path.startsWith("/member/") ||
+    path.startsWith("/insider/") ||
+    path.startsWith("/institution/")
+  );
+}
+
 export function AppTopNav() {
   const pathname = usePathname();
+  const [profilesOpen, setProfilesOpen] = useState(false);
+  const [profilesMenuPosition, setProfilesMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolsMenuPosition, setToolsMenuPosition] = useState<{ left: number; top: number } | null>(null);
+  const profilesRef = useRef<HTMLDivElement | null>(null);
+  const profilesButtonRef = useRef<HTMLButtonElement | null>(null);
   const toolsRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
   const { scrollRef, canScrollLeft, canScrollRight, updateScrollState } =
     useHorizontalScrollAffordance<HTMLElement>();
   const toolsActive = isActiveToolsLink(pathname);
+  const profilesActive = isActiveProfilesLink(pathname);
+
+  const updateProfilesMenuPosition = useCallback(() => {
+    const rect = profilesButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const menuWidth = 256;
+    const viewportPadding = 16;
+    const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
+    setProfilesMenuPosition({ left, top: rect.bottom + 8 });
+  }, []);
 
   const updateToolsMenuPosition = useCallback(() => {
     const rect = toolsButtonRef.current?.getBoundingClientRect();
@@ -61,6 +93,27 @@ export function AppTopNav() {
     const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
     setToolsMenuPosition({ left, top: rect.bottom + 8 });
   }, []);
+
+  useEffect(() => {
+    if (!profilesOpen) return;
+    updateProfilesMenuPosition();
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (profilesRef.current && !profilesRef.current.contains(event.target as Node)) setProfilesOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfilesOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", updateProfilesMenuPosition);
+    window.addEventListener("scroll", updateProfilesMenuPosition, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", updateProfilesMenuPosition);
+      window.removeEventListener("scroll", updateProfilesMenuPosition, true);
+    };
+  }, [profilesOpen, updateProfilesMenuPosition]);
 
   useEffect(() => {
     if (!toolsOpen) return;
@@ -82,6 +135,26 @@ export function AppTopNav() {
       window.removeEventListener("scroll", updateToolsMenuPosition, true);
     };
   }, [toolsOpen, updateToolsMenuPosition]);
+
+  function handleProfilesKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!profilesOpen) setProfilesOpen(true);
+      window.requestAnimationFrame(() => {
+        profilesRef.current?.querySelector<HTMLAnchorElement>("[data-profiles-link]")?.focus();
+      });
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!profilesOpen) setProfilesOpen(true);
+      window.requestAnimationFrame(() => {
+        const links = Array.from(profilesRef.current?.querySelectorAll<HTMLAnchorElement>("[data-profiles-link]") ?? []);
+        links[links.length - 1]?.focus();
+      });
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setProfilesOpen(false);
+    }
+  }
 
   function handleToolsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "ArrowDown") {
@@ -112,7 +185,7 @@ export function AppTopNav() {
       >
         {topNavLinks.map((link) => {
           const active = isActiveNavLink(pathname, link.href);
-          return (
+          const navLink = (
             <Link
               key={link.href}
               href={link.href}
@@ -126,6 +199,65 @@ export function AppTopNav() {
             >
               {link.label}
             </Link>
+          );
+          if (link.href !== "/insights") return navLink;
+          return (
+            <Fragment key="insights-profiles">
+              {navLink}
+              <div ref={profilesRef} className="relative" onKeyDown={handleProfilesKeyDown}>
+                <button
+                  ref={profilesButtonRef}
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={profilesOpen}
+                  onClick={() => {
+                    updateProfilesMenuPosition();
+                    setProfilesOpen((open) => !open);
+                    setToolsOpen(false);
+                  }}
+                  className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                    profilesActive || profilesOpen
+                      ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
+                      : "text-slate-200 hover:text-white"
+                  }`}
+                >
+                  Profiles <span aria-hidden="true">▼</span>
+                </button>
+                {profilesOpen ? (
+                  <div
+                    role="menu"
+                    aria-label="Profiles"
+                    style={profilesMenuPosition ?? undefined}
+                    className="fixed z-[1100] w-64 rounded-md border border-white/10 bg-slate-950/95 p-4 text-sm shadow-2xl shadow-black/40 ring-1 ring-black/20"
+                  >
+                    <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Profiles</div>
+                    {profilesNavItems.map((item) => {
+                      const itemActive = isActiveNavLink(pathname, item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          prefetch={false}
+                          role="menuitem"
+                          data-profiles-link
+                          aria-current={itemActive ? "page" : undefined}
+                          onClick={() => setProfilesOpen(false)}
+                          className={`grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 rounded-md px-1 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 ${
+                            itemActive ? "bg-emerald-400/15 text-emerald-100" : "text-slate-200 hover:bg-white/5 hover:text-white"
+                          }`}
+                        >
+                          <span className="pt-0.5 text-lg leading-none text-emerald-300">{item.icon}</span>
+                          <span>
+                            <span className="block font-semibold leading-5 text-white">{item.label}</span>
+                            <span className="mt-0.5 block whitespace-normal text-xs leading-4 text-slate-400">{item.description}</span>
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            </Fragment>
           );
         })}
         <div ref={toolsRef} className="relative" onKeyDown={handleToolsKeyDown}>

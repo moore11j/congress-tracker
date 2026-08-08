@@ -192,6 +192,13 @@ from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_contracts import get_government_contracts_summary
 from app.services.government_departments import canonical_department_name, get_department_profile, list_departments
+from app.services.profile_overviews import (
+    congress_overview as build_congress_overview,
+    departments_overview as build_departments_overview,
+    insiders_overview as build_insiders_overview,
+    institutions_overview as build_institutions_overview,
+    profiles_summary as build_profiles_summary,
+)
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.congress_assets import (
     CONGRESS_DISCLOSURE_EVENT_TYPES,
@@ -4660,6 +4667,82 @@ def congress_ingest_freshness(request: Request, db: Session = Depends(get_db)):
         "latest_senate_report_date": latest_by_chamber.get("senate") or latest_by_source.get("senate_fmp"),
         "latest_congress_event_ts": latest_event_ts.isoformat() if latest_event_ts else None,
     }
+
+
+@app.get("/api/profiles/summary")
+def profiles_summary(
+    request: Request,
+    activity_type: str = Query("all", pattern="^(all|congress|insiders|institutions|departments)$"),
+    activity_limit: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    prefetch_response = _api_prefetch_response(request, endpoint="profiles_summary")
+    if prefetch_response is not None:
+        return prefetch_response
+    entitlements = current_entitlements(request, db)
+    return build_profiles_summary(
+        db,
+        activity_type=activity_type,
+        activity_limit=activity_limit,
+        include_institutions=entitlements.has_feature("institutional_feed"),
+    )
+
+
+@app.get("/api/profiles/congress/overview")
+def profiles_congress_overview(
+    request: Request,
+    chamber: str = Query("all", pattern="^(all|house|senate)$"),
+    period_days: int = Query(365, ge=30, le=1095),
+    db: Session = Depends(get_db),
+):
+    prefetch_response = _api_prefetch_response(request, endpoint="profiles_congress_overview")
+    if prefetch_response is not None:
+        return prefetch_response
+    return build_congress_overview(db, chamber=chamber, period_days=period_days)
+
+
+@app.get("/api/profiles/insiders/overview")
+def profiles_insiders_overview(
+    request: Request,
+    sector: str | None = Query(None),
+    period_days: int = Query(365, ge=30, le=1095),
+    db: Session = Depends(get_db),
+):
+    prefetch_response = _api_prefetch_response(request, endpoint="profiles_insiders_overview")
+    if prefetch_response is not None:
+        return prefetch_response
+    return build_insiders_overview(db, sector=sector, period_days=period_days)
+
+
+@app.get("/api/profiles/institutions/overview")
+def profiles_institutions_overview(
+    request: Request,
+    year: int | None = Query(None, ge=1999, le=2100),
+    quarter: int | None = Query(None, ge=1, le=4),
+    db: Session = Depends(get_db),
+):
+    prefetch_response = _api_prefetch_response(request, endpoint="profiles_institutions_overview")
+    if prefetch_response is not None:
+        return prefetch_response
+    entitlements = current_entitlements(request, db)
+    return build_institutions_overview(
+        db,
+        year=year,
+        quarter=quarter,
+        include_details=entitlements.has_feature("institutional_feed"),
+    )
+
+
+@app.get("/api/profiles/departments/overview")
+def profiles_departments_overview(
+    request: Request,
+    fiscal_year: int | None = Query(None, ge=2000, le=2100),
+    db: Session = Depends(get_db),
+):
+    prefetch_response = _api_prefetch_response(request, endpoint="profiles_departments_overview")
+    if prefetch_response is not None:
+        return prefetch_response
+    return build_departments_overview(db, fiscal_year=fiscal_year)
 
 
 @app.get("/api/members/by-slug/{slug}")

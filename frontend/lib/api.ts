@@ -169,6 +169,112 @@ export type NormalizedEventType =
   | "contrarian_accumulation"
   | "government_contract";
 
+export type ProfileMetric = {
+  label: string;
+  value: number | null;
+  previous_value?: number | null;
+  change_pct?: number | null;
+  format?: "number" | "currency" | string;
+};
+
+export type ProfileActivityItem = {
+  id: number | string;
+  time?: string | null;
+  type: "Congress" | "Insider" | "Institution" | "Department" | string;
+  profile: string;
+  profile_href?: string | null;
+  symbol?: string | null;
+  company?: string | null;
+  ticker_href?: string | null;
+  activity?: string | null;
+  value?: number | null;
+  metric?: number | null;
+};
+
+export type ProfileSummaryCard = {
+  kind: "congress" | "insiders" | "institutions" | "departments" | string;
+  title: string;
+  description: string;
+  href: string;
+  locked?: boolean;
+  required_plan?: string | null;
+  metrics: ProfileMetric[];
+};
+
+export type ProfilesSummaryResponse = {
+  status: string;
+  cards: ProfileSummaryCard[];
+  activity: ProfileActivityItem[];
+};
+
+export type ProfileSectorSegment = {
+  label: string;
+  value: number;
+  percent: number;
+};
+
+export type ProfileSectorPeriod = {
+  period: string;
+  segments: ProfileSectorSegment[];
+};
+
+export type CongressOverviewResponse = {
+  status: string;
+  period_days: number;
+  chamber: string;
+  summary: ProfileMetric[];
+  top_members: Array<Record<string, unknown>>;
+  most_traded_stocks: Array<Record<string, unknown>>;
+  sector_exposure: ProfileSectorPeriod[];
+  top_buyers: Array<Record<string, unknown>>;
+  top_sellers: Array<Record<string, unknown>>;
+  recent_disclosures: ProfileActivityItem[];
+  largest_recent_trades: ProfileActivityItem[];
+  note?: string;
+};
+
+export type InsidersOverviewResponse = {
+  status: string;
+  period_days: number;
+  sector: string;
+  summary: ProfileMetric[];
+  top_insiders: Array<Record<string, unknown>>;
+  most_traded_stocks: Array<Record<string, unknown>>;
+  sector_activity: ProfileSectorPeriod[];
+  recent_purchases: ProfileActivityItem[];
+  largest_buys: ProfileActivityItem[];
+  cluster_buying: Array<Record<string, unknown>>;
+};
+
+export type InstitutionsOverviewResponse = {
+  status: string;
+  locked?: boolean;
+  required_plan?: string | null;
+  message?: string | null;
+  report_year?: number;
+  report_quarter?: number;
+  summary: ProfileMetric[];
+  top_institutions: Array<Record<string, unknown>>;
+  position_changes: Array<Record<string, unknown>>;
+  sector_exposure: ProfileSectorPeriod[];
+  most_widely_held: Array<Record<string, unknown>>;
+  largest_new_positions: Array<Record<string, unknown>>;
+  largest_exits: Array<Record<string, unknown>>;
+  recent_filings: Array<Record<string, unknown>>;
+};
+
+export type DepartmentsOverviewResponse = {
+  status: string;
+  fiscal_year?: number | null;
+  summary: ProfileMetric[];
+  top_departments: Array<Record<string, unknown>>;
+  top_vendors: Array<Record<string, unknown>>;
+  contract_value_over_time: Array<Record<string, unknown>>;
+  largest_recent_awards: Array<Record<string, unknown>>;
+  fastest_growing_vendors: Array<Record<string, unknown>>;
+  most_active_departments: Array<Record<string, unknown>>;
+};
+
 export type InstitutionProfileResponse = {
   status?: string;
   cik: string | null;
@@ -6901,6 +7007,85 @@ export async function getDepartmentProfile(slug: string, params?: { limit?: numb
   return fetchJson<DepartmentProfileResponse>(
     buildApiUrl(`/api/departments/${slug}`, { limit: params?.limit }),
     { cache: "no-store", next: { revalidate: 0 } },
+  );
+}
+
+export async function getProfilesSummary(params?: { activity_type?: string; activity_limit?: number; authToken?: string | null; signal?: AbortSignal }): Promise<ProfilesSummaryResponse> {
+  return fetchJson<ProfilesSummaryResponse>(
+    buildApiUrl("/api/profiles/summary", {
+      activity_type: params?.activity_type,
+      activity_limit: params?.activity_limit,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "ProfilesSummary",
+    },
+  );
+}
+
+export async function getCongressOverview(params?: { chamber?: string; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<CongressOverviewResponse> {
+  return fetchJson<CongressOverviewResponse>(
+    buildApiUrl("/api/profiles/congress/overview", {
+      chamber: params?.chamber,
+      period_days: params?.period_days,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "CongressOverview",
+    },
+  );
+}
+
+export async function getInsidersOverview(params?: { sector?: string; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<InsidersOverviewResponse> {
+  return fetchJson<InsidersOverviewResponse>(
+    buildApiUrl("/api/profiles/insiders/overview", {
+      sector: params?.sector,
+      period_days: params?.period_days,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "InsidersOverview",
+    },
+  );
+}
+
+export async function getInstitutionsOverview(params?: { year?: number; quarter?: number; authToken?: string | null; signal?: AbortSignal }): Promise<InstitutionsOverviewResponse> {
+  return fetchJson<InstitutionsOverviewResponse>(
+    buildApiUrl("/api/profiles/institutions/overview", {
+      year: params?.year,
+      quarter: params?.quarter,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "InstitutionsOverview",
+    },
+  );
+}
+
+export async function getDepartmentsOverview(params?: { fiscal_year?: number; authToken?: string | null; signal?: AbortSignal }): Promise<DepartmentsOverviewResponse> {
+  return fetchJson<DepartmentsOverviewResponse>(
+    buildApiUrl("/api/profiles/departments/overview", {
+      fiscal_year: params?.fiscal_year,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "DepartmentsOverview",
+    },
   );
 }
 
