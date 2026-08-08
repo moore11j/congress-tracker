@@ -13,27 +13,35 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 test("landing insights link keeps label and arrow on one line", () => {
   assert.match(landingPage, /inline-flex[^"]*whitespace-nowrap[^"]*/);
   assert.match(landingPage, /Open insights/);
-  assert.match(landingPage, /aria-hidden="true">→<\/span>/);
+  assert.match(landingPage, /aria-hidden="true">-&gt;<\/span>/);
 });
 
-test("landing hero market brief uses the latest insights news item", () => {
-  assert.match(landingPage, /const heroInsight = latestInsights\[0\] \?\? fallbackInsights\[0\]/);
-  assert.match(landingPage, /const heroImageInsight = insightImageUrl\(heroInsight\) \? heroInsight : latestInsights\.find\(\(item\) => insightImageUrl\(item\)\) \?\? heroInsight/);
+test("landing daily insights uses article list with market brief card", () => {
+  assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
+  assert.match(landingPage, /Keep informed with the news that moves the market\./);
+  assert.match(landingPage, /latestInsights\.slice\(0, 5\)\.map/);
+  assert.match(landingPage, /<p className="text-xs font-semibold uppercase tracking-\[0\.2em\] text-slate-400">Market Brief<\/p>/);
   assert.match(landingPage, /<LatestInsightImage src=\{heroInsightImage\} alt=\{heroImageInsight\.title\} \/>/);
+  assert.match(landingPage, /const heroImageInsight = insightImageUrl\(heroInsight\) \? heroInsight : latestInsights\.find\(\(item\) => insightImageUrl\(item\)\) \?\? heroInsight/);
+  assert.match(landingPage, /const dailyInsightTickers = \[/);
+  assert.match(landingPage, /\["NVDA", "NVIDIA Corp", "\$223\.96", "\+2\.27%"\]/);
+  assert.match(landingPage, /\["AAPL", "Apple Inc", "\$313\.33", "\+0\.29%"\]/);
+  assert.match(landingPage, /\["LMT", "Lockheed Martin", "\$587\.95", "\+0\.88%"\]/);
+  assert.match(landingPage, /\["PLTR", "Palantir Technologies", "\$172\.01", "\+10\.32%"\]/);
+  assert.doesNotMatch(landingPage, /<LandingMarketSnapshot snapshot=\{marketSnapshot\} \/>/);
   assert.doesNotMatch(landingPage, /getPublishedResearchBriefs|researchBriefToNewsItem|heroBrief/);
 });
 
-test("landing Pelosi portfolio card links to canonical member profile", () => {
-  assert.match(landingPage, /href=\{`\$\{appUrl\}\/member\/nancy-pelosi`\}/);
-  assert.doesNotMatch(landingPage, /\/member\/nancy-pelosi\?portfolio_lb=1095/);
-  assert.match(landingPage, /Nancy Pelosi disclosure portfolio/);
-});
-
-test("landing Tim Cook insider card links to lightweight canonical profile", () => {
-  assert.match(landingPage, /const timCookInsiderUrl = `\$\{appUrl\}\/insider\/tim-cook-0001214156`/);
-  assert.match(landingPage, /href=\{timCookInsiderUrl\}/);
-  assert.doesNotMatch(landingPage, /tim-cook-0001214156\?issuer=AAPL&chart=stock/);
-  assert.match(landingPage, /Tim Cook insider activity profile/);
+test("landing removes standalone tool promos but preserves access paths", () => {
+  assert.doesNotMatch(landingPage, /Nancy Pelosi disclosure portfolio/);
+  assert.doesNotMatch(landingPage, /Tim Cook insider activity profile/);
+  assert.doesNotMatch(landingPage, /<SectionEyebrow>Congress &amp; Insider Profiles<\/SectionEyebrow>/);
+  assert.doesNotMatch(landingPage, /<SectionEyebrow>Stock Comparison Tool<\/SectionEyebrow>/);
+  assert.doesNotMatch(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
+  assert.match(landingPage, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.match(landingPage, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.match(landingPage, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
+  assert.match(landingPage, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
 });
 
 test("landing mobile header uses feed-style login instead of terminal launch", () => {
@@ -52,26 +60,46 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /View Congress Trades/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
   assert.doesNotMatch(landingPage, /\["Trends", "#signals"\]/);
-  assert.match(
-    landingPage,
-    /const navLinks = \[\s+\["Research", "#signals"\],\s+\["Insights", "#insights"\],\s+\["Congress", "#congress"\],\s+\["Insiders", "#insiders"\],\s+\["Stock Comparisons", "#compare"\],\s+\["Stock Screener", "#screener"\],\s+\["Pricing", "#pricing"\],\s+\["About", "\/about"\],\s+\] as const;/,
-  );
+  assert.match(landingPage, /\{ label: "Research", href: "\/research" \}/);
+  assert.match(landingPage, /\{ label: "Outcomes", href: `\$\{appUrl\}\/outcomes` \}/);
+  assert.match(landingPage, /\{ label: "Insights", href: `\$\{appUrl\}\/insights` \}/);
+  assert.match(landingPage, /\{ label: "Pricing", href: "#pricing" \}/);
+  assert.match(landingPage, /\{ label: "About", href: "\/about" \}/);
+  assert.doesNotMatch(landingPage, /\["Congress", "#congress"\]|\["Insiders", "#insiders"\]|\["Stock Comparisons", "#compare"\]|\["Stock Screener", "#screener"\]/);
+  assert.match(landingPage, /const toolsNavLinks = \[/);
+  assert.match(landingPage, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
+  assert.match(landingPage, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
+  assert.match(landingPage, /\{ label: "Backtesting", href: `\$\{appUrl\}\/backtesting`/);
+  assert.match(landingPage, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.match(landingPage, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.match(landingPage, /\{ label: "Strategies", comingSoon: true/);
+  assert.match(landingPage, /<DesktopToolsMenu \/>/);
+  assert.match(landingPage, /<MobileNavigationMenu \/>/);
   assert.match(landingPage, /<section id="insights"/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
-  assert.match(landingPage, /<SectionEyebrow>Congress &amp; Insider Profiles<\/SectionEyebrow>/);
-  assert.match(landingPage, /\["Stock Screener", "#screener"\]/);
-  assert.match(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
+  assert.match(landingPage, /<SectionEyebrow>Feature Depth<\/SectionEyebrow>/);
 });
 
 test("landing page explains Walnut differentiation and free tier", () => {
-  assert.match(landingPage, /The market has tells\. Walnut finds them\./);
-  assert.match(landingPage, /Find stocks worth buying\. Know when to make a move\./);
-  assert.match(landingPage, /See which way the data is pointing\./);
-  assert.match(landingPage, /Walnut brings the key data into focus so you can see whether it supports the stock, conflicts with the move, or changed recently\./);
-  assert.match(landingPage, /Easily identify strengthening \(or weakening\) bullish and bearish trading opportunities with our proprietary Confirmation Score\./);
+  assert.match(landingPage, /Before You Buy Your Next Stock, Run It Through Walnut\./);
+  assert.match(landingPage, /Stock Research &amp; Market Intelligence/);
+  assert.match(landingPage, /Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis\./);
+  assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
+  assert.match(landingPage, /href: "\/ticker\/NVDA"/);
+  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search ticker or company\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingPage, /See How It Works/);
+  assert.match(landingPage, /href="#how-it-works"/);
+  assert.match(landingPage, /heroEvidenceSources\.map/);
+  assert.match(landingPage, /&middot;/);
+  assert.match(landingPage, /Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"/);
+  assert.match(landingPage, /One research workflow\. Multiple sources of evidence\./);
+  assert.match(landingPage, /Walnut brings together fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning/);
+  assert.match(landingPage, /Data is easy to find\. Context is harder\./);
+  assert.match(landingPage, /<section id="how-it-works"/);
   assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
-  assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
-  assert.match(landingPage, /our proprietary confirmation score/);
+  assert.doesNotMatch(landingPage, /See Outcomes|Research your thesis using multiple data sources/);
+  assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals|Make smarter decisions|AI-powered investing/);
+  assert.match(landingPage, /Walnut&apos;s proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
   assert.doesNotMatch(landingPage, /Finviz|TradingView|Quiver|Unusual Whales/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Differentiation<\/SectionEyebrow>/);
@@ -79,33 +107,57 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.doesNotMatch(landingPage, /Higher-conviction opportunities\./);
   assert.doesNotMatch(landingPage, /Investment research usually starts with charts, screeners, data feeds, and alerts/);
   assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
-  assert.doesNotMatch(landingPage, /<SectionEyebrow>Why Walnut<\/SectionEyebrow>/);
   assert.doesNotMatch(landingPage, /Evaluate all the data|Evaluate the full setup before putting capital at risk\./);
   assert.doesNotMatch(landingPage, /Explore Walnut's stock research app/);
 });
 
-test("landing page adds Compare with real screenshot and plan positioning", () => {
-  assert.match(landingPage, /const compareSamplePath = "\/compare\/NVDA\/MU"/);
-  assert.match(landingPage, /const comparePricingUrl = `\$\{pricingUrl\}\?returnTo=\$\{encodeURIComponent\(compareSamplePath\)\}`/);
-  assert.match(landingPage, /<SectionEyebrow>Stock Comparison Tool<\/SectionEyebrow>/);
-  assert.match(landingPage, /Compare two stocks\. See which is the stronger buy\./);
-  assert.match(landingPage, /Compare fundamentals, price action, positioning and alternative data to see which stock has stronger support\./);
-  assert.match(landingPage, /Premium unlocks the full verdict and decision view\./);
-  assert.match(landingPage, /Pro adds institutional activity and options-flow data\./);
-  assert.match(landingPage, /Walnut's proprietary confirmation score measures how strongly the available data supports or contradicts a stock's current trend\./);
-  assert.match(landingPage, /\/landing\/compare-nvda-mu-production\.png/);
-  assert.match(landingPage, /\/walnut-intel-logo-mark\.png/);
-  assert.match(landingPage, /landing_compare_section_view/);
-  assert.match(landingPage, /landing_compare_premium_click/);
-  assert.match(landingPage, /landing_compare_pro_click/);
-  assert.ok(fs.existsSync(path.join(root, "public/landing/compare-nvda-mu-production.png")));
-  assert.ok(fs.statSync(path.join(root, "public/landing/compare-nvda-mu-production.png")).size > 10000);
+test("landing page adds real product proof and future product sections", () => {
+  assert.match(landingPage, /const nvdaProductScreenshot = "\/landing\/nvda-ticker-intelligence\.png"/);
+  assert.match(landingPage, /const outcomesProductScreenshot = "\/landing\/outcomes-confirmation-events\.png"/);
+  assert.match(landingPage, /65 out of 100 Strong Bullish confirmation score/);
+  assert.match(landingPage, /<SectionEyebrow>Confirmation Score<\/SectionEyebrow>/);
+  assert.match(landingPage, /The Walnut Confirmation Score is a proprietary 0-100 measure/);
+  assert.match(landingPage, /It is not a probability of future returns and not a prediction score/);
+  assert.match(landingPage, /data-outcomes-screenshot="confirmation-events"/);
+  assert.match(landingPage, /Scores are research context, not predictions of future performance/);
+  assert.match(landingPage, /<SectionEyebrow>Research Memory - Coming Soon<\/SectionEyebrow>/);
+  assert.match(landingPage, /<SectionEyebrow>Walnut Strategies - Coming Soon<\/SectionEyebrow>/);
+  assert.match(landingPage, /\["Cleo Fields Portfolio", "Congress Strategies", "58\.9%", "CAGR"\][\s\S]*\["Insider Open-Market Buys", "Insider Strategies", "37\.7%", "CAGR"\][\s\S]*\["Insider \+ Institutional Accumulation", "Hybrid Strategies", "52\.1%", "CAGR"\]/);
+  assert.doesNotMatch(landingPage, /Awaiting validated backtest|Historical outcome|Historical CAGR[\s\S]*[0-9]+\%|Win rate[\s\S]*[0-9]+\%/);
+  assert.ok(fs.existsSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")));
+  assert.ok(fs.statSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")).size > 10000);
+  assert.ok(fs.existsSync(path.join(root, "public/landing/outcomes-confirmation-events.png")));
+  assert.ok(fs.statSync(path.join(root, "public/landing/outcomes-confirmation-events.png")).size > 10000);
 });
 
-test("landing quote cards render prices with two decimals", () => {
-  assert.match(landingPage, /minimumFractionDigits:\s*2/);
-  assert.match(landingPage, /maximumFractionDigits:\s*2/);
-  assert.doesNotMatch(landingPage, /maximumFractionDigits:\s*value >= 100 \? 0 : 2/);
+test("landing adds follow activity showcase before outcomes", () => {
+  assert.match(landingPage, /const followActivityCards = \[/);
+  assert.match(landingPage, /<SectionEyebrow>Follow the Activity<\/SectionEyebrow>/);
+  assert.match(landingPage, /Research the people and institutions behind the market\./);
+  assert.match(landingPage, /Ticker research is only one side of Walnut\. Explore the trading, holdings, and contract activity behind members of Congress, corporate insiders, institutions, and government departments\./);
+  assert.match(landingPage, /title: "Congress Members"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.match(landingPage, /title: "Corporate Insiders"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.match(landingPage, /title: "Institutions"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=institutional`/);
+  assert.match(landingPage, /title: "Government Departments"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=government_contracts`/);
+  assert.match(landingPage, /Explore Congress/);
+  assert.match(landingPage, /Explore Insiders/);
+  assert.match(landingPage, /Explore Institutions/);
+  assert.match(landingPage, /Explore Government Contracts/);
+  assert.match(landingPage, /BlackRock, Inc\./);
+  assert.match(landingPage, /5,685 holdings/);
+  assert.ok(landingPage.indexOf("<SectionEyebrow>Follow the Activity</SectionEyebrow>") < landingPage.indexOf("<SectionEyebrow>Outcomes</SectionEyebrow>"));
+
+  const featureDepthStart = landingPage.indexOf("const featureDepthItems = [");
+  const featureDepthEnd = landingPage.indexOf("const strategyConcepts = [");
+  const featureDepthSource = landingPage.slice(featureDepthStart, featureDepthEnd);
+  assert.match(featureDepthSource, /"Activity Feeds", "Congress, insiders, institutions, and contracts"/);
+  assert.doesNotMatch(featureDepthSource, /Congress Activity|Insider Activity|Institutional Holdings|Government Contracts", "Public contract awards and exposure"/);
+});
+
+test("landing daily insights does not render old quote cards", () => {
+  assert.doesNotMatch(landingPage, /loadTrendingTickers|fallbackTrending|formatTickerPrice|formatPct/);
+  assert.doesNotMatch(landingPage, /trendingTickers\.slice/);
+  assert.doesNotMatch(landingPage, /<SectionEyebrow>Market brief<\/SectionEyebrow>/);
 });
 
 test("landing pricing fetch bypasses the shared landing data cache", () => {
@@ -136,7 +188,9 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
     assert.match(middleware, new RegExp(`"${route}"`));
   }
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
-  assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isPublicResearchRoute\(pathname\) \|\| isPublicComparisonRoute\(pathname\)\) && publicLandingHosts\.has\(host\)/);
+  assert.match(middleware, /const localDevHosts = new Set\(\["localhost", "127\.0\.0\.1", "::1"\]\)/);
+  assert.match(middleware, /const isMarketingHost = publicLandingHosts\.has\(host\) \|\| localDevHosts\.has\(host\)/);
+  assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isPublicResearchRoute\(pathname\) \|\| isPublicComparisonRoute\(pathname\)\) && isMarketingHost/);
   assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !isPublicComparisonRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
@@ -165,7 +219,7 @@ test("terminal app routes log request intent and bypass anonymous bot prefetch S
   assert.match(middleware, /referer: safeRefererPath\(referer, request\)/);
   assert.match(middleware, /user_agent: userAgent\.slice\(0, 180\)/);
   assert.match(middleware, /authenticated: hasBackendSession \|\| hasAuthHint/);
-  assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicTickerRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
+  assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicSeoEntityRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
   assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : bot \? "bot" : "inactive"\)/);
   assert.match(middleware, /reason === "prefetch"\s+\?\s+null/);
   assert.match(middleware, /"x-walnut-terminal-shell": reason/);

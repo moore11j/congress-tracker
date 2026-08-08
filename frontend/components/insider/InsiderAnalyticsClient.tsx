@@ -29,7 +29,7 @@ type PerformanceLookback = "7" | "30" | "90" | "180" | "365";
 const RECENT_TRADES_PAGE_SIZE = 20;
 const ACTIVITY_TREND_LOOKBACK_DAYS = 365;
 const ACTIVITY_TREND_LOOKBACK_LABEL = "1Y";
-const TREND_TRADES_LIMIT = 240;
+const TREND_TRADES_LIMIT = 200;
 const REFRESHING_COPY = "Refreshing the latest analytics from disclosed activity.";
 const CARD = "overflow-hidden rounded-lg border border-white/10 bg-[#0a1726]/95 shadow-[0_14px_34px_rgba(0,0,0,0.22)]";
 const PANEL = "rounded-lg border border-white/8 bg-white/[0.025]";
@@ -105,7 +105,7 @@ function pct0(n: number | null | undefined) {
 
 function numberOrDash(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
-  return `${Math.round(n)}`;
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(n));
 }
 
 function asDate(v: string | null | undefined) {
@@ -143,8 +143,8 @@ function pnlSourceBadgeLabel(source: string | null | undefined): string | null {
 
 function tradeDirection(value?: string | null): "buy" | "sell" | null {
   const normalized = (value ?? "").toLowerCase();
-  if (normalized === "p" || normalized.includes("buy") || normalized.includes("purchase") || normalized.includes("acquire")) return "buy";
-  if (normalized === "s" || normalized.includes("sale") || normalized.includes("sell") || normalized.includes("dispose")) return "sell";
+  if (normalized === "p" || normalized === "p-purchase" || normalized.includes("buy") || normalized.includes("purchase") || normalized.includes("acquire") || normalized.includes("acquisition")) return "buy";
+  if (normalized === "s" || normalized === "s-sale" || normalized.includes("sale") || normalized.includes("sell") || normalized.includes("dispose") || normalized.includes("disposition")) return "sell";
   return null;
 }
 
@@ -675,7 +675,7 @@ export function InsiderAnalyticsClient({
               {REFRESHING_COPY}
             </p>
           ) : null}
-          <Link href="/pricing" className="mt-2 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200">How we calculate</Link>
+          <Link href="/faq" className="mt-2 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200">How we calculate</Link>
         </section>
       </div>
 

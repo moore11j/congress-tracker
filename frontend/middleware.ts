@@ -42,6 +42,7 @@ const legacyMarketingHosts = new Set(["walnut-intel.com", "www.walnut-intel.com"
 const publicLandingHosts = new Set([canonicalMarketingHost]);
 const appHost = "app.walnutmarkets.com";
 const legacyAppHosts = new Set(["app.walnut-intel.com"]);
+const localDevHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const terminalRouteFamilies = ["ticker", "insider", "member", "institution"] as const;
 const robotsDisallowPaths = [
   "/api/",
@@ -348,7 +349,8 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  const isMarketingStaticPage = (publicStaticPaths.has(pathname) || isPublicResearchRoute(pathname) || isPublicComparisonRoute(pathname)) && publicLandingHosts.has(host);
+  const isMarketingHost = publicLandingHosts.has(host) || localDevHosts.has(host);
+  const isMarketingStaticPage = (publicStaticPaths.has(pathname) || isPublicResearchRoute(pathname) || isPublicComparisonRoute(pathname)) && isMarketingHost;
   if (isMarketingStaticPage || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
     const response = NextResponse.next({

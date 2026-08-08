@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
+import { LandingSearch } from "@/components/landing/LandingSearch";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
-import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/CompareAnalytics";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
 import {
   WALNUT_MARKETING_DESCRIPTION,
@@ -26,29 +26,9 @@ const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.co
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 const publicPricingUrl = `${WALNUT_MARKETING_URL}/pricing`;
-const timCookInsiderUrl = `${appUrl}/insider/tim-cook-0001214156`;
-const compareSamplePath = "/compare/NVDA/MU";
-const comparePricingUrl = `${pricingUrl}?returnTo=${encodeURIComponent(compareSamplePath)}`;
-
-type TrendingTicker = {
-  symbol: string;
-  companyName: string;
-  price: number | null;
-  dayChangePct: number | null;
-};
-
-type MarketQuoteItem = {
-  symbol: string;
-  company_name?: string | null;
-  current_price?: number | null;
-  day_change_pct?: number | null;
-  as_of?: string | null;
-};
-
-type MarketQuotesResponse = {
-  items?: MarketQuoteItem[];
-  status?: "ok" | "partial" | "unavailable" | string;
-};
+const researchStartUrl = `${appUrl}/feed`;
+const nvdaProductScreenshot = "/landing/nvda-ticker-intelligence.png";
+const outcomesProductScreenshot = "/landing/outcomes-confirmation-events.png";
 
 type PlanTier = "free" | "premium" | "pro";
 type BillingInterval = "monthly" | "annual";
@@ -66,14 +46,20 @@ type MarketInstrument = {
 };
 
 const navLinks = [
-  ["Research", "#signals"],
-  ["Insights", "#insights"],
-  ["Congress", "#congress"],
-  ["Insiders", "#insiders"],
-  ["Stock Comparisons", "#compare"],
-  ["Stock Screener", "#screener"],
-  ["Pricing", "#pricing"],
-  ["About", "/about"],
+  { label: "Research", href: "/research" },
+  { label: "Outcomes", href: `${appUrl}/outcomes` },
+  { label: "Insights", href: `${appUrl}/insights` },
+  { label: "Pricing", href: "#pricing" },
+  { label: "About", href: "/about" },
+] as const;
+
+const toolsNavLinks = [
+  { label: "Stock Screener", href: `${appUrl}/screener`, description: "Screen public companies by Walnut evidence and market data." },
+  { label: "Stock Comparisons", href: `${appUrl}/compare`, description: "Compare two tickers across the research workflow." },
+  { label: "Backtesting", href: `${appUrl}/backtesting`, description: "Test saved screens and disclosure strategies against history." },
+  { label: "Congress", href: `${appUrl}/feed?mode=congress`, description: "Track reported congressional trading activity." },
+  { label: "Insiders", href: `${appUrl}/feed?mode=insider`, description: "Review reported officer, director, and owner trades." },
+  { label: "Strategies", comingSoon: true, description: "Historical strategy research is coming soon." },
 ] as const;
 
 const platformFooterLinks = [
@@ -107,58 +93,130 @@ const companyFooterLinks = [
   { label: "Privacy", href: "/privacy" },
 ] as const;
 
-const signalCards = [
+const evidenceSources = ["Fundamentals", "Technicals", "Insiders", "Congress", "Institutions", "Contracts", "Analysts"] as const;
+const interpretedOutputs = ["What Changed", "Catalysts", "Risks", "What to Watch Next"] as const;
+const heroEvidenceSources = ["Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"] as const;
+const heroFeaturedTicker = {
+  kind: "ticker",
+  id: "NVDA",
+  symbol: "NVDA",
+  label: "NVDA — NVIDIA Corporation",
+  subtitle: "Ticker",
+  href: "/ticker/NVDA",
+} as const;
+
+const confirmationEvidence = [
+  ["Fundamental strength", "Supportive"],
+  ["Bullish analyst consensus", "Supportive"],
+  ["Bullish tape confirmation", "Supportive"],
+  ["Supportive macro positioning", "Supportive"],
+  ["Mixed Congress activity", "Mixed"],
+  ["No notable insider activity", "Inactive"],
+] as const;
+
+const confirmationPrinciples = [
+  ["Higher confirmation", "More of the available evidence is reinforcing the same directional view."],
+  ["Lower confirmation", "The evidence is weaker, mixed, or conflicting."],
+  ["Explainable", "Every score is accompanied by the underlying evidence so investors can see what is driving the judgment."],
+] as const;
+
+const workflowStages = [
+  ["01", "What does the evidence say?", "Walnut interprets multiple data sources together rather than leaving each one isolated."],
+  ["02", "What changed?", "See which parts of the research picture strengthened, weakened, or reversed."],
+  ["03", "Does that change the thesis?", "Understand whether new evidence reinforces or challenges the current directional view."],
+  ["04", "What should I watch next?", "Track the catalysts, risks, and developments most likely to matter."],
+] as const;
+
+const whySources = ["Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Options", "Analysts"] as const;
+const whySteps = ["Raw data", "Interpretation", "Judgment", "Ongoing research"] as const;
+
+const followActivityCards = [
   {
-    title: "Congress Activity",
-    body: "See whether Congress activity supports the stock, conflicts with the trend, or adds useful context.",
-    label: "Public disclosures",
+    title: "Congress Members",
+    body: "See disclosed trades, transaction history, portfolio activity, and the companies individual members are trading.",
+    cta: "Explore Congress",
+    href: `${appUrl}/feed?mode=congress`,
+    eyebrow: "Congress feed",
+    primary: "Member activity",
+    metric: "Disclosed trades",
+    rows: [
+      ["Cleo Fields", "NVDA purchase", "Filed"],
+      ["House disclosure", "MSFT sale", "New"],
+      ["Senate disclosure", "LMT purchase", "Active"],
+    ],
   },
   {
-    title: "Insider Activity",
-    body: "Evaluate executive and director activity to understand whether insiders are adding, reducing, or standing aside.",
-    label: "Insider filings",
+    title: "Corporate Insiders",
+    body: "Research executives and directors through their Form 4 transaction history and activity across companies.",
+    cta: "Explore Insiders",
+    href: `${appUrl}/feed?mode=insider`,
+    eyebrow: "Form 4 activity",
+    primary: "Insider tape",
+    metric: "Open-market buys",
+    rows: [
+      ["Director", "AAPL acquisition", "Form 4"],
+      ["CEO", "PLTR purchase", "Filed"],
+      ["10% owner", "AMD buy", "Recent"],
+    ],
   },
   {
-    title: "Institutional Activity",
-    body: "See whether newly filed institutional activity shows buyers building, cutting, or standing aside.",
-    label: "Pro layer",
+    title: "Institutions",
+    body: "See reported holdings, position changes, top positions, and which companies institutions are accumulating or reducing.",
+    cta: "Explore Institutions",
+    href: `${appUrl}/feed?mode=institutional`,
+    eyebrow: "Institutional activity",
+    primary: "BlackRock, Inc.",
+    metric: "5,685 holdings",
+    rows: [
+      ["NVDA", "5.87%", "$336B"],
+      ["AAPL", "5.08%", "$291B"],
+      ["MSFT", "3.84%", "$220B"],
+    ],
   },
   {
-    title: "Options Flow",
-    body: "Options activity will add another view of whether traders support or question the setup.",
-    label: "Coming soon",
-  },
-  {
-    title: "Macro Positioning",
-    body: "See whether broader market positioning is adding pressure or giving the setup more room.",
-    label: "Pro layer",
-    href: `${appUrl}/insights#macro-positioning`,
-  },
-  {
-    title: "Government Contracts",
-    body: "Connect contract awards and modifications to ticker-level data when the exposure is material.",
-    label: "Public awards",
-  },
-  {
-    title: "Technical indicator filters",
-    body: "Screen for price action, relative volume, momentum, trend state, beta, and liquidity conditions.",
-    label: "Technicals",
-  },
-  {
-    title: "Fundamental indicator filters",
-    body: "Evaluate valuation, margins, growth, leverage, cash flow, earnings yield, ROE, ROIC, and balance-sheet quality.",
-    label: "Fundamentals",
+    title: "Government Departments",
+    body: "Follow government contract activity by department and see which public companies are receiving awards.",
+    cta: "Explore Government Contracts",
+    href: `${appUrl}/feed?mode=government_contracts`,
+    eyebrow: "Contract awards",
+    primary: "Department activity",
+    metric: "Award recipients",
+    rows: [
+      ["Defense", "LMT award", "$587M"],
+      ["Energy", "PLTR contract", "$172M"],
+      ["NASA", "NVDA supplier", "New"],
+    ],
   },
 ] as const;
 
-const fallbackTrending: TrendingTicker[] = [
-  { symbol: "NVDA", companyName: "NVIDIA Corp", price: null, dayChangePct: null },
-  { symbol: "AAPL", companyName: "Apple Inc", price: null, dayChangePct: null },
-  { symbol: "LMT", companyName: "Lockheed Martin", price: null, dayChangePct: null },
-  { symbol: "PLTR", companyName: "Palantir Technologies", price: null, dayChangePct: null },
-  { symbol: "NOW", companyName: "ServiceNow Inc", price: null, dayChangePct: null },
-  { symbol: "TSLA", companyName: "Tesla Inc", price: null, dayChangePct: null },
-];
+const featureDepthItems = [
+  ["Stock Research", "Ticker-level research workflow"],
+  ["Confirmation Score", "Point-in-time evidence alignment"],
+  ["Screener", "Filter by data and market context"],
+  ["Compare", "Ticker-to-ticker research comparison"],
+  ["Backtesting", "Historical strategy testing"],
+  ["Activity Feeds", "Congress, insiders, institutions, and contracts"],
+  ["Macro Positioning", "Market and macro context"],
+  ["Options Flow", "Options context where available"],
+  ["Analyst Consensus", "Analyst view and coverage context"],
+  ["Research Briefs", "Published and generated research"],
+  ["Outcomes", "Historical accountability layer"],
+  ["Research Memory", "Coming Soon"],
+  ["Walnut Strategies", "Coming Soon"],
+] as const;
+
+const strategyConcepts = [
+  ["Cleo Fields Portfolio", "Congress Strategies", "58.9%", "CAGR"],
+  ["Insider Open-Market Buys", "Insider Strategies", "37.7%", "CAGR"],
+  ["Insider + Institutional Accumulation", "Hybrid Strategies", "52.1%", "CAGR"],
+] as const;
+
+const dailyInsightTickers = [
+  ["NVDA", "NVIDIA Corp", "$223.96", "+2.27%"],
+  ["AAPL", "Apple Inc", "$313.33", "+0.29%"],
+  ["LMT", "Lockheed Martin", "$587.95", "+0.88%"],
+  ["PLTR", "Palantir Technologies", "$172.01", "+10.32%"],
+] as const;
 
 const fallbackInsights: NewsItem[] = [
   {
@@ -281,25 +339,6 @@ async function loadLatestInsights(): Promise<NewsItem[]> {
   }
 }
 
-async function loadTrendingTickers(): Promise<TrendingTicker[]> {
-  try {
-    const symbols = fallbackTrending.map((ticker) => ticker.symbol).join(",");
-    const response = await landingFetchJson<MarketQuotesResponse>("/api/market/quotes", { symbols }, 1800);
-    const quotesBySymbol = new Map((response.items ?? []).map((item) => [item.symbol?.toUpperCase(), item]));
-    return fallbackTrending.map((ticker) => {
-      const quote = quotesBySymbol.get(ticker.symbol);
-      return {
-        ...ticker,
-        companyName: quote?.company_name || ticker.companyName,
-        price: typeof quote?.current_price === "number" && Number.isFinite(quote.current_price) ? quote.current_price : null,
-        dayChangePct: typeof quote?.day_change_pct === "number" && Number.isFinite(quote.day_change_pct) ? quote.day_change_pct : null,
-      };
-    });
-  } catch {
-    return fallbackTrending;
-  }
-}
-
 async function loadMarketSnapshot(): Promise<MacroSnapshotResponse> {
   try {
     return await landingFetchJson<MacroSnapshotResponse>("/api/insights/snapshot", undefined, 1800);
@@ -399,17 +438,6 @@ function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
     changePct: item.change_pct,
     timeframeLabel: publicSnapshotMetaLabel(item.timeframe_label),
   };
-}
-
-function formatTickerPrice(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Open app";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-}
-
-function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "Explore trend";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
 }
 
 function insightHref(item: NewsItem): string {
@@ -684,8 +712,103 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
   return <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{children}</p>;
 }
 
+function LandingNavLink({ href, label, className = "" }: { href: string; label: string; className?: string }) {
+  return (
+    <a href={href} className={`transition hover:text-white ${className}`}>
+      {label}
+    </a>
+  );
+}
+
+function ToolsMenuItems({ mobile = false }: { mobile?: boolean }) {
+  const itemClassName = mobile
+    ? "rounded-lg border border-white/10 bg-slate-950/65 px-3 py-3 text-slate-300 transition hover:border-emerald-300/35 hover:text-white"
+    : "block rounded-md px-3 py-2.5 text-slate-300 transition hover:bg-white/[0.055] hover:text-white";
+  const disabledClassName = mobile
+    ? "rounded-lg border border-white/10 bg-white/[0.025] px-3 py-3 text-slate-500"
+    : "rounded-md px-3 py-2.5 text-slate-500";
+
+  return (
+    <>
+      {toolsNavLinks.map((item) =>
+        "href" in item ? (
+          <a key={item.label} href={item.href} className={itemClassName}>
+            <span className="flex items-center justify-between gap-3">
+              <span className="font-semibold text-slate-100">{item.label}</span>
+            </span>
+            <span className="mt-1 block text-xs leading-5 text-slate-400">{item.description}</span>
+          </a>
+        ) : (
+          <div key={item.label} aria-disabled="true" className={disabledClassName}>
+            <span className="flex items-center justify-between gap-3">
+              <span className="font-semibold text-slate-300">{item.label}</span>
+              <span className="rounded border border-cyan-300/25 bg-cyan-300/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">
+                Coming Soon
+              </span>
+            </span>
+            <span className="mt-1 block text-xs leading-5">{item.description}</span>
+          </div>
+        ),
+      )}
+    </>
+  );
+}
+
+function DesktopToolsMenu() {
+  return (
+    <details className="group relative">
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1 py-1 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 [&::-webkit-details-marker]:hidden">
+        <span>Tools</span>
+        <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
+          &#9662;
+        </span>
+      </summary>
+      <div className="absolute left-1/2 top-full z-50 mt-3 w-80 -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950/96 p-2 shadow-2xl shadow-black/45 ring-1 ring-black/20">
+        <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Research tools</div>
+        <div className="grid gap-1">
+          <ToolsMenuItems />
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function MobileNavigationMenu() {
+  return (
+    <details className="group relative lg:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/35 hover:text-white [&::-webkit-details-marker]:hidden">
+        <span>Menu</span>
+        <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
+          &#9662;
+        </span>
+      </summary>
+      <div className="absolute right-0 top-full z-50 mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/10 bg-slate-950/96 p-3 shadow-2xl shadow-black/45 ring-1 ring-black/20">
+        <nav aria-label="Mobile primary navigation" className="grid gap-1 text-sm">
+          {navLinks.slice(0, 3).map((link) => (
+            <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
+          ))}
+          <details className="group/tools">
+            <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
+              <span>Tools</span>
+              <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/tools:rotate-180">
+                &#9662;
+              </span>
+            </summary>
+            <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
+              <ToolsMenuItems mobile />
+            </div>
+          </details>
+          {navLinks.slice(3).map((link) => (
+            <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
+          ))}
+        </nav>
+      </div>
+    </details>
+  );
+}
+
 export default async function LandingPage() {
-  const [latestInsights, planConfig, marketSnapshot, trendingTickers] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot(), loadTrendingTickers()]);
+  const [latestInsights, planConfig] = await Promise.all([loadLatestInsights(), loadPlanConfig()]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
   const heroImageInsight = insightImageUrl(heroInsight) ? heroInsight : latestInsights.find((item) => insightImageUrl(item)) ?? heroInsight;
   const heroInsightImage = insightImageUrl(heroImageInsight);
@@ -710,11 +833,13 @@ export default async function LandingPage() {
               <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
             </span>
           </a>
-          <nav className="hidden items-center gap-3 text-xs font-medium text-slate-300 lg:flex xl:gap-5 xl:text-sm">
-            {navLinks.map(([label, href]) => (
-              <a key={label} href={href} className="transition hover:text-white">
-                {label}
-              </a>
+          <nav className="hidden items-center gap-3 text-xs font-medium text-slate-300 lg:flex xl:gap-5 xl:text-sm" aria-label="Primary navigation">
+            {navLinks.slice(0, 3).map((link) => (
+              <LandingNavLink key={link.label} href={link.href} label={link.label} />
+            ))}
+            <DesktopToolsMenu />
+            {navLinks.slice(3).map((link) => (
+              <LandingNavLink key={link.label} href={link.href} label={link.label} />
             ))}
           </nav>
           <div className="flex shrink-0 items-center gap-2">
@@ -736,115 +861,58 @@ export default async function LandingPage() {
             >
               Launch Terminal
             </a>
+            <MobileNavigationMenu />
           </div>
         </div>
       </header>
 
-      <section className="relative border-b border-white/10">
-        <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-10 px-4 pb-4 pt-8 sm:px-6 sm:pb-6 sm:pt-16 lg:grid-cols-[1.02fr_0.98fr] lg:px-8 lg:py-20">
-          <div className="max-w-3xl">
-            <SectionEyebrow>Stock Research &amp; Analysis Platform</SectionEyebrow>
-            <h1 className="mt-3 max-w-4xl text-[2.08rem] font-semibold leading-[1.06] text-white sm:mt-5 sm:text-5xl lg:text-6xl">
-              Find stocks worth buying. Know when to make a move.
+      <section className="relative border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-4xl">
+            <SectionEyebrow>Stock Research &amp; Market Intelligence</SectionEyebrow>
+            <h1 className="mt-4 max-w-5xl text-[2.35rem] font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
+              Before You Buy Your Next Stock, Run It Through Walnut.
             </h1>
-            <p className="mt-3 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:mt-5 sm:text-xl">
-              The market has tells. Walnut finds them.
+            <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
+              Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis.
             </p>
-            <p className="mt-3 max-w-2xl text-base leading-6 text-slate-300 sm:mt-6 sm:text-lg sm:leading-7">
-              Analyze fundamentals, technicals, Congress and insider activity, institutional filings, government contracts, macro positioning and Walnut's proprietary confirmation score&mdash;all in one research workflow.
+            <LandingSearch appUrl={appUrl} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search ticker or company..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
+            <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+              <span>See How It Works</span>
+              <span aria-hidden="true">&darr;</span>
+            </a>
+            <p className="mt-4 flex max-w-4xl flex-wrap gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {heroEvidenceSources.map((source, index) => (
+                <span key={source}>
+                  {index > 0 ? <span aria-hidden="true" className="mr-2 text-slate-600">&middot;</span> : null}
+                  {source}
+                </span>
+              ))}
             </p>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <a
-                href={`${appUrl}/feed`}
-                className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
-              >
-                Try for free
-              </a>
-            </div>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
-              Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers help investors evaluate more data, including our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
+              Research and informational tools only. Walnut does not provide personalized financial advice or make investment decisions for users.
             </p>
-          </div>
-
-          <div className="relative" data-nosnippet>
-            <div className="rounded-lg border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Market brief</p>
-                  <p className="mt-1 text-sm font-semibold text-white">A snapshot of what changed and what to watch next.</p>
-                </div>
-                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
-              </div>
-              <div className="border-b border-white/10 p-5">
-                <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-                  <LatestInsightImage src={heroInsightImage} alt={heroImageInsight.title} />
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p>
-                  <h2 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h2>
-                  {heroInsight.summary ? (
-                    <p className="mt-3 overflow-hidden text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
-                      {heroInsight.summary}
-                    </p>
-                  ) : null}
-                </a>
-              </div>
-              <div className="grid gap-3 p-4 sm:grid-cols-2">
-                {trendingTickers.slice(0, 4).map((ticker) => {
-                  const changeTone =
-                    ticker.dayChangePct === null
-                      ? "text-slate-400"
-                      : ticker.dayChangePct >= 0
-                        ? "text-emerald-300"
-                        : "text-rose-300";
-                  return (
-                    <a key={ticker.symbol} href={`${appUrl}/ticker/${ticker.symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-mono text-lg font-semibold text-emerald-200">{ticker.symbol}</p>
-                          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-400">{ticker.companyName}</p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="font-mono text-sm font-semibold text-white">{formatTickerPrice(ticker.price)}</p>
-                          <p className={`mt-1 text-xs ${changeTone}`}>{formatPct(ticker.dayChangePct)}</p>
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
           </div>
         </div>
       </section>
 
-      <section id="signals" className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
+      <section className="border-b border-white/10 px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl">
-            <SectionEyebrow>Stock Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See which way the data is pointing.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings the key data into focus so you can see whether it supports the stock, conflicts with the move, or changed recently. Easily identify strengthening (or weakening) bullish and bearish trading opportunities with our proprietary Confirmation Score.
-            </p>
-          </div>
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {signalCards.map((card) => {
-              const content = (
-                <>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{card.label}</p>
-                  <h3 className="mt-4 text-lg font-semibold text-white">{card.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-400">{card.body}</p>
-                </>
-              );
-              return "href" in card ? (
-                <a key={card.title} href={card.href} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35 hover:bg-white/[0.055] sm:p-5">
-                  {content}
-                </a>
-              ) : (
-                <article key={card.title} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 sm:p-5">
-                  {content}
-                </article>
-              );
-            })}
-          </div>
+          <figure className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/90 p-2 shadow-2xl shadow-black/40">
+            <div className="overflow-x-auto [scrollbar-width:thin]">
+              <img
+                src={nvdaProductScreenshot}
+                alt="Walnut Markets NVDA ticker intelligence page showing a 65 out of 100 Strong Bullish confirmation score with What Changed, Catalysts, Risks, What to Watch Next, price volume, fundamentals, insiders, Congress, analysts, macro positioning, and valuation."
+                width={1511}
+                height={773}
+                className="h-auto min-w-[920px] rounded-md border border-white/10 lg:min-w-0 lg:w-full"
+              />
+            </div>
+            <figcaption className="flex flex-col gap-1 px-2 py-3 text-xs leading-5 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <span>Real Walnut ticker research interface. NVDA example shown.</span>
+              <span>Confirmation Score, catalysts, risks, and source context remain visible.</span>
+            </figcaption>
+          </figure>
         </div>
       </section>
 
@@ -857,12 +925,12 @@ export default async function LandingPage() {
             </div>
             <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
               <span>Open insights</span>
-              <span aria-hidden="true">→</span>
+              <span aria-hidden="true">-&gt;</span>
             </a>
           </div>
           <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]" data-nosnippet>
             <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
-              <div className="mt-5 divide-y divide-white/10">
+              <div className="divide-y divide-white/10">
                 {latestInsights.slice(0, 5).map((item) => (
                   <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0">
                     <p className="text-sm font-semibold leading-6 text-white hover:text-emerald-100">{item.title}</p>
@@ -870,128 +938,329 @@ export default async function LandingPage() {
                   </a>
                 ))}
               </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {dailyInsightTickers.map(([symbol, company, price, change]) => (
+                  <a key={symbol} href={`${appUrl}/ticker/${symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-base font-semibold text-emerald-200">{symbol}</p>
+                        <p className="mt-2 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-400">{company}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="font-mono text-sm font-semibold text-white">{price}</p>
+                        <p className="mt-1 text-xs font-semibold text-emerald-300">{change}</p>
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
             </div>
-            <LandingMarketSnapshot snapshot={marketSnapshot} />
+            <article className="rounded-lg border border-white/10 bg-slate-950/90 p-5 shadow-2xl shadow-black/30">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Market Brief</p>
+                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
+              </div>
+              <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+                <LatestInsightImage src={heroInsightImage} alt={heroImageInsight.title} />
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p>
+                <h3 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h3>
+                {heroInsight.summary ? (
+                  <p className="mt-3 overflow-hidden text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                    {heroInsight.summary}
+                  </p>
+                ) : null}
+              </a>
+            </article>
           </div>
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
+      <section id="how-it-works" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Congress &amp; Insider Profiles</SectionEyebrow>
-            <h2 className="mt-3 text-[1.72rem] font-semibold leading-tight text-white sm:text-4xl">Follow the insider trades</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Explore disclosure histories, portfolio simulations, insider profiles, ticker charts and trade analytics to understand whose activity has historically provided useful market context.</p>
+            <SectionEyebrow>What Walnut Actually Does</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One research workflow. Multiple sources of evidence.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              Walnut brings together fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and other market data - then helps you understand whether those sources reinforce or contradict the same investment thesis.
+            </p>
           </div>
-
-          <div className="mt-8 grid gap-5 lg:grid-cols-2">
-            <a id="congress" href={`${appUrl}/member/nancy-pelosi`} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-emerald-300/35">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
-              <h3 className="mt-3 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-400">
-                Open the member profile with simulated holdings, benchmark comparison, recent disclosures, and what changed over time.
-              </p>
-              <span className="mt-5 inline-flex rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Open portfolio -&gt;</span>
-            </a>
-
-            <a id="insiders" href={timCookInsiderUrl} className="rounded-lg border border-white/10 bg-slate-950/85 p-6 shadow-2xl shadow-black/25 transition hover:border-cyan-300/35">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
-              <h3 className="mt-3 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-400">
-                Open the insider profile with Apple ticker chart context, transaction history, issuer details, and data readouts.
-              </p>
-              <span className="mt-5 inline-flex rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">Open insider profile -&gt;</span>
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
-        <div className="mx-auto max-w-7xl">
-          <div id="compare" className="grid gap-6 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
-            <CompareEventOnMount eventName="landing_compare_section_view" path="/landing" properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }} />
-            <div>
-              <SectionEyebrow>Stock Comparison Tool</SectionEyebrow>
-              <h3 className="mt-3 text-3xl font-semibold text-white">Compare two stocks. See which is the stronger buy.</h3>
-              <p className="mt-4 text-sm leading-6 text-slate-400">
-                Compare fundamentals, price action, positioning and alternative data to see which stock has stronger support.
-              </p>
-              <div className="mt-5 grid gap-3">
-                <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-4">
-                  <p className="text-sm font-semibold text-emerald-100">Premium unlocks the full verdict and decision view.</p>
-                </div>
-                <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
-                  <p className="text-sm font-semibold text-cyan-100">Pro adds institutional activity and options-flow data.</p>
-                </div>
-              </div>
-              <p className="mt-5 text-sm leading-6 text-slate-400">
-                Walnut's proprietary confirmation score measures how strongly the available data supports or contradicts a stock's current trend.
-              </p>
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <CompareTrackedLink
-                  href={comparePricingUrl}
-                  eventName="landing_compare_premium_click"
-                  path="/landing"
-                  properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }}
-                  className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
-                >
-                  Unlock Compare with Premium
-                </CompareTrackedLink>
-                <CompareTrackedLink
-                  href={comparePricingUrl}
-                  eventName="landing_compare_pro_click"
-                  path="/landing"
-                  properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }}
-                  className="inline-flex items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
-                >
-                  Explore Pro
-                </CompareTrackedLink>
+          <div className="mt-10 grid gap-4 lg:grid-cols-[1fr_auto_1.2fr_auto_1fr] lg:items-center">
+            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Evidence sources</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {evidenceSources.map((source) => (
+                  <span key={source} className="rounded border border-white/10 bg-slate-950/70 px-3 py-2 text-sm font-semibold text-slate-100">
+                    {source}
+                  </span>
+                ))}
               </div>
             </div>
-            <div className="rounded-lg border border-white/10 bg-slate-900 p-2 shadow-2xl shadow-black/30">
-              <img src="/landing/compare-nvda-mu-production.png" alt="Walnut Compare page showing NVDA versus MU" className="w-full rounded-md border border-white/10" />
-              <div className="mt-3 flex items-center justify-between gap-3 px-1 text-xs text-slate-400">
-                <span className="inline-flex items-center gap-2">
-                  <img src="/walnut-intel-logo-mark.png" alt="" className="h-5 w-5 rounded" />
-                  Real Walnut comparison workflow
-                </span>
-                <span>Premium comparison shown. Pro adds institutional and options data.</span>
-              </div>
+            <div className="hidden text-2xl font-semibold text-emerald-300 lg:block">-&gt;</div>
+            <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-6 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Interpretation</p>
+              <h3 className="mt-3 text-2xl font-semibold text-white">Walnut interprets the evidence together</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-300">The product surfaces alignment, conflict, and change across the sources rather than leaving each one isolated.</p>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="screener" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl rounded-lg border border-white/10 bg-white/[0.035] p-6 sm:p-8">
-          <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
-            <div>
-              <SectionEyebrow>Stock Screener</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built to find new opportunities.</h2>
-              <p className="mt-5 text-sm leading-6 text-slate-400">
-                Screen for stocks with stronger support, fresh activity, cleaner trends, and risk factors worth checking before you act.
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filter market data by</p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {[
-                  "Congressional activity",
-                  "Insider activity",
-                  "Government contracts",
-                  "Confirmation score",
-                  "RSI and relative volume",
-                  "MACD and trend state",
-                  "Valuation multiples",
-                  "Margins and growth",
-                  "ROE, ROIC, cash flow",
-                ].map((item) => (
-                  <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-semibold text-white">
+            <div className="hidden text-2xl font-semibold text-emerald-300 lg:block">-&gt;</div>
+            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Research outputs</p>
+              <div className="mt-4 grid gap-2">
+                {interpretedOutputs.map((item) => (
+                  <span key={item} className="rounded border border-white/10 bg-slate-950/70 px-3 py-2 text-sm font-semibold text-slate-100">
                     {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="confirmation-score" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div>
+            <SectionEyebrow>Confirmation Score</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See whether the evidence agrees.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              The Walnut Confirmation Score is a proprietary 0-100 measure of how strongly the available evidence supports a directional view at a specific point in time.
+            </p>
+            <p className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.055] p-4 text-sm leading-6 text-amber-100">
+              It is not a probability of future returns and not a prediction score. Its purpose is to summarize the strength and alignment of available evidence.
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
+            <div className="grid gap-5 md:grid-cols-[0.45fr_0.55fr] md:items-center">
+              <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-6 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">NVIDIA Corp</p>
+                <p className="mt-4 font-mono text-6xl font-semibold text-emerald-300">65</p>
+                <p className="mt-1 font-mono text-xl font-semibold text-slate-500">/ 100</p>
+                <p className="mt-4 text-2xl font-semibold text-emerald-200">Strong Bullish</p>
+              </div>
+              <div className="grid gap-2">
+                {confirmationEvidence.map(([label, status]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-4 py-3">
+                    <span className="text-sm font-semibold text-slate-100">{label}</span>
+                    <span className="shrink-0 rounded border border-white/10 bg-slate-950/70 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300">{status}</span>
                   </div>
                 ))}
               </div>
             </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {confirmationPrinciples.map(([title, body]) => (
+                <article key={title} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-400">{body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <SectionEyebrow>The Walnut Research Workflow</SectionEyebrow>
+          <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <h2 className="max-w-3xl text-3xl font-semibold text-white sm:text-4xl">From evidence to ongoing research.</h2>
+            <p className="max-w-2xl text-sm leading-6 text-slate-400">Walnut is built around the research process investors repeat before, during, and after a thesis changes.</p>
+          </div>
+          <div className="mt-9 grid gap-3 lg:grid-cols-4">
+            {workflowStages.map(([number, title, body], index) => (
+              <article key={number} className="relative rounded-lg border border-white/10 bg-white/[0.035] p-5">
+                {index < workflowStages.length - 1 ? <div className="absolute -right-2 top-8 hidden h-px w-4 bg-emerald-300/40 lg:block" /> : null}
+                <p className="font-mono text-sm font-semibold text-emerald-300">{number}</p>
+                <h3 className="mt-4 text-base font-semibold uppercase tracking-[0.12em] text-white">{title}</h3>
+                <p className="mt-4 text-sm leading-6 text-slate-400">{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.86fr_1.14fr] lg:items-center">
+          <div>
+            <SectionEyebrow>Why Walnut</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Data is easy to find. Context is harder.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              Most research platforms specialize in one part of the market or leave you to connect the dots yourself. Walnut evaluates multiple sources together so you can see where the evidence agrees, where it conflicts, and what changed.
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5">
+            <div className="mb-5 flex flex-wrap gap-2">
+              {whySources.map((source) => (
+                <span key={source} className="rounded border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-xs font-semibold text-slate-300">
+                  {source}
+                </span>
+              ))}
+            </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              {whySteps.map((step, index) => (
+                <div key={step} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                  <p className="font-mono text-xs font-semibold text-slate-500">0{index + 1}</p>
+                  <p className="mt-3 text-sm font-semibold uppercase tracking-[0.12em] text-white">{step}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-4xl">
+            <SectionEyebrow>Follow the Activity</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Research the people and institutions behind the market.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              Ticker research is only one side of Walnut. Explore the trading, holdings, and contract activity behind members of Congress, corporate insiders, institutions, and government departments.
+            </p>
+          </div>
+          <div className="mt-9 grid gap-4 lg:grid-cols-4">
+            {followActivityCards.map((card) => (
+              <article key={card.title} className="group flex min-h-full flex-col overflow-hidden rounded-lg border border-white/10 bg-slate-950/85 shadow-2xl shadow-black/20 transition hover:border-emerald-300/30">
+                <div className="border-b border-white/10 bg-white/[0.025] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-300">{card.eyebrow}</p>
+                    <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.7)]" />
+                  </div>
+                  <div className="mt-4 flex items-end justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">{card.primary}</p>
+                      <p className="mt-1 text-xs text-slate-500">{card.metric}</p>
+                    </div>
+                    <div className="flex h-12 w-12 shrink-0 items-end gap-1">
+                      <span className="h-5 flex-1 rounded-t bg-emerald-300/35" />
+                      <span className="h-9 flex-1 rounded-t bg-cyan-300/35" />
+                      <span className="h-7 flex-1 rounded-t bg-violet-300/35" />
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-0 divide-y divide-white/10">
+                    {card.rows.map(([name, activity, value]) => (
+                      <div key={`${card.title}-${name}-${activity}`} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_auto] items-center gap-2 py-2 text-[11px]">
+                        <span className="truncate font-semibold text-slate-200">{name}</span>
+                        <span className="truncate text-slate-400">{activity}</span>
+                        <span className="font-mono text-emerald-200">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-1 flex-col p-5">
+                  <h3 className="text-lg font-semibold text-white">{card.title}</h3>
+                  <p className="mt-3 flex-1 text-sm leading-6 text-slate-400">{card.body}</p>
+                  <a href={card.href} className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+                    <span>{card.cta}</span>
+                    <span aria-hidden="true">&rarr;</span>
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="outcomes" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+          <div>
+            <SectionEyebrow>Outcomes</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Research that can be evaluated after the fact.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              Walnut preserves confirmation judgments at the time they are made and tracks what happens afterward, creating a historical record of how different levels and types of confirmation performed.
+            </p>
+          </div>
+          <figure className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/90 p-2 shadow-2xl shadow-black/40" data-outcomes-screenshot="confirmation-events">
+            <div className="overflow-x-auto [scrollbar-width:thin]">
+              <img
+                src={outcomesProductScreenshot}
+                alt="Walnut Markets Outcomes confirmation events table showing preserved confirmation events with opened date, opened score, direction, entry price, 7 day, 30 day, 90 day, 180 day, 365 day returns, and status."
+                width={1806}
+                height={871}
+                className="h-auto min-w-[980px] rounded-md border border-white/10 lg:min-w-0 lg:w-full"
+              />
+            </div>
+            <figcaption className="px-2 py-3 text-xs leading-5 text-slate-400">
+              Real Outcomes view showing confirmation judgments preserved at opening and measured after the fact. Scores are research context, not predictions of future performance.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div>
+            <SectionEyebrow>Research Memory - Coming Soon</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Your thesis shouldn't disappear when you close the tab.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              Capture why you're interested in a stock, the catalysts you expect, the risks you're watching, and what would invalidate your thesis. As the evidence changes, Walnut will help you return to the original reasoning behind the decision.
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <p className="font-mono text-lg font-semibold text-emerald-300">NVDA</p>
+                <p className="text-sm font-semibold text-white">Research Thesis</p>
+              </div>
+              <span className="rounded border border-amber-300/25 bg-amber-300/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">Coming Soon</span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {[
+                ["Thesis", "AI infrastructure spending and continued accelerator demand support durable earnings growth."],
+                ["Expected catalysts", "Next earnings report; Blackwell demand; data center revenue growth."],
+                ["Risks", "Valuation compression; hyperscaler CapEx slowdown; competitive pressure."],
+                ["Thesis invalidation", "Material deterioration in AI infrastructure demand or sustained margin compression."],
+                ["Time horizon", "12-24 months"],
+                ["Status", "Thesis intact"],
+                ["What changed", "Example placeholder research update."],
+              ].map(([label, body]) => (
+                <div key={label} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-200">{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div>
+            <SectionEyebrow>Walnut Strategies - Coming Soon</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">From individual trends to repeatable strategies.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              Walnut Strategies will use Walnut's historical datasets to identify and evaluate repeatable investment approaches based on combinations of real market activity and historical outcomes.
+            </p>
+            <p className="mt-4 text-sm leading-6 text-slate-500">These are not generic AI-generated stock strategies. The long-term product is structured around Walnut data and historical outcomes.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {strategyConcepts.map(([title, type, value, status]) => (
+              <article key={title} className="rounded-lg border border-white/10 bg-slate-950/85 p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{type}</p>
+                <h3 className="mt-3 text-lg font-semibold text-white">{title}</h3>
+                <div className="mt-5 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.045] p-4">
+                  <p className="font-mono text-3xl font-semibold text-emerald-200">{value}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{status}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="max-w-3xl">
+            <SectionEyebrow>Feature Depth</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">The broader Walnut research surface.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Once the core research workflow is clear, Walnut gives investors access to the individual utilities and datasets that support it.</p>
+          </div>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {featureDepthItems.map(([title, body]) => (
+              <article key={title} className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                <h3 className="text-sm font-semibold text-white">{title}</h3>
+                <p className={`mt-2 text-xs leading-5 ${body === "Coming Soon" ? "text-amber-200" : "text-slate-400"}`}>{body}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>
@@ -1018,7 +1287,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={premiumPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Make better stock decisions by evaluating fundamentals, price and volume, Congress activity, insider activity, catalysts, risks, and Walnut&apos;s proprietary confirmation score.
+                Support stock research by evaluating fundamentals, price and volume, Congress activity, insider activity, catalysts, risks, and Walnut&apos;s proprietary confirmation score.
               </p>
             </article>
             <article className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.035] p-6">
@@ -1046,6 +1315,23 @@ export default async function LandingPage() {
               className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
             >
               Login / Register
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-6 sm:p-8">
+          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
+            <div>
+              <SectionEyebrow>Start Research</SectionEyebrow>
+              <h2 className="mt-3 max-w-3xl text-3xl font-semibold text-white sm:text-4xl">Before the next trade, check whether the evidence agrees.</h2>
+            </div>
+            <a
+              href={researchStartUrl}
+              className="inline-flex shrink-0 items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+            >
+              Run a Stock Through Walnut
             </a>
           </div>
         </div>

@@ -71,7 +71,7 @@ test("feed page adds compact search intro above global search", () => {
   assert.match(pageClient, /className="mt-8 flex flex-col items-center gap-2 text-center sm:mt-9 lg:mt-10"/);
   assert.doesNotMatch(pageClient, /<h1 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h1>/);
   assert.match(pageClient, /<h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h2>/);
-  assert.match(read("components/landing/LandingSearch.tsx"), /className="relative z-\[80\][\s\S]*z-\[1400\]/);
+  assert.match(read("components/landing/LandingSearch.tsx"), /relative z-\[80\][\s\S]*z-\[1400\]/);
 
   assert.match(fallback, /Search Walnut Markets/);
   assert.match(fallback, /Search stocks\. Follow the insiders\./);

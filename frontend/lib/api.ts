@@ -4473,6 +4473,12 @@ export type DepartmentTrendPoint = {
   contractCount: number;
 };
 
+export type DepartmentBreakdownItem = {
+  label: string;
+  value: number;
+  count: number;
+};
+
 export type DepartmentProfileResponse = {
   slug: string;
   name: string;
@@ -4489,6 +4495,9 @@ export type DepartmentProfileResponse = {
   recentContracts: DepartmentContractItem[];
   largestContracts: DepartmentContractItem[];
   trend?: DepartmentTrendPoint[];
+  categoryBreakdown?: DepartmentBreakdownItem[];
+  typeBreakdown?: DepartmentBreakdownItem[];
+  topPrograms?: DepartmentBreakdownItem[];
 };
 
 export type DepartmentListResponse = {

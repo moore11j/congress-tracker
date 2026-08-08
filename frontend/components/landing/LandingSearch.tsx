@@ -7,6 +7,11 @@ import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref }
 
 type LandingSearchProps = {
   appUrl: string;
+  buttonLabel?: string;
+  buttonOutside?: boolean;
+  className?: string;
+  featuredSuggestion?: SearchSuggestResult;
+  placeholder?: string;
 };
 
 const resultLimit = 6;
@@ -35,14 +40,34 @@ function SearchIcon() {
   );
 }
 
-export function LandingSearch({ appUrl }: LandingSearchProps) {
+export function LandingSearch({
+  appUrl,
+  buttonLabel = "Search",
+  buttonOutside = false,
+  className = "",
+  featuredSuggestion,
+  placeholder = "Search tickers, institutions, members, departments...",
+}: LandingSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const trimmedQuery = query.trim();
   const suggest = useFastSearchSuggest(trimmedQuery, { limit: resultLimit, minLength: minQueryLength, source: "LandingSearch" });
-  const results = suggest.results.filter((result) => result.href && result.label);
+  const results = useMemo(() => {
+    const remoteResults = suggest.results.filter((result) => result.href && result.label);
+    if (!featuredSuggestion || trimmedQuery.length < minQueryLength) return remoteResults;
+    const queryKey = trimmedQuery.toLowerCase();
+    const featuredSymbol = (featuredSuggestion.symbol || featuredSuggestion.id).toLowerCase();
+    const featuredLabel = featuredSuggestion.label.toLowerCase();
+    const shouldShowFeatured = featuredSymbol.startsWith(queryKey) || featuredLabel.includes(queryKey);
+    if (!shouldShowFeatured) return remoteResults;
+    const withoutDuplicate = remoteResults.filter((result) => {
+      const resultSymbol = (result.symbol || result.id).toLowerCase();
+      return result.kind !== featuredSuggestion.kind || resultSymbol !== featuredSymbol;
+    });
+    return [featuredSuggestion, ...withoutDuplicate].slice(0, resultLimit);
+  }, [featuredSuggestion, suggest.results, trimmedQuery]);
   const bestResult = useMemo(() => {
     const exactTicker = results.find((result) => result.kind === "ticker" && result.symbol?.toUpperCase() === trimmedQuery.toUpperCase());
     return exactTicker ?? results[0];
@@ -81,10 +106,20 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
     window.location.href = absoluteAppHref(appUrl, searchResultsHref(trimmedQuery));
   }
 
+  const formClassName = buttonOutside
+    ? "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch"
+    : "grid gap-3 rounded-lg border border-emerald-300/25 bg-slate-950/80 p-2 shadow-2xl shadow-black/25 ring-1 ring-white/10 sm:grid-cols-[1fr_auto]";
+  const inputShellClassName = buttonOutside
+    ? "flex min-w-0 items-center gap-3 rounded-lg border border-emerald-300/25 bg-slate-950/80 px-4 py-3 shadow-2xl shadow-black/25 ring-1 ring-white/10"
+    : "flex min-w-0 items-center gap-3 rounded-md bg-white/[0.035] px-3 py-3";
+  const buttonClassName = buttonOutside
+    ? "rounded-lg bg-emerald-300 px-6 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+    : "rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15";
+
   return (
-    <div ref={rootRef} className="relative z-[80] mx-auto mt-4 w-full max-w-2xl sm:mt-8">
-      <form onSubmit={submit} className="grid gap-3 rounded-lg border border-emerald-300/25 bg-slate-950/80 p-2 shadow-2xl shadow-black/25 ring-1 ring-white/10 sm:grid-cols-[1fr_auto]">
-        <label className="flex min-w-0 items-center gap-3 rounded-md bg-white/[0.035] px-3 py-3">
+    <div ref={rootRef} className={`relative z-[80] w-full ${className || "mx-auto mt-4 max-w-2xl sm:mt-8"}`}>
+      <form onSubmit={submit} className={formClassName}>
+        <label className={inputShellClassName}>
           <SearchIcon />
           <input
             value={query}
@@ -92,13 +127,13 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
             onFocus={() => {
               if (trimmedQuery.length >= minQueryLength) setOpen(true);
             }}
-            placeholder="Search tickers, institutions, members, departments..."
+            placeholder={placeholder}
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500/40"
             aria-label="Search Walnut Market Terminal"
           />
         </label>
-        <button type="submit" className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
-          Search
+        <button type="submit" className={buttonClassName}>
+          {buttonLabel}
         </button>
       </form>
 

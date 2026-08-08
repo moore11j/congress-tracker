@@ -296,6 +296,9 @@ def get_department_profile(db: Session, slug: str, *, limit: int = 10) -> dict[s
         "recentContracts": recent_contracts,
         "largestContracts": largest_contracts,
         "trend": _trend_payload(summary_rows),
+        "categoryBreakdown": _category_breakdown_payload(summary_rows),
+        "typeBreakdown": _type_breakdown_payload(summary_rows),
+        "topPrograms": _top_programs_payload(summary_rows),
     }
 
 
@@ -385,6 +388,75 @@ def _company_names_for_symbols(db: Session, symbols: list[str | None]) -> dict[s
         if symbol and name and symbol not in names:
             names[str(symbol).upper()] = name
     return names
+
+
+_CATEGORY_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Aircraft, Ships & Vehicles", ("aircraft", "fighter", "helicopter", "airframe", "ship", "submarine", "vehicle", "tanker", "engine")),
+    ("Research & Development", ("research", "development", "engineering", "prototype", "test", "evaluation", "modernization")),
+    ("IT & Software Services", ("software", "cloud", "cyber", "information technology", "systems", "data", "network")),
+    ("Missiles & Munitions", ("missile", "munition", "weapon", "ordnance", "propulsion", "rocket", "ammunition")),
+    ("Construction & Facilities", ("construction", "facility", "facilities", "steel", "building", "infrastructure", "repair")),
+)
+
+
+def _category_for_row(row: Any) -> str:
+    text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(row, "description", None),
+            getattr(row, "awarding_sub_agency", None),
+            getattr(row, "contract_type", None),
+            getattr(row, "action_type", None),
+        )
+    ).casefold()
+    for label, keywords in _CATEGORY_RULES:
+        if any(keyword in text for keyword in keywords):
+            return label
+    return "Other Services"
+
+
+def _rollup_payload(rows: list[Any], label_for_row: Any, *, limit: int = 6) -> list[dict[str, Any]]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        label = str(label_for_row(row) or "").strip() or "Other"
+        bucket = buckets.setdefault(label, {"label": label, "value": 0.0, "count": 0})
+        bucket["value"] += _row_amount(row) or 0.0
+        bucket["count"] += 1
+
+    items = sorted(buckets.values(), key=lambda item: (-(item.get("value") or 0.0), item.get("label") or ""))
+    for item in items:
+        item["value"] = round(float(item["value"] or 0.0), 2)
+    return items[: max(1, min(int(limit or 6), 20))]
+
+
+def _category_breakdown_payload(rows: list[Any]) -> list[dict[str, Any]]:
+    return _rollup_payload(rows, _category_for_row, limit=6)
+
+
+def _type_label_for_row(row: Any) -> str:
+    value = getattr(row, "contract_type", None) or getattr(row, "action_type", None)
+    cleaned = str(value or "").replace("_", " ").strip()
+    if not cleaned:
+        return "Other"
+    return cleaned.title()
+
+
+def _type_breakdown_payload(rows: list[Any]) -> list[dict[str, Any]]:
+    return _rollup_payload(rows, _type_label_for_row, limit=6)
+
+
+def _program_label_for_row(row: Any) -> str:
+    description = str(getattr(row, "description", None) or "").strip()
+    if description:
+        cleaned = re.sub(r"\s+", " ", description)
+        cleaned = re.sub(r"^(the purpose of this modification is to award|award|exercise option for)\s+", "", cleaned, flags=re.IGNORECASE)
+        return cleaned[:72].rstrip(" ,.;:-")
+    agency = str(getattr(row, "awarding_sub_agency", None) or "").strip()
+    return agency or "Program unavailable"
+
+
+def _top_programs_payload(rows: list[Any]) -> list[dict[str, Any]]:
+    return _rollup_payload(rows, _program_label_for_row, limit=5)
 
 
 def _contract_payload(row: GovernmentContract | GovernmentContractAction, department: str, company_names: dict[str, str]) -> dict[str, Any]:

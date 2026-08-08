@@ -50,6 +50,7 @@ def test_department_profile_aggregates_tickers_and_actions():
             period_start=date(2026, 4, 15),
             period_end=date(2027, 4, 14),
             description="Mission systems support",
+            contract_type="cost plus award fee",
             source="local",
         )
     )
@@ -66,6 +67,7 @@ def test_department_profile_aggregates_tickers_and_actions():
             action_date=date(2026, 4, 20),
             obligated_amount=3_000_000,
             description="Incremental mission systems funding",
+            action_type="supplemental funding",
             source="local",
         )
     )
@@ -81,6 +83,9 @@ def test_department_profile_aggregates_tickers_and_actions():
     assert profile["tickers"][0]["companyName"] == "Lockheed Martin Corporation"
     assert profile["recentContracts"][0]["amount"] == 3_000_000
     assert profile["recentContracts"][0]["department"] == "Department of Defense"
+    assert profile["categoryBreakdown"][0]["label"] == "IT & Software Services"
+    assert profile["typeBreakdown"][0]["label"] == "Cost Plus Award Fee"
+    assert profile["topPrograms"][0]["label"] == "Mission systems support"
 
 
 def test_department_suggestions_include_department_routes():
