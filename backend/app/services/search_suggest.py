@@ -32,6 +32,11 @@ from app.request_priority import get_request_context
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_departments import department_suggestions
 from app.services.ticker_identity import safe_company_identity_candidate
+from app.services.universal_search import (
+    record_search_query,
+    search_entities as universal_search_entities,
+    search_entity_count,
+)
 from app.utils.symbols import normalize_symbol, symbol_variants
 
 logger = logging.getLogger(__name__)
@@ -51,7 +56,7 @@ class SearchPersonalization:
 
 
 _personalization_cache: dict[int, tuple[float, SearchPersonalization]] = {}
-_anonymous_suggestion_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+_anonymous_suggestion_cache: dict[tuple[str, int, bool, str], tuple[float, dict[str, Any]]] = {}
 _anonymous_suggestion_cache_lock = threading.Lock()
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _TICKER_QUERY_RE = re.compile(r"^[A-Z][A-Z0-9]{0,5}(?:[./-][A-Z])?$")
@@ -1083,6 +1088,40 @@ def search_suggestions(
             cached = _anonymous_suggestion_cache.get(cache_key)
             if cached and now - cached[0] <= ANONYMOUS_SEARCH_CACHE_TTL_SECONDS:
                 return cached[1]
+
+    try:
+        if search_entity_count(db) > 0:
+            indexed_items = universal_search_entities(db, query, limit=bounded_limit)
+            if include_events and len(indexed_items) < bounded_limit:
+                indexed_items.extend(_event_suggestions(db, query, bounded_limit - len(indexed_items)))
+            indexed_items = indexed_items[:bounded_limit]
+            duration_ms = (perf_counter() - started_at) * 1000
+            payload = {"items": indexed_items, "results": indexed_items, "query": query}
+            record_search_query(
+                db,
+                query,
+                result_count=len(indexed_items),
+                top_result_type=str(indexed_items[0].get("kind")) if indexed_items else None,
+                latency_ms=duration_ms,
+            )
+            context = get_request_context() or {}
+            logger.info(
+                "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s mode=%s provider=search_entities db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
+                duration_ms,
+                len(query),
+                len(indexed_items),
+                normalized_mode,
+                context.get("db_query_count"),
+                context.get("db_checkout_count"),
+                context.get("db_checkout_slow_count"),
+            )
+            if user_id is None:
+                with _anonymous_suggestion_cache_lock:
+                    _anonymous_suggestion_cache[cache_key] = (perf_counter(), payload)
+            return payload
+    except Exception:
+        db.rollback()
+        logger.exception("search_entities_provider_failed query_length=%s fallback=legacy", len(query))
 
     exact_ticker = _exact_ticker_suggestion(db, query)
     if exact_ticker is not None:

@@ -876,7 +876,7 @@ export default async function LandingPage() {
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis.
             </p>
-            <LandingSearch appUrl={appUrl} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search ticker or company..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
+            <LandingSearch appUrl={appUrl} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
             <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
               <span>See How It Works</span>
               <span aria-hidden="true">&darr;</span>

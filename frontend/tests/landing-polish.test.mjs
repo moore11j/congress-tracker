@@ -5,6 +5,7 @@ import test from "node:test";
 
 const root = process.cwd();
 const landingPage = fs.readFileSync(path.join(root, "app/landing/page.tsx"), "utf8");
+const landingSearch = fs.readFileSync(path.join(root, "components/landing/LandingSearch.tsx"), "utf8");
 const faqPage = fs.readFileSync(path.join(root, "app/faq/page.tsx"), "utf8");
 const legalShell = fs.readFileSync(path.join(root, "components/landing/LegalPageShell.tsx"), "utf8");
 const legalPageChrome = fs.readFileSync(path.join(root, "lib/legalPageChrome.ts"), "utf8");
@@ -86,7 +87,8 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis\./);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
-  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search ticker or company\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Through Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingSearch, /Search tickers, companies, Congress members, insiders, institutions, departments\.\.\./);
   assert.match(landingPage, /See How It Works/);
   assert.match(landingPage, /href="#how-it-works"/);
   assert.match(landingPage, /heroEvidenceSources\.map/);

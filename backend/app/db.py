@@ -2628,6 +2628,38 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         logger.info("institutional_activity_schema_ensure_complete table_count=%s", len(tables))
 
 
+def ensure_search_entities_schema(bind=engine) -> None:
+    from app.models import SearchEntity, SearchQueryLog
+
+    tables = [SearchEntity.__table__, SearchQueryLog.__table__]
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        Base.metadata.create_all(bind=conn, tables=tables)
+        if dialect_name == "postgresql":
+            try:
+                with conn.begin_nested():
+                    conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_search_entities_normalized_trgm "
+                            "ON search_entities USING gin (normalized_search_text gin_trgm_ops)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_search_entities_compact_trgm "
+                            "ON search_entities USING gin (compact_search_text gin_trgm_ops)"
+                        )
+                    )
+            except SQLAlchemyError as exc:
+                logger.warning(
+                    "search_entities_trgm_index_skipped reason=%s",
+                    _optional_index_skip_reason(exc),
+                )
+        logger.info("search_entities_schema_ensure_complete table_count=%s", len(tables))
+
+
 def ensure_event_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return

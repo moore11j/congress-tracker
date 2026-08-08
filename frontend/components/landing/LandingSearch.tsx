@@ -46,7 +46,7 @@ export function LandingSearch({
   buttonOutside = false,
   className = "",
   featuredSuggestion,
-  placeholder = "Search tickers, institutions, members, departments...",
+  placeholder = "Search tickers, companies, Congress members, insiders, institutions, departments...",
 }: LandingSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);

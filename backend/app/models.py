@@ -1759,6 +1759,54 @@ class TickerMeta(Base):
     )
 
 
+class SearchEntity(Base):
+    __tablename__ = "search_entities"
+    __table_args__ = (
+        UniqueConstraint("entity_id", name="uq_search_entities_entity_id"),
+        Index("ix_search_entities_type", "entity_type"),
+        Index("ix_search_entities_ticker", "ticker"),
+        Index("ix_search_entities_normalized", "normalized_search_text"),
+        Index("ix_search_entities_compact", "compact_search_text"),
+        Index("ix_search_entities_updated", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_id: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_table: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    canonical_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ticker: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    aliases_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    keywords_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    subtitle: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    canonical_url: Mapped[str] = mapped_column(Text, nullable=False)
+    popularity_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_search_text: Mapped[str] = mapped_column(Text, nullable=False)
+    compact_search_text: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SearchQueryLog(Base):
+    __tablename__ = "search_query_logs"
+    __table_args__ = (
+        Index("ix_search_query_logs_created", "created_at"),
+        Index("ix_search_query_logs_normalized_created", "normalized_query", "created_at"),
+        Index("ix_search_query_logs_result_count", "result_count"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_query: Mapped[str] = mapped_column(Text, nullable=False)
+    result_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    top_result_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class FundamentalsCache(Base):
     __tablename__ = "fundamentals_cache"
     __table_args__ = (
