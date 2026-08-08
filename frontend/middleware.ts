@@ -14,6 +14,7 @@ const publicStaticPaths = new Set([
   "/terms",
   "/privacy",
   "/faq",
+  "/contact",
   "/congress-trades",
   "/insider-trading-tracker",
   "/insider-trading-analysis-software",

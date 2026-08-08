@@ -6,7 +6,9 @@ import test from "node:test";
 const root = process.cwd();
 const landingPage = fs.readFileSync(path.join(root, "app/landing/page.tsx"), "utf8");
 const landingSearch = fs.readFileSync(path.join(root, "components/landing/LandingSearch.tsx"), "utf8");
+const marketingHeader = fs.readFileSync(path.join(root, "components/landing/MarketingHeader.tsx"), "utf8");
 const faqPage = fs.readFileSync(path.join(root, "app/faq/page.tsx"), "utf8");
+const contactPage = fs.readFileSync(path.join(root, "app/contact/page.tsx"), "utf8");
 const legalShell = fs.readFileSync(path.join(root, "components/landing/LegalPageShell.tsx"), "utf8");
 const legalPageChrome = fs.readFileSync(path.join(root, "lib/legalPageChrome.ts"), "utf8");
 const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
@@ -39,28 +41,32 @@ test("landing removes standalone tool promos but preserves access paths", () => 
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Congress &amp; Insider Profiles<\/SectionEyebrow>/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Stock Comparison Tool<\/SectionEyebrow>/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
-  assert.match(landingPage, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
-  assert.match(landingPage, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
-  assert.match(landingPage, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
-  assert.match(landingPage, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
+  assert.match(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.match(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.match(marketingHeader, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
+  assert.match(marketingHeader, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
 });
 
 test("landing mobile header uses feed-style login instead of terminal launch", () => {
   assert.match(
-    landingPage,
-    /href=\{loginUrl\}\s+className="whitespace-nowrap rounded-lg border border-emerald-300\/30 bg-emerald-300\/10 px-3 py-1\.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300\/15 md:hidden"[\s\S]*?Login \/ Register/,
+    marketingHeader,
+    /href=\{`\$\{appUrl\}\/login`\}\s+className="whitespace-nowrap rounded-lg border border-emerald-300\/30 bg-emerald-300\/10 px-3 py-1\.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300\/15 md:hidden"[\s\S]*?Login \/ Register/,
   );
   assert.match(
-    landingPage,
+    marketingHeader,
     /href=\{appUrl\}\s+className="hidden rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950\/30 transition hover:bg-emerald-200 md:inline-flex"[\s\S]*?Launch Terminal/,
   );
 });
 
 test("landing header dropdowns layer above page content", () => {
-  assert.match(landingPage, /<header className="sticky top-0 isolate z-\[8000\][\s\S]*style=\{\{ zIndex: 8000 \}\}/);
-  assert.match(landingPage, /<details className="group relative isolate z-\[9000\]" style=\{\{ zIndex: 9000 \}\}>[\s\S]*z-\[10000\][\s\S]*bg-\[#030712\][\s\S]*style=\{\{ zIndex: 10000 \}\}[\s\S]*Research tools/);
-  assert.match(landingPage, /<details className="group relative isolate z-\[9000\] lg:hidden" style=\{\{ zIndex: 9000 \}\}>[\s\S]*z-\[10000\][\s\S]*bg-\[#030712\]/);
-  assert.doesNotMatch(landingPage, /bg-slate-950\/96/);
+  assert.match(landingPage, /<MarketingHeader pricingHref="#pricing" \/>/);
+  assert.match(legalShell, /<MarketingHeader \/>/);
+  assert.match(marketingHeader, /<header className="sticky top-0 isolate z-\[8000\][\s\S]*style=\{\{ zIndex: 8000 \}\}/);
+  assert.match(marketingHeader, /<DesktopMenu label="Profiles" heading="Profiles" items=\{profilesNavLinks\} \/>/);
+  assert.match(marketingHeader, /<DesktopMenu label="Tools" heading="Research tools" items=\{toolsNavLinks\} \/>/);
+  assert.match(marketingHeader, /<DesktopMenu label="Company" heading="Company" items=\{companyNavLinks\} \/>/);
+  assert.match(marketingHeader, /z-\[10000\][\s\S]*bg-\[#030712\]/);
+  assert.doesNotMatch(marketingHeader, /bg-slate-950\/96/);
   assert.match(landingSearch, /relative z-\[80\][\s\S]*z-\[1400\]/);
 });
 
@@ -69,26 +75,25 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /View Congress Trades/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
   assert.doesNotMatch(landingPage, /\["Trends", "#signals"\]/);
-  assert.match(landingPage, /\{ label: "Feed", href: researchStartUrl \}/);
-  assert.match(landingPage, /\{ label: "Insights", href: `\$\{appUrl\}\/insights` \}/);
-  assert.match(landingPage, /\{ label: "Profiles", href: `\$\{appUrl\}\/profiles` \}/);
-  assert.match(landingPage, /\{ label: "Signals", href: `\$\{appUrl\}\/signals` \}/);
-  assert.match(landingPage, /\{ label: "Outcomes", href: `\$\{appUrl\}\/outcomes` \}/);
-  assert.match(landingPage, /\{ label: "Leaderboards", href: `\$\{appUrl\}\/leaderboards\/congress-traders` \}/);
-  assert.match(landingPage, /\{ label: "Pricing", href: "#pricing" \}/);
-  assert.match(landingPage, /Feed[\s\S]*Insights[\s\S]*Profiles[\s\S]*Signals[\s\S]*Outcomes[\s\S]*Leaderboards[\s\S]*Pricing/);
-  assert.match(landingPage, /const navLinksBeforeToolsCount = 6/);
-  assert.match(landingPage, /navLinks\.slice\(0, navLinksBeforeToolsCount\)[\s\S]*<DesktopToolsMenu \/>[\s\S]*navLinks\.slice\(navLinksBeforeToolsCount\)/);
+  assert.match(marketingHeader, /\{ label: "Feed", href: `\$\{appUrl\}\/feed` \}/);
+  assert.match(marketingHeader, /\{ label: "Insights", href: `\$\{appUrl\}\/insights` \}/);
+  assert.match(marketingHeader, /\{ label: "Signals", href: `\$\{appUrl\}\/signals` \}/);
+  assert.match(marketingHeader, /\{ label: "Outcomes", href: `\$\{appUrl\}\/outcomes` \}/);
+  assert.match(marketingHeader, /\{ label: "Leaderboards", href: `\$\{appUrl\}\/leaderboards\/congress-traders` \}/);
+  assert.match(marketingHeader, /<LandingNavLink href=\{pricingHref\} label="Pricing" \/>/);
+  assert.match(marketingHeader, /const profilesNavLinks = \[[\s\S]*\{ label: "Overview", href: `\$\{appUrl\}\/profiles`[\s\S]*\{ label: "Congress", href: `\$\{appUrl\}\/members`[\s\S]*\{ label: "Insiders", href: `\$\{appUrl\}\/insiders`[\s\S]*\{ label: "Institutions", href: `\$\{appUrl\}\/institutions`[\s\S]*\{ label: "Departments", href: `\$\{appUrl\}\/departments`/);
+  assert.match(marketingHeader, /const companyNavLinks = \[[\s\S]*\{ label: "About", href: "\/about"[\s\S]*\{ label: "FAQ", href: "\/faq"[\s\S]*\{ label: "Contact", href: "\/contact"[\s\S]*\{ label: "Terms", href: "\/terms"[\s\S]*\{ label: "Privacy", href: "\/privacy"/);
+  assert.match(marketingHeader, /<span>\{label\}<\/span>[\s\S]*&#9662;/);
+  assert.match(marketingHeader, /<NavMenuItems items=\{companyNavLinks\} mobile \/>/);
   assert.doesNotMatch(landingPage, /\["Congress", "#congress"\]|\["Insiders", "#insiders"\]|\["Stock Comparisons", "#compare"\]|\["Stock Screener", "#screener"\]/);
-  assert.match(landingPage, /const toolsNavLinks = \[/);
-  assert.match(landingPage, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
-  assert.match(landingPage, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
-  assert.match(landingPage, /\{ label: "Backtesting", href: `\$\{appUrl\}\/backtesting`/);
-  assert.match(landingPage, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
-  assert.match(landingPage, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
-  assert.match(landingPage, /\{ label: "Strategies", comingSoon: true/);
-  assert.match(landingPage, /<DesktopToolsMenu \/>/);
-  assert.match(landingPage, /<MobileNavigationMenu \/>/);
+  assert.match(marketingHeader, /const toolsNavLinks = \[/);
+  assert.match(marketingHeader, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
+  assert.match(marketingHeader, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
+  assert.match(marketingHeader, /\{ label: "Backtesting", href: `\$\{appUrl\}\/backtesting`/);
+  assert.match(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.match(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.match(marketingHeader, /\{ label: "Strategies", comingSoon: true/);
+  assert.match(landingPage, /<MarketingHeader pricingHref="#pricing" \/>/);
   assert.match(landingPage, /<section id="insights"/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Feature Depth<\/SectionEyebrow>/);
@@ -195,16 +200,23 @@ test("landing macro rows resolve Core CPI by label variants", () => {
 });
 
 test("public legal navigation includes FAQ across landing and legal shell", () => {
-  assert.match(landingPage, /\{ label: "FAQ", href: "\/faq" \}/);
-  assert.match(legalShell, /href="\/faq"[\s\S]*?FAQ/);
+  assert.match(marketingHeader, /\{ label: "FAQ", href: "\/faq"/);
+  assert.match(marketingHeader, /\{ label: "Contact", href: "\/contact"/);
+  assert.match(legalShell, /<MarketingHeader \/>/);
+  assert.match(legalShell, /href="\/contact"[\s\S]*?Contact \/ support@walnutmarkets\.com/);
   assert.match(legalShell, /chrome\?: "public" \| "embedded"/);
   assert.match(legalShell, /if \(chrome === "embedded"\)/);
+  assert.match(contactPage, /action="mailto:support@walnutmarkets.com"/);
+  assert.match(contactPage, /<option value="Feedback">Feedback<\/option>/);
+  assert.match(contactPage, /<option value="Reporting a bug">Reporting a bug<\/option>/);
+  assert.match(contactPage, /<option value="Requesting a new feature">Requesting a new feature<\/option>/);
+  assert.match(contactPage, /<option value="General inquiry">General inquiry<\/option>/);
   assert.match(legalPageChrome, /publicLandingHosts\.has\(host\) \? "public" : "embedded"/);
   assert.match(legalPageChrome, /new Set\(\["walnutmarkets\.com"\]\)/);
   assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
   assert.match(faqPage, /chrome=\{chrome\}/);
   assert.match(middleware, /const publicStaticPaths = new Set\(\[/);
-  for (const route of ["/landing", "/about", "/pricing", "/terms", "/privacy", "/faq", "/congress-trades", "/insider-trading-tracker"]) {
+  for (const route of ["/landing", "/about", "/pricing", "/terms", "/privacy", "/faq", "/contact", "/congress-trades", "/insider-trading-tracker"]) {
     assert.match(middleware, new RegExp(`"${route}"`));
   }
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);

@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
-import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { MarketingHeader } from "@/components/landing/MarketingHeader";
 import { WALNUT_REDDIT_URL, WALNUT_X_HANDLE, WALNUT_X_URL } from "@/lib/marketingMetadata";
-
-const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 
 type LegalPageShellProps = {
   eyebrow: string;
@@ -33,39 +31,7 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
 
   return (
     <main className="min-h-screen bg-[#030712] text-slate-100">
-      <header className="border-b border-white/10 bg-slate-950/88">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
-            <WalnutBrandMark
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-300/35 bg-slate-950 shadow-[0_0_28px_rgba(16,185,129,0.18)]"
-              svgClassName="h-6 w-6 overflow-visible"
-            />
-            <span className="leading-none">
-              <span className="block whitespace-nowrap text-base font-semibold text-white">Walnut</span>
-              <span className="mt-1 block whitespace-nowrap text-[11px] font-medium text-slate-400">Market Terminal</span>
-            </span>
-          </a>
-          <div className="flex items-center gap-3 text-sm font-medium">
-            <nav className="hidden items-center gap-3 text-slate-300 sm:flex" aria-label="Public pages">
-              <a href="/about" className="hover:text-white">
-                About
-              </a>
-              <a href="/faq" className="hover:text-white">
-                FAQ
-              </a>
-              <a href="/privacy" className="hover:text-white">
-                Privacy
-              </a>
-              <a href="/terms" className="hover:text-white">
-                Terms
-              </a>
-            </nav>
-            <a href={appUrl} className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-              Launch Terminal
-            </a>
-          </div>
-        </div>
-      </header>
+      <MarketingHeader />
 
       {content}
 
@@ -93,7 +59,7 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
             <a href="/privacy" className="hover:text-white">
               Privacy
             </a>
-            <a href="mailto:support@walnutmarkets.com" className="hover:text-white">
+            <a href="/contact" className="hover:text-white">
               Contact / support@walnutmarkets.com
             </a>
             <a href={WALNUT_X_URL} target="_blank" rel="noreferrer" className="hover:text-white">

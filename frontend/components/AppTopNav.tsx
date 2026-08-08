@@ -38,6 +38,14 @@ const toolsNavGroups = [
   },
 ] as const;
 
+const companyNavItems = [
+  { href: "/about", label: "About", icon: "•", description: "Who operates Walnut Markets" },
+  { href: "/faq", label: "FAQ", icon: "•", description: "Answers about data, billing, privacy, and support" },
+  { href: "/contact", label: "Contact", icon: "•", description: "Feedback, bug reports, feature requests, and inquiries" },
+  { href: "/terms", label: "Terms", icon: "•", description: "Terms of Use" },
+  { href: "/privacy", label: "Privacy", icon: "•", description: "Privacy Policy" },
+] as const;
+
 function isActiveNavLink(pathname: string | null, href: string) {
   const path = pathname || "/";
   if (href === "/?mode=all") return path === "/";
@@ -61,20 +69,29 @@ function isActiveProfilesLink(pathname: string | null) {
   );
 }
 
+function isActiveCompanyLink(pathname: string | null) {
+  return companyNavItems.some((item) => isActiveNavLink(pathname, item.href));
+}
+
 export function AppTopNav() {
   const pathname = usePathname();
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [profilesMenuPosition, setProfilesMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolsMenuPosition, setToolsMenuPosition] = useState<{ left: number; top: number } | null>(null);
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [companyMenuPosition, setCompanyMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const profilesRef = useRef<HTMLDivElement | null>(null);
   const profilesButtonRef = useRef<HTMLButtonElement | null>(null);
   const toolsRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const companyRef = useRef<HTMLDivElement | null>(null);
+  const companyButtonRef = useRef<HTMLButtonElement | null>(null);
   const { scrollRef, canScrollLeft, canScrollRight, updateScrollState } =
     useHorizontalScrollAffordance<HTMLElement>();
   const toolsActive = isActiveToolsLink(pathname);
   const profilesActive = isActiveProfilesLink(pathname);
+  const companyActive = isActiveCompanyLink(pathname);
 
   const updateProfilesMenuPosition = useCallback(() => {
     const rect = profilesButtonRef.current?.getBoundingClientRect();
@@ -92,6 +109,15 @@ export function AppTopNav() {
     const viewportPadding = 16;
     const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
     setToolsMenuPosition({ left, top: rect.bottom + 8 });
+  }, []);
+
+  const updateCompanyMenuPosition = useCallback(() => {
+    const rect = companyButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const menuWidth = 256;
+    const viewportPadding = 16;
+    const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
+    setCompanyMenuPosition({ left, top: rect.bottom + 8 });
   }, []);
 
   useEffect(() => {
@@ -136,6 +162,27 @@ export function AppTopNav() {
     };
   }, [toolsOpen, updateToolsMenuPosition]);
 
+  useEffect(() => {
+    if (!companyOpen) return;
+    updateCompanyMenuPosition();
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (companyRef.current && !companyRef.current.contains(event.target as Node)) setCompanyOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCompanyOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", updateCompanyMenuPosition);
+    window.addEventListener("scroll", updateCompanyMenuPosition, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", updateCompanyMenuPosition);
+      window.removeEventListener("scroll", updateCompanyMenuPosition, true);
+    };
+  }, [companyOpen, updateCompanyMenuPosition]);
+
   function handleProfilesKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -173,6 +220,26 @@ export function AppTopNav() {
     } else if (event.key === "Escape") {
       event.preventDefault();
       setToolsOpen(false);
+    }
+  }
+
+  function handleCompanyKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!companyOpen) setCompanyOpen(true);
+      window.requestAnimationFrame(() => {
+        companyRef.current?.querySelector<HTMLAnchorElement>("[data-company-link]")?.focus();
+      });
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!companyOpen) setCompanyOpen(true);
+      window.requestAnimationFrame(() => {
+        const links = Array.from(companyRef.current?.querySelectorAll<HTMLAnchorElement>("[data-company-link]") ?? []);
+        links[links.length - 1]?.focus();
+      });
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setCompanyOpen(false);
     }
   }
 
@@ -214,6 +281,7 @@ export function AppTopNav() {
                     updateProfilesMenuPosition();
                     setProfilesOpen((open) => !open);
                     setToolsOpen(false);
+                    setCompanyOpen(false);
                   }}
                   className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                     profilesActive || profilesOpen
@@ -221,7 +289,7 @@ export function AppTopNav() {
                       : "text-slate-200 hover:text-white"
                   }`}
                 >
-                  Profiles <span aria-hidden="true">▼</span>
+                  Profiles <span aria-hidden="true">&#9662;</span>
                 </button>
                 {profilesOpen ? (
                   <div
@@ -269,6 +337,8 @@ export function AppTopNav() {
             onClick={() => {
               updateToolsMenuPosition();
               setToolsOpen((open) => !open);
+              setProfilesOpen(false);
+              setCompanyOpen(false);
             }}
             className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
               toolsActive || toolsOpen
@@ -276,7 +346,7 @@ export function AppTopNav() {
                 : "text-slate-200 hover:text-white"
             }`}
           >
-            Tools <span aria-hidden="true">▾</span>
+            Tools <span aria-hidden="true">&#9662;</span>
           </button>
           {toolsOpen ? (
             <div
@@ -333,6 +403,60 @@ export function AppTopNav() {
             </Link>
           );
         })()}
+        <div ref={companyRef} className="relative" onKeyDown={handleCompanyKeyDown}>
+          <button
+            ref={companyButtonRef}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={companyOpen}
+            onClick={() => {
+              updateCompanyMenuPosition();
+              setCompanyOpen((open) => !open);
+              setProfilesOpen(false);
+              setToolsOpen(false);
+            }}
+            className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+              companyActive || companyOpen
+                ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
+                : "text-slate-200 hover:text-white"
+            }`}
+          >
+            Company <span aria-hidden="true">&#9662;</span>
+          </button>
+          {companyOpen ? (
+            <div
+              role="menu"
+              aria-label="Company"
+              style={companyMenuPosition ?? undefined}
+              className="fixed z-[1100] w-64 rounded-md border border-white/10 bg-slate-950/95 p-4 text-sm shadow-2xl shadow-black/40 ring-1 ring-black/20"
+            >
+              <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Company</div>
+              {companyNavItems.map((item) => {
+                const itemActive = isActiveNavLink(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    prefetch={false}
+                    role="menuitem"
+                    data-company-link
+                    aria-current={itemActive ? "page" : undefined}
+                    onClick={() => setCompanyOpen(false)}
+                    className={`grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 rounded-md px-1 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 ${
+                      itemActive ? "bg-emerald-400/15 text-emerald-100" : "text-slate-200 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <span className="pt-0.5 text-lg leading-none text-emerald-300">{item.icon}</span>
+                    <span>
+                      <span className="block font-semibold leading-5 text-white">{item.label}</span>
+                      <span className="mt-0.5 block whitespace-normal text-xs leading-4 text-slate-400">{item.description}</span>
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </nav>
       <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} />
     </div>
