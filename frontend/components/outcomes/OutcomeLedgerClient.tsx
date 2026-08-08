@@ -1175,7 +1175,7 @@ export function OutcomeLedgerClient({
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
   const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
-  const [horizonFilter, setHorizonFilter] = useState("30D");
+  const [horizonFilter, setHorizonFilter] = useState("7D");
   const [directionFilter, setDirectionFilter] = useState("All");
   const [scoreBandFilter, setScoreBandFilter] = useState("All Scores");
   const [methodologyFilter, setMethodologyFilter] = useState("All Methodologies");
