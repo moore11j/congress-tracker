@@ -71,7 +71,7 @@ def profiles_summary(
     insider_previous = _insider_profile_period_metrics(db, since=previous_period_start, before=period_start)
     department_current = _government_contract_period_metrics(db, since=period_start, before=period_end)
     department_previous = _government_contract_period_metrics(db, since=previous_period_start, before=period_start)
-    institutional_current, institutional_previous, institutional_comparison = _institutional_profile_period_metrics(db)
+    institutional_current, institutional_previous, institutional_comparison, institutional_period = _institutional_profile_period_metrics(db)
 
     congress_trade_count = congress_current["trades"]
     active_members = congress_current["active_members"]
@@ -140,6 +140,7 @@ def profiles_summary(
                 "contract_value": contract_value,
                 "institutional_count": institutional_count,
                 "institutional_value": latest_institutional_value,
+                "institutional_period": institutional_period,
                 "active_insiders": active_insiders,
                 "congress_trade_count": congress_trade_count,
                 "active_members": active_members,
@@ -380,7 +381,9 @@ def profile_directories(
     congress_trade_count = overrides.get("congress_trade_count")
     active_members = overrides.get("active_members")
     insider_trade_count = overrides.get("insider_trade_count")
-    institutional_period = _latest_institutional_period(db) if include_institutions and include_rankings else None
+    institutional_period = overrides.get("institutional_period") if include_institutions and include_rankings else None
+    if institutional_period is None and include_institutions and include_rankings:
+        institutional_period = _latest_institutional_period(db)
 
     directories = [
         _profile_directory(
@@ -624,13 +627,22 @@ def _insider_profile_period_metrics(db: Session, *, since: date, before: date) -
     }
 
 
-def _institutional_profile_period_metrics(db: Session) -> tuple[dict[str, int | float | None], dict[str, int | float | None], str]:
-    period = _latest_institutional_period(db)
+def _institutional_profile_period_metrics(db: Session) -> tuple[dict[str, int | float | None], dict[str, int | float | None], str, tuple[int, int] | None]:
+    # Holder snapshots are tiny and updated with each filing ingest. They avoid the
+    # landing page scanning a dozen large position periods just to find the latest one.
+    period = db.execute(
+        select(InstitutionalHolder.latest_report_year, InstitutionalHolder.latest_report_quarter)
+        .where(InstitutionalHolder.latest_report_year.is_not(None), InstitutionalHolder.latest_report_quarter.is_not(None))
+        .group_by(InstitutionalHolder.latest_report_year, InstitutionalHolder.latest_report_quarter)
+        .order_by(InstitutionalHolder.latest_report_year.desc(), InstitutionalHolder.latest_report_quarter.desc())
+        .limit(1)
+    ).first()
+    period = (int(period[0]), int(period[1])) if period else None
     empty = {"institutions": 0, "portfolio_value": None}
     if period is None:
-        return empty, empty.copy(), "latest reported quarter vs prior comparable quarter"
+        return empty, empty.copy(), "latest reported quarter vs prior comparable quarter", None
     year, quarter = period
-    previous_period = _previous_comparable_institutional_period(db, year, quarter)
+    previous_period = _previous_quarter(year, quarter)
 
     def period_values(target: tuple[int, int] | None) -> dict[str, int | float | None]:
         if target is None:
@@ -642,9 +654,11 @@ def _institutional_profile_period_metrics(db: Session) -> tuple[dict[str, int | 
         ).one()
         return {"institutions": int(institutions or 0), "portfolio_value": _float_or_int(portfolio_value)}
 
-    comparison = f"Q{quarter} {year} vs "
-    comparison += f"Q{previous_period[1]} {previous_period[0]}" if previous_period else "prior comparable quarter"
-    return period_values(period), period_values(previous_period), comparison
+    previous_values = period_values(previous_period)
+    comparison = f"Q{quarter} {year} vs Q{previous_period[1]} {previous_period[0]}"
+    if not previous_values["institutions"]:
+        comparison = f"Q{quarter} {year}; prior comparable quarter pending"
+    return period_values(period), previous_values, comparison, period
 
 
 def _profile_activity_by_month(db: Session, *, include_institutions: bool) -> list[dict[str, Any]]:
