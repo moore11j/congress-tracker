@@ -31,7 +31,6 @@ test("top nav adds Company dropdown after Pricing with matching arrows", () => {
 
 test("profile landing routes include SEO metadata and shared native components", () => {
   const pages = [
-    ["app/institutions/page.tsx", "Institutional Holdings & 13F Position Changes"],
     ["app/departments/page.tsx", "Government Contracts & Department Spending"],
   ];
 
@@ -41,6 +40,14 @@ test("profile landing routes include SEO metadata and shared native components",
     assert.match(source, /ProfilePageHeader|SummaryCards|MetricGrid|DataPanel/);
     assert.doesNotMatch(source, /sidebar/i);
   }
+});
+
+test("institution profile landing uses the redesigned dashboard", () => {
+  const source = read("app/institutions/page.tsx");
+
+  assert.match(source, /Institutional Holdings & 13F Position Changes/);
+  assert.match(source, /InstitutionProfilesDashboard/);
+  assert.doesNotMatch(source, /getInstitutionsOverview/);
 });
 
 test("congress profile landing uses the redesigned dashboard", () => {
