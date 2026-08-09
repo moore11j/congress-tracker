@@ -2983,8 +2983,9 @@ _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 def _profile_overview_cache_ttl(key: tuple[Any, ...]) -> int:
     """Profile aggregates are derived from ingested data, not live market calls."""
     family = str(key[0] if key else "")
-    if family == "profiles_institutions_overview":
-        # 13F holdings are quarterly; a longer cache avoids repeating the large scan.
+    if family in {"profiles_institutions_overview", "profiles_summary"}:
+        # The landing dashboard combines several large public-data aggregates.
+        # Hourly freshness keeps it responsive without presenting stale market data.
         return 60 * 60
     return 5 * 60
 
