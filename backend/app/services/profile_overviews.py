@@ -60,17 +60,27 @@ def profiles_summary(
     include_activity: bool = False,
 ) -> dict[str, Any]:
     today = date.today()
-    active_since = today - timedelta(days=365)
-    congress_trade_count = _count_events(db, "congress_trade")
-    active_members = _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)
-    insider_trade_count = _count_events(db, "insider_trade")
-    contract_value = _government_contract_period_value(db, since=today - timedelta(days=365), before=today + timedelta(days=1))
-    department_count = _department_count(db)
-    # The overview does not need to run the expensive 13F completeness scan.
-    # The institution detail page remains the source for the verified portfolio total.
-    latest_institutional_value = None
-    institutional_count = _count_rows(db, InstitutionalHolder.cik)
-    active_insiders = _active_insider_count(db, since=active_since)
+    period_start = today - timedelta(days=365)
+    previous_period_start = period_start - timedelta(days=365)
+    period_end = today + timedelta(days=1)
+    period_label = "latest 365 days vs prior 365 days"
+
+    congress_current = _congress_profile_period_metrics(db, since=period_start, before=period_end)
+    congress_previous = _congress_profile_period_metrics(db, since=previous_period_start, before=period_start)
+    insider_current = _insider_profile_period_metrics(db, since=period_start, before=period_end)
+    insider_previous = _insider_profile_period_metrics(db, since=previous_period_start, before=period_start)
+    department_current = _government_contract_period_metrics(db, since=period_start, before=period_end)
+    department_previous = _government_contract_period_metrics(db, since=previous_period_start, before=period_start)
+    institutional_current, institutional_previous, institutional_comparison = _institutional_profile_period_metrics(db)
+
+    congress_trade_count = congress_current["trades"]
+    active_members = congress_current["active_members"]
+    insider_trade_count = insider_current["trades"]
+    active_insiders = insider_current["active_insiders"]
+    contract_value = department_current["total_value"]
+    department_count = department_current["departments"]
+    latest_institutional_value = institutional_current["portfolio_value"]
+    institutional_count = institutional_current["institutions"]
     return {
         "status": "ok",
         "cards": [
@@ -80,9 +90,10 @@ def profiles_summary(
                 "Track disclosed trades and portfolio activity from U.S. lawmakers.",
                 "/members",
                 [
-                    {"label": "Trades", "value": congress_trade_count},
-                    {"label": "Active Members", "value": active_members},
+                    _metric("Trades", congress_trade_count, congress_previous["trades"]),
+                    _metric("Active Members", active_members, congress_previous["active_members"]),
                 ],
+                comparison_label=period_label,
             ),
             _profile_card(
                 "insiders",
@@ -90,9 +101,10 @@ def profiles_summary(
                 "Track buying and selling by executives, directors, and major shareholders.",
                 "/insiders",
                 [
-                    {"label": "Trades", "value": insider_trade_count},
-                    {"label": "Active Insiders", "value": active_insiders},
+                    _metric("Trades", insider_trade_count, insider_previous["trades"]),
+                    _metric("Active Insiders", active_insiders, insider_previous["active_insiders"]),
                 ],
+                comparison_label=period_label,
             ),
             _profile_card(
                 "institutions",
@@ -100,11 +112,12 @@ def profiles_summary(
                 "Track institutional portfolios and quarterly position changes.",
                 "/institutions",
                 [
-                    {"label": "Institutions", "value": institutional_count},
-                    {"label": "Portfolio Value", "value": latest_institutional_value, "format": "currency"},
+                    _metric("Institutions", institutional_count, institutional_previous["institutions"]),
+                    _metric("Portfolio Value", latest_institutional_value, institutional_previous["portfolio_value"], "currency"),
                 ],
                 locked=not include_institutions,
                 required_plan="pro" if not include_institutions else None,
+                comparison_label=institutional_comparison,
             ),
             _profile_card(
                 "departments",
@@ -112,9 +125,10 @@ def profiles_summary(
                 "Track government contract awards and agency spending activity.",
                 "/departments",
                 [
-                    {"label": "Departments / Agencies", "value": department_count},
-                    {"label": "Contract Value", "value": contract_value, "format": "currency"},
+                    _metric("Departments / Agencies", department_count, department_previous["departments"]),
+                    _metric("Contract Value", contract_value, department_previous["total_value"], "currency"),
                 ],
+                comparison_label=period_label,
             ),
         ],
         "directories": profile_directories(
@@ -133,6 +147,7 @@ def profiles_summary(
             },
         ),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
+        "activity_by_profile_type": _profile_activity_by_month(db, include_institutions=include_institutions),
     }
 
 
@@ -382,11 +397,11 @@ def profile_directories(
                 _directory_item(
                     row.get("name"),
                     row.get("href"),
-                    row.get("value"),
-                    "currency",
-                    f"{int(row.get('trades') or 0):,} trades",
+                    row.get("trades"),
+                    "number",
+                    "disclosed trades",
                 )
-                for row in _top_congress_members(db, congress_base, limit=4)
+                for row in _most_active_congress_members(db, congress_base, limit=4)
             ] if include_rankings else [],
             "Most Traded Tickers",
             [
@@ -533,8 +548,8 @@ def profile_directories(
     return directories
 
 
-def _profile_card(kind: str, title: str, description: str, href: str, metrics: list[dict[str, Any]], *, locked: bool = False, required_plan: str | None = None) -> dict[str, Any]:
-    return {"kind": kind, "title": title, "description": description, "href": href, "metrics": metrics, "locked": locked, "required_plan": required_plan}
+def _profile_card(kind: str, title: str, description: str, href: str, metrics: list[dict[str, Any]], *, locked: bool = False, required_plan: str | None = None, comparison_label: str | None = None) -> dict[str, Any]:
+    return {"kind": kind, "title": title, "description": description, "href": href, "metrics": metrics, "locked": locked, "required_plan": required_plan, "comparison_label": comparison_label}
 
 
 def _profile_directory(
@@ -586,6 +601,83 @@ def _metric(label: str, value: Any, previous: Any = None, format_type: str = "nu
     except (TypeError, ValueError, ZeroDivisionError):
         change_pct = None
     return {"label": label, "value": _float_or_int(value), "previous_value": _float_or_int(previous), "change_pct": _float_or_int(change_pct), "format": format_type}
+
+
+def _congress_profile_period_metrics(db: Session, *, since: date, before: date) -> dict[str, int]:
+    clauses = _event_query(
+        "congress_trade",
+        since=datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc),
+        before=datetime.combine(before, datetime.min.time(), tzinfo=timezone.utc),
+    )
+    return {
+        "trades": int(db.execute(select(func.count(Event.id)).where(*clauses)).scalar_one() or 0),
+        "active_members": int(db.execute(select(func.count(func.distinct(Event.member_bioguide_id))).where(*clauses, Event.member_bioguide_id.is_not(None))).scalar_one() or 0),
+    }
+
+
+def _insider_profile_period_metrics(db: Session, *, since: date, before: date) -> dict[str, int]:
+    clauses = _insider_transaction_filters(since=since, before=before)
+    owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
+    return {
+        "trades": int(db.execute(select(func.count(InsiderTransactionNormalized.id)).where(*clauses)).scalar_one() or 0),
+        "active_insiders": int(db.execute(select(func.count(func.distinct(owner_key))).where(*clauses, owner_key.is_not(None))).scalar_one() or 0),
+    }
+
+
+def _institutional_profile_period_metrics(db: Session) -> tuple[dict[str, int | float | None], dict[str, int | float | None], str]:
+    period = _latest_institutional_period(db)
+    empty = {"institutions": 0, "portfolio_value": None}
+    if period is None:
+        return empty, empty.copy(), "latest reported quarter vs prior comparable quarter"
+    year, quarter = period
+    previous_period = _previous_comparable_institutional_period(db, year, quarter)
+
+    def period_values(target: tuple[int, int] | None) -> dict[str, int | float | None]:
+        if target is None:
+            return empty.copy()
+        target_year, target_quarter = target
+        institutions, portfolio_value = db.execute(
+            select(func.count(func.distinct(InstitutionalPosition.cik)), func.sum(InstitutionalPosition.value_usd))
+            .where(InstitutionalPosition.report_year == target_year, InstitutionalPosition.report_quarter == target_quarter)
+        ).one()
+        return {"institutions": int(institutions or 0), "portfolio_value": _float_or_int(portfolio_value)}
+
+    comparison = f"Q{quarter} {year} vs "
+    comparison += f"Q{previous_period[1]} {previous_period[0]}" if previous_period else "prior comparable quarter"
+    return period_values(period), period_values(previous_period), comparison
+
+
+def _profile_activity_by_month(db: Session, *, include_institutions: bool) -> list[dict[str, Any]]:
+    current_month = date.today().replace(day=1)
+    start_month = _add_months(current_month, -23)
+    start = datetime.combine(start_month, datetime.min.time(), tzinfo=timezone.utc)
+    end = _add_months(current_month, 1)
+    event_types = ["congress_trade", "insider_trade", "government_contract"]
+    if include_institutions:
+        event_types.extend(value for value in PROFILE_ACTIVITY_TYPES if value not in event_types)
+    kind = case(
+        (Event.event_type == "congress_trade", "Congress"),
+        (Event.event_type == "insider_trade", "Insider"),
+        (Event.event_type == "government_contract", "Department"),
+        else_="Institution",
+    )
+    rows = db.execute(
+        select(func.extract("year", Event.ts), func.extract("month", Event.ts), kind, func.count(Event.id))
+        .where(Event.event_type.in_(event_types), Event.ts >= start, Event.ts < datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc))
+        .group_by(func.extract("year", Event.ts), func.extract("month", Event.ts), kind)
+    ).all()
+    counts = {(int(year), int(month), str(profile_type)): int(total or 0) for year, month, profile_type, total in rows}
+    result: list[dict[str, Any]] = []
+    for offset in range(24):
+        month = _add_months(start_month, offset)
+        result.append({
+            "period": month.strftime("%b %y"),
+            "Congress": counts.get((month.year, month.month, "Congress"), 0),
+            "Insider": counts.get((month.year, month.month, "Insider"), 0),
+            "Institution": counts.get((month.year, month.month, "Institution"), 0),
+            "Department": counts.get((month.year, month.month, "Department"), 0),
+        })
+    return result
 
 
 def _float_or_int(value: Any) -> int | float | None:
@@ -724,6 +816,29 @@ def _top_congress_members(db: Session, clauses: list[Any], *, limit: int = 10) -
             "href": _member_href(row.member_name),
         }
         for row in rows
+    ]
+
+
+def _most_active_congress_members(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
+    member_name = func.trim(Event.member_name)
+    identity_key = func.lower(member_name)
+    rows = db.execute(
+        select(
+            func.max(member_name),
+            func.count(Event.id).label("trades"),
+        )
+        .where(*clauses, Event.member_name.is_not(None), member_name != "")
+        .group_by(identity_key)
+        .order_by(func.count(Event.id).desc(), func.max(Event.ts).desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "name": name or "Member unavailable",
+            "trades": int(trades or 0),
+            "href": _member_href(name),
+        }
+        for name, trades in rows
     ]
 
 
@@ -1326,12 +1441,18 @@ def _government_contract_period_metrics(db: Session, *, since: date, before: dat
     action_value = float(db.execute(select(func.sum(GovernmentContractAction.obligated_amount)).where(*action_filters)).scalar_one() or 0)
     contract_symbols = db.execute(select(func.upper(GovernmentContract.symbol)).where(*contract_filters, GovernmentContract.symbol.is_not(None)).group_by(func.upper(GovernmentContract.symbol))).all()
     action_symbols = db.execute(select(func.upper(GovernmentContractAction.symbol)).where(*action_filters, GovernmentContractAction.symbol.is_not(None)).group_by(func.upper(GovernmentContractAction.symbol))).all()
+    agencies = union_all(
+        select(func.trim(GovernmentContract.awarding_agency).label("agency")).where(*contract_filters, GovernmentContract.awarding_agency.is_not(None)),
+        select(func.trim(GovernmentContractAction.awarding_agency).label("agency")).where(*action_filters, GovernmentContractAction.awarding_agency.is_not(None)),
+    ).subquery()
+    department_count = int(db.execute(select(func.count(func.distinct(agencies.c.agency))).where(agencies.c.agency != "")).scalar_one() or 0)
     contract_count_total = contract_count + modification_count
     total_value = contract_value + action_value
     return {
         "contract_count": contract_count_total,
         "total_value": _float_or_int(total_value),
         "active_vendors": len({row[0] for row in [*contract_symbols, *action_symbols] if row[0]}),
+        "departments": department_count,
         "average_size": _float_or_int(total_value / contract_count_total) if contract_count_total else None,
         "modification_count": modification_count,
     }

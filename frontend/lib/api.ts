@@ -198,7 +198,16 @@ export type ProfileSummaryCard = {
   href: string;
   locked?: boolean;
   required_plan?: string | null;
+  comparison_label?: string | null;
   metrics: ProfileMetric[];
+};
+
+export type ProfileActivityByTypePeriod = {
+  period: string;
+  Congress: number;
+  Insider: number;
+  Institution: number;
+  Department: number;
 };
 
 export type ProfileDirectoryItem = {
@@ -229,6 +238,7 @@ export type ProfilesSummaryResponse = {
   cards: ProfileSummaryCard[];
   directories?: ProfileDirectory[];
   activity: ProfileActivityItem[];
+  activity_by_profile_type?: ProfileActivityByTypePeriod[];
 };
 
 export type ProfileSectorSegment = {
