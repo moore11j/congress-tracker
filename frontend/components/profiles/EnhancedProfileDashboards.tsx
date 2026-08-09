@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileMetric, ProfileSectorMover, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
+import { LatestProfileActivity } from "@/components/profiles/LatestProfileActivity";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
@@ -39,7 +40,7 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
         </Panel>
       </section>
       <section className="relative z-10 grid gap-3 xl:grid-cols-[1.16fr_1.84fr]">
-        <Panel title="Latest profile activity" action={<Link href="/feed" className="text-emerald-200 hover:text-emerald-100">View feed -&gt;</Link>}><CompactActivity items={activity} /></Panel>
+        <Panel title="Latest profile activity" action={<Link href="/feed" className="text-emerald-200 hover:text-emerald-100">View feed -&gt;</Link>}><LatestProfileActivity items={activity} /></Panel>
         <Panel title="Most active profiles">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {(data.directories?.length ? data.directories : data.cards.map((card) => ({ kind: card.kind, title: card.title, href: card.href, primary_title: card.title, primary_items: activity.filter((item) => profileKind(item.type) === card.kind).sort((left, right) => (right.value ?? 0) - (left.value ?? 0)).slice(0, 5).map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href })) }))).map((directory) => <DirectoryLeaders key={directory.kind} title={directory.primary_title || directory.title} href={directory.href} rows={directory.primary_items ?? []} />)}
