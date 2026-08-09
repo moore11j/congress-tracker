@@ -3189,6 +3189,40 @@ export type StrategyDetailPayload = StrategyDefinitionPayload & {
   currentHoldings?: StrategyHolding[];
 };
 
+export type StrategyVersionPayload = {
+  id: number;
+  strategyId: number;
+  version: number;
+  status: string;
+  rules: Record<string, unknown>;
+  parameters: Record<string, unknown>;
+  universe: Record<string, unknown>;
+  methodology?: string | null;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  createdBy?: string | null;
+  createdAt?: string | null;
+};
+
+export type StrategyVersionPreview = {
+  strategyId: number;
+  version: StrategyVersionPayload;
+  mode: "dry_run";
+  evaluationDate: string;
+  availableAt: string;
+  source: string;
+  universeCount: number;
+  qualifyingCount: number;
+  candidates: Array<{
+    symbol: string;
+    weightPct: number;
+    score?: number | null;
+    sourceCount?: number | null;
+    entryPrice?: number | null;
+    qualificationSnapshot: Record<string, unknown>;
+  }>;
+};
+
 export type StrategyListResponse = {
   metadata: {
     period: string;
@@ -3289,6 +3323,39 @@ export async function setAdminStrategyPublication(
     body: JSON.stringify({ published }),
     source: "AdminStrategyPublication",
   });
+}
+
+export async function getAdminStrategyVersions(slug: string): Promise<{ strategyId: number; items: StrategyVersionPayload[] }> {
+  return fetchJson<{ strategyId: number; items: StrategyVersionPayload[] }>(
+    buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/versions`),
+    { cache: "no-store", source: "AdminStrategyVersions" },
+  );
+}
+
+export async function createAdminStrategyVersion(
+  slug: string,
+  payload: { rules: Record<string, unknown>; parameters?: Record<string, unknown>; universe?: Record<string, unknown>; methodology?: string | null; effective_from?: string | null },
+): Promise<StrategyVersionPayload> {
+  return fetchJson<StrategyVersionPayload>(buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/versions`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminStrategyVersions",
+  });
+}
+
+export async function approveAdminStrategyVersion(slug: string, versionId: number): Promise<StrategyVersionPayload> {
+  return fetchJson<StrategyVersionPayload>(buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/versions/${versionId}/approve`), {
+    method: "POST",
+    source: "AdminStrategyVersions",
+  });
+}
+
+export async function previewAdminStrategyVersion(slug: string, versionId: number, evaluationDate: string): Promise<StrategyVersionPreview> {
+  return fetchJson<StrategyVersionPreview>(
+    buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/versions/${versionId}/preview`, { evaluation_date: evaluationDate }),
+    { cache: "no-store", source: "AdminStrategyVersions" },
+  );
 }
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {

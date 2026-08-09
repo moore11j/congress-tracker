@@ -3,17 +3,35 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
+  approveAdminStrategyVersion,
+  createAdminStrategyVersion,
   getAdminStrategies,
   getAdminStrategy,
+  getAdminStrategyVersions,
+  previewAdminStrategyVersion,
   setAdminStrategyPublication,
   type StrategyDefinitionPayload,
   type StrategyDetailPayload,
   type StrategyHolding,
   type StrategyPerformanceSnapshot,
+  type StrategyVersionPayload,
+  type StrategyVersionPreview,
 } from "@/lib/api";
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
 const PERIODS = ["max", "30d", "1y", "2y", "3y"] as const;
+const DEFAULT_PROSPECTIVE_RULES = JSON.stringify(
+  {
+    candidate_source: "confirmation_score_snapshots",
+    direction: "bullish",
+    min_score: 60,
+    min_active_sources: 3,
+    max_positions: 10,
+    max_snapshot_age_days: 3,
+  },
+  null,
+  2,
+);
 
 type PeriodKey = (typeof PERIODS)[number];
 
@@ -147,6 +165,12 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
   const [busy, setBusy] = useState(false);
   const [publicationBusy, setPublicationBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [versions, setVersions] = useState<StrategyVersionPayload[]>([]);
+  const [versionBusy, setVersionBusy] = useState(false);
+  const [versionRefreshKey, setVersionRefreshKey] = useState(0);
+  const [versionRules, setVersionRules] = useState(DEFAULT_PROSPECTIVE_RULES);
+  const [previewDate, setPreviewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [preview, setPreview] = useState<StrategyVersionPreview | null>(null);
 
   const selected = useMemo(
     () => strategies.find((strategy) => strategy.slug === selectedSlug) ?? strategies[0] ?? null,
@@ -199,6 +223,29 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
     return () => controller.abort();
   }, [period, refreshKey, selected?.slug, showToast]);
 
+  useEffect(() => {
+    if (!selected?.slug) {
+      setVersions([]);
+      setPreview(null);
+      return;
+    }
+    let active = true;
+    getAdminStrategyVersions(selected.slug)
+      .then((response) => {
+        if (!active) return;
+        setVersions(response.items);
+      })
+      .catch((error) => {
+        if (!active) return;
+        const message = statusMessage(error);
+        setStatus(message);
+        showToast?.({ message, tone: "error" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected?.slug, showToast, versionRefreshKey]);
+
   const activeDetail = detail?.slug === selected?.slug ? detail : null;
   const performance = activeDetail?.performance ?? selected?.performance ?? null;
   const run = activeDetail?.latestRun ?? selected?.latestRun ?? null;
@@ -220,6 +267,63 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
       showToast?.({ message, tone: "error" });
     } finally {
       setPublicationBusy(false);
+    }
+  }
+
+  async function createVersion() {
+    if (!selected || versionBusy) return;
+    let rules: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(versionRules);
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("Rules must be a JSON object.");
+      rules = parsed as Record<string, unknown>;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Rules must be valid JSON.");
+      return;
+    }
+    setVersionBusy(true);
+    setPreview(null);
+    try {
+      const version = await createAdminStrategyVersion(selected.slug, { rules });
+      setVersionRefreshKey((value) => value + 1);
+      showToast?.({ message: `Created draft version ${version.version}.`, tone: "success" });
+    } catch (error) {
+      const message = statusMessage(error);
+      setStatus(message);
+      showToast?.({ message, tone: "error" });
+    } finally {
+      setVersionBusy(false);
+    }
+  }
+
+  async function previewVersion(version: StrategyVersionPayload) {
+    if (!selected || versionBusy) return;
+    setVersionBusy(true);
+    setPreview(null);
+    try {
+      setPreview(await previewAdminStrategyVersion(selected.slug, version.id, previewDate));
+    } catch (error) {
+      const message = statusMessage(error);
+      setStatus(message);
+      showToast?.({ message, tone: "error" });
+    } finally {
+      setVersionBusy(false);
+    }
+  }
+
+  async function approveVersion(version: StrategyVersionPayload) {
+    if (!selected || versionBusy) return;
+    setVersionBusy(true);
+    try {
+      const approved = await approveAdminStrategyVersion(selected.slug, version.id);
+      setVersionRefreshKey((value) => value + 1);
+      showToast?.({ message: `Approved version ${approved.version}.`, tone: "success" });
+    } catch (error) {
+      const message = statusMessage(error);
+      setStatus(message);
+      showToast?.({ message, tone: "error" });
+    } finally {
+      setVersionBusy(false);
     }
   }
 
@@ -335,6 +439,40 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
                   <p className="mt-4 text-sm text-slate-400">{selected.walnutTake ?? "No Walnut take stored."}</p>
                 </div>
               </div>
+
+              <section className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-white">Prospective versions</h3>
+                    <p className="mt-1 text-sm text-slate-400">Draft from explicit point-in-time rules, preview candidates, then approve for future scheduling.</p>
+                  </div>
+                  <label className="text-xs font-medium text-slate-400">Preview date
+                    <input type="date" value={previewDate} onChange={(event) => setPreviewDate(event.target.value)} className="ml-2 rounded-md border border-white/10 bg-slate-950 px-2 py-1 text-sm text-white" />
+                  </label>
+                </div>
+                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">New version rules</label>
+                    <textarea value={versionRules} onChange={(event) => setVersionRules(event.target.value)} spellCheck={false} className="mt-2 min-h-52 w-full rounded-md border border-white/10 bg-slate-950/70 p-3 font-mono text-xs leading-5 text-slate-200 outline-none focus:border-emerald-300/50" />
+                    <button type="button" onClick={createVersion} disabled={versionBusy} className="mt-3 rounded-md border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50">
+                      Create draft version
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {versions.length ? versions.map((version) => (
+                      <div key={version.id} className="rounded-md border border-white/10 bg-slate-950/60 p-3">
+                        <div className="flex items-center justify-between gap-2"><span className="font-semibold text-white">Version {version.version}</span><StrategyPill tone={version.status === "approved" ? "good" : "warn"}>{version.status}</StrategyPill></div>
+                        <p className="mt-1 text-xs text-slate-500">{version.createdAt ?? "Pending timestamp"}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => previewVersion(version)} disabled={versionBusy} className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-slate-200 hover:border-emerald-300/40 disabled:opacity-50">Preview</button>
+                          {version.status === "draft" ? <button type="button" onClick={() => approveVersion(version)} disabled={versionBusy} className="rounded-md border border-emerald-300/35 px-2 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-300/10 disabled:opacity-50">Approve</button> : null}
+                        </div>
+                      </div>
+                    )) : <p className="rounded-md border border-white/10 p-3 text-sm text-slate-500">No prospective versions yet.</p>}
+                  </div>
+                </div>
+                {preview ? <div className="mt-4 overflow-x-auto rounded-md border border-white/10"><div className="border-b border-white/10 px-3 py-2 text-sm text-slate-300">Dry run: {preview.qualifyingCount} qualifying from {preview.universeCount} visible candidates.</div><table className="min-w-full text-sm"><thead className="bg-slate-950/70 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Symbol</th><th className="px-3 py-2">Score</th><th className="px-3 py-2">Sources</th><th className="px-3 py-2">Weight</th></tr></thead><tbody className="divide-y divide-white/10">{preview.candidates.map((candidate) => <tr key={candidate.symbol}><td className="px-3 py-2 font-semibold text-white">{candidate.symbol}</td><td className="px-3 py-2 text-slate-300">{formatNumber(candidate.score)}</td><td className="px-3 py-2 text-slate-300">{candidate.sourceCount ?? "n/a"}</td><td className="px-3 py-2 text-slate-300">{formatPct(candidate.weightPct)}</td></tr>)}</tbody></table></div> : null}
+              </section>
 
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3">

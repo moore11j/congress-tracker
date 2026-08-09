@@ -1,19 +1,35 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, require_admin_user
 from app.db import get_db
 from app.entitlements import current_entitlements
 from app.services.strategies import list_strategy_cards, set_strategy_publication, strategy_detail
+from app.services.strategy_versions import (
+    approve_strategy_version,
+    create_strategy_version,
+    list_strategy_versions,
+    preview_strategy_version,
+)
 
 router = APIRouter(tags=["strategies"])
 
 
 class StrategyPublicationRequest(BaseModel):
     published: bool
+
+
+class StrategyVersionCreateRequest(BaseModel):
+    rules: dict = Field(default_factory=dict)
+    parameters: dict = Field(default_factory=dict)
+    universe: dict = Field(default_factory=dict)
+    methodology: str | None = None
+    effective_from: date | None = None
 
 
 @router.get("/strategies")
@@ -114,3 +130,52 @@ def admin_set_strategy_publication(
         published=payload.published,
         entitlements=current_entitlements(request, db),
     )
+
+
+@router.get("/admin/strategies/{slug}/versions")
+def admin_strategy_versions(slug: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return list_strategy_versions(db, slug=slug)
+
+
+@router.post("/admin/strategies/{slug}/versions")
+def admin_create_strategy_version(
+    slug: str,
+    payload: StrategyVersionCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return create_strategy_version(
+        db,
+        slug=slug,
+        rules=payload.rules,
+        parameters=payload.parameters,
+        universe=payload.universe,
+        methodology=payload.methodology,
+        effective_from=payload.effective_from,
+        created_by="admin_strategy_console",
+    )
+
+
+@router.post("/admin/strategies/{slug}/versions/{version_id}/approve")
+def admin_approve_strategy_version(
+    slug: str,
+    version_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return approve_strategy_version(db, slug=slug, version_id=version_id)
+
+
+@router.get("/admin/strategies/{slug}/versions/{version_id}/preview")
+def admin_preview_strategy_version(
+    slug: str,
+    version_id: int,
+    request: Request,
+    evaluation_date: date = Query(...),
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return preview_strategy_version(db, slug=slug, version_id=version_id, evaluation_date=evaluation_date)

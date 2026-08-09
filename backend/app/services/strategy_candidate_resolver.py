@@ -40,12 +40,28 @@ def _available_at(evaluation_date: date, value: datetime | None) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+def validate_strategy_candidate_rules(rules: dict[str, Any]) -> None:
+    source = str(rules.get("candidate_source") or "").strip()
+    if source != "confirmation_score_snapshots":
+        raise UnsupportedStrategyCandidateSource(f"Unsupported prospective candidate source: {source or 'missing'}.")
+    if str(rules.get("direction") or "bullish").lower() != "bullish":
+        raise UnsupportedStrategyCandidateSource("The current resolver supports long-only bullish confirmation candidates.")
+    try:
+        int(rules.get("min_score") or 60)
+        int(rules.get("min_active_sources") or 1)
+        int(rules.get("max_positions") or 10)
+        int(rules.get("max_snapshot_age_days") or 3)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Confirmation strategy thresholds must be integers.") from exc
+
+
 def resolve_strategy_candidates(
     db: Session,
     *,
     strategy_version_id: int,
     evaluation_date: date,
     available_at: datetime | None = None,
+    allow_draft: bool = False,
 ) -> StrategyCandidateResolution:
     """Resolve candidates using only data visible by ``available_at``.
 
@@ -56,16 +72,15 @@ def resolve_strategy_candidates(
     version = db.get(StrategyVersion, strategy_version_id)
     if version is None:
         raise ValueError(f"Unknown strategy version id {strategy_version_id}.")
-    if version.status not in {"approved", "active"}:
+    allowed_statuses = {"approved", "active"}
+    if allow_draft:
+        allowed_statuses.add("draft")
+    if version.status not in allowed_statuses:
         raise ValueError("Only approved or active strategy versions may be evaluated.")
     rules = _load_json(version.rules_json)
+    validate_strategy_candidate_rules(rules)
     source = str(rules.get("candidate_source") or "").strip()
-    if source != "confirmation_score_snapshots":
-        raise UnsupportedStrategyCandidateSource(f"Unsupported prospective candidate source: {source or 'missing'}.")
-
-    direction = str(rules.get("direction") or "bullish").lower()
-    if direction != "bullish":
-        raise UnsupportedStrategyCandidateSource("The current resolver supports long-only bullish confirmation candidates.")
+    direction = "bullish"
     min_score = max(0, min(100, int(rules.get("min_score") or 60)))
     min_sources = max(0, int(rules.get("min_active_sources") or 1))
     max_positions = max(1, min(100, int(rules.get("max_positions") or 10)))
