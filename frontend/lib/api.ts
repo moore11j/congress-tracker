@@ -3244,6 +3244,17 @@ export type StrategySchedulerStatus = {
   } | null;
 };
 
+export type StrategySubscription = {
+  id: number;
+  strategyId: number;
+  isActive: boolean;
+  emailEnabled: boolean;
+  deliveryMode: "realtime" | "daily" | string;
+  eventTypes: string[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
 export type StrategyListResponse = {
   metadata: {
     period: string;
@@ -3293,6 +3304,35 @@ export async function getStrategy(
       source: "StrategyDetail",
     },
   );
+}
+
+export async function getStrategySubscription(slug: string): Promise<{ subscription: StrategySubscription | null }> {
+  return fetchJson<{ subscription: StrategySubscription | null }>(
+    buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}/subscription`),
+    { cache: "no-store", source: "StrategyFollow" },
+  );
+}
+
+export async function updateStrategySubscription(
+  slug: string,
+  payload: { email_enabled: boolean; delivery_mode: "realtime" | "daily"; event_types: string[] },
+): Promise<{ subscription: StrategySubscription }> {
+  return fetchJson<{ subscription: StrategySubscription }>(
+    buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}/subscription`),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "StrategyFollow",
+    },
+  );
+}
+
+export async function deleteStrategySubscription(slug: string): Promise<void> {
+  return fetchNoContent(buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}/subscription`), {
+    method: "DELETE",
+    source: "StrategyFollow",
+  });
 }
 
 export async function getAdminStrategies(params?: {

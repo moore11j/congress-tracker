@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user, require_admin_user
 from app.db import get_db
-from app.entitlements import current_entitlements
+from app.entitlements import current_entitlements, require_feature
 from app.services.strategies import list_strategy_cards, set_strategy_publication, strategy_detail
 from app.services.strategy_versions import (
     activate_strategy_version,
@@ -18,6 +18,7 @@ from app.services.strategy_versions import (
     preview_strategy_version,
 )
 from app.services.strategy_scheduler import scheduler_status
+from app.services.strategy_subscriptions import get_strategy_subscription, unsubscribe_strategy, upsert_strategy_subscription
 
 router = APIRouter(tags=["strategies"])
 
@@ -32,6 +33,12 @@ class StrategyVersionCreateRequest(BaseModel):
     universe: dict = Field(default_factory=dict)
     methodology: str | None = None
     effective_from: date | None = None
+
+
+class StrategySubscriptionRequest(BaseModel):
+    email_enabled: bool = True
+    delivery_mode: str = "realtime"
+    event_types: list[str] = Field(default_factory=lambda: ["trade_added", "trade_exited", "rebalance_completed"])
 
 
 @router.get("/strategies")
@@ -74,6 +81,42 @@ def strategy(
         equity_limit=equity_limit,
         include_drafts=False,
     )
+
+
+@router.get("/strategies/{slug}/subscription")
+def strategy_subscription(slug: str, request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    return {"subscription": get_strategy_subscription(db, user_id=int(user.id), slug=slug)}
+
+
+@router.put("/strategies/{slug}/subscription")
+def put_strategy_subscription(
+    slug: str,
+    payload: StrategySubscriptionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = current_user(db, request, required=True)
+    require_feature(
+        current_entitlements(request, db),
+        "notification_digests",
+        message="Strategy alerts are included with Premium.",
+    )
+    return {"subscription": upsert_strategy_subscription(
+        db,
+        user_id=int(user.id),
+        slug=slug,
+        email_enabled=payload.email_enabled,
+        delivery_mode=payload.delivery_mode,
+        event_types=payload.event_types,
+    )}
+
+
+@router.delete("/strategies/{slug}/subscription", status_code=204)
+def delete_strategy_subscription(slug: str, request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    unsubscribe_strategy(db, user_id=int(user.id), slug=slug)
+    return None
 
 
 @router.get("/admin/strategies")
