@@ -31,7 +31,6 @@ test("top nav adds Company dropdown after Pricing with matching arrows", () => {
 
 test("profile landing routes include SEO metadata and shared native components", () => {
   const pages = [
-    ["app/profiles/page.tsx", "Investor & Government Profiles"],
     ["app/members/page.tsx", "Congress Stock Trading & Member Portfolios"],
     ["app/insiders/page.tsx", "Insider Trading Activity & Corporate Insider Purchases"],
     ["app/institutions/page.tsx", "Institutional Holdings & 13F Position Changes"],
@@ -49,7 +48,8 @@ test("profile landing routes include SEO metadata and shared native components",
 test("profiles overview uses directory overview instead of the duplicate activity feed", () => {
   const source = read("app/profiles/page.tsx");
 
-  assert.match(source, /ProfileDirectoryGrid/);
+  assert.match(source, /Investor & Government Profiles/);
+  assert.match(source, /ProfilesOverviewDashboard/);
   assert.doesNotMatch(source, /ActivityFeed/);
   assert.doesNotMatch(source, /searchParams/);
 });
