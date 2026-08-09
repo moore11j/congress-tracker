@@ -31,7 +31,6 @@ test("top nav adds Company dropdown after Pricing with matching arrows", () => {
 
 test("profile landing routes include SEO metadata and shared native components", () => {
   const pages = [
-    ["app/members/page.tsx", "Congress Stock Trading & Member Portfolios"],
     ["app/insiders/page.tsx", "Insider Trading Activity & Corporate Insider Purchases"],
     ["app/institutions/page.tsx", "Institutional Holdings & 13F Position Changes"],
     ["app/departments/page.tsx", "Government Contracts & Department Spending"],
@@ -43,6 +42,14 @@ test("profile landing routes include SEO metadata and shared native components",
     assert.match(source, /ProfilePageHeader|SummaryCards|MetricGrid|DataPanel/);
     assert.doesNotMatch(source, /sidebar/i);
   }
+});
+
+test("congress profile landing uses the redesigned dashboard", () => {
+  const source = read("app/members/page.tsx");
+
+  assert.match(source, /Congress Stock Trading & Member Portfolios/);
+  assert.match(source, /CongressProfilesDashboard/);
+  assert.doesNotMatch(source, /getCongressOverview/);
 });
 
 test("profiles overview uses directory overview instead of the duplicate activity feed", () => {
