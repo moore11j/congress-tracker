@@ -41,7 +41,7 @@ test("profile landing routes include SEO metadata and enhanced database dashboar
   for (const [path, title, apiFunction] of pages) {
     const source = read(path);
     assert.match(source, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(source, /EnhancedProfilesOverview|EnhancedCongressDashboard|EnhancedInsiderDashboard|EnhancedInstitutionDashboard|ProfilePageHeader|SummaryCards|MetricGrid|DataPanel/);
+    assert.match(source, /EnhancedProfilesOverview|EnhancedCongressDashboard|EnhancedInsiderDashboard|EnhancedInstitutionDashboard|EnhancedGovernmentDashboard|ProfilePageHeader|SummaryCards|MetricGrid|DataPanel/);
     if (apiFunction) assert.match(source, new RegExp(apiFunction));
     assert.doesNotMatch(source, /sidebar/i);
   }
