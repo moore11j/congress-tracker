@@ -120,7 +120,7 @@ def profiles_summary(
         "directories": profile_directories(
             db,
             include_institutions=include_institutions,
-            include_rankings=False,
+            include_rankings=True,
             metric_overrides={
                 "department_count": department_count,
                 "contract_value": contract_value,

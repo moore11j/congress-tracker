@@ -51,7 +51,7 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
         <Panel title="Latest profile activity" action={<Link href="/feed" className="text-emerald-200 hover:text-emerald-100">View feed -&gt;</Link>}><CompactActivity items={activity} /></Panel>
         <Panel title="Most active profiles">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {data.cards.map((card) => <DirectoryLeaders key={card.kind} title={card.title} href={card.href} rows={activity.filter((item) => profileKind(item.type) === card.kind).sort((left, right) => (right.value ?? 0) - (left.value ?? 0)).slice(0, 5).map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href }))} />)}
+            {(data.directories?.length ? data.directories : data.cards.map((card) => ({ kind: card.kind, title: card.title, href: card.href, primary_title: card.title, primary_items: activity.filter((item) => profileKind(item.type) === card.kind).sort((left, right) => (right.value ?? 0) - (left.value ?? 0)).slice(0, 5).map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href })) }))).map((directory) => <DirectoryLeaders key={directory.kind} title={directory.primary_title || directory.title} href={directory.href} rows={directory.primary_items ?? []} />)}
           </div>
         </Panel>
       </section>
@@ -61,6 +61,7 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
 
 export function EnhancedCongressDashboard({ data, chamberFilter }: { data: CongressOverviewResponse; chamberFilter: ReactNode }) {
   return <ProfileDashboard
+    flavor="congress"
     eyebrow="CONGRESS"
     title="Congress Trading"
     subtitle="Track disclosed trades, portfolio activity, and market positioning across members of Congress."
@@ -83,6 +84,7 @@ export function EnhancedCongressDashboard({ data, chamberFilter }: { data: Congr
 
 export function EnhancedInsiderDashboard({ data, periodFilter }: { data: InsidersOverviewResponse; periodFilter: ReactNode }) {
   return <ProfileDashboard
+    flavor="insiders"
     eyebrow="INSIDERS"
     title="Corporate Insider Activity"
     subtitle="Track purchases and sales from executives, directors, and major shareholders."
@@ -104,9 +106,10 @@ export function EnhancedInsiderDashboard({ data, periodFilter }: { data: Insider
 
 export function EnhancedInstitutionDashboard({ data, period }: { data: InstitutionsOverviewResponse; period: string }) {
   if (data.locked) {
-    return <ProfileDashboard eyebrow="INSTITUTIONS" title="Institutional Holdings" subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure." filter={<PeriodBadge label={period} />} comparison="previous comparable quarter" snapshotTitle="Institutional holdings snapshot" snapshotSeries={[]} snapshotLabel="Institutional detail is available with Pro." metrics={data.summary} primary={{ title: "Top institutions", rows: [], columns: [] }} secondary={{ title: "Top increased positions", rows: [], columns: [] }} sectorRows={[]} sectorTitle="Sector exposure over time" left={{ title: "Most widely held stocks", rows: [], columns: [] }} right={{ title: "Recent notable filings", rows: [], columns: [] }} recent={[]} lockedMessage={data.message} />;
+    return <ProfileDashboard flavor="institutions" eyebrow="INSTITUTIONS" title="Institutional Holdings" subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure." filter={<PeriodBadge label={period} />} comparison="previous comparable quarter" snapshotTitle="Institutional holdings snapshot" snapshotSeries={[]} snapshotLabel="Institutional detail is available with Pro." metrics={data.summary} primary={{ title: "Top institutions", rows: [], columns: [] }} secondary={{ title: "Top increased positions", rows: [], columns: [] }} sectorRows={[]} sectorTitle="Sector exposure over time" left={{ title: "Most widely held stocks", rows: [], columns: [] }} right={{ title: "Recent notable filings", rows: [], columns: [] }} recent={[]} lockedMessage={data.message} />;
   }
   return <ProfileDashboard
+    flavor="institutions"
     eyebrow="INSTITUTIONS"
     title="Institutional Holdings"
     subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure."
@@ -129,7 +132,9 @@ export function EnhancedInstitutionDashboard({ data, period }: { data: Instituti
 type TableSpec = { title: string; rows: Row[]; columns: Array<[string, string, CellFormat?]> };
 type CellFormat = "currency" | "number" | "date" | "percent" | "link";
 
-function ProfileDashboard({ eyebrow, title, subtitle, filter, comparison, snapshotTitle, snapshotSeries, snapshotLabel, metrics, primary, secondary, sectorRows, sectorTitle, left, right, recent, note, lockedMessage }: { eyebrow: string; title: string; subtitle: string; filter: ReactNode; comparison: string; snapshotTitle: string; snapshotSeries: Array<{ label: string; value: number }>; snapshotLabel: string; metrics: ProfileMetric[]; primary: TableSpec; secondary: TableSpec; sectorRows: ProfileSectorPeriod[]; sectorTitle: string; left: TableSpec; right: TableSpec; recent: ProfileActivityItem[]; note?: string; lockedMessage?: string | null }) {
+type DashboardFlavor = "congress" | "insiders" | "institutions";
+
+function ProfileDashboard({ flavor, eyebrow, title, subtitle, filter, comparison, snapshotTitle, snapshotSeries, snapshotLabel, metrics, primary, secondary, sectorRows, sectorTitle, left, right, recent, note, lockedMessage }: { flavor: DashboardFlavor; eyebrow: string; title: string; subtitle: string; filter: ReactNode; comparison: string; snapshotTitle: string; snapshotSeries: Array<{ label: string; value: number }>; snapshotLabel: string; metrics: ProfileMetric[]; primary: TableSpec; secondary: TableSpec; sectorRows: ProfileSectorPeriod[]; sectorTitle: string; left: TableSpec; right: TableSpec; recent: ProfileActivityItem[]; note?: string; lockedMessage?: string | null }) {
   const snapshotStats = [primary.rows[0], secondary.rows[0], left.rows[0], right.rows[0]];
   return <main className="relative min-w-0 space-y-3 overflow-hidden pb-3">
     <OverviewGlow />
@@ -137,21 +142,22 @@ function ProfileDashboard({ eyebrow, title, subtitle, filter, comparison, snapsh
       <div><p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300">{eyebrow}</p><h1 className="mt-2 text-3xl font-semibold leading-tight text-white md:text-4xl">{title}</h1><p className="mt-2 text-sm leading-6 text-slate-300">{subtitle}</p></div>
       {filter}
     </header>
-    <section className="relative z-10 grid gap-3 xl:grid-cols-[1.68fr_.9fr]">
-      <Panel title={snapshotTitle} subtitle={snapshotLabel} action="Live data"><TrendChart series={snapshotSeries} /></Panel>
+      <section className="relative z-10 grid gap-3 xl:grid-cols-[1.68fr_.9fr]">
+        <Panel title={snapshotTitle} subtitle={snapshotLabel} action="Live data"><TrendChart series={snapshotSeries} /></Panel>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
-        {snapshotStats.map((row, index) => <SnapshotCard key={index} row={row} />)}
+        {snapshotStats.map((row, index) => <SnapshotCard key={index} row={row} label={snapshotLabels(flavor)[index]} />)}
       </div>
     </section>
     <MetricCards metrics={metrics} comparison={comparison} />
     {lockedMessage ? <Panel title="Institutional detail"><p className="text-sm leading-6 text-slate-300">{lockedMessage}</p><Link href="/pricing" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">View Pro access -&gt;</Link></Panel> : <>
       <section className="grid gap-3 xl:grid-cols-2"><DataTable {...primary} /><DataTable {...secondary} /></section>
-      <section className="grid gap-3 xl:grid-cols-[1.15fr_.85fr]">
+      <section className="grid gap-3 xl:grid-cols-[1.05fr_.85fr_.8fr]">
         <SectorPanel title={sectorTitle} rows={sectorRows} note={note} />
-        <Panel title="Latest quarter mix"><SectorBreakdown rows={sectorRows} /></Panel>
+        <Panel title="Net activity by sector"><SectorMomentum rows={sectorRows} /></Panel>
+        <Panel title={flavor === "institutions" ? "Increases vs decreases mix" : "Buy vs sell mix"}><ActivityMix flavor={flavor} metrics={metrics} /></Panel>
       </section>
-      <section className="grid gap-3 xl:grid-cols-[1fr_1fr]"><DataTable {...left} /><DataTable {...right} /></section>
-      <Panel title="Recent notable activity"><CompactActivity items={recent} /></Panel>
+      <section className="grid gap-3 xl:grid-cols-[.9fr_1fr_1.1fr]"><DataTable {...left} /><DataTable {...right} /><Panel title="Top moving sectors"><SectorMovers rows={sectorRows} /></Panel></section>
+      <section className="grid gap-3 xl:grid-cols-[1.15fr_.85fr]"><Panel title="Activity over time" subtitle="Reported value by period"><ActivityColumns series={snapshotSeries} /></Panel><Panel title="Recent notable activity"><CompactActivity items={recent} /></Panel></section>
     </>}
   </main>;
 }
@@ -183,16 +189,23 @@ function ActivityBars({ items }: { items: ProfileActivityItem[] }) { const group
 
 function Donut({ values, colors, label, value }: { values: number[]; colors: string[]; label: string; value: string }) { const total = values.reduce((sum, item) => sum + item, 0); let offset = 0; return <div className="relative mx-auto h-36 w-36"><svg viewBox="0 0 42 42" className="h-full w-full -rotate-90">{values.map((item, index) => { const dash = total ? (item / total) * 100 : 0; const segment = <circle key={index} cx="21" cy="21" r="15.915" fill="none" stroke={colors[index]} strokeWidth="7" strokeDasharray={`${dash} ${100 - dash}`} strokeDashoffset={-offset} />; offset += dash; return segment; })}</svg><div className="absolute inset-0 flex flex-col items-center justify-center"><b className="text-lg tabular-nums text-white">{value}</b><span className="text-[9px] uppercase tracking-[.14em] text-slate-500">{label}</span></div></div>; }
 
-function SnapshotCard({ row }: { row: Row | undefined }) { if (!row) return <div className="rounded-lg border border-slate-700/70 bg-slate-950/65 p-4"><p className="text-[10px] uppercase tracking-[.14em] text-slate-500">Live result</p><p className="mt-3 text-sm text-slate-400">No record available</p></div>; const title = stringAt(row, ["name", "symbol", "profile", "company"]) ?? "Live result"; const detail = valueAt(row, ["net_value", "net_buy_value", "portfolio_value", "value", "buy_value", "trades"]); return <div className="rounded-lg border border-slate-700/70 bg-slate-950/65 p-4"><p className="text-[10px] uppercase tracking-[.14em] text-slate-500">Live result</p><p className="mt-2 truncate text-sm font-semibold text-white">{title}</p><p className="mt-2 text-sm font-semibold tabular-nums text-emerald-300">{formatUnknown(detail)}</p></div>; }
+function SnapshotCard({ row, label }: { row: Row | undefined; label: string }) { if (!row) return <div className="rounded-lg border border-slate-700/70 bg-slate-950/65 p-4"><p className="text-[10px] uppercase tracking-[.14em] text-slate-500">{label}</p><p className="mt-3 text-sm text-slate-400">No record available</p></div>; const title = stringAt(row, ["name", "symbol", "profile", "company"]) ?? "Live result"; const detail = valueAt(row, ["net_value", "net_buy_value", "portfolio_value", "value", "buy_value", "trades"]); return <div className="rounded-lg border border-slate-700/70 bg-slate-950/65 p-4"><p className="text-[10px] uppercase tracking-[.14em] text-slate-500">{label}</p><p className="mt-2 truncate text-sm font-semibold text-white">{title}</p><p className="mt-2 text-sm font-semibold tabular-nums text-emerald-300">{formatUnknown(detail)}</p></div>; }
 
 function CompactActivity({ items }: { items: ProfileActivityItem[] }) { return !items.length ? <p className="py-8 text-sm text-slate-400">No recent database activity is available.</p> : <div className="space-y-0.5">{items.slice(0, 6).map((item) => <div key={String(item.id)} className="grid grid-cols-[minmax(0,1fr)_4.5rem_5rem] items-center gap-3 border-b border-white/5 py-2 text-xs"><span className="truncate font-semibold text-emerald-200">{item.profile}</span><span className="truncate text-slate-400">{item.symbol ?? item.activity ?? "-"}</span><span className="text-right font-semibold tabular-nums text-white">{formatUnknown(item.value)}</span></div>)}</div>; }
 
 function DirectoryLeaders({ title, href, rows }: { title: string; href: string; rows: Array<{ label: string; value?: number | null; value_format?: string; href?: string | null }> }) { return <div className="min-w-0 border-l border-white/10 pl-3 first:border-l-0 first:pl-0"><h3 className="truncate text-xs font-semibold text-white">{title}</h3><div className="mt-2 space-y-1.5">{rows.slice(0, 5).map((row, index) => <div key={`${row.label}-${index}`} className="grid grid-cols-[1rem_minmax(0,1fr)_4.5rem] gap-1 text-xs"><span className="text-slate-500">{index + 1}</span><span className="truncate text-slate-300">{row.label}</span><span className="text-right tabular-nums text-white">{row.value_format === "currency" ? formatMoney(row.value) : formatNumber(row.value)}</span></div>)}</div><Link href={href} className="mt-3 inline-flex text-xs font-semibold text-emerald-200">View {title} -&gt;</Link></div>; }
 
 function PeriodBadge({ label }: { label: string }) { return <span className="rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-xs font-semibold text-slate-200">{label}</span>; }
+function ActivityMix({ flavor, metrics }: { flavor: DashboardFlavor; metrics: ProfileMetric[] }) { const labels = flavor === "institutions" ? ["Increases", "Decreases"] : ["Buy value", "Sell value"]; const values = flavor === "institutions" ? [metricValue(metrics, "Total Position Increases"), metricValue(metrics, "Total Position Decreases")] : [metricValue(metrics, "Total Buy Value") ?? metricValue(metrics, "Buy Value"), metricValue(metrics, "Total Sell Value") ?? metricValue(metrics, "Sell Value")]; const total = values.reduce<number>((sum, value) => sum + Math.max(value ?? 0, 0), 0); if (!total) return <p className="py-8 text-sm text-slate-400">No matching database activity is available.</p>; const primaryPct = ((values[0] ?? 0) / total) * 100; return <div className="flex items-center gap-4"><Donut values={values.map((value) => Math.max(value ?? 0, 0))} colors={["#42d3a7", "#fb7185"]} label={labels[0]} value={`${primaryPct.toFixed(1)}%`} /><div className="min-w-0 flex-1 space-y-3">{labels.map((label, index) => <LegendRow key={label} label={label} color={index ? "#fb7185" : "#42d3a7"} value={flavor === "institutions" ? formatNumber(values[index]) : formatMoney(values[index])} />)}<p className="border-t border-white/10 pt-3 text-xs text-slate-400">Total {flavor === "institutions" ? "position changes" : "reported value"}: <span className="font-semibold text-white">{flavor === "institutions" ? formatNumber(total) : formatMoney(total)}</span></p></div></div>; }
+function SectorMomentum({ rows }: { rows: ProfileSectorPeriod[] }) { const movements = sectorMovements(rows); return !movements.length ? <p className="py-8 text-sm text-slate-400">No comparable sector periods are available.</p> : <div className="space-y-2.5">{movements.slice(0, 8).map((item) => <div key={item.label} className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-3 text-xs"><span className="truncate text-slate-300">{item.label}</span><span className={`text-right font-semibold tabular-nums ${item.value >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{item.value >= 0 ? "+" : ""}{formatMoney(item.value)}</span></div>)}</div>; }
+function SectorMovers({ rows }: { rows: ProfileSectorPeriod[] }) { const movements = sectorMovements(rows); return !movements.length ? <p className="py-8 text-sm text-slate-400">No comparable sector periods are available.</p> : <div className="space-y-2.5">{movements.slice(0, 6).map((item) => <div key={item.label}><div className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-slate-300">{item.label}</span><span className={item.value >= 0 ? "font-semibold text-emerald-300" : "font-semibold text-rose-300"}>{item.value >= 0 ? "+" : ""}{formatMoney(item.value)}</span></div><div className="mt-1.5 h-1 overflow-hidden rounded bg-slate-800"><div className="h-full rounded" style={{ width: `${Math.max(5, item.share * 100)}%`, backgroundColor: item.value >= 0 ? "#42d3a7" : "#fb7185" }} /></div></div>)}</div>; }
+function ActivityColumns({ series }: { series: Array<{ label: string; value: number }> }) { if (!series.length) return <p className="flex h-36 items-center justify-center text-sm text-slate-400">No time-series records are available.</p>; const max = Math.max(...series.map((point) => Math.abs(point.value)), 1); return <div><div className="flex h-36 items-end gap-2 border-b border-white/10 px-1">{series.map((point) => <div key={point.label} className="flex min-w-0 flex-1 items-end"><div title={`${point.label}: ${formatMoney(point.value)}`} className="w-full rounded-t-sm bg-emerald-400/70" style={{ height: `${Math.max(3, (Math.abs(point.value) / max) * 132)}px` }} /></div>)}</div><div className="mt-2 flex justify-between gap-3 text-[10px] text-slate-500"><span>{series[0].label}</span><span>{series[series.length - 1].label}</span></div></div>; }
 function LegendRow({ label, color, value }: { label: string; color: string; value: string }) { return <div className="flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-2 text-slate-300"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />{label}</span><span className="font-semibold tabular-nums text-white">{value}</span></div>; }
 function OverviewGlow() { return <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-48 opacity-60 [background:radial-gradient(ellipse_at_70%_0%,rgba(52,211,153,.16),transparent_38%),radial-gradient(ellipse_at_25%_0%,rgba(59,130,246,.11),transparent_44%)]" />; }
 function periodTotals(rows: ProfileSectorPeriod[]) { return rows.map((row) => ({ label: row.period, value: row.segments.reduce((sum, segment) => sum + (Number.isFinite(segment.value) ? segment.value : 0), 0) })); }
+function metricValue(metrics: ProfileMetric[], label: string) { return metrics.find((metric) => metric.label === label)?.value ?? null; }
+function sectorMovements(rows: ProfileSectorPeriod[]) { const latest = rows[rows.length - 1]; const previous = rows[rows.length - 2]; if (!latest || !previous) return []; const previousByLabel = new Map(previous.segments.map((segment) => [segment.label, segment.value])); const values = latest.segments.map((segment) => ({ label: segment.label, value: segment.value - (previousByLabel.get(segment.label) ?? 0) })); const max = Math.max(...values.map((item) => Math.abs(item.value)), 1); return values.sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).map((item) => ({ ...item, share: Math.abs(item.value) / max })); }
+function snapshotLabels(flavor: DashboardFlavor) { return flavor === "congress" ? ["Top member", "Most traded ticker", "Top buyer", "Most active sector"] : flavor === "insiders" ? ["Top net buyer", "Most traded ticker", "Recent purchases", "Cluster buying"] : ["Top institution", "Largest reported increase", "Most widely held stock", "Recent filing"]; }
 function sectorLabels(rows: ProfileSectorPeriod[]) { const latest = rows[rows.length - 1]?.segments.map((segment) => segment.label) ?? []; return [...latest, ...Array.from(new Set(rows.flatMap((row) => row.segments.map((segment) => segment.label)))).filter((label) => !latest.includes(label))]; }
 function orderedSegments(row: ProfileSectorPeriod, labels: string[]) { const byLabel = new Map(row.segments.map((segment) => [segment.label, segment])); return labels.map((label) => byLabel.get(label)).filter((segment): segment is NonNullable<typeof segment> => Boolean(segment)); }
 function colorFor(label: string, labels: string[]) { return COLORS[Math.max(labels.indexOf(label), 0) % COLORS.length]; }

@@ -2980,13 +2980,79 @@ _PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 
 
-def _cached_profile_overview_response(key: tuple[Any, ...], builder: Any) -> Any:
+def _profile_overview_cache_ttl(key: tuple[Any, ...]) -> int:
+    """Profile aggregates are derived from ingested data, not live market calls."""
+    family = str(key[0] if key else "")
+    if family == "profiles_institutions_overview":
+        # 13F holdings are quarterly; a longer cache avoids repeating the large scan.
+        return 60 * 60
+    return 5 * 60
+
+
+def _profile_overview_persistent_key(key: tuple[Any, ...]) -> str:
+    raw = json.dumps(key, separators=(",", ":"), default=str)
+    return f"profile-overview:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
+def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, now: datetime) -> Any | None:
+    row = db.get(TickerContextBundleCache, _profile_overview_persistent_key(key))
+    if row is None:
+        return None
+    generated_at = row.generated_at
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=timezone.utc)
+    if (now - generated_at.astimezone(timezone.utc)).total_seconds() > _profile_overview_cache_ttl(key):
+        return None
+    try:
+        payload = json.loads(row.payload_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _profile_overview_database_cache_set(db: Session, key: tuple[Any, ...], payload: Any, *, now: datetime) -> None:
+    if not isinstance(payload, dict):
+        return
+    cache_key = _profile_overview_persistent_key(key)
+    try:
+        row = db.get(TickerContextBundleCache, cache_key)
+        if row is None:
+            db.add(
+                TickerContextBundleCache(
+                    cache_key=cache_key,
+                    symbol="PROFILE_OVERVIEW",
+                    user_segment="shared",
+                    payload_json=json.dumps(payload, default=str, separators=(",", ":")),
+                    generated_at=now,
+                    stale_after=now + timedelta(seconds=_profile_overview_cache_ttl(key)),
+                    expires_at=now + timedelta(days=1),
+                )
+            )
+        else:
+            row.payload_json = json.dumps(payload, default=str, separators=(",", ":"))
+            row.generated_at = now
+            row.stale_after = now + timedelta(seconds=_profile_overview_cache_ttl(key))
+            row.expires_at = now + timedelta(days=1)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.info("profile overview persistent cache write failed", exc_info=True)
+
+
+def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder: Any) -> Any:
     now = time.monotonic()
     with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
         cached = _PROFILE_OVERVIEW_RESPONSE_CACHE.get(key)
         if cached is not None and now - cached[0] <= PROFILE_OVERVIEW_CACHE_TTL_SECONDS:
             return copy.deepcopy(cached[1])
+    database_now = datetime.now(timezone.utc)
+    database_cached = _profile_overview_database_cache_get(db, key, now=database_now)
+    if database_cached is not None:
+        with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+            _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (now, copy.deepcopy(database_cached))
+        return database_cached
     payload = builder()
+    _profile_overview_database_cache_set(db, key, payload, now=database_now)
     with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
         _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (time.monotonic(), copy.deepcopy(payload))
         if len(_PROFILE_OVERVIEW_RESPONSE_CACHE) > 100:
@@ -4706,6 +4772,7 @@ def profiles_summary(
     entitlements = current_entitlements(request, db)
     include_institutions = entitlements.has_feature("institutional_feed")
     return _cached_profile_overview_response(
+        db,
         ("profiles_summary", activity_type, activity_limit, include_institutions, include_activity),
         lambda: build_profiles_summary(
             db,
@@ -4728,6 +4795,7 @@ def profiles_congress_overview(
     if prefetch_response is not None:
         return prefetch_response
     return _cached_profile_overview_response(
+        db,
         ("profiles_congress_overview", chamber, period_days),
         lambda: build_congress_overview(db, chamber=chamber, period_days=period_days),
     )
@@ -4745,6 +4813,7 @@ def profiles_insiders_overview(
         return prefetch_response
     sector_key = (sector or "").strip().lower()
     return _cached_profile_overview_response(
+        db,
         ("profiles_insiders_overview", sector_key, period_days),
         lambda: build_insiders_overview(db, sector=sector, period_days=period_days),
     )
@@ -4763,6 +4832,7 @@ def profiles_institutions_overview(
     entitlements = current_entitlements(request, db)
     include_details = entitlements.has_feature("institutional_feed")
     return _cached_profile_overview_response(
+        db,
         ("profiles_institutions_overview", year, quarter, include_details),
         lambda: build_institutions_overview(
             db,
@@ -4784,6 +4854,7 @@ def profiles_departments_overview(
     if prefetch_response is not None:
         return prefetch_response
     return _cached_profile_overview_response(
+        db,
         ("profiles_departments_overview", fiscal_year, period_days),
         lambda: build_departments_overview(db, fiscal_year=fiscal_year, period_days=period_days),
     )

@@ -11,6 +11,6 @@ export const metadata: Metadata = appPageMetadata("/profiles", {
 
 export default async function ProfilesPage() {
   const authState = await optionalPageAuthState();
-  const data = await getProfilesSummary({ authToken: authState.token, include_activity: true, activity_limit: 25 });
+  const data = await getProfilesSummary({ authToken: authState.token, include_activity: true, activity_limit: 100 });
   return <EnhancedProfilesOverview data={data} />;
 }
