@@ -59,6 +59,11 @@ def profiles_summary(
     include_institutions: bool = False,
     include_activity: bool = False,
 ) -> dict[str, Any]:
+    today = date.today()
+    contract_value = _government_contract_period_value(db, since=today - timedelta(days=365), before=today + timedelta(days=1))
+    department_count = _department_count(db)
+    latest_institutional_value = _latest_institutional_value(db)
+    institutional_count = _count_rows(db, InstitutionalHolder.cik)
     return {
         "status": "ok",
         "cards": [
@@ -88,8 +93,8 @@ def profiles_summary(
                 "Track institutional portfolios and quarterly position changes.",
                 "/institutions",
                 [
-                    {"label": "Institutions", "value": _count_rows(db, InstitutionalHolder.cik)},
-                    {"label": "Portfolio Value", "value": _latest_institutional_value(db), "format": "currency"},
+                    {"label": "Institutions", "value": institutional_count},
+                    {"label": "Portfolio Value", "value": latest_institutional_value, "format": "currency"},
                 ],
                 locked=not include_institutions,
                 required_plan="pro" if not include_institutions else None,
@@ -100,12 +105,22 @@ def profiles_summary(
                 "Track government contract awards and agency spending activity.",
                 "/departments",
                 [
-                    {"label": "Departments / Agencies", "value": len(list_departments(db).get("items", []))},
-                    {"label": "Contract Value", "value": _government_contract_total(db), "format": "currency"},
+                    {"label": "Departments / Agencies", "value": department_count},
+                    {"label": "Contract Value", "value": contract_value, "format": "currency"},
                 ],
             ),
         ],
-        "directories": profile_directories(db, include_institutions=include_institutions),
+        "directories": profile_directories(
+            db,
+            include_institutions=include_institutions,
+            include_rankings=False,
+            metric_overrides={
+                "department_count": department_count,
+                "contract_value": contract_value,
+                "institutional_count": institutional_count,
+                "institutional_value": latest_institutional_value,
+            },
+        ),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
     }
 
@@ -319,12 +334,22 @@ def profile_activity(db: Session, *, activity_type: str = "all", limit: int = 25
     return [_activity_payload(row, company_names) for row in rows]
 
 
-def profile_directories(db: Session, *, include_institutions: bool = False) -> list[dict[str, Any]]:
+def profile_directories(
+    db: Session,
+    *,
+    include_institutions: bool = False,
+    include_rankings: bool = True,
+    metric_overrides: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     since = datetime.now(timezone.utc) - timedelta(days=365)
     congress_base = _event_query("congress_trade", since=since)
     insider_base = _insider_transaction_filters(since=since.date())
-    departments = list_departments(db).get("items", [])
-    institutional_period = _latest_institutional_period(db)
+    overrides = metric_overrides or {}
+    department_count = overrides.get("department_count")
+    contract_value = overrides.get("contract_value")
+    institutional_count = overrides.get("institutional_count")
+    institutional_value = overrides.get("institutional_value")
+    institutional_period = _latest_institutional_period(db) if include_institutions else None
 
     directories = [
         _profile_directory(
@@ -346,7 +371,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                     f"{int(row.get('trades') or 0):,} trades",
                 )
                 for row in _top_congress_members(db, congress_base, limit=4)
-            ],
+            ] if include_rankings else [],
             "Most Traded Tickers",
             [
                 _directory_item(
@@ -357,7 +382,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                     row.get("company") if row.get("company") != row.get("symbol") else None,
                 )
                 for row in _most_traded_event_stocks(db, congress_base, limit=4)
-            ],
+            ] if include_rankings else [],
             "Open Congress profiles",
         ),
         _profile_directory(
@@ -379,7 +404,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                     " - ".join(part for part in [str(row.get("symbol") or ""), f"{int(row.get('trades') or 0):,} trades"] if part),
                 )
                 for row in _top_insiders(db, insider_base, limit=4)
-            ],
+            ] if include_rankings else [],
             "Cluster Buying",
             [
                 _directory_item(
@@ -390,7 +415,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                     f"{int(row.get('unique_insiders') or 0):,} insiders",
                 )
                 for row in _cluster_buying(db, since=since, limit=4)
-            ],
+            ] if include_rankings else [],
             "Open insider profiles",
         ),
     ]
@@ -404,8 +429,8 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                 "/institutions",
                 "13F managers, portfolio value, holdings concentration, and quarter-over-quarter changes.",
                 [
-                    {"label": "Institutions", "value": _count_rows(db, InstitutionalHolder.cik)},
-                    {"label": f"Q{quarter} {year} Value", "value": _latest_institutional_value(db), "format": "currency"},
+                    {"label": "Institutions", "value": institutional_count if institutional_count is not None else _count_rows(db, InstitutionalHolder.cik)},
+                    {"label": f"Q{quarter} {year} Value", "value": institutional_value if institutional_value is not None else _latest_institutional_value(db), "format": "currency"},
                 ],
                 "Largest Portfolios",
                 [
@@ -417,7 +442,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                         f"{int(row.get('positions') or 0):,} positions",
                     )
                     for row in _top_institutions(db, year, quarter, limit=4)
-                ],
+                ] if include_rankings else [],
                 "Widely Held Tickers",
                 [
                     _directory_item(
@@ -428,7 +453,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                         f"{int(row.get('holders') or 0):,} holders",
                     )
                     for row in _most_widely_held(db, year, quarter, limit=4)
-                ],
+                ] if include_rankings else [],
                 "Open institution profiles",
             )
         )
@@ -440,8 +465,8 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                 "/institutions",
                 "13F managers, portfolio value, holdings concentration, and quarter-over-quarter changes.",
                 [
-                    {"label": "Institutions", "value": _count_rows(db, InstitutionalHolder.cik)},
-                    {"label": "Portfolio Value", "value": _latest_institutional_value(db), "format": "currency"},
+                    {"label": "Institutions", "value": institutional_count if institutional_count is not None else _count_rows(db, InstitutionalHolder.cik)},
+                    {"label": "Portfolio Value", "value": institutional_value if institutional_value is not None else _latest_institutional_value(db), "format": "currency"},
                 ],
                 "Largest Portfolios",
                 [],
@@ -458,10 +483,10 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
             "departments",
             "Departments",
             "/departments",
-            "Government agencies, contract awards, public-company vendors, and spending leaders.",
-            [
-                {"label": "Departments / Agencies", "value": len(departments)},
-                {"label": "Contract Value", "value": _government_contract_total(db), "format": "currency"},
+                "Government agencies, contract awards, public-company vendors, and spending leaders.",
+                [
+                {"label": "Departments / Agencies", "value": department_count if department_count is not None else _department_count(db)},
+                {"label": "Contract Value", "value": contract_value if contract_value is not None else _government_contract_total(db), "format": "currency"},
             ],
             "Largest Agencies",
             [
@@ -473,7 +498,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                     f"{int(row.get('contracts') or 0):,} contracts",
                 )
                 for row in _top_departments(db, limit=4)
-            ],
+            ] if include_rankings else [],
             "Top Vendors",
             [
                 _directory_item(
@@ -484,7 +509,7 @@ def profile_directories(db: Session, *, include_institutions: bool = False) -> l
                     row.get("vendor") if row.get("vendor") != row.get("symbol") else None,
                 )
                 for row in _top_vendors(db, limit=4)
-            ],
+            ] if include_rankings else [],
             "Open department profiles",
         )
     )
@@ -1296,6 +1321,12 @@ def _government_contract_period_metrics(db: Session, *, since: date, before: dat
     }
 
 
+def _government_contract_period_value(db: Session, *, since: date, before: date) -> float | None:
+    contract_value = float(db.execute(select(func.sum(GovernmentContract.award_amount)).where(GovernmentContract.award_date >= since, GovernmentContract.award_date < before)).scalar_one() or 0)
+    action_value = float(db.execute(select(func.sum(GovernmentContractAction.obligated_amount)).where(GovernmentContractAction.action_date >= since, GovernmentContractAction.action_date < before)).scalar_one() or 0)
+    return _float_or_int(contract_value + action_value)
+
+
 def _government_contract_comparison_status(db: Session, *, today: date, period_days: int) -> dict[str, Any]:
     month_end = date(today.year, today.month, 1)
     month_start = _add_months(month_end, -6)
@@ -1427,6 +1458,21 @@ def _government_contract_total(db: Session) -> float | None:
     contracts = db.execute(select(func.sum(GovernmentContract.award_amount))).scalar_one()
     actions = db.execute(select(func.sum(GovernmentContractAction.obligated_amount))).scalar_one()
     return _float_or_int(float(contracts or 0) + float(actions or 0))
+
+
+def _department_count(db: Session) -> int:
+    names = set()
+    contract_rows = db.execute(
+        select(GovernmentContract.awarding_agency).where(GovernmentContract.awarding_agency.is_not(None)).group_by(GovernmentContract.awarding_agency)
+    ).all()
+    action_rows = db.execute(
+        select(GovernmentContractAction.awarding_agency).where(GovernmentContractAction.awarding_agency.is_not(None)).group_by(GovernmentContractAction.awarding_agency)
+    ).all()
+    for (name,) in [*contract_rows, *action_rows]:
+        cleaned = (name or "").strip()
+        if cleaned:
+            names.add(cleaned)
+    return len(names)
 
 
 def _active_vendor_count(db: Session) -> int:
