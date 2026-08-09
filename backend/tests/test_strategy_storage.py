@@ -46,6 +46,7 @@ def test_ensure_strategy_storage_schema_creates_expected_tables_and_indexes():
         "strategy_current_holdings",
         "strategy_versions",
         "strategy_evaluation_runs",
+        "strategy_live_holdings",
         "strategy_trades",
         "strategy_events",
         "strategy_subscriptions",

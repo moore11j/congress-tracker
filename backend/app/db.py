@@ -699,6 +699,33 @@ def ensure_strategy_storage_schema(bind=engine) -> None:
         conn.execute(
             text(
                 f"""
+                CREATE TABLE IF NOT EXISTS strategy_live_holdings (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    strategy_version_id INTEGER NOT NULL,
+                    strategy_run_id INTEGER NOT NULL,
+                    opening_trade_id INTEGER NOT NULL,
+                    security_id INTEGER,
+                    symbol TEXT NOT NULL,
+                    ticker_at_time TEXT NOT NULL,
+                    company_name TEXT,
+                    sector TEXT,
+                    rank INTEGER,
+                    weight_pct {float_type},
+                    entry_date DATE,
+                    entry_price {float_type},
+                    score {float_type},
+                    source_count INTEGER,
+                    qualification_snapshot_json TEXT NOT NULL DEFAULT '{{}}',
+                    as_of_date DATE NOT NULL,
+                    updated_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS strategy_holdings_snapshots (
                     id {id_type},
                     strategy_id INTEGER NOT NULL,
@@ -775,6 +802,10 @@ def ensure_strategy_storage_schema(bind=engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_strategy_perf_snapshots_score ON strategy_performance_snapshots (walnut_strategy_score)",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_equity_curve_run_date ON strategy_equity_curve_points (run_id, date)",
             "CREATE INDEX IF NOT EXISTS ix_strategy_equity_curve_strategy_date ON strategy_equity_curve_points (strategy_id, date)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_live_holdings_strategy_symbol ON strategy_live_holdings (strategy_id, symbol)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_live_holdings_strategy_rank ON strategy_live_holdings (strategy_id, rank)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_live_holdings_strategy_as_of ON strategy_live_holdings (strategy_id, as_of_date)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_live_holdings_symbol ON strategy_live_holdings (symbol)",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_holdings_snapshot_date ON strategy_holdings_snapshots (strategy_id, run_id, as_of_date)",
             "CREATE INDEX IF NOT EXISTS ix_strategy_holdings_snapshots_strategy_date ON strategy_holdings_snapshots (strategy_id, as_of_date)",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_holding_rows_snapshot_symbol ON strategy_holding_rows (snapshot_id, symbol)",

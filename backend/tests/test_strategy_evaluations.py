@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_strategy_storage_schema
-from app.models import StrategyDefinition, StrategyEvent, StrategyTrade, StrategyVersion
+from app.models import StrategyDefinition, StrategyEvent, StrategyLiveHolding, StrategyTrade, StrategyVersion
 from app.services.strategy_evaluations import StrategyEvaluationCandidate, evaluate_strategy_candidates
 
 
@@ -95,7 +95,7 @@ def test_evaluation_records_exits_and_rebalances_without_rewriting_history():
             universe_count=100,
             candidates=[
                 StrategyEvaluationCandidate("NVDA", weight_pct=100),
-                StrategyEvaluationCandidate("MSFT", weight_pct=0),
+                StrategyEvaluationCandidate("MSFT", weight_pct=10),
             ],
             closing_prices={"PLTR": 40.0},
         )
@@ -109,6 +109,9 @@ def test_evaluation_records_exits_and_rebalances_without_rewriting_history():
             ("NVDA", "rebalance", "completed"),
         ]
         assert trades[1].exit_price == 40.0
+        live = db.execute(select(StrategyLiveHolding).order_by(StrategyLiveHolding.rank)).scalars().all()
+        assert [(holding.symbol, holding.weight_pct) for holding in live] == [("NVDA", 100.0), ("MSFT", 10.0)]
+        assert live[0].entry_date == date(2026, 8, 10)
         assert [event.event_type for event in db.execute(select(StrategyEvent).order_by(StrategyEvent.id)).scalars()][-4:] == [
             "trade_exited",
             "trade_added",
