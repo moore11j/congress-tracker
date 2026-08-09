@@ -293,6 +293,16 @@ export type DepartmentsOverviewResponse = {
   status: string;
   fiscal_year?: number | null;
   period_days: number;
+  comparison?: {
+    status?: string;
+    label?: string | null;
+    message?: string | null;
+    coverage_ratio?: number | null;
+    current_recent_rows?: number | null;
+    previous_recent_rows?: number | null;
+    latest_contract_date?: string | null;
+    latest_action_date?: string | null;
+  };
   summary: ProfileMetric[];
   top_departments: Array<Record<string, unknown>>;
   top_vendors: Array<Record<string, unknown>>;
@@ -7037,11 +7047,12 @@ export async function getDepartmentProfile(slug: string, params?: { limit?: numb
   );
 }
 
-export async function getProfilesSummary(params?: { activity_type?: string; activity_limit?: number; authToken?: string | null; signal?: AbortSignal }): Promise<ProfilesSummaryResponse> {
+export async function getProfilesSummary(params?: { activity_type?: string; activity_limit?: number; include_activity?: boolean; authToken?: string | null; signal?: AbortSignal }): Promise<ProfilesSummaryResponse> {
   return fetchJson<ProfilesSummaryResponse>(
     buildApiUrl("/api/profiles/summary", {
       activity_type: params?.activity_type,
       activity_limit: params?.activity_limit,
+      include_activity: params?.include_activity ? "true" : undefined,
     }),
     {
       headers: authHeaders(params?.authToken ?? undefined),

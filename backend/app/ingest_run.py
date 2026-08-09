@@ -878,10 +878,11 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
         for symbol in os.getenv("GOVERNMENT_CONTRACT_SYMBOLS", ",".join(DEFAULT_TARGET_SYMBOLS)).split(",")
         if symbol.strip()
     ]
+    default_max_pages = "50" if int(lookback_days or 0) >= 365 else "10"
     result = run_government_contracts_ingest_job(
         lookback_days=lookback_days,
         min_award_amount=float(os.getenv("GOVERNMENT_CONTRACT_MIN_AWARD_AMOUNT", "1000000")),
-        max_pages=int(os.getenv("GOVERNMENT_CONTRACT_MAX_PAGES", "10")),
+        max_pages=int(os.getenv("GOVERNMENT_CONTRACT_MAX_PAGES", default_max_pages)),
         limit=int(os.getenv("GOVERNMENT_CONTRACT_LIMIT", "100")),
         symbols=symbols,
         recipient=os.getenv("GOVERNMENT_CONTRACT_RECIPIENT") or None,

@@ -45,9 +45,20 @@ PROFILE_ACTIVITY_TYPES = (
 MAX_REASONABLE_INSIDER_TRADE_VALUE = 10_000_000_000
 
 TECH_PLATFORM_SECTOR_SYMBOLS = {"AAPL", "NVDA", "MSFT", "GOOG", "GOOGL", "AMZN", "META"}
+INSTITUTIONAL_PERIOD_MIN_COVERAGE_RATIO = 0.5
+INSTITUTIONAL_PERIOD_MIN_INSTITUTIONS = 25
+GOVERNMENT_CONTRACT_COMPARISON_MIN_COVERAGE_RATIO = 0.6
+GOVERNMENT_CONTRACT_COMPARISON_MIN_PRIOR_ROWS = 500
 
 
-def profiles_summary(db: Session, *, activity_type: str = "all", activity_limit: int = 25, include_institutions: bool = False) -> dict[str, Any]:
+def profiles_summary(
+    db: Session,
+    *,
+    activity_type: str = "all",
+    activity_limit: int = 25,
+    include_institutions: bool = False,
+    include_activity: bool = False,
+) -> dict[str, Any]:
     return {
         "status": "ok",
         "cards": [
@@ -95,7 +106,7 @@ def profiles_summary(db: Session, *, activity_type: str = "all", activity_limit:
             ),
         ],
         "directories": profile_directories(db, include_institutions=include_institutions),
-        "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions),
+        "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
     }
 
 
@@ -205,22 +216,23 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
     if period is None:
         return {"status": "no_data", "summary": [], "top_institutions": [], "position_changes": [], "sector_exposure": [], "recent_filings": []}
     report_year, report_quarter = period
-    prev_year, prev_quarter = _previous_quarter(report_year, report_quarter)
+    previous_period = _previous_comparable_institutional_period(db, report_year, report_quarter)
+    prev_year, prev_quarter = previous_period if previous_period is not None else (None, None)
     period_filter = [InstitutionalPosition.report_year == report_year, InstitutionalPosition.report_quarter == report_quarter]
     change_filter = [InstitutionalPositionChange.report_year == report_year, InstitutionalPositionChange.report_quarter == report_quarter]
-    previous_position_filter = [InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter]
-    previous_change_filter = [InstitutionalPositionChange.report_year == prev_year, InstitutionalPositionChange.report_quarter == prev_quarter]
+    previous_position_filter = [InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter] if previous_period is not None else []
+    previous_change_filter = [InstitutionalPositionChange.report_year == prev_year, InstitutionalPositionChange.report_quarter == prev_quarter] if previous_period is not None else []
 
     total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*period_filter)).scalar_one()
-    previous_total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*previous_position_filter)).scalar_one()
+    previous_total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*previous_position_filter)).scalar_one() if previous_position_filter else None
     tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*period_filter)).scalar_one()
-    previous_tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*previous_position_filter)).scalar_one()
+    previous_tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*previous_position_filter)).scalar_one() if previous_position_filter else None
     increases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*change_filter, InstitutionalPositionChange.shares_delta > 0)).scalar_one()
-    previous_increases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*previous_change_filter, InstitutionalPositionChange.shares_delta > 0)).scalar_one()
+    previous_increases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*previous_change_filter, InstitutionalPositionChange.shares_delta > 0)).scalar_one() if previous_change_filter else None
     decreases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*change_filter, InstitutionalPositionChange.shares_delta < 0)).scalar_one()
-    previous_decreases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*previous_change_filter, InstitutionalPositionChange.shares_delta < 0)).scalar_one()
+    previous_decreases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*previous_change_filter, InstitutionalPositionChange.shares_delta < 0)).scalar_one() if previous_change_filter else None
     net_change = db.execute(select(func.sum(InstitutionalPositionChange.value_delta_usd)).where(*change_filter)).scalar_one()
-    previous_net_change = db.execute(select(func.sum(InstitutionalPositionChange.value_delta_usd)).where(*previous_change_filter)).scalar_one()
+    previous_net_change = db.execute(select(func.sum(InstitutionalPositionChange.value_delta_usd)).where(*previous_change_filter)).scalar_one() if previous_change_filter else None
 
     return {
         "status": "ok",
@@ -235,7 +247,7 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
             _metric("Total Position Decreases", decreases, previous_decreases),
             _metric("Net Reported Value Change", net_change, previous_net_change, "currency"),
         ],
-        "top_institutions": _top_institutions(db, report_year, report_quarter),
+        "top_institutions": _top_institutions(db, report_year, report_quarter, previous_period=previous_period),
         "position_changes": _institutional_position_changes(db, report_year, report_quarter),
         "sector_exposure": _institution_sector_exposure(db),
         "most_widely_held": _most_widely_held(db, report_year, report_quarter),
@@ -250,27 +262,34 @@ def departments_overview(db: Session, *, fiscal_year: int | None = None, period_
     today = date.today()
     since = today - timedelta(days=period_days)
     previous_since = since - timedelta(days=period_days)
+    trend_since = today - timedelta(days=365 * 3)
+    before = today + timedelta(days=1)
 
-    current = _government_contract_period_metrics(db, since=since, before=today + timedelta(days=1))
+    current = _government_contract_period_metrics(db, since=since, before=before)
     previous = _government_contract_period_metrics(db, since=previous_since, before=since)
+    comparison = _government_contract_comparison_status(db, today=today, period_days=period_days)
+    comparison_available = comparison["status"] == "ok"
+    previous_summary = previous if comparison_available else {}
+    top_departments_previous_since = previous_since if comparison_available else None
 
     return {
         "status": "ok",
         "fiscal_year": fiscal_year,
         "period_days": period_days,
+        "comparison": comparison,
         "summary": [
-            _metric("Total Contracts", current["contract_count"], previous["contract_count"]),
-            _metric("Total Contract Value", current["total_value"], previous["total_value"], "currency"),
-            _metric("Active Vendors", current["active_vendors"], previous["active_vendors"]),
-            _metric("Average Contract Size", current["average_size"], previous["average_size"], "currency"),
-            _metric("Contract Modifications", current["modification_count"], previous["modification_count"]),
+            _metric("Total Contracts", current["contract_count"], previous_summary.get("contract_count")),
+            _metric("Total Contract Value", current["total_value"], previous_summary.get("total_value"), "currency"),
+            _metric("Active Vendors", current["active_vendors"], previous_summary.get("active_vendors")),
+            _metric("Average Contract Size", current["average_size"], previous_summary.get("average_size"), "currency"),
+            _metric("Contract Modifications", current["modification_count"], previous_summary.get("modification_count")),
         ],
-        "top_departments": _top_departments(db, since=since, before=today + timedelta(days=1), previous_since=previous_since),
-        "top_vendors": _top_vendors(db, since=since, before=today + timedelta(days=1)),
-        "contract_value_over_time": _contract_value_by_sector_over_time(db),
-        "largest_recent_awards": _largest_recent_awards(db, since=since, before=today + timedelta(days=1)),
+        "top_departments": _top_departments(db, since=since, before=before, previous_since=top_departments_previous_since),
+        "top_vendors": _top_vendors(db, since=since, before=before),
+        "contract_value_over_time": _contract_value_by_sector_over_time(db, since=trend_since, before=before),
+        "largest_recent_awards": _largest_recent_awards(db, since=since, before=before),
         "fastest_growing_vendors": _fastest_growing_vendors(db, period_days=period_days),
-        "most_active_departments": _most_active_departments(db, since=since, before=today + timedelta(days=1)),
+        "most_active_departments": _most_active_departments(db, since=since, before=before),
     }
 
 
@@ -928,13 +947,64 @@ def _cluster_buying(db: Session, *, since: datetime, symbols: set[str] | None = 
 def _latest_institutional_period(db: Session, *, year: int | None = None, quarter: int | None = None) -> tuple[int, int] | None:
     if year and quarter:
         return int(year), int(quarter)
-    row = db.execute(
+    rows = db.execute(
         select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
         .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
         .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
-        .limit(1)
-    ).first()
-    return (int(row[0]), int(row[1])) if row else None
+        .limit(12)
+    ).all()
+    periods = [(int(row[0]), int(row[1])) for row in rows]
+    complete_periods = _complete_institutional_periods(db, periods)
+    return complete_periods[0] if complete_periods else (periods[0] if periods else None)
+
+
+def _complete_institutional_periods(db: Session, periods: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    if not periods:
+        return []
+    coverage = _institutional_period_coverage(db, periods)
+    complete_periods = []
+    for index, period in enumerate(periods):
+        institutions = coverage.get(period, {}).get("institutions", 0)
+        if institutions <= 0:
+            continue
+        previous_period = periods[index + 1] if index + 1 < len(periods) else None
+        previous_institutions = coverage.get(previous_period, {}).get("institutions", 0) if previous_period else 0
+        minimum_institutions = max(INSTITUTIONAL_PERIOD_MIN_INSTITUTIONS, int(previous_institutions * INSTITUTIONAL_PERIOD_MIN_COVERAGE_RATIO))
+        if previous_institutions >= INSTITUTIONAL_PERIOD_MIN_INSTITUTIONS and institutions < minimum_institutions:
+            continue
+        complete_periods.append(period)
+    return complete_periods
+
+
+def _institutional_period_coverage(db: Session, periods: list[tuple[int, int]]) -> dict[tuple[int, int], dict[str, int]]:
+    if not periods:
+        return {}
+    rows = db.execute(
+        select(
+            InstitutionalPosition.report_year,
+            InstitutionalPosition.report_quarter,
+            func.count(func.distinct(InstitutionalPosition.cik)),
+            func.count(InstitutionalPosition.id),
+        )
+        .where(tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods))  # type: ignore[name-defined]
+        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+    ).all()
+    return {
+        (int(year), int(quarter)): {"institutions": int(institutions or 0), "positions": int(positions or 0)}
+        for year, quarter, institutions, positions in rows
+    }
+
+
+def _previous_comparable_institutional_period(db: Session, year: int, quarter: int) -> tuple[int, int] | None:
+    previous = _previous_quarter(year, quarter)
+    coverage = _institutional_period_coverage(db, [(int(year), int(quarter)), previous])
+    current_institutions = coverage.get((int(year), int(quarter)), {}).get("institutions", 0)
+    previous_institutions = coverage.get(previous, {}).get("institutions", 0)
+    if current_institutions <= 0 or previous_institutions <= 0:
+        return None
+    if min(current_institutions, previous_institutions) / max(current_institutions, previous_institutions) < INSTITUTIONAL_PERIOD_MIN_COVERAGE_RATIO:
+        return None
+    return previous
 
 
 def _previous_quarter(year: int, quarter: int) -> tuple[int, int]:
@@ -949,7 +1019,7 @@ def _latest_institutional_value(db: Session) -> float | None:
     return _float_or_int(db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(InstitutionalPosition.report_year == year, InstitutionalPosition.report_quarter == quarter)).scalar_one())
 
 
-def _top_institutions(db: Session, year: int, quarter: int, *, limit: int = 15) -> list[dict[str, Any]]:
+def _top_institutions(db: Session, year: int, quarter: int, *, previous_period: tuple[int, int] | None = None, limit: int = 15) -> list[dict[str, Any]]:
     rows = db.execute(
         select(
             InstitutionalPosition.cik,
@@ -971,7 +1041,7 @@ def _top_institutions(db: Session, year: int, quarter: int, *, limit: int = 15) 
             .order_by(InstitutionalPosition.value_usd.desc().nullslast())
             .limit(1)
         ).first()
-        previous = _previous_institution_value(db, str(cik), year, quarter)
+        previous = _previous_institution_value(db, str(cik), previous_period=previous_period)
         result.append(
             {
                 "name": name or "Institution unavailable",
@@ -987,8 +1057,10 @@ def _top_institutions(db: Session, year: int, quarter: int, *, limit: int = 15) 
     return result
 
 
-def _previous_institution_value(db: Session, cik: str, year: int, quarter: int) -> float | None:
-    prev_year, prev_quarter = _previous_quarter(year, quarter)
+def _previous_institution_value(db: Session, cik: str, *, previous_period: tuple[int, int] | None) -> float | None:
+    if previous_period is None:
+        return None
+    prev_year, prev_quarter = previous_period
     return _float_or_int(db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(InstitutionalPosition.cik == cik, InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter)).scalar_one())
 
 
@@ -1030,19 +1102,19 @@ def _institutional_position_changes(db: Session, year: int, quarter: int, *, cha
 
 
 def _institution_sector_exposure(db: Session) -> list[dict[str, Any]]:
-    periods = db.execute(
+    rows = db.execute(
         select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
         .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
         .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
-        .limit(8)
+        .limit(16)
     ).all()
+    periods = _complete_institutional_periods(db, [(int(y), int(q)) for y, q in rows])[:8]
     if not periods:
         return []
-    period_set = {(int(y), int(q)) for y, q in periods}
     rows = db.execute(
         select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol), func.sum(InstitutionalPosition.value_usd))
         .where(
-            tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(period_set),  # type: ignore[name-defined]
+            tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods),  # type: ignore[name-defined]
             InstitutionalPosition.normalized_symbol.is_not(None),
             InstitutionalPosition.value_usd.is_not(None),
         )
@@ -1093,8 +1165,8 @@ def _top_departments(db: Session, *, since: date | None = None, before: date | N
             "name": name,
             "href": f"/departments/{department_slug(name)}",
             "contract_value": _float_or_int(values["value"]),
-            "previous_value": _float_or_int(previous_rows.get(name, {}).get("value", 0)),
-            "change_pct": _float_or_int(_change_pct(values["value"], previous_rows.get(name, {}).get("value", 0))),
+            "previous_value": _float_or_int(previous_rows.get(name, {}).get("value")) if previous_rows else None,
+            "change_pct": _float_or_int(_change_pct(values["value"], previous_rows.get(name, {}).get("value"))) if previous_rows else None,
             "contracts": int(values["contracts"] or 0),
             "top_vendor": top_vendors.get(name) or "No vendor concentration",
         }
@@ -1132,17 +1204,22 @@ def _top_vendors(db: Session, *, since: date | None = None, before: date | None 
     return [{"vendor": company_names.get(row[0]) or row[1] or row[0], "symbol": row[0], "href": f"/ticker/{row[0]}" if row[0] else None, "contract_value": _float_or_int(row[2]), "contracts": int(row[3] or 0), "top_department": row[4]} for row in rows]
 
 
-def _contract_value_by_sector_over_time(db: Session) -> list[dict[str, Any]]:
-    today = date.today() + timedelta(days=1)
+def _contract_value_by_sector_over_time(db: Session, *, since: date | None = None, before: date | None = None) -> list[dict[str, Any]]:
+    today = before or date.today() + timedelta(days=1)
+    contract_filters = [GovernmentContract.symbol.is_not(None), GovernmentContract.award_date < today]
+    action_filters = [GovernmentContractAction.symbol.is_not(None), GovernmentContractAction.action_date < today]
+    if since is not None:
+        contract_filters.append(GovernmentContract.award_date >= since)
+        action_filters.append(GovernmentContractAction.action_date >= since)
     contract_rows = db.execute(
         select(GovernmentContract.award_date, func.upper(GovernmentContract.symbol), func.sum(GovernmentContract.award_amount))
-        .where(GovernmentContract.symbol.is_not(None), GovernmentContract.award_date < today)
+        .where(*contract_filters)
         .group_by(GovernmentContract.award_date, func.upper(GovernmentContract.symbol))
         .order_by(GovernmentContract.award_date.asc())
     ).all()
     action_rows = db.execute(
         select(GovernmentContractAction.action_date, func.upper(GovernmentContractAction.symbol), func.sum(GovernmentContractAction.obligated_amount))
-        .where(GovernmentContractAction.symbol.is_not(None), GovernmentContractAction.action_date < today)
+        .where(*action_filters)
         .group_by(GovernmentContractAction.action_date, func.upper(GovernmentContractAction.symbol))
         .order_by(GovernmentContractAction.action_date.asc())
     ).all()
@@ -1217,6 +1294,48 @@ def _government_contract_period_metrics(db: Session, *, since: date, before: dat
         "average_size": _float_or_int(total_value / contract_count_total) if contract_count_total else None,
         "modification_count": modification_count,
     }
+
+
+def _government_contract_comparison_status(db: Session, *, today: date, period_days: int) -> dict[str, Any]:
+    month_end = date(today.year, today.month, 1)
+    month_start = _add_months(month_end, -6)
+    previous_month_start = _add_months(month_start, -12)
+    previous_month_end = _add_months(month_end, -12)
+    current = _government_contract_period_metrics(db, since=month_start, before=month_end)
+    previous = _government_contract_period_metrics(db, since=previous_month_start, before=previous_month_end)
+    current_rows = int(current.get("contract_count") or 0)
+    previous_rows = int(previous.get("contract_count") or 0)
+    coverage_ratio = (current_rows / previous_rows) if previous_rows else None
+    latest_contract_date = db.execute(
+        select(func.max(GovernmentContract.award_date)).where(GovernmentContract.award_date < today + timedelta(days=1))
+    ).scalar_one_or_none()
+    latest_action_date = db.execute(
+        select(func.max(GovernmentContractAction.action_date)).where(GovernmentContractAction.action_date < today + timedelta(days=1))
+    ).scalar_one_or_none()
+    status = "ok"
+    message = None
+    if (
+        coverage_ratio is not None
+        and previous_rows >= GOVERNMENT_CONTRACT_COMPARISON_MIN_PRIOR_ROWS
+        and coverage_ratio < GOVERNMENT_CONTRACT_COMPARISON_MIN_COVERAGE_RATIO
+    ):
+        status = "undercovered"
+        message = "Comparison paused because recent government-contract ingest coverage is materially below the matching prior-year months."
+    return {
+        "status": status,
+        "label": f"previous {period_days} days" if status == "ok" else "comparison pending ingest backfill",
+        "message": message,
+        "coverage_ratio": _float_or_int((coverage_ratio * 100.0) if coverage_ratio is not None else None),
+        "current_recent_rows": current_rows,
+        "previous_recent_rows": previous_rows,
+        "latest_contract_date": _date_iso(latest_contract_date),
+        "latest_action_date": _date_iso(latest_action_date),
+    }
+
+
+def _add_months(value: date, months: int) -> date:
+    month_index = (value.year * 12 + value.month - 1) + months
+    return date(month_index // 12, month_index % 12 + 1, 1)
 
 
 def _department_value_rows(db: Session, *, since: date | None = None, before: date | None = None, sort_by: str = "value") -> dict[str, dict[str, float]]:

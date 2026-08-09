@@ -17,6 +17,11 @@ def _db() -> Session:
     return Session(engine)
 
 
+def _add_months(value: date, months: int) -> date:
+    month_index = (value.year * 12 + value.month - 1) + months
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
 def test_profiles_summary_uses_real_aggregate_counts():
     db = _db()
     db.add(Member(bioguide_id="P000197", first_name="Nancy", last_name="Pelosi", chamber="house", party="D", state="CA"))
@@ -69,7 +74,7 @@ def test_profiles_summary_uses_real_aggregate_counts():
     )
     db.commit()
 
-    payload = profiles_summary(db, include_institutions=False)
+    payload = profiles_summary(db, include_institutions=False, include_activity=True)
 
     congress = next(card for card in payload["cards"] if card["kind"] == "congress")
     insiders = next(card for card in payload["cards"] if card["kind"] == "insiders")
@@ -338,6 +343,53 @@ def test_institutions_overview_compares_previous_quarter_and_classifies_mega_cap
     assert all(segment["label"] != "Other" for segment in latest)
 
 
+def test_institutions_overview_skips_sparse_newer_period():
+    db = _db()
+    db.add(TickerMeta(symbol="AAPL", company_name="Apple Inc.", sector="Technology"))
+    db.add(TickerMeta(symbol="MSFT", company_name="Microsoft Corp.", sector="Technology"))
+    for index in range(30):
+        db.add(
+            InstitutionalPosition(
+                filing_id=10_000 + index,
+                cik=f"q1-{index}",
+                symbol="AAPL",
+                normalized_symbol="AAPL",
+                issuer_name="Apple Inc.",
+                shares=100,
+                value_usd=1_000_000,
+                report_year=2026,
+                report_quarter=1,
+                filing_date=date(2026, 5, 15),
+            )
+        )
+    for index in range(2):
+        db.add(
+            InstitutionalPosition(
+                filing_id=20_000 + index,
+                cik=f"q2-{index}",
+                symbol="MSFT",
+                normalized_symbol="MSFT",
+                issuer_name="Microsoft Corp.",
+                shares=100,
+                value_usd=1_000_000,
+                report_year=2026,
+                report_quarter=2,
+                filing_date=date(2026, 8, 1),
+            )
+        )
+    db.commit()
+
+    payload = institutions_overview(db, include_details=True)
+
+    assert payload["report_year"] == 2026
+    assert payload["report_quarter"] == 1
+    assert payload["previous_report_year"] is None
+    assert payload["previous_report_quarter"] is None
+    assert payload["summary"][0]["value"] == 30
+    assert payload["summary"][0]["previous_value"] is None
+    assert all(row["period"] != "Q2 2026" for row in payload["sector_exposure"])
+
+
 def test_departments_overview_uses_contract_language():
     db = _db()
     today = date.today()
@@ -422,3 +474,48 @@ def test_departments_overview_uses_contract_language():
     sector_labels = {segment["label"] for row in payload["contract_value_over_time"] for segment in row["segments"]}
     assert {"Industrials", "Technology"}.issubset(sector_labels)
     assert "Other" not in sector_labels
+
+
+def test_departments_overview_suppresses_deltas_when_recent_ingest_is_undercovered():
+    db = _db()
+    today = date.today()
+    month_end = date(today.year, today.month, 1)
+    current_month = _add_months(month_end, -2)
+    previous_month = _add_months(current_month, -12)
+    db.add(TickerMeta(symbol="LMT", company_name="Lockheed Martin Corporation", sector="Industrials"))
+    for index in range(600):
+        db.add(
+            GovernmentContract(
+                award_id=f"PREV-{index}",
+                dedupe_key=f"PREV-{index}",
+                symbol="LMT",
+                recipient_name="Lockheed Martin",
+                award_date=previous_month + timedelta(days=index % 20),
+                award_amount=1_000_000,
+                awarding_agency="Department of Defense",
+                source="test",
+            )
+        )
+    for index in range(10):
+        db.add(
+            GovernmentContract(
+                award_id=f"CURR-{index}",
+                dedupe_key=f"CURR-{index}",
+                symbol="LMT",
+                recipient_name="Lockheed Martin",
+                award_date=current_month + timedelta(days=index % 20),
+                award_amount=1_000_000,
+                awarding_agency="Department of Defense",
+                source="test",
+            )
+        )
+    db.commit()
+
+    payload = departments_overview(db, period_days=365)
+
+    assert payload["comparison"]["status"] == "undercovered"
+    assert payload["summary"][0]["value"] == 10
+    assert payload["summary"][0]["previous_value"] is None
+    assert payload["summary"][0]["change_pct"] is None
+    assert payload["top_departments"][0]["previous_value"] is None
+    assert payload["top_departments"][0]["change_pct"] is None

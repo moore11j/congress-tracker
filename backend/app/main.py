@@ -2975,6 +2975,28 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
     return _shared_api_prefetch_response(request, endpoint=endpoint, logger=logger)
 
 
+PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 180
+_PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
+_PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
+
+
+def _cached_profile_overview_response(key: tuple[Any, ...], builder: Any) -> Any:
+    now = time.monotonic()
+    with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+        cached = _PROFILE_OVERVIEW_RESPONSE_CACHE.get(key)
+        if cached is not None and now - cached[0] <= PROFILE_OVERVIEW_CACHE_TTL_SECONDS:
+            return copy.deepcopy(cached[1])
+    payload = builder()
+    with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+        _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (time.monotonic(), copy.deepcopy(payload))
+        if len(_PROFILE_OVERVIEW_RESPONSE_CACHE) > 100:
+            stale_before = now - PROFILE_OVERVIEW_CACHE_TTL_SECONDS
+            for cache_key, (created_at, _) in list(_PROFILE_OVERVIEW_RESPONSE_CACHE.items()):
+                if created_at < stale_before:
+                    _PROFILE_OVERVIEW_RESPONSE_CACHE.pop(cache_key, None)
+    return payload
+
+
 def _request_route_family(path: str, header_family: str | None = None) -> str:
     header = _bounded_log_value(header_family, max_length=40).lower().replace("-", "_")
     if header and header != "none":
@@ -4675,17 +4697,23 @@ def profiles_summary(
     request: Request,
     activity_type: str = Query("all", pattern="^(all|congress|insiders|institutions|departments)$"),
     activity_limit: int = Query(25, ge=1, le=100),
+    include_activity: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     prefetch_response = _api_prefetch_response(request, endpoint="profiles_summary")
     if prefetch_response is not None:
         return prefetch_response
     entitlements = current_entitlements(request, db)
-    return build_profiles_summary(
-        db,
-        activity_type=activity_type,
-        activity_limit=activity_limit,
-        include_institutions=entitlements.has_feature("institutional_feed"),
+    include_institutions = entitlements.has_feature("institutional_feed")
+    return _cached_profile_overview_response(
+        ("profiles_summary", activity_type, activity_limit, include_institutions, include_activity),
+        lambda: build_profiles_summary(
+            db,
+            activity_type=activity_type,
+            activity_limit=activity_limit,
+            include_institutions=include_institutions,
+            include_activity=include_activity,
+        ),
     )
 
 
@@ -4699,7 +4727,10 @@ def profiles_congress_overview(
     prefetch_response = _api_prefetch_response(request, endpoint="profiles_congress_overview")
     if prefetch_response is not None:
         return prefetch_response
-    return build_congress_overview(db, chamber=chamber, period_days=period_days)
+    return _cached_profile_overview_response(
+        ("profiles_congress_overview", chamber, period_days),
+        lambda: build_congress_overview(db, chamber=chamber, period_days=period_days),
+    )
 
 
 @app.get("/api/profiles/insiders/overview")
@@ -4712,7 +4743,11 @@ def profiles_insiders_overview(
     prefetch_response = _api_prefetch_response(request, endpoint="profiles_insiders_overview")
     if prefetch_response is not None:
         return prefetch_response
-    return build_insiders_overview(db, sector=sector, period_days=period_days)
+    sector_key = (sector or "").strip().lower()
+    return _cached_profile_overview_response(
+        ("profiles_insiders_overview", sector_key, period_days),
+        lambda: build_insiders_overview(db, sector=sector, period_days=period_days),
+    )
 
 
 @app.get("/api/profiles/institutions/overview")
@@ -4726,11 +4761,15 @@ def profiles_institutions_overview(
     if prefetch_response is not None:
         return prefetch_response
     entitlements = current_entitlements(request, db)
-    return build_institutions_overview(
-        db,
-        year=year,
-        quarter=quarter,
-        include_details=entitlements.has_feature("institutional_feed"),
+    include_details = entitlements.has_feature("institutional_feed")
+    return _cached_profile_overview_response(
+        ("profiles_institutions_overview", year, quarter, include_details),
+        lambda: build_institutions_overview(
+            db,
+            year=year,
+            quarter=quarter,
+            include_details=include_details,
+        ),
     )
 
 
@@ -4744,7 +4783,10 @@ def profiles_departments_overview(
     prefetch_response = _api_prefetch_response(request, endpoint="profiles_departments_overview")
     if prefetch_response is not None:
         return prefetch_response
-    return build_departments_overview(db, fiscal_year=fiscal_year, period_days=period_days)
+    return _cached_profile_overview_response(
+        ("profiles_departments_overview", fiscal_year, period_days),
+        lambda: build_departments_overview(db, fiscal_year=fiscal_year, period_days=period_days),
+    )
 
 
 @app.get("/api/members/by-slug/{slug}")

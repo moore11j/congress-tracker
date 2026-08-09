@@ -25,7 +25,9 @@ export default async function DepartmentsPage({ searchParams }: { searchParams?:
   const period = selectedPeriod(sp);
   const authState = await optionalPageAuthState();
   const data = await getDepartmentsOverview({ period_days: Number(period), authToken: authState.token });
-  const comparisonLabel = `previous ${data.period_days} days`;
+  const comparisonStatus = data.comparison?.status ?? "ok";
+  const comparisonLabel = data.comparison?.label || `previous ${data.period_days} days`;
+  const comparisonPaused = comparisonStatus !== "ok";
   const activeDepartment = data.most_active_departments[0] ?? {};
   const largestAward = data.largest_recent_awards[0] ?? {};
   const growthLeader = data.fastest_growing_vendors[0] ?? {};
@@ -52,7 +54,11 @@ export default async function DepartmentsPage({ searchParams }: { searchParams?:
         <div className="border-b border-white/10 bg-slate-900/60 px-5 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300">Last {data.period_days} Days</p>
           <h2 className="mt-1 text-xl font-semibold text-white">Government contract snapshot</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-400">Momentum metrics compare against the {comparisonLabel}; future-dated awards are excluded from the current period.</p>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            {comparisonPaused
+              ? data.comparison?.message ?? "Comparison paused while the government-contract backfill catches up."
+              : `Momentum metrics compare against the ${comparisonLabel}; future-dated awards are excluded from the current period.`}
+          </p>
         </div>
         <div className="grid gap-px bg-white/10 md:grid-cols-3">
           <SnapshotTile label="Most Active Department" title={textValue(activeDepartment, "name")} detail={`${numberValue(activeDepartment, "contracts")} contracts`} href={hrefValue(activeDepartment)} />
@@ -64,7 +70,7 @@ export default async function DepartmentsPage({ searchParams }: { searchParams?:
       <section className="grid min-w-0 gap-3 xl:grid-cols-2">
         <DataPanel
           title="Top Departments by Contract Value"
-          subtitle={`Current period compared with the ${comparisonLabel}.`}
+          subtitle={comparisonPaused ? "Current period shown without prior-period deltas until ingest coverage is comparable." : `Current period compared with the ${comparisonLabel}.`}
           rows={data.top_departments}
           empty="No department contract data available for this period."
           cta={{ href: "/departments", label: "View all departments" }}
