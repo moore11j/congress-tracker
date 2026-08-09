@@ -630,14 +630,19 @@ def _insider_profile_period_metrics(db: Session, *, since: date, before: date) -
 def _institutional_profile_period_metrics(db: Session) -> tuple[dict[str, int | float | None], dict[str, int | float | None], str, tuple[int, int] | None]:
     # Holder snapshots are tiny and updated with each filing ingest. They avoid the
     # landing page scanning a dozen large position periods just to find the latest one.
-    period = db.execute(
-        select(InstitutionalHolder.latest_report_year, InstitutionalHolder.latest_report_quarter)
+    coverage_rows = db.execute(
+        select(InstitutionalHolder.latest_report_year, InstitutionalHolder.latest_report_quarter, func.count(InstitutionalHolder.cik))
         .where(InstitutionalHolder.latest_report_year.is_not(None), InstitutionalHolder.latest_report_quarter.is_not(None))
         .group_by(InstitutionalHolder.latest_report_year, InstitutionalHolder.latest_report_quarter)
         .order_by(InstitutionalHolder.latest_report_year.desc(), InstitutionalHolder.latest_report_quarter.desc())
-        .limit(1)
-    ).first()
-    period = (int(period[0]), int(period[1])) if period else None
+        .limit(12)
+    ).all()
+    # A new quarter appears before all 13F managers have filed. Use the latest
+    # holder period with comparable coverage, rather than displaying a false collapse.
+    baseline_count = max((int(row[2] or 0) for row in coverage_rows), default=0)
+    minimum_count = max(INSTITUTIONAL_PERIOD_MIN_INSTITUTIONS, int(baseline_count * INSTITUTIONAL_PERIOD_MIN_COVERAGE_RATIO))
+    selected = next((row for row in coverage_rows if int(row[2] or 0) >= minimum_count), None)
+    period = (int(selected[0]), int(selected[1])) if selected else None
     empty = {"institutions": 0, "portfolio_value": None}
     if period is None:
         return empty, empty.copy(), "latest reported quarter vs prior comparable quarter", None
