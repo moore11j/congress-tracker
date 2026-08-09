@@ -203,6 +203,19 @@ async def rate_limit_password_reset_confirm(request: Request) -> None:
     )
 
 
+async def rate_limit_contact_form(request: Request) -> None:
+    payload = await _request_json(request)
+    email = normalize_email(str(payload.get("email") or ""))
+    ip = _client_ip(request)
+    _check(
+        "contact_form",
+        [
+            RateLimitRule("contact_form_ip_email", 3, 15 * 60, f"ip:{ip}:email:{email or 'missing'}"),
+            RateLimitRule("contact_form_ip", 10, 60 * 60, f"ip:{ip}"),
+        ],
+    )
+
+
 def rate_limit_export(request: Request, db: Session = Depends(get_db)) -> None:
     actor_key = _request_actor_key(request, db, required=False)
     _check("export", [RateLimitRule("export_actor", 10, 10 * 60, actor_key)])

@@ -12,8 +12,13 @@ type LegalPageShellProps = {
 };
 
 export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrome = "public", children }: LegalPageShellProps) {
+  const contentClassName =
+    chrome === "embedded"
+      ? "w-full min-w-0 px-0 py-0"
+      : "mx-auto w-full max-w-7xl px-4 py-14 sm:px-6 lg:px-8";
+
   const content = (
-    <div className={chrome === "embedded" ? "mx-auto max-w-5xl px-0 py-0" : "mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:px-8"}>
+    <div className={contentClassName}>
       <div className="border-b border-white/10 pb-8">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{eyebrow}</p>
         <h1 className="mt-4 text-4xl font-semibold text-white">{title}</h1>
@@ -36,7 +41,7 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
       {content}
 
       <footer className="border-t border-white/10 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-semibold text-slate-300">Walnut Market Terminal</p>
             <p className="mt-1 text-xs leading-5 text-slate-400">

@@ -305,6 +305,7 @@ def _sender_env_value(template: EmailTemplate) -> str:
         "account": "EMAIL_FROM_SUPPORT",
         "billing": "EMAIL_FROM_BILLING",
         "alerts": "EMAIL_FROM_ALERTS",
+        "support": "EMAIL_FROM_SUPPORT",
     }.get(template.category)
     if env_key:
         env_keys.append(env_key)
@@ -343,6 +344,7 @@ def _reply_to_for_template(template: EmailTemplate) -> str | None:
         "account": "EMAIL_REPLY_TO_SUPPORT",
         "billing": "EMAIL_REPLY_TO_BILLING",
         "alerts": "EMAIL_REPLY_TO_ALERTS",
+        "support": "EMAIL_REPLY_TO_SUPPORT",
     }.get(template.category)
     if env_key:
         env_keys.append(env_key)

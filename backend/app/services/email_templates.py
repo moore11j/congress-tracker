@@ -20,6 +20,7 @@ DEFAULT_FROM_NAME = BRAND_NAME
 ACCOUNT_FROM_NAME = "Walnut Support"
 ALERTS_FROM_NAME = "Walnut Alerts"
 BILLING_FROM_NAME = "Walnut Billing"
+SUPPORT_FROM_NAME = "Walnut Support"
 SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", "support@walnutmarkets.com").strip() or "support@walnutmarkets.com"
 ACCOUNT_FROM_EMAIL = SUPPORT_EMAIL
 ALERTS_FROM_EMAIL = "alerts@walnutmarkets.com"
@@ -762,6 +763,42 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "template_key": "support.contact_form",
+        "name": "Contact form submission",
+        "category": "support",
+        "from_name": SUPPORT_FROM_NAME,
+        "from_email": SUPPORT_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
+        "subject": "Walnut contact: {{request_type}}",
+        "preheader": "A new Walnut contact form message was submitted.",
+        "variables": ["request_type", "sender_email", "message", "submitted_at", "page_url", "user_agent"],
+        "body_text": walnut_email_text(
+            greeting="New Walnut contact form submission",
+            intro="A visitor submitted the Walnut contact form.",
+            sections=[
+                "Request type: {{request_type}}\nSender email: {{sender_email}}\nSubmitted at: {{submitted_at}}\nPage: {{page_url}}\nUser agent: {{user_agent}}",
+                "Message:\n{{message}}",
+            ],
+            sender=SUPPORT_FROM_NAME,
+        ),
+        "body_html": walnut_email_html(
+            sender=SUPPORT_FROM_NAME,
+            eyebrow="Contact form",
+            title="New contact form submission",
+            intro="A visitor submitted the Walnut contact form.",
+            content_html=walnut_metric_card(
+                [
+                    ("Request type", "{{request_type}}"),
+                    ("Sender email", "{{sender_email}}"),
+                    ("Submitted at", "{{submitted_at}}"),
+                    ("Page", "{{page_url}}"),
+                ]
+            )
+            + walnut_info_card("Message", "{{message}}")
+            + walnut_info_card("User agent", "{{user_agent}}"),
+        ),
+    },
+    {
         "template_key": "billing.monthly_statement",
         "name": "Monthly billing statement",
         "category": "billing",
@@ -807,6 +844,7 @@ ROLE_FROM_NAMES = {
     "account": ACCOUNT_FROM_NAME,
     "alerts": ALERTS_FROM_NAME,
     "billing": BILLING_FROM_NAME,
+    "support": SUPPORT_FROM_NAME,
 }
 LEGACY_FROM_NAMES = {
     "Walnut Markets",

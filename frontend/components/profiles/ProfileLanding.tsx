@@ -206,7 +206,7 @@ export function ActivityTable({ items }: { items: ProfileActivityItem[] }) {
             <tr key={String(item.id)} className="text-slate-300">
               <td className="whitespace-nowrap px-4 py-3 text-slate-400">{formatDateShort(item.time ?? null)}</td>
               <td className="px-4 py-3"><TypePill type={item.type} /></td>
-              <td className="px-4 py-3">{item.profile_href ? <Link href={item.profile_href} className="font-semibold text-white hover:text-emerald-100" prefetch={false}>{item.profile}</Link> : <span className="font-semibold text-white">{item.profile}</span>}</td>
+              <td className="px-4 py-3">{item.profile_href ? <Link href={item.profile_href} className={profileLinkClassName(item.profile_href)} prefetch={false}>{item.profile}</Link> : <span className="font-semibold text-white">{item.profile}</span>}</td>
               <td className="px-4 py-3">
                 {item.ticker_href && item.symbol ? <Link href={item.ticker_href} className={tickerLinkClassName} prefetch={false}>{item.symbol}</Link> : <span className="font-mono text-slate-200">{item.symbol ?? "-"}</span>}
                 <span className="ml-2 text-slate-500">{item.company && item.company !== item.symbol ? item.company : null}</span>
@@ -279,8 +279,12 @@ export function DataPanel({
 }
 
 export function SectorStackedChart({ title, rows, note }: { title: string; rows: ProfileSectorPeriod[]; note?: string }) {
-  const labels = Array.from(new Set(rows.flatMap((row) => row.segments.map((segment) => segment.label))));
   const latestSegments = rows[rows.length - 1]?.segments ?? [];
+  const latestSectorOrder = latestSegments.map((segment) => segment.label);
+  const labels = [
+    ...latestSectorOrder,
+    ...Array.from(new Set(rows.flatMap((row) => row.segments.map((segment) => segment.label)))).filter((label) => !latestSectorOrder.includes(label)),
+  ];
 
   return (
     <section className={`${cardClassName} min-w-0`}>
@@ -300,7 +304,7 @@ export function SectorStackedChart({ title, rows, note }: { title: string; rows:
               <div key={row.period} className="grid gap-2 md:grid-cols-[5rem_minmax(0,1fr)] md:items-center">
                 <div className="text-xs font-semibold text-slate-400">{row.period}</div>
                 <div className="flex h-9 min-w-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950/60">
-                  {row.segments.map((segment) => (
+                  {orderedSegments(row.segments, labels).map((segment) => (
                     <span
                       key={`${row.period}-${segment.label}`}
                       title={`${segment.label}: ${segment.percent.toFixed(1)}%`}
@@ -316,7 +320,7 @@ export function SectorStackedChart({ title, rows, note }: { title: string; rows:
           <div className="min-w-0 rounded-xl border border-white/10 bg-slate-950/35 p-4">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Latest Quarter Mix</h3>
             <div className="mt-3 space-y-3">
-              {latestSegments.map((segment) => (
+              {orderedSegments(latestSegments, labels).map((segment) => (
                 <div key={segment.label} className="grid grid-cols-[minmax(0,1fr)_4rem] gap-3 text-sm">
                   <span className="flex min-w-0 items-center gap-2 text-slate-300">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorForLabel(segment.label, labels) }} />
@@ -407,7 +411,7 @@ function DirectoryList({ title, items, lockedMessage }: { title: string; items: 
             const content = (
               <>
                 <span className="min-w-0">
-                  <span className="block truncate font-semibold text-white">{item.label}</span>
+                  <span className={`block truncate font-semibold ${item.href ? linkTextClassName(item.href) : "text-white"}`}>{item.label}</span>
                   {item.detail ? <span className="mt-0.5 block truncate text-xs text-slate-500">{item.detail}</span> : null}
                 </span>
                 <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-slate-200">{directoryItemValue(item)}</span>
@@ -415,7 +419,7 @@ function DirectoryList({ title, items, lockedMessage }: { title: string; items: 
             );
 
             return item.href ? (
-              <Link key={`${item.label}-${index}`} href={item.href} prefetch={false} className="flex min-w-0 items-center justify-between gap-3 py-2.5 text-sm hover:text-emerald-100">
+              <Link key={`${item.label}-${index}`} href={item.href} prefetch={false} className="group flex min-w-0 items-center justify-between gap-3 py-2.5 text-sm hover:text-emerald-100">
                 {content}
               </Link>
             ) : (
@@ -458,6 +462,11 @@ function colorForLabel(label: string, labels: string[]) {
   return chartColors[Math.max(index, 0) % chartColors.length];
 }
 
+function orderedSegments(segments: ProfileSectorPeriod["segments"], labels: string[]) {
+  const segmentByLabel = new Map(segments.map((segment) => [segment.label, segment]));
+  return labels.map((label) => segmentByLabel.get(label)).filter((segment): segment is ProfileSectorPeriod["segments"][number] => Boolean(segment));
+}
+
 function cellValue(row: Record<string, unknown>, column: { key: string; format?: string }) {
   const href = linkForCell(row, column.key);
   const value = row[column.key];
@@ -466,7 +475,7 @@ function cellValue(row: Record<string, unknown>, column: { key: string; format?:
   if (column.format === "percent") return formatPercent(numericOrNull(value));
   if (column.format === "date") return formatDateShort(typeof value === "string" ? value : null);
   if (column.format === "link" && href && typeof value === "string") {
-    return <Link href={href} className={value === String(row.symbol) ? tickerLinkClassName : "font-semibold text-white hover:text-emerald-100"} prefetch={false}>{value}</Link>;
+    return <Link href={href} className={value === String(row.symbol) ? tickerLinkClassName : profileLinkClassName(href)} prefetch={false}>{value}</Link>;
   }
   if (column.key === "largest_holding") {
     const holding = value && typeof value === "object" ? value as Record<string, unknown> : null;
@@ -478,6 +487,14 @@ function cellValue(row: Record<string, unknown>, column: { key: string; format?:
 function linkForCell(row: Record<string, unknown>, key: string) {
   const value = key === "symbol" ? row.ticker_href : key === "profile" ? row.profile_href : row.href;
   return typeof value === "string" && value ? value : null;
+}
+
+function profileLinkClassName(href: string) {
+  return href.startsWith("/member/") ? tickerLinkClassName : "font-semibold text-white hover:text-emerald-100";
+}
+
+function linkTextClassName(href: string) {
+  return href.startsWith("/member/") ? "text-emerald-200 group-hover:text-emerald-100" : "text-white";
 }
 
 function ProfileIcon({ kind }: { kind: string }) {

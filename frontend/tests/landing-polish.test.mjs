@@ -9,6 +9,8 @@ const landingSearch = fs.readFileSync(path.join(root, "components/landing/Landin
 const marketingHeader = fs.readFileSync(path.join(root, "components/landing/MarketingHeader.tsx"), "utf8");
 const faqPage = fs.readFileSync(path.join(root, "app/faq/page.tsx"), "utf8");
 const contactPage = fs.readFileSync(path.join(root, "app/contact/page.tsx"), "utf8");
+const contactForm = fs.readFileSync(path.join(root, "components/landing/ContactForm.tsx"), "utf8");
+const contactApiRoute = fs.readFileSync(path.join(root, "app/api/contact/route.ts"), "utf8");
 const legalShell = fs.readFileSync(path.join(root, "components/landing/LegalPageShell.tsx"), "utf8");
 const legalPageChrome = fs.readFileSync(path.join(root, "lib/legalPageChrome.ts"), "utf8");
 const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
@@ -206,11 +208,14 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(legalShell, /href="\/contact"[\s\S]*?Contact \/ support@walnutmarkets\.com/);
   assert.match(legalShell, /chrome\?: "public" \| "embedded"/);
   assert.match(legalShell, /if \(chrome === "embedded"\)/);
-  assert.match(contactPage, /action="mailto:support@walnutmarkets.com"/);
-  assert.match(contactPage, /<option value="Feedback">Feedback<\/option>/);
-  assert.match(contactPage, /<option value="Reporting a bug">Reporting a bug<\/option>/);
-  assert.match(contactPage, /<option value="Requesting a new feature">Requesting a new feature<\/option>/);
-  assert.match(contactPage, /<option value="General inquiry">General inquiry<\/option>/);
+  assert.match(contactPage, /<ContactForm \/>/);
+  assert.doesNotMatch(contactPage, /mailto:support@walnutmarkets.com/);
+  assert.match(contactForm, /fetch\("\/api\/contact"/);
+  assert.match(contactForm, /request_type: String\(formData\.get\("request_type"\)/);
+  assert.match(contactForm, /"Feedback", "Reporting a bug", "Requesting a new feature", "General inquiry"/);
+  assert.match(contactForm, /Your message was successfully sent\. We will try to respond within the next 2-3 business days\./);
+  assert.match(contactApiRoute, /\$\{API_BASE\}\/api\/contact/);
+  assert.match(contactApiRoute, /fallbackRefererPath: "\/contact"/);
   assert.match(legalPageChrome, /publicLandingHosts\.has\(host\) \? "public" : "embedded"/);
   assert.match(legalPageChrome, /new Set\(\["walnutmarkets\.com"\]\)/);
   assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
