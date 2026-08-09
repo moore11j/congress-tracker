@@ -739,6 +739,9 @@ def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 10) -> list[d
     symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
     buy_value = func.sum(case((_insider_side_clause("buy"), InsiderTransactionNormalized.value), else_=0))
     sell_value = func.sum(case((_insider_side_clause("sell"), InsiderTransactionNormalized.value), else_=0))
+    director_flag = func.max(case((InsiderTransactionNormalized.is_director.is_(True), 1), else_=0))
+    officer_flag = func.max(case((InsiderTransactionNormalized.is_officer.is_(True), 1), else_=0))
+    ten_percent_owner_flag = func.max(case((InsiderTransactionNormalized.is_ten_percent_owner.is_(True), 1), else_=0))
     rows = db.execute(
         select(
             func.max(InsiderTransactionNormalized.reporting_owner_name),
@@ -746,9 +749,9 @@ def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 10) -> list[d
             symbol_key,
             func.max(InsiderTransactionNormalized.issuer_name),
             func.max(InsiderTransactionNormalized.officer_title),
-            func.max(InsiderTransactionNormalized.is_director),
-            func.max(InsiderTransactionNormalized.is_officer),
-            func.max(InsiderTransactionNormalized.is_ten_percent_owner),
+            director_flag,
+            officer_flag,
+            ten_percent_owner_flag,
             buy_value,
             sell_value,
             func.count(InsiderTransactionNormalized.id),
