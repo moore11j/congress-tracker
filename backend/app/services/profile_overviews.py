@@ -1089,7 +1089,7 @@ def _top_institutions(db: Session, year: int, quarter: int, *, previous_period: 
                 "cik": normalize_cik(cik),
                 "portfolio_value": _float_or_int(value),
                 "previous_value": previous,
-                "qoq_change": _float_or_int((float(value or 0) - float(previous)) if previous is not None else None),
+                "qoq_change": _pct(value, previous),
                 "positions": int(positions or 0),
                 "largest_holding": {"symbol": top[0], "company": top[1], "value": _float_or_int(top[2])} if top else None,
                 "href": f"/institution/{normalize_cik(cik)}" if normalize_cik(cik) else None,
