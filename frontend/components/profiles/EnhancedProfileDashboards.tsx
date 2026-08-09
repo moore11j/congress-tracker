@@ -8,7 +8,7 @@ const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "
 type Row = Record<string, unknown>;
 
 export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryResponse }) {
-  const activity = data.activity ?? [];
+  const activity = (data.activity ?? []).filter((item) => item.profile && item.profile !== "Profile unavailable");
   const categories = ["Congress", "Insider", "Institution", "Department"];
   const counts = categories.map((type) => activity.filter((item) => item.type === type).length);
   const total = counts.reduce((sum, value) => sum + value, 0);
@@ -49,9 +49,9 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
       </section>
       <section className="relative z-10 grid gap-3 xl:grid-cols-[1.16fr_1.84fr]">
         <Panel title="Latest profile activity" action={<Link href="/feed" className="text-emerald-200 hover:text-emerald-100">View feed -&gt;</Link>}><CompactActivity items={activity} /></Panel>
-        <Panel title="Fastest-moving profiles">
+        <Panel title="Most active profiles">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {(data.directories ?? []).map((directory) => <DirectoryLeaders key={directory.kind} title={directory.title} href={directory.href} rows={directory.primary_items} />)}
+            {data.cards.map((card) => <DirectoryLeaders key={card.kind} title={card.title} href={card.href} rows={activity.filter((item) => profileKind(item.type) === card.kind).sort((left, right) => (right.value ?? 0) - (left.value ?? 0)).slice(0, 5).map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href }))} />)}
           </div>
         </Panel>
       </section>
@@ -205,3 +205,4 @@ function asNumber(value: unknown) { return typeof value === "number" && Number.i
 function stringAt(row: Row, keys: string[]) { for (const key of keys) if (typeof row[key] === "string" && row[key]) return row[key] as string; return null; }
 function valueAt(row: Row, keys: string[]) { for (const key of keys) if (typeof row[key] === "number") return row[key]; return null; }
 function profileIcon(kind: string) { return kind === "congress" ? "♜" : kind === "insiders" ? "♙" : kind === "institutions" ? "▦" : "◇"; }
+function profileKind(type: string) { return type === "Congress" ? "congress" : type === "Insider" ? "insiders" : type === "Institution" ? "institutions" : "departments"; }
