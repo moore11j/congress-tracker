@@ -3150,6 +3150,12 @@ export type StrategyDefinitionPayload = {
   family?: string | null;
   status: string;
   accessTier: string;
+  access?: {
+    requiredTier: string;
+    userTier: string;
+    canAccess: boolean;
+    locked: boolean;
+  };
   isFeatured: boolean;
   sortOrder: number;
   shortDescription?: string | null;
@@ -3162,6 +3168,8 @@ export type StrategyDefinitionPayload = {
   universe?: Record<string, unknown>;
   tags?: string[];
   riskNotes?: string[];
+  publishedAt?: string | null;
+  updatedAt?: string | null;
   latestRun?: StrategyRunSummary | null;
   performance?: StrategyPerformanceSnapshot | null;
 };
@@ -3182,6 +3190,45 @@ export type StrategyListResponse = {
   };
   items: StrategyDefinitionPayload[];
 };
+
+export async function getStrategies(params?: {
+  category?: string;
+  period?: string;
+  sort?: string;
+  authToken?: string | null;
+}): Promise<StrategyListResponse> {
+  return fetchJson<StrategyListResponse>(
+    buildApiUrl("/api/strategies", {
+      category: params?.category,
+      period: params?.period,
+      sort: params?.sort,
+    }),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      headers: authHeaders(params?.authToken ?? undefined),
+      source: "StrategiesDirectory",
+    },
+  );
+}
+
+export async function getStrategy(
+  slug: string,
+  params?: { period?: string; equityLimit?: number; authToken?: string | null },
+): Promise<StrategyDetailPayload> {
+  return fetchJson<StrategyDetailPayload>(
+    buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}`, {
+      period: params?.period,
+      equity_limit: params?.equityLimit,
+    }),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      headers: authHeaders(params?.authToken ?? undefined),
+      source: "StrategyDetail",
+    },
+  );
+}
 
 export async function getAdminStrategies(params?: {
   category?: string;
@@ -3220,6 +3267,18 @@ export async function getAdminStrategy(
       source: "AdminStrategyDetail",
     },
   );
+}
+
+export async function setAdminStrategyPublication(
+  slug: string,
+  published: boolean,
+): Promise<StrategyDetailPayload> {
+  return fetchJson<StrategyDetailPayload>(buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/publication`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ published }),
+    source: "AdminStrategyPublication",
+  });
 }
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {

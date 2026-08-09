@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -198,7 +198,7 @@ def list_strategy_cards(
     entitlements: TierEntitlements,
     category: str | None = None,
     period: str = "max",
-    sort: str = "walnut_score",
+    sort: str = "cagr",
     include_drafts: bool = False,
 ) -> dict[str, Any]:
     statement = select(StrategyDefinition)
@@ -229,6 +229,36 @@ def list_strategy_cards(
         },
         "items": items,
     }
+
+
+def set_strategy_publication(
+    db: Session,
+    *,
+    slug: str,
+    published: bool,
+    entitlements: TierEntitlements,
+) -> dict[str, Any]:
+    """Change only catalogue visibility; historical research artifacts stay intact."""
+    strategy = db.execute(select(StrategyDefinition).where(StrategyDefinition.slug == slug)).scalars().first()
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found.")
+
+    if published:
+        run = _latest_run(db, int(strategy.id))
+        snapshot = _latest_performance(db, strategy_id=int(strategy.id), run_id=int(run.id), period="max") if run else None
+        if run is None or snapshot is None:
+            raise HTTPException(
+                status_code=422,
+                detail="A successful reproducible run and max-period performance snapshot are required before publication.",
+            )
+        strategy.status = "published"
+        strategy.published_at = datetime.now(timezone.utc)
+    else:
+        strategy.status = "draft"
+        strategy.published_at = None
+
+    db.commit()
+    return strategy_detail(db, slug=slug, entitlements=entitlements, include_drafts=True)
 
 
 def strategy_detail(

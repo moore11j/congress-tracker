@@ -5,6 +5,7 @@ import {
   ApiError,
   getAdminStrategies,
   getAdminStrategy,
+  setAdminStrategyPublication,
   type StrategyDefinitionPayload,
   type StrategyDetailPayload,
   type StrategyHolding,
@@ -144,6 +145,8 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
   const [detail, setDetail] = useState<StrategyDetailPayload | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [publicationBusy, setPublicationBusy] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const selected = useMemo(
     () => strategies.find((strategy) => strategy.slug === selectedSlug) ?? strategies[0] ?? null,
@@ -156,7 +159,7 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
       setBusy(true);
       setStatus(null);
       try {
-        const response = await getAdminStrategies({ period, sort: "walnut_score", signal: controller.signal });
+        const response = await getAdminStrategies({ period, sort: "cagr", signal: controller.signal });
         setStrategies(response.items);
         setSelectedSlug((current) => current ?? response.items[0]?.slug ?? null);
       } catch (error) {
@@ -170,7 +173,7 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
     }
     load();
     return () => controller.abort();
-  }, [period, showToast]);
+  }, [period, refreshKey, showToast]);
 
   useEffect(() => {
     if (!selected?.slug) {
@@ -194,12 +197,31 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
     }
     loadDetail();
     return () => controller.abort();
-  }, [period, selected?.slug, showToast]);
+  }, [period, refreshKey, selected?.slug, showToast]);
 
   const activeDetail = detail?.slug === selected?.slug ? detail : null;
   const performance = activeDetail?.performance ?? selected?.performance ?? null;
   const run = activeDetail?.latestRun ?? selected?.latestRun ?? null;
   const diagnostics = run?.diagnostics as Record<string, unknown> | undefined;
+
+  async function updatePublication() {
+    if (!selected || publicationBusy) return;
+    const publish = selected.status !== "published";
+    setPublicationBusy(true);
+    setStatus(null);
+    try {
+      const updated = await setAdminStrategyPublication(selected.slug, publish);
+      setDetail(updated);
+      setRefreshKey((value) => value + 1);
+      showToast?.({ message: `${updated.name} ${publish ? "published" : "unpublished"}.`, tone: "success" });
+    } catch (error) {
+      const message = statusMessage(error);
+      setStatus(message);
+      showToast?.({ message, tone: "error" });
+    } finally {
+      setPublicationBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -257,8 +279,18 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
                   <StrategyPill tone={selected.status === "published" ? "good" : "warn"}>{selected.status}</StrategyPill>
                   <StrategyPill>{selected.dataQualityConfidence}</StrategyPill>
                   <StrategyPill>{selected.accessTier}</StrategyPill>
+                  <button
+                    type="button"
+                    onClick={updatePublication}
+                    disabled={publicationBusy}
+                    className="rounded-md border border-emerald-300/35 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {publicationBusy ? "Updating..." : selected.status === "published" ? "Unpublish strategy" : "Publish strategy"}
+                  </button>
                 </div>
               </div>
+
+              <p className="-mt-2 text-xs text-slate-500">Publishing changes catalogue visibility only. A successful stored run and max-period snapshot are required.</p>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 {metricRows(performance).map(([label, value]) => (

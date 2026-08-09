@@ -9,8 +9,9 @@ const topNavLinks = [
   { href: "/?mode=all", label: "Feed" },
   { href: "/insights", label: "Insights" },
   { href: "/signals", label: "Signals" },
-  ...(process.env.NEXT_PUBLIC_OUTCOMES_LEDGER_ENABLED === "0" ? [] : [{ href: "/outcomes", label: "Outcomes" }]),
   { href: "/leaderboards/congress-traders", label: "Leaderboards" },
+  ...(process.env.NEXT_PUBLIC_STRATEGIES_ENABLED === "0" ? [] : [{ href: "/strategies", label: "Strategies" }]),
+  ...(process.env.NEXT_PUBLIC_OUTCOMES_LEDGER_ENABLED === "0" ? [] : [{ href: "/outcomes", label: "Outcomes" }]),
 ] as const;
 
 const profilesNavItems = [

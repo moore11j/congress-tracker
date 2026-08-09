@@ -43,6 +43,8 @@ const apiBase = (
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Lets local QA run beside other dev servers without sharing their incremental build cache.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   async headers() {
     return [
       {

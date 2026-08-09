@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import current_user, require_admin_user
 from app.db import get_db
 from app.entitlements import current_entitlements
-from app.services.strategies import list_strategy_cards, strategy_detail
+from app.services.strategies import list_strategy_cards, set_strategy_publication, strategy_detail
 
 router = APIRouter(tags=["strategies"])
+
+
+class StrategyPublicationRequest(BaseModel):
+    published: bool
 
 
 @router.get("/strategies")
@@ -17,7 +22,7 @@ def strategies(
     response: Response,
     category: str | None = Query(default=None, max_length=80),
     period: str = Query(default="max", max_length=20),
-    sort: str = Query(default="walnut_score", max_length=40),
+    sort: str = Query(default="cagr", max_length=40),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, max-age=60"
@@ -59,7 +64,7 @@ def admin_strategies(
     response: Response,
     category: str | None = Query(default=None, max_length=80),
     period: str = Query(default="max", max_length=20),
-    sort: str = Query(default="walnut_score", max_length=40),
+    sort: str = Query(default="cagr", max_length=40),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, no-store"
@@ -92,4 +97,20 @@ def admin_strategy(
         period=period,
         equity_limit=equity_limit,
         include_drafts=True,
+    )
+
+
+@router.patch("/admin/strategies/{slug}/publication")
+def admin_set_strategy_publication(
+    slug: str,
+    payload: StrategyPublicationRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return set_strategy_publication(
+        db,
+        slug=slug,
+        published=payload.published,
+        entitlements=current_entitlements(request, db),
     )

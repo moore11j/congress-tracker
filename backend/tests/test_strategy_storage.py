@@ -13,9 +13,15 @@ from app.models import (
     StrategyCurrentHolding,
     StrategyDefinition,
     StrategyEquityCurvePoint,
+    StrategyEvaluationRun,
+    StrategyEvent,
+    StrategyEventDelivery,
     StrategyPerformanceSnapshot,
+    StrategySubscription,
+    StrategyTrade,
+    StrategyVersion,
 )
-from app.services.strategies import list_strategy_cards, strategy_detail
+from app.services.strategies import list_strategy_cards, set_strategy_publication, strategy_detail
 
 
 def _session():
@@ -38,6 +44,12 @@ def test_ensure_strategy_storage_schema_creates_expected_tables_and_indexes():
         "strategy_holdings_snapshots",
         "strategy_holding_rows",
         "strategy_current_holdings",
+        "strategy_versions",
+        "strategy_evaluation_runs",
+        "strategy_trades",
+        "strategy_events",
+        "strategy_subscriptions",
+        "strategy_event_deliveries",
     }
     assert expected_tables <= set(inspector.get_table_names())
     indexes = {index["name"] for index in inspector.get_indexes("strategy_definitions")}
@@ -116,6 +128,78 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
 
         by_score = list_strategy_cards(db, entitlements=ENTITLEMENTS["premium"], sort="walnut_score")
         assert [item["slug"] for item in by_score["items"]] == ["high-return", "low-drawdown"]
+
+        by_default = list_strategy_cards(db, entitlements=ENTITLEMENTS["premium"])
+        assert [item["slug"] for item in by_default["items"]] == ["high-return", "low-drawdown"]
+    finally:
+        db.close()
+
+
+def test_strategy_publication_requires_a_completed_run_and_max_snapshot():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="reviewed-strategy",
+            name="Reviewed Strategy",
+            category="congress",
+            status="draft",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.commit()
+
+        try:
+            set_strategy_publication(
+                db,
+                slug=strategy.slug,
+                published=True,
+                entitlements=ENTITLEMENTS["premium"],
+            )
+            raise AssertionError("Expected publication to require a completed run and snapshot")
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 422
+
+        run = StrategyBacktestRun(
+            strategy_id=strategy.id,
+            run_key="reviewed-run",
+            status="ok",
+            completed_at=datetime.now(timezone.utc),
+            methodology_version="v1",
+        )
+        db.add(run)
+        db.flush()
+        db.add(
+            StrategyPerformanceSnapshot(
+                strategy_id=strategy.id,
+                run_id=run.id,
+                as_of_date=date(2026, 7, 31),
+                period="max",
+                cagr_pct=12,
+            )
+        )
+        db.commit()
+
+        published = set_strategy_publication(
+            db,
+            slug=strategy.slug,
+            published=True,
+            entitlements=ENTITLEMENTS["premium"],
+        )
+        assert published["status"] == "published"
+        assert published["publishedAt"] is not None
+        assert [item["slug"] for item in list_strategy_cards(db, entitlements=ENTITLEMENTS["premium"])["items"]] == [strategy.slug]
+
+        unpublished = set_strategy_publication(
+            db,
+            slug=strategy.slug,
+            published=False,
+            entitlements=ENTITLEMENTS["premium"],
+        )
+        assert unpublished["status"] == "draft"
+        assert unpublished["publishedAt"] is None
+        assert list_strategy_cards(db, entitlements=ENTITLEMENTS["premium"])["items"] == []
     finally:
         db.close()
 
