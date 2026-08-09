@@ -66,9 +66,9 @@ def profiles_summary(
     insider_trade_count = _count_events(db, "insider_trade")
     contract_value = _government_contract_period_value(db, since=today - timedelta(days=365), before=today + timedelta(days=1))
     department_count = _department_count(db)
-    # A locked institution card must not force the expensive 13F-period scan.
-    # Its unavailable value is more honest than delaying every profile overview.
-    latest_institutional_value = _latest_institutional_value(db) if include_institutions else None
+    # The overview does not need to run the expensive 13F completeness scan.
+    # The institution detail page remains the source for the verified portfolio total.
+    latest_institutional_value = None
     institutional_count = _count_rows(db, InstitutionalHolder.cik)
     active_insiders = _active_insider_count(db, since=active_since)
     return {
@@ -365,7 +365,7 @@ def profile_directories(
     congress_trade_count = overrides.get("congress_trade_count")
     active_members = overrides.get("active_members")
     insider_trade_count = overrides.get("insider_trade_count")
-    institutional_period = _latest_institutional_period(db) if include_institutions else None
+    institutional_period = _latest_institutional_period(db) if include_institutions and include_rankings else None
 
     directories = [
         _profile_directory(
