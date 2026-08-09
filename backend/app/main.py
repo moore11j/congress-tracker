@@ -2991,7 +2991,7 @@ def _profile_overview_cache_ttl(key: tuple[Any, ...]) -> int:
 
 def _profile_overview_persistent_key(key: tuple[Any, ...]) -> str:
     raw = json.dumps(key, separators=(",", ":"), default=str)
-    return f"profile-overview:v5:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+    return f"profile-overview:v6:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
 
 def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, now: datetime) -> Any | None:

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileMetric, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
+import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileMetric, ProfileSectorMover, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
@@ -34,17 +34,8 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
             {categories.map((category, index) => <LegendRow key={category} label={category} color={PROFILE_COLORS[category]} value={total ? `${((counts[index] / total) * 100).toFixed(1)}%` : "-"} />)}
           </div>
         </Panel>
-        <Panel title="Current profile coverage">
-          <div className="space-y-3 pt-1">
-            {data.cards.map((card, index) => {
-              const primary = card.metrics[0];
-              return <div key={card.kind} className="grid grid-cols-[7rem_minmax(0,1fr)_4.25rem] items-center gap-3 text-xs">
-                <span className="truncate text-slate-300">{card.title}</span>
-                <div className="h-2.5 overflow-hidden rounded-sm bg-slate-800"><div className="h-full rounded-sm" style={{ width: `${total ? Math.max(7, (counts[index] / total) * 100) : 7}%`, backgroundColor: COLORS[index] }} /></div>
-                <span className="text-right font-semibold tabular-nums text-white">{formatMetric(primary)}</span>
-              </div>;
-            })}
-          </div>
+        <Panel title="Top moving sectors" subtitle="Latest 365 days vs prior 365 days" action="By activity change">
+          <TopMovingSectors rows={data.top_moving_sectors ?? []} />
         </Panel>
       </section>
       <section className="relative z-10 grid gap-3 xl:grid-cols-[1.16fr_1.84fr]">
@@ -187,6 +178,8 @@ function SectorBreakdown({ rows }: { rows: ProfileSectorPeriod[] }) { const labe
 function TrendChart({ series }: { series: Array<{ label: string; value: number }> }) { if (!series.length) return <p className="flex h-40 items-center justify-center text-sm text-slate-400">No time-series records are available.</p>; const max = Math.max(...series.map((point) => point.value), 1); const points = series.map((point, index) => `${(index / Math.max(series.length - 1, 1)) * 100},${100 - (point.value / max) * 85}`).join(" "); return <div><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full overflow-visible"><defs><linearGradient id="profile-trend" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#42d3a7" stopOpacity=".35" /><stop offset="1" stopColor="#42d3a7" stopOpacity="0" /></linearGradient></defs><polyline points={`0,100 ${points} 100,100`} fill="url(#profile-trend)" stroke="none" /><polyline points={points} fill="none" stroke="#55e3b0" strokeWidth="1.5" vectorEffect="non-scaling-stroke" /></svg><div className="mt-2 flex justify-between gap-2 text-[10px] text-slate-500"><span>{series[0].label}</span><span>{series[series.length - 1].label}</span></div></div>; }
 
 function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }) { if (!series.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No historical database activity is available.</p>; const categories = ["Congress", "Insider", "Institution", "Department"] as const; const max = Math.max(...series.flatMap((point) => categories.map((category) => point[category])), 1); const line = (category: typeof categories[number]) => series.map((point, index) => `${(index / Math.max(series.length - 1, 1)) * 100},${100 - (point[category] / max) * 88}`).join(" "); return <div><div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{categories.map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="mt-3 h-36 w-full overflow-visible border-b border-white/10">{[25, 50, 75].map((y) => <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}{categories.map((category) => <polyline key={category} points={line(category)} fill="none" stroke={PROFILE_COLORS[category]} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />)}</svg><div className="mt-2 flex justify-between gap-3 text-[10px] text-slate-500"><span>{series[0].period}</span><span>{series[Math.floor((series.length - 1) / 2)].period}</span><span>{series[series.length - 1].period}</span></div></div>; }
+
+function TopMovingSectors({ rows }: { rows: ProfileSectorMover[] }) { if (!rows.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No sector-mapped activity is available.</p>; const max = Math.max(...rows.map((row) => row.current_value), 1); return <div><div className="space-y-2.5">{rows.map((row) => <div key={row.sector} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_3.5rem] items-center gap-2 text-xs"><span className="truncate text-slate-300">{row.sector}</span><div className="flex h-2.5 overflow-hidden rounded-sm bg-slate-800" title={`${row.current_value.toLocaleString()} recent activities vs ${row.previous_value.toLocaleString()} prior activities`}>{row.segments.map((segment) => segment.value ? <span key={segment.type} style={{ width: `${(segment.value / max) * 100}%`, backgroundColor: PROFILE_COLORS[segment.type] }} /> : null)}</div><span className={`text-right font-semibold tabular-nums ${row.change >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{row.change >= 0 ? "+" : ""}{formatNumber(row.change)}</span></div>)}</div><div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{["Congress", "Insider", "Institution", "Department"].map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div></div>; }
 
 function Donut({ values, colors, label, value }: { values: number[]; colors: string[]; label: string; value: string }) { const total = values.reduce((sum, item) => sum + item, 0); let offset = 0; return <div className="relative mx-auto h-36 w-36"><svg viewBox="0 0 42 42" className="h-full w-full -rotate-90">{values.map((item, index) => { const dash = total ? (item / total) * 100 : 0; const segment = <circle key={index} cx="21" cy="21" r="15.915" fill="none" stroke={colors[index]} strokeWidth="7" strokeDasharray={`${dash} ${100 - dash}`} strokeDashoffset={-offset} />; offset += dash; return segment; })}</svg><div className="absolute inset-0 flex flex-col items-center justify-center"><b className="text-lg tabular-nums text-white">{value}</b><span className="text-[9px] uppercase tracking-[.14em] text-slate-500">{label}</span></div></div>; }
 

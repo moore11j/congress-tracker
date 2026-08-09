@@ -210,6 +210,14 @@ export type ProfileActivityByTypePeriod = {
   Department: number;
 };
 
+export type ProfileSectorMover = {
+  sector: string;
+  current_value: number;
+  previous_value: number;
+  change: number;
+  segments: Array<{ type: string; value: number }>;
+};
+
 export type ProfileDirectoryItem = {
   label: string;
   href?: string | null;
@@ -239,6 +247,7 @@ export type ProfilesSummaryResponse = {
   directories?: ProfileDirectory[];
   activity: ProfileActivityItem[];
   activity_by_profile_type?: ProfileActivityByTypePeriod[];
+  top_moving_sectors?: ProfileSectorMover[];
 };
 
 export type ProfileSectorSegment = {

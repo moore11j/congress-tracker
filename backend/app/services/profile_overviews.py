@@ -149,6 +149,7 @@ def profiles_summary(
         ),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
         "activity_by_profile_type": _profile_activity_by_month(db, include_institutions=include_institutions),
+        "top_moving_sectors": _top_profile_sector_movers(db, include_institutions=include_institutions),
     }
 
 
@@ -697,6 +698,50 @@ def _profile_activity_by_month(db: Session, *, include_institutions: bool) -> li
             "Department": counts.get((month.year, month.month, "Department"), 0),
         })
     return result
+
+
+def _top_profile_sector_movers(db: Session, *, include_institutions: bool, limit: int = 8) -> list[dict[str, Any]]:
+    today = datetime.now(timezone.utc)
+    current_since = today - timedelta(days=365)
+    previous_since = current_since - timedelta(days=365)
+    event_types = ["congress_trade", "insider_trade", "government_contract"]
+    if include_institutions:
+        event_types.extend(value for value in PROFILE_ACTIVITY_TYPES if value not in event_types)
+    symbol = func.upper(Event.symbol)
+    current_count = func.sum(case((Event.ts >= current_since, 1), else_=0))
+    rows = db.execute(
+        select(Event.event_type, symbol, current_count, func.count(Event.id))
+        .where(Event.event_type.in_(event_types), Event.symbol.is_not(None), Event.ts >= previous_since)
+        .group_by(Event.event_type, symbol)
+    ).all()
+    sector_by_symbol = _sectors(db, [row[1] for row in rows])
+    buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {"current": 0, "previous": 0, "profiles": defaultdict(int)})
+    for event_type, ticker, current, total in rows:
+        sector = _normalize_sector_label(sector_by_symbol.get(ticker))
+        if not sector:
+            continue
+        current_value = int(current or 0)
+        total_value = int(total or 0)
+        bucket = buckets[sector]
+        bucket["current"] += current_value
+        bucket["previous"] += total_value - current_value
+        bucket["profiles"][_profile_kind(str(event_type))] += current_value
+    movers = [
+        {
+            "sector": sector,
+            "current_value": int(values["current"]),
+            "previous_value": int(values["previous"]),
+            "change": int(values["current"] - values["previous"]),
+            "segments": [
+                {"type": profile_type, "value": int(values["profiles"].get(profile_type, 0))}
+                for profile_type in ("Congress", "Insider", "Institution", "Department")
+            ],
+        }
+        for sector, values in buckets.items()
+        if values["current"] or values["previous"]
+    ]
+    movers.sort(key=lambda row: (abs(row["change"]), row["current_value"]), reverse=True)
+    return movers[:limit]
 
 
 def _float_or_int(value: Any) -> int | float | None:
