@@ -33,6 +33,8 @@ type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
+const MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS = 730;
+const MEMBER_ACTIVITY_TREND_LIMIT = 200;
 const MEMBER_NAV_ITEMS = [
   { label: "Overview", href: "#overview" },
   { label: "Trades", href: "#recent-trades" },
@@ -185,7 +187,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const canonicalPath = snapshot?.canonical_path ?? `/member/${slug}`;
   const memberName = typeof snapshot?.payload?.member_name === "string" ? snapshot.payload.member_name : profileMemberName(null, slug);
   const title = snapshot?.title ?? `${memberName} Stock Trades & Congressional Activity | Walnut Markets`;
-  const description = snapshot?.meta_description ?? `Research ${memberName}'s stored congressional disclosure activity and public profile in Walnut Markets.`;
+  const description = snapshot?.meta_description ?? `Research ${memberName}'s congressional disclosure activity, traded ticker context, and public profile in Walnut Markets.`;
   if (!snapshot?.indexable) {
     return {
       ...noindexFollowMetadata(title, description),
@@ -220,7 +222,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
   if (!authState.token && !authState.hasAuthHint && snapshot?.indexable && Object.keys(sp).length === 0) {
-    return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Congress Activity Snapshot" />;
+    return <SeoSnapshotBaseline snapshot={snapshot} />;
   }
 
   const upperSlug = slug.toUpperCase();
@@ -264,9 +266,14 @@ export default async function MemberPage({ params, searchParams }: Props) {
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 px-4 text-xs font-semibold text-slate-100 transition hover:border-white/25 hover:bg-white/[0.04] sm:text-sm";
   const primaryActionClassName =
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-4 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/18 sm:text-sm";
-  const [initialAlphaSummaryResult, initialTradesResult, headshotResult] = await Promise.allSettled([
+  const [initialAlphaSummaryResult, initialTradesResult, initialTrendTradesResult, headshotResult] = await Promise.allSettled([
     getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb, source: "MemberProfileInitialAlpha" }),
     getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100, source: "MemberProfileInitialTrades" }),
+    getMemberTrades(canonicalMemberId, {
+      lookback_days: MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS,
+      limit: MEMBER_ACTIVITY_TREND_LIMIT,
+      source: "MemberProfileInitialActivityTrend",
+    }),
     resolveWikipediaHeadshot(memberName, { kind: "member" }),
   ]);
   const initialAlphaSummary =
@@ -281,7 +288,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
       ? initialTradesResult.value
       : undefined;
   const initialTrades = endpointInitialTrades ?? fallbackInitialTrades;
-  const initialTrendTrades = initialTrades;
+  const initialTrendTrades =
+    initialTrendTradesResult.status === "fulfilled" && initialTrendTradesResult.value.items.length > 0
+      ? initialTrendTradesResult.value
+      : initialTrades;
 
   return (
     <div className="space-y-3">

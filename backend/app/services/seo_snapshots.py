@@ -120,7 +120,7 @@ def list_seo_snapshot_batch_candidates(
         return _member_batch_candidates(db, capped_limit, include_existing=include_existing)
     if entity_type == "insider":
         return _insider_batch_candidates(db, capped_limit, include_existing=include_existing)
-    raise ValueError(f"Unsupported SEO snapshot entity type: {entity_type}")
+    raise ValueError(f"Unsupported entity type: {entity_type}")
 
 
 def seo_snapshot_row_payload(row: SeoEntitySnapshot) -> dict[str, Any]:
@@ -358,22 +358,22 @@ def refresh_ticker_seo_snapshot(db: Session, symbol: str) -> dict[str, Any]:
     data_as_of = max(data_dates) if data_dates else None
     sections = [
         {
-            "heading": "Snapshot",
-            "body": f"{normalized} is shown from Walnut's stored market and disclosure data. The page does not refresh providers during public rendering.",
+            "heading": "Research Read",
+            "body": f"{normalized} brings together public market data, disclosure activity, and Walnut context for a cleaner first pass on the stock.",
         }
     ]
     if latest_price:
         sections.append(
             {
-                "heading": "Stored Market Data",
-                "body": f"Latest stored close is {latest_price.close:g} for {latest_price.date}.",
+                "heading": "Price / Volume",
+                "body": f"Latest available close is {latest_price.close:g} for {latest_price.date}. Use the terminal for the full price, volume, and trend workflow.",
             }
         )
     if congress_count or insider_count:
         sections.append(
             {
                 "heading": "Disclosure Activity",
-                "body": f"Recent stored activity includes {congress_count} Congress item(s) and {insider_count} insider item(s) in the page snapshot.",
+                "body": f"Recent public activity includes {congress_count} Congress item(s) and {insider_count} insider item(s) for this ticker.",
             }
         )
     payload = {
@@ -436,8 +436,8 @@ def refresh_member_seo_snapshot(db: Session, slug_or_bioguide: str) -> dict[str,
         "state": member.state,
         "sections": [
             {
-                "heading": "Congress Trading Snapshot",
-                "body": f"{member_name} has {len(recent_trades)} recent stored disclosure item(s) available in this SEO snapshot.",
+                "heading": "Congress Trading Context",
+                "body": f"{member_name} has {len(recent_trades)} recent public disclosure item(s) available for review in Walnut.",
             }
         ],
         "recent_activity": [
@@ -457,7 +457,7 @@ def refresh_member_seo_snapshot(db: Session, slug_or_bioguide: str) -> dict[str,
         entity_key=slug,
         canonical_path=f"/member/{slug}",
         title=f"{member_name} Stock Trades & Congressional Activity | Walnut Markets",
-        meta_description=f"Research {member_name}'s stored congressional disclosure activity, traded ticker context, and public profile in Walnut Markets.",
+        meta_description=f"Research {member_name}'s congressional disclosure activity, traded ticker context, and public profile in Walnut Markets.",
         indexable=bool(member.bioguide_id and (recent_trades or member_name)),
         payload=payload,
         data_as_of=data_as_of,
@@ -518,8 +518,8 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         "primary_role": role,
         "sections": [
             {
-                "heading": "Form 4 Activity Snapshot",
-                "body": f"{insider_name} has {len(working_rows)} recent stored Form 4 item(s) available in this SEO snapshot.",
+                "heading": "Form 4 Activity",
+                "body": f"{insider_name} has {len(working_rows)} recent public Form 4 item(s) available for review in Walnut.",
             }
         ],
         "recent_activity": [
@@ -553,4 +553,4 @@ def refresh_seo_snapshot(db: Session, entity_type: SeoEntityType, entity_key: st
         return refresh_member_seo_snapshot(db, entity_key)
     if entity_type == "insider":
         return refresh_insider_seo_snapshot(db, entity_key)
-    raise ValueError(f"Unsupported SEO snapshot entity type: {entity_type}")
+    raise ValueError(f"Unsupported entity type: {entity_type}")

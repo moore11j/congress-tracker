@@ -263,7 +263,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
   if (!authState.token && !authState.hasAuthHint && snapshot?.indexable && Object.keys(sp).length === 0) {
-    return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Insider Activity Snapshot" />;
+    return <SeoSnapshotBaseline snapshot={snapshot} />;
   }
 
   const lookbackDays = Number(lookback);

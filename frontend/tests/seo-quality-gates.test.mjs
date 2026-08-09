@@ -8,6 +8,8 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const seoQuality = read("lib/seoQuality.ts");
 const evergreenSeo = read("lib/evergreenSeo.ts");
+const seoSnapshotBaseline = read("components/seo/SeoSnapshotBaseline.tsx");
+const seoSnapshotService = fs.readFileSync(path.join(root, "..", "backend", "app", "services", "seo_snapshots.py"), "utf8");
 const phase3Audit = fs.readFileSync(path.join(root, "..", "docs", "seo-phase3-audit.md"), "utf8");
 const sitemapRoutes = [
   "app/sitemap-tickers.xml/route.ts",
@@ -70,6 +72,21 @@ test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pag
 test("sitemap XML includes lastmod for controlled pilot pages", () => {
   assert.match(seoQuality, /function sitemapUrlset/);
   assert.match(seoQuality, /<lastmod>\$\{page\.lastmod\}<\/lastmod>/);
+});
+
+test("public snapshot presentation uses Walnut product shell copy", () => {
+  assert.match(seoSnapshotBaseline, /Stock Research/);
+  assert.match(seoSnapshotBaseline, /Congress Trading Profile/);
+  assert.match(seoSnapshotBaseline, /Insider Trading Profile/);
+  assert.match(seoSnapshotBaseline, /Data as of/);
+  assert.match(seoSnapshotBaseline, /Institutional Activity/);
+  assert.match(seoSnapshotBaseline, /Portfolio Simulation/);
+  assert.match(seoSnapshotBaseline, /Ownership & Performance/);
+  assert.doesNotMatch(seoSnapshotBaseline, />Stored Snapshot</);
+  assert.doesNotMatch(seoSnapshotBaseline, />Ticker Research Snapshot</);
+  assert.doesNotMatch(seoSnapshotBaseline, />Congress Activity Snapshot</);
+  assert.doesNotMatch(seoSnapshotBaseline, />Insider Activity Snapshot</);
+  assert.doesNotMatch(seoSnapshotService, /provider refresh|SEO snapshot|stored disclosure|Stored Market Data|Form 4 Activity Snapshot|Congress Trading Snapshot/);
 });
 
 test("evergreen SEO foundation requires editorial approval before indexing", () => {

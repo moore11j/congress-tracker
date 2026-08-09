@@ -3895,7 +3895,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
     : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
   if (!authToken && !authState.hasAuthHint && !activityDetailsRequested && snapshot?.indexable) {
-    return <SeoSnapshotBaseline snapshot={snapshot} eyebrow="Ticker Research Snapshot" />;
+    return <SeoSnapshotBaseline snapshot={snapshot} />;
   }
   const entitlements = authToken
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
