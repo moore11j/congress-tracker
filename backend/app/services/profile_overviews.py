@@ -63,7 +63,9 @@ def profiles_summary(
     active_since = today - timedelta(days=365)
     contract_value = _government_contract_period_value(db, since=today - timedelta(days=365), before=today + timedelta(days=1))
     department_count = _department_count(db)
-    latest_institutional_value = _latest_institutional_value(db)
+    # A locked institution card must not force the expensive 13F-period scan.
+    # Its unavailable value is more honest than delaying every profile overview.
+    latest_institutional_value = _latest_institutional_value(db) if include_institutions else None
     institutional_count = _count_rows(db, InstitutionalHolder.cik)
     active_insiders = _active_insider_count(db, since=active_since)
     return {

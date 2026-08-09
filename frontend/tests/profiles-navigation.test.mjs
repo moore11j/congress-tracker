@@ -29,7 +29,7 @@ test("top nav adds Company dropdown after Pricing with matching arrows", () => {
   assert.match(nav, /data-company-link/);
 });
 
-test("profile landing routes include SEO metadata and shared native components", () => {
+test("profile landing routes include SEO metadata and enhanced database dashboards", () => {
   const pages = [
     ["app/profiles/page.tsx", "Investor & Government Profiles", "getProfilesSummary"],
     ["app/members/page.tsx", "Congress Stock Trading & Member Portfolios", "getCongressOverview"],
@@ -41,7 +41,7 @@ test("profile landing routes include SEO metadata and shared native components",
   for (const [path, title, apiFunction] of pages) {
     const source = read(path);
     assert.match(source, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(source, /ProfilePageHeader|SummaryCards|MetricGrid|DataPanel/);
+    assert.match(source, /EnhancedProfilesOverview|EnhancedCongressDashboard|EnhancedInsiderDashboard|EnhancedInstitutionDashboard|ProfilePageHeader|SummaryCards|MetricGrid|DataPanel/);
     if (apiFunction) assert.match(source, new RegExp(apiFunction));
     assert.doesNotMatch(source, /sidebar/i);
   }
