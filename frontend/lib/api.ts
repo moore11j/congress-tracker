@@ -3232,6 +3232,18 @@ export type StrategyVersionPreview = {
   }>;
 };
 
+export type StrategySchedulerStatus = {
+  enabled: boolean;
+  maxStrategiesPerRun: number;
+  lastRun?: {
+    status?: string;
+    scheduledFor?: string;
+    processed?: number;
+    failed?: number;
+    reason?: string;
+  } | null;
+};
+
 export type StrategyListResponse = {
   metadata: {
     period: string;
@@ -3360,11 +3372,25 @@ export async function approveAdminStrategyVersion(slug: string, versionId: numbe
   });
 }
 
+export async function activateAdminStrategyVersion(slug: string, versionId: number): Promise<StrategyVersionPayload> {
+  return fetchJson<StrategyVersionPayload>(buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/versions/${versionId}/activate`), {
+    method: "POST",
+    source: "AdminStrategyVersions",
+  });
+}
+
 export async function previewAdminStrategyVersion(slug: string, versionId: number, evaluationDate: string): Promise<StrategyVersionPreview> {
   return fetchJson<StrategyVersionPreview>(
     buildApiUrl(`/api/admin/strategies/${encodeURIComponent(slug)}/versions/${versionId}/preview`, { evaluation_date: evaluationDate }),
     { cache: "no-store", source: "AdminStrategyVersions" },
   );
+}
+
+export async function getAdminStrategySchedulerStatus(): Promise<StrategySchedulerStatus> {
+  return fetchJson<StrategySchedulerStatus>(buildApiUrl("/api/admin/strategy-scheduler/status"), {
+    cache: "no-store",
+    source: "AdminStrategyScheduler",
+  });
 }
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {

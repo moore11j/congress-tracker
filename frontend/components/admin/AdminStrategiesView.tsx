@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
+  activateAdminStrategyVersion,
   approveAdminStrategyVersion,
   createAdminStrategyVersion,
   getAdminStrategies,
   getAdminStrategy,
+  getAdminStrategySchedulerStatus,
   getAdminStrategyVersions,
   previewAdminStrategyVersion,
   setAdminStrategyPublication,
@@ -16,6 +18,7 @@ import {
   type StrategyPerformanceSnapshot,
   type StrategyVersionPayload,
   type StrategyVersionPreview,
+  type StrategySchedulerStatus,
 } from "@/lib/api";
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
@@ -171,6 +174,7 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
   const [versionRules, setVersionRules] = useState(DEFAULT_PROSPECTIVE_RULES);
   const [previewDate, setPreviewDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [preview, setPreview] = useState<StrategyVersionPreview | null>(null);
+  const [scheduler, setScheduler] = useState<StrategySchedulerStatus | null>(null);
 
   const selected = useMemo(
     () => strategies.find((strategy) => strategy.slug === selectedSlug) ?? strategies[0] ?? null,
@@ -246,6 +250,20 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
     };
   }, [selected?.slug, showToast, versionRefreshKey]);
 
+  useEffect(() => {
+    let active = true;
+    getAdminStrategySchedulerStatus()
+      .then((response) => {
+        if (active) setScheduler(response);
+      })
+      .catch(() => {
+        // Scheduler status is ancillary to strategy review; retain the review UI if it is unavailable.
+      });
+    return () => {
+      active = false;
+    };
+  }, [versionRefreshKey]);
+
   const activeDetail = detail?.slug === selected?.slug ? detail : null;
   const performance = activeDetail?.performance ?? selected?.performance ?? null;
   const run = activeDetail?.latestRun ?? selected?.latestRun ?? null;
@@ -318,6 +336,22 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
       const approved = await approveAdminStrategyVersion(selected.slug, version.id);
       setVersionRefreshKey((value) => value + 1);
       showToast?.({ message: `Approved version ${approved.version}.`, tone: "success" });
+    } catch (error) {
+      const message = statusMessage(error);
+      setStatus(message);
+      showToast?.({ message, tone: "error" });
+    } finally {
+      setVersionBusy(false);
+    }
+  }
+
+  async function activateVersion(version: StrategyVersionPayload) {
+    if (!selected || versionBusy) return;
+    setVersionBusy(true);
+    try {
+      const activated = await activateAdminStrategyVersion(selected.slug, version.id);
+      setVersionRefreshKey((value) => value + 1);
+      showToast?.({ message: `Activated version ${activated.version}.`, tone: "success" });
     } catch (error) {
       const message = statusMessage(error);
       setStatus(message);
@@ -450,6 +484,12 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
                     <input type="date" value={previewDate} onChange={(event) => setPreviewDate(event.target.value)} className="ml-2 rounded-md border border-white/10 bg-slate-950 px-2 py-1 text-sm text-white" />
                   </label>
                 </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
+                  <span>Scheduler: <strong className={scheduler?.enabled ? "text-emerald-200" : "text-amber-200"}>{scheduler?.enabled ? "Enabled" : "Disabled"}</strong></span>
+                  <span>Run cap: {scheduler?.maxStrategiesPerRun ?? "--"}</span>
+                  <span>Last result: {scheduler?.lastRun?.status ?? "Not run"}</span>
+                  {scheduler?.lastRun?.failed ? <span className="text-rose-200">Failures: {scheduler.lastRun.failed}</span> : null}
+                </div>
                 <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">New version rules</label>
@@ -466,6 +506,7 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button type="button" onClick={() => previewVersion(version)} disabled={versionBusy} className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-slate-200 hover:border-emerald-300/40 disabled:opacity-50">Preview</button>
                           {version.status === "draft" ? <button type="button" onClick={() => approveVersion(version)} disabled={versionBusy} className="rounded-md border border-emerald-300/35 px-2 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-300/10 disabled:opacity-50">Approve</button> : null}
+                          {version.status === "approved" ? <button type="button" onClick={() => activateVersion(version)} disabled={versionBusy} className="rounded-md border border-sky-300/35 px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-300/10 disabled:opacity-50">Activate</button> : null}
                         </div>
                       </div>
                     )) : <p className="rounded-md border border-white/10 p-3 text-sm text-slate-500">No prospective versions yet.</p>}

@@ -118,6 +118,27 @@ def approve_strategy_version(db: Session, *, slug: str, version_id: int) -> dict
     return _payload(version)
 
 
+def activate_strategy_version(db: Session, *, slug: str, version_id: int) -> dict[str, Any]:
+    strategy = _strategy(db, slug)
+    if strategy.status != "published":
+        raise HTTPException(status_code=422, detail="Publish the strategy before activating a prospective version.")
+    version = _version(db, int(strategy.id), version_id)
+    if version.status not in {"approved", "active"}:
+        raise HTTPException(status_code=422, detail="Only an approved version can be activated.")
+    try:
+        validate_strategy_candidate_rules(_loads(version.rules_json))
+    except (UnsupportedStrategyCandidateSource, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.execute(
+        StrategyVersion.__table__.update()
+        .where(StrategyVersion.strategy_id == strategy.id, StrategyVersion.id != version.id, StrategyVersion.status == "active")
+        .values(status="approved")
+    )
+    version.status = "active"
+    db.commit()
+    return _payload(version)
+
+
 def preview_strategy_version(
     db: Session,
     *,

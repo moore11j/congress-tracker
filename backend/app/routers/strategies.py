@@ -11,11 +11,13 @@ from app.db import get_db
 from app.entitlements import current_entitlements
 from app.services.strategies import list_strategy_cards, set_strategy_publication, strategy_detail
 from app.services.strategy_versions import (
+    activate_strategy_version,
     approve_strategy_version,
     create_strategy_version,
     list_strategy_versions,
     preview_strategy_version,
 )
+from app.services.strategy_scheduler import scheduler_status
 
 router = APIRouter(tags=["strategies"])
 
@@ -167,6 +169,23 @@ def admin_approve_strategy_version(
 ):
     require_admin_user(db, request)
     return approve_strategy_version(db, slug=slug, version_id=version_id)
+
+
+@router.post("/admin/strategies/{slug}/versions/{version_id}/activate")
+def admin_activate_strategy_version(
+    slug: str,
+    version_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return activate_strategy_version(db, slug=slug, version_id=version_id)
+
+
+@router.get("/admin/strategy-scheduler/status")
+def admin_strategy_scheduler_status(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return scheduler_status(db)
 
 
 @router.get("/admin/strategies/{slug}/versions/{version_id}/preview")
