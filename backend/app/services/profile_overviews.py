@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, or_, select, tuple_
+from sqlalchemy import case, func, or_, select, tuple_, union_all
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -61,6 +61,9 @@ def profiles_summary(
 ) -> dict[str, Any]:
     today = date.today()
     active_since = today - timedelta(days=365)
+    congress_trade_count = _count_events(db, "congress_trade")
+    active_members = _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)
+    insider_trade_count = _count_events(db, "insider_trade")
     contract_value = _government_contract_period_value(db, since=today - timedelta(days=365), before=today + timedelta(days=1))
     department_count = _department_count(db)
     # A locked institution card must not force the expensive 13F-period scan.
@@ -77,8 +80,8 @@ def profiles_summary(
                 "Track disclosed trades and portfolio activity from U.S. lawmakers.",
                 "/members",
                 [
-                    {"label": "Trades", "value": _count_events(db, "congress_trade")},
-                    {"label": "Active Members", "value": _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)},
+                    {"label": "Trades", "value": congress_trade_count},
+                    {"label": "Active Members", "value": active_members},
                 ],
             ),
             _profile_card(
@@ -87,7 +90,7 @@ def profiles_summary(
                 "Track buying and selling by executives, directors, and major shareholders.",
                 "/insiders",
                 [
-                    {"label": "Trades", "value": _count_events(db, "insider_trade")},
+                    {"label": "Trades", "value": insider_trade_count},
                     {"label": "Active Insiders", "value": active_insiders},
                 ],
             ),
@@ -124,6 +127,9 @@ def profiles_summary(
                 "institutional_count": institutional_count,
                 "institutional_value": latest_institutional_value,
                 "active_insiders": active_insiders,
+                "congress_trade_count": congress_trade_count,
+                "active_members": active_members,
+                "insider_trade_count": insider_trade_count,
             },
         ),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
@@ -356,6 +362,9 @@ def profile_directories(
     institutional_value = overrides.get("institutional_value")
     has_institutional_value_override = "institutional_value" in overrides
     active_insiders = overrides.get("active_insiders")
+    congress_trade_count = overrides.get("congress_trade_count")
+    active_members = overrides.get("active_members")
+    insider_trade_count = overrides.get("insider_trade_count")
     institutional_period = _latest_institutional_period(db) if include_institutions else None
 
     directories = [
@@ -365,8 +374,8 @@ def profile_directories(
             "/members",
             "Member profiles, disclosure history, traded tickers, and chamber-level activity.",
             [
-                {"label": "Trades", "value": _count_events(db, "congress_trade")},
-                {"label": "Active Members", "value": _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)},
+                {"label": "Trades", "value": congress_trade_count if congress_trade_count is not None else _count_events(db, "congress_trade")},
+                {"label": "Active Members", "value": active_members if active_members is not None else _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)},
             ],
             "Most Active Members",
             [
@@ -398,7 +407,7 @@ def profile_directories(
             "/insiders",
             "Corporate officers, directors, major shareholders, and their recent Form 4 activity.",
             [
-                {"label": "Trades", "value": _count_events(db, "insider_trade")},
+                {"label": "Trades", "value": insider_trade_count if insider_trade_count is not None else _count_events(db, "insider_trade")},
                 {"label": "Active Insiders", "value": active_insiders if active_insiders is not None else _active_insider_count(db, since=since.date())},
             ],
             "Largest Net Buyers",
@@ -1329,9 +1338,11 @@ def _government_contract_period_metrics(db: Session, *, since: date, before: dat
 
 
 def _government_contract_period_value(db: Session, *, since: date, before: date) -> float | None:
-    contract_value = float(db.execute(select(func.sum(GovernmentContract.award_amount)).where(GovernmentContract.award_date >= since, GovernmentContract.award_date < before)).scalar_one() or 0)
-    action_value = float(db.execute(select(func.sum(GovernmentContractAction.obligated_amount)).where(GovernmentContractAction.action_date >= since, GovernmentContractAction.action_date < before)).scalar_one() or 0)
-    return _float_or_int(contract_value + action_value)
+    values = union_all(
+        select(GovernmentContract.award_amount.label("value")).where(GovernmentContract.award_date >= since, GovernmentContract.award_date < before),
+        select(GovernmentContractAction.obligated_amount.label("value")).where(GovernmentContractAction.action_date >= since, GovernmentContractAction.action_date < before),
+    ).subquery()
+    return _float_or_int(db.execute(select(func.sum(values.c.value))).scalar_one())
 
 
 def _government_contract_comparison_status(db: Session, *, today: date, period_days: int) -> dict[str, Any]:
@@ -1468,18 +1479,10 @@ def _government_contract_total(db: Session) -> float | None:
 
 
 def _department_count(db: Session) -> int:
-    names = set()
-    contract_rows = db.execute(
-        select(GovernmentContract.awarding_agency).where(GovernmentContract.awarding_agency.is_not(None)).group_by(GovernmentContract.awarding_agency)
-    ).all()
-    action_rows = db.execute(
-        select(GovernmentContractAction.awarding_agency).where(GovernmentContractAction.awarding_agency.is_not(None)).group_by(GovernmentContractAction.awarding_agency)
-    ).all()
-    for (name,) in [*contract_rows, *action_rows]:
-        cleaned = (name or "").strip()
-        if cleaned:
-            names.add(cleaned)
-    return len(names)
+    agencies = select(func.trim(GovernmentContract.awarding_agency).label("agency")).where(GovernmentContract.awarding_agency.is_not(None)).union(
+        select(func.trim(GovernmentContractAction.awarding_agency).label("agency")).where(GovernmentContractAction.awarding_agency.is_not(None))
+    ).subquery()
+    return int(db.execute(select(func.count()).select_from(agencies).where(agencies.c.agency != "")).scalar_one() or 0)
 
 
 def _active_vendor_count(db: Session) -> int:
