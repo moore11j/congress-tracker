@@ -354,6 +354,7 @@ def profile_directories(
     contract_value = overrides.get("contract_value")
     institutional_count = overrides.get("institutional_count")
     institutional_value = overrides.get("institutional_value")
+    has_institutional_value_override = "institutional_value" in overrides
     active_insiders = overrides.get("active_insiders")
     institutional_period = _latest_institutional_period(db) if include_institutions else None
 
@@ -472,7 +473,7 @@ def profile_directories(
                 "13F managers, portfolio value, holdings concentration, and quarter-over-quarter changes.",
                 [
                     {"label": "Institutions", "value": institutional_count if institutional_count is not None else _count_rows(db, InstitutionalHolder.cik)},
-                    {"label": "Portfolio Value", "value": institutional_value if institutional_value is not None else _latest_institutional_value(db), "format": "currency"},
+                    {"label": "Portfolio Value", "value": institutional_value if has_institutional_value_override else _latest_institutional_value(db), "format": "currency"},
                 ],
                 "Largest Portfolios",
                 [],
