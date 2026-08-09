@@ -60,10 +60,12 @@ def profiles_summary(
     include_activity: bool = False,
 ) -> dict[str, Any]:
     today = date.today()
+    active_since = today - timedelta(days=365)
     contract_value = _government_contract_period_value(db, since=today - timedelta(days=365), before=today + timedelta(days=1))
     department_count = _department_count(db)
     latest_institutional_value = _latest_institutional_value(db)
     institutional_count = _count_rows(db, InstitutionalHolder.cik)
+    active_insiders = _active_insider_count(db, since=active_since)
     return {
         "status": "ok",
         "cards": [
@@ -84,7 +86,7 @@ def profiles_summary(
                 "/insiders",
                 [
                     {"label": "Trades", "value": _count_events(db, "insider_trade")},
-                    {"label": "Active Insiders", "value": _active_insider_count(db)},
+                    {"label": "Active Insiders", "value": active_insiders},
                 ],
             ),
             _profile_card(
@@ -119,6 +121,7 @@ def profiles_summary(
                 "contract_value": contract_value,
                 "institutional_count": institutional_count,
                 "institutional_value": latest_institutional_value,
+                "active_insiders": active_insiders,
             },
         ),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
@@ -349,6 +352,7 @@ def profile_directories(
     contract_value = overrides.get("contract_value")
     institutional_count = overrides.get("institutional_count")
     institutional_value = overrides.get("institutional_value")
+    active_insiders = overrides.get("active_insiders")
     institutional_period = _latest_institutional_period(db) if include_institutions else None
 
     directories = [
@@ -392,7 +396,7 @@ def profile_directories(
             "Corporate officers, directors, major shareholders, and their recent Form 4 activity.",
             [
                 {"label": "Trades", "value": _count_events(db, "insider_trade")},
-                {"label": "Active Insiders", "value": _active_insider_count(db)},
+                {"label": "Active Insiders", "value": active_insiders if active_insiders is not None else _active_insider_count(db, since=since.date())},
             ],
             "Largest Net Buyers",
             [

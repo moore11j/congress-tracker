@@ -2975,7 +2975,7 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
     return _shared_api_prefetch_response(request, endpoint=endpoint, logger=logger)
 
 
-PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 180
+PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 900
 _PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 
