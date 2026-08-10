@@ -130,6 +130,7 @@ def test_strategy_delivery_worker_retries_and_uses_safe_context(monkeypatch):
         assert process_pending_strategy_event_deliveries(db, now=now)["retried"] == 1
         assert calls[0]["template_key"] == "alerts.strategy_event"
         assert calls[0]["context"]["symbol"] == "Portfolio-level update"
+        assert calls[0]["context"]["event_label"] == "New position"
         assert "payload_json" not in calls[0]["context"]
         assert process_pending_strategy_event_deliveries(db, now=now + timedelta(seconds=61))["delivered"] == 1
         delivery = db.execute(select(StrategyEventDelivery)).scalar_one()

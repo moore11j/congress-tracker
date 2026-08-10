@@ -234,15 +234,17 @@ def _first_name(user: UserAccount) -> str:
 
 
 def _strategy_event_context(*, strategy: StrategyDefinition, event: StrategyEvent, user: UserAccount) -> dict[str, str]:
-    event_label = {"trade_added": "New model position", "trade_exited": "Model position exited", "position_rebalanced": "Model position rebalanced", "rebalance_completed": "Strategy rebalance complete"}.get(event.event_type, "Strategy update")
+    event_label = {"trade_added": "New position", "trade_exited": "Position exited", "position_rebalanced": "Position rebalanced", "rebalance_completed": "Strategy rebalance complete"}.get(event.event_type, "Strategy update")
     symbol = (event.ticker_at_time or event.symbol or "").strip().upper()
     base_url = os.getenv("APP_BASE_URL", "https://app.walnutmarkets.com").strip().rstrip("/")
+    event_description = f"Walnut recorded a new position in {symbol} for {strategy.name}." if event.event_type == "trade_added" and symbol else f"Walnut recorded a {event_label.lower()} for {strategy.name}."
+    subject = f"{strategy.name}: new position in {symbol}" if event.event_type == "trade_added" and symbol else f"{strategy.name}: {event_label.lower()}"
     return {
         "first_name": _first_name(user), "strategy_name": strategy.name, "strategy_slug": strategy.slug,
         "event_label": event_label,
-        "event_description": f"Walnut recorded {symbol} in {strategy.name}." if symbol else f"Walnut recorded a {event_label.lower()} event for {strategy.name}.",
+        "event_description": event_description,
         "symbol": symbol or "Portfolio-level update", "event_time": event.occurred_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        "strategy_url": f"{base_url}/strategies/{strategy.slug}", "email_subject": f"{strategy.name}: {event_label.lower()}",
+        "strategy_url": f"{base_url}/strategies/{strategy.slug}", "email_subject": subject,
     }
 
 
