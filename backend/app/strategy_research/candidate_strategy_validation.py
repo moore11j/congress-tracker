@@ -22,6 +22,7 @@ from app.strategy_research.technical_confirmation import PrimarySource, Technica
 from app.utils.symbols import normalize_symbol
 
 METHODOLOGY_VERSION = "candidate_strategy_validation_v1"
+WALNUT_STRATEGY_SCORE_VERSION = "walnut_strategy_score_v2"
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,28 @@ def _number(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _history_years(performance: dict[str, Any]) -> float:
+    """Return the covered calendar span when persisted performance has dates."""
+    start = performance.get("start_date")
+    end = performance.get("end_date")
+    if not start or not end:
+        return 0.0
+    try:
+        start_day = date.fromisoformat(str(start)[:10])
+        end_day = date.fromisoformat(str(end)[:10])
+    except ValueError:
+        return 0.0
+    return max(0.0, (end_day - start_day).days / 365.25)
+
+
+def _evidence_depth_score(full: dict[str, Any]) -> float:
+    """Score research depth without treating selective strategies as high-turnover ones."""
+    lots = max(0, int(full.get("lots") or 0))
+    lots_score = min(lots / 50.0, 1.0) * 70.0
+    history_score = min(_history_years(full) / 3.0, 1.0) * 30.0
+    return _clamp(lots_score + history_score)
+
+
 def _component_scores(
     *,
     full: dict[str, Any],
@@ -185,15 +208,13 @@ def _component_scores(
     test_rolling = _number(test.get("rolling_12m_beating_spy_pct"), 50.0)
     validation_alpha = _number(validation.get("alpha_cagr_pct"))
     full_alpha = _number(full.get("alpha_cagr_pct"))
-    lots = int(test.get("lots") or 0)
-
     return {
         "out_of_sample_cagr": _clamp(test_cagr / 30.0 * 100.0),
         "out_of_sample_alpha": _clamp((test_alpha + 10.0) / 25.0 * 100.0),
         "risk_adjusted_return": _clamp(test_sharpe / 1.5 * 100.0),
         "drawdown_control": _clamp((35.0 - test_drawdown) / 35.0 * 100.0),
         "rolling_consistency": _clamp(test_rolling),
-        "sample_size": _clamp(lots / 200.0 * 100.0),
+        "sample_size": _evidence_depth_score(full),
         "validation_alpha": _clamp((validation_alpha + 10.0) / 25.0 * 100.0),
         "full_history_alpha": _clamp((full_alpha + 10.0) / 25.0 * 100.0),
         "concentration_quality": 100.0 if not diagnostics.get("concentration_flags") else 35.0,
@@ -227,10 +248,10 @@ def walnut_strategy_score(
     validation_lots = int(validation.get("lots") or 0)
     if test_status != "ok":
         penalties.append({"reason": f"test_status_{test_status}", "points": 35})
-    if test_lots < 100:
-        penalties.append({"reason": "test_sample_below_100_lots", "points": 15})
-    if validation_lots < 100:
-        penalties.append({"reason": "validation_sample_below_100_lots", "points": 10})
+    if test_lots < 12:
+        penalties.append({"reason": "test_sample_below_12_lots", "points": 10})
+    if validation_lots < 12:
+        penalties.append({"reason": "validation_sample_below_12_lots", "points": 7})
     if _number(test.get("alpha_cagr_pct")) < 0:
         penalties.append({"reason": "negative_test_alpha", "points": 20})
     if _number(validation.get("alpha_cagr_pct")) < 0:
@@ -242,11 +263,31 @@ def walnut_strategy_score(
 
     final_score = _clamp(raw_score - sum(float(item["points"]) for item in penalties))
     return {
+        "score_version": WALNUT_STRATEGY_SCORE_VERSION,
         "score": round(final_score, 2),
         "raw_score": round(raw_score, 2),
         "components": {key: round(value, 2) for key, value in components.items()},
         "penalties": penalties,
     }
+
+
+def walnut_strategy_score_from_validation_result(validation_result: dict[str, Any]) -> dict[str, Any] | None:
+    """Recalculate a persisted candidate result without rerunning its backtest."""
+    periods = validation_result.get("periods") or {}
+    full = periods.get("full") or {}
+    validation = periods.get("validation") or {}
+    test = periods.get("test") or {}
+    full_performance = full.get("performance")
+    validation_performance = validation.get("performance")
+    test_performance = test.get("performance")
+    if not all(isinstance(item, dict) for item in (full_performance, validation_performance, test_performance)):
+        return None
+    return walnut_strategy_score(
+        full=full_performance,
+        validation=validation_performance,
+        test=test_performance,
+        diagnostics=full.get("diagnostics") or {},
+    )
 
 
 def _run_candidate_period(
