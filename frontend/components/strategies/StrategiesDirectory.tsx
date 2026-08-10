@@ -100,14 +100,23 @@ export function StrategiesDirectory({ data, featured, category, period, sort }: 
   const beatingSpy = metrics.filter((item) => item?.totalReturnPct != null && item?.benchmarkReturnPct != null && item.totalReturnPct > item.benchmarkReturnPct).length;
   const liveCount = items.filter((item) => displayStatus(item) === "Live").length;
   const previews = selected ? [selected, ...items.filter((item) => item.slug !== selected.slug)].slice(0, 3) : items.slice(0, 3);
-  const timeline = (selected?.equityCurve ?? []).map((point) => ({
-    date: point.date,
-    strategy_value: point.strategyValue,
-    benchmark_value: point.benchmarkValue ?? point.strategyValue,
-    active_positions: point.activeHoldings ?? 0,
-    cash: 0,
-    daily_return_pct: 0,
-  }));
+  const equityCurve = selected?.equityCurve ?? [];
+  const baseStrategyValue = equityCurve[0]?.strategyValue ?? 1;
+  const baseBenchmarkValue = equityCurve[0]?.benchmarkValue ?? baseStrategyValue;
+  const timeline = equityCurve.map((point) => {
+    const benchmarkValue = point.benchmarkValue ?? point.strategyValue;
+    return {
+      date: point.date,
+      strategy_value: point.strategyValue,
+      benchmark_value: benchmarkValue,
+      strategy_return_pct: ((point.strategyValue / baseStrategyValue) - 1) * 100,
+      benchmark_return_pct: ((benchmarkValue / baseBenchmarkValue) - 1) * 100,
+      active_positions: point.activeHoldings ?? 0,
+      invested_pct: point.activeHoldings ? 100 : 0,
+      cash: 0,
+      daily_return_pct: 0,
+    };
+  });
   const benchmark = selected?.latestRun?.benchmark ?? items.find((item) => item.latestRun?.benchmark)?.latestRun?.benchmark ?? "SPY";
 
   function setQuery(next: Record<string, string>) {
