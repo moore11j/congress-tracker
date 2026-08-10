@@ -396,16 +396,16 @@ def profile_directories(
                 {"label": "Trades", "value": congress_trade_count if congress_trade_count is not None else _count_events(db, "congress_trade")},
                 {"label": "Active Members", "value": active_members if active_members is not None else _count_distinct_event_field(db, "congress_trade", Event.member_bioguide_id)},
             ],
-            "Most Active Members",
+            "Top Congress by Trading Value",
             [
                 _directory_item(
                     row.get("name"),
                     row.get("href"),
-                    row.get("trades"),
-                    "number",
-                    "disclosed trades",
+                    row.get("estimated_portfolio_value"),
+                    "currency",
+                    f"{int(row.get('trades') or 0):,} trades",
                 )
-                for row in _most_active_congress_members(db, congress_base, limit=4)
+                for row in _top_congress_members(db, congress_base, limit=4)
             ] if include_rankings else [],
             "Most Traded Tickers",
             [
@@ -429,7 +429,7 @@ def profile_directories(
                 {"label": "Trades", "value": insider_trade_count if insider_trade_count is not None else _count_events(db, "insider_trade")},
                 {"label": "Active Insiders", "value": active_insiders if active_insiders is not None else _active_insider_count(db, since=since.date())},
             ],
-            "Largest Net Buyers",
+            "Top Insiders by Net Buying",
             [
                 _directory_item(
                     row.get("name"),
@@ -467,7 +467,7 @@ def profile_directories(
                     {"label": "Institutions", "value": institutional_count if institutional_count is not None else _count_rows(db, InstitutionalHolder.cik)},
                     {"label": f"Q{quarter} {year} Value", "value": institutional_value if institutional_value is not None else _latest_institutional_value(db), "format": "currency"},
                 ],
-                "Largest Portfolios",
+                "Top Institutions by Portfolio Value",
                 [
                     _directory_item(
                         row.get("name"),
@@ -503,7 +503,7 @@ def profile_directories(
                     {"label": "Institutions", "value": institutional_count if institutional_count is not None else _count_rows(db, InstitutionalHolder.cik)},
                     {"label": "Portfolio Value", "value": institutional_value if has_institutional_value_override else _latest_institutional_value(db), "format": "currency"},
                 ],
-                "Largest Portfolios",
+                "Top Institutions by Portfolio Value",
                 [],
                 "Widely Held Tickers",
                 [],
@@ -523,7 +523,7 @@ def profile_directories(
                 {"label": "Departments / Agencies", "value": department_count if department_count is not None else _department_count(db)},
                 {"label": "Contract Value", "value": contract_value if contract_value is not None else _government_contract_total(db), "format": "currency"},
             ],
-            "Largest Agencies",
+            "Top Departments by Contract Value",
             [
                 _directory_item(
                     row.get("name"),
@@ -853,18 +853,20 @@ def _sum_insider_transaction_value(db: Session, clauses: list[Any]) -> float | N
 
 
 def _top_congress_members(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
+    member_name = func.trim(Event.member_name)
+    member_key = func.lower(member_name)
     rows = db.execute(
         select(
-            Event.member_bioguide_id,
-            Event.member_name,
-            Event.party,
-            Event.chamber,
+            func.max(Event.member_bioguide_id).label("member_bioguide_id"),
+            func.max(member_name).label("member_name"),
+            func.max(Event.party).label("party"),
+            func.max(Event.chamber).label("chamber"),
             func.count(Event.id).label("trades"),
             func.sum(func.coalesce(Event.amount_max, Event.amount_min)).label("value"),
             func.max(Event.ts).label("latest"),
         )
-        .where(*clauses)
-        .group_by(Event.member_bioguide_id, Event.member_name, Event.party, Event.chamber)
+        .where(*clauses, Event.member_name.is_not(None), member_name != "")
+        .group_by(member_key)
         .order_by(func.sum(func.coalesce(Event.amount_max, Event.amount_min)).desc().nullslast(), func.count(Event.id).desc())
         .limit(limit)
     ).all()
