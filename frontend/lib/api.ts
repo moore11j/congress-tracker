@@ -3255,6 +3255,26 @@ export type StrategySubscription = {
   updatedAt?: string | null;
 };
 
+export type StrategyEventDeliveryPayload = {
+  id: number;
+  strategySlug: string;
+  strategyName: string;
+  eventType: string;
+  symbol?: string | null;
+  recipientEmail: string;
+  status: string;
+  attempts: number;
+  error?: string | null;
+};
+
+export type StrategyDeliveryWorkerStatus = {
+  enabled: boolean;
+  strategyEnabled: boolean;
+  providerEnabled: boolean;
+  maxAttempts: number;
+  lastRun?: { status?: string; reason?: string } | null;
+};
+
 export type StrategyListResponse = {
   metadata: {
     period: string;
@@ -3431,6 +3451,13 @@ export async function getAdminStrategySchedulerStatus(): Promise<StrategySchedul
     cache: "no-store",
     source: "AdminStrategyScheduler",
   });
+}
+
+export async function getAdminStrategyDeliveries(slug?: string): Promise<{ items: StrategyEventDeliveryPayload[]; worker: StrategyDeliveryWorkerStatus }> {
+  return fetchJson<{ items: StrategyEventDeliveryPayload[]; worker: StrategyDeliveryWorkerStatus }>(
+    buildApiUrl("/api/admin/strategy-deliveries", { strategy_slug: slug, limit: 50 }),
+    { cache: "no-store", source: "AdminStrategyDeliveries" },
+  );
 }
 
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {

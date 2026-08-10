@@ -18,7 +18,7 @@ from app.services.strategy_versions import (
     preview_strategy_version,
 )
 from app.services.strategy_scheduler import scheduler_status
-from app.services.strategy_subscriptions import get_strategy_subscription, unsubscribe_strategy, upsert_strategy_subscription
+from app.services.strategy_subscriptions import get_strategy_subscription, list_strategy_event_deliveries, strategy_delivery_status, unsubscribe_strategy, upsert_strategy_subscription
 
 router = APIRouter(tags=["strategies"])
 
@@ -229,6 +229,18 @@ def admin_activate_strategy_version(
 def admin_strategy_scheduler_status(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     return scheduler_status(db)
+
+
+@router.get("/admin/strategy-deliveries")
+def admin_strategy_deliveries(request: Request, strategy_slug: str | None = Query(default=None, max_length=160), limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return list_strategy_event_deliveries(db, strategy_slug=strategy_slug, limit=limit)
+
+
+@router.get("/admin/strategy-delivery-worker/status")
+def admin_strategy_delivery_worker_status(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return strategy_delivery_status(db)
 
 
 @router.get("/admin/strategies/{slug}/versions/{version_id}/preview")

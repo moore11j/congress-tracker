@@ -837,6 +837,36 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             cta_url="statement_url",
         ),
     },
+    {
+        "template_key": "alerts.strategy_event",
+        "name": "Strategy model update",
+        "category": "alerts",
+        "from_name": ALERTS_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
+        "subject": "{{email_subject}}",
+        "preheader": "A Walnut strategy you follow has a new model update.",
+        "variables": ["first_name", "strategy_name", "strategy_slug", "event_label", "event_description", "symbol", "event_time", "strategy_url", "email_subject"],
+        "body_text": walnut_email_text(
+            greeting="Hello {{first_name}},",
+            intro="{{event_description}}",
+            sections=["Strategy: {{strategy_name}}\nUpdate: {{event_label}}\nTicker: {{symbol}}\nRecorded: {{event_time}}", "This is an auditable model-strategy update, not investment advice. Review the methodology and current holdings before acting."],
+            cta_label="View strategy",
+            cta_url="strategy_url",
+            sender=ALERTS_FROM_NAME,
+            include_investment_disclaimer=True,
+        ),
+        "body_html": walnut_email_html(
+            sender=ALERTS_FROM_NAME,
+            eyebrow="Strategy update",
+            title="{{event_label}}",
+            intro="Hello {{first_name}}, {{event_description}}",
+            content_html=walnut_metric_card([("Strategy", "{{strategy_name}}"), ("Update", "{{event_label}}"), ("Ticker", "{{symbol}}"), ("Recorded", "{{event_time}}")]) + walnut_info_card("Research notice", "This is an auditable model-strategy update, not investment advice. Review the methodology and current holdings before acting."),
+            cta_label="View strategy",
+            cta_url="strategy_url",
+            include_investment_disclaimer=True,
+        ),
+    },
 )
 
 DEFAULT_TEMPLATE_BY_KEY = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}

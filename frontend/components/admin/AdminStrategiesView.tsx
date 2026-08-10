@@ -6,6 +6,7 @@ import {
   activateAdminStrategyVersion,
   approveAdminStrategyVersion,
   createAdminStrategyVersion,
+  getAdminStrategyDeliveries,
   getAdminStrategies,
   getAdminStrategy,
   getAdminStrategySchedulerStatus,
@@ -19,6 +20,8 @@ import {
   type StrategyVersionPayload,
   type StrategyVersionPreview,
   type StrategySchedulerStatus,
+  type StrategyEventDeliveryPayload,
+  type StrategyDeliveryWorkerStatus,
 } from "@/lib/api";
 import type { AdminToastApi } from "@/components/admin/AdminToast";
 
@@ -175,6 +178,8 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
   const [previewDate, setPreviewDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [preview, setPreview] = useState<StrategyVersionPreview | null>(null);
   const [scheduler, setScheduler] = useState<StrategySchedulerStatus | null>(null);
+  const [deliveries, setDeliveries] = useState<StrategyEventDeliveryPayload[]>([]);
+  const [deliveryWorker, setDeliveryWorker] = useState<StrategyDeliveryWorkerStatus | null>(null);
 
   const selected = useMemo(
     () => strategies.find((strategy) => strategy.slug === selectedSlug) ?? strategies[0] ?? null,
@@ -263,6 +268,20 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
       active = false;
     };
   }, [versionRefreshKey]);
+
+  useEffect(() => {
+    if (!selected?.slug) {
+      setDeliveries([]);
+      return;
+    }
+    let active = true;
+    getAdminStrategyDeliveries(selected.slug).then((response) => {
+      if (!active) return;
+      setDeliveries(response.items);
+      setDeliveryWorker(response.worker);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [selected?.slug, versionRefreshKey]);
 
   const activeDetail = detail?.slug === selected?.slug ? detail : null;
   const performance = activeDetail?.performance ?? selected?.performance ?? null;
@@ -522,6 +541,12 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
                 </div>
                 <HoldingsTable holdings={activeDetail?.currentHoldings ?? []} />
               </div>
+
+              <section className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-white">Strategy delivery ledger</h3><p className="mt-1 text-sm text-slate-400">Queued strategy-email records only. Sending requires both the global provider switch and the strategy-specific switch.</p></div><div className="flex flex-wrap gap-2"><StrategyPill tone={deliveryWorker?.enabled ? "good" : "warn"}>{deliveryWorker?.enabled ? "Worker enabled" : "Worker disabled"}</StrategyPill><StrategyPill>{`Max attempts ${deliveryWorker?.maxAttempts ?? "--"}`}</StrategyPill></div></div>
+                <p className="mt-3 text-xs text-slate-500">Last result: {deliveryWorker?.lastRun?.status ?? "Not run"}{deliveryWorker?.lastRun?.reason ? ` (${deliveryWorker.lastRun.reason})` : ""}</p>
+                <div className="mt-4 overflow-x-auto rounded-md border border-white/10"><table className="min-w-full text-left text-sm"><thead className="bg-slate-950/70 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Update</th><th className="px-3 py-2">Ticker</th><th className="px-3 py-2">Recipient</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Attempts</th><th className="px-3 py-2">Error</th></tr></thead><tbody className="divide-y divide-white/10">{deliveries.length ? deliveries.map((delivery) => <tr key={delivery.id}><td className="px-3 py-2 text-slate-300">{delivery.eventType}</td><td className="px-3 py-2 font-semibold text-white">{delivery.symbol ?? "--"}</td><td className="px-3 py-2 text-slate-400">{delivery.recipientEmail}</td><td className="px-3 py-2"><StrategyPill tone={delivery.status === "delivered" ? "good" : delivery.status === "failed" ? "warn" : "neutral"}>{delivery.status}</StrategyPill></td><td className="px-3 py-2 text-slate-300">{delivery.attempts}</td><td className="max-w-72 break-words px-3 py-2 text-rose-200">{delivery.error ?? "--"}</td></tr>) : <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">No strategy delivery records for this strategy.</td></tr>}</tbody></table></div>
+              </section>
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <details className="rounded-lg border border-white/10 bg-slate-950/40 p-4" open>
