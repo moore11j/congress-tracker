@@ -170,6 +170,9 @@ def congress_overview(db: Session, *, chamber: str = "all", period_days: int = 3
     previous_sell_value = _sum_amount(db, previous, sides=("sell", "sale", "s-sale"))
     active_members = db.execute(select(func.count(func.distinct(Event.member_bioguide_id))).where(*base, Event.member_bioguide_id.is_not(None))).scalar_one()
     average_trade_size = db.execute(select(func.avg(func.coalesce(Event.amount_max, Event.amount_min))).where(*base)).scalar_one()
+    analytics = _congress_market_analytics(db, since=prev_since, chamber=chamber_value)
+    top_members, stocks = _top_congress_members(db, base), _most_traded_event_stocks(db, base)
+    buyers = _top_event_actors(db, base, sides=("buy", "purchase", "p-purchase"))
 
     return {
         "status": "ok",
@@ -182,13 +185,19 @@ def congress_overview(db: Session, *, chamber: str = "all", period_days: int = 3
             _metric("Active Members", active_members, None),
             _metric("Average Trade Size", average_trade_size, None, "currency"),
         ],
-        "top_members": _top_congress_members(db, base),
-        "most_traded_stocks": _most_traded_event_stocks(db, base),
-        "sector_exposure": _event_sector_exposure(db, "congress_trade", since=since, chamber=chamber_value),
-        "top_buyers": _top_event_actors(db, base, sides=("buy", "purchase", "p-purchase")),
+        "monthly_activity": analytics["monthly_activity"],
+        "snapshot": {"total_trades": int(total_trades or 0), "top_member": top_members[0] if top_members else None, "most_traded_ticker": stocks[0] if stocks else None, "top_buyer": buyers[0] if buyers else None, "most_active_sector": analytics["sector_activity"][0] if analytics["sector_activity"] else None},
+        "top_members": top_members,
+        "most_traded_stocks": stocks,
+        "sector_exposure": analytics["sector_exposure"],
+        "sector_activity": analytics["sector_activity"],
+        "chamber_mix": analytics["chamber_mix"],
+        "top_moving_sectors": analytics["top_moving_sectors"],
+        "top_buyers": buyers,
         "top_sellers": _top_event_actors(db, base, sides=("sell", "sale", "s-sale")),
         "recent_disclosures": _recent_event_rows(db, base, limit=8),
         "largest_recent_trades": _largest_event_rows(db, base, limit=8),
+        "recent_notable_trades": _recent_event_rows(db, base, limit=8),
         "note": "Based on disclosed Congressional holdings and transactions. Reporting may be delayed under disclosure requirements.",
     }
 
@@ -971,6 +980,23 @@ def _event_sector_exposure(db: Session, event_type: str, *, since: datetime, cha
         sector = sector_by_symbol.get(symbol) or "Other"
         buckets[period][sector] += float(value or 0)
     return _allocation_payload(buckets)
+
+
+def _congress_market_analytics(db: Session, *, since: datetime, chamber: str) -> dict[str, Any]:
+    rows = db.execute(select(Event.ts, Event.symbol, Event.trade_type, Event.transaction_type, Event.amount_min, Event.amount_max, Event.member_bioguide_id, Event.chamber).where(*_event_query("congress_trade", since=since, chamber=chamber)).order_by(Event.ts.asc())).all()
+    sectors = _sectors(db, [row.symbol for row in rows]); now = datetime.now(timezone.utc); current_since = now - timedelta(days=365); months = [_add_months(date(now.year, now.month, 1), offset) for offset in range(-11, 1)]
+    monthly: dict[date, dict[str, Any]] = {month: {"trades": 0, "buy": 0.0, "sell": 0.0, "value": 0.0, "members": set()} for month in months}; exposure: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float)); sector_data: dict[str, dict[str, Any]] = defaultdict(lambda: {"buy": 0.0, "sell": 0.0, "prior_buy": 0.0, "prior_sell": 0.0, "trend": defaultdict(float)}); chambers: dict[str, float] = defaultdict(float)
+    for ts, symbol, trade_type, transaction_type, amount_min, amount_max, member_id, row_chamber in rows:
+        if not isinstance(ts, datetime): continue
+        ts = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts; value = float(amount_max or amount_min or 0); buy = str(trade_type or transaction_type or "").lower() in {"buy", "purchase", "p-purchase"}; sector = sectors.get(normalize_symbol(symbol) or "") or "Other"; exposure[_quarter_label(ts)][sector] += value; values = sector_data[sector]
+        if ts >= current_since:
+            values["buy" if buy else "sell"] += value; values["trend"][date(ts.year, ts.month, 1).strftime("%b %y")] += value if buy else -value; chambers[(str(row_chamber or "Unknown").title() or "Unknown")] += value; month = date(ts.year, ts.month, 1)
+            if month in monthly:
+                point = monthly[month]; point["trades"] += 1; point["value"] += value; point["buy" if buy else "sell"] += value
+                if member_id: point["members"].add(str(member_id))
+        else: values["prior_buy" if buy else "prior_sell"] += value
+    activity = [{"sector": sector, "current_value": _float_or_int(value["buy"] - value["sell"]) or 0, "previous_value": _float_or_int(value["prior_buy"] - value["prior_sell"]) or 0, "change_pct": _pct(value["buy"] - value["sell"], value["prior_buy"] - value["prior_sell"]), "buy_value": _float_or_int(value["buy"]) or 0, "sell_value": _float_or_int(value["sell"]) or 0, "trend": [{"label": month.strftime("%b %y"), "value": _float_or_int(value["trend"].get(month.strftime("%b %y"), 0)) or 0} for month in months]} for sector, value in sector_data.items()]; activity.sort(key=lambda row: abs(float(row["current_value"])), reverse=True)
+    return {"monthly_activity": [{"period": month.strftime("%b %y"), "trades": value["trades"], "buy_value": _float_or_int(value["buy"]) or 0, "sell_value": _float_or_int(value["sell"]) or 0, "active_members": len(value["members"]), "average_trade_size": _float_or_int(value["value"] / value["trades"]) if value["trades"] else None} for month, value in monthly.items()], "sector_exposure": _allocation_payload(exposure), "sector_activity": activity[:10], "top_moving_sectors": sorted(activity, key=lambda row: abs(float(row.get("change_pct") or 0)), reverse=True)[:6], "chamber_mix": [{"label": label, "value": _float_or_int(value) or 0} for label, value in sorted(chambers.items(), key=lambda item: -item[1])]}
 
 
 def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:

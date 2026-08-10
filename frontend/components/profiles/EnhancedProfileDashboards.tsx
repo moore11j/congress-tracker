@@ -52,26 +52,11 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
 }
 
 export function EnhancedCongressDashboard({ data, chamberFilter }: { data: CongressOverviewResponse; chamberFilter: ReactNode }) {
-  return <ProfileDashboard
-    flavor="congress"
-    eyebrow="CONGRESS"
-    title="Congress Trading"
-    subtitle="Track disclosed trades, portfolio activity, and market positioning across members of Congress."
-    filter={chamberFilter}
-    comparison={`previous ${data.period_days} days`}
-    snapshotTitle="Congress trading snapshot"
-    snapshotSeries={periodTotals(data.sector_exposure)}
-    snapshotLabel="Reported activity across the selected period"
-    metrics={data.summary}
-    primary={{ title: "Top members by portfolio value", rows: data.top_members, columns: [["name", "Member", "link"], ["party", "Party"], ["chamber", "Chamber"], ["estimated_portfolio_value", "Est. portfolio", "currency"], ["trades", "Trades", "number"]] }}
-    secondary={{ title: "Most traded stocks", rows: data.most_traded_stocks, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["buy_value", "Buy value", "currency"], ["sell_value", "Sell value", "currency"], ["net_value", "Net value", "currency"]] }}
-    sectorRows={data.sector_exposure}
-    sectorTitle="Sector exposure over time"
-    left={{ title: "Top buyers", rows: data.top_buyers, columns: [["name", "Member", "link"], ["trades", "Trades", "number"], ["value", "Buy value", "currency"], ["last_activity", "Latest", "date"]] }}
-    right={{ title: "Top sellers", rows: data.top_sellers, columns: [["name", "Member", "link"], ["trades", "Trades", "number"], ["value", "Sell value", "currency"], ["last_activity", "Latest", "date"]] }}
-    recent={data.recent_disclosures}
-    note={data.note}
-  />;
+  const monthly = data.monthly_activity ?? [];
+  const metrics = (label: string) => data.summary.find((metric) => metric.label === label);
+  const mix = [metricValue(data.summary, "Total Buy Value") ?? 0, metricValue(data.summary, "Total Sell Value") ?? 0];
+  const snap = data.snapshot ?? {};
+  return <main className="relative min-w-0 space-y-3 overflow-hidden pb-3"><OverviewGlow /><header className="relative z-10 flex flex-col gap-3 pt-2 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[.28em] text-emerald-300">Congress</p><h1 className="mt-2 text-3xl font-semibold text-white md:text-4xl">Congress Trading</h1><p className="mt-2 text-sm text-slate-300">Track disclosed trades, portfolio activity, and market positioning across members of Congress.</p></div>{chamberFilter}</header><section className="relative z-10 grid gap-3 xl:grid-cols-[1.7fr_.9fr]"><Panel title="Congress trading snapshot" subtitle="Monthly activity over the last 12 months"><div className="grid gap-4 md:grid-cols-[7rem_minmax(0,1fr)]"><div><p className="text-2xl font-semibold text-white">{formatNumber(Number(snap.total_trades ?? 0))}</p><p className="text-[10px] uppercase tracking-[.14em] text-slate-500">Total trades</p><MetricDelta metric={metrics("Total Trades")} /></div><CongressTrend points={monthly.map((row) => ({ label: row.period, value: row.trades }))} /></div></Panel><div className="grid gap-3 sm:grid-cols-2"><CongressSnapshot icon="◎" label="Most active member" row={snap.top_member as Row} valueKey="trades" suffix=" trades" /><CongressSnapshot icon="◇" label="Most traded ticker" row={snap.most_traded_ticker as Row} valueKey="net_value" /><CongressSnapshot icon="↗" label="Top buyer" row={snap.top_buyer as Row} valueKey="value" /><CongressSnapshot icon="◒" label="Most active sector" row={snap.most_active_sector as Row} valueKey="current_value" /></div></section><section className="relative z-10 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{data.summary.map((metric) => <CongressMetric key={metric.label} metric={metric} monthly={monthly} />)}</section><section className="relative z-10 grid gap-3 xl:grid-cols-2"><RankTable title="Top members by portfolio value" rows={data.top_members} columns={[["name", "Member", "link"], ["party", "Party"], ["chamber", "Chamber"], ["estimated_portfolio_value", "Est. portfolio value", "currency"], ["trades", "Trades", "number"], ["recent_activity", "Recent activity", "date"]]} /><RankTable title="Most traded stocks" rows={data.most_traded_stocks} columns={[["symbol", "Ticker", "link"], ["company", "Company"], ["buy_value", "Buy value", "currency"], ["sell_value", "Sell value", "currency"], ["net_value", "Net value", "currency"], ["trades", "Trades", "number"]]} /></section><section className="relative z-10 grid gap-3 xl:grid-cols-[1.05fr_.85fr_.8fr]"><VerticalSectorExposure rows={data.sector_exposure} /><SignedSectorBars rows={data.sector_activity ?? []} /><Panel title="Buy vs sell mix"><div className="flex items-center gap-4"><Donut values={mix} colors={["#42d3a7", "#fb7185"]} label="Buy" value={`${mix[0] + mix[1] ? ((mix[0] / (mix[0] + mix[1])) * 100).toFixed(0) : 0}%`} /></div></Panel></section><section className="relative z-10 grid gap-3 xl:grid-cols-[.85fr_1fr_1.15fr]"><ChamberMix rows={data.chamber_mix ?? []} /><CongressMovers rows={data.top_moving_sectors ?? []} /><NotableTrades items={data.recent_notable_trades ?? data.recent_disclosures} /></section></main>;
 }
 
 type CongressPoint = { period: string; trades: number; buy_value: number; sell_value: number; active_members: number; average_trade_size: number | null };
