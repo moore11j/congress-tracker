@@ -109,6 +109,45 @@ def test_strategy_follow_does_not_queue_events_that_predate_the_subscription():
         db.close()
 
 
+def test_strategy_delivery_queue_skips_downgraded_subscribers_without_deleting_subscription():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        strategy, user = _strategy_and_user(db)
+        upsert_strategy_subscription(db, user_id=user.id, slug=strategy.slug, email_enabled=True, delivery_mode="realtime", event_types=["trade_added"])
+        user.entitlement_tier = "free"
+        db.commit()
+
+        event = _event(db, strategy.id, key="event-after-downgrade")
+        assert queue_strategy_event_deliveries(db, events=[event]) == {"queued": 0, "skipped": 1}
+        assert db.execute(select(StrategyEventDelivery)).scalars().all() == []
+    finally:
+        db.close()
+
+
+def test_strategy_delivery_worker_rechecks_entitlement_after_queueing(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    calls: list[dict] = []
+    try:
+        strategy, user = _strategy_and_user(db)
+        upsert_strategy_subscription(db, user_id=user.id, slug=strategy.slug, email_enabled=True, delivery_mode="realtime", event_types=["trade_added"])
+        event = _event(db, strategy.id, key="delivery-after-downgrade")
+        assert queue_strategy_event_deliveries(db, events=[event]) == {"queued": 1, "skipped": 0}
+
+        user.entitlement_tier = "free"
+        db.commit()
+        monkeypatch.setenv("STRATEGY_EMAIL_DELIVERY_ENABLED", "true")
+        monkeypatch.setattr(strategy_subscriptions, "email_delivery_enabled", lambda: True)
+        monkeypatch.setattr(strategy_subscriptions, "send_email", lambda *_args, **kwargs: calls.append(kwargs))
+
+        assert process_pending_strategy_event_deliveries(db, now=datetime.now(timezone.utc) + timedelta(minutes=1))["skipped"] == 1
+        assert calls == []
+        assert db.execute(select(StrategyEventDelivery)).scalar_one().status == "skipped"
+    finally:
+        db.close()
+
+
 def test_strategy_delivery_worker_retries_and_uses_safe_context(monkeypatch):
     SessionLocal = _session()
     db = SessionLocal()

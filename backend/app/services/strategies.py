@@ -5,10 +5,10 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.entitlements import PLAN_RANKS, TierEntitlements
+from app.entitlements import TierEntitlements
 from app.models import (
     StrategyBacktestRun,
     StrategyCurrentHolding,
@@ -44,15 +44,12 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
-def _tier_allowed(required_tier: str, entitlements: TierEntitlements) -> bool:
-    required = (required_tier or "premium").lower()
-    if required == "free":
-        return True
-    return entitlements.rank >= PLAN_RANKS.get(required, PLAN_RANKS["premium"])
+def _can_follow_strategy(entitlements: TierEntitlements) -> bool:
+    """Strategy following is a Premium capability backed by the existing alert entitlement."""
+    return entitlements.has_feature("notification_digests")
 
 
 def _definition_payload(strategy: StrategyDefinition, *, entitlements: TierEntitlements) -> dict[str, Any]:
-    can_access = _tier_allowed(strategy.access_tier, entitlements)
     return {
         "id": int(strategy.id),
         "slug": strategy.slug,
@@ -62,10 +59,10 @@ def _definition_payload(strategy: StrategyDefinition, *, entitlements: TierEntit
         "status": strategy.status,
         "accessTier": strategy.access_tier,
         "access": {
-            "requiredTier": strategy.access_tier,
+            "requiredTier": "free",
             "userTier": entitlements.tier,
-            "canAccess": can_access,
-            "locked": not can_access,
+            "canAccess": True,
+            "locked": False,
         },
         "isFeatured": bool(strategy.is_featured),
         "sortOrder": int(strategy.sort_order or 100),
@@ -284,13 +281,10 @@ def strategy_detail(
     payload["latestRun"] = _run_payload(run)
     payload["performance"] = _performance_payload(performance)
 
-    if not payload["access"]["canAccess"]:
-        payload["equityCurve"] = []
-        payload["currentHoldings"] = []
-        return payload
-
     equity_curve: list[dict[str, Any]] = []
     current_holdings: list[dict[str, Any]] = []
+    current_holdings_count = 0
+    can_follow = _can_follow_strategy(entitlements)
     if run:
         points = (
             db.execute(
@@ -312,6 +306,13 @@ def strategy_detail(
             }
             for point in points
         ]
+    current_holdings_count = int(
+        db.execute(
+            select(func.count()).select_from(StrategyCurrentHolding).where(StrategyCurrentHolding.strategy_id == int(strategy.id))
+        ).scalar_one()
+        or 0
+    )
+    if can_follow:
         holdings = (
             db.execute(
                 select(StrategyCurrentHolding)
@@ -341,4 +342,10 @@ def strategy_detail(
 
     payload["equityCurve"] = equity_curve
     payload["currentHoldings"] = current_holdings
+    payload["currentHoldingsCount"] = current_holdings_count
+    payload["strategyAccess"] = {
+        "canViewCurrentHoldings": can_follow,
+        "canFollow": can_follow,
+        "requiredTier": "premium",
+    }
     return payload

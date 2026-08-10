@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AppSetting, StrategyDefinition, StrategyEvent, StrategyEventDelivery, StrategySubscription, UserAccount
+from app.entitlements import entitlements_for_user
 from app.services.email_delivery import email_delivery_enabled, send_email
 
 ALLOWED_EVENT_TYPES = {"trade_added", "trade_exited", "position_rebalanced", "rebalance_completed"}
@@ -128,7 +129,10 @@ def queue_strategy_event_deliveries(
                 StrategySubscription.created_at <= event.created_at,
             )
         ).all()
-        for subscription, _user in subscriptions:
+        for subscription, user in subscriptions:
+            if not entitlements_for_user(db, user).has_feature("notification_digests"):
+                skipped += 1
+                continue
             if subscription.delivery_mode != "realtime" or event.event_type not in _event_types(subscription.event_types_json):
                 skipped += 1
                 continue
@@ -302,7 +306,7 @@ def process_pending_strategy_event_deliveries(db: Session, *, limit: int = 50, n
             payload["failed"] += 1
             continue
         current, event, strategy, subscription, user = joined
-        if strategy.status != "published" or not subscription.is_active or not subscription.email_enabled or not user.email_notifications_enabled:
+        if strategy.status != "published" or not subscription.is_active or not subscription.email_enabled or not user.email_notifications_enabled or not entitlements_for_user(db, user).has_feature("notification_digests"):
             _mark_delivery_result(db, delivery_id, status="skipped", error="Recipient or strategy is no longer eligible for strategy email.")
             payload["skipped"] += 1
             continue

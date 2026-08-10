@@ -1,13 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ApiError,
   deleteStrategySubscription,
+  getEntitlements,
   getStrategySubscription,
   updateStrategySubscription,
 } from "@/lib/api";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import { defaultEntitlements, hasEntitlement, type Entitlements } from "@/lib/entitlements";
 
 type Props = {
   slug: string;
@@ -25,9 +27,12 @@ export function StrategyFollowButton({ slug, compact = false }: Props) {
   const [following, setFollowing] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
+    getEntitlements().then((result) => active && setEntitlements(result)).catch(() => active && setEntitlements(defaultEntitlements));
     getStrategySubscription(slug)
       .then((result) => {
         if (!active) return;
@@ -43,6 +48,10 @@ export function StrategyFollowButton({ slug, compact = false }: Props) {
   }, [slug]);
 
   async function toggleFollowing() {
+    if (!hasEntitlement(entitlements, "notification_digests")) {
+      setUpgradeOpen(true);
+      return;
+    }
     setLoading(true);
     setMessage(null);
     try {
@@ -54,21 +63,18 @@ export function StrategyFollowButton({ slug, compact = false }: Props) {
         setFollowing(true);
       }
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) setSignedOut(true);
+      if (error instanceof ApiError && (error.status === 401 || error.status === 402)) setUpgradeOpen(true);
       else setMessage(error instanceof Error ? error.message : "Unable to update strategy alerts.");
     } finally {
       setLoading(false);
     }
   }
 
-  if (signedOut) {
-    return <Link href={`/login?next=${encodeURIComponent(`/strategies/${slug}`)}`} className="inline-flex items-center justify-center rounded-md border border-emerald-300/35 px-3 py-2 text-sm font-semibold text-emerald-100 hover:border-emerald-200 hover:bg-emerald-300/10">Sign in to follow</Link>;
-  }
-
   return <div className={compact ? "" : "w-full"}>
     <button type="button" onClick={toggleFollowing} disabled={loading} className={`${compact ? "" : "w-full"} rounded-md px-3 py-2 text-sm font-semibold disabled:cursor-wait disabled:opacity-60 ${following ? "border border-white/15 text-slate-200 hover:border-rose-300/50 hover:text-rose-100" : "bg-emerald-400/20 text-emerald-50 ring-1 ring-emerald-300/35 hover:bg-emerald-400/30"}`}>
-      {loading ? "Loading..." : following ? "Following strategy" : "Follow strategy"}
+      {loading ? "Loading..." : following ? "Following strategy" : signedOut ? "Sign in to follow" : "Follow strategy"}
     </button>
     {message ? <p className="mt-2 text-xs leading-5 text-rose-200">{message}</p> : null}
+    {upgradeOpen ? <div className="mt-3"><UpgradePrompt title="Follow this strategy in real time" body="Get new-position, exit, and rebalance alerts, plus the complete current model portfolio, with Premium." compact /></div> : null}
   </div>;
 }

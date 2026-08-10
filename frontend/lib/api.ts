@@ -3211,6 +3211,12 @@ export type StrategyDefinitionPayload = {
 export type StrategyDetailPayload = StrategyDefinitionPayload & {
   equityCurve?: StrategyEquityPoint[];
   currentHoldings?: StrategyHolding[];
+  currentHoldingsCount?: number;
+  strategyAccess?: {
+    canViewCurrentHoldings: boolean;
+    canFollow: boolean;
+    requiredTier: "premium" | "pro" | string;
+  };
 };
 
 export type StrategyVersionPayload = {
