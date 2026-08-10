@@ -19,6 +19,8 @@ from app.services.strategy_versions import (
 )
 from app.services.strategy_scheduler import scheduler_status
 from app.services.strategy_subscriptions import get_strategy_subscription, list_strategy_event_deliveries, strategy_delivery_status, unsubscribe_strategy, upsert_strategy_subscription
+from app.services.strategy_subscriptions import process_pending_strategy_event_deliveries, queue_recent_strategy_event_deliveries
+from app.services.strategy_scheduler import run_active_strategy_evaluations
 
 router = APIRouter(tags=["strategies"])
 
@@ -39,6 +41,11 @@ class StrategySubscriptionRequest(BaseModel):
     email_enabled: bool = True
     delivery_mode: str = "realtime"
     event_types: list[str] = Field(default_factory=lambda: ["trade_added", "trade_exited", "rebalance_completed"])
+
+
+class StrategyOperationRequest(BaseModel):
+    operation: str = Field(pattern="^(evaluate|queue|deliver)$")
+    limit: int = Field(default=50, ge=1, le=250)
 
 
 @router.get("/strategies")
@@ -241,6 +248,16 @@ def admin_strategy_deliveries(request: Request, strategy_slug: str | None = Quer
 def admin_strategy_delivery_worker_status(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     return strategy_delivery_status(db)
+
+
+@router.post("/admin/strategy-operations/run")
+def admin_run_strategy_operation(payload: StrategyOperationRequest, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    if payload.operation == "evaluate":
+        return {"operation": "evaluate", "result": run_active_strategy_evaluations(db)}
+    if payload.operation == "queue":
+        return {"operation": "queue", "result": queue_recent_strategy_event_deliveries(db, limit=payload.limit)}
+    return {"operation": "deliver", "result": process_pending_strategy_event_deliveries(db, limit=payload.limit)}
 
 
 @router.get("/admin/strategies/{slug}/versions/{version_id}/preview")

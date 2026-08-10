@@ -3460,6 +3460,10 @@ export async function getAdminStrategyDeliveries(slug?: string): Promise<{ items
   );
 }
 
+export async function runAdminStrategyOperation(operation: "evaluate" | "queue" | "deliver", limit = 50): Promise<{ operation: string; result: Record<string, unknown> }> {
+  return fetchJson(buildApiUrl("/api/admin/strategy-operations/run"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation, limit }), source: "AdminStrategyOperations" });
+}
+
 export async function getAdminSalesLedger(params: SalesLedgerParams): Promise<SalesLedgerResponse> {
   return fetchJson<SalesLedgerResponse>(buildApiUrl("/api/admin/reports/sales-ledger", params));
 }

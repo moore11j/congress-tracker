@@ -7,6 +7,7 @@ import {
   approveAdminStrategyVersion,
   createAdminStrategyVersion,
   getAdminStrategyDeliveries,
+  runAdminStrategyOperation,
   getAdminStrategies,
   getAdminStrategy,
   getAdminStrategySchedulerStatus,
@@ -180,6 +181,8 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
   const [scheduler, setScheduler] = useState<StrategySchedulerStatus | null>(null);
   const [deliveries, setDeliveries] = useState<StrategyEventDeliveryPayload[]>([]);
   const [deliveryWorker, setDeliveryWorker] = useState<StrategyDeliveryWorkerStatus | null>(null);
+  const [operationBusy, setOperationBusy] = useState<"evaluate" | "queue" | "deliver" | null>(null);
+  const [operationResult, setOperationResult] = useState<string | null>(null);
 
   const selected = useMemo(
     () => strategies.find((strategy) => strategy.slug === selectedSlug) ?? strategies[0] ?? null,
@@ -380,6 +383,13 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
     }
   }
 
+  async function runOperation(operation: "evaluate" | "queue" | "deliver") {
+    setOperationBusy(operation); setOperationResult(null);
+    try { const response = await runAdminStrategyOperation(operation); setOperationResult(`${response.operation}: ${String(response.result.status ?? "completed")}`); setVersionRefreshKey((value) => value + 1); }
+    catch (error) { const message = statusMessage(error); setStatus(message); showToast?.({ message, tone: "error" }); }
+    finally { setOperationBusy(null); }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -533,6 +543,8 @@ export function AdminStrategiesView({ showToast }: { showToast?: AdminToastApi["
                 </div>
                 {preview ? <div className="mt-4 overflow-x-auto rounded-md border border-white/10"><div className="border-b border-white/10 px-3 py-2 text-sm text-slate-300">Dry run: {preview.qualifyingCount} qualifying from {preview.universeCount} visible candidates.</div><table className="min-w-full text-sm"><thead className="bg-slate-950/70 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Symbol</th><th className="px-3 py-2">Score</th><th className="px-3 py-2">Sources</th><th className="px-3 py-2">Weight</th></tr></thead><tbody className="divide-y divide-white/10">{preview.candidates.map((candidate) => <tr key={candidate.symbol}><td className="px-3 py-2 font-semibold text-white">{candidate.symbol}</td><td className="px-3 py-2 text-slate-300">{formatNumber(candidate.score)}</td><td className="px-3 py-2 text-slate-300">{candidate.sourceCount ?? "n/a"}</td><td className="px-3 py-2 text-slate-300">{formatPct(candidate.weightPct)}</td></tr>)}</tbody></table></div> : null}
               </section>
+
+              <section className="rounded-lg border border-white/10 bg-slate-950/40 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-white">Strategy operations</h3><p className="mt-1 text-sm text-slate-400">Manual runs honor the same production kill switches as cron. They never override a disabled evaluator or delivery worker.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => runOperation("evaluate")} disabled={Boolean(operationBusy)} className="rounded-md border border-sky-300/35 px-3 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50">{operationBusy === "evaluate" ? "Running..." : "Run evaluation"}</button><button type="button" onClick={() => runOperation("queue")} disabled={Boolean(operationBusy)} className="rounded-md border border-white/15 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50">{operationBusy === "queue" ? "Queueing..." : "Queue events"}</button><button type="button" onClick={() => runOperation("deliver")} disabled={Boolean(operationBusy)} className="rounded-md border border-emerald-300/35 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50">{operationBusy === "deliver" ? "Checking..." : "Run delivery"}</button></div></div>{operationResult ? <p className="mt-3 text-sm text-emerald-200">{operationResult}</p> : null}</section>
 
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3">
