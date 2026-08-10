@@ -126,6 +126,7 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /function isPublicTickerRoute\(pathname: string\): boolean/);
   assert.match(middleware, /function isPublicMemberRoute\(pathname: string\): boolean/);
   assert.match(middleware, /function isPublicInsiderRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /function isPublicInstitutionRoute\(pathname: string\): boolean/);
   assert.match(middleware, /function isPublicSeoEntityRoute\(pathname: string\): boolean/);
   assert.match(middleware, /function isPublicMarketingAsset\(pathname: string\): boolean/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicMarketingAsset\(pathname\)/);
