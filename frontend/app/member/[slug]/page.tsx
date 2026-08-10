@@ -6,7 +6,6 @@ import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { MemberAnalyticsClient } from "@/components/member/MemberAnalyticsClient";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
-import { SeoSnapshotBaseline } from "@/components/seo/SeoSnapshotBaseline";
 import {
   getMemberAlphaSummary,
   getMemberProfile,
@@ -214,16 +213,11 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const portfolioLookbackDays = getPortfolioLookbackParam(sp);
   const portfolioMode = getPortfolioModeParam(sp);
   const lb = lbRaw === "90" || lbRaw === "180" ? Number(lbRaw) : 365;
-  const snapshot = await getSeoSnapshot("member", slug, { source: "MemberPageSnapshot" })
-    .then((response) => response.snapshot)
-    .catch(() => null);
   const requestHeaders = await headers();
   const authState = requestMayHavePageAuthState(requestHeaders)
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
-  if (!authState.token && !authState.hasAuthHint && snapshot?.indexable && Object.keys(sp).length === 0) {
-    return <SeoSnapshotBaseline snapshot={snapshot} />;
-  }
+  const publicStalePageCache = !authState.token && !authState.hasAuthHint;
 
   const upperSlug = slug.toUpperCase();
   if (upperSlug.startsWith("FMP_")) {
@@ -233,7 +227,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
     redirect(`/member/${cleanSlug}${query ? `?${query}` : ""}`);
   }
 
-  const data = await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberProfile" });
+  const data = await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberProfile", stalePageCache: publicStalePageCache });
   const memberName = profileMemberName(data.member.name, slug);
   const canonicalSlug = nameToSlug(memberName);
   if (slug !== canonicalSlug) {
@@ -267,12 +261,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const primaryActionClassName =
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-4 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/18 sm:text-sm";
   const [initialAlphaSummaryResult, initialTradesResult, initialTrendTradesResult, headshotResult] = await Promise.allSettled([
-    getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb, source: "MemberProfileInitialAlpha" }),
-    getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100, source: "MemberProfileInitialTrades" }),
+    getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb, source: "MemberProfileInitialAlpha", stalePageCache: publicStalePageCache }),
+    getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100, source: "MemberProfileInitialTrades", stalePageCache: publicStalePageCache }),
     getMemberTrades(canonicalMemberId, {
       lookback_days: MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS,
       limit: MEMBER_ACTIVITY_TREND_LIMIT,
       source: "MemberProfileInitialActivityTrend",
+      stalePageCache: publicStalePageCache,
     }),
     resolveWikipediaHeadshot(memberName, { kind: "member" }),
   ]);

@@ -71,7 +71,7 @@ export default async function DepartmentPage({ params }: Props) {
   const { slug } = await params;
   let department: DepartmentProfileResponse;
   try {
-    department = await getDepartmentProfile(slug, { limit: 15 });
+    department = await getDepartmentProfile(slug, { limit: 15, stalePageCache: true, source: "DepartmentProfilePage" });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;

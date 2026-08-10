@@ -8,7 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const seoQuality = read("lib/seoQuality.ts");
 const evergreenSeo = read("lib/evergreenSeo.ts");
-const seoSnapshotBaseline = read("components/seo/SeoSnapshotBaseline.tsx");
+const apiClient = read("lib/api.ts");
 const seoSnapshotService = fs.readFileSync(path.join(root, "..", "backend", "app", "services", "seo_snapshots.py"), "utf8");
 const phase3Audit = fs.readFileSync(path.join(root, "..", "docs", "seo-phase3-audit.md"), "utf8");
 const sitemapRoutes = [
@@ -74,19 +74,26 @@ test("sitemap XML includes lastmod for controlled pilot pages", () => {
   assert.match(seoQuality, /<lastmod>\$\{page\.lastmod\}<\/lastmod>/);
 });
 
-test("public snapshot presentation uses Walnut product shell copy", () => {
-  assert.match(seoSnapshotBaseline, /Stock Research/);
-  assert.match(seoSnapshotBaseline, /Congress Trading Profile/);
-  assert.match(seoSnapshotBaseline, /Insider Trading Profile/);
-  assert.match(seoSnapshotBaseline, /Data as of/);
-  assert.match(seoSnapshotBaseline, /Institutional Activity/);
-  assert.match(seoSnapshotBaseline, /Portfolio Simulation/);
-  assert.match(seoSnapshotBaseline, /Ownership & Performance/);
-  assert.doesNotMatch(seoSnapshotBaseline, />Stored Snapshot</);
-  assert.doesNotMatch(seoSnapshotBaseline, />Ticker Research Snapshot</);
-  assert.doesNotMatch(seoSnapshotBaseline, />Congress Activity Snapshot</);
-  assert.doesNotMatch(seoSnapshotBaseline, />Insider Activity Snapshot</);
-  assert.doesNotMatch(seoSnapshotService, /provider refresh|SEO snapshot|stored disclosure|Stored Market Data|Form 4 Activity Snapshot|Congress Trading Snapshot/);
+test("public entity pages use real app routes with delayed stale cache", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const memberPage = read("app/member/[slug]/page.tsx");
+  const insiderPage = read("app/insider/[slug]/page.tsx");
+  const institutionPage = read("app/institution/[cik]/page.tsx");
+  const departmentPage = read("app/departments/[slug]/page.tsx");
+
+  assert.match(apiClient, /PUBLIC_STALE_PAGE_REVALIDATE_SECONDS\s*=\s*60 \* 60 \* 24/);
+  assert.match(apiClient, /publicStalePageFetchInit/);
+  assert.match(tickerPage, /publicStalePageCache/);
+  assert.match(memberPage, /publicStalePageCache/);
+  assert.match(insiderPage, /publicStalePageCache/);
+  assert.match(institutionPage, /publicStalePageCache/);
+  assert.match(departmentPage, /stalePageCache:\s*true/);
+  assert.doesNotMatch(tickerPage, /SeoSnapshotBaseline/);
+  assert.doesNotMatch(memberPage, /SeoSnapshotBaseline/);
+  assert.doesNotMatch(insiderPage, /SeoSnapshotBaseline/);
+  assert.doesNotMatch(institutionPage, /SeoSnapshotBaseline/);
+  assert.doesNotMatch(departmentPage, /SeoSnapshotBaseline/);
+  assert.doesNotMatch(seoSnapshotService, /provider refresh|SEO snapshot|stored disclosure|stored market data|stored Form 4|Stored Market Data|Form 4 Activity Snapshot|Congress Trading Snapshot/);
 });
 
 test("evergreen SEO foundation requires editorial approval before indexing", () => {

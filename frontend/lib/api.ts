@@ -62,13 +62,14 @@ export const API_BASE =
 type QueryValue = string | number | null | undefined;
 
 type QueryParams = Record<string, QueryValue>;
-type QueryParamsWithRequestOptions = Record<string, QueryValue | AbortSignal | undefined> & {
+type QueryParamsWithRequestOptions = Record<string, QueryValue | AbortSignal | boolean | undefined> & {
   authToken?: string;
   mode?: string;
   requestSource?: ApiRequestInit["requestSource"];
   routeFamily?: string;
   signal?: AbortSignal;
   source?: string;
+  stalePageCache?: boolean;
 };
 type ApiRequestInit = RequestInit & {
   source?: string;
@@ -78,6 +79,14 @@ type ApiRequestInit = RequestInit & {
   routeFamily?: string;
   requestSource?: "ssr" | "client" | "prefetch" | "visibility" | "idle";
 };
+
+export const PUBLIC_STALE_PAGE_REVALIDATE_SECONDS = 60 * 60 * 24;
+
+function publicStalePageFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cache" | "next"> {
+  return enabled
+    ? { cache: "force-cache", next: { revalidate: PUBLIC_STALE_PAGE_REVALIDATE_SECONDS } }
+    : { cache: "no-store", next: { revalidate: 0 } };
+}
 
 export const EVENTS_API_MAX_LIMIT = 100;
 const CLIENT_CACHE_TTL_MS = 30_000;
@@ -266,13 +275,19 @@ export type CongressOverviewResponse = {
   period_days: number;
   chamber: string;
   summary: ProfileMetric[];
+  monthly_activity: Array<{ period: string; trades: number; buy_value: number; sell_value: number; active_members: number; average_trade_size: number | null }>;
+  snapshot?: Record<string, unknown>;
   top_members: Array<Record<string, unknown>>;
   most_traded_stocks: Array<Record<string, unknown>>;
   sector_exposure: ProfileSectorPeriod[];
+  sector_activity?: Array<{ sector: string; current_value: number; previous_value: number; change_pct: number | null; buy_value: number; sell_value: number; trend: Array<{ label: string; value: number }> }>;
+  chamber_mix?: Array<{ label: string; value: number }>;
+  top_moving_sectors?: Array<{ sector: string; current_value: number; previous_value: number; change_pct: number | null; buy_value: number; sell_value: number; trend: Array<{ label: string; value: number }> }>;
   top_buyers: Array<Record<string, unknown>>;
   top_sellers: Array<Record<string, unknown>>;
   recent_disclosures: ProfileActivityItem[];
   largest_recent_trades: ProfileActivityItem[];
+  recent_notable_trades?: ProfileActivityItem[];
   note?: string;
 };
 
@@ -5451,6 +5466,7 @@ export async function getTickerContextBundle(
     signal?: AbortSignal;
     source?: string;
     requestSource?: "ssr" | "client" | "visibility";
+    stalePageCache?: boolean;
   },
 ): Promise<TickerContextBundleResponse> {
   const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/context-bundle`, {
@@ -5462,8 +5478,7 @@ export async function getTickerContextBundle(
   if (params?.activeUser) headers["X-Walnut-Active-User"] = "browser";
   const requestInit = {
     headers,
-    cache: "no-store",
-    next: { revalidate: 0 },
+    ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken && !params?.activeUser)),
     signal: params?.signal,
     source: params?.source ?? "TickerContextBundle",
     component: "context-bundle",
@@ -5552,6 +5567,7 @@ export async function getTickerSignalsSummary(
     activeUser?: boolean;
     signal?: AbortSignal;
     source?: string;
+    stalePageCache?: boolean;
   },
 ): Promise<TickerSignalsSummaryResponse> {
   const url = buildApiUrl(`/api/tickers/${symbol}/signals-summary`, {
@@ -5564,8 +5580,7 @@ export async function getTickerSignalsSummary(
       ...authHeaders(params?.authToken),
       ...(params?.activeUser ? { "X-Walnut-Active-User": "browser" } : {}),
     },
-    cache: "no-store",
-    next: { revalidate: 0 },
+    ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken && !params?.activeUser)),
     signal,
     source: params?.source ?? "TickerSignalsSummary",
   });
@@ -5785,7 +5800,7 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
 }
 
 export async function getEvents(params: QueryParamsWithRequestOptions & { tape?: string }): Promise<EventsResponse> {
-  const { tape: rawTape, signal, source: sourceLabel, authToken: rawAuthToken, requestSource, routeFamily, ...queryParams } = params;
+  const { tape: rawTape, signal, source: sourceLabel, authToken: rawAuthToken, requestSource, routeFamily, stalePageCache, ...queryParams } = params;
   const nextParams: QueryParams = {};
   Object.entries(queryParams).forEach(([key, value]) => {
     if (value === null || value === undefined || typeof value === "string" || typeof value === "number") {
@@ -5835,7 +5850,7 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   const request = fetchJson<unknown>(url, {
     headers: authHeaders(authToken),
     cache: authToken || bypassPublicFetchCache ? "no-store" : "force-cache",
-    next: authToken || bypassPublicFetchCache ? { revalidate: 0 } : { revalidate: 30 },
+    next: authToken || bypassPublicFetchCache ? { revalidate: 0 } : { revalidate: stalePageCache ? PUBLIC_STALE_PAGE_REVALIDATE_SECONDS : 30 },
     signal: canShortCache || canShareServerInflight ? undefined : requestSignal,
     requestSource,
     routeFamily,
@@ -5941,7 +5956,7 @@ export async function getInsiderSummary(
   reportingCik: string,
   lookbackDays: number,
   issuer?: string,
-  options?: { source?: string; signal?: AbortSignal },
+  options?: { source?: string; signal?: AbortSignal; stalePageCache?: boolean },
 ): Promise<InsiderSummary> {
   return fetchJson<InsiderSummary>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/summary`, {
@@ -5949,6 +5964,7 @@ export async function getInsiderSummary(
       issuer,
     }),
     {
+      ...publicStalePageFetchInit(options?.stalePageCache),
       signal: options?.signal,
       source: options?.source ?? "InsiderSummary",
     },
@@ -5960,7 +5976,7 @@ export async function getInsiderTrades(
   lookbackDays: number,
   limit = 50,
   issuer?: string,
-  options?: { page?: number; source?: string; signal?: AbortSignal },
+  options?: { page?: number; source?: string; signal?: AbortSignal; stalePageCache?: boolean },
 ): Promise<{
   reporting_cik: string;
   lookback_days: number;
@@ -5978,6 +5994,7 @@ export async function getInsiderTrades(
       issuer,
     }),
     {
+      ...publicStalePageFetchInit(options?.stalePageCache),
       signal: options?.signal,
       source: options?.source ?? "InsiderTrades",
     },
@@ -6006,7 +6023,7 @@ export async function getInsiderTopTickers(
 
 export async function getInsiderAlphaSummary(
   reportingCik: string,
-  params?: { lookback_days?: number; issuer?: string; source?: string; signal?: AbortSignal },
+  params?: { lookback_days?: number; issuer?: string; source?: string; signal?: AbortSignal; stalePageCache?: boolean },
 ): Promise<InsiderAlphaSummary> {
   return fetchJson<InsiderAlphaSummary>(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/alpha-summary`, {
@@ -6014,6 +6031,7 @@ export async function getInsiderAlphaSummary(
       issuer: params?.issuer,
     }),
     {
+      ...publicStalePageFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "InsiderAlphaSummary",
     },
@@ -6023,7 +6041,7 @@ export async function getInsiderAlphaSummary(
 
 export async function getMemberProfileBySlug(
   slug: string,
-  params?: { include_trades?: boolean; source?: string; signal?: AbortSignal },
+  params?: { include_trades?: boolean; source?: string; signal?: AbortSignal; stalePageCache?: boolean },
 ): Promise<MemberProfile> {
   return fetchJson<MemberProfile>(
     buildApiUrl(`/api/members/by-slug/${encodeURIComponent(slug)}`, {
@@ -6031,6 +6049,7 @@ export async function getMemberProfileBySlug(
         params?.include_trades === undefined ? undefined : (params.include_trades ? 1 : 0),
     }),
     {
+      ...publicStalePageFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "MemberProfile",
     },
@@ -6521,13 +6540,14 @@ export async function getMemberPerformance(
 
 export async function getMemberAlphaSummary(
   bioguideId: string,
-  params?: MemberAnalyticsParams & { source?: string; signal?: AbortSignal },
+  params?: MemberAnalyticsParams & { source?: string; signal?: AbortSignal; stalePageCache?: boolean },
 ): Promise<MemberAlphaSummary> {
   return fetchJson<MemberAlphaSummary>(
     buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
       lookback_days: params?.lookback_days,
     }),
     {
+      ...publicStalePageFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "MemberAnalytics",
     },
@@ -6552,7 +6572,7 @@ export async function getMemberPortfolioPerformance(
 
 export async function getMemberTrades(
   bioguideId: string,
-  params?: { lookback_days?: number; limit?: number; source?: string; signal?: AbortSignal },
+  params?: { lookback_days?: number; limit?: number; source?: string; signal?: AbortSignal; stalePageCache?: boolean },
 ): Promise<MemberTradesResponse> {
   return fetchJson<MemberTradesResponse>(
     buildApiUrl(`/api/members/${bioguideId}/trades`, {
@@ -6560,6 +6580,7 @@ export async function getMemberTrades(
       limit: params?.limit,
     }),
     {
+      ...publicStalePageFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "MemberAnalytics",
     },
@@ -6604,12 +6625,13 @@ export async function getCongressTraderLeaderboard(params?: {
   }
 }
 
-export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal }): Promise<TickerProfile> {
+export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal; stalePageCache?: boolean }): Promise<TickerProfile> {
   const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}`);
   if (typeof window === "undefined" && !options?.signal) {
     return serverCachedJson(
       `ticker-profile:${url}`,
       () => fetchJson<TickerProfile>(url, {
+        ...publicStalePageFetchInit(options?.stalePageCache),
         source: options?.source ?? "TickerProfile",
       }),
     );
@@ -6618,6 +6640,7 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
     `ticker-profile:${url}`,
     options?.signal,
     (signal) => fetchJson<TickerProfile>(url, {
+      ...publicStalePageFetchInit(options?.stalePageCache),
       signal,
       source: options?.source ?? "TickerProfile",
     }),
@@ -6644,7 +6667,7 @@ export async function getSeoSnapshotIndex(entityType: SeoSnapshotEntityType, opt
   });
 }
 
-export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; activeUser?: boolean; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
+export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; activeUser?: boolean; signal?: AbortSignal; source?: string; stalePageCache?: boolean }): Promise<TickerGovernmentContractsResponse> {
   const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/government-contracts`, {
     lookback_days: params?.lookback_days,
     min_amount: params?.min_amount,
@@ -6653,8 +6676,7 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
   });
   const request = () => fetchJson<TickerGovernmentContractsResponse>(url, {
     headers: params?.activeUser ? { "X-Walnut-Active-User": "browser" } : undefined,
-    cache: "no-store",
-    next: { revalidate: 0 },
+    ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.activeUser)),
     signal: params?.signal,
     source: params?.source ?? "TickerGovernmentContracts",
   });
@@ -7177,13 +7199,12 @@ export async function createAdminRedditAdsExtensionToken(): Promise<{ token: str
   });
 }
 
-export async function getInstitutionProfile(cik: string, options?: { authToken?: string | null; signal?: AbortSignal; source?: string }): Promise<InstitutionProfileResponse> {
+export async function getInstitutionProfile(cik: string, options?: { authToken?: string | null; signal?: AbortSignal; source?: string; stalePageCache?: boolean }): Promise<InstitutionProfileResponse> {
   return fetchJson<InstitutionProfileResponse>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}`),
     {
       headers: authHeaders(options?.authToken ?? undefined),
-      cache: "no-store",
-      next: { revalidate: 0 },
+      ...publicStalePageFetchInit(Boolean(options?.stalePageCache && !options?.authToken)),
       signal: options?.signal,
       source: options?.source ?? "InstitutionProfile",
     },
@@ -7192,7 +7213,7 @@ export async function getInstitutionProfile(cik: string, options?: { authToken?:
 
 export async function getInstitutionHoldings(
   cik: string,
-  params?: { year?: number; quarter?: number; limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
+  params?: { year?: number; quarter?: number; limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string; stalePageCache?: boolean },
 ): Promise<InstitutionCollectionResponse<InstitutionHoldingItem>> {
   return fetchJson<InstitutionCollectionResponse<InstitutionHoldingItem>>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/holdings`, {
@@ -7203,8 +7224,7 @@ export async function getInstitutionHoldings(
     }),
     {
       headers: authHeaders(params?.authToken ?? undefined),
-      cache: "no-store",
-      next: { revalidate: 0 },
+      ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken)),
       signal: params?.signal,
       source: params?.source ?? "InstitutionHoldings",
     },
@@ -7213,7 +7233,7 @@ export async function getInstitutionHoldings(
 
 export async function getInstitutionActivity(
   cik: string,
-  params?: { limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
+  params?: { limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string; stalePageCache?: boolean },
 ): Promise<InstitutionCollectionResponse<InstitutionActivityItem>> {
   return fetchJson<InstitutionCollectionResponse<InstitutionActivityItem>>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/activity`, {
@@ -7222,8 +7242,7 @@ export async function getInstitutionActivity(
     }),
     {
       headers: authHeaders(params?.authToken ?? undefined),
-      cache: "no-store",
-      next: { revalidate: 0 },
+      ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken)),
       signal: params?.signal,
       source: params?.source ?? "InstitutionActivity",
     },
@@ -7232,14 +7251,13 @@ export async function getInstitutionActivity(
 
 export async function getInstitutionPerformance(
   cik: string,
-  params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
+  params?: { authToken?: string | null; signal?: AbortSignal; source?: string; stalePageCache?: boolean },
 ): Promise<InstitutionPerformanceResponse> {
   return fetchJson<InstitutionPerformanceResponse>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/performance`),
     {
       headers: authHeaders(params?.authToken ?? undefined),
-      cache: "no-store",
-      next: { revalidate: 0 },
+      ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken)),
       signal: params?.signal,
       source: params?.source ?? "InstitutionPerformance",
     },
@@ -7248,7 +7266,7 @@ export async function getInstitutionPerformance(
 
 export async function getInstitutionFilings(
   cik: string,
-  params?: { limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
+  params?: { limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string; stalePageCache?: boolean },
 ): Promise<InstitutionCollectionResponse<InstitutionFilingItem>> {
   return fetchJson<InstitutionCollectionResponse<InstitutionFilingItem>>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/filings`, {
@@ -7257,8 +7275,7 @@ export async function getInstitutionFilings(
     }),
     {
       headers: authHeaders(params?.authToken ?? undefined),
-      cache: "no-store",
-      next: { revalidate: 0 },
+      ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken)),
       signal: params?.signal,
       source: params?.source ?? "InstitutionFilings",
     },
@@ -7282,10 +7299,13 @@ export async function requestTickerHydration(symbol: string, params?: { reason?:
   );
 }
 
-export async function getDepartmentProfile(slug: string, params?: { limit?: number }): Promise<DepartmentProfileResponse> {
+export async function getDepartmentProfile(slug: string, params?: { limit?: number; stalePageCache?: boolean; source?: string }): Promise<DepartmentProfileResponse> {
   return fetchJson<DepartmentProfileResponse>(
     buildApiUrl(`/api/departments/${slug}`, { limit: params?.limit }),
-    { cache: "no-store", next: { revalidate: 0 } },
+    {
+      ...publicStalePageFetchInit(params?.stalePageCache),
+      source: params?.source ?? "DepartmentProfile",
+    },
   );
 }
 
