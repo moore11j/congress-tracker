@@ -49,6 +49,13 @@ function performance(strategy: StrategyDefinitionPayload) {
   return strategy.performance as StrategyPerformanceSnapshot | null | undefined;
 }
 
+function validatedScore(strategy: StrategyDefinitionPayload) {
+  const diagnostics = strategy.latestRun?.diagnostics;
+  const validation = diagnostics?.validation as Record<string, unknown> | undefined;
+  const score = validation?.walnut_strategy_score as Record<string, unknown> | undefined;
+  return score?.score_version === "walnut_strategy_score_v2" && typeof score.score === "number" ? score.score : null;
+}
+
 function MetricCard({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "good" }) {
   return (
     <div className="min-w-0 rounded-lg border border-white/10 bg-slate-950/35 px-4 py-3">
@@ -78,6 +85,7 @@ export function StrategiesDirectory({ data, category, period, sort }: Props) {
     const metrics = performance(item);
     return metrics?.totalReturnPct != null && metrics?.benchmarkReturnPct != null && metrics.totalReturnPct > metrics.benchmarkReturnPct;
   }).length;
+  const validatedScores = items.map(validatedScore).filter((value): value is number => value != null);
 
   function setQuery(next: Record<string, string>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -142,7 +150,7 @@ export function StrategiesDirectory({ data, category, period, sort }: Props) {
         <MetricCard label={`Best ${labelPeriod(period)} return`} value={formatPct(best)} tone="good" />
         <MetricCard label={`Median ${labelPeriod(period)} return`} value={returns.length ? formatPct([...returns].sort((a, b) => a - b)[Math.floor(returns.length / 2)]) : "--"} tone="good" />
         <MetricCard label="Beating SPY" value={items.length ? `${Math.round((beatingSpy / items.length) * 100)}%` : "--"} tone="good" />
-        <MetricCard label="Live strategies" value={String(items.filter((item) => item.status === "live").length)} />
+        <MetricCard label="Validated scores" value={String(validatedScores.length)} />
       </section>
 
       {items.length ? (
@@ -151,17 +159,19 @@ export function StrategiesDirectory({ data, category, period, sort }: Props) {
             <div className="border-b border-white/10 px-4 py-3"><h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-200">Top strategies</h2></div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-white/10 bg-slate-950/65 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Strategy</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Return</th><th className="px-3 py-3">CAGR</th><th className="px-3 py-3">Excess vs SPY</th><th className="px-3 py-3">Max drawdown</th><th className="px-4 py-3">Status</th></tr></thead>
+                <thead className="border-b border-white/10 bg-slate-950/65 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Strategy</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Return</th><th className="px-3 py-3">CAGR</th><th className="px-3 py-3">Excess vs SPY</th><th className="px-3 py-3">Walnut Score</th><th className="px-3 py-3">Max drawdown</th><th className="px-4 py-3">Status</th></tr></thead>
                 <tbody className="divide-y divide-white/10">
                   {items.map((strategy) => {
                     const metrics = performance(strategy);
                     const positive = (metrics?.totalReturnPct ?? 0) >= 0;
+                    const score = validatedScore(strategy);
                     return <tr key={strategy.slug} className="cursor-pointer transition hover:bg-white/[0.035]" onClick={() => router.push(`/strategies/${strategy.slug}`)}>
                       <td className="px-4 py-3"><div className="font-semibold text-white">{strategy.name}</div><div className="mt-1 max-w-xs truncate text-xs text-slate-500">{strategy.shortDescription ?? "Model strategy"}</div></td>
                       <td className="px-3 py-3 capitalize text-slate-300">{strategy.category.replace("_", " ")}</td>
                       <td className={`px-3 py-3 font-semibold tabular-nums ${positive ? "text-emerald-300" : "text-rose-300"}`}>{formatPct(metrics?.totalReturnPct)}</td>
                       <td className="px-3 py-3 tabular-nums text-slate-200">{formatPct(metrics?.cagrPct)}</td>
                       <td className="px-3 py-3 tabular-nums text-slate-200">{formatPct(metrics?.alphaCagrPct)}</td>
+                      <td className="px-3 py-3 tabular-nums text-slate-200">{score == null ? <span className="text-slate-500">--</span> : score.toFixed(1)}</td>
                       <td className="px-3 py-3 tabular-nums text-slate-200">{formatPct(metrics?.maxDrawdownPct)}</td>
                       <td className="px-4 py-3"><StatusPill status={strategy.status} /></td>
                     </tr>;
@@ -175,7 +185,8 @@ export function StrategiesDirectory({ data, category, period, sort }: Props) {
             <h2 className="mt-2 text-xl font-semibold text-white">{selected.name}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">{selected.shortDescription}</p>
             <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-slate-500">Universe</dt><dd className="mt-1 text-slate-200">{String(selected.universe?.source ?? "Published universe")}</dd></div><div><dt className="text-slate-500">Benchmark</dt><dd className="mt-1 text-slate-200">{selected.latestRun?.benchmark ?? "SPY"}</dd></div><div><dt className="text-slate-500">Start date</dt><dd className="mt-1 text-slate-200">{selected.latestRun?.backtestStartDate ?? "--"}</dd></div><div><dt className="text-slate-500">Confidence</dt><dd className="mt-1 capitalize text-slate-200">{selected.dataQualityConfidence}</dd></div></dl>
-            <Link href={`/strategies/${selected.slug}`} className="mt-5 inline-flex rounded-md bg-emerald-400/15 px-3 py-2 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-300/30 transition hover:bg-emerald-400/25">View strategy</Link>
+            <div className="mt-5 border-t border-white/10 pt-4 text-xs leading-5 text-slate-500">Walnut Score sorts only the reproducible v2 validated strategies. Individual portfolio research remains separately ranked until it is normalized to the same methodology.</div>
+            <Link href={`/strategies/${selected.slug}`} className="mt-4 inline-flex rounded-md bg-emerald-400/15 px-3 py-2 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-300/30 transition hover:bg-emerald-400/25">View strategy</Link>
           </aside> : null}
         </section>
       ) : (

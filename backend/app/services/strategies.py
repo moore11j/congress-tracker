@@ -177,10 +177,11 @@ def _sort_value(item: dict[str, Any], sort: str) -> float:
         value = performance.get("maxDrawdownPct")
         return 0.0 if value is None else -abs(float(value))
     if sort == "walnut_score":
-        value = performance.get("walnutStrategyScore")
-        if value is None:
-            value = (item.get("latestRun") or {}).get("walnutStrategyScore")
-        return float(value or 0.0)
+        validation = ((item.get("latestRun") or {}).get("diagnostics") or {}).get("validation") or {}
+        score = validation.get("walnut_strategy_score") or {}
+        if score.get("score_version") != "walnut_strategy_score_v2":
+            return -1.0
+        return float(score.get("score") or -1.0)
     field = STRATEGY_SORT_FIELDS.get(sort, "walnut_strategy_score")
     camel = {
         "cagr_pct": "cagrPct",

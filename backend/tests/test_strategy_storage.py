@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import json
 from datetime import date, datetime, timezone
 
 from sqlalchemy import create_engine, inspect
@@ -89,6 +90,7 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
             completed_at=now,
             methodology_version="v1",
             walnut_strategy_score=55,
+            diagnostics_json=json.dumps({"validation": {"walnut_strategy_score": {"score": 55, "score_version": "walnut_strategy_score_v2"}}}),
         )
         run_two = StrategyBacktestRun(
             strategy_id=aggressive.id,
@@ -97,6 +99,7 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
             completed_at=now,
             methodology_version="v1",
             walnut_strategy_score=70,
+            diagnostics_json=json.dumps({"validation": {"walnut_strategy_score": {"score": 70, "score_version": "walnut_strategy_score_v2"}}}),
         )
         db.add_all([run_one, run_two])
         db.flush()
