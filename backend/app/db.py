@@ -2663,59 +2663,81 @@ def ensure_search_entities_schema(bind=engine) -> None:
     from app.models import SearchEntity, SearchEntityTerm, SearchQueryLog
 
     tables = [SearchEntity.__table__, SearchEntityTerm.__table__, SearchQueryLog.__table__]
+    term_index_specs = (
+        (
+            "ix_search_entity_terms_normalized_entity",
+            "search_entity_terms (normalized_term, entity_id)",
+        ),
+        (
+            "ix_search_entity_terms_compact_entity",
+            "search_entity_terms (compact_term, entity_id)",
+        ),
+        (
+            "ix_search_entity_terms_normalized_rank",
+            "search_entity_terms (normalized_term, rank_weight)",
+        ),
+        (
+            "ix_search_entity_terms_compact_rank",
+            "search_entity_terms (compact_term, rank_weight)",
+        ),
+    )
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
         _set_postgres_ddl_timeouts(conn)
         Base.metadata.create_all(bind=conn, tables=tables)
-        for index_sql in (
-            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_normalized_entity ON search_entity_terms (normalized_term, entity_id)",
-            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_compact_entity ON search_entity_terms (compact_term, entity_id)",
-            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_normalized_rank ON search_entity_terms (normalized_term, rank_weight)",
-            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_compact_rank ON search_entity_terms (compact_term, rank_weight)",
-        ):
+        if dialect_name != "postgresql":
+            for index_name, index_columns in term_index_specs:
+                index_sql = f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_columns}"
+                try:
+                    with conn.begin_nested():
+                        conn.execute(text(index_sql))
+                except SQLAlchemyError as exc:
+                    logger.warning(
+                        "search_entity_term_index_skipped reason=%s sql=%s",
+                        _optional_index_skip_reason(exc),
+                        index_sql,
+                    )
+        logger.info("search_entities_schema_ensure_complete table_count=%s", len(tables))
+
+    if bind.dialect.name != "postgresql":
+        return
+
+    postgres_index_specs = [
+        *term_index_specs,
+        (
+            "ix_search_entities_normalized_trgm",
+            "search_entities USING gin (normalized_search_text gin_trgm_ops)",
+        ),
+        (
+            "ix_search_entities_compact_trgm",
+            "search_entities USING gin (compact_search_text gin_trgm_ops)",
+        ),
+        (
+            "ix_search_entity_terms_normalized_trgm",
+            "search_entity_terms USING gin (normalized_term gin_trgm_ops)",
+        ),
+        (
+            "ix_search_entity_terms_compact_trgm",
+            "search_entity_terms USING gin (compact_term gin_trgm_ops)",
+        ),
+    ]
+    with bind.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text("SET lock_timeout = '30s'"))
+        conn.execute(text("SET statement_timeout = '5min'"))
+        try:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        except SQLAlchemyError as exc:
+            logger.warning("search_entities_trgm_extension_skipped reason=%s", _optional_index_skip_reason(exc))
+        for index_name, index_columns in postgres_index_specs:
+            index_sql = f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index_name} ON {index_columns}"
             try:
-                with conn.begin_nested():
-                    conn.execute(text(index_sql))
+                conn.execute(text(index_sql))
             except SQLAlchemyError as exc:
                 logger.warning(
-                    "search_entity_term_index_skipped reason=%s sql=%s",
+                    "search_entity_index_skipped reason=%s sql=%s",
                     _optional_index_skip_reason(exc),
                     index_sql,
                 )
-        if dialect_name == "postgresql":
-            try:
-                with conn.begin_nested():
-                    conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS ix_search_entities_normalized_trgm "
-                            "ON search_entities USING gin (normalized_search_text gin_trgm_ops)"
-                        )
-                    )
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS ix_search_entities_compact_trgm "
-                            "ON search_entities USING gin (compact_search_text gin_trgm_ops)"
-                        )
-                    )
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_normalized_trgm "
-                            "ON search_entity_terms USING gin (normalized_term gin_trgm_ops)"
-                        )
-                    )
-                    conn.execute(
-                        text(
-                            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_compact_trgm "
-                            "ON search_entity_terms USING gin (compact_term gin_trgm_ops)"
-                        )
-                    )
-            except SQLAlchemyError as exc:
-                logger.warning(
-                    "search_entities_trgm_index_skipped reason=%s",
-                    _optional_index_skip_reason(exc),
-                )
-        logger.info("search_entities_schema_ensure_complete table_count=%s", len(tables))
 
 
 def ensure_event_columns() -> None:
