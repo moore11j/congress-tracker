@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import InsiderTransactionNormalized, InstitutionalHolder, Member, Security, TickerMeta
+from app.models import InsiderTransactionNormalized, InstitutionalHolder, Member, SearchEntityTerm, Security, TickerMeta
 import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 from app.services.universal_search import rebuild_search_entities, search_coverage_audit, search_entities
@@ -135,6 +135,7 @@ def test_search_coverage_audit_reports_index_counts_and_valid_urls():
         assert audit["indexed_by_type"]["insider"] == 2
         assert audit["indexed_by_type"]["department"] >= 1
         assert audit["invalid_urls"] == 0
+        assert db.query(SearchEntityTerm).count() > audit["indexed_entities"]
     finally:
         db.close()
 

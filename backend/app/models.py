@@ -1790,6 +1790,28 @@ class SearchEntity(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class SearchEntityTerm(Base):
+    __tablename__ = "search_entity_terms"
+    __table_args__ = (
+        UniqueConstraint("entity_id", "term_type", "normalized_term", "compact_term", name="uq_search_entity_terms_entity_term"),
+        Index("ix_search_entity_terms_entity_id", "entity_id"),
+        Index("ix_search_entity_terms_type", "entity_type"),
+        Index("ix_search_entity_terms_term_type", "term_type"),
+        Index("ix_search_entity_terms_normalized", "normalized_term"),
+        Index("ix_search_entity_terms_compact", "compact_term"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_id: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
+    term_type: Mapped[str] = mapped_column(Text, nullable=False)
+    term_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_term: Mapped[str] = mapped_column(Text, nullable=False)
+    compact_term: Mapped[str] = mapped_column(Text, nullable=False)
+    rank_weight: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class SearchQueryLog(Base):
     __tablename__ = "search_query_logs"
     __table_args__ = (

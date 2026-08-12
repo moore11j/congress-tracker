@@ -2660,9 +2660,9 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
 
 
 def ensure_search_entities_schema(bind=engine) -> None:
-    from app.models import SearchEntity, SearchQueryLog
+    from app.models import SearchEntity, SearchEntityTerm, SearchQueryLog
 
-    tables = [SearchEntity.__table__, SearchQueryLog.__table__]
+    tables = [SearchEntity.__table__, SearchEntityTerm.__table__, SearchQueryLog.__table__]
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
         _set_postgres_ddl_timeouts(conn)
@@ -2681,6 +2681,18 @@ def ensure_search_entities_schema(bind=engine) -> None:
                         text(
                             "CREATE INDEX IF NOT EXISTS ix_search_entities_compact_trgm "
                             "ON search_entities USING gin (compact_search_text gin_trgm_ops)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_normalized_trgm "
+                            "ON search_entity_terms USING gin (normalized_term gin_trgm_ops)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_compact_trgm "
+                            "ON search_entity_terms USING gin (compact_term gin_trgm_ops)"
                         )
                     )
             except SQLAlchemyError as exc:

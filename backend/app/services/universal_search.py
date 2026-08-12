@@ -21,6 +21,7 @@ from app.models import (
     InstitutionalTransaction,
     Member,
     SearchEntity,
+    SearchEntityTerm,
     SearchQueryLog,
     Security,
     TickerMeta,
@@ -54,6 +55,15 @@ _KIND_FROM_ENTITY_TYPE = {
     "department": "agency",
 }
 _ENTITY_TYPE_ORDER = {"stock": 0, "institution": 1, "member": 2, "insider": 3, "department": 4}
+_TERM_TYPE_WEIGHT = {
+    "ticker": 12000.0,
+    "display": 10000.0,
+    "alias": 9200.0,
+    "canonical": 8800.0,
+    "company": 6500.0,
+    "keyword": 3000.0,
+    "subtitle": 900.0,
+}
 _NICKNAMES = {
     "timothy": ("tim",),
     "jennifer": ("jen",),
@@ -322,6 +332,48 @@ def _entity(
         compact_search_text=compact,
         updated_at=datetime.now(timezone.utc),
     )
+
+
+def _term(entity: SearchEntity, term_type: str, term_text: Any, rank_weight: float) -> SearchEntityTerm | None:
+    cleaned = _clean(term_text)
+    normalized = normalize_search_text(cleaned)
+    compact = compact_search_text(cleaned)
+    if not cleaned or not normalized or not compact:
+        return None
+    return SearchEntityTerm(
+        entity_id=entity.entity_id,
+        entity_type=entity.entity_type,
+        term_type=term_type,
+        term_text=cleaned,
+        normalized_term=normalized,
+        compact_term=compact,
+        rank_weight=float(rank_weight or 0.0),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+def _entity_terms(entity: SearchEntity) -> list[SearchEntityTerm]:
+    raw_terms: list[tuple[str, Any, float]] = [
+        ("display", entity.display_name, _TERM_TYPE_WEIGHT["display"]),
+        ("canonical", entity.canonical_name, _TERM_TYPE_WEIGHT["canonical"]),
+        ("ticker", entity.ticker, _TERM_TYPE_WEIGHT["ticker"]),
+        ("company", entity.company_name, _TERM_TYPE_WEIGHT["company"]),
+        ("subtitle", entity.subtitle, _TERM_TYPE_WEIGHT["subtitle"]),
+    ]
+    raw_terms.extend(("alias", alias, _TERM_TYPE_WEIGHT["alias"]) for alias in _json_list(entity.aliases_json))
+    raw_terms.extend(("keyword", keyword, _TERM_TYPE_WEIGHT["keyword"]) for keyword in _json_list(entity.keywords_json))
+    terms: list[SearchEntityTerm] = []
+    seen: set[tuple[str, str, str]] = set()
+    for term_type, term_text, weight in raw_terms:
+        term = _term(entity, term_type, term_text, weight)
+        if term is None:
+            continue
+        key = (term.term_type, term.normalized_term, term.compact_term)
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(term)
+    return terms
 
 
 def _company_name_maps(db: Session) -> tuple[dict[str, str], dict[str, str | None]]:
@@ -603,9 +655,16 @@ def rebuild_search_entities(db: Session) -> SearchBuildStats:
         *_institution_entities(db),
         *_department_entities(db),
     ]
+    terms: list[SearchEntityTerm] = []
+    for entity in entities:
+        terms.extend(_entity_terms(entity))
+    db.execute(SearchEntityTerm.__table__.delete())
     db.execute(SearchEntity.__table__.delete())
     for start in range(0, len(entities), 500):
         db.add_all(entities[start : start + 500])
+        db.flush()
+    for start in range(0, len(terms), 1000):
+        db.add_all(terms[start : start + 1000])
         db.flush()
     indexed_by_type: dict[str, int] = {}
     for entity in entities:
@@ -759,6 +818,84 @@ def _candidate_order(query: str) -> Any:
     )
 
 
+def _term_candidate_clause(query: str, *, high_confidence: bool) -> Any:
+    q_norm = normalize_search_text(query)
+    q_compact = compact_search_text(query)
+    clauses = []
+    if q_norm:
+        clauses.extend(
+            [
+                SearchEntityTerm.normalized_term == q_norm,
+                SearchEntityTerm.normalized_term.like(f"{q_norm}%"),
+            ]
+        )
+        if not high_confidence:
+            clauses.append(SearchEntityTerm.normalized_term.like(f"%{q_norm}%"))
+    if q_compact:
+        clauses.extend(
+            [
+                SearchEntityTerm.compact_term == q_compact,
+                SearchEntityTerm.compact_term.like(f"{q_compact}%"),
+            ]
+        )
+        if not high_confidence:
+            clauses.append(SearchEntityTerm.compact_term.like(f"%{q_compact}%"))
+    if not high_confidence:
+        for token in q_norm.split()[:4]:
+            if len(token) >= 3:
+                clauses.extend(
+                    [
+                        SearchEntityTerm.normalized_term == token,
+                        SearchEntityTerm.normalized_term.like(f"{token}%"),
+                        SearchEntityTerm.normalized_term.like(f"%{token}%"),
+                    ]
+                )
+    return or_(*clauses) if clauses else literal(False)
+
+
+def _term_score_expr(query: str) -> Any:
+    q_norm = normalize_search_text(query)
+    q_compact = compact_search_text(query)
+    first_token = q_norm.split()[0] if q_norm.split() else ""
+    token_exact_clauses = [
+        SearchEntityTerm.normalized_term == token
+        for token in q_norm.split()[:4]
+        if len(token) >= 3
+    ]
+    return case(
+        (SearchEntityTerm.normalized_term == q_norm, SearchEntityTerm.rank_weight + 5000.0),
+        (SearchEntityTerm.compact_term == q_compact, SearchEntityTerm.rank_weight + 5000.0),
+        (SearchEntityTerm.normalized_term.like(f"{q_norm}%"), SearchEntityTerm.rank_weight + 3000.0) if q_norm else (literal(False), 0.0),
+        (SearchEntityTerm.compact_term.like(f"{q_compact}%"), SearchEntityTerm.rank_weight + 3000.0) if q_compact else (literal(False), 0.0),
+        (SearchEntityTerm.normalized_term.like(f"{first_token}%"), SearchEntityTerm.rank_weight + 1200.0) if first_token else (literal(False), 0.0),
+        (and_(*token_exact_clauses), SearchEntityTerm.rank_weight + 1000.0) if token_exact_clauses else (literal(False), 0.0),
+        (SearchEntityTerm.normalized_term.like(f"%{q_norm}%"), SearchEntityTerm.rank_weight + 700.0) if q_norm else (literal(False), 0.0),
+        (SearchEntityTerm.compact_term.like(f"%{q_compact}%"), SearchEntityTerm.rank_weight + 700.0) if q_compact else (literal(False), 0.0),
+        else_=SearchEntityTerm.rank_weight,
+    )
+
+
+def _term_candidate_entity_ids(db: Session, query: str, *, high_confidence: bool, limit: int) -> list[str]:
+    score_expr = func.max(_term_score_expr(query)).label("term_score")
+    rows = db.execute(
+        select(SearchEntityTerm.entity_id, score_expr)
+        .where(_term_candidate_clause(query, high_confidence=high_confidence))
+        .group_by(SearchEntityTerm.entity_id)
+        .order_by(score_expr.desc(), SearchEntityTerm.entity_id.asc())
+        .limit(limit)
+    ).all()
+    return [str(row.entity_id) for row in rows if row.entity_id]
+
+
+def _load_entities_by_entity_id(db: Session, entity_ids: list[str]) -> list[SearchEntity]:
+    if not entity_ids:
+        return []
+    order = {entity_id: index for index, entity_id in enumerate(entity_ids)}
+    entities = db.execute(select(SearchEntity).where(SearchEntity.entity_id.in_(entity_ids))).scalars().all()
+    entities.sort(key=lambda entity: order.get(entity.entity_id, len(order)))
+    return entities
+
+
 def entity_to_suggest_item(entity: SearchEntity) -> dict[str, str | int | float | None]:
     kind = _KIND_FROM_ENTITY_TYPE.get(entity.entity_type, entity.entity_type)
     return {
@@ -771,8 +908,35 @@ def entity_to_suggest_item(entity: SearchEntity) -> dict[str, str | int | float 
     }
 
 
+def _rank_search_results(rows: list[SearchEntity], query: str, bounded_limit: int) -> list[dict[str, str | int | float | None]]:
+    scored: list[tuple[float, SearchEntity]] = []
+    for entity in rows:
+        score = _entity_score(entity, query)
+        if score > 0:
+            scored.append((score, entity))
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            _ENTITY_TYPE_ORDER.get(item[1].entity_type, 99),
+            -(float(item[1].popularity_score or 0.0)),
+            item[1].display_name,
+        )
+    )
+    results: list[dict[str, str | int | float | None]] = []
+    seen_result_keys: set[str] = set()
+    for _, entity in scored:
+        result_key = entity.canonical_url or f"{entity.entity_type}:{entity.source_id or entity.entity_id}"
+        if result_key in seen_result_keys:
+            continue
+        seen_result_keys.add(result_key)
+        results.append(entity_to_suggest_item(entity))
+        if len(results) >= bounded_limit:
+            break
+    return results
+
+
 class PostgresSearchProvider:
-    def search(self, db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
+    def _legacy_search(self, db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
         bounded_limit = max(1, min(int(limit or 8), 20))
         rows = []
         seen_ids: set[str] = set()
@@ -793,30 +957,35 @@ class PostgresSearchProvider:
             high_scores = [_entity_score(entity, query) for entity in rows]
             if high_scores and max(high_scores) >= 7000 and (pass_index == 0 or len(rows) >= bounded_limit):
                 break
-        scored: list[tuple[float, SearchEntity]] = []
-        for entity in rows:
-            score = _entity_score(entity, query)
-            if score > 0:
-                scored.append((score, entity))
-        scored.sort(
-            key=lambda item: (
-                -item[0],
-                _ENTITY_TYPE_ORDER.get(item[1].entity_type, 99),
-                -(float(item[1].popularity_score or 0.0)),
-                item[1].display_name,
-            )
-        )
-        results: list[dict[str, str | int | float | None]] = []
-        seen_result_keys: set[str] = set()
-        for _, entity in scored:
-            result_key = entity.canonical_url or f"{entity.entity_type}:{entity.source_id or entity.entity_id}"
-            if result_key in seen_result_keys:
-                continue
-            seen_result_keys.add(result_key)
-            results.append(entity_to_suggest_item(entity))
-            if len(results) >= bounded_limit:
+        return _rank_search_results(rows, query, bounded_limit)
+
+    def _term_search(self, db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
+        bounded_limit = max(1, min(int(limit or 8), 20))
+        seen_ids: set[str] = set()
+        rows: list[SearchEntity] = []
+        for pass_index, (high_confidence, candidate_limit) in enumerate((
+            (True, max(bounded_limit * 20, 80)),
+            (False, max(bounded_limit * 80, 400)),
+        )):
+            entity_ids = _term_candidate_entity_ids(db, query, high_confidence=high_confidence, limit=candidate_limit)
+            next_ids = [entity_id for entity_id in entity_ids if entity_id not in seen_ids]
+            for entity_id in next_ids:
+                seen_ids.add(entity_id)
+            rows.extend(_load_entities_by_entity_id(db, next_ids))
+            high_scores = [_entity_score(entity, query) for entity in rows]
+            if high_scores and max(high_scores) >= 7000 and (pass_index == 0 or len(rows) >= bounded_limit):
                 break
-        return results
+        return _rank_search_results(rows, query, bounded_limit)
+
+    def search(self, db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
+        try:
+            results = self._term_search(db, query, limit=limit)
+        except SQLAlchemyError:
+            logger.exception("search_entity_term_query_failed")
+            return self._legacy_search(db, query, limit=limit)
+        if results:
+            return results
+        return self._legacy_search(db, query, limit=limit)
 
 
 def search_entities(db: Session, query: str, *, limit: int = 8) -> list[dict[str, str | int | float | None]]:
