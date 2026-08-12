@@ -5,16 +5,18 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import PLAN_RANKS, TierEntitlements
 from app.models import (
+    ReplicatedPortfolioPosition,
     StrategyBacktestRun,
     StrategyCurrentHolding,
     StrategyDefinition,
     StrategyEquityCurvePoint,
     StrategyPerformanceSnapshot,
+    StrategyTrade,
 )
 
 STRATEGY_SORT_FIELDS = {
@@ -171,6 +173,102 @@ def _latest_performance(db: Session, *, strategy_id: int, run_id: int, period: s
     )
 
 
+def _transaction_history_payload(
+    db: Session,
+    *,
+    strategy_id: int,
+    run: StrategyBacktestRun,
+    offset: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return persisted historical source positions or prospective model-trade records.
+
+    Replicated Congress portfolios predate the live strategy event stream. Their
+    source positions are intentionally surfaced as reconstructed history instead
+    of being mislabeled as prospective Walnut model trades.
+    """
+    dataset_versions = _json_loads(run.dataset_versions_json, {})
+    source_run_id = dataset_versions.get("source_run_id") if isinstance(dataset_versions, dict) else None
+    source_name = dataset_versions.get("source") if isinstance(dataset_versions, dict) else None
+
+    if source_name == "replicated_portfolio_runs" and source_run_id is not None:
+        source_run_id = int(source_run_id)
+        statement = (
+            select(ReplicatedPortfolioPosition)
+            .where(ReplicatedPortfolioPosition.run_id == source_run_id)
+            .where(ReplicatedPortfolioPosition.skip_reason.is_(None))
+        )
+        total = int(db.execute(select(func.count()).select_from(statement.subquery())).scalar_one() or 0)
+        positions = (
+            db.execute(
+                statement.order_by(
+                    ReplicatedPortfolioPosition.entry_date.desc().nullslast(),
+                    ReplicatedPortfolioPosition.id.desc(),
+                )
+                .offset(offset)
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {
+                "id": f"replicated-{row.id}",
+                "recordType": "reconstructed_position",
+                "symbol": row.symbol,
+                "action": row.side or "buy",
+                "status": row.status,
+                "signalDate": None,
+                "effectiveDate": _iso(row.entry_date),
+                "exitDate": _iso(row.exit_date),
+                "entryPrice": row.entry_price,
+                "exitPrice": row.exit_price,
+                "returnPct": row.return_pct,
+                "weightPct": None,
+                "sourceType": row.source_type,
+                "sourceReason": row.source_reason,
+                "confidence": row.confidence,
+                "sourceDocumentId": row.source_document_id,
+                "sourceUrl": row.source_url,
+            }
+            for row in positions
+        ], total
+
+    statement = select(StrategyTrade).where(StrategyTrade.strategy_id == strategy_id)
+    total = int(db.execute(select(func.count()).select_from(statement.subquery())).scalar_one() or 0)
+    trades = (
+        db.execute(
+            statement.order_by(StrategyTrade.effective_date.desc().nullslast(), StrategyTrade.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": f"model-{row.id}",
+            "recordType": "model_trade",
+            "symbol": row.symbol,
+            "action": row.action,
+            "status": row.status,
+            "signalDate": _iso(row.signal_date),
+            "effectiveDate": _iso(row.effective_date),
+            "exitDate": None,
+            "entryPrice": row.entry_price,
+            "exitPrice": row.exit_price,
+            "returnPct": None,
+            "weightPct": row.weight_pct,
+            "sourceType": "prospective_model_trade",
+            "sourceReason": row.exit_reason,
+            "confidence": None,
+            "sourceDocumentId": None,
+            "sourceUrl": None,
+        }
+        for row in trades
+    ], total
+
+
 def _sort_value(item: dict[str, Any], sort: str) -> float:
     performance = item.get("performance") or {}
     if sort == "drawdown":
@@ -268,6 +366,8 @@ def strategy_detail(
     entitlements: TierEntitlements,
     period: str = "max",
     equity_limit: int = 1500,
+    holdings_offset: int = 0,
+    holdings_limit: int = 20,
     include_drafts: bool = False,
 ) -> dict[str, Any]:
     statement = select(StrategyDefinition).where(StrategyDefinition.slug == slug)
@@ -286,10 +386,22 @@ def strategy_detail(
     if not payload["access"]["canAccess"]:
         payload["equityCurve"] = []
         payload["currentHoldings"] = []
+        payload["currentHoldingsTotal"] = 0
+        payload["currentHoldingsOffset"] = 0
+        payload["currentHoldingsLimit"] = 0
+        payload["transactionHistory"] = []
+        payload["transactionHistoryTotal"] = 0
+        payload["transactionHistoryOffset"] = 0
+        payload["transactionHistoryLimit"] = 0
         return payload
 
     equity_curve: list[dict[str, Any]] = []
     current_holdings: list[dict[str, Any]] = []
+    normalized_holdings_offset = max(0, int(holdings_offset))
+    normalized_holdings_limit = max(1, min(int(holdings_limit), 100))
+    current_holdings_total = 0
+    transaction_history: list[dict[str, Any]] = []
+    transaction_history_total = 0
     if run:
         points = (
             db.execute(
@@ -311,11 +423,21 @@ def strategy_detail(
             }
             for point in points
         ]
+        current_holdings_total = int(
+            db.execute(
+                select(func.count())
+                .select_from(StrategyCurrentHolding)
+                .where(StrategyCurrentHolding.strategy_id == int(strategy.id))
+            ).scalar_one()
+            or 0
+        )
         holdings = (
             db.execute(
                 select(StrategyCurrentHolding)
                 .where(StrategyCurrentHolding.strategy_id == int(strategy.id))
                 .order_by(StrategyCurrentHolding.rank.asc().nullslast(), StrategyCurrentHolding.symbol.asc())
+                .offset(normalized_holdings_offset)
+                .limit(normalized_holdings_limit)
             )
             .scalars()
             .all()
@@ -337,7 +459,21 @@ def strategy_detail(
             }
             for row in holdings
         ]
+        transaction_history, transaction_history_total = _transaction_history_payload(
+            db,
+            strategy_id=int(strategy.id),
+            run=run,
+            offset=normalized_holdings_offset,
+            limit=normalized_holdings_limit,
+        )
 
     payload["equityCurve"] = equity_curve
     payload["currentHoldings"] = current_holdings
+    payload["currentHoldingsTotal"] = current_holdings_total
+    payload["currentHoldingsOffset"] = normalized_holdings_offset
+    payload["currentHoldingsLimit"] = normalized_holdings_limit
+    payload["transactionHistory"] = transaction_history
+    payload["transactionHistoryTotal"] = transaction_history_total
+    payload["transactionHistoryOffset"] = normalized_holdings_offset
+    payload["transactionHistoryLimit"] = normalized_holdings_limit
     return payload

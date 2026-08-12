@@ -262,3 +262,115 @@ def test_strategy_detail_hides_holdings_and_curve_when_user_lacks_required_tier(
         assert unlocked["currentHoldings"][0]["symbol"] == "NVDA"
     finally:
         db.close()
+
+
+def test_strategy_detail_pages_current_holdings_without_loading_the_full_portfolio():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="many-holdings",
+            name="Many Holdings",
+            category="insider",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(
+            strategy_id=strategy.id,
+            run_key="many-holdings-run",
+            status="ok",
+            completed_at=datetime.now(timezone.utc),
+            methodology_version="v1",
+        )
+        db.add(run)
+        db.flush()
+        db.add_all(
+            [
+                StrategyCurrentHolding(
+                    strategy_id=strategy.id,
+                    run_id=run.id,
+                    as_of_date=date(2026, 8, 10),
+                    symbol=f"T{index:03d}",
+                    rank=index,
+                    weight_pct=1,
+                )
+                for index in range(1, 24)
+            ]
+        )
+        db.commit()
+
+        first_page = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], holdings_limit=20)
+        final_page = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], holdings_offset=20, holdings_limit=20)
+
+        assert first_page["currentHoldingsTotal"] == 23
+        assert first_page["currentHoldingsOffset"] == 0
+        assert len(first_page["currentHoldings"]) == 20
+        assert first_page["currentHoldings"][0]["symbol"] == "T001"
+        assert final_page["currentHoldingsOffset"] == 20
+        assert [holding["symbol"] for holding in final_page["currentHoldings"]] == ["T021", "T022", "T023"]
+    finally:
+        db.close()
+
+
+def test_strategy_detail_pages_persisted_transaction_history_and_hides_it_when_locked():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="history-strategy",
+            name="History Strategy",
+            category="insider",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(
+            strategy_id=strategy.id,
+            run_key="history-run",
+            status="ok",
+            completed_at=datetime.now(timezone.utc),
+            methodology_version="v1",
+        )
+        db.add(run)
+        db.flush()
+        db.add_all(
+            [
+                StrategyTrade(
+                    strategy_id=strategy.id,
+                    strategy_version_id=1,
+                    strategy_run_id=run.id,
+                    symbol=f"T{index:03d}",
+                    ticker_at_time=f"T{index:03d}",
+                    action="buy",
+                    status="open",
+                    effective_date=date(2026, 8, index),
+                    entry_price=100 + index,
+                )
+                for index in range(1, 4)
+            ]
+        )
+        db.commit()
+
+        first_page = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], holdings_limit=2)
+        final_page = strategy_detail(
+            db,
+            slug=strategy.slug,
+            entitlements=ENTITLEMENTS["premium"],
+            holdings_offset=2,
+            holdings_limit=2,
+        )
+        locked = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["free"], holdings_limit=2)
+
+        assert first_page["transactionHistoryTotal"] == 3
+        assert len(first_page["transactionHistory"]) == 2
+        assert first_page["transactionHistory"][0]["recordType"] == "model_trade"
+        assert final_page["transactionHistory"][0]["symbol"] == "T001"
+        assert locked["transactionHistory"] == []
+        assert locked["transactionHistoryTotal"] == 0
+    finally:
+        db.close()
