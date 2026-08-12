@@ -430,9 +430,9 @@ function MetricCard({ icon, label, value, detail }: { icon: string; label: strin
   );
 }
 
-function ScoredHorizonsPill({ value, detail }: { value: string | number; detail: string }) {
+function ScoredHorizonsPill({ value, detail, className = "" }: { value: string | number; detail: string; className?: string }) {
   return (
-    <div className="flex h-12 min-w-[14.25rem] items-center rounded-md border border-white/10 bg-slate-900/70 px-3 shadow-inner shadow-white/[0.02]">
+    <div className={`flex h-12 min-w-[14.25rem] items-center rounded-md border border-white/10 bg-slate-900/70 px-3 shadow-inner shadow-white/[0.02] ${className}`}>
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300">Scored Horizons</p>
         <p className="mt-0.5 truncate text-xs text-slate-300">
@@ -1387,33 +1387,37 @@ export function OutcomeLedgerClient({
             <div className="rounded-md border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">{error}</div>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
-            <FilterSelect label="Outcome Set" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
-            <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={setHorizonFilter} />
-            <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
-            <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
-            <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
-            <FilterSelect label="Date Range" value={dateRangeFilter} options={dateRangeFilterOptions} onChange={(value) => setDateRangeFilter(value as DateRangeFilterValue)} />
-            <ScoredHorizonsPill value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells`} />
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="ml-auto h-12 shrink-0 whitespace-nowrap rounded-md border border-white/10 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 hover:border-emerald-300/30 hover:bg-emerald-400/10"
-            >
-              Export CSV
-            </button>
-            {!eventDetailOpen ? (
+          <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_14.25rem]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              <FilterSelect label="Outcome Set" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
+              <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={setHorizonFilter} />
+              <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
+              <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
+              <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
+              <FilterSelect label="Date Range" value={dateRangeFilter} options={dateRangeFilterOptions} onChange={(value) => setDateRangeFilter(value as DateRangeFilterValue)} />
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
               <button
                 type="button"
-                onClick={() => {
-                  if (!selectedSnapshot && publicPreviewSnapshots[0]) setSelectedSnapshotId(publicPreviewSnapshots[0].id);
-                  setEventDetailOpen(true);
-                }}
-                className="h-12 shrink-0 whitespace-nowrap rounded-md border border-white/10 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 hover:border-emerald-300/30 hover:bg-emerald-400/10"
+                onClick={handleExportCsv}
+                className="h-12 w-full whitespace-nowrap rounded-md border border-white/10 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 hover:border-emerald-300/30 hover:bg-emerald-400/10"
               >
-                Event Detail
+                Export CSV
               </button>
-            ) : null}
+              <ScoredHorizonsPill className="w-full" value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells`} />
+              {!eventDetailOpen ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedSnapshot && publicPreviewSnapshots[0]) setSelectedSnapshotId(publicPreviewSnapshots[0].id);
+                    setEventDetailOpen(true);
+                  }}
+                  className="h-12 w-full whitespace-nowrap rounded-md border border-white/10 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 hover:border-emerald-300/30 hover:bg-emerald-400/10 sm:col-span-2 xl:col-span-1"
+                >
+                  Event Detail
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
