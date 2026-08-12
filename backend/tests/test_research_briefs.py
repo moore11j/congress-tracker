@@ -166,7 +166,7 @@ def _fake_openai_response(*_args, **kwargs):
                         "body_markdown": (
                             "MU's setup is still tied to observable data. Revenue growth of 42.5 and gross margin of 61.2 "
                             "support the constructive side, while cycle risk remains real.\n\n"
-                            "Walnut data should be read separately from the underlying fundamentals and tape. "
+                            "Our confirmation score is 79/100, and it is separate from the revenue, margin, and tape data. "
                             "Research only. Not investment advice. Sources: https://www.sec.gov/edgar/search/#/q=MU and https://www.nasdaq.com/market-activity/stocks/mu. "
                             + " ".join(["Evidence remains specific."] * 120)
                         ),
@@ -378,6 +378,22 @@ def test_model_options_default_to_luna_terra_sol(monkeypatch):
     assert service.research_brief_model_labels(None)["gpt-5.6-luna"] == "GPT-5.6 Luna"
 
 
+def test_article_schema_is_strict_structured_output_compatible():
+    def walk(node, path="root"):
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "object":
+            assert node.get("additionalProperties") is False, path
+            properties = node.get("properties") or {}
+            assert sorted(node.get("required") or []) == sorted(properties.keys()), path
+            for key, child in properties.items():
+                walk(child, f"{path}.{key}")
+        if node.get("type") == "array":
+            walk(node.get("items"), f"{path}[]")
+
+    walk(service.article_schema())
+
+
 def test_confirmation_preferences_pass_booleans_and_add_requested_sections(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -402,7 +418,7 @@ def test_confirmation_preferences_pass_booleans_and_add_requested_sections(tmp_p
 
     assert '"include_confirmation_score": true' in captured["input"]
     assert '"include_cross_source_confirmations": true' in captured["input"]
-    assert "Our proprietary confirmation score is 79/100" in body
+    assert "Our confirmation score is 79/100" in body
     assert draft["article"]["confirmation_score_included"] is True
     assert "Walnut's proprietary confirmation score" not in body
     assert "Cross-source confirmations" in body
@@ -540,6 +556,208 @@ def test_aapl_context_uses_primary_ticker_confirmation_and_sources(monkeypatch):
     assert context["comparisons"][0]["confirmation"]["symbol"] == "MSFT"
     assert context["external_research"]["official_facts"]["revenue"]["value"] == 111.2
     assert context["external_research"]["official_facts"]["diluted_eps"]["value"] == 2.01
+
+
+def test_earnings_setup_stops_before_openai_when_research_not_ready(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(service, "_sec_company_record", lambda _symbol: None)
+    called = False
+
+    def fake_post(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("OpenAI should not be called when research is not ready")
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"TEST": _confirmation_bundle(70)})
+    db = _session()
+    _seed_ticker(db, "TEST")
+    admin = _user(db, "admin@example.com", role="admin")
+
+    with pytest.raises(HTTPException) as exc:
+        service.generate_research_brief(
+            db,
+            admin,
+            _payload(
+                ticker="TEST",
+                desired_angle="Earnings setup",
+                research_question="Is TEST a buy before earnings?",
+                external_research_mode="Standard",
+            ).model_dump(),
+        )
+
+    assert exc.value.status_code == 422
+    assert "Brief not generated" in exc.value.detail
+    assert "Official earnings release" in exc.value.detail
+    assert called is False
+
+
+def test_nbis_earnings_setup_generates_after_readiness_and_keeps_nebius_primary(monkeypatch, tmp_path):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(service, "_sec_company_record", lambda symbol: {"ticker": symbol, "cik_str": 1513845, "title": "Nebius Group N.V."} if symbol == "NBIS" else {"ticker": symbol, "cik_str": 1869392, "title": "CoreWeave, Inc."})
+    monkeypatch.setattr(service, "_sec_company_facts", lambda _cik: {})
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"NBIS": {**_confirmation_bundle(73), "symbol": "NBIS"}, "CRWV": {**_confirmation_bundle(62), "symbol": "CRWV"}})
+
+    def fake_post(*_args, **kwargs):
+        prompt = kwargs["json"]["input"]
+        assert "PRIMARY_TICKER: NBIS" in prompt
+        assert "PRIMARY_COMPANY: Nebius Group N.V." in prompt
+        assert "COMPARISON_TICKERS: CRWV" in prompt
+
+        class Response:
+            status_code = 200
+
+            def json(self):
+                body = (
+                    "Consensus is roughly $535M of revenue and a $0.67/share loss for Q2 2026. "
+                    "Last quarter Nebius reported about $399M of revenue and a $0.23/share loss, ahead of the Street's revenue and EPS marks. "
+                    "That makes the setup simple: NBIS needs to show revenue, ARR, and capacity deployment are moving together.\n\n"
+                    "What changed since last earnings is concrete. Nebius added Pennsylvania power capacity, kept FY 2026 revenue guidance at $3.0B-$3.4B, "
+                    "and continues to spend heavily on AI cloud capacity. CRWV is useful as a comparison because both companies are trying to turn demand into contracted infrastructure revenue.\n\n"
+                    "The numbers that matter are revenue consensus near $535M, EPS consensus near -$0.67, Q1 revenue near $399M, Q1 EPS near -$0.23, and FY 2026 guidance of $3.0B-$3.4B. "
+                    "Our confirmation score is 73/100, which supports the constructive side but does not remove the capex risk. "
+                    "If revenue growth keeps pace with the buildout, the market can stay patient with capex. If spending rises while revenue does not follow, the thesis gets uncomfortable.\n\n"
+                    "NBIS is not a low-risk earnings setup. The bull case is that demand fills new capacity quickly, ARR keeps scaling, and guidance holds. "
+                    "The bear case is that the company spends ahead of demand and investors start underwriting dilution, debt, or margin pressure instead of growth.\n\n"
+                    "Our call: Mixed with capex risk. We like the revenue ramp and the size of the opportunity, but the print has to prove execution. "
+                    "We are watching ARR, deployed capacity, capex, gross margin, and whether management keeps the FY 2026 target intact. Research only. Not investment advice. "
+                    "Sources: https://nebius.com/financials https://nebius.com/newsroom/nebius-reports-first-quarter-2026-financial-results https://www.sec.gov/edgar/browse/?CIK=0001513845"
+                )
+                article = {
+                    "title": "NBIS Earnings Preview: Can Growth Keep Up With the Buildout?",
+                    "slug": "nbis-earnings-preview-growth-buildout",
+                    "subtitle": "Nebius needs revenue and ARR to keep pace with capacity spending.",
+                    "summary": "NBIS goes into the print with Q2 revenue consensus near $535M and FY 2026 guidance at $3.0B-$3.4B. We're watching ARR, deployed capacity, capex, margins, and whether management keeps the target intact. Research only. Not investment advice.",
+                    "preview_body": "NBIS goes into the print with Q2 revenue consensus near $535M after beating last quarter. We're watching ARR, capacity deployment, margins, capex, and whether management keeps its FY 2026 target intact.",
+                    "judgment": "mixed",
+                    "walnut_call": "Mixed with capex risk",
+                    "confidence": "medium",
+                    "confirmation_score_included": True,
+                    "primary_ticker": "NBIS",
+                    "comparison_tickers": ["CRWV"],
+                    "category": "AI infrastructure",
+                    "reading_minutes": 5,
+                    "preview_section_count": 1,
+                    "hero_image": "",
+                    "current_data_as_of": "2026-08-01",
+                    "premium_required": False,
+                    "required_plan": None,
+                    "paywall_copy": {"heading": "Keep reading", "description": "Full Walnut brief.", "cta_label": "Read the brief"},
+                    "analytics": {},
+                    "reddit_post": "",
+                    "thumbnail_asset": {},
+                    "sections": [
+                        {"key": "setup", "heading": "Opening setup", "body_markdown": body},
+                    ],
+                    "key_points": ["Q2 revenue consensus is near $535M.", "Capex execution is the main risk."],
+                    "catalysts": ["Q2 2026 earnings", "FY 2026 guidance update"],
+                    "risks": ["Capex outruns revenue", "Margins lag capacity growth"],
+                    "watch_items": ["ARR", "Revenue", "CapEx", "Gross margin", "Capacity deployment"],
+                    "data_freshness": ["Consensus and company source profile reviewed for the NBIS earnings setup."],
+                    "missing_data_notes": [],
+                    "source_links": [
+                        {"label": "Nebius financial results archive", "url": "https://nebius.com/financials", "source_type": "official_company_earnings"},
+                        {"label": "Nebius Q1 2026 financial results", "url": "https://nebius.com/newsroom/nebius-reports-first-quarter-2026-financial-results", "source_type": "official_company_earnings"},
+                        {"label": "Nebius SEC filings", "url": "https://www.sec.gov/edgar/browse/?CIK=0001513845&owner=exclude", "source_type": "official_filing"},
+                        {"label": "Zacks NBIS detailed estimates", "url": "https://stage.zacks.com/stock/quote/NBIS/detailed-earning-estimates", "source_type": "reputable_estimate_source"},
+                    ],
+                    "suggested_card": {
+                        "title": "NBIS Earnings Preview: Can Growth Keep Up?",
+                        "description": "NBIS reports with Q2 revenue consensus near $535M after beating last quarter. We're watching ARR, capacity deployment, margins, capex, and whether management keeps FY 2026 targets intact.",
+                        "judgment": "Mixed with capex risk",
+                        "tickers": ["NBIS", "CRWV"],
+                    },
+                    "seo": {"title": "NBIS Earnings Preview", "description": "Walnut NBIS earnings preview. Research only. Not investment advice."},
+                }
+                return {"output_text": json.dumps(article), "usage": {"input_tokens": 1200, "output_tokens": 600}}
+
+        return Response()
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    db = _session()
+    _seed_ticker(db, "NBIS")
+    _seed_ticker(db, "CRWV")
+    db.get(TickerMeta, "NBIS").company_name = "Nebius Group N.V."
+    db.get(TickerMeta, "CRWV").company_name = "CoreWeave, Inc."
+    db.commit()
+    admin = _user(db, "admin@example.com", role="admin")
+
+    draft = service.generate_research_brief(
+        db,
+        admin,
+        _payload(
+            ticker="NBIS",
+            desired_angle="Earnings setup",
+            research_question="Is NBIS a buy before earnings?",
+            comparison_tickers=["CRWV"],
+            external_research_mode="Standard",
+            include_confirmation_score=True,
+        ).model_dump(),
+    )
+
+    body = "\n".join(section["body_markdown"] for section in draft["article"]["sections"])
+    assert draft["validation"]["status"] == "passed"
+    assert draft["research_context"]["research_readiness"]["status"] == "ready"
+    assert "Nvidia" not in body
+    assert "PRIMARY_TICKER: NBIS" not in body
+    assert draft["article"]["suggested_card"]["description"].startswith("NBIS reports with Q2 revenue consensus near $535M")
+
+
+def test_nbis_nvidia_contamination_is_hard_validation_failure():
+    article = {
+        "title": "NBIS Earnings Preview: Can Growth Keep Up With the Buildout?",
+        "slug": "nbis-nvidia-contamination",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "walnut_call": "Mixed with capex risk",
+        "primary_ticker": "NBIS",
+        "comparison_tickers": ["CRWV"],
+        "sections": [
+            {
+                "heading": "Executive thesis",
+                "body_markdown": "NBIS has revenue growth of 42%. Nvidia reported stronger data center revenue, and Nvidia margins are the real subject here. Research only. Not investment advice. https://nebius.com/financials https://www.sec.gov/edgar/browse/?CIK=0001513845 " + "NBIS data remains specific. " * 70,
+            }
+        ],
+        "source_links": [
+            {"label": "Nebius financial results archive", "url": "https://nebius.com/financials", "source_type": "official_company_earnings"},
+            {"label": "Nebius SEC filings", "url": "https://www.sec.gov/edgar/browse/?CIK=0001513845", "source_type": "official_filing"},
+        ],
+    }
+    context = _earnings_context("NBIS")
+    context["primary"]["identity"]["company_name"] = "Nebius Group N.V."
+    context["comparisons"] = [{"identity": {"symbol": "CRWV", "company_name": "CoreWeave, Inc."}}]
+    context["source_discovery"] = {
+        "required_for_earnings_setup": True,
+        "official_earnings_release": {"status": "found", "required": True, "url": "https://nebius.com/financials"},
+        "sec_filing": {"status": "found", "required": True, "url": "https://www.sec.gov/edgar/browse/?CIK=0001513845"},
+    }
+    context["external_research"] = {
+        "official_facts": {
+            "upcoming_earnings_date": {"value": "2026-08-06"},
+            "current_revenue_consensus": {"value": 535.03},
+            "current_eps_consensus": {"value": -0.67},
+            "previous_quarter_revenue": {"value": 399},
+            "previous_quarter_eps": {"value": -0.23},
+            "previous_quarter_result": {"value": "beat"},
+        }
+    }
+    context["data_availability"].update(
+        {
+            "upcoming earnings date": True,
+            "revenue consensus": True,
+            "eps consensus": True,
+            "previous quarter revenue": True,
+            "previous quarter eps": True,
+            "previous quarter result": True,
+        }
+    )
+    context["research_readiness"] = service.research_readiness(context)
+
+    validation = service.validate_article(article, context)
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "company_identity_contamination" for warning in validation["warnings"])
 
 
 def test_primary_ticker_context_mismatch_fails_before_generation(monkeypatch):
@@ -807,7 +1025,7 @@ def test_prompt_restricts_missing_limitations_to_filtered_notes():
 
     assert "Treat data_availability as authoritative" in prompt
     assert "Only list fields from missing_data_notes as missing" in prompt
-    assert "professional but human analyst voice" in prompt
+    assert "experienced investor explaining the setup" in prompt
     assert "Avoid generic AI phrasing" in prompt
 
 

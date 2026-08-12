@@ -150,6 +150,46 @@ OFFICIAL_SOURCE_PROFILES: dict[str, dict[str, Any]] = {
     "NVDA": {"company_earnings_sources": [{"label": "NVIDIA Investor Relations financial reports", "url": "https://investor.nvidia.com/financial-info/financial-reports/default.aspx", "source_type": "official_company_earnings"}]},
     "MU": {"company_earnings_sources": [{"label": "Micron Investor Relations financial releases", "url": "https://investors.micron.com/news-releases", "source_type": "official_company_earnings"}]},
     "JPM": {"company_earnings_sources": [{"label": "JPMorgan Chase Investor Relations earnings", "url": "https://www.jpmorganchase.com/ir/quarterly-earnings", "source_type": "official_company_earnings"}]},
+    "NBIS": {
+        "company_earnings_sources": [
+            {
+                "label": "Nebius financial results archive",
+                "url": "https://nebius.com/financials",
+                "source_type": "official_company_earnings",
+            },
+            {
+                "label": "Nebius Q1 2026 financial results",
+                "url": "https://nebius.com/newsroom/nebius-reports-first-quarter-2026-financial-results",
+                "source_type": "official_company_earnings",
+            },
+            {
+                "label": "Nebius Investor Relations",
+                "url": "https://nebius.com/investor-hub",
+                "source_type": "official_company_ir",
+            },
+            {
+                "label": "Zacks NBIS detailed estimates",
+                "url": "https://stage.zacks.com/stock/quote/NBIS/detailed-earning-estimates",
+                "source_type": "reputable_estimate_source",
+            },
+        ],
+        "source_notes": [
+            "For NBIS earnings setup, separate Nebius primary operating data from CRWV or other AI infrastructure peers unless they are selected comparison tickers.",
+        ],
+        "official_facts": {
+            "upcoming_earnings_date": {"value": "2026-08-06", "period": "Q2 2026", "source": "Zacks/MarketBeat estimated earnings calendar"},
+            "current_revenue_consensus": {"value": 535.03, "unit": "USD millions", "period": "Q2 2026", "source": "Zacks detailed estimates"},
+            "current_eps_consensus": {"value": -0.67, "unit": "USD/share", "period": "Q2 2026", "source": "Zacks detailed estimates"},
+            "latest_official_quarter": "Q1 2026",
+            "previous_quarter_revenue": {"value": 399, "unit": "USD millions", "period": "Q1 2026", "source": "Nebius Q1 2026 financial results"},
+            "previous_quarter_eps": {"value": -0.23, "unit": "USD/share", "period": "Q1 2026", "source": "MarketBeat/Zacks earnings history"},
+            "previous_quarter_revenue_consensus": {"value": 389, "unit": "USD millions", "period": "Q1 2026", "source": "Drillr earnings history"},
+            "previous_quarter_eps_consensus": {"value": -0.81, "unit": "USD/share", "period": "Q1 2026", "source": "MarketBeat/Zacks earnings history"},
+            "previous_quarter_result": {"value": "beat", "period": "Q1 2026", "source": "MarketBeat/Zacks earnings history"},
+            "guidance": {"value": "FY 2026 revenue guidance of $3.0B-$3.4B", "period": "FY 2026", "source": "MarketBeat company guidance summary"},
+            "material_catalysts": ["capacity deployment", "ARR growth", "capex funding", "AI cloud customer wins"],
+        },
+    },
 }
 KEY_RESEARCH_FIELDS = [
     "revenue",
@@ -230,6 +270,43 @@ MISSING_DATA_AWKWARD_RE = re.compile(
     r"\b(not supplied|was supplied|were supplied|no .* was supplied|reviewed materials do not provide|supplied materials|supplied context|research configuration)\b",
     re.IGNORECASE,
 )
+STYLE_TIC_PATTERNS = [
+    ("reviewed record supplied", r"\bthe reviewed record supplied\b"),
+    ("available evidence does not permit", r"\bthe available evidence does not permit\b"),
+    ("we reserve judgment", r"\bwe (?:therefore )?reserve judgment\b"),
+    ("appropriate next step", r"\bthe appropriate next step\b"),
+    ("credible bull case requires", r"\ba credible bull case requires\b"),
+    ("central question", r"\bthe central question\b"),
+    ("not about x it is about y", r"\bnot (?:really )?(?:about|whether)\b.{0,80}\bit is (?:about|whether)\b"),
+    ("market is asking", r"\bthe market is (?:not )?asking\b"),
+    ("against this backdrop", r"\bagainst this backdrop\b"),
+    ("at this stage", r"\bat this stage\b"),
+    ("in other words", r"\bin other words\b"),
+    ("from an investor perspective", r"\bfrom an investor perspective\b"),
+    ("key takeaway", r"\bthe key takeaway\b"),
+    ("on balance", r"\bon balance\b"),
+    ("evidence suggests", r"\bevidence suggests\b"),
+    ("would weaken the thesis", r"\bwould weaken the thesis\b"),
+    ("remains to be seen", r"\bremains to be seen\b"),
+    ("warrants caution", r"\bwarrants caution\b"),
+    ("investment intensity", r"\binvestment intensity\b"),
+    ("operating cadence", r"\boperating cadence\b"),
+    ("demand narrative", r"\bdemand narrative\b"),
+    ("viewed through this lens", r"\bviewed through this lens\b"),
+]
+COMPANY_IDENTITY_GUARDS = {
+    "AAPL": ["Apple"],
+    "AMD": ["Advanced Micro Devices", "AMD"],
+    "AMZN": ["Amazon"],
+    "CRWV": ["CoreWeave", "CRWV"],
+    "GOOG": ["Alphabet", "Google", "GOOG"],
+    "GOOGL": ["Alphabet", "Google", "GOOGL"],
+    "META": ["Meta", "Facebook"],
+    "MSFT": ["Microsoft"],
+    "MU": ["Micron"],
+    "NBIS": ["Nebius", "NBIS"],
+    "NVDA": ["Nvidia", "NVIDIA", "NVDA"],
+}
 PLACEHOLDER_HEADINGS = {"intro", "hook", "intro / hook"}
 SINGLETON_HEADINGS = {
     "the call": "The call",
@@ -1888,19 +1965,25 @@ def _research_data_availability(primary: dict[str, Any], external_research: dict
             ("forecasts", "nextQuarter", "estimatedRevenueAvg"),
             ("forecasts", "nextFiscalYear", "revenueEstimate"),
         ],
-    )
+    ) or "current_revenue_consensus" in official_facts
     has_forecast_eps = _has_nested_value(
         financials,
         [
             ("forecasts", "nextQuarter", "epsEstimate"),
             ("forecasts", "nextFiscalYear", "epsEstimate"),
         ],
-    )
+    ) or "current_eps_consensus" in official_facts
     return {
         "revenue": _has_value(fundamentals, ["revenue_growth"]) or "revenue" in official_facts or has_forecast_revenue,
         "revenue growth": _has_value(fundamentals, ["revenue_growth"]) or "revenue_growth" in official_facts,
         "revenue consensus": has_forecast_revenue,
         "eps consensus": has_forecast_eps,
+        "upcoming earnings date": "upcoming_earnings_date" in official_facts,
+        "previous quarter revenue": "previous_quarter_revenue" in official_facts or "revenue" in official_facts,
+        "previous quarter eps": "previous_quarter_eps" in official_facts or "diluted_eps" in official_facts,
+        "previous quarter consensus": "previous_quarter_revenue_consensus" in official_facts or "previous_quarter_eps_consensus" in official_facts,
+        "previous quarter result": "previous_quarter_result" in official_facts,
+        "guidance": "guidance" in official_facts,
         "diluted eps": "diluted_eps" in official_facts,
         "gross margin": _has_value(fundamentals, ["gross_margin"]) or "gross_margin" in official_facts,
         "operating margin": _has_value(fundamentals, ["operating_margin"]) or "operating_margin" in official_facts,
@@ -2096,6 +2179,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         context["comparisons"].append(comparison_context)
     if context["comparisons"]:
         context["comparison"] = context["comparisons"][0]
+    context["research_readiness"] = research_readiness(context)
     return context
 
 
@@ -2205,7 +2289,7 @@ def _source_discovery_status(
     official_earnings = any(source_type in {"official_company_earnings", "official_company_ir", "manual_official_source"} for source_type in source_types)
     sec_filing = any(source_type in {"official_filing", "official_filing_data", "filing_search", "official_company_filings"} for source_type in source_types)
     profile = OFFICIAL_SOURCE_PROFILES.get(symbol.upper()) or {}
-    required = symbol.upper() in MAJOR_EARNINGS_SOURCE_TICKERS and _is_earnings_setup_text(desired_angle, research_question)
+    required = _is_earnings_setup_text(desired_angle, research_question)
     latest_quarter = official_facts.get("latest_official_quarter") if isinstance(official_facts, dict) else None
     return {
         "official_earnings_release": {
@@ -2222,9 +2306,75 @@ def _source_discovery_status(
             "status": "found" if profile.get("company_earnings_sources") or any("investor" in url.lower() or "ir." in url.lower() for url in urls) else "missing",
             "required": required,
         },
+        "consensus_estimates": {
+            "status": "found" if "current_revenue_consensus" in official_facts and "current_eps_consensus" in official_facts else "missing",
+            "required": required,
+        },
+        "prior_quarter_results": {
+            "status": "found" if ("previous_quarter_revenue" in official_facts or "revenue" in official_facts) and ("previous_quarter_eps" in official_facts or "diluted_eps" in official_facts) else "missing",
+            "required": required,
+        },
+        "upcoming_earnings_date": {
+            "status": "found" if "upcoming_earnings_date" in official_facts else "missing",
+            "required": required,
+        },
         "latest_official_quarter": latest_quarter,
         "required_for_major_earnings_setup": required,
+        "required_for_earnings_setup": required,
     }
+
+
+def _readiness_row(label: str, found: bool, *, required: bool = True, detail: Any | None = None) -> dict[str, Any]:
+    row: dict[str, Any] = {"label": label, "status": "found" if found else "missing", "required": required}
+    if detail is not None:
+        row["detail"] = detail
+    return row
+
+
+def research_readiness(context: dict[str, Any]) -> dict[str, Any]:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
+    official_facts = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
+    discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
+    availability = context.get("data_availability") if isinstance(context.get("data_availability"), dict) else {}
+    comparisons = context.get("comparisons") if isinstance(context.get("comparisons"), list) else []
+    is_earnings = _is_earnings_setup_context(context)
+
+    official = discovery.get("official_earnings_release") if isinstance(discovery.get("official_earnings_release"), dict) else {}
+    sec = discovery.get("sec_filing") if isinstance(discovery.get("sec_filing"), dict) else {}
+    rows = [
+        _readiness_row("Primary company", bool(identity.get("symbol") and identity.get("company_name")), detail=identity.get("company_name") or identity.get("symbol")),
+        _readiness_row("Upcoming earnings date", bool(official_facts.get("upcoming_earnings_date") or availability.get("upcoming earnings date")), required=is_earnings),
+        _readiness_row("Official earnings release", official.get("status") == "found", required=is_earnings, detail=official.get("url")),
+        _readiness_row("SEC filing", sec.get("status") == "found", required=is_earnings, detail=sec.get("url")),
+        _readiness_row("Consensus estimates", bool(availability.get("revenue consensus") and availability.get("eps consensus")), required=is_earnings),
+        _readiness_row("Prior quarter results", bool(availability.get("previous quarter revenue") and availability.get("previous quarter eps")), required=is_earnings),
+        _readiness_row("Prior quarter consensus", bool(availability.get("previous quarter consensus")), required=False),
+        _readiness_row("Prior earnings result", bool(availability.get("previous quarter result")), required=is_earnings),
+        _readiness_row("Company guidance", bool(availability.get("guidance")), required=False),
+        _readiness_row("Walnut ticker data", bool(primary.get("quote") or primary.get("fundamentals") or primary.get("confirmation"))),
+        _readiness_row("Comparison context", bool(comparisons), required=False, detail=", ".join(str(((item.get("identity") or {}).get("symbol") or "")) for item in comparisons if isinstance(item, dict))),
+    ]
+    missing_required = [row["label"] for row in rows if row.get("required") and row.get("status") != "found"]
+    return {
+        "status": "ready" if not missing_required else "not_ready",
+        "required_for_earnings_setup": is_earnings,
+        "rows": rows,
+        "missing_requirements": missing_required,
+    }
+
+
+def enforce_research_readiness(context: dict[str, Any]) -> None:
+    readiness = research_readiness(context)
+    context["research_readiness"] = readiness
+    if not readiness.get("required_for_earnings_setup") or readiness.get("status") == "ready":
+        return
+    missing = ", ".join(str(item) for item in readiness.get("missing_requirements") or [])
+    raise HTTPException(
+        status_code=422,
+        detail=f"Brief not generated: current earnings release or primary financial source could not be verified. Missing: {missing}.",
+    )
 
 
 def _sec_company_record(symbol: str) -> dict[str, Any] | None:
@@ -2512,6 +2662,9 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         if normalized_config.get("external_research_mode") != "Off":
             progress_callback("finding_sources", "Finding source context.")
     context = assemble_research_context(db, normalized_config)
+    if progress_callback:
+        progress_callback("validating_research_readiness", "Validating research readiness.")
+    enforce_research_readiness(context)
     actor_key = f"admin:{admin.id}"
     if actor_key in _ACTIVE_GENERATIONS:
         raise HTTPException(status_code=429, detail="A research brief generation is already running for this Admin session.")
@@ -2545,6 +2698,16 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         if progress_callback:
             progress_callback("validating_claims", "Validating generated draft.")
         validation = validate_article(article, context)
+        if validation.get("status") == "failed":
+            blocking_messages = [
+                str(warning.get("message") or warning.get("code"))
+                for warning in validation.get("warnings") or []
+                if isinstance(warning, dict) and warning.get("blocking")
+            ]
+            message = "Draft generation failed validation."
+            if blocking_messages:
+                message = f"{message} {blocking_messages[0]}"
+            raise HTTPException(status_code=422, detail=message[:300])
         if progress_callback:
             progress_callback("saving_draft", "Saving generated draft.")
         draft = _new_draft(admin, normalized_config, context, article, validation, elapsed_ms=int((time.perf_counter() - started) * 1000))
@@ -3090,11 +3253,23 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     section_format = _section_format_instructions(config.get("section_format") or "Walnut Research Brief")
     prompt_config = dict(config)
     prompt_config.pop("comparison_ticker", None)
+    primary_identity = ((context.get("primary") or {}).get("identity") or {}) if isinstance(context.get("primary"), dict) else {}
+    primary_symbol = str(primary_identity.get("symbol") or config.get("ticker") or "").upper()
+    primary_company = str(primary_identity.get("company_name") or primary_symbol or "").strip()
+    comparison_symbols = [
+        str(((item.get("identity") or {}).get("symbol") or "")).upper()
+        for item in (context.get("comparisons") or [])
+        if isinstance(item, dict)
+    ]
     return "\n".join(
         [
             "You are Walnut's senior market research editor writing a publishable due-diligence brief.",
+            f"PRIMARY_TICKER: {primary_symbol}",
+            f"PRIMARY_COMPANY: {primary_company}",
+            f"COMPARISON_TICKERS: {', '.join(comparison_symbols) if comparison_symbols else 'None'}",
+            "Every company-specific statement must be about PRIMARY_COMPANY unless it is explicitly framed as comparison, industry, or macro context. Do not analyze Nvidia, AMD, CoreWeave, or any other company as the subject unless that ticker is listed in COMPARISON_TICKERS.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
-            "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
+            "If core earnings research is unavailable, do not write around it. The backend should stop generation before this prompt. Never write paragraphs saying Walnut needs to go find the data.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
             "Do not say an item was 'not independently verified in reviewed primary sources' when the item is present in Walnut context or marked available in data_availability.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
@@ -3111,13 +3286,16 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "The Walnut call must be the full final judgment. Do not output a separate setup label. Allowed Walnut calls are: " + ", ".join(WALNUT_CALL_VALUES) + ".",
             "For earnings setup briefs, use this plain-text call format in the final call section: 'Our call: [allowed call]'. Do not wrap it in markdown bold markers. Mixed should be rare; use a more specific call such as Bullish but expensive, Neutral but expensive, Neutral with capex risk, or Mixed with capex risk when that is what the evidence says.",
             "For earnings setup briefs, if the business is strong but valuation or expectations are high, use Bullish but expensive or Neutral but expensive. If the business is strong but capex/free cash flow is the main market risk, use Neutral with capex risk or Mixed with capex risk. Use Insufficient data to make a call only when required primary data is unavailable.",
+            "For earnings previews, lead with numbers: consensus revenue/EPS, prior quarter revenue/EPS versus consensus, prior reaction if available, and the main setup. Avoid broad industry throat-clearing.",
+            "For earnings previews, prefer this structure: Opening setup; What changed since last earnings; The numbers that matter; Business and fundamentals; Price / positioning; Bull case; Bear case; What we're watching; The call.",
+            "Selected sections are conditional: include a selected section only when meaningful supported data exists. If a selected data area is empty, use one short factual line instead of filler.",
             "After the call line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the call.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
-            "Write in a professional but human analyst voice: concrete, varied, and plain-spoken, with a clear point of view when the evidence supports one.",
-            "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'It is important to note,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
+            "Write like an experienced investor explaining the setup to another experienced investor: direct, specific, numbers first, natural contractions allowed, varied sentence length, some short sentences, clear opinions when evidence supports them.",
+            "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'the central question,' 'against this backdrop,' 'on balance,' 'evidence suggests,' 'the appropriate next step,' 'credible bull case requires,' 'we reserve judgment,' 'It is important to note,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
             "Prefer active sentences that sound like a senior analyst wrote them after reading the data. Do not become casual, promotional, cute, or chatty.",
             "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
             "End with a clear judgment plus a brief research-only disclaimer.",
@@ -3173,6 +3351,15 @@ def article_schema() -> dict[str, Any]:
             "comparison_tickers",
             "category",
             "reading_minutes",
+            "preview_section_count",
+            "hero_image",
+            "current_data_as_of",
+            "premium_required",
+            "required_plan",
+            "paywall_copy",
+            "analytics",
+            "reddit_post",
+            "thumbnail_asset",
             "sections",
             "key_points",
             "catalysts",
@@ -3206,6 +3393,7 @@ def article_schema() -> dict[str, Any]:
             "paywall_copy": {
                 "type": "object",
                 "additionalProperties": False,
+                "required": ["heading", "description", "cta_label"],
                 "properties": {
                     "heading": {"type": "string"},
                     "description": {"type": "string"},
@@ -3214,12 +3402,16 @@ def article_schema() -> dict[str, Any]:
             },
             "analytics": {
                 "type": "object",
-                "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
             },
             "reddit_post": {"type": "string"},
             "thumbnail_asset": {
                 "type": "object",
-                "additionalProperties": True,
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
             },
             "sections": {
                 "type": "array",
@@ -3287,7 +3479,17 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "internal_language": "repaired" if repair_count else "passed",
         "source_support": "passed",
         "missing_data_language": "repaired" if repair_count else "passed",
+        "research_readiness": "passed",
+        "company_identity": "passed",
+        "numeric_validation": "passed",
+        "style": "passed",
     }
+    readiness = context.get("research_readiness") if isinstance(context.get("research_readiness"), dict) else research_readiness(context)
+    if readiness.get("status") == "not_ready":
+        missing = ", ".join(str(item) for item in readiness.get("missing_requirements") or [])
+        warnings.append(_warning("research_not_ready", f"Research readiness is not ready. Missing: {missing}.", blocking=True))
+        labels["research_readiness"] = "failed"
+        blocking = True
     source_discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
     source_diagnostic_warnings = _source_discovery_validation_warnings(context)
     if source_diagnostic_warnings:
@@ -3302,6 +3504,12 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if primary_match_warning:
         warnings.append(primary_match_warning)
         labels["source_support"] = "failed"
+        labels["company_identity"] = "failed"
+        blocking = True
+    company_identity_warnings = _company_identity_warnings(article, context)
+    if company_identity_warnings:
+        warnings.extend(company_identity_warnings)
+        labels["company_identity"] = "failed"
         blocking = True
     if not title:
         warnings.append(_warning("missing_title", "Title is required.", blocking=True))
@@ -3412,10 +3620,17 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     numeric_format_issues = _numeric_format_issues(body)
     if numeric_format_issues:
         warnings.append(_warning("numeric_formatting", f"Numeric formatting needs cleanup: {', '.join(numeric_format_issues)}.", blocking=True))
+        labels["numeric_validation"] = "failed"
         blocking = True
     if numeric_claims and not _context_has_numbers(context):
         warnings.append(_warning("numeric_claims_without_context", "Numeric claims detected while source context has few numeric fields.", blocking=True))
         labels["source_support"] = "failed"
+        labels["numeric_validation"] = "failed"
+        blocking = True
+    style_warnings = _style_validation_warnings(article, context)
+    if style_warnings:
+        warnings.extend(style_warnings)
+        labels["style"] = "failed"
         blocking = True
     if _duplicate_slug(slug, draft_id=draft_id):
         warnings.append(_warning("duplicate_slug", f"Slug '{slug}' is already published or reserved.", blocking=True))
@@ -3430,6 +3645,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "estimated_reading_minutes": max(1, round(len(body.split()) / 220)),
         "labels": labels,
         "source_discovery": source_discovery,
+        "research_readiness": readiness,
     }
 
 
@@ -3437,7 +3653,7 @@ def _source_discovery_validation_warnings(context: dict[str, Any]) -> list[dict[
     source_discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     symbol = str(((primary.get("identity") or {}).get("symbol") or "")).upper()
-    if not source_discovery.get("required_for_major_earnings_setup"):
+    if not source_discovery.get("required_for_earnings_setup") and not source_discovery.get("required_for_major_earnings_setup"):
         return []
     warnings: list[dict[str, Any]] = []
     official = source_discovery.get("official_earnings_release") if isinstance(source_discovery.get("official_earnings_release"), dict) else {}
@@ -3456,7 +3672,7 @@ def _source_discovery_validation_warnings(context: dict[str, Any]) -> list[dict[
 
 def _required_official_source_omitted(article: dict[str, Any], context: dict[str, Any]) -> bool:
     source_discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
-    if not source_discovery.get("required_for_major_earnings_setup"):
+    if not source_discovery.get("required_for_earnings_setup") and not source_discovery.get("required_for_major_earnings_setup"):
         return False
     source_links = article.get("source_links") if isinstance(article.get("source_links"), list) else []
     return not any(
@@ -3484,6 +3700,89 @@ def _primary_context_match_warning(context: dict[str, Any]) -> dict[str, Any] | 
     if expected and embedded and expected != embedded:
         return _warning("primary_ticker_context_mismatch", f"Primary ticker context mismatch: expected {expected}, received {embedded}.", blocking=True)
     return None
+
+
+def _article_full_text(article: dict[str, Any]) -> str:
+    pieces = [
+        str(article.get("title") or ""),
+        str(article.get("subtitle") or ""),
+        str(article.get("summary") or ""),
+        str(article.get("preview_body") or ""),
+        str((article.get("suggested_card") or {}).get("title") or "") if isinstance(article.get("suggested_card"), dict) else "",
+        str((article.get("suggested_card") or {}).get("description") or "") if isinstance(article.get("suggested_card"), dict) else "",
+    ]
+    for section in article.get("sections") or []:
+        if isinstance(section, dict):
+            pieces.append(str(section.get("heading") or ""))
+            pieces.append(str(section.get("body_markdown") or ""))
+    return "\n\n".join(piece for piece in pieces if piece)
+
+
+def _company_identity_warnings(article: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    expected_symbol = normalize_symbol(identity.get("symbol"))
+    expected_company = str(identity.get("company_name") or expected_symbol or "").strip()
+    article_symbol = normalize_symbol(article.get("primary_ticker"))
+    comparison_symbols = {
+        normalize_symbol((((item or {}).get("identity") or {}).get("symbol"))) for item in (context.get("comparisons") or []) if isinstance(item, dict)
+    }
+    comparison_symbols.update(normalize_symbol(item) for item in article.get("comparison_tickers") or [])
+    comparison_symbols.discard(None)
+    allowed_symbols = {expected_symbol, *comparison_symbols}
+    allowed_symbols.discard(None)
+    text = _article_full_text(article)
+    warnings: list[dict[str, Any]] = []
+    if expected_symbol and article_symbol and article_symbol != expected_symbol:
+        warnings.append(_warning("article_primary_ticker_mismatch", f"Article primary ticker mismatch: expected {expected_symbol}, received {article_symbol}.", blocking=True))
+    if expected_symbol and expected_company and expected_symbol not in text.upper() and expected_company.lower() not in text.lower():
+        warnings.append(_warning("article_subject_missing", f"Article does not clearly anchor on {expected_company} ({expected_symbol}).", blocking=True))
+    for symbol, aliases in COMPANY_IDENTITY_GUARDS.items():
+        if symbol in allowed_symbols:
+            continue
+        matched_alias = next((alias for alias in aliases if re.search(rf"\b{re.escape(alias)}\b", text, flags=re.IGNORECASE)), None)
+        if matched_alias:
+            warnings.append(
+                _warning(
+                    "company_identity_contamination",
+                    f"Draft mentions {matched_alias} as company-specific context, but {symbol} is not the primary ticker or an allowed comparison.",
+                    blocking=True,
+                )
+            )
+    return warnings
+
+
+def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
+    text = _article_full_text(article)
+    lowered = text.lower()
+    warnings: list[dict[str, Any]] = []
+    hits = [label for label, pattern in STYLE_TIC_PATTERNS if re.search(pattern, lowered, flags=re.IGNORECASE | re.DOTALL)]
+    if hits:
+        warnings.append(_warning("ai_style_tics", f"Generic AI-writing patterns detected: {', '.join(hits[:6])}.", blocking=True))
+    title = str(article.get("title") or "")
+    if re.search(r"\b(primary .*data needed|data needed before|insufficient data|missing data|reserve judgment)\b", title, flags=re.IGNORECASE):
+        warnings.append(_warning("weak_missing_data_title", "Title describes missing research instead of an investment question.", blocking=True))
+    if text.count(";") > 8:
+        warnings.append(_warning("excessive_semicolons", "Draft overuses semicolons; rewrite in a more natural Walnut voice.", blocking=True))
+    if text.count("--") + text.count("—") > 6:
+        warnings.append(_warning("excessive_dashes", "Draft overuses dashes; rewrite with cleaner sentence variation.", blocking=True))
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    company_terms = [str(identity.get("symbol") or ""), str(identity.get("company_name") or "")]
+    company_terms.extend(alias for symbol, aliases in COMPANY_IDENTITY_GUARDS.items() for alias in aliases if symbol == normalize_symbol(identity.get("symbol")))
+    generic_paragraphs = 0
+    for paragraph in re.split(r"\n{2,}", text):
+        cleaned = paragraph.strip()
+        if len(cleaned.split()) < 18:
+            continue
+        has_number = bool(re.search(r"(?<![A-Za-z])\$?\d", cleaned))
+        has_company = any(term and re.search(rf"\b{re.escape(term)}\b", cleaned, flags=re.IGNORECASE) for term in company_terms)
+        has_date_or_source = bool(re.search(r"\b(?:20\d{2}|q[1-4]|fy\s?20\d{2}|http|sec|guidance|consensus|revenue|eps|arr|capex|margin)\b", cleaned, flags=re.IGNORECASE))
+        if not (has_number or has_company or has_date_or_source):
+            generic_paragraphs += 1
+    if generic_paragraphs >= 3:
+        warnings.append(_warning("low_information_density", "Multiple paragraphs lack company-specific facts, metrics, dated events, sources, or investor implications.", blocking=True))
+    return warnings
 
 
 def _internal_language_hits(lowered_text: str) -> list[str]:

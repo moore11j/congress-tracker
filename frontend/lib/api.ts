@@ -6806,8 +6806,9 @@ export type AdminResearchBriefValidation = {
   numeric_claims: string[];
   source_link_count: number;
   estimated_reading_minutes: number;
-  labels?: Record<"structure" | "internal_language" | "source_support" | "missing_data_language", "passed" | "repaired" | "failed" | string>;
+  labels?: Record<string, "passed" | "repaired" | "failed" | string>;
   source_discovery?: Record<string, unknown>;
+  research_readiness?: Record<string, unknown>;
 };
 
 export type AdminResearchBriefDraft = {
@@ -6901,6 +6902,15 @@ export async function validateAdminResearchBriefTicker(symbol: string): Promise<
   return fetchJson(buildApiUrl("/api/admin/research-briefs/validate-ticker", { symbol }), {
     cache: "no-store",
     next: { revalidate: 0 },
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function getAdminResearchBriefContext(payload: AdminResearchBriefConfig): Promise<{ config: AdminResearchBriefConfig; research_context: Record<string, unknown> }> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/context"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
     source: "AdminResearchBriefs",
   });
 }

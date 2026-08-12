@@ -7,6 +7,7 @@ import {
   getAdminResearchBriefGenerationDraft,
   getAdminResearchBriefGenerationJob,
   getAdminResearchBriefDrafts,
+  getAdminResearchBriefContext,
   getAdminResearchBriefOptions,
   publishAdminResearchBriefDraft,
   recordProductEvent,
@@ -431,6 +432,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [comparisonTickerErrors, setComparisonTickerErrors] = useState<Record<string, string>>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [activePane, setActivePane] = useState<"create" | "drafts" | "published" | "settings">("create");
+  const [preflightReadiness, setPreflightReadiness] = useState<Record<string, unknown> | null>(null);
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
   const validationLabels = selectedDraft?.validation?.labels;
@@ -673,6 +675,17 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setError("");
     try {
       const generationConfig = currentEditedConfig();
+      const preflight = await getAdminResearchBriefContext(generationConfig);
+      const readiness = objectValue(objectValue(preflight.research_context).research_readiness);
+      setPreflightReadiness(readiness);
+      if (Boolean(readiness.required_for_earnings_setup) && String(readiness.status || "") === "not_ready") {
+        const missing = Array.isArray(readiness.missing_requirements) ? readiness.missing_requirements.join(", ") : "required research";
+        const message = `Research not ready: ${missing}. Refresh sources or add a verified primary source before generating.`;
+        setError(message);
+        showToast?.(message, "error");
+        setBusy(null);
+        return;
+      }
       const job = await startAdminResearchBriefGeneration({
         ...generationConfig,
         client_request_id: createClientRequestId(),
@@ -1087,6 +1100,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 </div>
               ) : null}
 
+              {preflightReadiness ? <ResearchReadinessSummary readiness={preflightReadiness} /> : null}
+
               <div className="flex flex-wrap gap-2">
                 <Button tone="primary" disabled={generationJobActive || hasComparisonTickerErrors} onClick={generateDraft}>
                   {generationJobActive ? "Generating..." : activeJob?.status === "failed" ? "Retry Generate" : "Generate Draft"}
@@ -1162,10 +1177,14 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           {validationLabels ? (
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               {[
+                ["Readiness", validationLabels.research_readiness],
+                ["Identity", validationLabels.company_identity],
                 ["Structure", validationLabels.structure],
                 ["Internal language", validationLabels.internal_language],
                 ["Source support", validationLabels.source_support],
+                ["Numeric claims", validationLabels.numeric_validation],
                 ["Missing data", validationLabels.missing_data_language],
+                ["Style", validationLabels.style],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-white/10 bg-slate-950/50 px-2.5 py-2">
                   <p className="text-slate-500">{label}</p>
@@ -1276,9 +1295,73 @@ function sourceStatus(value: unknown) {
 }
 
 function statusTone(value: string) {
-  if (value === "found" || value === "passed") return "text-emerald-200";
-  if (value === "missing" || value === "failed") return "text-rose-200";
+  if (value === "found" || value === "passed" || value === "ready") return "text-emerald-200";
+  if (value === "missing" || value === "failed" || value === "not_ready") return "text-rose-200";
   return "text-slate-300";
+}
+
+function ResearchReadinessSummary({ readiness }: { readiness: Record<string, unknown> }) {
+  const rows = Array.isArray(readiness.rows) ? readiness.rows.map(objectValue) : [];
+  const status = String(readiness.status || "unknown");
+  const missing = Array.isArray(readiness.missing_requirements) ? readiness.missing_requirements.map(String) : [];
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-semibold text-white">Research readiness</span>
+        <span className={`text-xs font-semibold uppercase tracking-[0.16em] ${statusTone(status)}`}>{status.replace("_", " ")}</span>
+      </div>
+      {missing.length ? <p className="mt-2 text-xs leading-5 text-rose-100">Missing: {missing.join(", ")}</p> : null}
+      {rows.length ? (
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+          {rows.slice(0, 8).map((row) => {
+            const label = String(row.label || "Requirement");
+            const value = String(row.status || "unknown");
+            return (
+              <div key={label} className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400">{label}</span>
+                <span className={`font-semibold capitalize ${statusTone(value)}`}>{value.replace("_", " ")}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ResearchReadinessPanel({ draft }: { draft: AdminResearchBriefDraft }) {
+  const context = objectValue(draft.research_context);
+  const readiness = objectValue(context.research_readiness || draft.validation?.research_readiness);
+  const rows = Array.isArray(readiness.rows) ? readiness.rows.map(objectValue) : [];
+  const status = String(readiness.status || (draft.validation?.status === "passed" ? "ready" : "unknown"));
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Research readiness</p>
+        <span className={`text-xs font-semibold uppercase tracking-[0.16em] ${statusTone(status)}`}>{status.replace("_", " ")}</span>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {rows.length ? (
+          rows.map((row) => {
+            const label = String(row.label || "Requirement");
+            const value = String(row.status || "unknown");
+            const detail = row.detail ? String(row.detail) : "";
+            return (
+              <div key={label} className="flex items-start justify-between gap-3 text-xs">
+                <span className="text-slate-400">{label}</span>
+                <span className={`max-w-[55%] text-right font-semibold ${statusTone(value)}`}>
+                  <span className="capitalize">{value.replace("_", " ")}</span>
+                  {detail ? <span className="block truncate font-normal text-slate-500">{detail}</span> : null}
+                </span>
+              </div>
+            );
+          })
+        ) : (
+          <p className="text-xs text-slate-500">Generate or refresh sources to calculate readiness.</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SourceDiscoveryDiagnostics({ draft }: { draft: AdminResearchBriefDraft }) {
@@ -1637,6 +1720,7 @@ function EditorPanel({
         <Metric label="Model" value={draft.model || "OpenAI"} />
         <Metric label="Access" value={accessLabel(articleRequiredPlan(article))} />
         <Metric label="Generated at" value={(draft.updated_at || draft.created_at || "").slice(0, 16)} />
+        <ResearchReadinessPanel draft={draft} />
         <SourceDiscoveryDiagnostics draft={draft} />
         {draft.validation?.source_link_count === 0 ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
