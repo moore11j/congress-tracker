@@ -2667,6 +2667,21 @@ def ensure_search_entities_schema(bind=engine) -> None:
         dialect_name = conn.dialect.name
         _set_postgres_ddl_timeouts(conn)
         Base.metadata.create_all(bind=conn, tables=tables)
+        for index_sql in (
+            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_normalized_entity ON search_entity_terms (normalized_term, entity_id)",
+            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_compact_entity ON search_entity_terms (compact_term, entity_id)",
+            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_normalized_rank ON search_entity_terms (normalized_term, rank_weight)",
+            "CREATE INDEX IF NOT EXISTS ix_search_entity_terms_compact_rank ON search_entity_terms (compact_term, rank_weight)",
+        ):
+            try:
+                with conn.begin_nested():
+                    conn.execute(text(index_sql))
+            except SQLAlchemyError as exc:
+                logger.warning(
+                    "search_entity_term_index_skipped reason=%s sql=%s",
+                    _optional_index_skip_reason(exc),
+                    index_sql,
+                )
         if dialect_name == "postgresql":
             try:
                 with conn.begin_nested():

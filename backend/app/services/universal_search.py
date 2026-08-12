@@ -980,7 +980,7 @@ class PostgresSearchProvider:
         rows: list[SearchEntity] = []
         for pass_index, (high_confidence, candidate_limit) in enumerate((
             (True, max(bounded_limit * 20, 80)),
-            (False, max(bounded_limit * 80, 400)),
+            (False, max(bounded_limit * 30, 160)),
         )):
             entity_ids = _term_candidate_entity_ids(db, query, high_confidence=high_confidence, limit=candidate_limit)
             next_ids = [entity_id for entity_id in entity_ids if entity_id not in seen_ids]

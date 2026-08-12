@@ -1799,6 +1799,10 @@ class SearchEntityTerm(Base):
         Index("ix_search_entity_terms_term_type", "term_type"),
         Index("ix_search_entity_terms_normalized", "normalized_term"),
         Index("ix_search_entity_terms_compact", "compact_term"),
+        Index("ix_search_entity_terms_normalized_entity", "normalized_term", "entity_id"),
+        Index("ix_search_entity_terms_compact_entity", "compact_term", "entity_id"),
+        Index("ix_search_entity_terms_normalized_rank", "normalized_term", "rank_weight"),
+        Index("ix_search_entity_terms_compact_rank", "compact_term", "rank_weight"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
