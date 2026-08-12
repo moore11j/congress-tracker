@@ -377,6 +377,60 @@ def _lightweight_ticker_suggestion(query: str) -> SearchSuggestItem | None:
     return _ticker_item(symbol, None, None, 3900.0)
 
 
+def _strip_score(item: SearchSuggestItem) -> SearchSuggestItem:
+    return {key: value for key, value in item.items() if key != "score"}
+
+
+def _company_label_from_symbol_items(items: list[SearchSuggestItem], symbols: set[str]) -> str | None:
+    for item in items:
+        if normalize_symbol(str(item.get("symbol") or "")) not in symbols:
+            continue
+        subtitle_parts = [_clean(part) for part in str(item.get("subtitle") or "").split(" - ")]
+        if len(subtitle_parts) >= 3 and subtitle_parts[1]:
+            return subtitle_parts[1]
+    return None
+
+
+def _with_exact_symbol_ticker_first(db: Session, query: str, items: list[SearchSuggestItem]) -> list[SearchSuggestItem]:
+    symbol = _ticker_query_symbol(query)
+    if not symbol or not items:
+        return items
+
+    symbols = set(_lookup_symbols(symbol))
+    if not symbols or not any(normalize_symbol(str(item.get("symbol") or "")) in symbols for item in items):
+        return items
+
+    existing_ticker = next(
+        (
+            item
+            for item in items
+            if item.get("kind") == "ticker"
+            and (normalize_symbol(str(item.get("symbol") or "")) in symbols or normalize_symbol(str(item.get("id") or "")) in symbols)
+        ),
+        None,
+    )
+    if existing_ticker is not None:
+        ticker_key = f"{existing_ticker.get('kind')}:{existing_ticker.get('id') or existing_ticker.get('href')}"
+        return [existing_ticker, *[item for item in items if f"{item.get('kind')}:{item.get('id') or item.get('href')}" != ticker_key]]
+
+    ticker_item = _exact_ticker_suggestion(db, query)
+    if ticker_item is None:
+        _enqueue_ticker_search_enrichment(symbol)
+        ticker_item = _ticker_item(symbol, _company_label_from_symbol_items(items, symbols), None, 3900.0)
+    ticker_item = _strip_score(ticker_item)
+
+    ticker_key = f"{ticker_item.get('kind')}:{ticker_item.get('id') or ticker_item.get('href')}"
+    merged = [ticker_item]
+    seen = {ticker_key}
+    for item in items:
+        item_key = f"{item.get('kind')}:{item.get('id') or item.get('href')}"
+        if item_key in seen:
+            continue
+        seen.add(item_key)
+        merged.append(item)
+    return merged
+
+
 def _add_boost(boosts: dict[str, float], key: str | None, amount: float) -> None:
     cleaned = _clean(key)
     if not cleaned:
@@ -1091,6 +1145,7 @@ def search_suggestions(
     try:
         indexed_items = universal_search_entities(db, query, limit=bounded_limit)
         if indexed_items:
+            indexed_items = _with_exact_symbol_ticker_first(db, query, indexed_items)
             if include_events and len(indexed_items) < bounded_limit:
                 indexed_items.extend(_event_suggestions(db, query, bounded_limit - len(indexed_items)))
             indexed_items = indexed_items[:bounded_limit]

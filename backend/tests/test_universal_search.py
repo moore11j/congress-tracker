@@ -122,6 +122,47 @@ def test_universal_search_typo_tolerance_and_no_duplicates():
         db.close()
 
 
+def test_search_suggest_promotes_exact_symbol_ticker_above_symbol_insiders(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    enqueued_symbols: list[str] = []
+    monkeypatch.setattr(
+        search_suggest_module,
+        "enqueue_data_enrichment_job",
+        lambda **kwargs: enqueued_symbols.append(str(kwargs.get("symbol"))) or True,
+    )
+    try:
+        db.add(
+            InsiderTransactionNormalized(
+                accession_number="0002060780-26-000001",
+                issuer_name="Nebius Group N.V.",
+                ticker_normalized="NBIS",
+                reporting_owner_cik="0002060780",
+                reporting_owner_name="VOLOZH ARKADIY",
+                officer_title="CEO",
+                is_officer=True,
+                transaction_date=datetime(2026, 6, 1, tzinfo=timezone.utc).date(),
+                filing_date=datetime(2026, 6, 2, tzinfo=timezone.utc).date(),
+                normalized_hash="volozh-nbis-1",
+            )
+        )
+        db.commit()
+        rebuild_search_entities(db)
+        db.commit()
+
+        items = search_suggestions(db, "NBIS", limit=5)["items"]
+
+        assert items[0]["kind"] == "ticker"
+        assert items[0]["symbol"] == "NBIS"
+        assert items[0]["label"] == "Nebius Group N.V."
+        assert items[0]["href"] == "/ticker/NBIS"
+        assert any(item["kind"] == "insider" and item["symbol"] == "NBIS" for item in items[1:])
+        assert set(enqueued_symbols) == {"NBIS"}
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
 def test_search_coverage_audit_reports_index_counts_and_valid_urls():
     db = _db()
     try:
