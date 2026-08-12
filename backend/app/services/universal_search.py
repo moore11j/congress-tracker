@@ -818,38 +818,53 @@ def _candidate_order(query: str) -> Any:
     )
 
 
+def _prefix_upper_bound(value: str) -> str | None:
+    if not value:
+        return None
+    return f"{value[:-1]}{chr(ord(value[-1]) + 1)}"
+
+
+def _prefix_range_clause(column: Any, prefix: str) -> Any | None:
+    if not prefix:
+        return None
+    upper = _prefix_upper_bound(prefix)
+    return and_(column >= prefix, column < upper) if upper else column >= prefix
+
+
 def _term_candidate_clause(query: str, *, high_confidence: bool) -> Any:
     q_norm = normalize_search_text(query)
     q_compact = compact_search_text(query)
     clauses = []
     if q_norm:
-        clauses.extend(
-            [
-                SearchEntityTerm.normalized_term == q_norm,
-                SearchEntityTerm.normalized_term.like(f"{q_norm}%"),
-            ]
-        )
+        clauses.append(SearchEntityTerm.normalized_term == q_norm)
         if not high_confidence:
-            clauses.append(SearchEntityTerm.normalized_term.like(f"%{q_norm}%"))
+            range_clause = _prefix_range_clause(SearchEntityTerm.normalized_term, q_norm)
+            if range_clause is not None:
+                clauses.append(range_clause)
     if q_compact:
-        clauses.extend(
-            [
-                SearchEntityTerm.compact_term == q_compact,
-                SearchEntityTerm.compact_term.like(f"{q_compact}%"),
-            ]
-        )
+        clauses.append(SearchEntityTerm.compact_term == q_compact)
         if not high_confidence:
-            clauses.append(SearchEntityTerm.compact_term.like(f"%{q_compact}%"))
+            range_clause = _prefix_range_clause(SearchEntityTerm.compact_term, q_compact)
+            if range_clause is not None:
+                clauses.append(range_clause)
     if not high_confidence:
         for token in q_norm.split()[:4]:
             if len(token) >= 3:
-                clauses.extend(
-                    [
-                        SearchEntityTerm.normalized_term == token,
-                        SearchEntityTerm.normalized_term.like(f"{token}%"),
-                        SearchEntityTerm.normalized_term.like(f"%{token}%"),
-                    ]
-                )
+                clauses.append(SearchEntityTerm.normalized_term == token)
+                range_clause = _prefix_range_clause(SearchEntityTerm.normalized_term, token)
+                if range_clause is not None:
+                    clauses.append(range_clause)
+                compact_range_clause = _prefix_range_clause(SearchEntityTerm.compact_term, token)
+                if compact_range_clause is not None:
+                    clauses.append(compact_range_clause)
+                if len(token) >= 4:
+                    short_prefix = token[:3]
+                    short_norm_clause = _prefix_range_clause(SearchEntityTerm.normalized_term, short_prefix)
+                    short_compact_clause = _prefix_range_clause(SearchEntityTerm.compact_term, short_prefix)
+                    if short_norm_clause is not None:
+                        clauses.append(short_norm_clause)
+                    if short_compact_clause is not None:
+                        clauses.append(short_compact_clause)
     return or_(*clauses) if clauses else literal(False)
 
 
