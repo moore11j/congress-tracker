@@ -24,6 +24,7 @@ on:
     - cron: "45 13 * * *" # Daily government contracts ingest
     - cron: "25 16 * * *" # Daily post-ingest outcome repair sweep
     - cron: "30 23 * * 1-5" # Daily market-data refresh after US close (UTC)
+    - cron: "30 0 * * 2-6" # Second market-data refresh after provider EOD catch-up (UTC)
     - cron: "45 0 * * 2-6" # Portfolio simulations after prior US market close (UTC)
     - cron: "30 14 * * 1" # Weekly government contracts backfill on Mondays
 
@@ -68,7 +69,7 @@ jobs:
             JOB_MODE="government-contracts-daily"
           elif [ "${{ github.event.schedule }}" = "25 16 * * *" ]; then
             JOB_MODE="daily-repair"
-          elif [ "${{ github.event.schedule }}" = "30 23 * * 1-5" ]; then
+          elif [ "${{ github.event.schedule }}" = "30 23 * * 1-5" ] || [ "${{ github.event.schedule }}" = "30 0 * * 2-6" ]; then
             JOB_MODE="market-data-refresh-daily"
           elif [ "${{ github.event.schedule }}" = "45 0 * * 2-6" ]; then
             JOB_MODE="portfolio-simulation-refresh"

@@ -9090,6 +9090,31 @@ def _log_ticker_price_volume_summary(
     )
 
 
+def _ticker_price_action_signal(change_pct_1d: float | None, volume_vs_avg: float | None) -> dict[str, Any] | None:
+    change = _parse_numeric(change_pct_1d)
+    volume_ratio = _parse_numeric(volume_vs_avg)
+    if change is None or volume_ratio is None:
+        return None
+    abs_change = abs(change)
+    if abs_change < 2.0 or volume_ratio < 1.2:
+        return None
+
+    signal = "bullish" if change > 0 else "bearish"
+    weight = 1
+    if abs_change >= 5.0 or volume_ratio >= 1.5:
+        weight = 2
+    if abs_change >= 10.0 and volume_ratio >= 1.5:
+        weight = 3
+
+    move_label = "upside" if signal == "bullish" else "downside"
+    return {
+        "status": "ok",
+        "signal": signal,
+        "weight": weight,
+        "message": f"High-volume {move_label} move",
+    }
+
+
 def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
     normalized = normalize_symbol(symbol) or symbol.upper()
     cached_inputs = _ticker_cached_price_volume_inputs(db, normalized)
@@ -9164,11 +9189,22 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
     if volume_line:
         lines.append(volume_line)
 
+    price_action = _ticker_price_action_signal(change_pct_1d, volume_vs_avg)
+    if price_action is not None:
+        lines.append(str(price_action["message"]))
+
     directional = [signal for signal in available_signals if signal in {"bullish", "bearish"}]
     bullish = directional.count("bullish")
     bearish = directional.count("bearish")
+    if price_action is not None:
+        weight = int(price_action.get("weight") or 1)
+        if price_action["signal"] == "bullish":
+            bullish += weight
+        elif price_action["signal"] == "bearish":
+            bearish += weight
+    has_directional_signal = bool(directional or price_action is not None)
     direction = "bullish" if bullish > bearish else "bearish" if bearish > bullish else "mixed" if directional else "neutral"
-    score = max(bullish, bearish) * 25 if directional else 0
+    score = min(max(bullish, bearish) * 25, 100) if has_directional_signal else 0
 
     if latest_close is None:
         loading = _ticker_price_volume_hydration_pending(db, normalized)
@@ -9208,7 +9244,7 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
             point_count=price_points,
             reason=missing_volume_reason,
         )
-        title = f"{direction.title()} tape confirmation" if directional else "Price available"
+        title = f"{direction.title()} tape confirmation" if has_directional_signal else "Price available"
         return {
             "status": "active",
             "direction": direction,
@@ -9230,7 +9266,7 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         point_count=price_points,
         reason="cached_price_volume_available" if not directional else "directional_technicals",
     )
-    title = f"{direction.title()} tape confirmation" if directional else "Price and volume available"
+    title = f"{direction.title()} tape confirmation" if has_directional_signal else "Price and volume available"
     return {
         "status": "active",
         "title": title,

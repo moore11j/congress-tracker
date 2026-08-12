@@ -2559,6 +2559,55 @@ def test_ticker_price_volume_summary_uses_intraday_one_minute_snapshot_for_live_
     assert summary["title"] != "Limited price/volume history"
 
 
+def test_ticker_price_volume_summary_lets_strong_intraday_move_override_stale_bearish_technicals(monkeypatch):
+    today = date.today()
+    monkeypatch.setattr(main_module, "_is_public_api_request_context", lambda: True)
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_intraday_price_volume_snapshot",
+        lambda symbol: {
+            "price": 259.37,
+            "date": today.isoformat(),
+            "day_volume": 1_790_000,
+            "source": "historical-chart/1min",
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_technical_indicators",
+        lambda *args, **kwargs: {
+            "price_points": 70,
+            "rsi": {"status": "ok", "signal": "bearish", "message": "RSI below neutral", "value": 44.7},
+            "macd": {"status": "ok", "signal": "bullish", "message": "MACD bullish crossover"},
+            "ema_trend": {"status": "ok", "signal": "bearish", "message": "Short EMA below medium EMA"},
+        },
+    )
+
+    engine = _engine()
+    with Session(engine) as db:
+        for offset in range(70):
+            day = today - timedelta(days=70 - offset)
+            db.add(
+                PriceCache(
+                    symbol="NBIS",
+                    date=day.isoformat(),
+                    close=180 + offset * 0.02,
+                    volume=1_000_000,
+                    day_volume=1_000_000,
+                )
+            )
+        db.commit()
+
+        summary = main_module._ticker_price_volume_summary(db, "NBIS")
+
+    assert summary["latest_close"] == 259.37
+    assert summary["change_pct_1d"] > 40
+    assert summary["volume_vs_avg"] == 1.79
+    assert summary["direction"] == "bullish"
+    assert summary["summary"] == "Bullish tape confirmation"
+    assert "High-volume upside move" in summary["lines"]
+
+
 def test_ticker_intraday_price_volume_snapshot_uses_stable_one_minute_chart(monkeypatch):
     main_module._TICKER_INTRADAY_PRICE_VOLUME_CACHE.clear()
     calls: list[tuple[str, dict]] = []
