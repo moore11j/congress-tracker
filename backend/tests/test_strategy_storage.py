@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base, ensure_strategy_storage_schema
 from app.entitlements import ENTITLEMENTS
 from app.models import (
+    ReplicatedPortfolioPosition,
     StrategyBacktestRun,
     StrategyCurrentHolding,
     StrategyDefinition,
@@ -372,5 +373,64 @@ def test_strategy_detail_pages_persisted_transaction_history_and_hides_it_when_l
         assert final_page["transactionHistory"][0]["symbol"] == "T001"
         assert locked["transactionHistory"] == []
         assert locked["transactionHistoryTotal"] == 0
+    finally:
+        db.close()
+
+
+def test_strategy_detail_exposes_replicated_portfolio_source_history():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="replicated-history",
+            name="Replicated History",
+            category="congress",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(
+            strategy_id=strategy.id,
+            run_key="replicated-history-run",
+            status="ok",
+            completed_at=datetime.now(timezone.utc),
+            methodology_version="v1",
+            dataset_versions_json=json.dumps({"source": "replicated_portfolio_runs", "source_run_id": 92}),
+        )
+        db.add(run)
+        db.add_all(
+            [
+                ReplicatedPortfolioPosition(
+                    run_id=92,
+                    symbol="NVDA",
+                    side="buy",
+                    entry_date=date(2026, 8, 5),
+                    entry_price=170,
+                    return_pct=8.5,
+                    status="open",
+                    source_type="reported_purchase",
+                    confidence="high",
+                ),
+                ReplicatedPortfolioPosition(
+                    run_id=92,
+                    symbol="MSFT",
+                    side="buy",
+                    entry_date=date(2026, 7, 1),
+                    entry_price=500,
+                    return_pct=2.5,
+                    status="closed",
+                ),
+            ]
+        )
+        db.commit()
+
+        payload = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], holdings_limit=1)
+
+        assert payload["transactionHistoryTotal"] == 2
+        assert payload["transactionHistory"][0]["recordType"] == "reconstructed_position"
+        assert payload["transactionHistory"][0]["symbol"] == "NVDA"
+        assert payload["transactionHistory"][0]["sourceType"] == "reported_purchase"
     finally:
         db.close()
