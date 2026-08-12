@@ -655,16 +655,16 @@ def rebuild_search_entities(db: Session) -> SearchBuildStats:
         *_institution_entities(db),
         *_department_entities(db),
     ]
-    terms: list[SearchEntityTerm] = []
-    for entity in entities:
-        terms.extend(_entity_terms(entity))
     db.execute(SearchEntityTerm.__table__.delete())
     db.execute(SearchEntity.__table__.delete())
     for start in range(0, len(entities), 500):
-        db.add_all(entities[start : start + 500])
+        batch = entities[start : start + 500]
+        db.add_all(batch)
         db.flush()
-    for start in range(0, len(terms), 1000):
-        db.add_all(terms[start : start + 1000])
+        terms: list[SearchEntityTerm] = []
+        for entity in batch:
+            terms.extend(_entity_terms(entity))
+        db.add_all(terms)
         db.flush()
     indexed_by_type: dict[str, int] = {}
     for entity in entities:
