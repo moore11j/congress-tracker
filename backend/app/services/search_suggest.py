@@ -35,7 +35,6 @@ from app.services.ticker_identity import safe_company_identity_candidate
 from app.services.universal_search import (
     record_search_query,
     search_entities as universal_search_entities,
-    search_entity_count,
 )
 from app.utils.symbols import normalize_symbol, symbol_variants
 
@@ -1090,8 +1089,8 @@ def search_suggestions(
                 return cached[1]
 
     try:
-        if search_entity_count(db) > 0:
-            indexed_items = universal_search_entities(db, query, limit=bounded_limit)
+        indexed_items = universal_search_entities(db, query, limit=bounded_limit)
+        if indexed_items:
             if include_events and len(indexed_items) < bounded_limit:
                 indexed_items.extend(_event_suggestions(db, query, bounded_limit - len(indexed_items)))
             indexed_items = indexed_items[:bounded_limit]
