@@ -43,6 +43,22 @@ def _clean_text(value: object | None) -> str | None:
     return text or None
 
 
+def _public_meta_description(value: object | None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    replacements = (
+        (re.compile(r"\busing\s+stored\s+market\s+data,\s*", re.IGNORECASE), "using "),
+        (re.compile(r"\bstored\s+Form\s+4\s+insider\s+trading\s+activity\b", re.IGNORECASE), "Form 4 insider trading activity"),
+        (re.compile(r"\bstored\s+congressional\s+disclosure\s+activity\b", re.IGNORECASE), "congressional disclosure activity"),
+        (re.compile(r"\bstored\s+disclosure\s+activity\b", re.IGNORECASE), "disclosure activity"),
+        (re.compile(r"\bstored\s+market\s+data\b", re.IGNORECASE), "market data"),
+    )
+    for pattern, replacement in replacements:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _iso(value: datetime | date | None) -> str | None:
     if value is None:
         return None
@@ -135,7 +151,7 @@ def seo_snapshot_row_payload(row: SeoEntitySnapshot) -> dict[str, Any]:
         "entity_key": row.entity_key,
         "canonical_path": row.canonical_path,
         "title": row.title,
-        "meta_description": row.meta_description,
+        "meta_description": _public_meta_description(row.meta_description),
         "indexable": bool(row.indexable),
         "payload": payload,
         "content_hash": row.content_hash,
@@ -397,7 +413,7 @@ def refresh_ticker_seo_snapshot(db: Session, symbol: str) -> dict[str, Any]:
         entity_key=normalized,
         canonical_path=f"/ticker/{normalized}",
         title=f"{normalized} Stock Analysis, Insider Activity & Research | Walnut Markets",
-        meta_description=f"Analyze {normalized} with Walnut using stored market data, disclosures, insider activity, Congress trades, and cross-source research context.",
+        meta_description=f"Analyze {normalized} with Walnut using market data, disclosures, insider activity, Congress trades, and cross-source research context.",
         indexable=indexable,
         payload=payload,
         data_as_of=data_as_of,
@@ -539,7 +555,7 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         entity_key=normalized_cik,
         canonical_path=f"/insider/{slug}",
         title=f"{insider_name} Insider Trades & Form 4 Activity | Walnut Markets",
-        meta_description=f"Research {insider_name}'s stored Form 4 insider trading activity, issuer context, and related ticker links in Walnut Markets.",
+        meta_description=f"Research {insider_name}'s Form 4 insider trading activity, issuer context, and related ticker links in Walnut Markets.",
         indexable=bool(working_rows and insider_name != "Insider"),
         payload=payload,
         data_as_of=data_as_of,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import json
 from datetime import date, datetime, timezone
 
 from sqlalchemy import create_engine, inspect
@@ -90,6 +91,7 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
             completed_at=now,
             methodology_version="v1",
             walnut_strategy_score=55,
+            diagnostics_json=json.dumps({"validation": {"walnut_strategy_score": {"score": 55, "score_version": "walnut_strategy_score_v2"}}}),
         )
         run_two = StrategyBacktestRun(
             strategy_id=aggressive.id,
@@ -98,6 +100,7 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
             completed_at=now,
             methodology_version="v1",
             walnut_strategy_score=70,
+            diagnostics_json=json.dumps({"validation": {"walnut_strategy_score": {"score": 70, "score_version": "walnut_strategy_score_v2"}}}),
         )
         db.add_all([run_one, run_two])
         db.flush()
@@ -133,6 +136,45 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
 
         by_default = list_strategy_cards(db, entitlements=ENTITLEMENTS["premium"])
         assert [item["slug"] for item in by_default["items"]] == ["high-return", "low-drawdown"]
+    finally:
+        db.close()
+
+
+def test_strategy_detail_keeps_public_performance_but_withholds_current_positions_for_free_users():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="public-performance",
+            name="Public Performance",
+            category="walnut",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(strategy_id=strategy.id, run_key="public-run", status="ok", methodology_version="v1")
+        db.add(run)
+        db.flush()
+        db.add_all([
+            StrategyPerformanceSnapshot(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 8, 1), period="max", cagr_pct=18),
+            StrategyEquityCurvePoint(strategy_id=strategy.id, run_id=run.id, date=date(2026, 8, 1), strategy_value=110, benchmark_value=105),
+            StrategyCurrentHolding(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 8, 1), symbol="NVDA", company_name="NVIDIA"),
+        ])
+        db.commit()
+
+        free = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["free"])
+        assert free["access"]["locked"] is False
+        assert free["performance"]["cagrPct"] == 18
+        assert len(free["equityCurve"]) == 1
+        assert free["currentHoldings"] == []
+        assert free["currentHoldingsCount"] == 1
+        assert free["strategyAccess"]["canViewCurrentHoldings"] is False
+
+        premium = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"])
+        assert premium["currentHoldings"][0]["symbol"] == "NVDA"
+        assert premium["strategyAccess"]["canFollow"] is True
     finally:
         db.close()
 
@@ -206,7 +248,7 @@ def test_strategy_publication_requires_a_completed_run_and_max_snapshot():
         db.close()
 
 
-def test_strategy_detail_hides_holdings_and_curve_when_user_lacks_required_tier():
+def test_strategy_detail_keeps_research_public_and_allows_premium_followers_to_view_holdings():
     SessionLocal, _ = _session()
     db = SessionLocal()
     try:
@@ -252,15 +294,16 @@ def test_strategy_detail_hides_holdings_and_curve_when_user_lacks_required_tier(
         )
         db.commit()
 
-        locked = strategy_detail(db, slug="pro-only", entitlements=ENTITLEMENTS["premium"])
-        assert locked["access"]["locked"] is True
-        assert locked["equityCurve"] == []
-        assert locked["currentHoldings"] == []
+        premium = strategy_detail(db, slug="pro-only", entitlements=ENTITLEMENTS["premium"])
+        assert premium["access"]["locked"] is False
+        assert premium["equityCurve"][0]["strategyValue"] == 140
+        assert premium["currentHoldings"][0]["symbol"] == "NVDA"
+        assert premium["strategyAccess"]["canFollow"] is True
 
-        unlocked = strategy_detail(db, slug="pro-only", entitlements=ENTITLEMENTS["pro"])
-        assert unlocked["access"]["locked"] is False
-        assert unlocked["equityCurve"][0]["strategyValue"] == 140
-        assert unlocked["currentHoldings"][0]["symbol"] == "NVDA"
+        free = strategy_detail(db, slug="pro-only", entitlements=ENTITLEMENTS["free"])
+        assert free["equityCurve"][0]["strategyValue"] == 140
+        assert free["currentHoldings"] == []
+        assert free["currentHoldingsCount"] == 1
     finally:
         db.close()
 

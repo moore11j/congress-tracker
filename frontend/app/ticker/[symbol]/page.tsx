@@ -19,7 +19,6 @@ import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignals
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { ResearchActions } from "@/components/research/ResearchActions";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
-import { SeoSnapshotBaseline } from "@/components/seo/SeoSnapshotBaseline";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { entitlementsFromTierHint, hasEntitlement, isAdminEntitlement, type Entitlements } from "@/lib/entitlements";
 import {
@@ -3887,25 +3886,22 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const canonicalTickerUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
   const activityDetailsRequested = one(sp, "activity_details") === "1";
   const lookbackDays = Number(lookback);
-  const snapshot = await getSeoSnapshot("ticker", normalizedSymbol, { source: "TickerPageSnapshot" })
-    .then((response) => response.snapshot)
-    .catch(() => null);
   const authState = requestMayHavePageAuthState(requestHeaders)
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
-  if (!authToken && !authState.hasAuthHint && !activityDetailsRequested && snapshot?.indexable) {
-    return <SeoSnapshotBaseline snapshot={snapshot} />;
-  }
+  const publicStalePageCache = !authToken && !authState.hasAuthHint;
   const entitlements = authToken
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);
-  const useAnonymousTickerSsrShell = shouldUseAnonymousTickerSsrShell({
-    requestHeaders,
-    authToken,
-    hasAuthHint: authState.hasAuthHint,
-    activityDetailsRequested,
-  });
+  const useAnonymousTickerSsrShell = publicStalePageCache
+    ? false
+    : shouldUseAnonymousTickerSsrShell({
+        requestHeaders,
+        authToken,
+        hasAuthHint: authState.hasAuthHint,
+        activityDetailsRequested,
+      });
   const activeTickerSsrRequest = Boolean(authToken || authState.hasAuthHint) && !useAnonymousTickerSsrShell;
 
   const contextBundleResult = useAnonymousTickerSsrShell
@@ -3920,6 +3916,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
         lookback_days: lookbackDays,
         authToken: authToken ?? undefined,
         activeUser: activeTickerSsrRequest,
+        stalePageCache: publicStalePageCache,
         source: "TickerContextBundle",
         requestSource: "ssr",
       })
@@ -3932,7 +3929,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
               status: error instanceof ApiError ? error.status : null,
               name: error instanceof Error ? error.name : "unknown",
             });
-            return getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback" })
+            return getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback", stalePageCache: publicStalePageCache })
               .then((profile) => ({
                 bundle: null as TickerContextBundle | null,
                 profile,
@@ -3990,6 +3987,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
       lookback_days: lookbackDays,
       authToken: authToken ?? undefined,
       activeUser: activeTickerSsrRequest,
+      stalePageCache: publicStalePageCache,
       source: "TickerSignalsSummary",
     });
   };
@@ -3999,12 +3997,14 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited price history available" : null;
-  const deferTickerActivityDetails = useAnonymousTickerSsrShell || shouldDeferAnonymousTickerActivityDetails({
-    requestHeaders,
-    authToken,
-    hasAuthHint: authState.hasAuthHint,
-    activityDetailsRequested,
-  });
+  const deferTickerActivityDetails = publicStalePageCache
+    ? false
+    : useAnonymousTickerSsrShell || shouldDeferAnonymousTickerActivityDetails({
+        requestHeaders,
+        authToken,
+        hasAuthHint: authState.hasAuthHint,
+        activityDetailsRequested,
+      });
   const activityPromise = (async () => {
     if (deferTickerActivityDetails) {
       return resolveTickerActivityData({
@@ -4029,6 +4029,9 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             enrich_prices: 1,
             tape: "congress",
             source: "TickerCongressActivity",
+            requestSource: "ssr",
+            routeFamily: "ticker",
+            stalePageCache: publicStalePageCache,
             ...(tradeType ? { trade_type: tradeType } : {}),
           }).catch((error) => {
             console.error("[ticker-congress-activity] unavailable", {
@@ -4049,6 +4052,9 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             enrich_prices: 1,
             tape: "insider",
             source: "TickerInsiderActivity",
+            requestSource: "ssr",
+            routeFamily: "ticker",
+            stalePageCache: publicStalePageCache,
             ...(tradeType ? { trade_type: tradeType } : {}),
           }).catch((error) => {
             console.error("[ticker-insider-activity] unavailable", {
@@ -4072,6 +4078,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             source: "TickerInstitutionalActivity",
             requestSource: "ssr",
             routeFamily: "ticker",
+            stalePageCache: publicStalePageCache,
           }).catch((error) => {
             console.error("[ticker-institutional-activity] unavailable", {
               symbol: normalizedSymbol,
@@ -4089,6 +4096,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
             page: contractsPage,
             activeUser: activeTickerSsrRequest,
+            stalePageCache: publicStalePageCache,
             source: "TickerGovernmentContracts",
           }).catch((error) => {
             console.error("[ticker-government-contracts] unavailable", error);

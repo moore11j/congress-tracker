@@ -13,7 +13,7 @@ export async function GET() {
       type: "member" as const,
       path: item.canonical_path,
       lastmod: (item.data_as_of ?? item.updated_at ?? new Date().toISOString()).slice(0, 10),
-      rationale: "Indexable precomputed Congress member SEO snapshot.",
+      rationale: "Indexable cached Congress member profile page.",
     })))
     .catch(() => []);
   return new NextResponse(sitemapUrlset(APP_URL, pages), {

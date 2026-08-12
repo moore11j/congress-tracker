@@ -7,7 +7,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_strategy_storage_schema
 from app.models import StrategyDefinition, StrategyEvent, StrategyEventDelivery, UserAccount
+from app.services import strategy_subscriptions
 from app.services.strategy_subscriptions import (
+    process_pending_strategy_event_deliveries,
     queue_strategy_event_deliveries,
     unsubscribe_strategy,
     upsert_strategy_subscription,
@@ -103,5 +105,75 @@ def test_strategy_follow_does_not_queue_events_that_predate_the_subscription():
         )
         assert queue_strategy_event_deliveries(db, events=[earlier]) == {"queued": 0, "skipped": 0}
         assert db.execute(select(StrategyEventDelivery)).scalars().all() == []
+    finally:
+        db.close()
+
+
+def test_strategy_delivery_queue_skips_downgraded_subscribers_without_deleting_subscription():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        strategy, user = _strategy_and_user(db)
+        upsert_strategy_subscription(db, user_id=user.id, slug=strategy.slug, email_enabled=True, delivery_mode="realtime", event_types=["trade_added"])
+        user.entitlement_tier = "free"
+        db.commit()
+
+        event = _event(db, strategy.id, key="event-after-downgrade")
+        assert queue_strategy_event_deliveries(db, events=[event]) == {"queued": 0, "skipped": 1}
+        assert db.execute(select(StrategyEventDelivery)).scalars().all() == []
+    finally:
+        db.close()
+
+
+def test_strategy_delivery_worker_rechecks_entitlement_after_queueing(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    calls: list[dict] = []
+    try:
+        strategy, user = _strategy_and_user(db)
+        upsert_strategy_subscription(db, user_id=user.id, slug=strategy.slug, email_enabled=True, delivery_mode="realtime", event_types=["trade_added"])
+        event = _event(db, strategy.id, key="delivery-after-downgrade")
+        assert queue_strategy_event_deliveries(db, events=[event]) == {"queued": 1, "skipped": 0}
+
+        user.entitlement_tier = "free"
+        db.commit()
+        monkeypatch.setenv("STRATEGY_EMAIL_DELIVERY_ENABLED", "true")
+        monkeypatch.setattr(strategy_subscriptions, "email_delivery_enabled", lambda: True)
+        monkeypatch.setattr(strategy_subscriptions, "send_email", lambda *_args, **kwargs: calls.append(kwargs))
+
+        assert process_pending_strategy_event_deliveries(db, now=datetime.now(timezone.utc) + timedelta(minutes=1))["skipped"] == 1
+        assert calls == []
+        assert db.execute(select(StrategyEventDelivery)).scalar_one().status == "skipped"
+    finally:
+        db.close()
+
+
+def test_strategy_delivery_worker_retries_and_uses_safe_context(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    calls: list[dict] = []
+    try:
+        strategy, user = _strategy_and_user(db)
+        upsert_strategy_subscription(db, user_id=user.id, slug=strategy.slug, email_enabled=True, delivery_mode="realtime", event_types=["trade_added"])
+        event = _event(db, strategy.id, key="delivery-worker-event")
+        queue_strategy_event_deliveries(db, events=[event])
+        monkeypatch.setenv("STRATEGY_EMAIL_DELIVERY_ENABLED", "true")
+        monkeypatch.setattr(strategy_subscriptions, "email_delivery_enabled", lambda: True)
+
+        def fake_send_email(_db, **kwargs):
+            calls.append(kwargs)
+            return {"status": "failed", "error": "temporary provider error"} if len(calls) == 1 else {"status": "sent", "provider_message_id": "provider-1"}
+
+        monkeypatch.setattr(strategy_subscriptions, "send_email", fake_send_email)
+        now = datetime(2026, 8, 9, 18, 0, tzinfo=timezone.utc)
+        assert process_pending_strategy_event_deliveries(db, now=now)["retried"] == 1
+        assert calls[0]["template_key"] == "alerts.strategy_event"
+        assert calls[0]["context"]["symbol"] == "Portfolio-level update"
+        assert calls[0]["context"]["event_label"] == "New position"
+        assert "payload_json" not in calls[0]["context"]
+        assert process_pending_strategy_event_deliveries(db, now=now + timedelta(seconds=61))["delivered"] == 1
+        delivery = db.execute(select(StrategyEventDelivery)).scalar_one()
+        assert delivery.status == "delivered"
+        assert delivery.attempts == 2
     finally:
         db.close()

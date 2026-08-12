@@ -8,7 +8,6 @@ import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsCli
 import { InsiderProfileHeaderClient } from "@/components/insider/InsiderProfileHeaderClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
-import { SeoSnapshotBaseline } from "@/components/seo/SeoSnapshotBaseline";
 import {
   getInsiderDisplayName,
   insiderDisplayNameFromSlug,
@@ -214,7 +213,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const insiderName = typeof snapshot?.payload?.insider_name === "string" ? snapshot.payload.insider_name : (getInsiderDisplayName(insiderDisplayNameFromSlug(slug)) ?? "Insider");
   const canonicalPath = snapshot?.canonical_path ?? cleanInsiderCanonicalPath(insiderSlug(insiderName, reportingCik) ?? slug);
   const title = snapshot?.title ?? `${insiderName} Insider Trades & Form 4 Activity | Walnut Markets`;
-  const description = snapshot?.meta_description ?? `Research ${insiderName}'s stored Form 4 insider trading activity and issuer context in Walnut Markets.`;
+  const description = snapshot?.meta_description ?? `Research ${insiderName}'s Form 4 insider trading activity and issuer context in Walnut Markets.`;
   if (!snapshot?.indexable) {
     return {
       ...noindexFollowMetadata(title, description),
@@ -255,22 +254,17 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const issuer = one(sp, "issuer").trim().toUpperCase();
   const chartSymbol = one(sp, "symbol").trim().toUpperCase();
   const recentTradesPage = clampPage(one(sp, "recent_trades_page"));
-  const snapshot = await getSeoSnapshot("insider", reportingCik, { source: "InsiderPageSnapshot" })
-    .then((response) => response.snapshot)
-    .catch(() => null);
   const requestHeaders = await headers();
   const authState = requestMayHavePageAuthState(requestHeaders)
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
-  if (!authState.token && !authState.hasAuthHint && snapshot?.indexable && Object.keys(sp).length === 0) {
-    return <SeoSnapshotBaseline snapshot={snapshot} />;
-  }
+  const publicStalePageCache = !authState.token && !authState.hasAuthHint;
 
   const lookbackDays = Number(lookback);
   const normalizedIssuer = issuer || undefined;
   const summaryResult = await loadInsiderSection(
     { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "summary" },
-    () => getInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, { source: "InsiderSummary" }),
+    () => getInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, { source: "InsiderSummary", stalePageCache: publicStalePageCache }),
     fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
   );
   const summary = summaryResult.data;
@@ -297,7 +291,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const headerTradesResult = needsHeaderFallback
     ? await loadInsiderSection(
         { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "header-trades" },
-        () => getInsiderTrades(reportingCik, lookbackDays, 5, normalizedIssuer, { source: "InsiderHeaderTrades" }),
+        () => getInsiderTrades(reportingCik, lookbackDays, 5, normalizedIssuer, { source: "InsiderHeaderTrades", stalePageCache: publicStalePageCache }),
         fallbackInsiderTrades(reportingCik, lookbackDays),
       )
     : null;
@@ -313,10 +307,12 @@ export default async function InsiderPage({ params, searchParams }: Props) {
       lookback_days: lookbackDays,
       issuer: normalizedIssuer,
       source: "InsiderProfileInitialAlpha",
+      stalePageCache: publicStalePageCache,
     }),
     getInsiderTrades(reportingCik, lookbackDays, 20, normalizedIssuer, {
       page: recentTradesPage,
       source: "InsiderProfileInitialTrades",
+      stalePageCache: publicStalePageCache,
     }),
     resolveWikipediaHeadshot(insiderName, {
       kind: "insider",

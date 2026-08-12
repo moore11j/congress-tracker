@@ -46,6 +46,7 @@ def send_email(
     raise_http_errors: bool = False,
     reply_to: str | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    provider_idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     normalized_to = normalize_email(to_email)
     if not normalized_to or "@" not in normalized_to:
@@ -159,6 +160,7 @@ def send_email(
             body_text=rendered["body_text"],
             body_html=rendered["body_html"],
             attachments=attachments,
+            provider_idempotency_key=provider_idempotency_key,
         )
     except Exception as exc:
         delivery.status = "failed"
@@ -365,6 +367,7 @@ def _send_with_provider(
     body_text: str,
     body_html: str | None,
     attachments: list[dict[str, Any]] | None = None,
+    provider_idempotency_key: str | None = None,
 ) -> str | None:
     normalized_attachments = _normalize_email_attachments(attachments)
     if provider == "postmark":
@@ -377,6 +380,7 @@ def _send_with_provider(
             body_text=body_text,
             body_html=body_html,
             attachments=normalized_attachments,
+            provider_idempotency_key=provider_idempotency_key,
         )
     if provider != "resend":
         raise ValueError(f"Unsupported email provider: {provider}")
@@ -399,9 +403,12 @@ def _send_with_provider(
             }
             for attachment in normalized_attachments
         ]
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if provider_idempotency_key:
+        headers["Idempotency-Key"] = provider_idempotency_key
     response = requests.post(
         "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers=headers,
         json=payload,
         timeout=20,
     )
@@ -420,6 +427,7 @@ def _send_with_postmark(
     body_text: str,
     body_html: str | None,
     attachments: list[dict[str, str]] | None = None,
+    provider_idempotency_key: str | None = None,
 ) -> str | None:
     payload: dict[str, Any] = {
         "From": from_value,

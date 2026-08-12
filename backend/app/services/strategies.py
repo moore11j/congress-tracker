@@ -8,15 +8,13 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.entitlements import PLAN_RANKS, TierEntitlements
+from app.entitlements import TierEntitlements
 from app.models import (
-    ReplicatedPortfolioPosition,
     StrategyBacktestRun,
     StrategyCurrentHolding,
     StrategyDefinition,
     StrategyEquityCurvePoint,
     StrategyPerformanceSnapshot,
-    StrategyTrade,
 )
 
 STRATEGY_SORT_FIELDS = {
@@ -46,15 +44,12 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
-def _tier_allowed(required_tier: str, entitlements: TierEntitlements) -> bool:
-    required = (required_tier or "premium").lower()
-    if required == "free":
-        return True
-    return entitlements.rank >= PLAN_RANKS.get(required, PLAN_RANKS["premium"])
+def _can_follow_strategy(entitlements: TierEntitlements) -> bool:
+    """Strategy following is a Premium capability backed by the existing alert entitlement."""
+    return entitlements.has_feature("notification_digests")
 
 
 def _definition_payload(strategy: StrategyDefinition, *, entitlements: TierEntitlements) -> dict[str, Any]:
-    can_access = _tier_allowed(strategy.access_tier, entitlements)
     return {
         "id": int(strategy.id),
         "slug": strategy.slug,
@@ -64,10 +59,10 @@ def _definition_payload(strategy: StrategyDefinition, *, entitlements: TierEntit
         "status": strategy.status,
         "accessTier": strategy.access_tier,
         "access": {
-            "requiredTier": strategy.access_tier,
+            "requiredTier": "free",
             "userTier": entitlements.tier,
-            "canAccess": can_access,
-            "locked": not can_access,
+            "canAccess": True,
+            "locked": False,
         },
         "isFeatured": bool(strategy.is_featured),
         "sortOrder": int(strategy.sort_order or 100),
@@ -173,112 +168,17 @@ def _latest_performance(db: Session, *, strategy_id: int, run_id: int, period: s
     )
 
 
-def _transaction_history_payload(
-    db: Session,
-    *,
-    strategy_id: int,
-    run: StrategyBacktestRun,
-    offset: int,
-    limit: int,
-) -> tuple[list[dict[str, Any]], int]:
-    """Return persisted historical source positions or prospective model-trade records.
-
-    Replicated Congress portfolios predate the live strategy event stream. Their
-    source positions are intentionally surfaced as reconstructed history instead
-    of being mislabeled as prospective Walnut model trades.
-    """
-    dataset_versions = _json_loads(run.dataset_versions_json, {})
-    source_run_id = dataset_versions.get("source_run_id") if isinstance(dataset_versions, dict) else None
-    source_name = dataset_versions.get("source") if isinstance(dataset_versions, dict) else None
-
-    if source_name == "replicated_portfolio_runs" and source_run_id is not None:
-        source_run_id = int(source_run_id)
-        statement = (
-            select(ReplicatedPortfolioPosition)
-            .where(ReplicatedPortfolioPosition.run_id == source_run_id)
-            .where(ReplicatedPortfolioPosition.skip_reason.is_(None))
-        )
-        total = int(db.execute(select(func.count()).select_from(statement.subquery())).scalar_one() or 0)
-        positions = (
-            db.execute(
-                statement.order_by(
-                    ReplicatedPortfolioPosition.entry_date.desc().nullslast(),
-                    ReplicatedPortfolioPosition.id.desc(),
-                )
-                .offset(offset)
-                .limit(limit)
-            )
-            .scalars()
-            .all()
-        )
-        return [
-            {
-                "id": f"replicated-{row.id}",
-                "recordType": "reconstructed_position",
-                "symbol": row.symbol,
-                "action": row.side or "buy",
-                "status": row.status,
-                "signalDate": None,
-                "effectiveDate": _iso(row.entry_date),
-                "exitDate": _iso(row.exit_date),
-                "entryPrice": row.entry_price,
-                "exitPrice": row.exit_price,
-                "returnPct": row.return_pct,
-                "weightPct": None,
-                "sourceType": row.source_type,
-                "sourceReason": row.source_reason,
-                "confidence": row.confidence,
-                "sourceDocumentId": row.source_document_id,
-                "sourceUrl": row.source_url,
-            }
-            for row in positions
-        ], total
-
-    statement = select(StrategyTrade).where(StrategyTrade.strategy_id == strategy_id)
-    total = int(db.execute(select(func.count()).select_from(statement.subquery())).scalar_one() or 0)
-    trades = (
-        db.execute(
-            statement.order_by(StrategyTrade.effective_date.desc().nullslast(), StrategyTrade.id.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        .scalars()
-        .all()
-    )
-    return [
-        {
-            "id": f"model-{row.id}",
-            "recordType": "model_trade",
-            "symbol": row.symbol,
-            "action": row.action,
-            "status": row.status,
-            "signalDate": _iso(row.signal_date),
-            "effectiveDate": _iso(row.effective_date),
-            "exitDate": None,
-            "entryPrice": row.entry_price,
-            "exitPrice": row.exit_price,
-            "returnPct": None,
-            "weightPct": row.weight_pct,
-            "sourceType": "prospective_model_trade",
-            "sourceReason": row.exit_reason,
-            "confidence": None,
-            "sourceDocumentId": None,
-            "sourceUrl": None,
-        }
-        for row in trades
-    ], total
-
-
 def _sort_value(item: dict[str, Any], sort: str) -> float:
     performance = item.get("performance") or {}
     if sort == "drawdown":
         value = performance.get("maxDrawdownPct")
         return 0.0 if value is None else -abs(float(value))
     if sort == "walnut_score":
-        value = performance.get("walnutStrategyScore")
-        if value is None:
-            value = (item.get("latestRun") or {}).get("walnutStrategyScore")
-        return float(value or 0.0)
+        validation = ((item.get("latestRun") or {}).get("diagnostics") or {}).get("validation") or {}
+        score = validation.get("walnut_strategy_score") or {}
+        if score.get("score_version") != "walnut_strategy_score_v2":
+            return -1.0
+        return float(score.get("score") or -1.0)
     field = STRATEGY_SORT_FIELDS.get(sort, "walnut_strategy_score")
     camel = {
         "cagr_pct": "cagrPct",
@@ -366,8 +266,6 @@ def strategy_detail(
     entitlements: TierEntitlements,
     period: str = "max",
     equity_limit: int = 1500,
-    holdings_offset: int = 0,
-    holdings_limit: int = 20,
     include_drafts: bool = False,
 ) -> dict[str, Any]:
     statement = select(StrategyDefinition).where(StrategyDefinition.slug == slug)
@@ -383,25 +281,10 @@ def strategy_detail(
     payload["latestRun"] = _run_payload(run)
     payload["performance"] = _performance_payload(performance)
 
-    if not payload["access"]["canAccess"]:
-        payload["equityCurve"] = []
-        payload["currentHoldings"] = []
-        payload["currentHoldingsTotal"] = 0
-        payload["currentHoldingsOffset"] = 0
-        payload["currentHoldingsLimit"] = 0
-        payload["transactionHistory"] = []
-        payload["transactionHistoryTotal"] = 0
-        payload["transactionHistoryOffset"] = 0
-        payload["transactionHistoryLimit"] = 0
-        return payload
-
     equity_curve: list[dict[str, Any]] = []
     current_holdings: list[dict[str, Any]] = []
-    normalized_holdings_offset = max(0, int(holdings_offset))
-    normalized_holdings_limit = max(1, min(int(holdings_limit), 100))
-    current_holdings_total = 0
-    transaction_history: list[dict[str, Any]] = []
-    transaction_history_total = 0
+    current_holdings_count = 0
+    can_follow = _can_follow_strategy(entitlements)
     if run:
         points = (
             db.execute(
@@ -423,21 +306,18 @@ def strategy_detail(
             }
             for point in points
         ]
-        current_holdings_total = int(
-            db.execute(
-                select(func.count())
-                .select_from(StrategyCurrentHolding)
-                .where(StrategyCurrentHolding.strategy_id == int(strategy.id))
-            ).scalar_one()
-            or 0
-        )
+    current_holdings_count = int(
+        db.execute(
+            select(func.count()).select_from(StrategyCurrentHolding).where(StrategyCurrentHolding.strategy_id == int(strategy.id))
+        ).scalar_one()
+        or 0
+    )
+    if can_follow:
         holdings = (
             db.execute(
                 select(StrategyCurrentHolding)
                 .where(StrategyCurrentHolding.strategy_id == int(strategy.id))
                 .order_by(StrategyCurrentHolding.rank.asc().nullslast(), StrategyCurrentHolding.symbol.asc())
-                .offset(normalized_holdings_offset)
-                .limit(normalized_holdings_limit)
             )
             .scalars()
             .all()
@@ -459,21 +339,13 @@ def strategy_detail(
             }
             for row in holdings
         ]
-        transaction_history, transaction_history_total = _transaction_history_payload(
-            db,
-            strategy_id=int(strategy.id),
-            run=run,
-            offset=normalized_holdings_offset,
-            limit=normalized_holdings_limit,
-        )
 
     payload["equityCurve"] = equity_curve
     payload["currentHoldings"] = current_holdings
-    payload["currentHoldingsTotal"] = current_holdings_total
-    payload["currentHoldingsOffset"] = normalized_holdings_offset
-    payload["currentHoldingsLimit"] = normalized_holdings_limit
-    payload["transactionHistory"] = transaction_history
-    payload["transactionHistoryTotal"] = transaction_history_total
-    payload["transactionHistoryOffset"] = normalized_holdings_offset
-    payload["transactionHistoryLimit"] = normalized_holdings_limit
+    payload["currentHoldingsCount"] = current_holdings_count
+    payload["strategyAccess"] = {
+        "canViewCurrentHoldings": can_follow,
+        "canFollow": can_follow,
+        "requiredTier": "premium",
+    }
     return payload

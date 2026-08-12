@@ -98,8 +98,13 @@ function isPublicInsiderRoute(pathname: string): boolean {
   return /^\/insider\/[^/]+$/.test(normalized);
 }
 
+function isPublicInstitutionRoute(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase().replace(/\/+$/, "");
+  return /^\/institution\/[^/]+$/.test(normalized);
+}
+
 function isPublicSeoEntityRoute(pathname: string): boolean {
-  return isPublicTickerRoute(pathname) || isPublicMemberRoute(pathname) || isPublicInsiderRoute(pathname);
+  return isPublicTickerRoute(pathname) || isPublicMemberRoute(pathname) || isPublicInsiderRoute(pathname) || isPublicInstitutionRoute(pathname);
 }
 
 function isApprovedTickerPilotPath(pathname: string): boolean {

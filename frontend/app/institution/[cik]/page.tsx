@@ -84,8 +84,9 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
 
   const authState = await optionalPageAuthState();
   const authToken = authState.token ?? undefined;
+  const publicStalePageCache = !authToken && !authState.hasAuthHint;
   const profile = await withServerTimeout(
-    getInstitutionProfile(cik, { authToken, source: "InstitutionProfilePage" }),
+    getInstitutionProfile(cik, { authToken, source: "InstitutionProfilePage", stalePageCache: publicStalePageCache }),
     "institution:profile",
     12000,
   ).catch(() => unavailableInstitutionProfile(cik));
@@ -101,22 +102,23 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
         limit: 50,
         authToken,
         source: "InstitutionProfileHoldings",
+        stalePageCache: publicStalePageCache,
       }),
       "institution:holdings",
       10000,
     ).catch(() => ({ items: [] })),
     withServerTimeout(
-      getInstitutionActivity(cik, { limit: 25, authToken, source: "InstitutionProfileActivity" }),
+      getInstitutionActivity(cik, { limit: 25, authToken, source: "InstitutionProfileActivity", stalePageCache: publicStalePageCache }),
       "institution:activity",
       8000,
     ).catch(() => ({ items: [] })),
     withServerTimeout(
-      getInstitutionFilings(cik, { limit: 25, authToken, source: "InstitutionProfileFilings" }),
+      getInstitutionFilings(cik, { limit: 25, authToken, source: "InstitutionProfileFilings", stalePageCache: publicStalePageCache }),
       "institution:filings",
       8000,
     ).catch(() => ({ items: [] })),
     withServerTimeout(
-      getInstitutionPerformance(cik, { authToken, source: "InstitutionProfilePerformance" }),
+      getInstitutionPerformance(cik, { authToken, source: "InstitutionProfilePerformance", stalePageCache: publicStalePageCache }),
       "institution:performance",
       15000,
     ).catch(() => unavailableInstitutionPerformance(cik)),
