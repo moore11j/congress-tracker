@@ -2659,6 +2659,8 @@ _PUBLIC_GET_RESPONSE_CACHE: dict[str, tuple[float, int, dict[str, str], bytes]] 
 _PUBLIC_GET_RESPONSE_INFLIGHT: dict[str, asyncio.Event] = {}
 _PUBLIC_GET_RESPONSE_CACHE_LOCK = threading.Lock()
 _PUBLIC_GET_RESPONSE_CACHE_STATS: dict[str, int] = {"hit": 0, "stale": 0, "store": 0, "miss": 0, "bypass": 0}
+_PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK = threading.Lock()
 _TICKER_CHART_INFLIGHT: dict[str, dict] = {}
 _TICKER_CHART_INFLIGHT_LOCK = threading.Lock()
 _CSRF_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -6119,12 +6121,59 @@ def _outcomes_disabled_response() -> None:
     raise HTTPException(status_code=404, detail="Outcome Ledger is not enabled")
 
 
+def _public_outcome_ledger_cache_ttl_seconds() -> int:
+    try:
+        return max(0, min(24 * 60 * 60, int(os.getenv("OUTCOME_LEDGER_PUBLIC_CACHE_TTL_SECONDS", str(12 * 60 * 60)) or 0)))
+    except ValueError:
+        return 12 * 60 * 60
+
+
+def _public_outcome_ledger_cache_control() -> str:
+    ttl = _public_outcome_ledger_cache_ttl_seconds()
+    if ttl <= 0:
+        return "no-store"
+    return f"public, max-age={ttl}, s-maxage={ttl}, stale-while-revalidate={ttl}"
+
+
+def _public_outcome_ledger_cache_get(cache_key: str) -> dict[str, Any] | None:
+    ttl = _public_outcome_ledger_cache_ttl_seconds()
+    if ttl <= 0:
+        return None
+    now = time.time()
+    with _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK:
+        cached = _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE.get(cache_key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE.pop(cache_key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _public_outcome_ledger_cache_set(cache_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    ttl = _public_outcome_ledger_cache_ttl_seconds()
+    if ttl <= 0:
+        return payload
+    with _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK:
+        if len(_PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE) >= 32:
+            oldest_key = next(iter(_PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE), None)
+            if oldest_key is not None:
+                _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE.pop(oldest_key, None)
+        _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE[cache_key] = (time.time() + ttl, copy.deepcopy(payload))
+    return payload
+
+
 @app.get("/api/outcomes/status")
 def outcomes_status(response: Response, db: Session = Depends(get_db)):
     if not outcome_ledger_enabled(db):
         _outcomes_disabled_response()
-    response.headers["Cache-Control"] = "private, max-age=30"
-    return outcome_ledger_status(db)
+    response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
+    cache_key = "status"
+    cached = _public_outcome_ledger_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    return _public_outcome_ledger_cache_set(cache_key, outcome_ledger_status(db))
 
 
 @app.get("/api/outcomes/snapshots")
@@ -6141,8 +6190,24 @@ def outcomes_snapshots(
 ):
     if not outcome_ledger_enabled(db):
         _outcomes_disabled_response()
-    response.headers["Cache-Control"] = "private, max-age=30"
-    return list_outcome_snapshots(
+    response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
+    cache_key = json.dumps(
+        {
+            "end_date": end_date,
+            "calculation_type": calculation_type,
+            "limit": limit,
+            "methodology": methodology,
+            "page": page,
+            "start_date": start_date,
+            "ticker": ticker,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    cached = _public_outcome_ledger_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    payload = list_outcome_snapshots(
         db,
         page=page,
         limit=limit,
@@ -6153,6 +6218,7 @@ def outcomes_snapshots(
         end_date=_parse_outcome_date(end_date),
         include_internal=False,
     )
+    return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
 @app.get("/api/admin/outcomes/status")

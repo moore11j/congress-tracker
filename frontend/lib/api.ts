@@ -670,6 +670,7 @@ const tickerDataPromises = new Map<string, Promise<unknown>>();
 const serverPublicJsonCache = new Map<string, { value: unknown; expiresAt: number }>();
 const serverInflightJsonRequests = new Map<string, Promise<unknown>>();
 const SERVER_PUBLIC_CACHE_TTL_MS = 30_000;
+const OUTCOME_LEDGER_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SERVER_PLAN_CONFIG_CACHE_TTL_MS = 60_000;
 const SERVER_PUBLIC_CACHE_MAX_ENTRIES = 512;
 const SERVER_INFLIGHT_MAX_ENTRIES = 512;
@@ -7771,19 +7772,31 @@ export type OutcomeSnapshotsResponse = {
 };
 
 export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
-  return fetchJson<OutcomeLedgerStatus>(buildApiUrl("/api/outcomes/status"), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    source: "OutcomeLedgerPage",
-  });
+  const url = buildApiUrl("/api/outcomes/status");
+  return serverCachedJson(
+    `outcome-ledger-status:${url}`,
+    () =>
+      fetchPublicJson<OutcomeLedgerStatus>(url, {
+        cache: "force-cache",
+        next: { revalidate: 60 * 60 * 12 },
+        source: "OutcomeLedgerPage",
+      }),
+    OUTCOME_LEDGER_CACHE_TTL_MS,
+  );
 }
 
 export async function getOutcomeSnapshots(params: QueryParams = {}): Promise<OutcomeSnapshotsResponse> {
-  return fetchJson<OutcomeSnapshotsResponse>(buildApiUrl("/api/outcomes/snapshots", params), {
-    cache: "no-store",
-    next: { revalidate: 0 },
-    source: "OutcomeLedgerPage",
-  });
+  const url = buildApiUrl("/api/outcomes/snapshots", params);
+  return serverCachedJson(
+    `outcome-ledger-snapshots:${url}`,
+    () =>
+      fetchPublicJson<OutcomeSnapshotsResponse>(url, {
+        cache: "force-cache",
+        next: { revalidate: 60 * 60 * 12 },
+        source: "OutcomeLedgerPage",
+      }),
+    OUTCOME_LEDGER_CACHE_TTL_MS,
+  );
 }
 
 export async function getAdminOutcomeLedgerStatus(): Promise<AdminOutcomeLedgerStatus> {

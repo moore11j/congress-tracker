@@ -17,6 +17,13 @@ from app.services.outcome_ledger import (
     input_hash_for_confirmation_bundle,
     list_outcome_snapshots,
 )
+from app.main import (
+    _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE,
+    _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK,
+    _public_outcome_ledger_cache_control,
+    _public_outcome_ledger_cache_get,
+    _public_outcome_ledger_cache_set,
+)
 from app.seed_outcome_ledger_demo import seed_hydrated_outcome_ledger_demo_snapshots, seed_outcome_ledger_demo_snapshots
 
 
@@ -57,6 +64,28 @@ def _bundle(score: int = 67, direction: str = "bearish") -> dict:
             },
         },
     }
+
+
+def test_public_outcome_ledger_cache_uses_long_public_ttl(monkeypatch):
+    monkeypatch.setenv("OUTCOME_LEDGER_PUBLIC_CACHE_TTL_SECONDS", "43200")
+
+    assert _public_outcome_ledger_cache_control() == "public, max-age=43200, s-maxage=43200, stale-while-revalidate=43200"
+
+
+def test_public_outcome_ledger_cache_returns_deep_copies(monkeypatch):
+    monkeypatch.setenv("OUTCOME_LEDGER_PUBLIC_CACHE_TTL_SECONDS", "43200")
+    with _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK:
+        _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE.clear()
+
+    original = {"items": [{"ticker": "NVDA"}], "total": 1}
+    _public_outcome_ledger_cache_set("snapshots:test", original)
+    original["items"][0]["ticker"] = "MUTATED"
+
+    cached = _public_outcome_ledger_cache_get("snapshots:test")
+    assert cached == {"items": [{"ticker": "NVDA"}], "total": 1}
+    cached["items"][0]["ticker"] = "AAPL"
+
+    assert _public_outcome_ledger_cache_get("snapshots:test") == {"items": [{"ticker": "NVDA"}], "total": 1}
 
 
 def test_methodology_seed_and_single_current_version():

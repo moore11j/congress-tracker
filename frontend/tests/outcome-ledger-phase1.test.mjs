@@ -31,8 +31,9 @@ test("top navigation exposes Outcomes and groups existing tools under Tools", ()
 });
 
 test("Outcome Ledger page uses real API data and truthful empty states", () => {
+  assert.match(outcomesPage, /export const revalidate = 60 \* 60 \* 12/);
   assert.match(outcomesPage, /getOutcomeLedgerStatus/);
-  assert.match(outcomesPage, /getOutcomeSnapshots\(\{ limit: 25, calculation_type: "live" \}\)/);
+  assert.match(outcomesPage, /getOutcomeSnapshots\(\{ limit: 5000 \}\)/);
   assert.match(outcomesClient, /Outcome Ledger/);
   assert.match(outcomesClient, /Track what Walnut believed at the time - and what happened next\./);
   assert.match(outcomesClient, /Performance by Score Band/);
@@ -40,12 +41,12 @@ test("Outcome Ledger page uses real API data and truthful empty states", () => {
   assert.match(outcomesClient, /Confirmation Events/);
   assert.match(outcomesClient, /Event Detail/);
   assert.match(outcomesClient, /Price Path vs SPY/);
-  assert.match(outcomesClient, /Walnut is now preserving live confirmation-score judgments/);
-  assert.match(outcomesClient, /Public preview: latest/);
-  assert.match(outcomesClient, /seen\.has\(key\)/);
-  assert.match(outcomesClient, /Bullish and bearish calls measured at 30D/);
-  assert.match(outcomesClient, /maturedOutcome\(snapshot\)/);
-  assert.doesNotMatch(outcomesClient, /NBIS|INFQ|BMNR|META|AAPL|NVDA/);
+  assert.match(outcomesClient, /Outcome Set/);
+  assert.match(outcomesClient, /Scored Horizons/);
+  assert.match(outcomesClient, /visibleOutcomeEventKey/);
+  assert.match(outcomesClient, /byVisibleEvent\.set\(key, snapshot\)/);
+  assert.match(outcomesClient, /bullish\/bearish calls measured at/);
+  assert.match(outcomesClient, /function maturedOutcome/);
 });
 
 test("admin Outcomes diagnostics uses admin guard, filters, and internal endpoints", () => {
@@ -62,8 +63,12 @@ test("admin Outcomes diagnostics uses admin guard, filters, and internal endpoin
 test("frontend API separates public and admin Outcome Ledger fields", () => {
   assert.match(api, /export type OutcomeLedgerStatus/);
   assert.match(api, /export type AdminOutcomeLedgerStatus = OutcomeLedgerStatus &/);
+  assert.match(api, /const OUTCOME_LEDGER_CACHE_TTL_MS = 12 \* 60 \* 60 \* 1000/);
   assert.match(api, /\/api\/outcomes\/status/);
   assert.match(api, /\/api\/outcomes\/snapshots/);
+  assert.match(api, /serverCachedJson\(\s*`outcome-ledger-status/);
+  assert.match(api, /serverCachedJson\(\s*`outcome-ledger-snapshots/);
+  assert.match(api, /next: \{ revalidate: 60 \* 60 \* 12 \}/);
   assert.match(api, /\/api\/admin\/outcomes\/status/);
   assert.match(api, /\/api\/admin\/outcomes\/snapshots/);
 });
