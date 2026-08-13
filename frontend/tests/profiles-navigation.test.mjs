@@ -142,6 +142,21 @@ test("congress trading snapshot chart renders area fill and full axes", () => {
   assert.match(source, /points\.map\(\(point\) => <span key=\{point\.label\}/);
 });
 
+test("congress dashboard adds full-width monthly buy sell activity chart", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /<Panel title="Activity over time" action="Monthly"><CongressActivityOverTime rows=\{monthly\} \/><\/Panel>/);
+  assert.match(source, /function CongressActivityOverTime/);
+  assert.match(source, /Buy Value \(USD\)/);
+  assert.match(source, /Sell Value \(USD\)/);
+  assert.match(source, /Total Trades/);
+  assert.match(source, /const valueTicks = \[valueLimit, valueLimit \* 2 \/ 3, valueLimit \/ 3, 0, -valueLimit \/ 3, -valueLimit \* 2 \/ 3, -valueLimit\]/);
+  assert.match(source, /const tradeTicks = \[tradeLimit, tradeLimit \* 5 \/ 6, tradeLimit \* 4 \/ 6, tradeLimit \* 3 \/ 6, tradeLimit \* 2 \/ 6, tradeLimit \/ 6, 0\]/);
+  assert.match(source, /fill="#42d3a7"/);
+  assert.match(source, /fill="#fb7185"/);
+  assert.match(source, /stroke="#60a5fa"/);
+});
+
 test("insider trading snapshot chart renders monthly net value and trade axes", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
   const api = read("lib/api.ts");
