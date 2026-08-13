@@ -120,3 +120,24 @@ def test_evaluation_records_exits_and_rebalances_without_rewriting_history():
         ]
     finally:
         db.close()
+
+
+def test_initialization_writes_holdings_without_emitting_subscriber_events():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        strategy, version = _strategy(db)
+        result = evaluate_strategy_candidates(
+            db,
+            strategy_id=strategy.id,
+            strategy_version_id=version.id,
+            evaluation_date=date(2026, 8, 10),
+            universe_count=1,
+            candidates=[StrategyEvaluationCandidate("NVDA", weight_pct=100)],
+            initialize=True,
+        )
+        assert result["changes"] == {"added": 1, "exited": 0, "rebalanced": 0}
+        assert db.execute(select(StrategyEvent)).scalars().all() == []
+        assert [holding.symbol for holding in db.execute(select(StrategyLiveHolding)).scalars()] == ["NVDA"]
+    finally:
+        db.close()

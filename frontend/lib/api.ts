@@ -3233,6 +3233,26 @@ export type StrategyDetailPayload = StrategyDefinitionPayload & {
   equityCurve?: StrategyEquityPoint[];
   currentHoldings?: StrategyHolding[];
   currentHoldingsCount?: number;
+  currentHoldingsTotal?: number;
+  currentHoldingsOffset?: number;
+  holdingsSource?: "prospective_monitor" | "historical_backtest" | string;
+  transactionHistory?: Array<{
+    recordType: string;
+    symbol?: string | null;
+    tickerAtTime?: string | null;
+    action?: string | null;
+    status?: string | null;
+    effectiveDate?: string | null;
+    entryPrice?: number | null;
+    exitPrice?: number | null;
+    returnPct?: number | null;
+    weightPct?: number | null;
+    exitReason?: string | null;
+    sourceType?: string | null;
+    confidence?: string | null;
+  }>;
+  transactionHistoryTotal?: number;
+  transactionHistoryOffset?: number;
   strategyAccess?: {
     canViewCurrentHoldings: boolean;
     canFollow: boolean;

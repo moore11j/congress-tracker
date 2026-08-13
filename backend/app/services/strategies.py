@@ -14,8 +14,11 @@ from app.models import (
     StrategyCurrentHolding,
     StrategyDefinition,
     StrategyEquityCurvePoint,
+    StrategyLiveHolding,
     StrategyPerformanceSnapshot,
+    StrategyTrade,
     StrategyVersion,
+    ReplicatedPortfolioPosition,
 )
 
 STRATEGY_SORT_FIELDS = {
@@ -223,6 +226,7 @@ def list_strategy_cards(
         run = _latest_run(db, int(strategy.id))
         performance = _latest_performance(db, strategy_id=int(strategy.id), run_id=int(run.id), period=period) if run else None
         payload = _definition_payload(strategy, entitlements=entitlements)
+        payload["prospectiveActive"] = _has_active_prospective_version(db, int(strategy.id))
         payload["latestRun"] = _run_payload(run)
         payload["performance"] = _performance_payload(performance)
         items.append(payload)
@@ -278,6 +282,8 @@ def strategy_detail(
     entitlements: TierEntitlements,
     period: str = "max",
     equity_limit: int = 1500,
+    holdings_offset: int = 0,
+    holdings_limit: int = 20,
     include_drafts: bool = False,
 ) -> dict[str, Any]:
     statement = select(StrategyDefinition).where(StrategyDefinition.slug == slug)
@@ -319,43 +325,121 @@ def strategy_detail(
             }
             for point in points
         ]
+    holdings_model = StrategyLiveHolding if payload["prospectiveActive"] else StrategyCurrentHolding
+    holdings_offset = max(0, int(holdings_offset))
+    holdings_limit = max(1, min(100, int(holdings_limit)))
     current_holdings_count = int(
         db.execute(
-            select(func.count()).select_from(StrategyCurrentHolding).where(StrategyCurrentHolding.strategy_id == int(strategy.id))
+            select(func.count()).select_from(holdings_model).where(holdings_model.strategy_id == int(strategy.id))
         ).scalar_one()
         or 0
     )
     if can_follow:
-        holdings = (
-            db.execute(
-                select(StrategyCurrentHolding)
-                .where(StrategyCurrentHolding.strategy_id == int(strategy.id))
-                .order_by(StrategyCurrentHolding.rank.asc().nullslast(), StrategyCurrentHolding.symbol.asc())
-            )
-            .scalars()
-            .all()
-        )
-        current_holdings = [
-            {
-                "symbol": row.symbol,
-                "companyName": row.company_name,
-                "sector": row.sector,
-                "rank": row.rank,
-                "weightPct": row.weight_pct,
-                "entryDate": _iso(row.entry_date),
-                "lastPrice": row.last_price,
-                "returnPct": row.return_pct,
-                "sourceSignalCount": row.source_signal_count,
-                "sourceSignals": _json_loads(row.source_signals_json, []),
-                "payload": _json_loads(row.payload_json, {}),
-                "asOfDate": _iso(row.as_of_date),
-            }
-            for row in holdings
-        ]
+        holdings = db.execute(
+            select(holdings_model)
+            .where(holdings_model.strategy_id == int(strategy.id))
+            .order_by(holdings_model.rank.asc().nullslast(), holdings_model.symbol.asc())
+            .offset(holdings_offset)
+            .limit(holdings_limit)
+        ).scalars().all()
+        if payload["prospectiveActive"]:
+            current_holdings = [
+                {
+                    "symbol": row.symbol,
+                    "companyName": row.company_name,
+                    "sector": row.sector,
+                    "rank": row.rank,
+                    "weightPct": row.weight_pct,
+                    "entryDate": _iso(row.entry_date),
+                    "lastPrice": row.entry_price,
+                    "returnPct": None,
+                    "sourceSignalCount": row.source_count or 0,
+                    "sourceSignals": [],
+                    "payload": _json_loads(row.qualification_snapshot_json, {}),
+                    "asOfDate": _iso(row.as_of_date),
+                }
+                for row in holdings
+            ]
+        else:
+            current_holdings = [
+                {
+                    "symbol": row.symbol,
+                    "companyName": row.company_name,
+                    "sector": row.sector,
+                    "rank": row.rank,
+                    "weightPct": row.weight_pct,
+                    "entryDate": _iso(row.entry_date),
+                    "lastPrice": row.last_price,
+                    "returnPct": row.return_pct,
+                    "sourceSignalCount": row.source_signal_count,
+                    "sourceSignals": _json_loads(row.source_signals_json, []),
+                    "payload": _json_loads(row.payload_json, {}),
+                    "asOfDate": _iso(row.as_of_date),
+                }
+                for row in holdings
+            ]
 
     payload["equityCurve"] = equity_curve
     payload["currentHoldings"] = current_holdings
     payload["currentHoldingsCount"] = current_holdings_count
+    payload["currentHoldingsTotal"] = current_holdings_count
+    payload["currentHoldingsOffset"] = holdings_offset
+    payload["holdingsSource"] = "prospective_monitor" if payload["prospectiveActive"] else "historical_backtest"
+    transaction_history: list[dict[str, Any]] = []
+    transaction_total = 0
+    if can_follow:
+        model_trades = db.execute(
+            select(StrategyTrade)
+            .where(StrategyTrade.strategy_id == int(strategy.id))
+            .order_by(StrategyTrade.effective_date.desc().nullslast(), StrategyTrade.id.desc())
+        ).scalars().all()
+        source_positions: list[ReplicatedPortfolioPosition] = []
+        if not model_trades and run is not None:
+            dataset = _json_loads(run.dataset_versions_json, {})
+            source_run_id = dataset.get("source_run_id") if isinstance(dataset, dict) else None
+            if source_run_id is not None:
+                source_positions = db.execute(
+                    select(ReplicatedPortfolioPosition)
+                    .where(ReplicatedPortfolioPosition.run_id == int(source_run_id))
+                    .order_by(ReplicatedPortfolioPosition.entry_date.desc().nullslast(), ReplicatedPortfolioPosition.id.desc())
+                ).scalars().all()
+        if model_trades:
+            transaction_total = len(model_trades)
+            transaction_history = [
+                {
+                    "recordType": "model_trade",
+                    "symbol": row.symbol,
+                    "tickerAtTime": row.ticker_at_time,
+                    "action": row.action,
+                    "status": row.status,
+                    "effectiveDate": _iso(row.effective_date),
+                    "entryPrice": row.entry_price,
+                    "exitPrice": row.exit_price,
+                    "weightPct": row.weight_pct,
+                    "exitReason": row.exit_reason,
+                }
+                for row in model_trades[holdings_offset : holdings_offset + holdings_limit]
+            ]
+        else:
+            transaction_total = len(source_positions)
+            transaction_history = [
+                {
+                    "recordType": "reconstructed_position",
+                    "symbol": row.symbol,
+                    "action": row.side,
+                    "status": row.status,
+                    "effectiveDate": _iso(row.entry_date),
+                    "entryPrice": row.entry_price,
+                    "exitPrice": row.exit_price,
+                    "returnPct": row.return_pct,
+                    "sourceType": row.source_type,
+                    "confidence": row.confidence,
+                }
+                for row in source_positions[holdings_offset : holdings_offset + holdings_limit]
+            ]
+    payload["transactionHistory"] = transaction_history
+    payload["transactionHistoryTotal"] = transaction_total
+    payload["transactionHistoryOffset"] = holdings_offset
     payload["strategyAccess"] = {
         "canViewCurrentHoldings": can_follow,
         "canFollow": can_follow,

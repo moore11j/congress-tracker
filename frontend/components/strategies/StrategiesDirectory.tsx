@@ -57,6 +57,7 @@ function validatedScore(strategy: StrategyDefinitionPayload) {
 }
 
 function displayStatus(strategy: StrategyDefinitionPayload) {
+  if (strategy.prospectiveActive) return "Live";
   if (strategy.status === "live" || strategy.latestRun?.runType === "live") return "Live";
   if (strategy.status === "published") return "Backtested";
   return strategy.status.replaceAll("_", " ");

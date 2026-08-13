@@ -125,6 +125,11 @@ def run_active_strategy_evaluations(
     failures: list[dict] = []
     for strategy, version in active:
         try:
+            is_initialization = db.execute(
+                select(StrategyEvaluationRun.id)
+                .where(StrategyEvaluationRun.strategy_id == strategy.id, StrategyEvaluationRun.strategy_version_id == version.id)
+                .limit(1)
+            ).scalar_one_or_none() is None
             resolution = resolve_strategy_candidates(
                 db,
                 strategy_version_id=int(version.id),
@@ -139,8 +144,9 @@ def run_active_strategy_evaluations(
                 candidates=resolution.candidates,
                 universe_count=resolution.universe_count,
                 scheduled_for=now,
+                initialize=is_initialization,
             )
-            results.append({"slug": strategy.slug, "version": int(version.version), **result})
+            results.append({"slug": strategy.slug, "version": int(version.version), "initialization": is_initialization, **result})
         except Exception as exc:
             db.rollback()
             _record_failed_run(
