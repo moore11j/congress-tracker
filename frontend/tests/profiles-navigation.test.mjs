@@ -99,6 +99,15 @@ test("profiles overview activity mix uses aggregate summary data", () => {
   assert.doesNotMatch(source, /const counts = categories\.map\(\(type\) => activity\.filter/);
 });
 
+test("latest profile activity keeps value visible on mobile", () => {
+  const source = read("components/profiles/LatestProfileActivity.tsx");
+
+  assert.match(source, /hidden w-\[4\.9rem\][^"]*sm:table-cell">Type/);
+  assert.match(source, /hidden px-1\.5 py-1\.5 sm:table-cell/);
+  assert.match(source, /w-\[4\.4rem\][^"]*text-right">Value/);
+  assert.match(source, /formatValue\(item\.value\)/);
+});
+
 test("congress top moving sectors uses bounded sparklines", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
