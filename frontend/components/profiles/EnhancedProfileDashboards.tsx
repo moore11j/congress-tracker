@@ -157,13 +157,48 @@ function ProfileDashboard({ flavor, eyebrow, title, subtitle, filter, comparison
 }
 
 function OverviewCard({ card }: { card: ProfilesSummaryResponse["cards"][number] }) {
+  const chartMetric = overviewChartMetric(card);
+  const chartValues = overviewChartValues(chartMetric, card.kind);
+
   return <Link href={card.href} prefetch={false} className="group min-w-0 overflow-hidden rounded-lg border border-slate-700/70 bg-slate-950/65 p-4 transition hover:border-emerald-300/45 hover:bg-slate-900/80">
-    <div className="flex items-start justify-between gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 text-lg text-emerald-200">{profileIcon(card.kind)}</span><span className="text-[11px] font-semibold uppercase tracking-[.16em] text-emerald-300">Live</span></div>
+    <div className="flex items-start justify-between gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 text-lg text-emerald-200">{profileIcon(card.kind)}</span>
+      <div className="min-w-[7rem] flex-1 sm:max-w-[9rem]">
+        <OverviewMiniChart id={`profile-card-${card.kind}`} values={chartValues} />
+      </div>
+    </div>
     <h2 className="mt-3 text-base font-semibold text-white">{card.title}</h2><p className="mt-1 min-h-10 text-xs leading-5 text-slate-300">{card.description}</p>
     <div className="mt-3 grid grid-cols-2 gap-2">{card.metrics.slice(0, 2).map((metric) => <div key={metric.label} className="rounded-md border border-slate-700/80 bg-slate-950/80 p-3"><p className="text-lg font-semibold tabular-nums text-white">{formatMetric(metric)}</p><p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500">{metric.label}</p><p className={`mt-1 truncate text-[10px] font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}%` : "No prior comparable"}</p></div>)}</div>
     <p className="mt-2 truncate text-[10px] text-slate-500">{card.comparison_label ?? "Latest available period"}</p>
     <span className="mt-3 inline-flex text-sm font-semibold text-emerald-200">View {card.title} -&gt;</span>
   </Link>;
+}
+
+function OverviewMiniChart({ id, values }: { id: string; values: number[] }) {
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, max);
+  const range = Math.max(max - min, max * 0.18, 1);
+  const plotTop = 6;
+  const plotBottom = 54;
+  const barWidth = 120 / Math.max(values.length * 1.55, 1);
+  const points = values.map((value, index) => {
+    const x = (index / Math.max(values.length - 1, 1)) * 118 + 1;
+    const y = plotBottom - ((value - min) / range) * (plotBottom - plotTop);
+    return `${x},${Math.max(plotTop, Math.min(plotBottom, y))}`;
+  });
+  const area = `M 1 ${plotBottom} L ${points.join(" L ")} L 119 ${plotBottom} Z`;
+
+  return <svg viewBox="0 0 120 60" preserveAspectRatio="none" className="h-16 w-full overflow-visible" aria-hidden="true">
+    <defs><linearGradient id={`${id}-area`} x1="0" x2="0" y1="0" y2="1"><stop stopColor="#42d3a7" stopOpacity=".34" /><stop offset="1" stopColor="#42d3a7" stopOpacity="0" /></linearGradient></defs>
+    <path d={area} fill={`url(#${id}-area)`} />
+    {values.map((value, index) => {
+      const normalized = (value - min) / range;
+      const height = Math.max(5, normalized * 38 + 7);
+      const x = 2 + index * (116 / Math.max(values.length - 1, 1)) - barWidth / 2;
+      return <rect key={`${value}-${index}`} x={x} y={plotBottom - height} width={barWidth} height={height} rx="1" fill="#42d3a7" opacity=".58" />;
+    })}
+    <polyline points={points.join(" ")} fill="none" stroke="#6ff0bf" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+  </svg>;
 }
 
 function Panel({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: ReactNode; children: ReactNode }) {
@@ -180,7 +215,35 @@ function SectorBreakdown({ rows }: { rows: ProfileSectorPeriod[] }) { const labe
 
 function TrendChart({ series }: { series: Array<{ label: string; value: number }> }) { if (!series.length) return <p className="flex h-40 items-center justify-center text-sm text-slate-400">No time-series records are available.</p>; const max = Math.max(...series.map((point) => point.value), 1); const ticks = [max, max / 2, 0]; const plotTop = 8; const plotBottom = 92; const points = series.map((point, index) => { const x = (index / Math.max(series.length - 1, 1)) * 100; const y = plotBottom - (Math.max(point.value, 0) / max) * (plotBottom - plotTop); return `${x},${y}`; }).join(" "); return <div className="min-w-0"><div className="grid grid-cols-[3.8rem_minmax(0,1fr)] gap-3"><div className="flex h-40 flex-col justify-between py-1 text-right text-[10px] font-semibold tabular-nums text-slate-500">{ticks.map((tick) => <span key={tick}>{formatAxisValue(tick)}</span>)}</div><div className="min-w-0"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full overflow-hidden"><defs><linearGradient id="profile-trend" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#42d3a7" stopOpacity=".35" /><stop offset="1" stopColor="#42d3a7" stopOpacity="0" /></linearGradient></defs>{[plotTop, (plotTop + plotBottom) / 2, plotBottom].map((y) => <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}<polyline points={`0,${plotBottom} ${points} 100,${plotBottom}`} fill="url(#profile-trend)" stroke="none" /><polyline points={points} fill="none" stroke="#55e3b0" strokeWidth="1.7" vectorEffect="non-scaling-stroke" /></svg><div className="mt-2 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}>{series.map((point) => <span key={point.label} className="truncate text-center">{point.label}</span>)}</div></div></div></div>; }
 
-function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }) { if (!series.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No historical database activity is available.</p>; const categories = ["Congress", "Insider", "Institution", "Department"] as const; const max = Math.max(...series.flatMap((point) => categories.map((category) => point[category])), 1); const line = (category: typeof categories[number]) => series.map((point, index) => `${(index / Math.max(series.length - 1, 1)) * 100},${100 - (point[category] / max) * 88}`).join(" "); return <div><div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{categories.map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="mt-3 h-36 w-full overflow-visible border-b border-white/10">{[25, 50, 75].map((y) => <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}{categories.map((category) => <polyline key={category} points={line(category)} fill="none" stroke={PROFILE_COLORS[category]} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />)}</svg><div className="mt-2 flex justify-between gap-3 text-[10px] text-slate-500"><span>{series[0].period}</span><span>{series[Math.floor((series.length - 1) / 2)].period}</span><span>{series[series.length - 1].period}</span></div></div>; }
+function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }) {
+  if (!series.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No historical database activity is available.</p>;
+
+  const categories = ["Congress", "Insider", "Institution", "Department"] as const;
+  const max = Math.max(...series.flatMap((point) => categories.map((category) => point[category])), 1);
+  const axisMax = roundAxisMax(max);
+  const yTicks = [axisMax, axisMax * 2 / 3, axisMax / 3, 0];
+  const plotTop = 8;
+  const plotBottom = 92;
+  const minChartWidth = Math.max(38, series.length * 3.25);
+  const yFor = (value: number) => plotBottom - (Math.max(value, 0) / axisMax) * (plotBottom - plotTop);
+  const line = (category: typeof categories[number]) => series.map((point, index) => `${(index / Math.max(series.length - 1, 1)) * 100},${yFor(point[category])}`).join(" ");
+
+  return <div>
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{categories.map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div>
+    <div className="mt-3 grid grid-cols-[3.2rem_minmax(0,1fr)] gap-3">
+      <div className="flex h-40 flex-col justify-between py-1 text-right text-[10px] font-semibold tabular-nums text-slate-500">{yTicks.map((tick) => <span key={tick}>{formatCompactNumber(tick)}</span>)}</div>
+      <div className="min-w-0 overflow-x-auto pb-1">
+        <div style={{ minWidth: `${minChartWidth}rem` }}>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full overflow-visible border-b border-white/10">
+            {yTicks.map((tick) => <line key={tick} x1="0" x2="100" y1={yFor(tick)} y2={yFor(tick)} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}
+            {categories.map((category) => <polyline key={category} points={line(category)} fill="none" stroke={PROFILE_COLORS[category]} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />)}
+          </svg>
+          <div className="mt-2 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}>{series.map((point) => <span key={point.period} className="truncate text-center">{point.period}</span>)}</div>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
 
 function TopMovingSectors({ rows }: { rows: ProfileSectorMover[] }) { if (!rows.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No sector-mapped activity is available.</p>; const max = Math.max(...rows.map((row) => row.current_value), 1); return <div><div className="space-y-2.5">{rows.map((row) => <div key={row.sector} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_3.5rem] items-center gap-2 text-xs"><span className="truncate text-slate-300">{row.sector}</span><div className="flex h-2.5 overflow-hidden rounded-sm bg-slate-800" title={`${row.current_value.toLocaleString()} recent activities vs ${row.previous_value.toLocaleString()} prior activities`}>{row.segments.map((segment) => segment.value ? <span key={segment.type} style={{ width: `${(segment.value / max) * 100}%`, backgroundColor: PROFILE_COLORS[segment.type] }} /> : null)}</div><span className={`text-right font-semibold tabular-nums ${row.change >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{row.change >= 0 ? "+" : ""}{formatNumber(row.change)}</span></div>)}</div><div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{["Congress", "Insider", "Institution", "Department"].map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div></div>; }
 
@@ -208,10 +271,13 @@ function snapshotLabels(flavor: DashboardFlavor) { return flavor === "congress" 
 function sectorLabels(rows: ProfileSectorPeriod[]) { const latest = rows[rows.length - 1]?.segments.map((segment) => segment.label) ?? []; return [...latest, ...Array.from(new Set(rows.flatMap((row) => row.segments.map((segment) => segment.label)))).filter((label) => !latest.includes(label))]; }
 function orderedSegments(row: ProfileSectorPeriod, labels: string[]) { const byLabel = new Map(row.segments.map((segment) => [segment.label, segment])); return labels.map((label) => byLabel.get(label)).filter((segment): segment is NonNullable<typeof segment> => Boolean(segment)); }
 function colorFor(label: string, labels: string[]) { return COLORS[Math.max(labels.indexOf(label), 0) % COLORS.length]; }
+function overviewChartMetric(card: ProfilesSummaryResponse["cards"][number]) { const labelsByKind: Record<string, string[]> = { congress: ["trade"], insiders: ["trade"], institutions: ["portfolio"], departments: ["contract"] }; const preferred = labelsByKind[card.kind] ?? []; return card.metrics.find((metric) => preferred.some((label) => metric.label.toLowerCase().includes(label))) ?? card.metrics[0]; }
+function overviewChartValues(metric: ProfileMetric | undefined, kind: string) { const current = Math.max(metric?.value ?? 0, 1); const changeFactor = typeof metric?.change_pct === "number" ? metric.change_pct / 100 : 0; const prior = typeof metric?.previous_value === "number" && Number.isFinite(metric.previous_value) ? Math.max(metric.previous_value, 0) : Math.max(current / Math.max(1 + changeFactor, 0.2), 1); const phase = kind.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) % 9; return Array.from({ length: 18 }, (_, index) => { const progress = index / 17; const wave = Math.sin((progress * Math.PI * 3.2) + phase) * 0.09 + Math.cos((progress * Math.PI * 5.1) + phase) * 0.04; const trend = prior + (current - prior) * progress; return Math.max(trend * (1 + wave), 0); }); }
 function renderCell(row: Row, key: string, format?: CellFormat) { const value = row[key]; if (format === "link") { const href = typeof row.href === "string" ? row.href : typeof row.profile_href === "string" ? row.profile_href : typeof row.ticker_href === "string" ? row.ticker_href : null; const text = String(value ?? "-"); return href ? <Link href={href} prefetch={false} className="font-semibold text-emerald-200 hover:text-emerald-100">{text}</Link> : <span className="font-semibold text-emerald-200">{text}</span>; } if (format === "currency") return formatMoney(asNumber(value)); if (format === "number") return formatNumber(asNumber(value)); if (format === "percent") return typeof value === "number" ? `${value >= 0 ? "+" : ""}${value.toFixed(1)}%` : "-"; if (format === "date") return typeof value === "string" ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value)) : "-"; return String(value ?? "-"); }
 function formatMetric(metric?: ProfileMetric) { if (!metric) return "-"; return metric.format === "currency" ? formatMoney(metric.value) : formatNumber(metric.value); }
 function formatUnknown(value: unknown) { return typeof value === "number" ? formatMoney(value) : "-"; }
 function formatAxisValue(value: number) { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(value); }
+function formatCompactNumber(value: number) { return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value); }
 function formatMoney(value?: number | null) { if (typeof value !== "number" || !Number.isFinite(value)) return "-"; return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(value); }
 function formatDate(value: string) { const parsed = new Date(value); return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(parsed); }
 function formatNumber(value?: number | null) { return typeof value === "number" && Number.isFinite(value) ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value) : "-"; }
