@@ -141,8 +141,6 @@ export function StrategiesDirectory({ data, featured, category, period, sort }: 
       <div className="flex flex-wrap gap-2"><Link href="/backtesting" className="rounded-md bg-emerald-400/15 px-3 py-2 text-sm font-semibold text-emerald-50 ring-1 ring-emerald-300/30 transition hover:bg-emerald-400/25">Run backtest</Link><Link href="/strategies/methodology" className="rounded-md border border-white/15 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:text-emerald-100">View methodology</Link></div>
     </section>
 
-    <section className="rounded-lg border border-sky-300/20 bg-sky-300/[0.06] px-4 py-3 text-sm leading-6 text-slate-300"><span className="font-semibold text-sky-100">Catalog note. </span>Each row reflects persisted strategy definitions and performance snapshots. Coverage and data-quality labels on individual strategies identify datasets still expanding.</section>
-
     <section className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,0.65fr)]">
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <label className="text-xs font-medium text-slate-400">Strategy type<select value={category} onChange={(event) => setQuery({ category: event.target.value })} className="mt-1 block w-full rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"><option value="all">All</option>{categoryOptions.filter((value) => value !== "all").map((value) => <option key={value} value={value}>{categoryLabel(value)}</option>)}</select></label>
