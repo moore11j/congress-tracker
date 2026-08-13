@@ -103,8 +103,9 @@ test("congress top moving sectors uses bounded sparklines", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
   assert.match(source, /function CompactSparkline/);
-  assert.match(source, /h-10 overflow-hidden/);
-  assert.match(source, /<CompactSparkline points=\{row\.trend\.slice\(-6\)\} \/>/);
+  assert.match(source, /grid-cols-\[minmax\(0,1fr\)_4\.75rem_5\.75rem\]/);
+  assert.match(source, /h-5 w-full overflow-hidden/);
+  assert.match(source, /<CompactSparkline points=\{row\.trend\.slice\(-12\)\} positive=/);
   assert.doesNotMatch(source, /<CongressTrend points=\{row\.trend\.slice\(-6\)\} \/>/);
 });
 
