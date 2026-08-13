@@ -83,12 +83,10 @@ def upsert_strategy_subscription(
     user_id: int,
     slug: str,
     email_enabled: bool,
-    delivery_mode: str,
-    event_types: list[str],
+    delivery_mode: str = "daily",
+    event_types: list[str] | None = None,
 ) -> dict[str, Any]:
-    if delivery_mode not in {"realtime", "daily"}:
-        raise HTTPException(status_code=422, detail="Unsupported strategy delivery mode.")
-    normalized_types = sorted({str(event_type) for event_type in event_types})
+    normalized_types = sorted({str(event_type) for event_type in (event_types or [])})
     if not normalized_types or any(event_type not in ALLOWED_EVENT_TYPES for event_type in normalized_types):
         raise HTTPException(status_code=422, detail="Unsupported strategy event type.")
     strategy = _followable_strategy(db, slug)

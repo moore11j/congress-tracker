@@ -39,7 +39,6 @@ class StrategyVersionCreateRequest(BaseModel):
 
 class StrategySubscriptionRequest(BaseModel):
     email_enabled: bool = True
-    delivery_mode: str = "daily"
     event_types: list[str] = Field(default_factory=lambda: ["trade_added", "trade_exited", "rebalance_completed"])
 
 
@@ -118,7 +117,6 @@ def put_strategy_subscription(
         user_id=int(user.id),
         slug=slug,
         email_enabled=payload.email_enabled,
-        delivery_mode=payload.delivery_mode,
         event_types=payload.event_types,
     )}
 
