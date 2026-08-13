@@ -23,7 +23,7 @@ DEFAULT_WALNUT_TAKE_MODEL = "gpt-5.6-sol"
 VALID_BIASES = {"bullish", "bearish", "neutral"}
 WALNUT_TAKE_MAX_CHARS = 125
 WALNUT_SUMMARY_MAX_CHARS = 190
-WALNUT_TAKE_PROMPT_VERSION = "market_read_v4"
+WALNUT_TAKE_PROMPT_VERSION = "market_read_v5"
 
 BULLISH_READ_PHRASES = (
     "stabilize trade",
@@ -36,6 +36,27 @@ BULLISH_READ_PHRASES = (
     "tariff pause",
     "trade deal",
     "trade progress",
+    "inflation relief",
+    "disinflation trend",
+    "inflation won't stick",
+    "beneficiary",
+    "beneficiaries",
+    "benefit from",
+    "benefits from",
+    "rally",
+    "rallies",
+    "rallied",
+    "rebound",
+    "rebounds",
+    "rebounded",
+    "surge",
+    "surges",
+    "surged",
+    "growth",
+    "grew",
+    "record revenue",
+    "raises guidance",
+    "beats expectations",
     "opposite of an ai slowdown",
     "opposite of ai slowdown",
     "coming next in ai",
@@ -73,6 +94,19 @@ BEARISH_READ_PHRASES = (
     "margin risk",
     "geopolitical risk",
     "risk-off",
+    "inflation pressure",
+    "inflation scare",
+    "rates higher",
+    "rate hike",
+    "fed tightening",
+    "profit warning",
+    "cuts guidance",
+    "misses expectations",
+    "downgrade",
+    "downgraded",
+    "under pressure",
+    "selloff",
+    "sells off",
 )
 
 
@@ -146,6 +180,7 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
     model = _walnut_take_model(db)
     request_payload = {
         "model": model,
+        "tools": [{"type": "web_search"}],
         "input": _prompt(articles),
         "store": False,
         "text": {"verbosity": "low"},
@@ -162,7 +197,7 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
     if response.status_code >= 400:
         raise RuntimeError(f"OpenAI Walnut Take request failed with status {response.status_code}.")
     data = response.json()
-    _record_openai_usage_cost(db, model=model, data=data, feature="walnut_takes", commit=False)
+    _record_openai_usage_cost(db, model=model, data=data, feature="walnut_takes", web_search_calls=1, commit=False)
     parsed = _extract_json_payload(_extract_responses_text(data))
     raw_items = parsed.get("items") if isinstance(parsed, dict) else None
     if not isinstance(raw_items, list):
@@ -175,6 +210,7 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
         {
             "id": _article_id(item),
             "title": item.get("title"),
+            "article_url": item.get("url"),
             "source": item.get("site") or item.get("source"),
             "published_at": item.get("published_at"),
             "symbol": item.get("symbol"),
@@ -186,15 +222,18 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
     return "\n".join(
         [
             "You generate Walnut Takes for a market intelligence news list.",
-            "For each article, return a concise factual summary and a market-impact bias.",
+            "For each article, read the article_url when available, then return a concise factual summary and a market-impact bias.",
+            "Use web search to open or verify article_url. If the article cannot be read, rely on title, provider_summary, ticker, source, and provider_market_read without inventing facts.",
             "Allowed bias values: bullish, bearish, neutral.",
             f"The take must be one compact sentence of {WALNUT_TAKE_MAX_CHARS} characters or fewer.",
+            "The take must clearly say bullish or bearish when the article leans that way, and name the main why.",
             "The take must be a complete sentence ending with a period. Never use ellipses or trail off.",
             "Do not fill the character budget. Prefer 45-90 characters when possible.",
             "For broad market articles, bullish means supportive for risk assets; bearish means pressure, risk-off, higher discount-rate concern, or margin/cash-flow risk.",
             "Valuation stretch, spending worries, falling prices, weak cash flow, bond-market anxiety, or AI capex-budget concerns are bearish unless the article gives a clear positive offset.",
-            "Constructive trade stabilization, tariff relief, resilient AI demand, or evidence that AI spending is not slowing are bullish unless the article says the benefit failed or reversed.",
-            "Neutral is only for genuinely mixed or unclear impact, not for obvious caution or pressure headlines.",
+            "Constructive trade stabilization, tariff relief, inflation relief, disinflation, sector beneficiaries, resilient AI demand, rebounds, or evidence that AI spending is not slowing are bullish unless the article says the benefit failed or reversed.",
+            "Neutral is only for genuinely balanced, non-market, or unreadably vague articles. Do not use neutral just because there is no ticker.",
+            "Across a batch, avoid defaulting most items to neutral; force a bullish or bearish call when the article has a plausible market direction.",
             "The provider_market_read is weak context only; override it when the title or summary implies a different read.",
             "Use first-person plural for our own views. Say 'our take' if needed, not 'Walnut's take.'",
             "Do not provide trading instructions, price targets, guarantees, or hype.",
@@ -318,8 +357,22 @@ def _concise_take_text(item: dict[str, Any], *, bias: str) -> str:
         return "Tech spending worries are bearish until demand offsets the pressure."
     if _contains_any(text, ("massive attack", "geopolitical risk", "shipping", "escalation")):
         return "Geopolitical escalation is bearish for broad risk sentiment."
+    if _contains_any(text, ("profit warning", "cuts guidance", "misses expectations", "downgrade", "downgraded")):
+        return "Weak guidance or downgrades are bearish for sentiment."
+    if _contains_any(text, ("under pressure", "selloff", "sells off", "rates higher", "fed tightening")):
+        return "Pressure from rates or selling is bearish for risk appetite."
+    if _contains_any(text, ("inflation pressure", "inflation scare", "rate hike")):
+        return "Inflation pressure is bearish because it keeps rate risk alive."
     if _contains_any(text, ("stabilize trade", "stabilise trade", "stabilize relations", "stabilise relations", "trade relations")):
         return "Stabilizing trade ties is bullish for policy risk and sentiment."
+    if _contains_any(text, ("inflation relief", "disinflation trend", "inflation won't stick")):
+        return "Inflation relief is bullish because it lowers rate-pressure risk."
+    if _contains_any(text, ("beneficiary", "beneficiaries", "benefit from", "benefits from")):
+        return "Clear sector beneficiaries make the read bullish for exposed names."
+    if _contains_any(text, ("rally", "rallies", "rallied", "rebound", "rebounds", "rebounded", "surge", "surges", "surged")):
+        return "Positive price action makes the near-term read bullish."
+    if _contains_any(text, ("record revenue", "raises guidance", "beats expectations")):
+        return "Strong results or guidance are bullish for earnings sentiment."
     if _contains_any(text, ("lisa su", "opposite of an ai slowdown", "opposite of ai slowdown", "coming next in ai")):
         return "Resilient AI demand is bullish for AMD and the AI buildout."
     if bias == "bullish":

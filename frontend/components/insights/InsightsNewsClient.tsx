@@ -43,6 +43,25 @@ const bullishReadPhrases = [
   "stabilize relations",
   "stabilise relations",
   "trade relations",
+  "inflation relief",
+  "disinflation trend",
+  "inflation won't stick",
+  "beneficiary",
+  "beneficiaries",
+  "benefit from",
+  "benefits from",
+  "rally",
+  "rallies",
+  "rallied",
+  "rebound",
+  "rebounds",
+  "rebounded",
+  "surge",
+  "surges",
+  "surged",
+  "record revenue",
+  "raises guidance",
+  "beats expectations",
   "opposite of an ai slowdown",
   "opposite of ai slowdown",
   "coming next in ai",
@@ -65,6 +84,19 @@ const bearishReadPhrases = [
   "growing uneasy",
   "massive attack",
   "geopolitical risk",
+  "inflation pressure",
+  "inflation scare",
+  "rates higher",
+  "rate hike",
+  "fed tightening",
+  "profit warning",
+  "cuts guidance",
+  "misses expectations",
+  "downgrade",
+  "downgraded",
+  "under pressure",
+  "selloff",
+  "sells off",
 ] as const;
 
 function categoryLabel(value: CategoryFilter): string {
@@ -158,8 +190,29 @@ function conciseWalnutTake(item: NewsItem, read?: string | null): string {
   if (/(massive attack|geopolitical risk|shipping|escalation)/.test(text)) {
     return "Geopolitical escalation is bearish for broad risk sentiment.";
   }
+  if (/(profit warning|cuts guidance|misses expectations|downgrade|downgraded)/.test(text)) {
+    return "Weak guidance or downgrades are bearish for sentiment.";
+  }
+  if (/(under pressure|selloff|sells off|rates higher|fed tightening)/.test(text)) {
+    return "Pressure from rates or selling is bearish for risk appetite.";
+  }
+  if (/(inflation pressure|inflation scare|rate hike)/.test(text)) {
+    return "Inflation pressure is bearish because it keeps rate risk alive.";
+  }
   if (/(stabilize trade|stabilise trade|stabilize relations|stabilise relations|trade relations)/.test(text)) {
     return "Stabilizing trade ties is bullish for policy risk and sentiment.";
+  }
+  if (/(inflation relief|disinflation trend|inflation won't stick)/.test(text)) {
+    return "Inflation relief is bullish because it lowers rate-pressure risk.";
+  }
+  if (/(beneficiary|beneficiaries|benefit from|benefits from)/.test(text)) {
+    return "Clear sector beneficiaries make the read bullish for exposed names.";
+  }
+  if (/(rally|rallies|rallied|rebound|rebounds|rebounded|surge|surges|surged)/.test(text)) {
+    return "Positive price action makes the near-term read bullish.";
+  }
+  if (/(record revenue|raises guidance|beats expectations)/.test(text)) {
+    return "Strong results or guidance are bullish for earnings sentiment.";
   }
   if (/(lisa su|opposite of an ai slowdown|opposite of ai slowdown|coming next in ai)/.test(text)) {
     return "Resilient AI demand is bullish for AMD and the AI buildout.";

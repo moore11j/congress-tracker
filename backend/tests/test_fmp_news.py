@@ -532,6 +532,23 @@ def test_market_read_heuristic_flags_valuation_spending_and_bond_anxiety_as_bear
     ) == "bearish"
 
 
+def test_market_read_heuristic_flags_relief_and_beneficiary_headlines_as_bullish():
+    from app.services.fmp_news import _classify_market_read
+
+    assert _classify_market_read(
+        title="Healthcare sector looks to be a beneficiary of macro turbulence",
+        summary="Technical indicators are improving for the group.",
+    ) == "bullish"
+    assert _classify_market_read(
+        title="Markets Get Inflation Relief",
+        summary="Investors see lower rate-pressure risk after the latest inflation data.",
+    ) == "bullish"
+    assert _classify_market_read(
+        title="Teflon Inflation Won't Stick, JPMorgan's Kelly Says",
+        summary="The disinflation trend may continue through the summer.",
+    ) == "bullish"
+
+
 def test_ticker_sec_filings_uses_symbol_endpoint_and_defaults_date_range(monkeypatch):
     _session()
     clear_news_cache()

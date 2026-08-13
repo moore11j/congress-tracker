@@ -14,7 +14,7 @@ from app.services.insights_snapshots import (
     refresh_insights_headlines,
     refresh_insights_snapshot,
 )
-from app.services.walnut_takes import WALNUT_TAKE_MAX_CHARS
+from app.services.walnut_takes import WALNUT_TAKE_MAX_CHARS, WALNUT_TAKE_PROMPT_VERSION
 
 
 def _db():
@@ -212,6 +212,9 @@ def test_insights_headlines_refresh_generates_and_saves_walnut_takes(monkeypatch
         item = payload["items"][0]
         assert captured["url"] == "https://api.openai.com/v1/responses"
         assert captured["json"]["model"] == "gpt-5.6-sol"
+        assert captured["json"]["tools"] == [{"type": "web_search"}]
+        assert "read the article_url" in captured["json"]["input"]
+        assert '"article_url": "https://example.com/chips"' in captured["json"]["input"]
         assert item["walnut_summary"] == "Chip shares rallied ahead of major tech earnings."
         assert item["walnut_take_bias"] == "bullish"
         assert item["walnut_take_source"] == "openai"
@@ -242,7 +245,7 @@ def test_insights_headlines_refresh_reuses_cached_walnut_takes_without_openai(mo
                                 "walnut_take": "Supportive for energy exposure while oil supply risk remains elevated.",
                                 "walnut_take_source": "openai",
                                 "walnut_take_model": "gpt-5.6-sol",
-                                "walnut_take_prompt_version": "market_read_v4",
+                                "walnut_take_prompt_version": WALNUT_TAKE_PROMPT_VERSION,
                                 "walnut_take_generated_at": "2026-07-21T12:00:00+00:00",
                             }
                         ],
@@ -365,7 +368,7 @@ def test_insights_headlines_refresh_regenerates_old_walnut_take_prompt_versions(
         item = payload["items"][0]
         assert item["walnut_take_bias"] == "bearish"
         assert item["walnut_take"] == "Stretched valuations and weaker cash flow make this a bearish risk-asset read."
-        assert item["walnut_take_prompt_version"] == "market_read_v4"
+        assert item["walnut_take_prompt_version"] == WALNUT_TAKE_PROMPT_VERSION
     finally:
         db.close()
 
