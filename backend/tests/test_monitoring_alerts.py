@@ -32,6 +32,8 @@ from app.models import (
     PlanPrice,
     SavedScreen,
     Security,
+    StrategyDefinition,
+    StrategySubscription,
     UserAccount,
     Watchlist,
     WatchlistItem,
@@ -64,6 +66,8 @@ def _session():
             FeatureGate.__table__,
             PlanLimit.__table__,
             PlanPrice.__table__,
+            StrategyDefinition.__table__,
+            StrategySubscription.__table__,
         ],
     )
     return Session()
@@ -813,6 +817,85 @@ def test_free_watchlist_alerts_exclude_signal_events_and_redact_scores():
         assert event_payload["insider_name"] == "Jane Insider"
         assert "smart_score" not in event_payload
         assert "confirmation_score" not in event_payload
+    finally:
+        db.close()
+
+
+def test_inbox_includes_alert_only_saved_screen_source_in_counts():
+    db = _session()
+    try:
+        user, _watchlist, now = _seed_watchlist(db)
+        screen = SavedScreen(user_id=user.id, name="Bullish confirmation", params_json='{"confirmation_direction":"bullish"}')
+        db.add(screen)
+        db.flush()
+        db.add(
+            MonitoringAlert(
+                user_id=user.id,
+                source_type="saved_screen",
+                source_id=str(screen.id),
+                source_name=screen.name,
+                event_id=101,
+                alert_type="entered_screen",
+                symbol="BSX",
+                title="BSX entered your 'Bullish confirmation' screen",
+                body="BSX moved from strong to mixed.",
+                payload_json=json.dumps({"score": 87}),
+                event_created_at=now,
+            )
+        )
+        db.commit()
+
+        inbox = get_monitoring_inbox(_request_for_user(user), db)
+
+        assert inbox["unread_total"] == 1
+        assert inbox["counts"]["saved_screen_unread"] == 1
+        assert {
+            "id": str(screen.id),
+            "type": "saved_screen",
+            "name": "Bullish confirmation",
+            "unread_count": 1,
+            "new_count": 1,
+        } in inbox["sources"]
+    finally:
+        db.close()
+
+
+def test_inbox_includes_active_strategy_subscriptions_as_sources():
+    db = _session()
+    try:
+        user, _watchlist, _now = _seed_watchlist(db)
+        user.entitlement_tier = "premium"
+        strategy = StrategyDefinition(
+            slug="cross-source-confirmation",
+            name="Cross-source Confirmation",
+            category="walnut",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.flush()
+        db.add(
+            StrategySubscription(
+                user_id=user.id,
+                strategy_id=strategy.id,
+                is_active=True,
+                email_enabled=True,
+                delivery_mode="realtime",
+                event_types_json='["trade_added"]',
+            )
+        )
+        db.commit()
+
+        inbox = get_monitoring_inbox(_request_for_user(user), db)
+
+        assert {
+            "id": "cross-source-confirmation",
+            "type": "strategy",
+            "name": "Cross-source Confirmation",
+            "unread_count": 0,
+            "new_count": 0,
+        } in inbox["sources"]
     finally:
         db.close()
 

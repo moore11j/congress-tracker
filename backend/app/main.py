@@ -129,6 +129,8 @@ from app.models import (
     ReplicatedPortfolioRun,
     SavedScreen,
     Security,
+    StrategyDefinition,
+    StrategySubscription,
     DataEnrichmentJob,
     TickerContentCache,
     TickerContextBundleCache,
@@ -13255,6 +13257,47 @@ def _saved_screen_alert_unread_counts(db: Session, user_id: int) -> dict[tuple[s
     }
 
 
+def _monitoring_alert_source_names(db: Session, user_id: int) -> dict[tuple[str, str], str]:
+    rows = (
+        db.execute(
+            select(MonitoringAlert.source_type, MonitoringAlert.source_id, MonitoringAlert.source_name)
+            .where(MonitoringAlert.user_id == user_id, MonitoringAlert.dismissed_at.is_(None))
+            .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
+        )
+        .all()
+    )
+    names: dict[tuple[str, str], str] = {}
+    for source_type, source_id, source_name in rows:
+        key = (str(source_type), str(source_id))
+        if key not in names and source_name:
+            names[key] = str(source_name)
+    return names
+
+
+def _strategy_subscription_sources(db: Session, user: UserAccount) -> list[dict[str, object]]:
+    rows = (
+        db.execute(
+            select(StrategySubscription, StrategyDefinition)
+            .join(StrategyDefinition, StrategyDefinition.id == StrategySubscription.strategy_id)
+            .where(StrategySubscription.user_id == user.id)
+            .where(StrategySubscription.is_active.is_(True))
+            .where(StrategyDefinition.status == "published")
+            .order_by(StrategyDefinition.name.asc(), StrategyDefinition.id.asc())
+        )
+        .all()
+    )
+    return [
+        {
+            "id": strategy.slug,
+            "type": "strategy",
+            "name": strategy.name,
+            "unread_count": 0,
+            "new_count": 0,
+        }
+        for _subscription, strategy in rows
+    ]
+
+
 def _monitoring_unread_total(request: Request, db: Session, user: UserAccount) -> int:
     watchlists = _monitored_watchlists_for_user(request, db, user)
     watchlist_counts = _monitoring_watchlist_counts(db, watchlists, user.id)
@@ -13273,7 +13316,8 @@ def _monitoring_counts_payload(
     resolved_watchlists = watchlists if watchlists is not None else _monitored_watchlists_for_user(request, db, user)
     resolved_saved_screens = saved_screens if saved_screens is not None else _monitored_saved_screens_for_user(request, db, user)
     watchlist_counts = _monitoring_watchlist_counts(db, resolved_watchlists, user.id)
-    saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
+    alert_source_counts = _saved_screen_alert_unread_counts(db, user.id)
+    alert_source_names = _monitoring_alert_source_names(db, user.id)
     sources = [
         {
             "id": str(watchlist.id),
@@ -13289,15 +13333,35 @@ def _monitoring_counts_payload(
             "id": str(screen.id),
             "type": "saved_screen",
             "name": screen.name,
-            "unread_count": saved_screen_counts.get(("saved_screen", str(screen.id)), 0),
-            "new_count": saved_screen_counts.get(("saved_screen", str(screen.id)), 0),
+            "unread_count": alert_source_counts.get(("saved_screen", str(screen.id)), 0),
+            "new_count": alert_source_counts.get(("saved_screen", str(screen.id)), 0),
         }
         for screen in resolved_saved_screens
     )
+    known_source_keys = {(str(source["type"]), str(source["id"])) for source in sources}
+    for (source_type, source_id), unread in sorted(alert_source_counts.items(), key=lambda item: (item[0][0], item[0][1])):
+        if (source_type, source_id) in known_source_keys:
+            continue
+        sources.append(
+            {
+                "id": source_id,
+                "type": source_type,
+                "name": alert_source_names.get((source_type, source_id)) or source_type.replace("_", " ").title(),
+                "unread_count": unread,
+                "new_count": unread,
+            }
+        )
+        known_source_keys.add((source_type, source_id))
+    for source in _strategy_subscription_sources(db, user):
+        key = (str(source["type"]), str(source["id"]))
+        if key not in known_source_keys:
+            sources.append(source)
+            known_source_keys.add(key)
     total_watchlist_unread = sum(watchlist_counts.values())
-    total_saved_screen_unread = sum(saved_screen_counts.get(("saved_screen", str(screen.id)), 0) for screen in resolved_saved_screens)
+    total_saved_screen_unread = sum(count for (source_type, _source_id), count in alert_source_counts.items() if source_type == "saved_screen")
+    total_alert_source_unread = sum(alert_source_counts.values())
     return {
-        "total_unread": total_watchlist_unread + total_saved_screen_unread,
+        "total_unread": total_watchlist_unread + total_alert_source_unread,
         "watchlist_unread": total_watchlist_unread,
         "saved_screen_unread": total_saved_screen_unread,
         "unread_sources_count": sum(1 for source in sources if int(source["unread_count"] or 0) > 0),

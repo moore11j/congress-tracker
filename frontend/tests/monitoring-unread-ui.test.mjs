@@ -49,6 +49,11 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.match(monitoringSource, /listWatchlists/);
   assert.match(monitoringSource, /void refreshInbox\(\);\s*void refreshWatchlists\(\);/);
   assert.match(monitoringSource, /inboxSourceCounts/);
+  assert.match(monitoringSource, /additionalInboxSources/);
+  assert.match(monitoringSource, /sourceTypeLabel/);
+  assert.match(monitoringSource, /hrefForInboxSource/);
+  assert.match(monitoringSource, /source\.type === "strategy"/);
+  assert.match(monitoringSource, /isSavedScreenSourceType/);
   assert.match(monitoringSource, /applyInboxMutation/);
   assert.match(monitoringSource, /mergeInboxCounts/);
 });
