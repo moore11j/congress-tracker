@@ -112,12 +112,24 @@ test("congress top moving sectors uses bounded sparklines", () => {
 test("congress trading snapshot chart renders area fill and full axes", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
+  assert.match(source, /const monthly = \(data\.monthly_activity \?\? \[\]\)\.slice\(-12\)/);
   assert.match(source, /<CongressSnapshotTrend points=\{monthly\.map\(\(row\) => \(\{ label: row\.period, value: row\.trades \}\)\)\} \/>/);
   assert.match(source, /function CongressSnapshotTrend/);
   assert.match(source, /const ticks = \[axisMax, axisMax \* \.75, axisMax \* \.5, axisMax \* \.25, 0\]/);
   assert.match(source, /fill="url\(#congress-trades-area\)"/);
   assert.match(source, /gridTemplateColumns: `repeat\(\$\{points\.length\}, minmax\(0, 1fr\)\)`/);
   assert.match(source, /points\.map\(\(point\) => <span key=\{point\.label\}/);
+});
+
+test("congress metric cards use shaded semantic trend colors", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /Latest 12 months/);
+  assert.match(source, /function CongressTrend\(\{ points, tone = "green" \}/);
+  assert.match(source, /fill=\{`url\(#\$\{gradientId\}\)`\}/);
+  assert.match(source, /metric\.label === "Total Sell Value" \? "red"/);
+  assert.match(source, /metric\.label === "Active Members" \|\| metric\.label === "Average Trade Size" \? "blue"/);
+  assert.match(source, /metric\.label === "Total Trades" && typeof metric\.change_pct === "number" && metric\.change_pct < 0 \? "red" : "green"/);
 });
 
 test("profile snapshot trend chart renders usable axes", () => {

@@ -209,6 +209,7 @@ def test_congress_overview_returns_page_ready_sections():
 
     assert payload["summary"][0]["label"] == "Total Trades"
     assert payload["summary"][0]["value"] == 2
+    assert len(payload["monthly_activity"]) == 12
     assert payload["top_members"][0]["href"] == "/member/nancy-pelosi"
     assert payload["most_traded_stocks"][0]["symbol"] == "NVDA"
     sector_labels = {segment["label"] for segment in payload["sector_exposure"][0]["segments"]}
