@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v12:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v13:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -331,6 +331,20 @@ def test_insiders_overview_uses_normalized_open_market_transactions():
                 value=50_000,
                 normalized_hash="insider-c-1",
             ),
+            InsiderTransactionNormalized(
+                accession_number="insider-prior",
+                issuer_name="Exponent, Inc.",
+                ticker_raw="EXPO",
+                ticker_normalized="EXPO",
+                reporting_owner_cik="3333",
+                reporting_owner_name="Prior Seller",
+                transaction_date=today - timedelta(days=500),
+                filing_date=today - timedelta(days=499),
+                transaction_code="S",
+                transaction_type_normalized="open_market_sale",
+                value=100_000,
+                normalized_hash="insider-prior-1",
+            ),
         ]
     )
     db.commit()
@@ -357,6 +371,16 @@ def test_insiders_overview_uses_normalized_open_market_transactions():
     assert payload["sector_net_activity"][0]["current_value"] == 300_000
     assert payload["sector_net_activity"][0]["buy_value"] == 350_000
     assert payload["sector_net_activity"][0]["sell_value"] == 50_000
+    role_mix = {row["label"]: row for row in payload["role_mix"]}
+    assert role_mix["Directors"]["value"] == 1
+    assert role_mix["Officers"]["value"] == 1
+    assert role_mix["Other"]["value"] == 1
+    assert payload["top_moving_sectors"][0]["sector"] == "Industrials"
+    assert payload["top_moving_sectors"][0]["current_value"] == 300_000
+    assert payload["top_moving_sectors"][0]["current_activity_value"] == 400_000
+    assert payload["top_moving_sectors"][0]["previous_activity_value"] == 100_000
+    assert payload["top_moving_sectors"][0]["change_pct"] == 300.0
+    assert payload["recent_notable_trades"][0]["activity"] == "Open-Market Sale"
     assert payload["cluster_buying"][0]["symbol"] == "EXPO"
     assert payload["cluster_buying"][0]["unique_insiders"] == 2
 

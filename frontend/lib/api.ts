@@ -314,7 +314,10 @@ export type InsidersOverviewResponse = {
   monthly_activity?: Array<{ period: string; net_value: number; buy_value: number; sell_value: number; trades: number }>;
   sector_activity: ProfileSectorPeriod[];
   sector_net_activity?: Array<{ sector: string; current_value: number; buy_value: number; sell_value: number; trades: number }>;
+  role_mix?: Array<{ label: string; value: number; percent: number }>;
+  top_moving_sectors?: Array<{ sector: string; current_value: number; previous_value: number; current_activity_value: number; previous_activity_value: number; change_pct: number | null; buy_value: number; sell_value: number; trades: number; trend: Array<{ label: string; value: number }> }>;
   recent_purchases: ProfileActivityItem[];
+  recent_notable_trades?: ProfileActivityItem[];
   largest_buys: ProfileActivityItem[];
   cluster_buying: Array<Record<string, unknown>>;
 };

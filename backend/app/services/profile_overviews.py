@@ -245,7 +245,10 @@ def insiders_overview(db: Session, *, period_days: int = 365, sector: str | None
         "monthly_activity": _insider_monthly_activity(db, base),
         "sector_activity": _insider_sector_activity(db, base),
         "sector_net_activity": _insider_sector_net_activity(db, base),
+        "role_mix": _insider_role_mix(db, base),
+        "top_moving_sectors": _insider_top_moving_sectors(db, base, previous),
         "recent_purchases": _recent_insider_transactions(db, buy_base, limit=8),
+        "recent_notable_trades": _recent_insider_transactions(db, base, limit=8),
         "largest_buys": _largest_insider_transactions(db, buy_base, limit=8),
         "cluster_buying": _cluster_buying(db, since=since, symbols=symbols),
     }
@@ -1215,6 +1218,86 @@ def _insider_sector_net_activity(db: Session, clauses: list[Any]) -> list[dict[s
     return sorted(payload, key=lambda row: abs(float(row["current_value"])), reverse=True)[:10]
 
 
+def _insider_role_mix(db: Session, clauses: list[Any]) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(
+            InsiderTransactionNormalized.officer_title,
+            InsiderTransactionNormalized.is_director,
+            InsiderTransactionNormalized.is_officer,
+            InsiderTransactionNormalized.is_ten_percent_owner,
+        )
+        .where(*clauses)
+        .limit(20000)
+    ).all()
+    buckets = {"CEOs": 0, "Directors": 0, "10% Owners": 0, "Officers": 0, "Other": 0}
+    for officer_title, is_director, is_officer, is_ten_percent_owner in rows:
+        buckets[_insider_role_bucket(officer_title, is_director, is_officer, is_ten_percent_owner)] += 1
+    total = sum(buckets.values())
+    payload = [
+        {"label": label, "value": value, "percent": round((value / total) * 100, 1) if total else 0}
+        for label, value in buckets.items()
+        if value
+    ]
+    return sorted(payload, key=lambda row: row["value"], reverse=True)
+
+
+def _insider_top_moving_sectors(db: Session, current_clauses: list[Any], previous_clauses: list[Any], *, limit: int = 6) -> list[dict[str, Any]]:
+    current_rows = db.execute(
+        select(InsiderTransactionNormalized)
+        .where(*current_clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
+        .order_by(InsiderTransactionNormalized.transaction_date.asc(), InsiderTransactionNormalized.id.asc())
+        .limit(20000)
+    ).scalars().all()
+    previous_rows = db.execute(
+        select(InsiderTransactionNormalized)
+        .where(*previous_clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
+        .order_by(InsiderTransactionNormalized.transaction_date.asc(), InsiderTransactionNormalized.id.asc())
+        .limit(20000)
+    ).scalars().all()
+    sector_by_symbol = _sectors(db, [row.ticker_normalized or row.ticker_raw for row in [*current_rows, *previous_rows]])
+    buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {"buy": 0.0, "sell": 0.0, "previous_activity": 0.0, "trades": 0, "trend": defaultdict(float)})
+    for row in current_rows:
+        symbol = normalize_symbol(row.ticker_normalized or row.ticker_raw)
+        sector = sector_by_symbol.get(symbol or "")
+        if not sector:
+            continue
+        value = float(row.value or 0)
+        bucket = buckets[sector]
+        bucket["trades"] += 1
+        bucket["buy" if _is_buy_transaction(row) else "sell"] += value
+        if isinstance(row.transaction_date, date):
+            bucket["trend"][date(row.transaction_date.year, row.transaction_date.month, 1).strftime("%b %y")] += value if _is_buy_transaction(row) else -value
+    for row in previous_rows:
+        symbol = normalize_symbol(row.ticker_normalized or row.ticker_raw)
+        sector = sector_by_symbol.get(symbol or "")
+        if not sector:
+            continue
+        buckets[sector]["previous_activity"] += float(row.value or 0)
+    months = [_add_months(date.today().replace(day=1), offset).strftime("%b %y") for offset in range(-11, 1)]
+    payload = []
+    for sector, values in buckets.items():
+        buy_value = float(values["buy"] or 0)
+        sell_value = float(values["sell"] or 0)
+        current_activity = buy_value + sell_value
+        previous_activity = float(values["previous_activity"] or 0)
+        payload.append(
+            {
+                "sector": sector,
+                "current_value": _float_or_int(buy_value - sell_value) or 0,
+                "previous_value": _float_or_int(previous_activity) or 0,
+                "current_activity_value": _float_or_int(current_activity) or 0,
+                "previous_activity_value": _float_or_int(previous_activity) or 0,
+                "change_pct": _float_or_int(_change_pct(current_activity, previous_activity)),
+                "buy_value": _float_or_int(buy_value) or 0,
+                "sell_value": _float_or_int(sell_value) or 0,
+                "trades": int(values["trades"] or 0),
+                "trend": [{"label": month, "value": _float_or_int(values["trend"].get(month, 0)) or 0} for month in months],
+            }
+        )
+    payload.sort(key=lambda row: (abs(float(row["current_value"])), float(row["current_activity_value"])), reverse=True)
+    return payload[:limit]
+
+
 def _recent_insider_transactions(db: Session, clauses: list[Any], *, limit: int) -> list[dict[str, Any]]:
     rows = db.execute(
         select(InsiderTransactionNormalized)
@@ -1262,6 +1345,19 @@ def _is_buy_transaction(row: InsiderTransactionNormalized) -> bool:
     code = (row.transaction_code or "").strip().lower()
     kind = (row.transaction_type_normalized or "").strip().lower()
     return code == "p" or "purchase" in kind
+
+
+def _insider_role_bucket(officer_title: Any, is_director: Any, is_officer: Any, is_ten_percent_owner: Any) -> str:
+    title = str(officer_title or "").strip().lower()
+    if "chief executive officer" in title or " ceo" in f" {title}" or "president and ceo" in title:
+        return "CEOs"
+    if is_director:
+        return "Directors"
+    if is_ten_percent_owner:
+        return "10% Owners"
+    if is_officer or title:
+        return "Officers"
+    return "Other"
 
 
 def _insider_role(officer_title: Any, is_director: Any, is_officer: Any, is_ten_percent_owner: Any) -> str:

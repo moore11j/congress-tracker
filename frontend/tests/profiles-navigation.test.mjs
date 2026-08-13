@@ -166,6 +166,26 @@ test("insider net activity by sector uses signed red and green bar chart", () =>
   assert.match(source, /formatSignedMoney\(row\.current_value\)/);
 });
 
+test("insider dashboard renders role mix, top movers, then notable trades", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /role_mix\?: Array<\{ label: string; value: number; percent: number \}>/);
+  assert.match(api, /top_moving_sectors\?: Array<\{ sector: string; current_value: number; previous_value: number; current_activity_value: number; previous_activity_value: number; change_pct: number \| null; buy_value: number; sell_value: number; trades: number; trend: Array<\{ label: string; value: number \}> \}>/);
+  assert.match(api, /recent_notable_trades\?: ProfileActivityItem\[\]/);
+  assert.match(source, /insiderRoleMix=\{data\.role_mix \?\? \[\]\}/);
+  assert.match(source, /insiderTopMovingSectors=\{data\.top_moving_sectors \?\? \[\]\}/);
+  assert.match(source, /insiderRecentNotableTrades=\{data\.recent_notable_trades \?\? \[\]\}/);
+  assert.match(source, /flavor === "insiders" \? <section className="grid gap-3 xl:grid-cols-\[\.85fr_1\.05fr_1\.1fr\]"><Panel title="Transaction mix by role \(TTM\)"><InsiderRoleMixDonut rows=\{insiderRoleMix\} \/><\/Panel><Panel title="Top moving sectors \(vs prior TTM\)"><InsiderTopMovingSectors rows=\{insiderTopMovingSectors\} \/><\/Panel><InsiderNotableTrades items=\{insiderRecentNotableTrades\.length \? insiderRecentNotableTrades : recent\} \/><\/section>/);
+  assert.match(source, /function InsiderRoleMixDonut/);
+  assert.match(source, /label="Total trades"/);
+  assert.match(source, /function InsiderTopMovingSectors/);
+  assert.match(source, /Net activity \(TTM\)/);
+  assert.match(source, /Vs prior TTM/);
+  assert.match(source, /function InsiderNotableTrades/);
+  assert.match(source, /\["Insider", "Ticker", "Action", "Value", "Date"\]/);
+});
+
 test("congress metric cards use shaded semantic trend colors", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
