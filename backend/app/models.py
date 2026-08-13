@@ -3259,7 +3259,7 @@ class StrategySubscription(Base):
     strategy_id: Mapped[int] = mapped_column(nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
-    delivery_mode: Mapped[str] = mapped_column(Text, default="realtime", server_default="realtime", nullable=False)
+    delivery_mode: Mapped[str] = mapped_column(Text, default="daily", server_default="daily", nullable=False)
     event_types_json: Mapped[str] = mapped_column(Text, default="[\"trade_added\",\"trade_exited\",\"rebalance_completed\"]", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

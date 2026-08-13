@@ -275,7 +275,7 @@ def _definition_values(
     }
     return {
         "slug": f"congress-portfolio-{run.entity_id.lower()}-{run.lookback_days}d",
-        "name": f"{name} Portfolio ({run.lookback_days}D)",
+        "name": f"{name} Portfolio",
         "category": "congress",
         "family": "individual_portfolio",
         "status": "published" if publish else "draft",
@@ -285,15 +285,14 @@ def _definition_values(
         "short_description": f"Replicated {name} Congress trading portfolio using realistic disclosure-lag timing.",
         "walnut_take": "Draft individual Congress portfolio candidate; inspect sample size, concentration and disclosure-quality notes before publication.",
         "methodology": (
-            "Replicates a single Congress member's disclosed public-equity purchases after realistic filing availability, "
-            "marks holdings with adjusted prices, and exits when a matching reported sale is available. Missing or non-equity "
-            "assets remain recorded as skipped diagnostics."
+            "Tracks this member's disclosed stock purchases after the filing becomes public. "
+            "Historical results use adjusted prices and show a position as exited after a matching reported sale is filed."
         ),
         "rule_json": json_dumps(rule),
         "parameters_json": json_dumps(parameters),
         "universe_json": json_dumps(universe),
         "tags_json": json_dumps(["congress", "individual_portfolio", chamber.lower(), f"{run.lookback_days}d"]),
-        "risk_notes_json": json_dumps(["individual_trader_concentration", "hold_until_reported_sale"]),
+        "risk_notes_json": json_dumps([]),
         "data_quality_confidence": "medium",
         "methodology_version": PERSISTENCE_METHODOLOGY_VERSION,
         "created_by": "replicated_portfolio_strategy_refresh",

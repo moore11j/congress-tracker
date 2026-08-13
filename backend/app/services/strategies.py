@@ -15,6 +15,11 @@ from app.models import (
     StrategyDefinition,
     StrategyEquityCurvePoint,
     StrategyPerformanceSnapshot,
+<<<<<<< HEAD
+=======
+    StrategyTrade,
+    StrategyVersion,
+>>>>>>> 1d5f60eb (Clarify strategy delivery and historical portfolios)
 )
 
 STRATEGY_SORT_FIELDS = {
@@ -153,6 +158,17 @@ def _latest_run(db: Session, strategy_id: int) -> StrategyBacktestRun | None:
     )
 
 
+def _has_active_prospective_version(db: Session, strategy_id: int) -> bool:
+    return (
+        db.execute(
+            select(StrategyVersion.id)
+            .where(StrategyVersion.strategy_id == strategy_id, StrategyVersion.status == "active")
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def _latest_performance(db: Session, *, strategy_id: int, run_id: int, period: str) -> StrategyPerformanceSnapshot | None:
     return (
         db.execute(
@@ -276,6 +292,7 @@ def strategy_detail(
         raise HTTPException(status_code=404, detail="Strategy not found.")
 
     payload = _definition_payload(strategy, entitlements=entitlements)
+    payload["prospectiveActive"] = _has_active_prospective_version(db, int(strategy.id))
     run = _latest_run(db, int(strategy.id))
     performance = _latest_performance(db, strategy_id=int(strategy.id), run_id=int(run.id), period=period) if run else None
     payload["latestRun"] = _run_payload(run)

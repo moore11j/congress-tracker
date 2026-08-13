@@ -3222,6 +3222,7 @@ export type StrategyDefinitionPayload = {
   universe?: Record<string, unknown>;
   tags?: string[];
   riskNotes?: string[];
+  prospectiveActive?: boolean;
   publishedAt?: string | null;
   updatedAt?: string | null;
   latestRun?: StrategyRunSummary | null;
@@ -3376,7 +3377,7 @@ export async function getStrategySubscription(slug: string): Promise<{ subscript
 
 export async function updateStrategySubscription(
   slug: string,
-  payload: { email_enabled: boolean; delivery_mode: "realtime" | "daily"; event_types: string[] },
+  payload: { email_enabled: boolean; delivery_mode: "daily"; event_types: string[] },
 ): Promise<{ subscription: StrategySubscription }> {
   return fetchJson<{ subscription: StrategySubscription }>(
     buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}/subscription`),
