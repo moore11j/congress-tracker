@@ -133,7 +133,6 @@ export function StrategyFollowButton({ slug, compact = false, panel = false }: P
           </label>)}
         </div>
       </div>
-      <p className="border-t border-white/10 pt-4 text-sm leading-6 text-slate-400">Updates are delivered after Walnut's daily filing ingest and model evaluation.</p>
       <button type="button" onClick={saveSubscription} disabled={loading || eventTypes.length === 0} className="w-full rounded-md bg-emerald-400/20 px-3 py-2.5 text-sm font-semibold text-emerald-50 ring-1 ring-emerald-300/35 hover:bg-emerald-400/30 disabled:cursor-wait disabled:opacity-60">{loading ? "Saving..." : following ? "Save alert settings" : "Follow strategy"}</button>
       {following ? <button type="button" onClick={toggleFollowing} disabled={loading} className="w-full text-sm font-semibold text-slate-400 hover:text-rose-200 disabled:opacity-60">Unfollow strategy</button> : null}
       {message ? <p className={`text-xs leading-5 ${message === "Daily alert settings saved." ? "text-emerald-200" : "text-rose-200"}`}>{message}</p> : null}
