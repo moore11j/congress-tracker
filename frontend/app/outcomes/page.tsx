@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { OutcomeLedgerClient } from "@/components/outcomes/OutcomeLedgerClient";
 import { getOutcomeLedgerStatus, getOutcomeLedgerSummary, getOutcomeSnapshots } from "@/lib/api";
 
-export const revalidate = 60 * 60 * 12;
+export const revalidate = 43200;
 
 export const metadata: Metadata = {
   title: "Outcome Ledger | Walnut Markets",

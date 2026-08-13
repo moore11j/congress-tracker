@@ -42,6 +42,8 @@ Required for production runtime:
 | `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
 | `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.6-sol`; do not store in admin DB settings. |
 | `RESEARCH_BRIEF_MODEL_DEFAULT` | Research Brief Generator default model | Optional. Overrides the legacy `RESEARCH_BRIEF_GENERATOR_MODEL` for admin research briefs. Defaults to `gpt-5.6-terra`. |
+| `RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED` | Enables Walnut Research Brief campaign generation and approved scheduled publishing cron | Optional. Set to `1` after owner review. Defaults off. |
+| `RESEARCH_CAMPAIGNS_SCHEDULE_LIMIT` | Max research campaign items/scheduled publications processed per cron run | Optional. Defaults to `10`. |
 | `RESEARCH_BRIEF_MODEL_OPTIONS` | Research Brief Generator selectable models | Optional comma-separated allowlist shown in the admin model selector. Defaults to `gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol`. |
 | `RESEARCH_BRIEF_JOB_STALE_SECONDS` | Research Brief Generator stale-job timeout | Optional. Defaults to `300`; running jobs without a heartbeat past this window fail safely so the admin UI can retry. |
 | `AI_MARKETING_IMAGE_GENERATION_ENABLED` | Enables real AI-generated AI Growth thumbnails | Optional; set `true` in production when generated X/Reddit thumbnails should be attached. Configured in `backend/fly.toml`. |

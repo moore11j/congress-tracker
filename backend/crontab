@@ -5,6 +5,7 @@ CRON_TZ=America/Los_Angeles
 
 0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
 1-56/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh
+8,23,38,53 6-18 * * * cd /app && sh /app/scripts/run_research_campaigns.sh
 5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh
 2,17,32,47 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
 3,18,33,48 6-12 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh

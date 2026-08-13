@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +31,10 @@ from app.services.ai_marketing import (
     resolved_setting_value,
 )
 from app.services.confirmation_score import get_confirmation_score_bundles_for_tickers
+from app.services.email_delivery import send_email
 from app.utils.symbols import normalize_symbol
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v1"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v2_walnut_investor_voice"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -92,7 +93,32 @@ SECTION_FORMAT_OPTIONS = [
     "X Thread",
     "Internal Analyst Note",
 ]
-STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "published", "unpublished", "failed"}
+STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "scheduled_review", "approved_scheduled", "published", "unpublished", "rejected", "failed"}
+CAMPAIGN_ITEM_STATUS_OPTIONS = {"pending", "generating", "generated", "failed"}
+RESEARCH_CAMPAIGN_REVIEW_TEMPLATE_KEY = "research_brief.scheduled_review"
+RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION = "research_campaign_v1"
+RESEARCH_CAMPAIGN_THEMES: list[dict[str, Any]] = [
+    {"key": "good_buy_now", "label": "Good Buy Now", "content_type": "ticker", "intent": "Is [TICKER] a Good Stock to Buy Right Now?"},
+    {"key": "why_is_it_moving", "label": "Why Is It Moving", "content_type": "ticker", "intent": "Why Is [TICKER] Stock Moving?"},
+    {"key": "insider_activity", "label": "Insider Buying / Selling", "content_type": "ticker", "intent": "What does the latest insider activity mean for [TICKER]?"},
+    {"key": "who_is_buying", "label": "Who Is Buying", "content_type": "ticker", "intent": "Who is buying [TICKER] stock?"},
+    {"key": "institutional_ownership", "label": "Institutional Ownership", "content_type": "ticker", "intent": "Are institutions accumulating [TICKER]?"},
+    {"key": "congress_activity", "label": "Congress Activity", "content_type": "ticker", "intent": "Which members of Congress are buying or selling [TICKER]?"},
+    {"key": "government_contracts", "label": "Government Contracts", "content_type": "ticker", "intent": "How much government contract exposure does [TICKER] have?"},
+    {"key": "analysts_vs_fundamentals", "label": "Analysts vs Fundamentals", "content_type": "ticker", "intent": "[TICKER] price targets vs fundamentals: does Wall Street's view hold up?"},
+    {"key": "bullish_or_bearish", "label": "Bullish or Bearish", "content_type": "ticker", "intent": "Is [TICKER] bullish or bearish right now?"},
+    {"key": "what_changed", "label": "What Changed", "content_type": "ticker", "intent": "What changed in [TICKER] stock?"},
+    {"key": "insider_purchases_predict_returns", "label": "Do Insider Purchases Predict Returns?", "content_type": "non_ticker", "intent": "Do insider purchases predict stock returns?"},
+    {"key": "congress_semiconductor_buying", "label": "Congress Semiconductor Buying", "content_type": "non_ticker", "intent": "Which Congress members are buying semiconductor stocks?"},
+    {"key": "insider_and_institutional_buying", "label": "Insider and Institutional Buying", "content_type": "non_ticker", "intent": "Which stocks have both insider and institutional buying?"},
+    {"key": "dod_contract_leaders", "label": "DoD Contract Leaders", "content_type": "non_ticker", "intent": "Which public companies are receiving the most Department of Defense contracts?"},
+    {"key": "ai_institutional_accumulation", "label": "AI Institutional Accumulation", "content_type": "non_ticker", "intent": "Are institutions accumulating AI stocks?"},
+    {"key": "meaningful_insider_buying", "label": "Meaningful Insider Buying", "content_type": "non_ticker", "intent": "How do you tell if insider buying is meaningful?"},
+    {"key": "interpret_congress_trades", "label": "Interpret Congress Trades", "content_type": "non_ticker", "intent": "How should investors interpret Congress stock trades?"},
+    {"key": "increasing_institutional_ownership", "label": "Increasing Institutional Ownership", "content_type": "non_ticker", "intent": "What does increasing institutional ownership mean?"},
+    {"key": "confirm_bullish_thesis", "label": "Confirm a Bullish Thesis", "content_type": "non_ticker", "intent": "How do you confirm a bullish stock thesis?"},
+    {"key": "conflicting_stock_research_data", "label": "Conflicting Stock Research Data", "content_type": "non_ticker", "intent": "What does conflicting stock research data mean?"},
+]
 JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
 RESEARCH_BRIEF_REQUIRED_PLAN_VALUES = {"premium", "pro"}
 WALNUT_CALL_VALUES = [
@@ -1519,6 +1545,14 @@ def ensure_research_brief_store_schema(db: Session) -> None:
                 created_by INTEGER,
                 primary_ticker TEXT,
                 slug TEXT,
+                campaign_id TEXT,
+                campaign_item_id TEXT,
+                scheduled_at TEXT,
+                approved_at TEXT,
+                data_as_of TEXT,
+                earnings_period_used TEXT,
+                generator_version TEXT,
+                last_publish_error TEXT,
                 updated_at TEXT,
                 published_at TEXT,
                 payload_json TEXT NOT NULL
@@ -1526,9 +1560,74 @@ def ensure_research_brief_store_schema(db: Session) -> None:
             """
         )
     )
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS research_campaigns (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                theme TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT 1,
+                cadence TEXT NOT NULL DEFAULT 'one_time',
+                config_json TEXT NOT NULL,
+                created_by INTEGER,
+                created_by_email TEXT,
+                generated_count INTEGER NOT NULL DEFAULT 0,
+                approved_count INTEGER NOT NULL DEFAULT 0,
+                rejected_count INTEGER NOT NULL DEFAULT 0,
+                published_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS research_campaign_items (
+                id TEXT PRIMARY KEY,
+                campaign_id TEXT NOT NULL,
+                ticker TEXT,
+                topic TEXT,
+                generate_at TEXT,
+                publish_at TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                research_article_id TEXT,
+                idempotency_key TEXT,
+                generated_at TEXT,
+                last_error TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+    )
     db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_brief_jobs_admin_request ON research_brief_generation_jobs (created_by_admin_id, client_request_id)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_jobs_status_created ON research_brief_generation_jobs (status, created_at)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_status_updated ON research_brief_drafts (status, updated_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_scheduled ON research_brief_drafts (status, scheduled_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaigns_active ON research_campaigns (active, updated_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaign_items_due ON research_campaign_items (status, generate_at)"))
+    db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_campaign_items_idempotency ON research_campaign_items (idempotency_key)"))
+    for column, ddl in {
+        "campaign_id": "ALTER TABLE research_brief_drafts ADD COLUMN campaign_id TEXT",
+        "campaign_item_id": "ALTER TABLE research_brief_drafts ADD COLUMN campaign_item_id TEXT",
+        "scheduled_at": "ALTER TABLE research_brief_drafts ADD COLUMN scheduled_at TEXT",
+        "approved_at": "ALTER TABLE research_brief_drafts ADD COLUMN approved_at TEXT",
+        "data_as_of": "ALTER TABLE research_brief_drafts ADD COLUMN data_as_of TEXT",
+        "earnings_period_used": "ALTER TABLE research_brief_drafts ADD COLUMN earnings_period_used TEXT",
+        "generator_version": "ALTER TABLE research_brief_drafts ADD COLUMN generator_version TEXT",
+        "last_publish_error": "ALTER TABLE research_brief_drafts ADD COLUMN last_publish_error TEXT",
+    }.items():
+        try:
+            db.execute(text(f"ALTER TABLE research_brief_drafts ADD COLUMN IF NOT EXISTS {column} TEXT"))
+        except Exception:
+            try:
+                db.execute(text(ddl))
+            except Exception:
+                pass
     try:
         db.execute(text("ALTER TABLE research_brief_generation_jobs ADD COLUMN IF NOT EXISTS updated_at TEXT"))
     except Exception:
@@ -1625,6 +1724,14 @@ def _upsert_db_draft(db: Session, draft: dict[str, Any]) -> None:
         "created_by": draft.get("created_by"),
         "primary_ticker": draft.get("primary_ticker"),
         "slug": article.get("slug"),
+        "campaign_id": draft.get("campaign_id"),
+        "campaign_item_id": draft.get("campaign_item_id"),
+        "scheduled_at": draft.get("scheduled_at"),
+        "approved_at": draft.get("approved_at"),
+        "data_as_of": draft.get("data_as_of") or draft.get("research_context_timestamp"),
+        "earnings_period_used": draft.get("earnings_period_used"),
+        "generator_version": draft.get("generator_version") or draft.get("prompt_version"),
+        "last_publish_error": draft.get("last_publish_error"),
         "updated_at": draft.get("updated_at"),
         "published_at": draft.get("published_at"),
         "payload_json": _json_dump(draft),
@@ -1632,12 +1739,28 @@ def _upsert_db_draft(db: Session, draft: dict[str, Any]) -> None:
     db.execute(
         text(
             """
-            INSERT INTO research_brief_drafts (id, status, created_by, primary_ticker, slug, updated_at, published_at, payload_json)
-            VALUES (:id, :status, :created_by, :primary_ticker, :slug, :updated_at, :published_at, :payload_json)
+            INSERT INTO research_brief_drafts (
+                id, status, created_by, primary_ticker, slug, campaign_id, campaign_item_id,
+                scheduled_at, approved_at, data_as_of, earnings_period_used, generator_version,
+                last_publish_error, updated_at, published_at, payload_json
+            )
+            VALUES (
+                :id, :status, :created_by, :primary_ticker, :slug, :campaign_id, :campaign_item_id,
+                :scheduled_at, :approved_at, :data_as_of, :earnings_period_used, :generator_version,
+                :last_publish_error, :updated_at, :published_at, :payload_json
+            )
             ON CONFLICT(id) DO UPDATE SET
                 status = excluded.status,
                 primary_ticker = excluded.primary_ticker,
                 slug = excluded.slug,
+                campaign_id = excluded.campaign_id,
+                campaign_item_id = excluded.campaign_item_id,
+                scheduled_at = excluded.scheduled_at,
+                approved_at = excluded.approved_at,
+                data_as_of = excluded.data_as_of,
+                earnings_period_used = excluded.earnings_period_used,
+                generator_version = excluded.generator_version,
+                last_publish_error = excluded.last_publish_error,
                 updated_at = excluded.updated_at,
                 published_at = excluded.published_at,
                 payload_json = excluded.payload_json
@@ -1667,6 +1790,536 @@ def _db_drafts(db: Session, status: str | None = None) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
             drafts.append(payload)
     return drafts
+
+
+def research_campaign_themes() -> dict[str, Any]:
+    return {"items": deepcopy(RESEARCH_CAMPAIGN_THEMES)}
+
+
+def _campaign_theme(theme: Any) -> dict[str, Any]:
+    key = str(theme or "").strip().lower()
+    for item in RESEARCH_CAMPAIGN_THEMES:
+        if item["key"] == key:
+            return item
+    raise HTTPException(status_code=422, detail="Unsupported research campaign theme.")
+
+
+def _campaign_from_row(row: Any) -> dict[str, Any]:
+    campaign = dict(row or {})
+    campaign["active"] = bool(campaign.get("active"))
+    campaign["config"] = _load_json(campaign.pop("config_json", None)) or {}
+    return campaign
+
+
+def _campaign_item_from_row(row: Any) -> dict[str, Any]:
+    return dict(row or {})
+
+
+def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    theme = _campaign_theme(payload.get("theme"))
+    content_type = str(payload.get("content_type") or theme.get("content_type") or "ticker").strip().lower()
+    if content_type not in {"ticker", "non_ticker"}:
+        raise HTTPException(status_code=422, detail="Campaign content type must be ticker or non_ticker.")
+    cadence = str(payload.get("cadence") or "one_time").strip().lower()
+    if cadence not in {"one_time", "daily", "weekly", "custom"}:
+        raise HTTPException(status_code=422, detail="Unsupported campaign cadence.")
+    tickers = [normalize_symbol(item) for item in (payload.get("tickers") or []) if normalize_symbol(item)]
+    topic = str(payload.get("topic") or "").strip()
+    if content_type == "ticker" and not tickers:
+        raise HTTPException(status_code=422, detail="At least one ticker is required.")
+    if content_type == "non_ticker" and not topic:
+        topic = str(theme.get("intent") or theme.get("label") or "Walnut research topic").strip()
+    try:
+        window_days = max(1, min(30, int(payload.get("window_days") or 1)))
+    except (TypeError, ValueError):
+        window_days = 1
+    try:
+        article_count = max(1, min(50, int(payload.get("article_count") or (len(tickers) if content_type == "ticker" else 1))))
+    except (TypeError, ValueError):
+        article_count = len(tickers) if content_type == "ticker" else 1
+    publish_start_at = _parse_schedule_datetime(payload.get("publish_start_at")) or datetime.now(timezone.utc)
+    return {
+        "name": str(payload.get("name") or theme["label"]).strip()[:180],
+        "theme": theme["key"],
+        "theme_label": theme["label"],
+        "content_type": content_type,
+        "active": bool(payload.get("active", True)),
+        "cadence": cadence,
+        "tickers": tickers,
+        "topic": topic,
+        "article_count": article_count,
+        "window_days": window_days,
+        "publish_start_at": publish_start_at.isoformat(),
+        "publish_time": str(payload.get("publish_time") or "").strip()[:20],
+    }
+
+
+def _parse_schedule_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.fromisoformat(f"{raw}T09:00:00+00:00")
+        except ValueError:
+            return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _distributed_publish_times(start: datetime, count: int, window_days: int) -> list[datetime]:
+    count = max(1, count)
+    window_days = max(1, window_days)
+    if count == 1:
+        return [start]
+    day_span = max(1, window_days - 1)
+    return [start + timedelta(days=round(index * day_span / max(1, count - 1))) for index in range(count)]
+
+
+def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str, Any]) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    config = _normalize_campaign_payload(payload)
+    now = _now()
+    campaign_id = f"rc_{uuid.uuid4().hex}"
+    db.execute(
+        text(
+            """
+            INSERT INTO research_campaigns (
+                id, name, theme, content_type, active, cadence, config_json,
+                created_by, created_by_email, created_at, updated_at
+            ) VALUES (
+                :id, :name, :theme, :content_type, :active, :cadence, :config_json,
+                :created_by, :created_by_email, :created_at, :updated_at
+            )
+            """
+        ),
+        {
+            "id": campaign_id,
+            "name": config["name"],
+            "theme": config["theme"],
+            "content_type": config["content_type"],
+            "active": config["active"],
+            "cadence": config["cadence"],
+            "config_json": _json_dump(config),
+            "created_by": admin.id,
+            "created_by_email": getattr(admin, "email", None),
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+    targets = config["tickers"] if config["content_type"] == "ticker" else [config["topic"]]
+    targets = targets[: config["article_count"]]
+    publish_times = _distributed_publish_times(_parse_schedule_datetime(config["publish_start_at"]) or datetime.now(timezone.utc), len(targets), config["window_days"])
+    for index, target in enumerate(targets):
+        publish_at = publish_times[index]
+        generate_at = min(datetime.now(timezone.utc), publish_at - timedelta(hours=18))
+        item_id = f"rci_{uuid.uuid4().hex}"
+        ticker = target if config["content_type"] == "ticker" else None
+        topic = None if config["content_type"] == "ticker" else target
+        db.execute(
+            text(
+                """
+                INSERT INTO research_campaign_items (
+                    id, campaign_id, ticker, topic, generate_at, publish_at, status,
+                    idempotency_key, created_at, updated_at
+                ) VALUES (
+                    :id, :campaign_id, :ticker, :topic, :generate_at, :publish_at, 'pending',
+                    :idempotency_key, :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "id": item_id,
+                "campaign_id": campaign_id,
+                "ticker": ticker,
+                "topic": topic,
+                "generate_at": generate_at.isoformat(),
+                "publish_at": publish_at.isoformat(),
+                "idempotency_key": f"{campaign_id}:{ticker or topic}:{publish_at.isoformat()}",
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+    db.commit()
+    return get_research_campaign(db, campaign_id)
+
+
+def get_research_campaign(db: Session, campaign_id: str) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    row = db.execute(text("SELECT * FROM research_campaigns WHERE id = :id"), {"id": campaign_id}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Research campaign not found.")
+    campaign = _campaign_from_row(row)
+    items = db.execute(text("SELECT * FROM research_campaign_items WHERE campaign_id = :id ORDER BY publish_at, created_at"), {"id": campaign_id}).mappings().all()
+    campaign["items"] = [_campaign_item_from_row(item) for item in items]
+    return campaign
+
+
+def list_research_campaigns(db: Session) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    rows = db.execute(text("SELECT * FROM research_campaigns ORDER BY updated_at DESC, created_at DESC")).mappings().all()
+    items = []
+    for row in rows:
+        campaign = _campaign_from_row(row)
+        item_rows = db.execute(text("SELECT status FROM research_campaign_items WHERE campaign_id = :id"), {"id": campaign["id"]}).mappings().all()
+        campaign["item_count"] = len(item_rows)
+        campaign["pending_count"] = sum(1 for item in item_rows if item.get("status") == "pending")
+        items.append(campaign)
+    return {"items": items}
+
+
+def set_research_campaign_active(db: Session, campaign_id: str, active: bool) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    result = db.execute(text("UPDATE research_campaigns SET active = :active, updated_at = :updated_at WHERE id = :id"), {"active": bool(active), "updated_at": _now(), "id": campaign_id})
+    db.commit()
+    if getattr(result, "rowcount", 0) == 0:
+        raise HTTPException(status_code=404, detail="Research campaign not found.")
+    return get_research_campaign(db, campaign_id)
+
+
+def delete_research_campaign(db: Session, campaign_id: str) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    db.execute(text("DELETE FROM research_campaign_items WHERE campaign_id = :id AND status = 'pending'"), {"id": campaign_id})
+    result = db.execute(text("DELETE FROM research_campaigns WHERE id = :id"), {"id": campaign_id})
+    db.commit()
+    if getattr(result, "rowcount", 0) == 0:
+        raise HTTPException(status_code=404, detail="Research campaign not found.")
+    return {"ok": True, "deleted": campaign_id}
+
+
+def run_research_campaign_now(db: Session, campaign_id: str, *, limit: int = 10) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    db.execute(text("UPDATE research_campaign_items SET generate_at = :now, updated_at = :now WHERE campaign_id = :campaign_id AND status = 'pending'"), {"now": _now(), "campaign_id": campaign_id})
+    db.commit()
+    return run_due_research_campaign_generation(db, limit=limit, campaign_id=campaign_id)
+
+
+def run_due_research_campaign_generation(db: Session, *, limit: int = 10, campaign_id: str | None = None) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    where_campaign = "AND c.id = :campaign_id" if campaign_id else ""
+    rows = db.execute(
+        text(
+            f"""
+            SELECT i.*, c.name AS campaign_name, c.theme AS campaign_theme, c.content_type AS campaign_content_type,
+                   c.config_json AS campaign_config_json, c.created_by AS campaign_created_by, c.created_by_email AS campaign_created_by_email
+            FROM research_campaign_items i
+            JOIN research_campaigns c ON c.id = i.campaign_id
+            WHERE i.status = 'pending' AND c.active = 1 AND i.generate_at <= :now {where_campaign}
+            ORDER BY i.generate_at ASC
+            LIMIT :limit
+            """
+        ),
+        {"now": _now(), "limit": max(1, min(50, limit)), "campaign_id": campaign_id},
+    ).mappings().all()
+    generated = 0
+    failed = 0
+    skipped = 0
+    for row in rows:
+        item_id = str(row["id"])
+        claim = db.execute(text("UPDATE research_campaign_items SET status = 'generating', updated_at = :now WHERE id = :id AND status = 'pending'"), {"now": _now(), "id": item_id})
+        db.commit()
+        if getattr(claim, "rowcount", 0) != 1:
+            skipped += 1
+            continue
+        try:
+            _generate_research_campaign_item(db, row)
+            generated += 1
+        except Exception as exc:
+            failed += 1
+            db.execute(
+                text("UPDATE research_campaign_items SET status = 'failed', last_error = :error, updated_at = :now WHERE id = :id"),
+                {"id": item_id, "error": f"{exc.__class__.__name__}: {str(exc)[:500]}", "now": _now()},
+            )
+            db.commit()
+            logger.warning("research_campaign_item_failed item_id=%s error=%s", item_id, exc.__class__.__name__, exc_info=True)
+    return {"generated": generated, "failed": failed, "skipped": skipped, "checked": len(rows)}
+
+
+def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
+    item = _campaign_item_from_row(row)
+    if item.get("research_article_id"):
+        return get_draft(str(item["research_article_id"]), db=db)
+    admin = db.get(UserAccount, item.get("campaign_created_by")) if item.get("campaign_created_by") else None
+    if not admin:
+        raise HTTPException(status_code=404, detail="Campaign admin account not found.")
+    campaign_config = _load_json(item.get("campaign_config_json")) or {}
+    content_type = str(item.get("campaign_content_type") or campaign_config.get("content_type") or "ticker")
+    if content_type != "ticker":
+        draft = _generate_non_ticker_campaign_stub(db, admin, item, campaign_config)
+    else:
+        config = _campaign_item_generation_config(item, campaign_config)
+        draft = generate_research_brief(db, admin, config)
+    draft = _mark_draft_scheduled_review(draft, item, campaign_config)
+    _upsert_db_draft(db, draft)
+    db.execute(
+        text(
+            """
+            UPDATE research_campaign_items
+            SET status = 'generated', research_article_id = :draft_id, generated_at = :generated_at, updated_at = :updated_at, last_error = NULL
+            WHERE id = :id
+            """
+        ),
+        {"id": item["id"], "draft_id": draft["id"], "generated_at": draft["generated_at"], "updated_at": _now()},
+    )
+    db.execute(text("UPDATE research_campaigns SET generated_count = generated_count + 1, updated_at = :now WHERE id = :id"), {"id": item["campaign_id"], "now": _now()})
+    db.commit()
+    send_research_campaign_review_email(db, admin, draft, item, campaign_config)
+    return draft
+
+
+def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
+    ticker = normalize_symbol(item.get("ticker"))
+    theme = _campaign_theme(campaign_config.get("theme"))
+    title_intent = str(theme.get("intent") or "").replace("[TICKER]", ticker)
+    if theme["key"] == "good_buy_now":
+        question = f"Is {ticker} a good stock to buy right now after the latest earnings and current Walnut data?"
+        angle = "Post-earnings review"
+    else:
+        question = title_intent or f"What does current Walnut data say about {ticker}?"
+        angle = "Full company DD"
+    return {
+        "ticker": ticker,
+        "research_question": question,
+        "desired_angle": angle,
+        "time_horizon": "Near term",
+        "intended_audience": "Walnut Research Brief",
+        "judgment_preference": "Let the data decide",
+        "additional_context": (
+            f"Campaign theme: {theme['label']}. Write a concise SEO/AEO research brief. "
+            "Use the latest earnings/company data available at generation time, current Walnut-native data, the current confirmation score, fundamentals, technical context, and only relevant optional datasets. "
+            "Do not force sections for unavailable or irrelevant data."
+        ),
+        "include_sections": [
+            "Executive thesis",
+            "What changed",
+            "Business and fundamentals",
+            "Valuation",
+            "Price / volume and technicals",
+            "Catalysts",
+            "Risks",
+            "What to watch next",
+            "Final Walnut judgment",
+        ],
+        "length": "Standard: 1,500-2,500 words",
+        "tone": "Walnut market-native",
+        "external_research_mode": "Standard",
+        "section_format": "Walnut Research Brief",
+        "include_charts": False,
+        "include_source_links": True,
+        "include_confirmation_score": True,
+        "include_cross_source_confirmations": True,
+        "premium_required": False,
+        "required_plan": None,
+        "generate_thumbnail": True,
+        "selected_model": "",
+        "manual_source_url": "",
+    }
+
+
+def _generate_non_ticker_campaign_stub(db: Session, admin: UserAccount, item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
+    created = _now()
+    topic = str(item.get("topic") or campaign_config.get("topic") or campaign_config.get("theme_label") or "Walnut research").strip()
+    slug = _slugify(topic, fallback="walnut-research-brief")
+    article = {
+        "title": topic,
+        "slug": slug,
+        "subtitle": "A Walnut research brief queued for editorial generation.",
+        "summary": "This non-ticker campaign item is queued for Walnut-native dataset research and editorial completion.",
+        "preview_body": "This non-ticker campaign item is queued for Walnut-native dataset research and editorial completion.",
+        "judgment": "neutral",
+        "walnut_call": "Neutral",
+        "confidence": "medium",
+        "confirmation_score_included": False,
+        "primary_ticker": "",
+        "comparison_tickers": [],
+        "category": "Research",
+        "reading_minutes": 4,
+        "sections": [{"key": "editorial-note", "heading": "Editorial note", "body_markdown": "This non-ticker campaign item has been scheduled for review. Add the Walnut-native dataset query output before approval."}],
+        "key_points": [],
+        "catalysts": [],
+        "risks": [],
+        "watch_items": [],
+        "data_freshness": [created],
+        "missing_data_notes": [],
+        "source_links": [],
+        "suggested_card": {"title": topic, "description": "Walnut research brief.", "judgment": "neutral", "tickers": []},
+        "seo": {"title": f"{topic} | Walnut Research", "description": "Walnut research brief."},
+    }
+    draft = {
+        "id": f"rb_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}",
+        "status": "draft",
+        "created_by": admin.id,
+        "created_by_email": getattr(admin, "email", None),
+        "created_at": created,
+        "updated_at": created,
+        "published_at": None,
+        "model": "manual-dataset-brief",
+        "prompt_version": RESEARCH_BRIEF_PROMPT_VERSION,
+        "research_context_timestamp": created,
+        "primary_ticker": "",
+        "comparison_ticker": None,
+        "comparison_tickers": [],
+        "config": {"ticker": "", "research_question": topic, "theme": campaign_config.get("theme"), "content_type": "non_ticker"},
+        "article": article,
+        "validation": {"status": "passed", "warnings": [], "numeric_claims": [], "source_link_count": 0, "estimated_reading_minutes": 4},
+        "diagnostics": {"elapsed_ms": 0, "storage": "database", "usage": {}},
+        "research_context": {"generated_at": created, "topic": topic, "campaign_theme": campaign_config.get("theme")},
+    }
+    return draft
+
+
+def _mark_draft_scheduled_review(draft: dict[str, Any], item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
+    updated = deepcopy(draft)
+    now = _now()
+    context = updated.get("research_context") if isinstance(updated.get("research_context"), dict) else {}
+    article = updated.get("article") if isinstance(updated.get("article"), dict) else {}
+    updated["status"] = "scheduled_review"
+    updated["campaign_id"] = item.get("campaign_id")
+    updated["campaign_item_id"] = item.get("id")
+    updated["campaign_name"] = item.get("campaign_name") or campaign_config.get("name")
+    updated["campaign_theme"] = campaign_config.get("theme")
+    updated["scheduled_at"] = item.get("publish_at")
+    updated["generated_at"] = now
+    updated["data_as_of"] = context.get("generated_at") or now
+    updated["earnings_period_used"] = _earnings_period_from_context(context)
+    updated["generator_version"] = RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION
+    updated["updated_at"] = now
+    article["current_data_as_of"] = updated["data_as_of"]
+    seo = article.setdefault("seo", {})
+    seo.setdefault("canonical", f"/research/{article.get('slug') or updated['id']}")
+    article["schema"] = {
+        "@type": "Article",
+        "headline": article.get("title"),
+        "dateModified": now,
+        "datePublished": updated.get("scheduled_at"),
+    }
+    updated["article"] = article
+    return updated
+
+
+def _earnings_period_from_context(context: dict[str, Any]) -> str | None:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
+    summary = financials.get("summary") if isinstance(financials.get("summary"), dict) else {}
+    external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
+    official_facts = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
+    return str(summary.get("latestQuarter") or official_facts.get("latest_official_quarter") or "") or None
+
+
+def send_research_campaign_review_email(db: Session, admin: UserAccount, draft: dict[str, Any], item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any] | None:
+    to_email = str(getattr(admin, "email", "") or item.get("campaign_created_by_email") or "").strip()
+    if not to_email:
+        return None
+    article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
+    app_base = os.getenv("APP_BASE_URL", "https://app.walnutmarkets.com").strip().rstrip("/") or "https://app.walnutmarkets.com"
+    review_url = f"{app_base}/admin/research-briefs?draft={draft['id']}"
+    context = {
+        "title": article.get("title") or draft["id"],
+        "ticker_or_topic": draft.get("primary_ticker") or item.get("topic") or "",
+        "scheduled_at": draft.get("scheduled_at") or "",
+        "campaign_name": draft.get("campaign_name") or campaign_config.get("name") or "",
+        "data_as_of": draft.get("data_as_of") or "",
+        "review_url": review_url,
+        "approve_url": review_url,
+    }
+    return send_email(
+        db,
+        to_email=to_email,
+        template_key=RESEARCH_CAMPAIGN_REVIEW_TEMPLATE_KEY,
+        context=context,
+        user_id=getattr(admin, "id", None),
+        category="alerts",
+        idempotency_key=f"research-campaign-review:{draft['id']}",
+    )
+
+
+def approve_scheduled_research_brief(db: Session, admin: UserAccount, draft_id: str) -> dict[str, Any]:
+    draft = get_draft(draft_id, db=db)
+    draft["status"] = "approved_scheduled"
+    draft["approved_at"] = _now()
+    draft["approved_by"] = admin.id
+    draft["updated_at"] = _now()
+    _upsert_db_draft(db, draft)
+    if draft.get("campaign_id"):
+        db.execute(text("UPDATE research_campaigns SET approved_count = approved_count + 1, updated_at = :now WHERE id = :id"), {"id": draft["campaign_id"], "now": _now()})
+        db.commit()
+    return deepcopy(draft)
+
+
+def reject_scheduled_research_brief(db: Session, admin: UserAccount, draft_id: str) -> dict[str, Any]:
+    draft = get_draft(draft_id, db=db)
+    draft["status"] = "rejected"
+    draft["rejected_at"] = _now()
+    draft["rejected_by"] = admin.id
+    draft["updated_at"] = _now()
+    _upsert_db_draft(db, draft)
+    if draft.get("campaign_id"):
+        db.execute(text("UPDATE research_campaigns SET rejected_count = rejected_count + 1, updated_at = :now WHERE id = :id"), {"id": draft["campaign_id"], "now": _now()})
+        db.commit()
+    return deepcopy(draft)
+
+
+def reschedule_research_brief(db: Session, draft_id: str, scheduled_at: str) -> dict[str, Any]:
+    parsed = _parse_schedule_datetime(scheduled_at)
+    if not parsed:
+        raise HTTPException(status_code=422, detail="A valid scheduled_at timestamp is required.")
+    draft = get_draft(draft_id, db=db)
+    draft["scheduled_at"] = parsed.isoformat()
+    draft["updated_at"] = _now()
+    _upsert_db_draft(db, draft)
+    if draft.get("campaign_item_id"):
+        db.execute(text("UPDATE research_campaign_items SET publish_at = :publish_at, updated_at = :now WHERE id = :id"), {"publish_at": draft["scheduled_at"], "now": _now(), "id": draft["campaign_item_id"]})
+        db.commit()
+    return deepcopy(draft)
+
+
+def run_due_scheduled_research_publications(db: Session, *, limit: int = 20) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    rows = db.execute(
+        text(
+            """
+            SELECT id, payload_json
+            FROM research_brief_drafts
+            WHERE status = 'approved_scheduled' AND scheduled_at <= :now
+            ORDER BY scheduled_at ASC
+            LIMIT :limit
+            """
+        ),
+        {"now": _now(), "limit": max(1, min(100, limit))},
+    ).mappings().all()
+    published = 0
+    failed = 0
+    skipped = 0
+    system_admin = _system_admin_for_scheduler(db)
+    for row in rows:
+        draft = _load_json(row["payload_json"])
+        if not isinstance(draft, dict) or draft.get("status") != "approved_scheduled":
+            skipped += 1
+            continue
+        try:
+            published_draft = publish_draft(system_admin, str(row["id"]), confirm=True, db=db)
+            published += 1
+            if published_draft.get("campaign_id"):
+                db.execute(text("UPDATE research_campaigns SET published_count = published_count + 1, updated_at = :now WHERE id = :id"), {"id": published_draft["campaign_id"], "now": _now()})
+                db.commit()
+        except Exception as exc:
+            failed += 1
+            draft["last_publish_error"] = f"{exc.__class__.__name__}: {str(exc)[:500]}"
+            draft["updated_at"] = _now()
+            _upsert_db_draft(db, draft)
+            logger.warning("scheduled_research_publish_failed draft_id=%s error=%s", row["id"], exc.__class__.__name__, exc_info=True)
+    return {"published": published, "failed": failed, "skipped": skipped, "checked": len(rows)}
+
+
+def _system_admin_for_scheduler(db: Session) -> UserAccount:
+    admin = db.execute(select(UserAccount).where(UserAccount.role == "admin").order_by(UserAccount.id.asc())).scalar_one_or_none()
+    if admin:
+        return admin
+    fallback = UserAccount(id=0, email="scheduler@walnutmarkets.com", role="admin")  # type: ignore[call-arg]
+    return fallback
 
 
 def _append_audit(store: dict[str, Any], *, action: str, admin: UserAccount, draft_id: str | None, metadata: dict[str, Any] | None = None) -> None:
@@ -3263,7 +3916,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     ]
     return "\n".join(
         [
-            "You are Walnut's senior market research editor writing a publishable due-diligence brief.",
+            "You are Walnut's senior market research editor writing a publishable research brief in Walnut's investor-to-investor voice.",
             f"PRIMARY_TICKER: {primary_symbol}",
             f"PRIMARY_COMPANY: {primary_company}",
             f"COMPARISON_TICKERS: {', '.join(comparison_symbols) if comparison_symbols else 'None'}",
@@ -3294,11 +3947,16 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
-            "Write like an experienced investor explaining the setup to another experienced investor: direct, specific, numbers first, natural contractions allowed, varied sentence length, some short sentences, clear opinions when evidence supports them.",
-            "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'the central question,' 'against this backdrop,' 'on balance,' 'evidence suggests,' 'the appropriate next step,' 'credible bull case requires,' 'we reserve judgment,' 'It is important to note,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
-            "Prefer active sentences that sound like a senior analyst wrote them after reading the data. Do not become casual, promotional, cute, or chatty.",
+            "Core Walnut tone: Assess the data, not the hype.",
+            "Write like an experienced investor explaining the setup to another experienced investor: concise, human, skeptical, data-first, specific, conversational without getting sloppy, and opinionated only where the evidence supports it.",
+            "Answer the headline question in the opening 2-4 short paragraphs. Get to the data quickly. Use real numbers. Acknowledge conflicting evidence. Clearly separate fact from interpretation. Do not pretend every stock has a strong conclusion.",
+            "For ticker question briefs, prefer natural sections such as Quick answer, What earnings changed, What our data is seeing, Fundamentals, Price / technical context, Bull case, Bear case, What to watch next, and Bottom line. Do not force every Walnut dataset into the article.",
+            "If Congress, insider, institutional, contracts, options, macro, or analyst data is unavailable or irrelevant, omit that section. Do not turn missing data into paragraphs.",
+            "Strict copy rules: never write 'The reviewed record supplied for this brief does not contain', 'The available information is insufficient to assess', 'Investors should carefully consider', 'In today's rapidly evolving market', 'Unlock', 'Delve', 'Robust', 'Comprehensive', 'Holistic', 'Investment case', or 'Vibes'.",
+            "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'the central question,' 'against this backdrop,' 'on balance,' 'evidence suggests,' 'the appropriate next step,' 'credible bull case requires,' 'we reserve judgment,' 'It is important to note,' 'Looking ahead,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
+            "Prefer active sentences that sound like a senior analyst wrote them after reading the data. Do not become promotional, cute, or chatty.",
             "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
-            "End with a clear judgment plus a brief research-only disclaimer.",
+            "End with a clear judgment. Do not add generic investment disclaimers inside the article body; Walnut's public legal/footer language handles that.",
             "Use first-person plural for our own views, data, takes, and confirmation score. Say 'our take' or 'our confirmation score,' not 'Walnut's take' or 'Walnut's confirmation score.'",
             "The JSON summary is the Insights preview body. Keep it 1-3 sentences and do not duplicate the full post body.",
             "Return metadata fields walnut_call and confirmation_score_included. confirmation_score_included must reflect whether the score appears in the body.",
@@ -3519,8 +4177,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         blocking = True
     summary_text = f"{article.get('summary') or ''}\n{article.get('preview_body') or ''}"
     if "not investment advice" not in body.lower() and "not investment advice" not in summary_text.lower():
-        warnings.append(_warning("missing_disclaimer", "Research-only / not-investment-advice language is missing.", blocking=True))
-        blocking = True
+        warnings.append(_warning("missing_disclaimer", "Research-only / not-investment-advice language is missing from the body; rely on the Walnut legal/footer disclaimer when appropriate.", blocking=False))
     lowered = f"{title}\n{body}".lower()
     article_score_value = _article_confirmation_score_value(article)
     thematic_research = _is_thematic_research(article, context)
@@ -3945,7 +4602,7 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
     article = deepcopy(article)
     article["slug"] = slug
     return {
-        "id": f"rb_{int(time.time() * 1000)}",
+        "id": f"rb_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}",
         "status": "draft",
         "created_by": admin.id,
         "created_by_email": getattr(admin, "email", None),
@@ -3963,7 +4620,7 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
         "validation": validation,
         "diagnostics": {
             "elapsed_ms": elapsed_ms,
-            "storage": "local_json",
+            "storage": "database",
             "usage": article.get("_generation_usage") or {},
         },
         "research_context": context,

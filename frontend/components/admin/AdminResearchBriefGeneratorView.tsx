@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  approveScheduledAdminResearchBriefDraft,
+  createAdminResearchCampaign,
   deleteAdminResearchBriefDraft,
+  deleteAdminResearchCampaign,
+  getAdminResearchCampaigns,
   getAdminResearchBriefDraft,
   getAdminResearchBriefGenerationDraft,
   getAdminResearchBriefGenerationJob,
@@ -10,8 +14,13 @@ import {
   getAdminResearchBriefContext,
   getAdminResearchBriefOptions,
   publishAdminResearchBriefDraft,
+  publishNowAdminResearchBriefDraft,
   recordProductEvent,
   refreshAdminResearchBriefSources,
+  rejectAdminResearchBriefDraft,
+  rescheduleAdminResearchBriefDraft,
+  runAdminResearchCampaignNow,
+  setAdminResearchCampaignActive,
   startAdminResearchBriefGeneration,
   unpublishAdminResearchBriefDraft,
   updateAdminResearchBriefDraft,
@@ -20,6 +29,9 @@ import {
   type AdminResearchBriefConfig,
   type AdminResearchBriefDraft,
   type AdminResearchBriefJob,
+  type AdminResearchCampaign,
+  type AdminResearchCampaignPayload,
+  type AdminResearchCampaignTheme,
 } from "@/lib/api";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
@@ -38,6 +50,7 @@ type ResearchBriefOptions = {
   model_descriptions: Record<string, string>;
   model_labels: Record<string, string>;
   sections: string[];
+  campaign_themes: AdminResearchCampaignTheme[];
 };
 
 const DEFAULT_SECTIONS = [
@@ -147,6 +160,26 @@ const fallbackOptions: ResearchBriefOptions = {
     "gpt-5.6-sol": "GPT-5.6 Sol",
   },
   sections: DEFAULT_SECTIONS,
+  campaign_themes: [
+    { key: "good_buy_now", label: "Good Buy Now", content_type: "ticker", intent: "Is [TICKER] a Good Stock to Buy Right Now?" },
+    { key: "why_is_it_moving", label: "Why Is It Moving", content_type: "ticker", intent: "Why Is [TICKER] Stock Moving?" },
+    { key: "insider_activity", label: "Insider Buying / Selling", content_type: "ticker", intent: "What does the latest insider activity mean for [TICKER]?" },
+    { key: "insider_and_institutional_buying", label: "Insider and Institutional Buying", content_type: "non_ticker", intent: "Which stocks have both insider and institutional buying?" },
+  ],
+};
+
+const DEFAULT_CAMPAIGN_FORM: AdminResearchCampaignPayload = {
+  name: "Post-Earnings: Is It a Good Buy?",
+  theme: "good_buy_now",
+  content_type: "ticker",
+  tickers: ["NBIS", "CRWV", "COHR"],
+  topic: "",
+  cadence: "one_time",
+  publish_start_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+  publish_time: "",
+  article_count: 3,
+  window_days: 5,
+  active: true,
 };
 
 function fieldClassName(extra = "") {
@@ -431,8 +464,10 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [comparisonTickerInput, setComparisonTickerInput] = useState("");
   const [comparisonTickerErrors, setComparisonTickerErrors] = useState<Record<string, string>>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [activePane, setActivePane] = useState<"create" | "drafts" | "published" | "settings">("create");
+  const [activePane, setActivePane] = useState<"create" | "scheduled" | "drafts" | "published" | "campaigns" | "settings">("create");
   const [preflightReadiness, setPreflightReadiness] = useState<Record<string, unknown> | null>(null);
+  const [campaigns, setCampaigns] = useState<AdminResearchCampaign[]>([]);
+  const [campaignForm, setCampaignForm] = useState<AdminResearchCampaignPayload>(DEFAULT_CAMPAIGN_FORM);
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
   const validationLabels = selectedDraft?.validation?.labels;
@@ -465,6 +500,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           model_descriptions: payload.model_descriptions,
           model_labels: payload.model_labels,
           sections: payload.sections,
+          campaign_themes: payload.campaign_themes?.length ? payload.campaign_themes : fallbackOptions.campaign_themes,
         });
         setConfig((current) => ({
           ...current,
@@ -474,6 +510,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       })
       .catch(() => undefined);
     getAdminResearchBriefDrafts().then((payload) => alive && setDrafts(payload.items)).catch(() => undefined);
+    getAdminResearchCampaigns().then((payload) => alive && setCampaigns(payload.items)).catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -611,7 +648,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     };
   }, [activeJob?.job_id, generationJobActive, showToast]);
 
-  const generatedDrafts = useMemo(() => drafts.filter((draft) => draft.status !== "published"), [drafts]);
+  const scheduledDrafts = useMemo(() => drafts.filter((draft) => ["scheduled_review", "approved_scheduled"].includes(draft.status)), [drafts]);
+  const generatedDrafts = useMemo(() => drafts.filter((draft) => draft.status !== "published" && !["scheduled_review", "approved_scheduled"].includes(draft.status)), [drafts]);
   const publishedDrafts = useMemo(() => drafts.filter((draft) => draft.status === "published"), [drafts]);
 
   function updateConfig<K extends keyof AdminResearchBriefConfig>(key: K, value: AdminResearchBriefConfig[K]) {
@@ -657,6 +695,11 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       return;
     }
     setDrafts(payload.items);
+  }
+
+  async function refreshCampaigns() {
+    const payload = await getAdminResearchCampaigns();
+    setCampaigns(payload.items);
   }
 
   function applySavedDraft(draft: AdminResearchBriefDraft) {
@@ -790,6 +833,140 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setDeleteDialogOpen(true);
   }
 
+  async function publishNowSelected() {
+    if (!selectedDraft || !articleDraft) return;
+    setBusy("publish-now");
+    try {
+      const article = currentEditedArticle();
+      if (!article) return;
+      const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article, config: currentEditedConfig() });
+      const draft = await publishNowAdminResearchBriefDraft(savedDraft.id);
+      applySavedDraft(draft);
+      showToast?.("Scheduled brief saved and published.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to publish scheduled brief.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function approveScheduledSelected() {
+    if (!selectedDraft) return;
+    setBusy("approve-scheduled");
+    try {
+      const article = currentEditedArticle();
+      const savedDraft = article ? await updateAdminResearchBriefDraft(selectedDraft.id, { article, config: currentEditedConfig() }) : selectedDraft;
+      const draft = await approveScheduledAdminResearchBriefDraft(savedDraft.id);
+      applySavedDraft(draft);
+      await refreshCampaigns();
+      showToast?.("Scheduled brief approved.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to approve scheduled brief.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function rejectSelected() {
+    if (!selectedDraft) return;
+    setBusy("reject");
+    try {
+      const draft = await rejectAdminResearchBriefDraft(selectedDraft.id);
+      applySavedDraft(draft);
+      await refreshCampaigns();
+      showToast?.("Scheduled brief rejected.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to reject scheduled brief.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function rescheduleSelected(scheduledAt: string) {
+    if (!selectedDraft) return;
+    setBusy("reschedule");
+    try {
+      const draft = await rescheduleAdminResearchBriefDraft(selectedDraft.id, scheduledAt);
+      applySavedDraft(draft);
+      showToast?.("Scheduled time updated.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to reschedule brief.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitCampaign() {
+    setBusy("campaign");
+    setError("");
+    try {
+      const payload: AdminResearchCampaignPayload = {
+        ...campaignForm,
+        tickers: campaignForm.content_type === "ticker" ? campaignForm.tickers.map((ticker) => normalizeTickerSymbol(ticker)).filter((ticker): ticker is string => Boolean(ticker)) : [],
+        article_count: campaignForm.content_type === "ticker" ? Math.max(1, campaignForm.tickers.length) : 1,
+      };
+      const campaign = await createAdminResearchCampaign(payload);
+      await refreshCampaigns();
+      setCampaignForm((current) => ({ ...current, name: current.name || campaign.name }));
+      showToast?.("Research campaign created.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to create research campaign.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleCampaign(campaign: AdminResearchCampaign) {
+    setBusy(`campaign-${campaign.id}`);
+    try {
+      await setAdminResearchCampaignActive(campaign.id, !campaign.active);
+      await refreshCampaigns();
+      showToast?.(campaign.active ? "Campaign paused." : "Campaign resumed.", "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to update campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runCampaignNow(campaign: AdminResearchCampaign) {
+    setBusy(`campaign-run-${campaign.id}`);
+    try {
+      const result = await runAdminResearchCampaignNow(campaign.id);
+      await refreshCampaigns();
+      await refreshDrafts();
+      showToast?.(`Campaign run complete: ${result.generated} generated, ${result.failed} failed.`, result.failed ? "error" : "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to run campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeCampaign(campaign: AdminResearchCampaign) {
+    if (!window.confirm(`Delete campaign "${campaign.name}"? Generated articles are kept.`)) return;
+    setBusy(`campaign-delete-${campaign.id}`);
+    try {
+      await deleteAdminResearchCampaign(campaign.id);
+      await refreshCampaigns();
+      showToast?.("Campaign deleted.", "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to delete campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function currentEditedArticle() {
     if (!articleDraft) return null;
     const parsed = markdownToSections(bodyMarkdown);
@@ -877,11 +1054,11 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Research Briefs</p>
             <h2 className="mt-1 text-2xl font-semibold text-white">Admin Research Brief Generator</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Generate grounded Walnut DD drafts with OpenAI Responses, edit them, and publish from local/test storage after explicit review.
+              Generate grounded Walnut research briefs with OpenAI Responses, schedule campaign drafts, edit them, and publish after explicit review.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(["create", "drafts", "published", "settings"] as const).map((pane) => (
+            {(["create", "scheduled", "drafts", "published", "campaigns", "settings"] as const).map((pane) => (
               <button
                 key={pane}
                 type="button"
@@ -1121,6 +1298,10 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onSave={() => saveDraft(selectedDraft?.status === "published" ? "published" : "draft")}
             onReady={() => saveDraft("ready_for_review")}
             onPublish={requestPublishSelected}
+            onPublishNow={publishNowSelected}
+            onApproveScheduled={approveScheduledSelected}
+            onReject={rejectSelected}
+            onReschedule={rescheduleSelected}
             onUnpublish={unpublishSelected}
             onDelete={requestDeleteSelected}
             onRefreshSources={refreshSources}
@@ -1129,6 +1310,30 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             walnutCallInvalid={walnutCallInvalid}
           />
         </div>
+      ) : null}
+
+      {activePane === "scheduled" ? (
+        <ScheduledBriefsPanel
+          drafts={scheduledDrafts}
+          onOpen={(draft) => {
+            setSelectedDraft(draft);
+            setActivePane("create");
+          }}
+        />
+      ) : null}
+
+      {activePane === "campaigns" ? (
+        <CampaignsPanel
+          themes={options.campaign_themes}
+          campaigns={campaigns}
+          form={campaignForm}
+          busy={busy}
+          onFormChange={setCampaignForm}
+          onSubmit={submitCampaign}
+          onToggle={toggleCampaign}
+          onRunNow={runCampaignNow}
+          onDelete={removeCampaign}
+        />
       ) : null}
 
       {activePane === "drafts" || activePane === "published" ? (
@@ -1161,12 +1366,12 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
           <h3 className="text-base font-semibold text-white">Settings</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <Metric label="Storage" value="Local JSON" />
-            <Metric label="Default status" value="Draft" />
+            <Metric label="Storage" value="Database" />
+            <Metric label="Default status" value="Draft / Scheduled Review" />
             <Metric label="OpenAI API" value="Server-side Responses" />
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-400">
-            Production database publishing and migrations are intentionally not enabled in this local implementation.
+            Campaign generation is cron-gated and approved scheduled briefs publish only after owner approval.
           </p>
         </section>
       ) : null}
@@ -1502,6 +1707,192 @@ function DeleteDraftDialog({
   );
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleString();
+}
+
+function toDateTimeLocal(value?: string | null) {
+  if (!value) return "";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return "";
+  const date = new Date(parsed);
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function ScheduledBriefsPanel({ drafts, onOpen }: { drafts: AdminResearchBriefDraft[]; onOpen: (draft: AdminResearchBriefDraft) => void }) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-semibold text-white">Scheduled</h3>
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{drafts.length} items</span>
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
+            <tr>
+              <th className="px-3 py-2">Scheduled</th>
+              <th className="px-3 py-2">Ticker/topic</th>
+              <th className="px-3 py-2">Title</th>
+              <th className="px-3 py-2">Campaign</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Data as of</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {drafts.map((draft) => (
+              <tr key={draft.id} className="align-top text-slate-300">
+                <td className="px-3 py-3 whitespace-nowrap">{formatDateTime(draft.scheduled_at)}</td>
+                <td className="px-3 py-3 font-semibold text-slate-100">{draft.primary_ticker || draft.article?.primary_ticker || "Topic"}</td>
+                <td className="px-3 py-3">
+                  <button type="button" onClick={() => onOpen(draft)} className="text-left font-semibold text-emerald-200 hover:text-emerald-100">
+                    {draft.article?.title || draft.id}
+                  </button>
+                  <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{draft.article?.summary}</p>
+                </td>
+                <td className="px-3 py-3">{draft.campaign_name || draft.campaign_id || "-"}</td>
+                <td className="px-3 py-3">
+                  <span className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold uppercase text-slate-300">{draft.status}</span>
+                  {draft.last_publish_error ? <p className="mt-2 text-xs leading-5 text-rose-200">{draft.last_publish_error}</p> : null}
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap">{formatDateTime(draft.data_as_of || draft.generated_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {drafts.length === 0 ? <p className="py-6 text-sm text-slate-500">No scheduled briefs yet.</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function CampaignsPanel({
+  themes,
+  campaigns,
+  form,
+  busy,
+  onFormChange,
+  onSubmit,
+  onToggle,
+  onRunNow,
+  onDelete,
+}: {
+  themes: AdminResearchCampaignTheme[];
+  campaigns: AdminResearchCampaign[];
+  form: AdminResearchCampaignPayload;
+  busy: string | null;
+  onFormChange: (form: AdminResearchCampaignPayload) => void;
+  onSubmit: () => void;
+  onToggle: (campaign: AdminResearchCampaign) => void;
+  onRunNow: (campaign: AdminResearchCampaign) => void;
+  onDelete: (campaign: AdminResearchCampaign) => void;
+}) {
+  const selectedTheme = themes.find((theme) => theme.key === form.theme) || themes[0];
+  return (
+    <section className="grid gap-5 xl:grid-cols-[minmax(22rem,0.7fr)_minmax(0,1.3fr)]">
+      <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+        <h3 className="text-base font-semibold text-white">Create Campaign</h3>
+        <div className="mt-4 grid gap-4">
+          <label>
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Campaign name</span>
+            <input value={form.name} onChange={(event) => onFormChange({ ...form, name: event.target.value })} className={fieldClassName("mt-2")} />
+          </label>
+          <Select
+            label="Theme"
+            value={form.theme}
+            options={themes.map((theme) => theme.key)}
+            labels={Object.fromEntries(themes.map((theme) => [theme.key, theme.label]))}
+            descriptions={Object.fromEntries(themes.map((theme) => [theme.key, theme.intent]))}
+            onChange={(theme) => {
+              const nextTheme = themes.find((item) => item.key === theme);
+              onFormChange({ ...form, theme, content_type: nextTheme?.content_type === "non_ticker" ? "non_ticker" : "ticker" });
+            }}
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-300">
+              <input type="radio" checked={form.content_type === "ticker"} onChange={() => onFormChange({ ...form, content_type: "ticker" })} className="mr-2" />
+              Ticker
+            </label>
+            <label className="rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-300">
+              <input type="radio" checked={form.content_type === "non_ticker"} onChange={() => onFormChange({ ...form, content_type: "non_ticker" })} className="mr-2" />
+              Non-ticker
+            </label>
+          </div>
+          {form.content_type === "ticker" ? (
+            <label>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Tickers</span>
+              <input
+                value={form.tickers.join(", ")}
+                onChange={(event) => {
+                  const tickers = parseComparisonTickers(event.target.value);
+                  onFormChange({ ...form, tickers, article_count: Math.max(1, tickers.length) });
+                }}
+                className={fieldClassName("mt-2")}
+                placeholder="NBIS, CRWV, COHR"
+              />
+            </label>
+          ) : (
+            <label>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Topic</span>
+              <input value={form.topic || ""} onChange={(event) => onFormChange({ ...form, topic: event.target.value })} className={fieldClassName("mt-2")} placeholder={selectedTheme?.intent || "Research topic"} />
+            </label>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select label="Cadence" value={form.cadence} options={["one_time", "daily", "weekly", "custom"]} onChange={(cadence) => onFormChange({ ...form, cadence })} />
+            <label>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Start publish time</span>
+              <input type="datetime-local" value={form.publish_start_at || ""} onChange={(event) => onFormChange({ ...form, publish_start_at: event.target.value })} className={fieldClassName("mt-2")} />
+            </label>
+            <label>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Articles</span>
+              <input type="number" min={1} max={50} value={form.article_count} onChange={(event) => onFormChange({ ...form, article_count: Math.max(1, Number(event.target.value) || 1) })} className={fieldClassName("mt-2")} />
+            </label>
+            <label>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Over days</span>
+              <input type="number" min={1} max={30} value={form.window_days} onChange={(event) => onFormChange({ ...form, window_days: Math.max(1, Number(event.target.value) || 1) })} className={fieldClassName("mt-2")} />
+            </label>
+          </div>
+          <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? "Creating..." : "Create Campaign"}</Button>
+        </div>
+      </div>
+      <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+        <h3 className="text-base font-semibold text-white">Campaigns</h3>
+        <div className="mt-4 grid gap-3">
+          {campaigns.map((campaign) => (
+            <div key={campaign.id} className="rounded-lg border border-white/10 bg-slate-950/45 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-white">{campaign.name}</p>
+                  <p className="mt-1 text-sm text-slate-400">{campaign.theme} · {campaign.content_type} · {campaign.cadence}</p>
+                  <p className="mt-1 text-xs text-slate-500">Next generation: {campaign.items?.find((item) => item.status === "pending")?.generate_at || "No pending items"}</p>
+                </div>
+                <span className={`rounded-md border px-2 py-1 text-xs font-semibold uppercase ${campaign.active ? "border-emerald-300/25 text-emerald-200" : "border-white/10 text-slate-400"}`}>
+                  {campaign.active ? "Active" : "Paused"}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-4">
+                <Metric label="Generated" value={String(campaign.generated_count || 0)} />
+                <Metric label="Approved" value={String(campaign.approved_count || 0)} />
+                <Metric label="Published" value={String(campaign.published_count || 0)} />
+                <Metric label="Pending" value={String(campaign.pending_count || 0)} />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button disabled={Boolean(busy)} onClick={() => onToggle(campaign)}>{campaign.active ? "Pause" : "Resume"}</Button>
+                <Button disabled={Boolean(busy)} onClick={() => onRunNow(campaign)}>Run Now</Button>
+                <Button tone="danger" disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>Delete</Button>
+              </div>
+            </div>
+          ))}
+          {campaigns.length === 0 ? <p className="text-sm text-slate-500">No campaigns yet.</p> : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function EditorPanel({
   draft,
   article,
@@ -1513,6 +1904,10 @@ function EditorPanel({
   onSave,
   onReady,
   onPublish,
+  onPublishNow,
+  onApproveScheduled,
+  onReject,
+  onReschedule,
   onUnpublish,
   onDelete,
   onRefreshSources,
@@ -1530,6 +1925,10 @@ function EditorPanel({
   onSave: () => void;
   onReady: () => void;
   onPublish: () => void;
+  onPublishNow: () => void;
+  onApproveScheduled: () => void;
+  onReject: () => void;
+  onReschedule: (scheduledAt: string) => void;
   onUnpublish: () => void;
   onDelete: () => void;
   onRefreshSources: () => void;
@@ -1538,6 +1937,10 @@ function EditorPanel({
   walnutCallInvalid: boolean;
 }) {
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [scheduledAtValue, setScheduledAtValue] = useState("");
+  useEffect(() => {
+    setScheduledAtValue(toDateTimeLocal(draft?.scheduled_at));
+  }, [draft?.id, draft?.scheduled_at]);
   if (!draft || !article) {
     return (
       <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
@@ -1548,6 +1951,7 @@ function EditorPanel({
   }
   const activeDraft = draft;
   const activeArticle = article;
+  const isScheduledDraft = ["scheduled_review", "approved_scheduled"].includes(draft.status);
   function copyRedditPost() {
     const redditPost = String(activeArticle.reddit_post || "");
     if (!redditPost.trim()) return;
@@ -1720,6 +2124,10 @@ function EditorPanel({
         <Metric label="Model" value={draft.model || "OpenAI"} />
         <Metric label="Access" value={accessLabel(articleRequiredPlan(article))} />
         <Metric label="Generated at" value={(draft.updated_at || draft.created_at || "").slice(0, 16)} />
+        {draft.campaign_id ? <Metric label="Campaign" value={draft.campaign_name || draft.campaign_id} /> : null}
+        {draft.scheduled_at ? <Metric label="Scheduled" value={formatDateTime(draft.scheduled_at)} /> : null}
+        {draft.data_as_of ? <Metric label="Data as of" value={formatDateTime(draft.data_as_of)} /> : null}
+        {draft.earnings_period_used ? <Metric label="Earnings period" value={draft.earnings_period_used} /> : null}
         <ResearchReadinessPanel draft={draft} />
         <SourceDiscoveryDiagnostics draft={draft} />
         {draft.validation?.source_link_count === 0 ? (
@@ -1753,6 +2161,20 @@ function EditorPanel({
         <div className="grid gap-2">
           <Button disabled={Boolean(busy)} onClick={onSave}>{draft.status === "published" ? "Save Published Changes" : "Save Draft"}</Button>
           <Button disabled={Boolean(busy)} onClick={onReady}>Ready for Review</Button>
+          {isScheduledDraft ? (
+            <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Scheduled time</span>
+                <input type="datetime-local" value={scheduledAtValue} onChange={(event) => setScheduledAtValue(event.target.value)} className={fieldClassName("mt-2")} />
+              </label>
+              <div className="mt-3 grid gap-2">
+                <Button disabled={Boolean(busy) || !scheduledAtValue} onClick={() => onReschedule(new Date(scheduledAtValue).toISOString())}>Reschedule</Button>
+                <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button>
+                <Button disabled={Boolean(busy)} onClick={onReject}>Reject</Button>
+                <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || (draft.validation?.source_link_count || 0) === 0} onClick={onPublishNow}>Publish Now</Button>
+              </div>
+            </div>
+          ) : null}
           <Button disabled={Boolean(busy)} onClick={onRefreshSources}>{busy === "refresh-sources" ? "Refreshing..." : "Find Sources / Refresh Research"}</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into an X post.")}>Convert to X post</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into Reddit DD.")}>Convert to Reddit DD</Button>

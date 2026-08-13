@@ -726,6 +726,47 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "template_key": "research_brief.scheduled_review",
+        "name": "Research brief scheduled review",
+        "category": "admin",
+        "from_name": ALERTS_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
+        "subject": "Research Brief Scheduled: {{title}}",
+        "preheader": "A Walnut Research Brief was generated and is waiting for approval.",
+        "variables": ["title", "ticker_or_topic", "scheduled_at", "campaign_name", "data_as_of", "review_url", "approve_url"],
+        "body_text": walnut_email_text(
+            greeting="Hello,",
+            intro="A Walnut Research Brief has been generated and placed in Scheduled Review.",
+            sections=[
+                "Title: {{title}}\nTicker/topic: {{ticker_or_topic}}\nCampaign: {{campaign_name}}\nScheduled publication: {{scheduled_at}}\nData as of: {{data_as_of}}",
+                "Review, edit, approve, reject, reschedule, or publish now from the Research Publisher.",
+            ],
+            cta_label="Review Article",
+            cta_url="review_url",
+            sender=ALERTS_FROM_NAME,
+            include_investment_disclaimer=True,
+        ),
+        "body_html": walnut_email_html(
+            sender=ALERTS_FROM_NAME,
+            eyebrow="Research Publisher",
+            title="{{title}}",
+            intro="A Walnut Research Brief has been generated and placed in Scheduled Review.",
+            content_html=walnut_metric_card(
+                [
+                    ("Ticker/topic", "{{ticker_or_topic}}"),
+                    ("Campaign", "{{campaign_name}}"),
+                    ("Scheduled", "{{scheduled_at}}"),
+                    ("Data as of", "{{data_as_of}}"),
+                ]
+            )
+            + walnut_info_card("Owner review", "Review, edit, approve, reject, reschedule, or publish now from the Research Publisher."),
+            cta_label="Review Article",
+            cta_url="review_url",
+            include_investment_disclaimer=True,
+        ),
+    },
+    {
         "template_key": "ai_marketing.digest",
         "name": "AI Growth digest",
         "category": "admin",

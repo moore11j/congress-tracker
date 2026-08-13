@@ -6833,6 +6833,17 @@ export type AdminResearchBriefDraft = {
   created_at: string;
   updated_at: string;
   published_at?: string | null;
+  scheduled_at?: string | null;
+  approved_at?: string | null;
+  generated_at?: string | null;
+  data_as_of?: string | null;
+  earnings_period_used?: string | null;
+  campaign_id?: string | null;
+  campaign_item_id?: string | null;
+  campaign_name?: string | null;
+  campaign_theme?: string | null;
+  generator_version?: string | null;
+  last_publish_error?: string | null;
   model: string;
   prompt_version: string;
   research_context_timestamp?: string | null;
@@ -6873,6 +6884,68 @@ export type AdminResearchBriefJob = {
   failed_at?: string | null;
 };
 
+export type AdminResearchCampaignTheme = {
+  key: string;
+  label: string;
+  content_type: "ticker" | "non_ticker" | string;
+  intent: string;
+};
+
+export type AdminResearchCampaignItem = {
+  id: string;
+  campaign_id: string;
+  ticker?: string | null;
+  topic?: string | null;
+  generate_at?: string | null;
+  publish_at?: string | null;
+  status: string;
+  research_article_id?: string | null;
+  generated_at?: string | null;
+  last_error?: string | null;
+};
+
+export type AdminResearchCampaign = {
+  id: string;
+  name: string;
+  theme: string;
+  content_type: "ticker" | "non_ticker" | string;
+  active: boolean;
+  cadence: string;
+  config: Record<string, unknown> & {
+    tickers?: string[];
+    topic?: string;
+    theme_label?: string;
+    article_count?: number;
+    window_days?: number;
+    publish_start_at?: string;
+  };
+  created_by?: number | null;
+  created_by_email?: string | null;
+  generated_count?: number;
+  approved_count?: number;
+  rejected_count?: number;
+  published_count?: number;
+  item_count?: number;
+  pending_count?: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  items?: AdminResearchCampaignItem[];
+};
+
+export type AdminResearchCampaignPayload = {
+  name: string;
+  theme: string;
+  content_type: "ticker" | "non_ticker";
+  tickers: string[];
+  topic?: string | null;
+  cadence: string;
+  publish_start_at?: string | null;
+  publish_time?: string | null;
+  article_count: number;
+  window_days: number;
+  active: boolean;
+};
+
 export type PublicResearchBriefCard = {
   slug: string;
   route: string;
@@ -6904,6 +6977,7 @@ export async function getAdminResearchBriefOptions(): Promise<{
   sections: string[];
   publication_default: string;
   storage: string;
+  campaign_themes?: AdminResearchCampaignTheme[];
 }> {
   return fetchJson(buildApiUrl("/api/admin/research-briefs/options"), {
     cache: "no-store",
@@ -6917,6 +6991,54 @@ export async function validateAdminResearchBriefTicker(symbol: string): Promise<
     cache: "no-store",
     next: { revalidate: 0 },
     source: "AdminResearchBriefs",
+  });
+}
+
+export async function getAdminResearchCampaignThemes(): Promise<{ items: AdminResearchCampaignTheme[] }> {
+  return fetchJson<{ items: AdminResearchCampaignTheme[] }>(buildApiUrl("/api/admin/research-briefs/campaign-themes"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function getAdminResearchCampaigns(): Promise<{ items: AdminResearchCampaign[] }> {
+  return fetchJson<{ items: AdminResearchCampaign[] }>(buildApiUrl("/api/admin/research-briefs/campaigns"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function createAdminResearchCampaign(payload: AdminResearchCampaignPayload): Promise<AdminResearchCampaign> {
+  return fetchJson<AdminResearchCampaign>(buildApiUrl("/api/admin/research-briefs/campaigns"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function setAdminResearchCampaignActive(campaignId: string, active: boolean): Promise<AdminResearchCampaign> {
+  return fetchJson<AdminResearchCampaign>(buildApiUrl(`/api/admin/research-briefs/campaigns/${encodeURIComponent(campaignId)}/active`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ active }),
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function runAdminResearchCampaignNow(campaignId: string): Promise<{ generated: number; failed: number; skipped: number; checked: number }> {
+  return fetchJson(buildApiUrl(`/api/admin/research-briefs/campaigns/${encodeURIComponent(campaignId)}/run-now`), {
+    method: "POST",
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function deleteAdminResearchCampaign(campaignId: string): Promise<{ ok: boolean; deleted: string }> {
+  return fetchJson<{ ok: boolean; deleted: string }>(buildApiUrl(`/api/admin/research-briefs/campaigns/${encodeURIComponent(campaignId)}`), {
+    method: "DELETE",
+    source: "AdminResearchCampaigns",
   });
 }
 
@@ -6995,6 +7117,38 @@ export async function publishAdminResearchBriefDraft(draftId: string): Promise<A
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm: true }),
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function publishNowAdminResearchBriefDraft(draftId: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/publish-now`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function approveScheduledAdminResearchBriefDraft(draftId: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/approve-scheduled`), {
+    method: "POST",
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function rejectAdminResearchBriefDraft(draftId: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/reject`), {
+    method: "POST",
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function rescheduleAdminResearchBriefDraft(draftId: string, scheduledAt: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/reschedule`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scheduled_at: scheduledAt }),
     source: "AdminResearchBriefs",
   });
 }

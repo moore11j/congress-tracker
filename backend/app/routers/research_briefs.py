@@ -21,21 +21,31 @@ from app.services.research_briefs import (
     TIME_HORIZON_OPTIONS,
     TONE_OPTIONS,
     assemble_research_context,
+    approve_scheduled_research_brief,
+    create_research_campaign,
     delete_draft,
+    delete_research_campaign,
     enqueue_research_brief_generation_job,
     get_research_brief_generation_job,
     get_research_brief_generation_job_draft,
     get_draft,
+    get_research_campaign,
     list_drafts,
+    list_research_campaigns,
     normalize_supported_symbol,
     publish_draft,
     published_article,
     published_cards,
     refresh_research_sources,
+    reject_scheduled_research_brief,
+    research_campaign_themes,
     research_brief_model_descriptions,
     research_brief_model_labels,
     research_brief_model_options,
     research_brief_model,
+    reschedule_research_brief,
+    run_research_campaign_now,
+    set_research_campaign_active,
     unpublish_draft,
     update_draft,
     validate_config,
@@ -83,6 +93,28 @@ class ConfirmPayload(BaseModel):
     confirm_text: str | None = None
 
 
+class ResearchCampaignPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=180)
+    theme: str = Field(min_length=1, max_length=80)
+    content_type: str = "ticker"
+    tickers: list[str] = Field(default_factory=list)
+    topic: str | None = Field(default=None, max_length=300)
+    cadence: str = "one_time"
+    publish_start_at: str | None = Field(default=None, max_length=80)
+    publish_time: str | None = Field(default=None, max_length=20)
+    article_count: int = Field(default=1, ge=1, le=50)
+    window_days: int = Field(default=1, ge=1, le=30)
+    active: bool = True
+
+
+class ActivePayload(BaseModel):
+    active: bool
+
+
+class ReschedulePayload(BaseModel):
+    scheduled_at: str = Field(min_length=1, max_length=80)
+
+
 @router.get("/admin/research-briefs/options")
 def admin_research_brief_options(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
@@ -101,8 +133,51 @@ def admin_research_brief_options(request: Request, db: Session = Depends(get_db)
         "model_labels": research_brief_model_labels(db),
         "sections": list(DEFAULT_SECTIONS),
         "publication_default": "draft",
-        "storage": "local_json",
+        "storage": "database",
+        "campaign_themes": research_campaign_themes()["items"],
     }
+
+
+@router.get("/admin/research-briefs/campaign-themes")
+def admin_research_campaign_themes(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return research_campaign_themes()
+
+
+@router.get("/admin/research-briefs/campaigns")
+def admin_research_campaigns(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return list_research_campaigns(db)
+
+
+@router.post("/admin/research-briefs/campaigns", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_create_research_campaign(payload: ResearchCampaignPayload, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    return create_research_campaign(db, admin, payload.model_dump())
+
+
+@router.get("/admin/research-briefs/campaigns/{campaign_id}")
+def admin_research_campaign(campaign_id: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return get_research_campaign(db, campaign_id)
+
+
+@router.patch("/admin/research-briefs/campaigns/{campaign_id}/active", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_set_research_campaign_active(campaign_id: str, payload: ActivePayload, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return set_research_campaign_active(db, campaign_id, payload.active)
+
+
+@router.post("/admin/research-briefs/campaigns/{campaign_id}/run-now", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_run_research_campaign_now(campaign_id: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return run_research_campaign_now(db, campaign_id)
+
+
+@router.delete("/admin/research-briefs/campaigns/{campaign_id}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_delete_research_campaign(campaign_id: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return delete_research_campaign(db, campaign_id)
 
 
 @router.get("/admin/research-briefs/validate-ticker")
@@ -170,6 +245,30 @@ def admin_research_brief_refresh_sources(draft_id: str, request: Request, db: Se
 def admin_research_brief_publish(draft_id: str, payload: ConfirmPayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
     return publish_draft(admin, draft_id, confirm=payload.confirm, db=db)
+
+
+@router.post("/admin/research-briefs/drafts/{draft_id}/publish-now", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_publish_now(draft_id: str, payload: ConfirmPayload, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    return publish_draft(admin, draft_id, confirm=payload.confirm, db=db)
+
+
+@router.post("/admin/research-briefs/drafts/{draft_id}/approve-scheduled", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_approve_scheduled(draft_id: str, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    return approve_scheduled_research_brief(db, admin, draft_id)
+
+
+@router.post("/admin/research-briefs/drafts/{draft_id}/reject", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_reject(draft_id: str, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    return reject_scheduled_research_brief(db, admin, draft_id)
+
+
+@router.post("/admin/research-briefs/drafts/{draft_id}/reschedule", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_reschedule(draft_id: str, payload: ReschedulePayload, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return reschedule_research_brief(db, draft_id, payload.scheduled_at)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/unpublish", dependencies=[Depends(rate_limit_admin_mutation)])

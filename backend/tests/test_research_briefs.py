@@ -262,6 +262,77 @@ def test_research_brief_generation_dedupes_client_request_id(tmp_path, monkeypat
     assert len(service.list_generation_jobs(db=db)["items"]) == 1
 
 
+def test_research_campaign_create_distributes_ticker_items(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "Post-Earnings: Is It a Good Buy?",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["NBIS", "CRWV", "COHR"],
+            "cadence": "one_time",
+            "publish_start_at": "2026-08-14T09:00:00+00:00",
+            "article_count": 3,
+            "window_days": 5,
+        },
+    )
+
+    assert campaign["name"] == "Post-Earnings: Is It a Good Buy?"
+    assert campaign["theme"] == "good_buy_now"
+    assert len(campaign["items"]) == 3
+    assert [item["ticker"] for item in campaign["items"]] == ["NBIS", "CRWV", "COHR"]
+    assert len({item["publish_at"][:10] for item in campaign["items"]}) == 3
+    assert service.list_research_campaigns(db)["items"][0]["pending_count"] == 3
+
+
+def test_scheduled_research_publish_requires_approval(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "Campaign",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["MU"],
+            "publish_start_at": "2026-08-14T09:00:00+00:00",
+        },
+    )
+    draft = _minimal_scheduled_draft(admin, campaign_id=campaign["id"], status="scheduled_review")
+    service._upsert_db_draft(db, draft)
+
+    calls = []
+
+    def fake_publish(*args, **kwargs):
+        calls.append((args, kwargs))
+        published = service.get_draft(draft["id"], db=db)
+        published["status"] = "published"
+        published["published_at"] = datetime.now(timezone.utc).isoformat()
+        service._upsert_db_draft(db, published)
+        return published
+
+    monkeypatch.setattr(service, "publish_draft", fake_publish)
+
+    unapproved = service.run_due_scheduled_research_publications(db)
+    assert unapproved["checked"] == 0
+    assert calls == []
+
+    approved = service.approve_scheduled_research_brief(db, admin, draft["id"])
+    assert approved["status"] == "approved_scheduled"
+
+    result = service.run_due_scheduled_research_publications(db)
+    assert result["published"] == 1
+    assert len(calls) == 1
+    assert service.get_draft(draft["id"], db=db)["status"] == "published"
+
+
 def test_research_brief_job_failure_returns_safe_error(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -471,6 +542,63 @@ def test_confirmation_score_generic_mention_still_appends_actual_score():
             {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=AAPL", "source_type": "filing_search"},
             {"label": "Apple IR", "url": "https://investor.apple.com/earnings-results/default.aspx", "source_type": "official_company_ir"},
         ],
+    }
+
+
+def _minimal_scheduled_draft(admin: UserAccount, *, campaign_id: str | None = None, status: str = "scheduled_review", scheduled_at: datetime | None = None):
+    scheduled = (scheduled_at or datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    return {
+        "id": f"rb_test_{status}",
+        "status": status,
+        "created_by": admin.id,
+        "created_by_email": admin.email,
+        "created_at": scheduled,
+        "updated_at": scheduled,
+        "published_at": None,
+        "scheduled_at": scheduled,
+        "approved_at": None,
+        "campaign_id": campaign_id,
+        "campaign_item_id": "rci_test" if campaign_id else None,
+        "campaign_name": "Test Campaign" if campaign_id else None,
+        "data_as_of": scheduled,
+        "model": "test-model",
+        "prompt_version": service.RESEARCH_BRIEF_PROMPT_VERSION,
+        "research_context_timestamp": scheduled,
+        "primary_ticker": "MU",
+        "comparison_ticker": None,
+        "comparison_tickers": [],
+        "config": _payload().model_dump(),
+        "article": {
+            "title": "MU scheduled brief",
+            "slug": f"mu-scheduled-{status}",
+            "subtitle": "Test",
+            "summary": "Scheduled test brief. Not investment advice.",
+            "preview_body": "Scheduled test brief. Not investment advice.",
+            "judgment": "mixed",
+            "walnut_call": "Mixed",
+            "confidence": "medium",
+            "confirmation_score_included": False,
+            "primary_ticker": "MU",
+            "comparison_tickers": [],
+            "category": "Research",
+            "reading_minutes": 4,
+            "sections": [{"key": "body", "heading": "Body", "body_markdown": " ".join(["MU has source-backed scheduled evidence."] * 130) + " Research only. Not investment advice."}],
+            "key_points": [],
+            "catalysts": [],
+            "risks": [],
+            "watch_items": [],
+            "data_freshness": [scheduled],
+            "missing_data_notes": [],
+            "source_links": [
+                {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+                {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "market_source"},
+            ],
+            "suggested_card": {"title": "MU scheduled brief", "description": "Scheduled test brief.", "judgment": "mixed", "tickers": ["MU"]},
+            "seo": {"title": "MU scheduled brief", "description": "Scheduled test brief."},
+        },
+        "validation": {"status": "passed", "warnings": [], "numeric_claims": [], "source_link_count": 2, "estimated_reading_minutes": 4},
+        "diagnostics": {"elapsed_ms": 0, "storage": "database", "usage": {}},
+        "research_context": {"generated_at": scheduled, "primary": {"identity": {"symbol": "MU", "company_name": "MU Corp"}}},
     }
 
     cleaned = service.sanitize_research_brief_article(
