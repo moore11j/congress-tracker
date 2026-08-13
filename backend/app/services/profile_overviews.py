@@ -244,6 +244,7 @@ def insiders_overview(db: Session, *, period_days: int = 365, sector: str | None
         "most_traded_stocks": _most_traded_insider_stocks(db, base),
         "monthly_activity": _insider_monthly_activity(db, base),
         "sector_activity": _insider_sector_activity(db, base),
+        "sector_net_activity": _insider_sector_net_activity(db, base),
         "recent_purchases": _recent_insider_transactions(db, buy_base, limit=8),
         "largest_buys": _largest_insider_transactions(db, buy_base, limit=8),
         "cluster_buying": _cluster_buying(db, since=since, symbols=symbols),
@@ -1181,6 +1182,37 @@ def _insider_monthly_activity(db: Session, clauses: list[Any]) -> list[dict[str,
         }
         for month, value in buckets.items()
     ]
+
+
+def _insider_sector_net_activity(db: Session, clauses: list[Any]) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(InsiderTransactionNormalized)
+        .where(*clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
+        .order_by(InsiderTransactionNormalized.transaction_date.desc(), InsiderTransactionNormalized.id.desc())
+        .limit(20000)
+    ).scalars().all()
+    sector_by_symbol = _sectors(db, [row.ticker_normalized or row.ticker_raw for row in rows])
+    buckets: dict[str, dict[str, float]] = defaultdict(lambda: {"buy": 0.0, "sell": 0.0, "trades": 0.0})
+    for row in rows:
+        symbol = normalize_symbol(row.ticker_normalized or row.ticker_raw)
+        sector = sector_by_symbol.get(symbol or "")
+        if not sector:
+            continue
+        value = float(row.value or 0)
+        bucket = buckets[sector]
+        bucket["trades"] += 1
+        bucket["buy" if _is_buy_transaction(row) else "sell"] += value
+    payload = [
+        {
+            "sector": sector,
+            "current_value": _float_or_int(values["buy"] - values["sell"]) or 0,
+            "buy_value": _float_or_int(values["buy"]) or 0,
+            "sell_value": _float_or_int(values["sell"]) or 0,
+            "trades": int(values["trades"] or 0),
+        }
+        for sector, values in buckets.items()
+    ]
+    return sorted(payload, key=lambda row: abs(float(row["current_value"])), reverse=True)[:10]
 
 
 def _recent_insider_transactions(db: Session, clauses: list[Any], *, limit: int) -> list[dict[str, Any]]:

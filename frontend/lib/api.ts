@@ -313,6 +313,7 @@ export type InsidersOverviewResponse = {
   most_traded_stocks: Array<Record<string, unknown>>;
   monthly_activity?: Array<{ period: string; net_value: number; buy_value: number; sell_value: number; trades: number }>;
   sector_activity: ProfileSectorPeriod[];
+  sector_net_activity?: Array<{ sector: string; current_value: number; buy_value: number; sell_value: number; trades: number }>;
   recent_purchases: ProfileActivityItem[];
   largest_buys: ProfileActivityItem[];
   cluster_buying: Array<Record<string, unknown>>;

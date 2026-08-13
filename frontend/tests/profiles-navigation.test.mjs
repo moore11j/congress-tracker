@@ -152,6 +152,20 @@ test("insider snapshot cards use icons and replace recent purchases with sector 
   assert.doesNotMatch(source, /flavor === "insiders" \? \["Top net buyer", "Most traded ticker", "Recent purchases", "Cluster buying"\]/);
 });
 
+test("insider net activity by sector uses signed red and green bar chart", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /sector_net_activity\?: Array<\{ sector: string; current_value: number; buy_value: number; sell_value: number; trades: number \}>/);
+  assert.match(source, /netActivityContent=\{<InsiderNetSectorBars rows=\{data\.sector_net_activity \?\? \[\]\} \/>\}/);
+  assert.match(source, /function InsiderNetSectorBars/);
+  assert.match(source, /action=\{flavor === "insiders" \? "TTM" : undefined\}/);
+  assert.match(source, /left-1\/2 w-px bg-slate-400\/45/);
+  assert.match(source, /bg-emerald-400\/85/);
+  assert.match(source, /bg-rose-400\/85/);
+  assert.match(source, /formatSignedMoney\(row\.current_value\)/);
+});
+
 test("congress metric cards use shaded semantic trend colors", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 

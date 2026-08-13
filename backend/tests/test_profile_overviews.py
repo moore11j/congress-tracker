@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v11:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v12:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -353,6 +353,10 @@ def test_insiders_overview_uses_normalized_open_market_transactions():
     assert payload["recent_purchases"][0]["profile_href"]
     assert payload["most_traded_stocks"][0]["actor_count"] == 2
     assert payload["sector_activity"][0]["segments"][0]["label"] == "Industrials"
+    assert payload["sector_net_activity"][0]["sector"] == "Industrials"
+    assert payload["sector_net_activity"][0]["current_value"] == 300_000
+    assert payload["sector_net_activity"][0]["buy_value"] == 350_000
+    assert payload["sector_net_activity"][0]["sell_value"] == 50_000
     assert payload["cluster_buying"][0]["symbol"] == "EXPO"
     assert payload["cluster_buying"][0]["unique_insiders"] == 2
 
