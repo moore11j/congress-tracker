@@ -151,6 +151,17 @@ test("congress snapshot cards label real net values and sector trade share", () 
   assert.match(source, /format === "percent"/);
 });
 
+test("congress notable trades normalize and color action labels", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /const action = congressTradeAction\(item\.activity\)/);
+  assert.match(source, /action\.label/);
+  assert.match(source, /normalized\.includes\("purchase"\) \|\| normalized === "buy"/);
+  assert.match(source, /label: "Buy", className: "text-emerald-300"/);
+  assert.match(source, /normalized\.includes\("sale"\) \|\| normalized === "sell"/);
+  assert.match(source, /label: "Sell", className: "text-rose-300"/);
+});
+
 test("institutional dashboard uses mockup-style net change charts", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
