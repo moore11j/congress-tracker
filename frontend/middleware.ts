@@ -145,6 +145,18 @@ function isNoindexAppRoute(pathname: string): boolean {
   });
 }
 
+function hasNonCanonicalQueryState(search: string): boolean {
+  if (!search) return false;
+  const params = new URLSearchParams(search);
+  for (const [key, value] of params.entries()) {
+    if (!value) continue;
+    if (key === "_gl" || key === "_ga" || key === "gclid" || key === "fbclid" || key === "msclkid") continue;
+    if (key.startsWith("_ga_") || key.startsWith("utm_")) continue;
+    return true;
+  }
+  return false;
+}
+
 function withNoindex(response: NextResponse): NextResponse {
   response.headers.set("x-robots-tag", "noindex, follow");
   return response;
@@ -300,7 +312,7 @@ export async function middleware(request: NextRequest) {
   const prefetch = isPrefetchRequest(request);
   const bot = isBotUserAgent(userAgent);
   const family = routeFamily(pathname);
-  const shouldNoindex = host === appHost && isNoindexAppRoute(pathname);
+  const shouldNoindex = host === appHost && (isNoindexAppRoute(pathname) || hasNonCanonicalQueryState(search));
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   const requestProto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
   const isHttpCanonicalMarketingRequest = host === canonicalMarketingHost && requestProto === "http";
@@ -383,13 +395,25 @@ export async function middleware(request: NextRequest) {
   }
 
   if (canonicalMarketingHosts.has(host) && isPublicTickerRoute(pathname)) {
-    return NextResponse.next();
+    const appUrl = request.nextUrl.clone();
+    appUrl.protocol = "https:";
+    appUrl.hostname = appHost;
+    appUrl.port = "";
+    return NextResponse.redirect(appUrl, 301);
   }
 
   if (host === appHost && (pathname || "/").toLowerCase() === "/compare") {
     const appCompareUrl = request.nextUrl.clone();
     appCompareUrl.pathname = "/compare/_/_";
     return NextResponse.redirect(appCompareUrl, 307);
+  }
+
+  if (host === appHost && isPublicResearchRoute(pathname)) {
+    const marketingUrl = request.nextUrl.clone();
+    marketingUrl.protocol = "https:";
+    marketingUrl.hostname = canonicalMarketingHost;
+    marketingUrl.port = "";
+    return NextResponse.redirect(marketingUrl, 301);
   }
 
   if (host === appHost && isMarketingComparisonSlugRoute(pathname)) {

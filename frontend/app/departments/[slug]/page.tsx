@@ -17,8 +17,8 @@ import { tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
-import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { departmentHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
+import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { conciseSeoDescription, conciseSeoTitle, departmentHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -33,14 +33,21 @@ function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
+function departmentSeoName(name: string): string {
+  if (/^department of defense$/i.test(name)) return "DoD";
+  return name;
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const fallbackCanonicalPath = `/departments/${encodeURIComponent(slug)}`;
   try {
     const department = await getDepartmentProfile(slug, { limit: 1 });
     const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
-    const title = `${department.name} Government Contracts by Public Company | Walnut Markets`;
-    const description = `Research ${department.name} contract awards, linked public companies, ticker exposure, award timing, and recipient concentration in Walnut Markets.`;
+    const fallbackTitle = `${departmentSeoName(department.name)} Contracts | Walnut Markets`;
+    const fallbackDescription = `Research ${department.name} contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.`;
+    const title = conciseSeoTitle(fallbackTitle, "Government Contracts | Walnut Markets");
+    const description = conciseSeoDescription(fallbackDescription, "Research government contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.");
     if (!departmentHasIndexableContent(department)) {
       return {
         ...noindexFollowMetadata(title, description),
@@ -48,14 +55,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         alternates: { canonical: appCanonicalUrl(canonicalPath) },
       };
     }
-    return {
-      metadataBase: new URL(WALNUT_APP_URL),
+    return appPageMetadata(canonicalPath, {
       title,
       description,
       alternates: { canonical: appCanonicalUrl(canonicalPath) },
       openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
-      twitter: { card: "summary", title, description },
-    };
+    });
   } catch {
     const title = "Government Department Contracts by Public Company | Walnut Markets";
     const description = "Research government department contract awards, linked public companies, and ticker exposure in Walnut Markets.";
@@ -100,14 +105,14 @@ export default async function DepartmentPage({ params }: Props) {
             <DepartmentSeal name={department.name} />
             <div className="min-w-0">
               <nav className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-400">
-                <Link href="/government-contracts" className="transition hover:text-slate-200" prefetch={false}>
+                <Link href="/departments" className="transition hover:text-slate-200" prefetch={false}>
                   Government Departments
                 </Link>
                 <span className="text-slate-600">&gt;</span>
                 <span className="truncate text-slate-200">{department.name}</span>
               </nav>
               <div className="mt-5 flex min-w-0 flex-wrap items-center gap-3">
-                <h1 className="break-words text-4xl font-semibold leading-tight text-white md:text-5xl">{department.name}</h1>
+                <h1 className="break-words text-4xl font-semibold leading-tight text-white md:text-5xl">{department.name} Government Contracts</h1>
                 <IconFrame tone="muted" label="Tracked department">
                   <Icon name="star" />
                 </IconFrame>

@@ -628,8 +628,8 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
       ...commonRelatedLinks,
     ],
     facts: [
-      fact("Capitol Trades indexed preview", "https://preview.capitoltrades.com/trades?filingId=204852497&page=1", [
-        "Indexed page shows Capitol Trades navigation for Trades, Politicians, Issuers, Insights, Buzz, and Press.",
+      fact("Capitol Trades public sitemap", "https://www.capitoltrades.com/sitemap", [
+        "Official sitemap shows Capitol Trades navigation and public entry points for Trades, Politicians, Issuers, Insights, Buzz, and Press.",
         "Indexed trade table shows politician, traded issuer, published date, traded date, filed-after timing, owner, type, size, and price.",
         "Indexed page notes historical website data is restricted to the past 3 years.",
       ]),

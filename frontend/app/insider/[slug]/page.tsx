@@ -17,8 +17,8 @@ import {
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
-import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { noindexFollowMetadata } from "@/lib/seoQuality";
+import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -196,8 +196,9 @@ function VerifiedBadge() {
   );
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
+  const sp = (await searchParams) ?? {};
   const reportingCik = reportingCikFromInsiderSlug(slug);
   if (!reportingCik) {
     return {
@@ -212,9 +213,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .catch(() => null);
   const insiderName = typeof snapshot?.payload?.insider_name === "string" ? snapshot.payload.insider_name : (getInsiderDisplayName(insiderDisplayNameFromSlug(slug)) ?? "Insider");
   const canonicalPath = snapshot?.canonical_path ?? cleanInsiderCanonicalPath(insiderSlug(insiderName, reportingCik) ?? slug);
-  const title = snapshot?.title ?? `${insiderName} Insider Trades & Form 4 Activity | Walnut Markets`;
-  const description = snapshot?.meta_description ?? `Research ${insiderName}'s Form 4 insider trading activity and issuer context in Walnut Markets.`;
-  if (!snapshot?.indexable) {
+  const fallbackTitle = `${insiderName} Insider Trades | Walnut Markets`;
+  const fallbackDescription = `Research ${insiderName}'s Form 4 activity, issuer context, role, recent transactions and related ticker links in Walnut Markets.`;
+  const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
+  const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
+  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -224,8 +227,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
-  return {
-    metadataBase: new URL(WALNUT_APP_URL),
+  return appPageMetadata(canonicalPath, {
     title,
     description,
     alternates: {
@@ -237,12 +239,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description,
       url: appCanonicalUrl(canonicalPath),
     },
-    twitter: {
-      card: "summary",
-      title,
-      description,
-    },
-  };
+  });
 }
 
 export default async function InsiderPage({ params, searchParams }: Props) {
@@ -351,9 +348,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     <div className="space-y-3">
       <section className="relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(135deg,rgba(9,20,35,0.98),rgba(4,10,20,0.98))] px-4 pt-3 shadow-[0_18px_48px_rgba(0,0,0,0.32)] sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <Link href="/?mode=insider" className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80 hover:text-emerald-200">
-            Insider profile
-          </Link>
+          <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <Link href="/" className="text-slate-400 hover:text-slate-200">Home</Link>
+            <span>/</span>
+            <Link href="/insiders" className="text-emerald-300/80 hover:text-emerald-200">Insiders</Link>
+            <span>/</span>
+            <span className="truncate text-slate-300">{insiderName}</span>
+          </nav>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end lg:absolute lg:right-5 lg:top-3">
             <AddWatchlistTarget targetType="insider" targetValue={reportingCik} targetLabel={insiderName} buttonLabel="Follow Insider" className={actionClassName} />
             <ShareLinks canonicalUrl={shareInsiderUrl} showCopyButton={false} buttonClassName={actionClassName} />
@@ -377,7 +378,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             )}
             <div className="min-w-0 pt-0.5">
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName}</h1>
+                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName} Insider Activity</h1>
                 <VerifiedBadge />
               </div>
               <InsiderProfileHeaderClient

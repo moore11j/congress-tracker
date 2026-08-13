@@ -9,8 +9,8 @@ import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/Co
 import { CompareContextualCta } from "@/components/compare/CompareContextualCta";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { isAdminEntitlement } from "@/lib/entitlements";
-import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { isApprovedSeoPilotPath } from "@/lib/seoQuality";
+import { appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { hasNonCanonicalSearchParams, isApprovedSeoPilotPath } from "@/lib/seoQuality";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
@@ -26,29 +26,28 @@ function cleanSymbol(value: string) {
   return decodeURIComponent(value || "").trim().toUpperCase().replace(/\./g, "-");
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const routeParams = await params;
+  const sp = (await searchParams) ?? {};
   const left = cleanSymbol(routeParams.left);
   const right = cleanSymbol(routeParams.right);
   const hasBoth = left !== "_" && right !== "_";
   const canonicalPath = hasBoth ? `/compare/${encodeURIComponent(left)}/${encodeURIComponent(right)}` : "/compare/_/_";
   const title = hasBoth
-    ? `${left} vs ${right} Stock Comparison Tool | Walnut Markets`
+    ? `${left} vs ${right} Stock Comparison | Walnut Markets`
     : "Stock Comparison Tool | Walnut Markets";
   const description = hasBoth
-    ? `Compare ${left} and ${right} across fundamentals, price action, catalysts, risks, disclosures, and Walnut's confirmation score.`
+    ? `Compare ${left} and ${right} across fundamentals, price action, disclosures, risks and Walnut's Confirmation Score.`
     : "Compare stocks across fundamentals, price action, catalysts, risks, disclosures, and Walnut's confirmation score.";
-  const indexablePilot = hasBoth && isApprovedSeoPilotPath(canonicalPath);
+  const indexablePilot = hasBoth && isApprovedSeoPilotPath(canonicalPath) && !hasNonCanonicalSearchParams(sp);
 
-  return {
-    metadataBase: new URL(WALNUT_APP_URL),
+  return appPageMetadata(canonicalPath, {
     title,
     description,
     robots: indexablePilot ? { index: true, follow: true } : { index: false, follow: true },
     alternates: { canonical: appCanonicalUrl(canonicalPath) },
     openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
-    twitter: { card: "summary", title, description },
-  };
+  });
 }
 
 function firstSearchParam(value: string | string[] | undefined) {

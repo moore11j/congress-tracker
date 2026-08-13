@@ -23,8 +23,8 @@ import { withServerTimeout } from "@/lib/serverTimeout";
 import { tickerHref } from "@/lib/ticker";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
-import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { institutionHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
+import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, institutionHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ cik: string }>;
@@ -35,8 +35,9 @@ function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { cik: rawCik } = await params;
+  const sp = (await searchParams) ?? {};
   const cik = normalizeInstitutionCik(rawCik);
   if (!cik) {
     return {
@@ -49,23 +50,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const profile = await getInstitutionProfile(cik, { source: "InstitutionMetadata" });
     const name = profile.holder_name ?? "Institution";
-    const title = `${name} 13F Holdings & Portfolio Changes | Walnut Markets`;
-    const description = `Research ${name} 13F holdings, reported portfolio changes, filing history, and public-company exposure in Walnut Markets.`;
-    if (!institutionHasIndexableContent(profile)) {
+    const fallbackTitle = `${name} Holdings | Walnut Markets`;
+    const fallbackDescription = `Research ${name} 13F holdings, portfolio changes, filing history and public-company exposure in Walnut Markets.`;
+    const title = conciseSeoTitle(fallbackTitle, "Institutional Holdings | Walnut Markets");
+    const description = conciseSeoDescription(fallbackDescription, "Research reported 13F holdings, filing history and institutional portfolio changes in Walnut Markets.");
+    if (!institutionHasIndexableContent(profile) || hasNonCanonicalSearchParams(sp)) {
       return {
         ...noindexFollowMetadata(title, description),
         metadataBase: new URL(WALNUT_APP_URL),
         alternates: { canonical: appCanonicalUrl(canonicalPath) },
       };
     }
-    return {
-      metadataBase: new URL(WALNUT_APP_URL),
+    return appPageMetadata(canonicalPath, {
       title,
       description,
       alternates: { canonical: appCanonicalUrl(canonicalPath) },
       openGraph: { type: "profile", title, description, url: appCanonicalUrl(canonicalPath) },
-      twitter: { card: "summary", title, description },
-    };
+    });
   } catch {
     const title = "Institutional Holdings & Portfolio Changes | Walnut Markets";
     return {
@@ -140,8 +141,15 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
       <section className={`${cardClassName} min-w-0 space-y-5`}>
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
           <div className="min-w-0 max-w-4xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200/80">Institutional Activity</p>
-            <h1 className="mt-2 break-words text-3xl font-semibold text-white md:text-4xl">{name}</h1>
+            <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <Link href="/" className="text-slate-400 hover:text-slate-200">Home</Link>
+              <span>/</span>
+              <Link href="/institutions" className="text-emerald-300/80 hover:text-emerald-200">Institutions</Link>
+              <span>/</span>
+              <span className="truncate text-slate-300">{name}</span>
+            </nav>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200/80">Institutional Activity</p>
+            <h1 className="mt-2 break-words text-3xl font-semibold text-white md:text-4xl">{name} Holdings</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Reported 13F holdings and quarter-over-quarter changes by filing date.
             </p>

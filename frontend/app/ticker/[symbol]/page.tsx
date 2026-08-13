@@ -53,7 +53,7 @@ import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/l
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { noindexFollowMetadata } from "@/lib/seoQuality";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -251,11 +251,7 @@ function canonicalTickerUrlForSymbol(symbol: string): string {
 }
 
 function publicTickerMetadataTitle(symbol: string, companyName?: string | null): string {
-  const cleanedCompanyName = formatCompanyName(companyName);
-  const hasDistinctName = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase();
-  return hasDistinctName
-    ? `${symbol} Stock Analysis, Fundamentals & Alternative Data | Walnut Markets`
-    : `${symbol} Stock Analysis, Fundamentals & Alternative Data | Walnut Markets`;
+  return `${symbol} Stock Analysis & Research | Walnut Markets`;
 }
 
 function publicTickerMetadataDescription(symbol: string, companyName?: string | null): string {
@@ -263,11 +259,12 @@ function publicTickerMetadataDescription(symbol: string, companyName?: string | 
   const identity = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase()
     ? `${cleanedCompanyName} (${symbol})`
     : symbol;
-  return `Research ${identity} using price and volume, fundamentals, Congress trades, insider activity, institutional filings, government contracts, catalysts, risks and Walnut's confirmation score.`;
+  return `Research ${identity} with fundamentals, technicals, Congress trades, insider activity, institutional filings and Walnut's Confirmation Score.`;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { symbol } = await params;
+  const sp = (await searchParams) ?? {};
   const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
   const canonicalPath = canonicalTickerPathForSymbol(normalizedSymbol);
   const canonicalUrl = appCanonicalUrl(canonicalPath);
@@ -275,10 +272,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .then((response) => response.snapshot)
     .catch(() => null);
   const companyName = typeof snapshot?.payload?.company_name === "string" ? snapshot.payload.company_name : null;
+  const fallbackTitle = publicTickerMetadataTitle(normalizedSymbol, companyName);
+  const fallbackDescription = publicTickerMetadataDescription(normalizedSymbol, companyName);
 
-  const title = snapshot?.title ?? publicTickerMetadataTitle(normalizedSymbol, companyName);
-  const description = snapshot?.meta_description ?? publicTickerMetadataDescription(normalizedSymbol, companyName);
-  if (!snapshot?.indexable) {
+  const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
+  const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
+  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -4154,7 +4153,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
           <h1 className="max-w-full break-words text-2xl font-semibold text-white [overflow-wrap:anywhere] sm:text-3xl">
             <span>{profile.ticker.symbol}</span>
-            {showTickerName ? <span className="text-slate-400"> / {tickerName}</span> : null}
+            {showTickerName ? <span className="text-slate-400"> - {tickerName}</span> : null}
             <span className="ml-2 align-middle text-xl font-normal text-slate-500">☆</span>
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">

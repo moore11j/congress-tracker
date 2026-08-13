@@ -100,7 +100,7 @@ test("landing pages are not noindexed or disallowed", () => {
 
 test("private app routes receive noindex without blocking real users", () => {
   assert.match(middleware, /const noindexAppRoutePrefixes = \[/);
-  assert.match(middleware, /host === appHost && isNoindexAppRoute\(pathname\)/);
+  assert.match(middleware, /host === appHost && \(isNoindexAppRoute\(pathname\) \|\| hasNonCanonicalQueryState\(search\)\)/);
   assert.match(middleware, /function withNoindex\(response: NextResponse\): NextResponse/);
   assert.match(middleware, /response\.headers\.set\("x-robots-tag", "noindex, follow"\)/);
   assert.match(middleware, /return shouldNoindex \? withNoindex\(response\) : response/);
@@ -131,9 +131,18 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /function isPublicMarketingAsset\(pathname: string\): boolean/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicMarketingAsset\(pathname\)/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicTickerRoute\(pathname\)/);
-  assert.match(middleware, /const shouldNoindex = host === appHost && isNoindexAppRoute\(pathname\)/);
+  assert.match(middleware, /const shouldNoindex = host === appHost && \(isNoindexAppRoute\(pathname\) \|\| hasNonCanonicalQueryState\(search\)\)/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !isPublicComparisonRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
   assert.match(middleware, /return NextResponse\.redirect\(appUrl, 307\)/);
   assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicSeoEntityRoute\(pathname\) && !hasBackendSession/);
+});
+
+test("app query-state variants receive noindex while analytics params are ignored", () => {
+  assert.match(middleware, /function hasNonCanonicalQueryState\(search: string\): boolean/);
+  assert.match(middleware, /new URLSearchParams\(search\)/);
+  assert.match(middleware, /key\.startsWith\("utm_"\)/);
+  assert.match(middleware, /key\.startsWith\("_ga_"\)/);
+  assert.match(middleware, /isNoindexAppRoute\(pathname\) \|\| hasNonCanonicalQueryState\(search\)/);
+  assert.match(middleware, /response\.headers\.set\("x-robots-tag", "noindex, follow"\)/);
 });

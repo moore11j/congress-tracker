@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ResearchBriefsSection } from "@/components/insights/ResearchBriefsSection";
-import { appPageMetadata } from "@/lib/marketingMetadata";
+import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
-export const metadata: Metadata = appPageMetadata("/research", {
+export const metadata: Metadata = marketingPageMetadata("/research", {
   title: "Research Briefs | Walnut Markets",
   description: "Browse Walnut Markets research briefs, company comparisons, market DD, and campaign analysis.",
 });

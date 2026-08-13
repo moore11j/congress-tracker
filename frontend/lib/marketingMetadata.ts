@@ -16,6 +16,22 @@ export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";
 export const WALNUT_SOCIAL_URLS = [WALNUT_X_URL, WALNUT_REDDIT_URL] as const;
 
+function metadataText(value: Metadata["title"] | Metadata["description"], fallback: string): string {
+  if (typeof value === "string" && value.trim()) return value;
+  return fallback;
+}
+
+function socialImage() {
+  return [
+    {
+      url: WALNUT_SOCIAL_IMAGE_URL,
+      width: 1200,
+      height: 630,
+      alt: WALNUT_SOCIAL_IMAGE_ALT,
+    },
+  ];
+}
+
 export function marketingCanonicalUrl(pathname: string): string {
   const normalizedPath = pathname === "/" ? "/" : `/${pathname.replace(/^\/+/, "").replace(/\/+$/, "")}`;
   return new URL(normalizedPath, `${WALNUT_MARKETING_URL}/`).toString();
@@ -28,6 +44,8 @@ export function appCanonicalUrl(pathname: string): string {
 
 export function appPageMetadata(pathname: string, metadata: Metadata): Metadata {
   const canonicalUrl = appCanonicalUrl(pathname);
+  const title = metadataText(metadata.title, WALNUT_MARKETING_TITLE);
+  const description = metadataText(metadata.description, WALNUT_MARKETING_DESCRIPTION);
   return {
     ...metadata,
     metadataBase: new URL(WALNUT_APP_URL),
@@ -40,14 +58,34 @@ export function appPageMetadata(pathname: string, metadata: Metadata): Metadata 
       canonical: canonicalUrl,
     },
     openGraph: {
+      type: "website",
+      title,
+      description,
+      siteName: "Walnut Markets",
+      images: socialImage(),
       ...metadata.openGraph,
       url: canonicalUrl,
+    },
+    twitter: {
+      card: "summary_large_image",
+      site: WALNUT_X_HANDLE,
+      title,
+      description,
+      images: [
+        {
+          url: WALNUT_SOCIAL_IMAGE_URL,
+          alt: WALNUT_SOCIAL_IMAGE_ALT,
+        },
+      ],
+      ...metadata.twitter,
     },
   };
 }
 
 export function marketingPageMetadata(pathname: string, metadata: Metadata): Metadata {
   const canonicalUrl = marketingCanonicalUrl(pathname);
+  const title = metadataText(metadata.title, WALNUT_MARKETING_TITLE);
+  const description = metadataText(metadata.description, WALNUT_MARKETING_DESCRIPTION);
   return {
     ...metadata,
     metadataBase: new URL(WALNUT_MARKETING_URL),
@@ -60,8 +98,26 @@ export function marketingPageMetadata(pathname: string, metadata: Metadata): Met
       canonical: canonicalUrl,
     },
     openGraph: {
+      type: "website",
+      title,
+      description,
+      siteName: "Walnut Markets",
+      images: socialImage(),
       ...metadata.openGraph,
       url: canonicalUrl,
+    },
+    twitter: {
+      card: "summary_large_image",
+      site: WALNUT_X_HANDLE,
+      title,
+      description,
+      images: [
+        {
+          url: WALNUT_SOCIAL_IMAGE_URL,
+          alt: WALNUT_SOCIAL_IMAGE_ALT,
+        },
+      ],
+      ...metadata.twitter,
     },
   };
 }

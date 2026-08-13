@@ -24,8 +24,8 @@ import {
 } from "@/lib/portfolioPerformance.mjs";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
-import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { noindexFollowMetadata } from "@/lib/seoQuality";
+import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -179,15 +179,17 @@ function VerifiedBadge() {
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
-  await searchParams;
+  const sp = (await searchParams) ?? {};
   const snapshot = await getSeoSnapshot("member", slug, { source: "MemberMetadataSnapshot" })
     .then((response) => response.snapshot)
     .catch(() => null);
   const canonicalPath = snapshot?.canonical_path ?? `/member/${slug}`;
   const memberName = typeof snapshot?.payload?.member_name === "string" ? snapshot.payload.member_name : profileMemberName(null, slug);
-  const title = snapshot?.title ?? `${memberName} Stock Trades & Congressional Activity | Walnut Markets`;
-  const description = snapshot?.meta_description ?? `Research ${memberName}'s congressional disclosure activity, traded ticker context, and public profile in Walnut Markets.`;
-  if (!snapshot?.indexable) {
+  const fallbackTitle = `${memberName} Stock Trades | Walnut Markets`;
+  const fallbackDescription = `Research ${memberName}'s disclosed stock trades, recent activity, traded tickers and public congressional profile in Walnut Markets.`;
+  const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
+  const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
+  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -195,14 +197,12 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     };
   }
 
-  return {
-    metadataBase: new URL(WALNUT_APP_URL),
+  return appPageMetadata(canonicalPath, {
     title,
     description,
     alternates: { canonical: appCanonicalUrl(canonicalPath) },
     openGraph: { title, description, type: "profile", url: appCanonicalUrl(canonicalPath) },
-    twitter: { card: "summary", title, description },
-  };
+  });
 }
 
 export default async function MemberPage({ params, searchParams }: Props) {
@@ -292,9 +292,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
     <div className="space-y-3">
       <section className="relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(135deg,rgba(9,20,35,0.98),rgba(4,10,20,0.98))] px-4 pt-3 shadow-[0_18px_48px_rgba(0,0,0,0.32)] sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <Link href="/?mode=congress" className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80 hover:text-emerald-200">
-            Back to feed
-          </Link>
+          <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <Link href="/" className="text-slate-400 hover:text-slate-200">Home</Link>
+            <span>/</span>
+            <Link href="/members" className="text-emerald-300/80 hover:text-emerald-200">Congress</Link>
+            <span>/</span>
+            <span className="truncate text-slate-300">{memberName}</span>
+          </nav>
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end lg:absolute lg:right-5 lg:top-3">
             <span className="hidden">
               <span className="sm:hidden">Backtest</span>
@@ -324,7 +328,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             )}
             <div className="min-w-0 pt-0.5">
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{memberName}</h1>
+                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{memberName} Stock Trades</h1>
                 <VerifiedBadge />
               </div>
               <p className="mt-2 text-sm text-slate-300">

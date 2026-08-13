@@ -74,6 +74,34 @@ test("sitemap XML includes lastmod for controlled pilot pages", () => {
   assert.match(seoQuality, /<lastmod>\$\{page\.lastmod\}<\/lastmod>/);
 });
 
+test("canonical entity metadata does not index query-state variants", () => {
+  assert.match(seoQuality, /function hasNonCanonicalSearchParams/);
+  assert.match(seoQuality, /key\.startsWith\("utm_"\)/);
+  assert.match(seoQuality, /function conciseSeoTitle/);
+  assert.match(seoQuality, /function conciseSeoDescription/);
+
+  for (const routePath of [
+    "app/ticker/[symbol]/page.tsx",
+    "app/member/[slug]/page.tsx",
+    "app/insider/[slug]/page.tsx",
+    "app/institution/[cik]/page.tsx",
+    "app/compare/[left]/[right]/page.tsx",
+  ]) {
+    const source = read(routePath);
+    assert.match(source, /hasNonCanonicalSearchParams/);
+  }
+});
+
+test("shared public metadata supplies complete social tags", () => {
+  const metadata = read("lib/marketingMetadata.ts");
+  assert.match(metadata, /function appPageMetadata/);
+  assert.match(metadata, /function marketingPageMetadata/);
+  assert.match(metadata, /siteName: "Walnut Markets"/);
+  assert.match(metadata, /card: "summary_large_image"/);
+  assert.match(metadata, /WALNUT_SOCIAL_IMAGE_URL/);
+  assert.match(metadata, /WALNUT_SOCIAL_IMAGE_ALT/);
+});
+
 test("public entity pages use real app routes with delayed stale cache", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
   const memberPage = read("app/member/[slug]/page.tsx");

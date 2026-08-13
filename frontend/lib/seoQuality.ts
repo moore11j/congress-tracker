@@ -111,6 +111,30 @@ export function noindexFollowMetadata(title: string, description?: string): Meta
   };
 }
 
+const analyticsQueryParams = new Set(["_gl", "_ga", "gclid", "fbclid", "msclkid"]);
+
+export function hasNonCanonicalSearchParams(searchParams: Record<string, string | string[] | undefined> | null | undefined): boolean {
+  if (!searchParams) return false;
+  return Object.entries(searchParams).some(([key, value]) => {
+    if (value === undefined) return false;
+    if (analyticsQueryParams.has(key) || key.startsWith("_ga_") || key.startsWith("utm_")) return false;
+    if (Array.isArray(value)) return value.some((entry) => entry !== undefined && entry !== "");
+    return value !== "";
+  });
+}
+
+export function conciseSeoTitle(candidate: string | null | undefined, fallback: string): string {
+  const title = (candidate ?? "").trim();
+  if (!title) return fallback;
+  return title.length <= 65 ? title : fallback;
+}
+
+export function conciseSeoDescription(candidate: string | null | undefined, fallback: string): string {
+  const description = (candidate ?? "").trim();
+  if (!description) return fallback;
+  return description.length <= 165 ? description : fallback;
+}
+
 export function tickerHasIndexableContent(profile: TickerProfile | null | undefined): boolean {
   const ticker = profile?.ticker;
   if (!ticker?.symbol) return false;
