@@ -186,6 +186,28 @@ test("insider dashboard renders role mix, top movers, then notable trades", () =
   assert.match(source, /\["Insider", "Ticker", "Action", "Value", "Date"\]/);
 });
 
+test("insider dashboard adds full-width monthly activity chart after notable trades", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /insiderMonthlyActivity=\{data\.monthly_activity \?\? \[\]\}/);
+  assert.match(source, /insiderMonthlyActivity\?: NonNullable<InsidersOverviewResponse\["monthly_activity"\]>/);
+  const notableIndex = source.indexOf("<InsiderNotableTrades items={insiderRecentNotableTrades.length ? insiderRecentNotableTrades : recent} />");
+  const activityIndex = source.indexOf('<Panel title="Activity over time (USD)" action="Monthly"><InsiderActivityOverTime rows={insiderMonthlyActivity} /></Panel>');
+  assert.ok(notableIndex > 0);
+  assert.ok(activityIndex > notableIndex);
+  assert.match(source, /function InsiderActivityOverTime/);
+  assert.match(source, /Buy Value \(USD\)/);
+  assert.match(source, /Sell Value \(USD\)/);
+  assert.match(source, /Total Trades/);
+  assert.match(source, /const valueTicks = \[valueLimit, valueLimit \/ 2, 0, -valueLimit \/ 2, -valueLimit\]/);
+  assert.match(source, /const tradeTicks = \[tradeLimit, tradeLimit \* \.75, tradeLimit \* \.5, tradeLimit \* \.25, 0\]/);
+  assert.match(source, /fill="#42d3a7"/);
+  assert.match(source, /fill="#fb7185"/);
+  assert.match(source, /stroke="#60a5fa"/);
+  assert.match(source, /rounded-full border border-blue-100 bg-blue-400/);
+  assert.match(source, /gridTemplateColumns: `repeat\(\$\{points\.length\}, minmax\(0, 1fr\)\)`/);
+});
+
 test("congress metric cards use shaded semantic trend colors", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
