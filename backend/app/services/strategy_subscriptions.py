@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, StrategyDefinition, StrategyEvent, StrategyEventDelivery, StrategySubscription, UserAccount
+from app.models import AppSetting, StrategyDefinition, StrategyEvent, StrategyEventDelivery, StrategySubscription, StrategyVersion, UserAccount
 from app.entitlements import entitlements_for_user
 from app.services.email_delivery import email_delivery_enabled, send_email
 
@@ -34,7 +34,7 @@ def _payload(subscription: StrategySubscription) -> dict[str, Any]:
         "strategyId": int(subscription.strategy_id),
         "isActive": bool(subscription.is_active),
         "emailEnabled": bool(subscription.email_enabled),
-        "deliveryMode": subscription.delivery_mode,
+        "deliveryMode": "daily",
         "eventTypes": _event_types(subscription.event_types_json),
         "createdAt": subscription.created_at.isoformat() if subscription.created_at else None,
         "updatedAt": subscription.updated_at.isoformat() if subscription.updated_at else None,
@@ -48,6 +48,22 @@ def _published_strategy(db: Session, slug: str) -> StrategyDefinition:
     if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found.")
     return strategy
+
+
+def _followable_strategy(db: Session, slug: str) -> StrategyDefinition:
+    strategy = _published_strategy(db, slug)
+    if not _has_active_prospective_version(db, strategy_id=int(strategy.id)):
+        raise HTTPException(status_code=422, detail="This historical strategy is not currently monitored for new alerts.")
+    return strategy
+
+
+def _has_active_prospective_version(db: Session, *, strategy_id: int) -> bool:
+    active_version = db.execute(
+        select(StrategyVersion.id)
+        .where(StrategyVersion.strategy_id == strategy_id, StrategyVersion.status == "active")
+        .limit(1)
+    ).scalar_one_or_none()
+    return active_version is not None
 
 
 def get_strategy_subscription(db: Session, *, user_id: int, slug: str) -> dict[str, Any] | None:
@@ -67,15 +83,13 @@ def upsert_strategy_subscription(
     user_id: int,
     slug: str,
     email_enabled: bool,
-    delivery_mode: str,
-    event_types: list[str],
+    delivery_mode: str = "daily",
+    event_types: list[str] | None = None,
 ) -> dict[str, Any]:
-    if delivery_mode not in {"realtime", "daily"}:
-        raise HTTPException(status_code=422, detail="Unsupported strategy delivery mode.")
-    normalized_types = sorted({str(event_type) for event_type in event_types})
+    normalized_types = sorted({str(event_type) for event_type in (event_types or [])})
     if not normalized_types or any(event_type not in ALLOWED_EVENT_TYPES for event_type in normalized_types):
         raise HTTPException(status_code=422, detail="Unsupported strategy event type.")
-    strategy = _published_strategy(db, slug)
+    strategy = _followable_strategy(db, slug)
     subscription = db.execute(
         select(StrategySubscription).where(
             StrategySubscription.user_id == user_id,
@@ -87,7 +101,9 @@ def upsert_strategy_subscription(
         db.add(subscription)
     subscription.is_active = True
     subscription.email_enabled = bool(email_enabled)
-    subscription.delivery_mode = delivery_mode
+    # Source filings are evaluated on Walnut's daily schedule. Normalize legacy
+    # clients that still submit "realtime" instead of exposing an unavailable mode.
+    subscription.delivery_mode = "daily"
     subscription.event_types_json = json.dumps(normalized_types, sort_keys=True, separators=(",", ":"))
     db.commit()
     db.refresh(subscription)
@@ -130,12 +146,17 @@ def queue_strategy_event_deliveries(
             )
         ).all()
         for subscription, user in subscriptions:
+            if not _has_active_prospective_version(db, strategy_id=int(event.strategy_id)):
+                skipped += 1
+                continue
             if not entitlements_for_user(db, user).has_feature("notification_digests"):
                 skipped += 1
                 continue
-            if subscription.delivery_mode != "realtime" or event.event_type not in _event_types(subscription.event_types_json):
+            if event.event_type not in _event_types(subscription.event_types_json):
                 skipped += 1
                 continue
+            if subscription.delivery_mode != "daily":
+                subscription.delivery_mode = "daily"
             key = f"strategy-event:{event.id}:subscription:{subscription.id}:email"
             existing = db.execute(
                 select(StrategyEventDelivery.id).where(StrategyEventDelivery.idempotency_key == key)
@@ -306,7 +327,14 @@ def process_pending_strategy_event_deliveries(db: Session, *, limit: int = 50, n
             payload["failed"] += 1
             continue
         current, event, strategy, subscription, user = joined
-        if strategy.status != "published" or not subscription.is_active or not subscription.email_enabled or not user.email_notifications_enabled or not entitlements_for_user(db, user).has_feature("notification_digests"):
+        if (
+            strategy.status != "published"
+            or not _has_active_prospective_version(db, strategy_id=int(strategy.id))
+            or not subscription.is_active
+            or not subscription.email_enabled
+            or not user.email_notifications_enabled
+            or not entitlements_for_user(db, user).has_feature("notification_digests")
+        ):
             _mark_delivery_result(db, delivery_id, status="skipped", error="Recipient or strategy is no longer eligible for strategy email.")
             payload["skipped"] += 1
             continue

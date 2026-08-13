@@ -39,7 +39,6 @@ class StrategyVersionCreateRequest(BaseModel):
 
 class StrategySubscriptionRequest(BaseModel):
     email_enabled: bool = True
-    delivery_mode: str = "realtime"
     event_types: list[str] = Field(default_factory=lambda: ["trade_added", "trade_exited", "rebalance_completed"])
 
 
@@ -76,6 +75,8 @@ def strategy(
     response: Response,
     period: str = Query(default="max", max_length=20),
     equity_limit: int = Query(default=1500, ge=1, le=5000),
+    holdings_offset: int = Query(default=0, ge=0),
+    holdings_limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, max-age=60"
@@ -86,6 +87,8 @@ def strategy(
         entitlements=current_entitlements(request, db),
         period=period,
         equity_limit=equity_limit,
+        holdings_offset=holdings_offset,
+        holdings_limit=holdings_limit,
         include_drafts=False,
     )
 
@@ -114,7 +117,6 @@ def put_strategy_subscription(
         user_id=int(user.id),
         slug=slug,
         email_enabled=payload.email_enabled,
-        delivery_mode=payload.delivery_mode,
         event_types=payload.event_types,
     )}
 
@@ -154,6 +156,8 @@ def admin_strategy(
     response: Response,
     period: str = Query(default="max", max_length=20),
     equity_limit: int = Query(default=1500, ge=1, le=5000),
+    holdings_offset: int = Query(default=0, ge=0),
+    holdings_limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, no-store"
@@ -164,6 +168,8 @@ def admin_strategy(
         entitlements=current_entitlements(request, db),
         period=period,
         equity_limit=equity_limit,
+        holdings_offset=holdings_offset,
+        holdings_limit=holdings_limit,
         include_drafts=True,
     )
 

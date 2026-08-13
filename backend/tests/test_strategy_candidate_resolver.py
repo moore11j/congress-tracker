@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import ConfirmationScoreSnapshot, Security, StrategyDefinition, StrategyVersion
+from app.models import ConfirmationScoreSnapshot, Event, PriceCache, Security, StrategyDefinition, StrategyVersion
 from app.services.strategy_candidate_resolver import UnsupportedStrategyCandidateSource, resolve_strategy_candidates
 
 
@@ -88,5 +88,75 @@ def test_resolver_rejects_unapproved_or_unknown_sources():
         version = _version(db, '{"candidate_source":"congress_filings"}')
         with pytest.raises(UnsupportedStrategyCandidateSource):
             resolve_strategy_candidates(db, strategy_version_id=version.id, evaluation_date=date(2026, 8, 10))
+    finally:
+        db.close()
+
+
+def test_congress_member_resolver_replays_only_publicly_ingested_post_activation_filings():
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(slug="member-live", name="Member Live", category="congress", status="published", access_tier="premium", methodology_version="v1")
+        db.add(strategy)
+        db.flush()
+        version = StrategyVersion(
+            strategy_id=strategy.id,
+            version=1,
+            status="active",
+            effective_from=date(2026, 8, 10),
+            rules_json='{"candidate_source":"congress_member_disclosures","member_bioguide_id":"F000110"}',
+        )
+        db.add_all(
+            [
+                version,
+                Security(symbol="NVDA", name="NVIDIA", asset_class="stock", sector="Technology"),
+                Security(symbol="MSFT", name="Microsoft", asset_class="stock", sector="Technology"),
+                PriceCache(symbol="NVDA", date="2026-08-11", close=190.0, adjusted_close=190.0),
+                PriceCache(symbol="MSFT", date="2026-08-11", close=480.0, adjusted_close=480.0),
+                Event(
+                    event_type="congress_trade",
+                    ts=datetime(2026, 8, 10, 12, tzinfo=timezone.utc),
+                    event_date=datetime(2026, 8, 10, 12, tzinfo=timezone.utc),
+                    symbol="NVDA",
+                    source="test",
+                    payload_json='{"trade_date":"2026-08-01","filing_date":"2026-08-10","asset_class":"stock"}',
+                    member_bioguide_id="F000110",
+                    member_name="Cleo Fields",
+                    trade_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                    created_at=datetime(2026, 8, 10, 18, tzinfo=timezone.utc),
+                ),
+                Event(
+                    event_type="congress_trade",
+                    ts=datetime(2026, 8, 10, 12, tzinfo=timezone.utc),
+                    event_date=datetime(2026, 8, 10, 12, tzinfo=timezone.utc),
+                    symbol="MSFT",
+                    source="test",
+                    payload_json='{"trade_date":"2026-08-01","filing_date":"2026-08-10","asset_class":"stock"}',
+                    member_bioguide_id="F000110",
+                    member_name="Cleo Fields",
+                    trade_type="purchase",
+                    amount_min=1001,
+                    amount_max=15000,
+                    created_at=datetime(2026, 8, 10, 23, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        resolution = resolve_strategy_candidates(
+            db,
+            strategy_version_id=version.id,
+            evaluation_date=date(2026, 8, 10),
+            available_at=datetime(2026, 8, 10, 20, tzinfo=timezone.utc),
+        )
+
+        assert resolution.source == "congress_member_disclosures"
+        assert resolution.universe_count == 1
+        assert [candidate.symbol for candidate in resolution.candidates] == ["NVDA"]
+        assert resolution.candidates[0].effective_date == date(2026, 8, 11)
+        assert resolution.candidates[0].entry_price == 190.0
+        assert resolution.candidates[0].qualification_snapshot["memberBioguideId"] == "F000110"
     finally:
         db.close()

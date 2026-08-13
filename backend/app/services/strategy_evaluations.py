@@ -153,6 +153,7 @@ def evaluate_strategy_candidates(
     scheduled_for: datetime | None = None,
     idempotency_key: str | None = None,
     closing_prices: dict[str, float] | None = None,
+    initialize: bool = False,
 ) -> dict[str, Any]:
     """Persist one point-in-time rebalance and emit its idempotent event stream.
 
@@ -248,17 +249,18 @@ def evaluate_strategy_candidates(
         )
         db.add(exit_trade)
         db.flush()
-        _event(
-            db,
-            strategy_id=strategy_id,
-            strategy_version_id=strategy_version_id,
-            run_id=run.id,
-            trade=exit_trade,
-            event_type="trade_exited",
-            occurred_at=occurred_at,
-            dedupe_key=f"strategy:{strategy_id}:run:{run.id}:trade_exited:{symbol}",
-            payload={"reason": "no_longer_qualifies", "weightPct": prior.weight_pct},
-        )
+        if not initialize:
+            _event(
+                db,
+                strategy_id=strategy_id,
+                strategy_version_id=strategy_version_id,
+                run_id=run.id,
+                trade=exit_trade,
+                event_type="trade_exited",
+                occurred_at=occurred_at,
+                dedupe_key=f"strategy:{strategy_id}:run:{run.id}:trade_exited:{symbol}",
+                payload={"reason": "no_longer_qualifies", "weightPct": prior.weight_pct},
+            )
         changes["exited"] += 1
 
     for symbol, candidate in sorted(normalized.items()):
@@ -284,17 +286,18 @@ def evaluate_strategy_candidates(
             )
             db.add(trade)
             db.flush()
-            _event(
-                db,
-                strategy_id=strategy_id,
-                strategy_version_id=strategy_version_id,
-                run_id=run.id,
-                trade=trade,
-                event_type="trade_added",
-                occurred_at=occurred_at,
-                dedupe_key=f"strategy:{strategy_id}:run:{run.id}:trade_added:{symbol}",
-                payload={"weightPct": candidate.weight_pct, "score": candidate.score, "sourceCount": candidate.source_count},
-            )
+            if not initialize:
+                _event(
+                    db,
+                    strategy_id=strategy_id,
+                    strategy_version_id=strategy_version_id,
+                    run_id=run.id,
+                    trade=trade,
+                    event_type="trade_added",
+                    occurred_at=occurred_at,
+                    dedupe_key=f"strategy:{strategy_id}:run:{run.id}:trade_added:{symbol}",
+                    payload={"weightPct": candidate.weight_pct, "score": candidate.score, "sourceCount": candidate.source_count},
+                )
             changes["added"] += 1
         elif abs(float(prior.weight_pct or 0) - float(candidate.weight_pct)) > 0.0001:
             trade = StrategyTrade(
@@ -315,34 +318,36 @@ def evaluate_strategy_candidates(
             )
             db.add(trade)
             db.flush()
-            _event(
-                db,
-                strategy_id=strategy_id,
-                strategy_version_id=strategy_version_id,
-                run_id=run.id,
-                trade=trade,
-                event_type="position_rebalanced",
-                occurred_at=occurred_at,
-                dedupe_key=f"strategy:{strategy_id}:run:{run.id}:position_rebalanced:{symbol}",
-                payload={"previousWeightPct": prior.weight_pct, "weightPct": candidate.weight_pct},
-            )
+            if not initialize:
+                _event(
+                    db,
+                    strategy_id=strategy_id,
+                    strategy_version_id=strategy_version_id,
+                    run_id=run.id,
+                    trade=trade,
+                    event_type="position_rebalanced",
+                    occurred_at=occurred_at,
+                    dedupe_key=f"strategy:{strategy_id}:run:{run.id}:position_rebalanced:{symbol}",
+                    payload={"previousWeightPct": prior.weight_pct, "weightPct": candidate.weight_pct},
+                )
             changes["rebalanced"] += 1
 
     run.status = "completed"
     run.executed_at = datetime.now(timezone.utc)
-    run.metadata_json = _json({"changes": changes, "candidateSymbols": sorted(normalized)})
+    run.metadata_json = _json({"changes": changes, "candidateSymbols": sorted(normalized), "initialization": bool(initialize)})
     db.flush()
     _refresh_live_holdings(db, strategy_id=strategy_id, run_id=int(run.id), evaluation_date=evaluation_date)
-    _event(
-        db,
-        strategy_id=strategy_id,
-        strategy_version_id=strategy_version_id,
-        run_id=run.id,
-        trade=None,
-        event_type="rebalance_completed",
-        occurred_at=occurred_at,
-        dedupe_key=f"strategy:{strategy_id}:run:{run.id}:rebalance_completed",
-        payload={"evaluationDate": evaluation_date.isoformat(), "changes": changes, "qualifyingCount": len(normalized)},
-    )
+    if not initialize:
+        _event(
+            db,
+            strategy_id=strategy_id,
+            strategy_version_id=strategy_version_id,
+            run_id=run.id,
+            trade=None,
+            event_type="rebalance_completed",
+            occurred_at=occurred_at,
+            dedupe_key=f"strategy:{strategy_id}:run:{run.id}:rebalance_completed",
+            payload={"evaluationDate": evaluation_date.isoformat(), "changes": changes, "qualifyingCount": len(normalized)},
+        )
     db.commit()
     return _run_payload(run, idempotent=False)

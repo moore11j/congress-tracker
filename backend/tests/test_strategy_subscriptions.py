@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_strategy_storage_schema
-from app.models import StrategyDefinition, StrategyEvent, StrategyEventDelivery, UserAccount
+from app.models import StrategyDefinition, StrategyEvent, StrategyEventDelivery, StrategyVersion, UserAccount
 from app.services import strategy_subscriptions
 from app.services.strategy_subscriptions import (
     process_pending_strategy_event_deliveries,
@@ -34,6 +34,8 @@ def _strategy_and_user(db):
     )
     user = UserAccount(email="subscriber@example.com", entitlement_tier="premium")
     db.add_all([strategy, user])
+    db.commit()
+    db.add(StrategyVersion(strategy_id=strategy.id, version=1, status="active"))
     db.commit()
     return strategy, user
 
@@ -68,6 +70,7 @@ def test_strategy_follow_queue_is_idempotent_and_preserves_unsubscribe():
             event_types=["trade_added", "rebalance_completed"],
         )
         assert subscription["isActive"] is True
+        assert subscription["deliveryMode"] == "daily"
         event = _event(db, strategy.id, key="event-after-subscription")
 
         assert queue_strategy_event_deliveries(db, events=[event]) == {"queued": 1, "skipped": 0}
