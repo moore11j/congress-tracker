@@ -1003,6 +1003,7 @@ def _most_traded_event_stocks(db: Session, clauses: list[Any], *, limit: int = 1
             func.sum(case((_side_clause(("buy", "purchase", "p-purchase")), side_value), else_=0)).label("buy_value"),
             func.sum(case((_side_clause(("sell", "sale", "s-sale")), side_value), else_=0)).label("sell_value"),
             func.count(func.distinct(Event.member_bioguide_id)).label("actors"),
+            func.count(Event.id).label("trades"),
         )
         .where(*clauses, Event.symbol.is_not(None))
         .group_by(func.upper(Event.symbol))
@@ -1018,6 +1019,7 @@ def _most_traded_event_stocks(db: Session, clauses: list[Any], *, limit: int = 1
             "sell_value": _float_or_int(row.sell_value),
             "net_value": _float_or_int((row.buy_value or 0) - (row.sell_value or 0)),
             "actor_count": int(row.actors or 0),
+            "trades": int(row.trades or 0),
             "href": f"/ticker/{row.symbol}" if row.symbol else None,
         }
         for row in rows

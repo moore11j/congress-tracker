@@ -266,6 +266,16 @@ test("congress snapshot cards label real net values and sector trade share", () 
   assert.match(source, /format === "percent"/);
 });
 
+test("congress most traded stocks table shows trades and signed net values", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /\["net_value", "Net value", "signed_currency"\], \["trades", "Trades", "number"\]/);
+  assert.match(source, /type CellFormat = "currency" \| "signed_currency"/);
+  assert.match(source, /format === "signed_currency"/);
+  assert.match(source, /text-emerald-300/);
+  assert.match(source, /text-rose-300/);
+});
+
 test("congress notable trades normalize and color action labels", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 

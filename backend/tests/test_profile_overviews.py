@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v14:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v15:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -249,6 +249,7 @@ def test_congress_overview_returns_page_ready_sections():
     assert len(payload["monthly_activity"]) == 12
     assert payload["top_members"][0]["href"] == "/member/nancy-pelosi"
     assert payload["most_traded_stocks"][0]["symbol"] == "NVDA"
+    assert payload["most_traded_stocks"][0]["trades"] == 1
     sector_labels = {segment["label"] for segment in payload["sector_exposure"][0]["segments"]}
     assert sector_labels == {"Technology"}
     assert len([row for row in payload["top_buyers"] if row["name"] == "Nancy Pelosi"]) == 1
