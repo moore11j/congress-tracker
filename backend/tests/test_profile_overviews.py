@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v9:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v10:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -203,6 +203,43 @@ def test_congress_overview_returns_page_ready_sections():
             amount_max=15_000,
         )
     )
+    prior_period = datetime.now(timezone.utc) - timedelta(days=500)
+    db.add_all(
+        [
+            Event(
+                id=30,
+                event_type="congress_trade",
+                ts=prior_period,
+                event_date=prior_period,
+                symbol="NVDA",
+                source="test",
+                payload_json="{}",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+                chamber="house",
+                party="D",
+                trade_type="purchase",
+                amount_min=100_000,
+                amount_max=100_000,
+            ),
+            Event(
+                id=31,
+                event_type="congress_trade",
+                ts=prior_period + timedelta(days=1),
+                event_date=prior_period + timedelta(days=1),
+                symbol="NVDA",
+                source="test",
+                payload_json="{}",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+                chamber="house",
+                party="D",
+                trade_type="sale",
+                amount_min=95_000,
+                amount_max=95_000,
+            ),
+        ]
+    )
     db.commit()
 
     payload = congress_overview(db, chamber="house", period_days=365)
@@ -221,6 +258,9 @@ def test_congress_overview_returns_page_ready_sections():
     assert payload["snapshot"]["most_active_sector"]["sector"] == "Technology"
     assert payload["snapshot"]["most_active_sector"]["trades"] == 2
     assert payload["snapshot"]["most_active_sector"]["trade_percent"] == 100.0
+    assert payload["top_moving_sectors"][0]["current_activity_value"] == 115_000
+    assert payload["top_moving_sectors"][0]["previous_activity_value"] == 195_000
+    assert payload["top_moving_sectors"][0]["change_pct"] == -41.02564102564102
 
 
 def test_insiders_overview_uses_normalized_open_market_transactions():
