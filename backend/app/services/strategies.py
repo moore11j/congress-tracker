@@ -15,11 +15,7 @@ from app.models import (
     StrategyDefinition,
     StrategyEquityCurvePoint,
     StrategyPerformanceSnapshot,
-<<<<<<< HEAD
-=======
-    StrategyTrade,
     StrategyVersion,
->>>>>>> 1d5f60eb (Clarify strategy delivery and historical portfolios)
 )
 
 STRATEGY_SORT_FIELDS = {
