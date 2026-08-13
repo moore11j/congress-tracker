@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BacktestChart } from "@/components/backtesting/BacktestChart";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { StrategyFollowButton } from "@/components/strategies/StrategyFollowButton";
 import type { StrategyDetailPayload } from "@/lib/api";
 import { displayStrategyName, displayStrategyUniverse } from "@/lib/strategyPresentation";
