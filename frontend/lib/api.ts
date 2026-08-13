@@ -227,6 +227,11 @@ export type ProfileSectorMover = {
   segments: Array<{ type: string; value: number }>;
 };
 
+export type ProfileActivityMixItem = {
+  type: "Congress" | "Insider" | "Institution" | "Department" | string;
+  value: number;
+};
+
 export type ProfileDirectoryItem = {
   label: string;
   href?: string | null;
@@ -255,6 +260,7 @@ export type ProfilesSummaryResponse = {
   cards: ProfileSummaryCard[];
   directories?: ProfileDirectory[];
   activity: ProfileActivityItem[];
+  activity_mix?: ProfileActivityMixItem[];
   activity_by_profile_type?: ProfileActivityByTypePeriod[];
   top_moving_sectors?: ProfileSectorMover[];
 };
@@ -268,6 +274,13 @@ export type ProfileSectorSegment = {
 export type ProfileSectorPeriod = {
   period: string;
   segments: ProfileSectorSegment[];
+};
+
+export type InstitutionalActivityPeriod = {
+  period: string;
+  position_increase_value: number;
+  position_decrease_value: number;
+  total_positions: number;
 };
 
 export type CongressOverviewResponse = {
@@ -317,6 +330,7 @@ export type InstitutionsOverviewResponse = {
   top_institutions: Array<Record<string, unknown>>;
   position_changes: Array<Record<string, unknown>>;
   sector_exposure: ProfileSectorPeriod[];
+  institutional_activity_over_time?: InstitutionalActivityPeriod[];
   most_widely_held: Array<Record<string, unknown>>;
   largest_new_positions: Array<Record<string, unknown>>;
   largest_exits: Array<Record<string, unknown>>;

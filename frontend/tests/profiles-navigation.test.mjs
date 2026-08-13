@@ -90,3 +90,44 @@ test("profiles overview uses database summary instead of static dashboard data",
   assert.doesNotMatch(source, /ActivityFeed/);
   assert.doesNotMatch(source, /searchParams/);
 });
+
+test("profiles overview activity mix uses aggregate summary data", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /data\.activity_mix/);
+  assert.match(source, /label="Records"/);
+  assert.doesNotMatch(source, /const counts = categories\.map\(\(type\) => activity\.filter/);
+});
+
+test("congress top moving sectors uses bounded sparklines", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /function CompactSparkline/);
+  assert.match(source, /h-10 overflow-hidden/);
+  assert.match(source, /<CompactSparkline points=\{row\.trend\.slice\(-6\)\} \/>/);
+  assert.doesNotMatch(source, /<CongressTrend points=\{row\.trend\.slice\(-6\)\} \/>/);
+});
+
+test("profile snapshot trend chart renders usable axes", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /grid-cols-\[3\.8rem_minmax\(0,1fr\)\]/);
+  assert.match(source, /formatAxisValue\(tick\)/);
+  assert.match(source, /gridTemplateColumns: `repeat\(\$\{series\.length\}, minmax\(0, 1fr\)\)`/);
+  assert.match(source, /series\.map\(\(point\) => <span key=\{point\.label\}/);
+});
+
+test("institutional dashboard uses mockup-style net change charts", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /institutionalActivity=\{data\.institutional_activity_over_time \?\? \[\]\}/);
+  assert.match(source, /Net position change by sector/);
+  assert.match(source, /function NetPositionChangeBySector/);
+  assert.match(source, /function InstitutionalActivityOverTime/);
+  assert.match(source, /const valueLimit = 2_000_000_000_000/);
+  assert.match(source, /Position increases/);
+  assert.match(source, /Position decreases/);
+  assert.match(source, /Total positions/);
+  assert.match(source, /rounded-full border border-blue-100 bg-blue-400/);
+  assert.doesNotMatch(source, /flavor === "institutions"[\s\S]{0,140}Recent notable activity/);
+});

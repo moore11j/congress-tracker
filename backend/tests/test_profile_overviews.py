@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerMeta
+from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerMeta
 from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profiles_summary
 
 
@@ -72,9 +72,63 @@ def test_profiles_summary_uses_real_aggregate_counts():
             normalized_hash="insider-1",
         )
     )
+    for index in range(25):
+        cik = f"99999999{index:02d}"
+        db.add(
+            InstitutionalHolder(
+                cik=cik,
+                holder_name=f"Long View Capital {index}",
+                latest_filing_date=date(2026, 8, 1),
+                latest_report_year=2026,
+                latest_report_quarter=2,
+            )
+        )
+        db.add(
+            InstitutionalPosition(
+                filing_id=300 + index,
+                cik=cik,
+                symbol="NVDA",
+                normalized_symbol="NVDA",
+                issuer_name="NVIDIA Corp",
+                shares=100,
+                value_usd=1_000_000,
+                report_year=2026,
+                report_quarter=2,
+                filing_date=date(2026, 8, 1),
+            )
+        )
+    db.add_all(
+        [
+            InstitutionalPositionChange(
+                cik="9999999999",
+                holder_name="Long View Capital",
+                symbol="NVDA",
+                normalized_symbol="NVDA",
+                report_year=2026,
+                report_quarter=2,
+                filing_date=date(2026, 8, 1),
+                shares_delta=20,
+                value_delta_usd=200_000,
+                change_type="increase",
+            ),
+            InstitutionalPositionChange(
+                cik="9999999999",
+                holder_name="Long View Capital",
+                symbol="AAPL",
+                normalized_symbol="AAPL",
+                report_year=2026,
+                report_quarter=2,
+                filing_date=date(2026, 8, 1),
+                shares_delta=-10,
+                value_delta_usd=-50_000,
+                change_type="decrease",
+            ),
+        ]
+    )
     db.commit()
 
     payload = profiles_summary(db, include_institutions=False, include_activity=True)
+    activity_mix = {item["type"]: item["value"] for item in payload["activity_mix"]}
 
     congress = next(card for card in payload["cards"] if card["kind"] == "congress")
     insiders = next(card for card in payload["cards"] if card["kind"] == "insiders")
@@ -82,8 +136,9 @@ def test_profiles_summary_uses_real_aggregate_counts():
     assert congress["metrics"][0]["value"] == 1
     assert insiders["metrics"][1]["value"] == 1
     assert departments["metrics"][1]["value"] == 1_000_000
-    assert payload["directories"][0]["primary_title"] == "Most Active Members"
+    assert payload["directories"][0]["primary_title"] == "Top Congress by Trading Value"
     assert payload["activity"][0]["profile_href"] == "/member/nancy-pelosi"
+    assert activity_mix == {"Congress": 1, "Insider": 1, "Institution": 2, "Department": 1}
 
 
 def test_congress_overview_returns_page_ready_sections():
@@ -341,6 +396,13 @@ def test_institutions_overview_compares_previous_quarter_and_classifies_mega_cap
     assert latest[0]["label"] == "Technology"
     assert latest[0]["percent"] > 90
     assert all(segment["label"] != "Other" for segment in latest)
+    activity_by_period = {row["period"]: row for row in payload["institutional_activity_over_time"]}
+    assert activity_by_period["Q1 2026"]["position_increase_value"] == 25_000
+    assert activity_by_period["Q1 2026"]["position_decrease_value"] == 0
+    assert activity_by_period["Q1 2026"]["total_positions"] == 6
+    assert activity_by_period["Q2 2026"]["position_increase_value"] == 100_000
+    assert activity_by_period["Q2 2026"]["position_decrease_value"] == -50_000
+    assert activity_by_period["Q2 2026"]["total_positions"] == 7
 
 
 def test_institutions_overview_skips_sparse_newer_period():

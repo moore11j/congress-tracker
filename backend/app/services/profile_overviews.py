@@ -148,6 +148,13 @@ def profiles_summary(
             },
         ),
         "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
+        "activity_mix": _profile_activity_mix(
+            db,
+            congress_trades=congress_trade_count,
+            insider_trades=insider_trade_count,
+            institutional_period=institutional_period,
+            department_events=department_current["contract_count"],
+        ),
         "activity_by_profile_type": _profile_activity_by_month(db, include_institutions=include_institutions),
         "top_moving_sectors": _top_profile_sector_movers(db, include_institutions=include_institutions),
     }
@@ -258,6 +265,7 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
             "top_institutions": [],
             "position_changes": [],
             "sector_exposure": [],
+            "institutional_activity_over_time": [],
             "most_widely_held": [],
             "largest_new_positions": [],
             "largest_exits": [],
@@ -266,7 +274,7 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
 
     period = _latest_institutional_period(db, year=year, quarter=quarter)
     if period is None:
-        return {"status": "no_data", "summary": [], "top_institutions": [], "position_changes": [], "sector_exposure": [], "recent_filings": []}
+        return {"status": "no_data", "summary": [], "top_institutions": [], "position_changes": [], "sector_exposure": [], "institutional_activity_over_time": [], "recent_filings": []}
     report_year, report_quarter = period
     previous_period = _previous_comparable_institutional_period(db, report_year, report_quarter)
     prev_year, prev_quarter = previous_period if previous_period is not None else (None, None)
@@ -302,6 +310,7 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
         "top_institutions": _top_institutions(db, report_year, report_quarter, previous_period=previous_period),
         "position_changes": _institutional_position_changes(db, report_year, report_quarter),
         "sector_exposure": _institution_sector_exposure(db),
+        "institutional_activity_over_time": _institutional_activity_over_time(db),
         "most_widely_held": _most_widely_held(db, report_year, report_quarter),
         "largest_new_positions": _institutional_position_changes(db, report_year, report_quarter, change_types=("new", "new_position"), limit=8),
         "largest_exits": _institutional_position_changes(db, report_year, report_quarter, change_types=("exit", "exited"), limit=8, descending=False),
@@ -707,6 +716,48 @@ def _profile_activity_by_month(db: Session, *, include_institutions: bool) -> li
             "Department": counts.get((month.year, month.month, "Department"), 0),
         })
     return result
+
+
+def _profile_activity_mix(
+    db: Session,
+    *,
+    congress_trades: int,
+    insider_trades: int,
+    institutional_period: tuple[int, int] | None,
+    department_events: int,
+) -> list[dict[str, Any]]:
+    return [
+        {"type": "Congress", "value": int(congress_trades or 0)},
+        {"type": "Insider", "value": int(insider_trades or 0)},
+        {"type": "Institution", "value": _institutional_activity_count(db, institutional_period)},
+        {"type": "Department", "value": int(department_events or 0)},
+    ]
+
+
+def _institutional_activity_count(db: Session, period: tuple[int, int] | None) -> int:
+    if period is None:
+        return 0
+    year, quarter = period
+    changes = int(
+        db.execute(
+            select(func.count(InstitutionalPositionChange.id)).where(
+                InstitutionalPositionChange.report_year == year,
+                InstitutionalPositionChange.report_quarter == quarter,
+            )
+        ).scalar_one()
+        or 0
+    )
+    if changes:
+        return changes
+    return int(
+        db.execute(
+            select(func.count(InstitutionalPosition.id)).where(
+                InstitutionalPosition.report_year == year,
+                InstitutionalPosition.report_quarter == quarter,
+            )
+        ).scalar_one()
+        or 0
+    )
 
 
 def _top_profile_sector_movers(db: Session, *, include_institutions: bool, limit: int = 8) -> list[dict[str, Any]]:
@@ -1376,6 +1427,45 @@ def _institution_sector_exposure(db: Session) -> list[dict[str, Any]]:
             continue
         buckets[f"Q{quarter} {year}"][sector] += float(value or 0)
     return _allocation_payload(buckets)
+
+
+def _institutional_activity_over_time(db: Session) -> list[dict[str, Any]]:
+    period_rows = db.execute(
+        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+        .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
+        .limit(16)
+    ).all()
+    periods = list(reversed(_complete_institutional_periods(db, [(int(y), int(q)) for y, q in period_rows])[:8]))
+    if not periods:
+        return []
+
+    change_rows = db.execute(
+        select(
+            InstitutionalPositionChange.report_year,
+            InstitutionalPositionChange.report_quarter,
+            func.sum(case((InstitutionalPositionChange.value_delta_usd > 0, InstitutionalPositionChange.value_delta_usd), else_=0)),
+            func.sum(case((InstitutionalPositionChange.value_delta_usd < 0, InstitutionalPositionChange.value_delta_usd), else_=0)),
+        )
+        .where(tuple_(InstitutionalPositionChange.report_year, InstitutionalPositionChange.report_quarter).in_(periods))  # type: ignore[name-defined]
+        .group_by(InstitutionalPositionChange.report_year, InstitutionalPositionChange.report_quarter)
+    ).all()
+    position_rows = db.execute(
+        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.count(InstitutionalPosition.id))
+        .where(tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods))  # type: ignore[name-defined]
+        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+    ).all()
+    changes = {(int(year), int(quarter)): (float(increases or 0), float(decreases or 0)) for year, quarter, increases, decreases in change_rows}
+    positions = {(int(year), int(quarter)): int(total or 0) for year, quarter, total in position_rows}
+    return [
+        {
+            "period": f"Q{quarter} {year}",
+            "position_increase_value": _float_or_int(changes.get((year, quarter), (0.0, 0.0))[0]) or 0,
+            "position_decrease_value": _float_or_int(changes.get((year, quarter), (0.0, 0.0))[1]) or 0,
+            "total_positions": positions.get((year, quarter), 0),
+        }
+        for year, quarter in periods
+    ]
 
 
 def _most_widely_held(db: Session, year: int, quarter: int, *, limit: int = 8) -> list[dict[str, Any]]:
