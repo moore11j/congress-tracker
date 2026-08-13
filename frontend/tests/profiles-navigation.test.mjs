@@ -109,6 +109,17 @@ test("congress top moving sectors uses bounded sparklines", () => {
   assert.doesNotMatch(source, /<CongressTrend points=\{row\.trend\.slice\(-6\)\} \/>/);
 });
 
+test("congress trading snapshot chart renders area fill and full axes", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /<CongressSnapshotTrend points=\{monthly\.map\(\(row\) => \(\{ label: row\.period, value: row\.trades \}\)\)\} \/>/);
+  assert.match(source, /function CongressSnapshotTrend/);
+  assert.match(source, /const ticks = \[axisMax, axisMax \* \.75, axisMax \* \.5, axisMax \* \.25, 0\]/);
+  assert.match(source, /fill="url\(#congress-trades-area\)"/);
+  assert.match(source, /gridTemplateColumns: `repeat\(\$\{points\.length\}, minmax\(0, 1fr\)\)`/);
+  assert.match(source, /points\.map\(\(point\) => <span key=\{point\.label\}/);
+});
+
 test("profile snapshot trend chart renders usable axes", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
