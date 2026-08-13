@@ -293,9 +293,9 @@ export type CongressOverviewResponse = {
   top_members: Array<Record<string, unknown>>;
   most_traded_stocks: Array<Record<string, unknown>>;
   sector_exposure: ProfileSectorPeriod[];
-  sector_activity?: Array<{ sector: string; current_value: number; previous_value: number; change_pct: number | null; buy_value: number; sell_value: number; trend: Array<{ label: string; value: number }> }>;
+  sector_activity?: Array<{ sector: string; current_value: number; previous_value: number; change_pct: number | null; buy_value: number; sell_value: number; trades: number; trade_percent: number; trend: Array<{ label: string; value: number }> }>;
   chamber_mix?: Array<{ label: string; value: number }>;
-  top_moving_sectors?: Array<{ sector: string; current_value: number; previous_value: number; change_pct: number | null; buy_value: number; sell_value: number; trend: Array<{ label: string; value: number }> }>;
+  top_moving_sectors?: Array<{ sector: string; current_value: number; previous_value: number; change_pct: number | null; buy_value: number; sell_value: number; trades: number; trade_percent: number; trend: Array<{ label: string; value: number }> }>;
   top_buyers: Array<Record<string, unknown>>;
   top_sellers: Array<Record<string, unknown>>;
   recent_disclosures: ProfileActivityItem[];

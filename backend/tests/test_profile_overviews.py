@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v8:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v9:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -215,6 +215,11 @@ def test_congress_overview_returns_page_ready_sections():
     assert sector_labels == {"Technology"}
     assert len([row for row in payload["top_buyers"] if row["name"] == "Nancy Pelosi"]) == 1
     assert payload["top_buyers"][0]["trades"] == 2
+    assert payload["snapshot"]["most_traded_ticker"]["net_value"] == 100_000
+    assert payload["snapshot"]["top_buyer"]["value"] == 115_000
+    assert payload["snapshot"]["most_active_sector"]["sector"] == "Technology"
+    assert payload["snapshot"]["most_active_sector"]["trades"] == 2
+    assert payload["snapshot"]["most_active_sector"]["trade_percent"] == 100.0
 
 
 def test_insiders_overview_uses_normalized_open_market_transactions():

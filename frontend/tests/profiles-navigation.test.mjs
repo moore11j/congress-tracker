@@ -129,6 +129,16 @@ test("profile snapshot trend chart renders usable axes", () => {
   assert.match(source, /series\.map\(\(point\) => <span key=\{point\.label\}/);
 });
 
+test("congress snapshot cards label real net values and sector trade share", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /valueKey="net_value" suffix=" Net Value"/);
+  assert.match(source, /valueKey="value" suffix=" Net Buys"/);
+  assert.match(source, /valueKey="trade_percent" format="percent" suffix=" of Trades"/);
+  assert.match(source, /function formatCongressSnapshotValue/);
+  assert.match(source, /format === "percent"/);
+});
+
 test("institutional dashboard uses mockup-style net change charts", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
