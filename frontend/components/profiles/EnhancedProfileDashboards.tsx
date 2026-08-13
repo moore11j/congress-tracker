@@ -148,9 +148,9 @@ export function EnhancedInsiderDashboard({ data, periodFilter }: { data: Insider
     insiderRecentNotableTrades={data.recent_notable_trades ?? []}
     insiderMonthlyActivity={data.monthly_activity ?? []}
     snapshotCards={[
-      { label: "Top net buyer", row: data.top_insiders[0], icon: "buyer" },
-      { label: "Most traded ticker", row: data.most_traded_stocks[0], icon: "ticker" },
-      { label: "Cluster buying", row: data.cluster_buying[0], icon: "cluster" },
+      { label: "Top net buyer", row: snapshotDetailRow(data.top_insiders[0], "trades", "trade"), icon: "buyer", subLabelKey: "snapshot_detail" },
+      { label: "Most traded ticker", row: snapshotDetailRow(data.most_traded_stocks[0], "actor_count", "insider"), icon: "ticker", subLabelKey: "snapshot_detail" },
+      { label: "Cluster buying", row: snapshotDetailRow(data.cluster_buying[0], "unique_insiders", "insider"), icon: "cluster", subLabelKey: "snapshot_detail" },
       { label: "Sector breadth", row: sectorBreadth, icon: "sector", valueKey: "percent", valueFormat: "percent", subLabelKey: "breadth_status" },
     ]}
     metrics={data.summary}
@@ -391,6 +391,7 @@ function periodTotals(rows: ProfileSectorPeriod[]) { return rows.map((row) => ({
 function metricValue(metrics: ProfileMetric[], label: string) { return metrics.find((metric) => metric.label === label)?.value ?? null; }
 function sectorMovements(rows: ProfileSectorPeriod[]) { const latest = rows[rows.length - 1]; const previous = rows[rows.length - 2]; if (!latest || !previous) return []; const previousByLabel = new Map(previous.segments.map((segment) => [segment.label, segment.value])); const values = latest.segments.map((segment) => ({ label: segment.label, value: segment.value - (previousByLabel.get(segment.label) ?? 0) })); const max = Math.max(...values.map((item) => Math.abs(item.value)), 1); return values.sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).map((item) => ({ ...item, share: Math.abs(item.value) / max })); }
 function snapshotLabels(flavor: DashboardFlavor) { return flavor === "congress" ? ["Top member", "Most traded ticker", "Top buyer", "Most active sector"] : flavor === "insiders" ? ["Top net buyer", "Most traded ticker", "Cluster buying", "Sector breadth"] : ["Top institution", "Largest reported increase", "Most widely held stock", "Recent filing"]; }
+function snapshotDetailRow(row: Row | undefined, key: string, noun: string) { const value = row ? asNumber(row[key]) : null; return row && value !== null ? { ...row, snapshot_detail: `${formatNumber(value)} ${value === 1 ? noun : `${noun}s`}` } : row; }
 function insiderSectorBreadth(rows: ProfileSectorPeriod[]): Row | undefined { const latest = rows.at(-1); if (!latest?.segments.length) return undefined; const segment = [...latest.segments].sort((left, right) => right.percent - left.percent)[0]; const previous = rows.length > 1 ? rows[rows.length - 2] : undefined; const previousValue = previous?.segments.find((item) => item.label === segment.label)?.value ?? 0; return { sector: segment.label, percent: segment.percent, breadth_status: segment.value >= previousValue ? "Positive" : "Negative" }; }
 function sectorLabels(rows: ProfileSectorPeriod[]) { const latest = rows[rows.length - 1]?.segments.map((segment) => segment.label) ?? []; return [...latest, ...Array.from(new Set(rows.flatMap((row) => row.segments.map((segment) => segment.label)))).filter((label) => !latest.includes(label))]; }
 function orderedSegments(row: ProfileSectorPeriod, labels: string[]) { const byLabel = new Map(row.segments.map((segment) => [segment.label, segment])); return labels.map((label) => byLabel.get(label)).filter((segment): segment is NonNullable<typeof segment> => Boolean(segment)); }

@@ -178,11 +178,13 @@ test("insider snapshot cards use icons and replace recent purchases with sector 
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
   assert.match(source, /snapshotCards=\{\[/);
-  assert.match(source, /label: "Top net buyer", row: data\.top_insiders\[0\], icon: "buyer"/);
-  assert.match(source, /label: "Most traded ticker", row: data\.most_traded_stocks\[0\], icon: "ticker"/);
-  assert.match(source, /label: "Cluster buying", row: data\.cluster_buying\[0\], icon: "cluster"/);
+  assert.match(source, /label: "Top net buyer", row: snapshotDetailRow\(data\.top_insiders\[0\], "trades", "trade"\), icon: "buyer", subLabelKey: "snapshot_detail"/);
+  assert.match(source, /label: "Most traded ticker", row: snapshotDetailRow\(data\.most_traded_stocks\[0\], "actor_count", "insider"\), icon: "ticker", subLabelKey: "snapshot_detail"/);
+  assert.match(source, /label: "Cluster buying", row: snapshotDetailRow\(data\.cluster_buying\[0\], "unique_insiders", "insider"\), icon: "cluster", subLabelKey: "snapshot_detail"/);
   assert.match(source, /label: "Sector breadth", row: sectorBreadth, icon: "sector"/);
   assert.match(source, /function SnapshotIcon/);
+  assert.match(source, /function snapshotDetailRow/);
+  assert.match(source, /`\$\{formatNumber\(value\)\} \$\{value === 1 \? noun : `\$\{noun\}s`\}`/);
   assert.match(source, /function insiderSectorBreadth/);
   assert.match(source, /flavor === "insiders" \? \["Top net buyer", "Most traded ticker", "Cluster buying", "Sector breadth"\]/);
   assert.doesNotMatch(source, /flavor === "insiders" \? \["Top net buyer", "Most traded ticker", "Recent purchases", "Cluster buying"\]/);
