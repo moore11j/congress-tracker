@@ -178,7 +178,7 @@ def congress_overview(db: Session, *, chamber: str = "all", period_days: int = 3
     active_members = db.execute(select(func.count(func.distinct(Event.member_bioguide_id))).where(*base, Event.member_bioguide_id.is_not(None))).scalar_one()
     average_trade_size = db.execute(select(func.avg(func.coalesce(Event.amount_max, Event.amount_min))).where(*base)).scalar_one()
     analytics = _congress_market_analytics(db, since=prev_since, chamber=chamber_value)
-    top_members, stocks = _top_congress_members(db, base), _most_traded_event_stocks(db, base)
+    top_members, active_members, stocks = _top_congress_members(db, base), _most_active_congress_members(db, base), _most_traded_event_stocks(db, base)
     buyers = _top_event_actors(db, base, sides=("buy", "purchase", "p-purchase"))
     most_active_sector = max(analytics["sector_activity"], key=lambda row: int(row.get("trades") or 0), default=None)
 
@@ -194,7 +194,7 @@ def congress_overview(db: Session, *, chamber: str = "all", period_days: int = 3
             _metric("Average Trade Size", average_trade_size, None, "currency"),
         ],
         "monthly_activity": analytics["monthly_activity"],
-        "snapshot": {"total_trades": int(total_trades or 0), "top_member": top_members[0] if top_members else None, "most_traded_ticker": stocks[0] if stocks else None, "top_buyer": buyers[0] if buyers else None, "most_active_sector": most_active_sector},
+        "snapshot": {"total_trades": int(total_trades or 0), "top_member": active_members[0] if active_members else None, "most_traded_ticker": stocks[0] if stocks else None, "top_buyer": buyers[0] if buyers else None, "most_active_sector": most_active_sector},
         "top_members": top_members,
         "most_traded_stocks": stocks,
         "sector_exposure": analytics["sector_exposure"],

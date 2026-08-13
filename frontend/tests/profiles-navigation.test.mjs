@@ -252,6 +252,13 @@ test("profile snapshot trend chart renders usable axes", () => {
 test("congress snapshot cards label real net values and sector trade share", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
+  assert.match(source, /<CongressSnapshot icon="member" tone="green" label="Most active member"/);
+  assert.match(source, /<CongressSnapshot icon="ticker" tone="purple" label="Most traded ticker"/);
+  assert.match(source, /<CongressSnapshot icon="buyer" tone="green" label="Top buyer"/);
+  assert.match(source, /<CongressSnapshot icon="sector" tone="amber" label="Most active sector"/);
+  assert.match(source, /function CongressSnapshotIcon/);
+  assert.match(source, /border-violet-300\/35 bg-violet-400\/15 text-violet-200/);
+  assert.match(source, /border-amber-300\/35 bg-amber-400\/15 text-amber-200/);
   assert.match(source, /valueKey="net_value" suffix=" Net Value"/);
   assert.match(source, /valueKey="value" suffix=" Net Buys"/);
   assert.match(source, /valueKey="trade_percent" format="percent" suffix=" of Trades"/);

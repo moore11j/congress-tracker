@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v13:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v14:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -261,6 +261,59 @@ def test_congress_overview_returns_page_ready_sections():
     assert payload["top_moving_sectors"][0]["current_activity_value"] == 115_000
     assert payload["top_moving_sectors"][0]["previous_activity_value"] == 195_000
     assert payload["top_moving_sectors"][0]["change_pct"] == -41.02564102564102
+
+
+def test_congress_snapshot_most_active_member_uses_trade_count_not_value():
+    db = _db()
+    now = datetime.now(timezone.utc) - timedelta(days=2)
+    db.add(Security(symbol="AAPL", name="Apple Inc.", asset_class="stock", sector="Technology"))
+    db.add(Security(symbol="NVDA", name="NVIDIA Corp", asset_class="stock", sector="Technology"))
+    db.add(
+        Event(
+            id=1001,
+            event_type="congress_trade",
+            ts=now,
+            event_date=now,
+            symbol="AAPL",
+            source="test",
+            payload_json="{}",
+            member_name="Nancy Pelosi",
+            member_bioguide_id="P000197",
+            chamber="house",
+            party="D",
+            trade_type="purchase",
+            amount_min=1_000_000,
+            amount_max=1_000_000,
+        )
+    )
+    db.add_all(
+        [
+            Event(
+                id=1010 + index,
+                event_type="congress_trade",
+                ts=now + timedelta(minutes=index + 1),
+                event_date=now + timedelta(minutes=index + 1),
+                symbol="NVDA",
+                source="test",
+                payload_json="{}",
+                member_name="Ro Khanna",
+                member_bioguide_id="K000389",
+                chamber="house",
+                party="D",
+                trade_type="purchase",
+                amount_min=1_000,
+                amount_max=1_000,
+            )
+            for index in range(3)
+        ]
+    )
+    db.commit()
+
+    payload = congress_overview(db, chamber="house", period_days=365)
+
+    assert payload["top_members"][0]["name"] == "Nancy Pelosi"
+    assert payload["snapshot"]["top_member"]["name"] == "Ro Khanna"
+    assert payload["snapshot"]["top_member"]["trades"] == 3
 
 
 def test_insiders_overview_uses_normalized_open_market_transactions():
