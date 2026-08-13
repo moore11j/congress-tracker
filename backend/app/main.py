@@ -2995,7 +2995,7 @@ def _profile_overview_cache_ttl(key: tuple[Any, ...]) -> int:
 
 def _profile_overview_persistent_key(key: tuple[Any, ...]) -> str:
     raw = json.dumps(key, separators=(",", ":"), default=str)
-    return f"profile-overview:v7:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+    return f"profile-overview:v8:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
 
 def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, now: datetime) -> Any | None:
@@ -3011,7 +3011,12 @@ def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, n
         payload = json.loads(row.payload_json or "{}")
     except (TypeError, ValueError):
         return None
-    return payload if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return None
+    family = str(key[0] if key else "")
+    if family == "profiles_summary" and bool(key[4] if len(key) > 4 else False) and "activity_mix" not in payload:
+        return None
+    return payload
 
 
 def _profile_overview_database_cache_set(db: Session, key: tuple[Any, ...], payload: Any, *, now: datetime) -> None:

@@ -12,6 +12,9 @@ const settingsButton = read("components/CookieSettingsButton.tsx");
 const consent = read("lib/privacyConsent.ts");
 const api = read("lib/api.ts");
 const tracker = read("components/PageAnalyticsTracker.tsx");
+const appVersion = read("lib/appVersion.ts");
+const appVersionRoute = read("app/api/app-version/route.ts");
+const appVersionRefresh = read("components/AppVersionRefresh.tsx");
 const googleAnalytics = read("lib/googleAnalytics.ts");
 const privacy = read("app/privacy/page.tsx");
 const memberPage = read("app/member/[slug]/page.tsx");
@@ -20,9 +23,22 @@ test("layout renders consent manager instead of eager tracking scripts", () => {
   assert.match(layout, /import \{ CookieConsentManager \} from "@\/components\/CookieConsentManager";/);
   assert.equal((layout.match(/<CookieConsentManager \/>/g) ?? []).length, 2);
   assert.equal((layout.match(/<PageAnalyticsTracker \/>/g) ?? []).length, 2);
+  assert.equal((layout.match(/<AppVersionRefresh version=\{version\} \/>/g) ?? []).length, 2);
   assert.doesNotMatch(layout, /googletagmanager\.com/);
   assert.doesNotMatch(layout, /redditstatic\.com\/ads\/pixel/);
   assert.doesNotMatch(layout, /dangerouslySetInnerHTML/);
+});
+
+test("app tabs refresh themselves after a newer deployment is aliased", () => {
+  assert.match(layout, /import \{ AppVersionRefresh \} from "@\/components\/AppVersionRefresh";/);
+  assert.match(layout, /const version = appVersion\(\);/);
+  assert.match(appVersion, /process\.env\.VERCEL_GIT_COMMIT_SHA/);
+  assert.match(appVersionRoute, /export const dynamic = "force-dynamic"/);
+  assert.match(appVersionRoute, /"Cache-Control": "no-store, max-age=0"/);
+  assert.match(appVersionRefresh, /fetch\(`\/api\/app-version\?t=\$\{Date\.now\(\)\}`/);
+  assert.match(appVersionRefresh, /cache: "no-store"/);
+  assert.match(appVersionRefresh, /payload\.version !== version/);
+  assert.match(appVersionRefresh, /window\.location\.reload\(\)/);
 });
 
 test("cookie consent manager offers bottom-bar choices and gates optional scripts", () => {

@@ -7,7 +7,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerMeta
+from app.main import _profile_overview_database_cache_get, _profile_overview_persistent_key
+from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
 from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profiles_summary
 
 
@@ -139,6 +140,27 @@ def test_profiles_summary_uses_real_aggregate_counts():
     assert payload["directories"][0]["primary_title"] == "Top Congress by Trading Value"
     assert payload["activity"][0]["profile_href"] == "/member/nancy-pelosi"
     assert activity_mix == {"Congress": 1, "Insider": 1, "Institution": 2, "Department": 1}
+
+
+def test_profiles_summary_cache_ignores_payload_without_activity_mix():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    key = ("profiles_summary", "all", 100, True, True)
+    db.add(
+        TickerContextBundleCache(
+            cache_key=_profile_overview_persistent_key(key),
+            symbol="PROFILE_OVERVIEW",
+            user_segment="shared",
+            payload_json=json.dumps({"activity": []}),
+            generated_at=now,
+            stale_after=now + timedelta(hours=1),
+            expires_at=now + timedelta(days=1),
+        )
+    )
+    db.commit()
+
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v8:")
+    assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
 def test_congress_overview_returns_page_ready_sections():

@@ -4,10 +4,12 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { AccountNav } from "@/components/auth/AccountNav";
 import { AppTopNav } from "@/components/AppTopNav";
+import { AppVersionRefresh } from "@/components/AppVersionRefresh";
 import { CookieConsentManager } from "@/components/CookieConsentManager";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { PageAnalyticsTracker } from "@/components/PageAnalyticsTracker";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { appVersion } from "@/lib/appVersion";
 import { WALNUT_MARKETING_DESCRIPTION, WALNUT_MARKETING_TITLE, WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
 import "./globals.css";
 
@@ -30,6 +32,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const requestHeaders = await headers();
   const isPublicLanding = requestHeaders.get("x-walnut-public-landing") === "1";
+  const version = appVersion();
 
   if (isPublicLanding) {
     return (
@@ -37,6 +40,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <head />
         <body className="min-h-full">
           {children}
+          <AppVersionRefresh version={version} />
           <PageAnalyticsTracker />
           <CookieConsentManager />
         </body>
@@ -75,6 +79,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <PageAnalyticsTracker />
           <main className="relative z-0 mx-auto w-full min-w-0 max-w-[1728px] px-4 py-1.5 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
         </div>
+        <AppVersionRefresh version={version} />
         <CookieConsentManager />
       </body>
     </html>
