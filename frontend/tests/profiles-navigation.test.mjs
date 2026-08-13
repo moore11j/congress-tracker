@@ -121,6 +121,23 @@ test("congress trading snapshot chart renders area fill and full axes", () => {
   assert.match(source, /points\.map\(\(point\) => <span key=\{point\.label\}/);
 });
 
+test("insider trading snapshot chart renders monthly net value and trade axes", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /monthly_activity\?: Array<\{ period: string; net_value: number; buy_value: number; sell_value: number; trades: number \}>/);
+  assert.match(source, /snapshotContent=\{<InsiderSnapshotChart rows=\{data\.monthly_activity \?\? \[\]\} \/>\}/);
+  assert.match(source, /function InsiderSnapshotChart/);
+  assert.match(source, /Net Value \(USD\)/);
+  assert.match(source, /Total Trades/);
+  assert.match(source, /const valueTicks = hasNegativeValue \?/);
+  assert.match(source, /const tradeTicks = \[tradeLimit, tradeLimit \* \.8, tradeLimit \* \.6, tradeLimit \* \.4, tradeLimit \* \.2, 0\]/);
+  assert.match(source, /fill="url\(#insider-net-area\)"/);
+  assert.match(source, /stroke="#60a5fa"/);
+  assert.match(source, /rounded-full border border-blue-100 bg-blue-400/);
+  assert.match(source, /gridTemplateColumns: `repeat\(\$\{points\.length\}, minmax\(0, 1fr\)\)`/);
+});
+
 test("congress metric cards use shaded semantic trend colors", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 

@@ -242,6 +242,7 @@ def insiders_overview(db: Session, *, period_days: int = 365, sector: str | None
         ],
         "top_insiders": _top_insiders(db, base),
         "most_traded_stocks": _most_traded_insider_stocks(db, base),
+        "monthly_activity": _insider_monthly_activity(db, base),
         "sector_activity": _insider_sector_activity(db, base),
         "recent_purchases": _recent_insider_transactions(db, buy_base, limit=8),
         "largest_buys": _largest_insider_transactions(db, buy_base, limit=8),
@@ -1149,6 +1150,37 @@ def _insider_sector_activity(db: Session, clauses: list[Any]) -> list[dict[str, 
             continue
         buckets[_quarter_label_for_date(transaction_date)][sector] += float(value or 0)
     return _allocation_payload(buckets)
+
+
+def _insider_monthly_activity(db: Session, clauses: list[Any]) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    months = [_add_months(date(now.year, now.month, 1), offset) for offset in range(-11, 1)]
+    buckets: dict[date, dict[str, float]] = {month: {"buy": 0.0, "sell": 0.0, "trades": 0.0} for month in months}
+    rows = db.execute(
+        select(InsiderTransactionNormalized)
+        .where(*clauses)
+        .order_by(InsiderTransactionNormalized.transaction_date.asc(), InsiderTransactionNormalized.id.asc())
+        .limit(20000)
+    ).scalars().all()
+    for row in rows:
+        if not isinstance(row.transaction_date, date):
+            continue
+        month = date(row.transaction_date.year, row.transaction_date.month, 1)
+        bucket = buckets.get(month)
+        if bucket is None:
+            continue
+        bucket["trades"] += 1
+        bucket["buy" if _is_buy_transaction(row) else "sell"] += float(row.value or 0)
+    return [
+        {
+            "period": month.strftime("%b %y"),
+            "net_value": _float_or_int(value["buy"] - value["sell"]) or 0,
+            "buy_value": _float_or_int(value["buy"]) or 0,
+            "sell_value": _float_or_int(value["sell"]) or 0,
+            "trades": int(value["trades"] or 0),
+        }
+        for month, value in buckets.items()
+    ]
 
 
 def _recent_insider_transactions(db: Session, clauses: list[Any], *, limit: int) -> list[dict[str, Any]]:
