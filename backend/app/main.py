@@ -267,6 +267,7 @@ from app.services.outcome_ledger import (
     get_outcome_snapshot_detail,
     list_outcome_snapshots,
     outcome_ledger_enabled,
+    outcome_ledger_summary,
     outcome_ledger_status,
 )
 from app.services.monitoring_alerts import (
@@ -6174,6 +6175,50 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
     if cached is not None:
         return cached
     return _public_outcome_ledger_cache_set(cache_key, outcome_ledger_status(db))
+
+
+@app.get("/api/outcomes/summary")
+def outcomes_summary(
+    response: Response,
+    horizon: str = Query("7D", pattern="^(7D|30D|90D|180D|365D)$"),
+    direction: str | None = Query(None),
+    score_band: str | None = Query(None),
+    methodology: str | None = Query(None),
+    calculation_type: str | None = Query(None, pattern="^(live|historical_reconstruction|data_correction|manual_test)$"),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    if not outcome_ledger_enabled(db):
+        _outcomes_disabled_response()
+    response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
+    cache_key = json.dumps(
+        {
+            "calculation_type": calculation_type,
+            "direction": direction,
+            "end_date": end_date,
+            "horizon": horizon,
+            "methodology": methodology,
+            "score_band": score_band,
+            "start_date": start_date,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    cached = _public_outcome_ledger_cache_get(f"summary:{cache_key}")
+    if cached is not None:
+        return cached
+    payload = outcome_ledger_summary(
+        db,
+        horizon=horizon,
+        direction=direction,
+        score_band=score_band,
+        methodology=methodology,
+        calculation_type=calculation_type,
+        start_date=_parse_outcome_date(start_date),
+        end_date=_parse_outcome_date(end_date),
+    )
+    return _public_outcome_ledger_cache_set(f"summary:{cache_key}", payload)
 
 
 @app.get("/api/outcomes/snapshots")

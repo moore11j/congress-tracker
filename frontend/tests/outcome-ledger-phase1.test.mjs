@@ -33,7 +33,8 @@ test("top navigation exposes Outcomes and groups existing tools under Tools", ()
 test("Outcome Ledger page uses real API data and truthful empty states", () => {
   assert.match(outcomesPage, /export const revalidate = 60 \* 60 \* 12/);
   assert.match(outcomesPage, /getOutcomeLedgerStatus/);
-  assert.match(outcomesPage, /getOutcomeSnapshots\(\{ limit: 5000 \}\)/);
+  assert.match(outcomesPage, /getOutcomeLedgerSummary\(\{ horizon: "7D" \}\)/);
+  assert.match(outcomesPage, /getOutcomeSnapshots\(\{ limit: 250 \}\)/);
   assert.match(outcomesClient, /Outcome Ledger/);
   assert.match(outcomesClient, /Track what Walnut believed at the time - and what happened next\./);
   assert.match(outcomesClient, /Performance by Score Band/);
@@ -65,8 +66,10 @@ test("frontend API separates public and admin Outcome Ledger fields", () => {
   assert.match(api, /export type AdminOutcomeLedgerStatus = OutcomeLedgerStatus &/);
   assert.match(api, /const OUTCOME_LEDGER_CACHE_TTL_MS = 12 \* 60 \* 60 \* 1000/);
   assert.match(api, /\/api\/outcomes\/status/);
+  assert.match(api, /\/api\/outcomes\/summary/);
   assert.match(api, /\/api\/outcomes\/snapshots/);
   assert.match(api, /serverCachedJson\(\s*`outcome-ledger-status/);
+  assert.match(api, /serverCachedJson\(\s*`outcome-ledger-summary/);
   assert.match(api, /serverCachedJson\(\s*`outcome-ledger-snapshots/);
   assert.match(api, /next: \{ revalidate: 60 \* 60 \* 12 \}/);
   assert.match(api, /\/api\/admin\/outcomes\/status/);

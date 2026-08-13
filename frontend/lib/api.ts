@@ -7773,6 +7773,25 @@ export type OutcomeLedgerStatus = {
   data_quality_status: string;
 };
 
+export type OutcomeScoreBandSummary = {
+  band: string;
+  accuracy: number | null;
+  count: number;
+};
+
+export type OutcomeLedgerSummary = {
+  horizon: string;
+  completed_events: number;
+  directional_sample_count: number;
+  accuracy: number | null;
+  average_directional_return: number | null;
+  average_spy_return: number | null;
+  average_directional_excess_return: number | null;
+  benchmarked_events: number;
+  matured_horizon_count: number;
+  score_bands: OutcomeScoreBandSummary[];
+};
+
 export type AdminOutcomeLedgerStatus = OutcomeLedgerStatus & {
   snapshots_created_past_24h: number;
   duplicate_attempts_ignored: number;
@@ -7844,6 +7863,20 @@ export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
     `outcome-ledger-status:${url}`,
     () =>
       fetchPublicJson<OutcomeLedgerStatus>(url, {
+        cache: "force-cache",
+        next: { revalidate: 60 * 60 * 12 },
+        source: "OutcomeLedgerPage",
+      }),
+    OUTCOME_LEDGER_CACHE_TTL_MS,
+  );
+}
+
+export async function getOutcomeLedgerSummary(params: QueryParams = {}): Promise<OutcomeLedgerSummary> {
+  const url = buildApiUrl("/api/outcomes/summary", params);
+  return serverCachedJson(
+    `outcome-ledger-summary:${url}`,
+    () =>
+      fetchPublicJson<OutcomeLedgerSummary>(url, {
         cache: "force-cache",
         next: { revalidate: 60 * 60 * 12 },
         source: "OutcomeLedgerPage",

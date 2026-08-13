@@ -16,6 +16,7 @@ from app.services.outcome_ledger import (
     current_confirmation_methodology,
     input_hash_for_confirmation_bundle,
     list_outcome_snapshots,
+    outcome_ledger_summary,
 )
 from app.main import (
     _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE,
@@ -288,6 +289,51 @@ def test_hydrated_demo_seeder_populates_matured_outcomes_and_skips_reruns():
         assert nvda["outcomes"]["30D"]["return_pct"] == 8.6
         assert nvda["outcomes"]["30D"]["directionally_correct"] is True
         assert nvda["outcomes"]["30D"]["spy_return_pct"] == 3.4
+
+
+def test_outcome_ledger_summary_calculates_cached_headline_metrics():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=10)).date()
+        seven_day = observed_day + outcome_ledger_module.timedelta(days=7)
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=observed_day.isoformat(), close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=seven_day.isoformat(), close=110.0, price_source="test"),
+                PriceCache(symbol="MSFT", date=observed_day.isoformat(), close=200.0, price_source="test"),
+                PriceCache(symbol="MSFT", date=seven_day.isoformat(), close=220.0, price_source="test"),
+                PriceCache(symbol="SPY", date=observed_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=seven_day.isoformat(), close=505.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        assert capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(70, "bullish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=15),
+        )
+        assert capture_live_confirmation_score_snapshot(
+            db,
+            "MSFT",
+            _bundle(42, "bearish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=16),
+        )
+
+        summary = outcome_ledger_summary(db, horizon="7D", calculation_type="live")
+        bands = {row["band"]: row for row in summary["score_bands"]}
+
+        assert summary["completed_events"] == 2
+        assert summary["directional_sample_count"] == 2
+        assert summary["accuracy"] == 50
+        assert summary["average_directional_return"] == 0.0
+        assert summary["average_spy_return"] == 1.0
+        assert summary["average_directional_excess_return"] == -1.0
+        assert summary["benchmarked_events"] == 2
+        assert summary["matured_horizon_count"] == 2
+        assert bands["70-74"] == {"band": "70-74", "accuracy": 100, "count": 1}
+        assert bands["40-59"] == {"band": "40-59", "accuracy": 0, "count": 1}
 
 
 def test_pending_snapshot_listing_skips_price_outcome_lookups(monkeypatch):

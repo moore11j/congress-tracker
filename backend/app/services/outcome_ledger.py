@@ -26,6 +26,7 @@ OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_cont
 CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v1"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
+OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
 
 
 def outcome_ledger_enabled(db: Session | None = None) -> bool:
@@ -467,6 +468,49 @@ def _directionally_correct(direction: str, raw_return_pct: float | None) -> bool
     return directional_return > 0
 
 
+def _score_band_for_score(score: int | None) -> str:
+    value = int(score or 0)
+    if value >= 80:
+        return "80+"
+    if value >= 75:
+        return "75-79"
+    if value >= 70:
+        return "70-74"
+    if value >= 65:
+        return "65-69"
+    if value >= 60:
+        return "60-64"
+    if value >= 40:
+        return "40-59"
+    return "0-39"
+
+
+def _average(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _matches_summary_direction(snapshot: dict[str, Any], direction: str | None) -> bool:
+    if not direction or direction == "All":
+        return True
+    return str(snapshot.get("direction") or "").strip().lower() == direction.strip().lower()
+
+
+def _matches_summary_score_band(snapshot: dict[str, Any], score_band: str | None) -> bool:
+    if not score_band or score_band == "All Scores":
+        return True
+    return _score_band_for_score(snapshot.get("score")) == score_band
+
+
+def _matured_summary_outcome(snapshot: dict[str, Any], horizon: str) -> dict[str, Any] | None:
+    outcomes = snapshot.get("outcomes")
+    outcome = outcomes.get(horizon) if isinstance(outcomes, dict) else None
+    if not isinstance(outcome, dict):
+        return None
+    return outcome if outcome.get("status") == "matured" and isinstance(outcome.get("return_pct"), (int, float)) else None
+
+
 def _snapshot_outcomes(
     db: Session,
     snapshot: ConfirmationScoreSnapshot,
@@ -707,6 +751,128 @@ def list_outcome_snapshots(
         "limit": bounded_limit,
         "total": total,
         "has_next": (bounded_page + 1) * bounded_limit < total,
+    }
+
+
+def outcome_ledger_summary(
+    db: Session,
+    *,
+    horizon: str = "7D",
+    direction: str | None = None,
+    score_band: str | None = None,
+    methodology: str | None = None,
+    calculation_type: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, Any]:
+    selected_horizon = horizon if horizon in {f"{days}D" for days in OUTCOME_HORIZONS} else "7D"
+    base = _apply_snapshot_filters(
+        select(ConfirmationScoreSnapshot),
+        methodology=methodology,
+        calculation_type=calculation_type,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    ordered_rows = db.execute(
+        base.order_by(
+            ConfirmationScoreSnapshot.calculated_at.desc(),
+            ConfirmationScoreSnapshot.id.desc(),
+        )
+    ).scalars().all()
+    canonical_by_visible_event: dict[tuple[str, int, int, date], ConfirmationScoreSnapshot] = {}
+    for row in ordered_rows:
+        canonical_by_visible_event.setdefault(_visible_snapshot_key(row), row)
+    canonical_rows = list(canonical_by_visible_event.values())
+    price_rows_by_symbol = _prefetch_outcome_price_rows(db, canonical_rows)
+
+    rows: list[dict[str, Any]] = []
+    for snapshot in canonical_rows:
+        row = _snapshot_row(
+            db,
+            snapshot,
+            include_internal=False,
+            price_rows_by_symbol=price_rows_by_symbol,
+            replaced_at=_replacement_date(snapshot, ordered_rows),
+        )
+        if not _matches_summary_direction(row, direction):
+            continue
+        if not _matches_summary_score_band(row, score_band):
+            continue
+        rows.append(row)
+
+    matured_for_horizon = [
+        outcome
+        for row in rows
+        if (outcome := _matured_summary_outcome(row, selected_horizon)) is not None
+    ]
+    directional_for_horizon = [
+        outcome
+        for outcome in matured_for_horizon
+        if isinstance(outcome.get("directionally_correct"), bool)
+    ]
+    directional_returns = [
+        float(outcome["directional_return_pct"])
+        for outcome in matured_for_horizon
+        if isinstance(outcome.get("directional_return_pct"), (int, float))
+    ]
+    benchmarked = [
+        outcome
+        for outcome in matured_for_horizon
+        if isinstance(outcome.get("directional_return_pct"), (int, float))
+        and isinstance(outcome.get("spy_return_pct"), (int, float))
+    ]
+    average_directional_return = _average(directional_returns)
+    average_benchmarked_directional_return = _average([float(outcome["directional_return_pct"]) for outcome in benchmarked])
+    average_spy_return = _average([float(outcome["spy_return_pct"]) for outcome in benchmarked])
+    accuracy = (
+        round((sum(1 for outcome in directional_for_horizon if outcome.get("directionally_correct") is True) / len(directional_for_horizon)) * 100)
+        if directional_for_horizon
+        else None
+    )
+    matured_horizon_count = 0
+    for row in rows:
+        outcomes = row.get("outcomes")
+        if not isinstance(outcomes, dict):
+            continue
+        matured_horizon_count += sum(
+            1
+            for outcome in outcomes.values()
+            if isinstance(outcome, dict) and outcome.get("status") == "matured" and isinstance(outcome.get("return_pct"), (int, float))
+        )
+
+    score_band_rows = []
+    for band in OUTCOME_SCORE_BANDS:
+        band_rows = [row for row in rows if _score_band_for_score(row.get("score")) == band]
+        band_outcomes = [
+            outcome
+            for row in band_rows
+            if (outcome := _matured_summary_outcome(row, selected_horizon)) is not None
+        ]
+        directional_outcomes = [
+            outcome
+            for outcome in band_outcomes
+            if isinstance(outcome.get("directionally_correct"), bool)
+        ]
+        band_accuracy = (
+            round((sum(1 for outcome in directional_outcomes if outcome.get("directionally_correct") is True) / len(directional_outcomes)) * 100)
+            if directional_outcomes
+            else None
+        )
+        score_band_rows.append({"band": band, "accuracy": band_accuracy, "count": len(directional_outcomes)})
+
+    return {
+        "horizon": selected_horizon,
+        "completed_events": len(matured_for_horizon),
+        "directional_sample_count": len(directional_for_horizon),
+        "accuracy": accuracy,
+        "average_directional_return": round(average_directional_return, 2) if average_directional_return is not None else None,
+        "average_spy_return": round(average_spy_return, 2) if average_spy_return is not None else None,
+        "average_directional_excess_return": round(average_benchmarked_directional_return - average_spy_return, 2)
+        if average_benchmarked_directional_return is not None and average_spy_return is not None
+        else None,
+        "benchmarked_events": len(benchmarked),
+        "matured_horizon_count": matured_horizon_count,
+        "score_bands": score_band_rows,
     }
 
 

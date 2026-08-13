@@ -6,9 +6,11 @@ import {
   getEntitlements,
   getTickerChartBundle,
   getOutcomeLedgerStatus,
+  getOutcomeLedgerSummary,
   getOutcomeSnapshots,
   type OutcomeHorizonResult,
   type OutcomeLedgerStatus,
+  type OutcomeLedgerSummary,
   type OutcomeSnapshot,
   type OutcomeSnapshotsResponse,
   type TickerChartBundle,
@@ -453,18 +455,20 @@ function PendingOverlay({ children }: { children: ReactNode }) {
   );
 }
 
-function BarChartPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; horizon: string }) {
-  const bandStats = scoreBands.map((band) => {
-    const rows = snapshots.filter((snapshot) => scoreBandForScore(snapshot.score) === band);
-    const outcomes = rows.map((snapshot) => maturedOutcome(snapshot, horizon)).filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
-    const directionalOutcomes = outcomes.filter((outcome) => typeof outcome.directionally_correct === "boolean");
-    const accuracy =
-      directionalOutcomes.length > 0
-        ? Math.round((directionalOutcomes.filter((outcome) => outcome.directionally_correct).length / directionalOutcomes.length) * 100)
-        : null;
-    const reliable = directionalOutcomes.length >= minimumScoreBandDirectionalSamples;
-    return { band, accuracy, count: directionalOutcomes.length, reliable };
-  });
+function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnapshot[]; horizon: string; summary: OutcomeLedgerSummary | null }) {
+  const bandStats = summary?.horizon === horizon && summary.score_bands.length
+    ? summary.score_bands.map((stat) => ({ ...stat, reliable: stat.count >= minimumScoreBandDirectionalSamples }))
+    : scoreBands.map((band) => {
+        const rows = snapshots.filter((snapshot) => scoreBandForScore(snapshot.score) === band);
+        const outcomes = rows.map((snapshot) => maturedOutcome(snapshot, horizon)).filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
+        const directionalOutcomes = outcomes.filter((outcome) => typeof outcome.directionally_correct === "boolean");
+        const accuracy =
+          directionalOutcomes.length > 0
+            ? Math.round((directionalOutcomes.filter((outcome) => outcome.directionally_correct).length / directionalOutcomes.length) * 100)
+            : null;
+        const reliable = directionalOutcomes.length >= minimumScoreBandDirectionalSamples;
+        return { band, accuracy, count: directionalOutcomes.length, reliable };
+      });
   const hasOutcomes = bandStats.some((stat) => stat.count > 0);
 
   return (
@@ -1163,15 +1167,18 @@ function DetailPanel({
 
 export function OutcomeLedgerClient({
   initialStatus,
+  initialSummary,
   initialSnapshots,
 }: {
   initialStatus: OutcomeLedgerStatus | null;
+  initialSummary: OutcomeLedgerSummary | null;
   initialSnapshots: OutcomeSnapshotsResponse | null;
 }) {
   const [status, setStatus] = useState(initialStatus);
+  const [summary, setSummary] = useState(initialSummary);
   const [snapshots, setSnapshots] = useState<OutcomeSnapshotsResponse | null>(initialSnapshots);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!initialStatus || !initialSnapshots);
+  const [loading, setLoading] = useState(!initialStatus || !initialSummary || !initialSnapshots);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
   const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
@@ -1200,13 +1207,14 @@ export function OutcomeLedgerClient({
   }, []);
 
   useEffect(() => {
-    if (initialStatus && initialSnapshots) return;
+    if (initialStatus && initialSummary && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    Promise.all([getOutcomeLedgerStatus(), getOutcomeSnapshots({ limit: 5000 })])
-      .then(([nextStatus, nextSnapshots]) => {
+    Promise.all([getOutcomeLedgerStatus(), getOutcomeLedgerSummary({ horizon: horizonFilter }), getOutcomeSnapshots({ limit: 250 })])
+      .then(([nextStatus, nextSummary, nextSnapshots]) => {
         if (!alive) return;
         setStatus(nextStatus);
+        setSummary(nextSummary);
         setSnapshots(nextSnapshots);
         setError(null);
       })
@@ -1219,7 +1227,20 @@ export function OutcomeLedgerClient({
     return () => {
       alive = false;
     };
-  }, [initialStatus, initialSnapshots]);
+  }, [horizonFilter, initialStatus, initialSummary, initialSnapshots]);
+
+  useEffect(() => {
+    if (summary?.horizon === horizonFilter) return;
+    let alive = true;
+    getOutcomeLedgerSummary({ horizon: horizonFilter })
+      .then((nextSummary) => {
+        if (alive) setSummary(nextSummary);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [horizonFilter, summary?.horizon]);
 
   const snapshotItems = useMemo(() => (snapshots?.items ?? []).map(hydrateDemoOutcomes), [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {
@@ -1252,6 +1273,13 @@ export function OutcomeLedgerClient({
       ),
     [cohortFilter, dateRangeFilter, directionFilter, horizonFilter, methodologyFilter, scoreBandFilter, uniqueSnapshotItems],
   );
+  const canUseServerSummary =
+    summary?.horizon === horizonFilter &&
+    cohortFilter === "all" &&
+    directionFilter === "All" &&
+    scoreBandFilter === "All Scores" &&
+    methodologyFilter === "All Methodologies" &&
+    dateRangeFilter === "all";
   const publicPreviewSnapshots = useMemo(() => {
     const byTicker = new Map<string, OutcomeSnapshot[]>();
     filteredSnapshotItems.forEach((snapshot) => {
@@ -1288,6 +1316,19 @@ export function OutcomeLedgerClient({
     }
   }, [publicPreviewSnapshots, selectedSnapshotId]);
   const outcomeMetrics = useMemo(() => {
+    if (canUseServerSummary && summary) {
+      return {
+        completedEvents: summary.completed_events,
+        accuracy: summary.accuracy,
+        accuracyReliable: summary.directional_sample_count >= minimumHeadlineDirectionalSamples,
+        directionalSampleCount: summary.directional_sample_count,
+        averageDirectionalReturn: summary.average_directional_return,
+        averageSpyReturn: summary.average_spy_return,
+        averageDirectionalExcessReturn: summary.average_directional_excess_return,
+        benchmarkedEvents: summary.benchmarked_events,
+        maturedHorizonCount: summary.matured_horizon_count,
+      };
+    }
     const maturedForHorizon = filteredSnapshotItems
       .map((snapshot) => maturedOutcome(snapshot, horizonFilter))
       .filter((outcome): outcome is OutcomeHorizonResult => Boolean(outcome));
@@ -1332,7 +1373,7 @@ export function OutcomeLedgerClient({
       benchmarkedEvents: benchmarkedDirectionalOutcomes.length,
       maturedHorizonCount,
     };
-  }, [filteredSnapshotItems, horizonFilter]);
+  }, [canUseServerSummary, filteredSnapshotItems, horizonFilter, summary]);
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
 
   function handleSelectSnapshot(snapshot: OutcomeSnapshot) {
@@ -1464,7 +1505,7 @@ export function OutcomeLedgerClient({
           </div>
 
           <div className="grid gap-2 xl:grid-cols-[0.82fr_1.18fr]">
-            <BarChartPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
+            <BarChartPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} summary={canUseServerSummary ? summary : null} />
             <ScatterPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
           </div>
 

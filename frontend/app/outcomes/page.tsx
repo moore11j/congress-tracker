@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { OutcomeLedgerClient } from "@/components/outcomes/OutcomeLedgerClient";
-import { getOutcomeLedgerStatus, getOutcomeSnapshots } from "@/lib/api";
+import { getOutcomeLedgerStatus, getOutcomeLedgerSummary, getOutcomeSnapshots } from "@/lib/api";
 
-export const revalidate = 43200;
+export const revalidate = 60 * 60 * 12;
 
 export const metadata: Metadata = {
   title: "Outcome Ledger | Walnut Markets",
@@ -16,12 +16,13 @@ export const metadata: Metadata = {
 export default async function OutcomesPage() {
   if (process.env.NEXT_PUBLIC_OUTCOMES_LEDGER_ENABLED === "0") notFound();
   try {
-    const [status, snapshots] = await Promise.all([
+    const [status, summary, snapshots] = await Promise.all([
       getOutcomeLedgerStatus(),
-      getOutcomeSnapshots({ limit: 5000 }),
+      getOutcomeLedgerSummary({ horizon: "7D" }),
+      getOutcomeSnapshots({ limit: 250 }),
     ]);
-    return <OutcomeLedgerClient initialStatus={status} initialSnapshots={snapshots} />;
+    return <OutcomeLedgerClient initialStatus={status} initialSummary={summary} initialSnapshots={snapshots} />;
   } catch {
-    return <OutcomeLedgerClient initialStatus={null} initialSnapshots={null} />;
+    return <OutcomeLedgerClient initialStatus={null} initialSummary={null} initialSnapshots={null} />;
   }
 }
