@@ -2983,6 +2983,7 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
 PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 900
 _PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
+_PROFILE_OVERVIEW_INFLIGHT: dict[tuple[Any, ...], threading.Event] = {}
 
 
 def _profile_overview_cache_ttl(key: tuple[Any, ...]) -> int:
@@ -3007,8 +3008,6 @@ def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, n
     generated_at = row.generated_at
     if generated_at.tzinfo is None:
         generated_at = generated_at.replace(tzinfo=timezone.utc)
-    if (now - generated_at.astimezone(timezone.utc)).total_seconds() > _profile_overview_cache_ttl(key):
-        return None
     try:
         payload = json.loads(row.payload_json or "{}")
     except (TypeError, ValueError):
@@ -3018,6 +3017,12 @@ def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, n
     family = str(key[0] if key else "")
     if family == "profiles_summary" and bool(key[4] if len(key) > 4 else False) and "activity_mix" not in payload:
         return None
+    if (now - generated_at.astimezone(timezone.utc)).total_seconds() > _profile_overview_cache_ttl(key):
+        expires_at = row.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if family != "profiles_summary" or expires_at is None or expires_at.astimezone(timezone.utc) <= now:
+            return None
     return payload
 
 
@@ -3051,27 +3056,48 @@ def _profile_overview_database_cache_set(db: Session, key: tuple[Any, ...], payl
 
 
 def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder: Any) -> Any:
-    now = time.monotonic()
-    with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
-        cached = _PROFILE_OVERVIEW_RESPONSE_CACHE.get(key)
-        if cached is not None and now - cached[0] <= PROFILE_OVERVIEW_CACHE_TTL_SECONDS:
-            return copy.deepcopy(cached[1])
-    database_now = datetime.now(timezone.utc)
-    database_cached = _profile_overview_database_cache_get(db, key, now=database_now)
-    if database_cached is not None:
+    owns_build = False
+    inflight: threading.Event | None = None
+    while True:
+        now = time.monotonic()
         with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
-            _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (now, copy.deepcopy(database_cached))
-        return database_cached
-    payload = builder()
-    _profile_overview_database_cache_set(db, key, payload, now=database_now)
-    with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
-        _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (time.monotonic(), copy.deepcopy(payload))
-        if len(_PROFILE_OVERVIEW_RESPONSE_CACHE) > 100:
-            stale_before = now - PROFILE_OVERVIEW_CACHE_TTL_SECONDS
-            for cache_key, (created_at, _) in list(_PROFILE_OVERVIEW_RESPONSE_CACHE.items()):
-                if created_at < stale_before:
-                    _PROFILE_OVERVIEW_RESPONSE_CACHE.pop(cache_key, None)
-    return payload
+            cached = _PROFILE_OVERVIEW_RESPONSE_CACHE.get(key)
+            if cached is not None and now - cached[0] <= PROFILE_OVERVIEW_CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached[1])
+        database_now = datetime.now(timezone.utc)
+        database_cached = _profile_overview_database_cache_get(db, key, now=database_now)
+        if database_cached is not None:
+            with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+                _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (now, copy.deepcopy(database_cached))
+            return database_cached
+        with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+            inflight = _PROFILE_OVERVIEW_INFLIGHT.get(key)
+            if inflight is None:
+                inflight = threading.Event()
+                _PROFILE_OVERVIEW_INFLIGHT[key] = inflight
+                owns_build = True
+                break
+        if not inflight.wait(timeout=120):
+            continue
+
+    try:
+        payload = builder()
+        _profile_overview_database_cache_set(db, key, payload, now=datetime.now(timezone.utc))
+        with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+            cache_time = time.monotonic()
+            _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (cache_time, copy.deepcopy(payload))
+            if len(_PROFILE_OVERVIEW_RESPONSE_CACHE) > 100:
+                stale_before = cache_time - PROFILE_OVERVIEW_CACHE_TTL_SECONDS
+                for cache_key, (created_at, _) in list(_PROFILE_OVERVIEW_RESPONSE_CACHE.items()):
+                    if created_at < stale_before:
+                        _PROFILE_OVERVIEW_RESPONSE_CACHE.pop(cache_key, None)
+        return payload
+    finally:
+        if owns_build and inflight is not None:
+            with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+                if _PROFILE_OVERVIEW_INFLIGHT.get(key) is inflight:
+                    _PROFILE_OVERVIEW_INFLIGHT.pop(key, None)
+                inflight.set()
 
 
 def _request_route_family(path: str, header_family: str | None = None) -> str:
@@ -4782,17 +4808,22 @@ def profiles_summary(
         return prefetch_response
     entitlements = current_entitlements(request, db)
     include_institutions = entitlements.has_feature("institutional_feed")
-    return _cached_profile_overview_response(
+    cache_activity_limit = 100 if include_activity else activity_limit
+    payload = _cached_profile_overview_response(
         db,
-        ("profiles_summary", activity_type, activity_limit, include_institutions, include_activity),
+        ("profiles_summary", activity_type, cache_activity_limit, include_institutions, include_activity),
         lambda: build_profiles_summary(
             db,
             activity_type=activity_type,
-            activity_limit=activity_limit,
+            activity_limit=cache_activity_limit,
             include_institutions=include_institutions,
             include_activity=include_activity,
         ),
     )
+    if include_activity and activity_limit < cache_activity_limit and isinstance(payload, dict):
+        payload = copy.deepcopy(payload)
+        payload["activity"] = list(payload.get("activity") or [])[:activity_limit]
+    return payload
 
 
 @app.get("/api/profiles/congress/overview")

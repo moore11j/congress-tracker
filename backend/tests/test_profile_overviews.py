@@ -163,6 +163,31 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
+def test_profiles_summary_cache_serves_stale_payload_before_expiry():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    key = ("profiles_summary", "all", 100, False, True)
+    payload = {
+        "status": "ok",
+        "activity": [{"id": "cached"}],
+        "activity_mix": [{"type": "Congress", "value": 1}],
+    }
+    db.add(
+        TickerContextBundleCache(
+            cache_key=_profile_overview_persistent_key(key),
+            symbol="PROFILE_OVERVIEW",
+            user_segment="shared",
+            payload_json=json.dumps(payload),
+            generated_at=now - timedelta(hours=2),
+            stale_after=now - timedelta(hours=1),
+            expires_at=now + timedelta(hours=22),
+        )
+    )
+    db.commit()
+
+    assert _profile_overview_database_cache_get(db, key, now=now) == payload
+
+
 def test_congress_overview_returns_page_ready_sections():
     db = _db()
     db.add(Security(symbol="NVDA", name="NVIDIA Corp", asset_class="stock", sector="Technology"))
