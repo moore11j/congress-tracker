@@ -2996,6 +2996,10 @@ def _profile_overview_cache_ttl(key: tuple[Any, ...]) -> int:
     return 5 * 60
 
 
+def _profile_overview_can_serve_stale(family: str) -> bool:
+    return family == "profiles_summary" or (family.startswith("profiles_") and family.endswith("_overview"))
+
+
 def _profile_overview_persistent_key(key: tuple[Any, ...]) -> str:
     raw = json.dumps(key, separators=(",", ":"), default=str)
     return f"profile-overview:v15:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
@@ -3021,7 +3025,7 @@ def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, n
         expires_at = row.expires_at
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if family != "profiles_summary" or expires_at is None or expires_at.astimezone(timezone.utc) <= now:
+        if not _profile_overview_can_serve_stale(family) or expires_at is None or expires_at.astimezone(timezone.utc) <= now:
             return None
     return payload
 

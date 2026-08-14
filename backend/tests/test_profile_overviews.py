@@ -188,6 +188,35 @@ def test_profiles_summary_cache_serves_stale_payload_before_expiry():
     assert _profile_overview_database_cache_get(db, key, now=now) == payload
 
 
+def test_profile_subpage_overview_caches_serve_stale_payloads_before_expiry():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    keys = [
+        ("profiles_congress_overview", "all", 365),
+        ("profiles_insiders_overview", "", 365),
+        ("profiles_institutions_overview", None, None, True),
+        ("profiles_departments_overview", None, 365),
+    ]
+
+    for index, key in enumerate(keys):
+        payload = {"status": "ok", "marker": index}
+        db.add(
+            TickerContextBundleCache(
+                cache_key=_profile_overview_persistent_key(key),
+                symbol="PROFILE_OVERVIEW",
+                user_segment="shared",
+                payload_json=json.dumps(payload),
+                generated_at=now - timedelta(hours=2),
+                stale_after=now - timedelta(hours=1),
+                expires_at=now + timedelta(hours=22),
+            )
+        )
+    db.commit()
+
+    for index, key in enumerate(keys):
+        assert _profile_overview_database_cache_get(db, key, now=now) == {"status": "ok", "marker": index}
+
+
 def test_congress_overview_returns_page_ready_sections():
     db = _db()
     db.add(Security(symbol="NVDA", name="NVIDIA Corp", asset_class="stock", sector="Technology"))
