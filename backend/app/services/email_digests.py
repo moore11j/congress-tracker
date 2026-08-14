@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -40,6 +41,8 @@ from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
+
+logger = logging.getLogger(__name__)
 
 ALERT_EVENT_TYPES = (
     "congress_trade",
@@ -151,6 +154,7 @@ def build_watchlist_activity_digest(db: Session, user: UserAccount, watchlist: W
         summary=summary,
         items=[*items, *market_news_items],
         context={
+            "monitoring_user_id": user.id,
             "first_name": _first_name(user),
             "watchlist_name": watchlist.name,
             "summary": summary,
@@ -270,6 +274,7 @@ def build_monitoring_digest(
         summary=summary,
         items=items,
         context={
+            "monitoring_user_id": user.id,
             "first_name": _first_name(user),
             "watchlist_name": watchlist.name,
             "digest_date": digest_date,
@@ -324,6 +329,7 @@ def build_signal_alert_digest(
         summary=summary,
         items=items,
         context={
+            "monitoring_user_id": user.id,
             "first_name": _first_name(user),
             "signal_subject": signal_subject,
             "signal_title": signal_title,
@@ -713,7 +719,7 @@ def _with_digest_meta(
     idempotency_key: str | None,
 ) -> dict[str, Any]:
     diagnostics = digest.diagnostics or {}
-    return {
+    payload = {
         **result,
         "skip_reason": result.get("error") if result.get("status") == "skipped" else None,
         "item_count": digest.items_count,
@@ -733,6 +739,24 @@ def _with_digest_meta(
             "diagnostics": diagnostics,
         },
     }
+    sample = digest.items[0] if digest.items else {}
+    logger.info(
+        "monitoring_email_digest_decision user_id=%s source_type=%s source_id=%s ticker=%s event_type=%s daily_eligible=%s excluded_reason=%s send_attempted=%s status=%s provider=%s provider_message_id=%s item_count=%s idempotency_key=%s",
+        digest.context.get("monitoring_user_id"),
+        sample.get("source_type"),
+        sample.get("source_id"),
+        sample.get("ticker"),
+        sample.get("alert_type") or sample.get("event_type"),
+        payload.get("skip_reason") is None and digest.items_count > 0,
+        payload.get("skip_reason"),
+        payload.get("status") in {"sent", "log_only", "queued"},
+        payload.get("status"),
+        payload.get("provider"),
+        payload.get("provider_message_id"),
+        digest.items_count,
+        idempotency_key,
+    )
+    return payload
 
 
 def _with_preview(result: dict[str, Any], digest: DigestBuild) -> dict[str, Any]:
@@ -1565,6 +1589,7 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
 
 
 def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
+    payload = _loads_dict(event.payload_json)
     score = event.score_after
     ticker = _normalize_ticker(event.ticker)
     return {
@@ -1582,7 +1607,7 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
         "source_type": "confirmation_monitoring",
         "source_id": str(event.watchlist_id) if event.watchlist_id is not None else None,
         "alert_type": event.event_type,
-        "trigger": _daily_signal_trigger(event.event_type, {}, score, source_type="confirmation_monitoring"),
+        "trigger": _daily_signal_trigger(event.event_type, payload, score, source_type="confirmation_monitoring"),
         "watchlist_boost": event.watchlist_id is not None,
     }
 
@@ -1747,6 +1772,8 @@ def _daily_signal_trigger(alert_type: str, payload: dict[str, Any], score: Any, 
     if source_type == "saved_screen" and normalized == "entered_screen":
         return "saved_screen_entry"
     if normalized in {"entered_bullish_monitor", "entered_bearish_monitor", "exited_bullish_monitor", "exited_bearish_monitor"}:
+        return "monitor_state"
+    if source_type == "confirmation_monitoring" and normalized == "direction_flipped":
         return "monitor_state"
     if normalized in PRICE_VOLUME_ALERT_TYPES:
         return "price_volume"

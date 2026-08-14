@@ -849,13 +849,10 @@ def test_inbox_includes_alert_only_saved_screen_source_in_counts():
 
         assert inbox["unread_total"] == 1
         assert inbox["counts"]["saved_screen_unread"] == 1
-        assert {
-            "id": str(screen.id),
-            "type": "saved_screen",
-            "name": "Bullish confirmation",
-            "unread_count": 1,
-            "new_count": 1,
-        } in inbox["sources"]
+        source = next(item for item in inbox["sources"] if item["id"] == str(screen.id) and item["type"] == "saved_screen")
+        assert source["name"] == "Bullish confirmation"
+        assert source["unread_count"] == 1
+        assert source["new_count"] == 1
     finally:
         db.close()
 
@@ -889,13 +886,11 @@ def test_inbox_includes_active_strategy_subscriptions_as_sources():
 
         inbox = get_monitoring_inbox(_request_for_user(user), db)
 
-        assert {
-            "id": "cross-source-confirmation",
-            "type": "strategy",
-            "name": "Cross-source Confirmation",
-            "unread_count": 0,
-            "new_count": 0,
-        } in inbox["sources"]
+        source = next(item for item in inbox["sources"] if item["id"] == "cross-source-confirmation" and item["type"] == "strategy")
+        assert source["name"] == "Cross-source Confirmation"
+        assert source["subscription_id"]
+        assert source["unread_count"] == 0
+        assert source["new_count"] == 0
     finally:
         db.close()
 

@@ -124,6 +124,7 @@ from app.models import (
     FundamentalsCache,
     Member,
     MonitoringAlert,
+    NotificationSubscription,
     PriceCache,
     QuoteCache,
     ReplicatedPortfolioRun,
@@ -13309,6 +13310,31 @@ def _monitoring_alert_source_names(db: Session, user_id: int) -> dict[tuple[str,
     return names
 
 
+def _notification_subscription_ids_for_user(db: Session, user: UserAccount) -> dict[tuple[str, str], int]:
+    try:
+        rows = (
+            db.execute(
+                select(NotificationSubscription)
+                .where(func.lower(NotificationSubscription.email) == str(user.email or "").strip().lower())
+                .where(NotificationSubscription.active.is_(True))
+                .order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
+            )
+            .scalars()
+            .all()
+        )
+    except OperationalError as exc:
+        db.rollback()
+        if "notification_subscriptions" not in str(exc).lower():
+            raise
+        return {}
+    ids: dict[tuple[str, str], int] = {}
+    for subscription in rows:
+        key = (str(subscription.source_type), str(subscription.source_id))
+        if key not in ids:
+            ids[key] = int(subscription.id)
+    return ids
+
+
 def _strategy_subscription_sources(db: Session, user: UserAccount) -> list[dict[str, object]]:
     rows = (
         db.execute(
@@ -13326,10 +13352,11 @@ def _strategy_subscription_sources(db: Session, user: UserAccount) -> list[dict[
             "id": strategy.slug,
             "type": "strategy",
             "name": strategy.name,
+            "subscription_id": int(subscription.id),
             "unread_count": 0,
             "new_count": 0,
         }
-        for _subscription, strategy in rows
+        for subscription, strategy in rows
     ]
 
 
@@ -13353,11 +13380,13 @@ def _monitoring_counts_payload(
     watchlist_counts = _monitoring_watchlist_counts(db, resolved_watchlists, user.id)
     alert_source_counts = _saved_screen_alert_unread_counts(db, user.id)
     alert_source_names = _monitoring_alert_source_names(db, user.id)
+    subscription_ids = _notification_subscription_ids_for_user(db, user)
     sources = [
         {
             "id": str(watchlist.id),
             "type": "watchlist",
             "name": watchlist.name,
+            "subscription_id": subscription_ids.get(("watchlist", str(watchlist.id))),
             "unread_count": watchlist_counts.get(watchlist.id, 0),
             "new_count": watchlist_counts.get(watchlist.id, 0),
         }
@@ -13368,6 +13397,7 @@ def _monitoring_counts_payload(
             "id": str(screen.id),
             "type": "saved_screen",
             "name": screen.name,
+            "subscription_id": subscription_ids.get(("saved_screen", str(screen.id))) or subscription_ids.get(("saved_view", str(screen.id))),
             "unread_count": alert_source_counts.get(("saved_screen", str(screen.id)), 0),
             "new_count": alert_source_counts.get(("saved_screen", str(screen.id)), 0),
         }
@@ -13382,6 +13412,7 @@ def _monitoring_counts_payload(
                 "id": source_id,
                 "type": source_type,
                 "name": alert_source_names.get((source_type, source_id)) or source_type.replace("_", " ").title(),
+                "subscription_id": subscription_ids.get((source_type, source_id)),
                 "unread_count": unread,
                 "new_count": unread,
             }

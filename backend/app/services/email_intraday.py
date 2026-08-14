@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
@@ -40,6 +41,8 @@ from app.services.email_digests import (
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
+
+logger = logging.getLogger(__name__)
 
 INTRADAY_MONITORING_TEMPLATE = "alerts.signal_intraday"
 INTRADAY_WATCHLIST_TEMPLATE = INTRADAY_MONITORING_TEMPLATE
@@ -194,10 +197,10 @@ def is_market_hours(value: datetime | None = None, *, timezone_name: str = DEFAU
 
 
 def _collect_intraday_candidates(db: Session, *, since: datetime, limit: int) -> list[IntradayAlertCandidate]:
-    candidates = _watchlist_intraday_candidates(db, since=since, limit=limit)
-    remaining = max(limit - len(candidates), 0)
-    if remaining:
-        candidates.extend(_signal_intraday_candidates(db, since=since, limit=remaining))
+    candidates = [
+        *_watchlist_intraday_candidates(db, since=since, limit=limit),
+        *_signal_intraday_candidates(db, since=since, limit=limit),
+    ]
     return sorted(candidates, key=lambda item: str(item.context.get("sort_timestamp") or ""), reverse=True)[:limit]
 
 
@@ -483,9 +486,12 @@ def _with_intraday_meta(
     window_end: datetime,
     idempotency_key: str,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         **result,
         "source": candidate.source,
+        "source_type": "watchlist" if candidate.watchlist_id is not None else candidate.source,
+        "source_id": str(candidate.watchlist_id) if candidate.watchlist_id is not None else None,
+        "user_id": candidate.user.id,
         "ticker": candidate.ticker,
         "event_type": candidate.event_type,
         "event_key": candidate.event_key,
@@ -510,6 +516,24 @@ def _with_intraday_meta(
             ],
         },
     }
+    logger.info(
+        "monitoring_email_intraday_decision event_key=%s user_id=%s source_type=%s source_id=%s ticker=%s event_type=%s trigger=%s eligible=%s excluded_reason=%s send_attempted=%s status=%s provider=%s provider_message_id=%s sent_at=%s",
+        candidate.event_key,
+        candidate.user.id,
+        payload["source_type"],
+        payload["source_id"],
+        candidate.ticker,
+        candidate.event_type,
+        candidate.trigger,
+        payload.get("skip_reason") is None and payload.get("status") in {"would_send", "sent", "log_only", "queued"},
+        payload.get("skip_reason"),
+        payload.get("status") in {"sent", "log_only", "queued"},
+        payload.get("status"),
+        payload.get("provider"),
+        payload.get("provider_message_id"),
+        payload.get("sent_at") or payload.get("delivered_at"),
+    )
+    return payload
 
 
 def _duplicate_intraday_result(db: Session, idempotency_key: str) -> dict[str, Any] | None:
@@ -588,6 +612,8 @@ def _signal_trigger(alert_type: str, payload: dict[str, Any], score: int | None,
 
 def _confirmation_trigger(event: ConfirmationMonitoringEvent, on_watchlist: bool) -> str | None:
     if event.event_type in MONITOR_STATE_EVENT_TYPES:
+        return "monitor_state"
+    if event.event_type == "direction_flipped":
         return "monitor_state"
     if event.event_type in PRICE_VOLUME_EVENT_TYPES:
         return "price_volume"

@@ -1517,6 +1517,81 @@ def test_intraday_watchlist_price_volume_monitoring_candidate():
         db.close()
 
 
+def test_watchlist_price_volume_confirmation_sends_intraday_and_stays_in_daily_digest(monkeypatch):
+    monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
+    db = _session()
+    try:
+        user = _user(db, "jarod-mu-watchlist@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["price_volume"])
+        mu = Security(symbol="MU", name="Micron", asset_class="stock", sector="Technology")
+        db.add(mu)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=mu.id))
+        db.commit()
+
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        for index in range(12):
+            _bare_event(
+                db,
+                event_type="signal",
+                ts=now - timedelta(minutes=20, seconds=index),
+                impact_score=15,
+                payload={"smart_score": 15},
+            )
+        _confirmation_event(
+            db,
+            user,
+            watchlist,
+            ticker="MU",
+            event_type="price_volume_flip",
+            score_after=57,
+            ts=now - timedelta(minutes=5),
+        )
+
+        first_intraday = run_intraday_alert_sweep(db, lookback_minutes=60, limit=10, dry_run=False, now=now)
+        second_intraday = run_intraday_alert_sweep(db, lookback_minutes=60, limit=10, dry_run=False, now=now)
+        digest = send_signal_alert_digest(db, user, now - timedelta(days=1), window_end=now)
+        duplicate_digest = send_signal_alert_digest(db, user, now - timedelta(days=1), window_end=now)
+
+        mu_alerts = [item for item in first_intraday if item["event_type"] == "price_volume_flip" and item["ticker"] == "MU"]
+        assert len(mu_alerts) == 1
+        assert mu_alerts[0]["status"] == "log_only"
+        assert mu_alerts[0]["trigger"] == "price_volume"
+        assert any(item["event_type"] == "price_volume_flip" and item["status"] == "skipped" for item in second_intraday)
+        assert digest["status"] == "log_only"
+        assert any(item["ticker"] == "MU" and item["alert_type"] == "price_volume_flip" for item in digest["rendered_preview"]["sample_items"])
+        assert duplicate_digest["status"] == "skipped"
+        assert db.query(EmailDelivery).count() == 2
+    finally:
+        db.close()
+
+
+def test_signal_digest_maps_watchlist_direction_flip_to_monitor_state_trigger():
+    db = _session()
+    try:
+        user = _user(db, "direction-flip-digest@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["monitor_state"])
+        _confirmation_event(
+            db,
+            user,
+            watchlist,
+            ticker="MU",
+            event_type="direction_flipped",
+            score_after=47,
+        )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["ticker"] == "MU"
+        assert digest.items[0]["trigger"] == "monitor_state"
+    finally:
+        db.close()
+
+
 def test_intraday_watchlist_fundamental_monitoring_candidate():
     db = _session()
     try:

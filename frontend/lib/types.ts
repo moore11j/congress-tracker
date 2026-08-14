@@ -618,6 +618,7 @@ export type MonitoringInboxSource = {
   id: string;
   type: "watchlist" | "saved-screen" | string;
   name: string;
+  subscription_id?: number | null;
   unread_count: number;
   new_count: number;
 };
