@@ -76,6 +76,49 @@ const defaultEconomicCategoryFilters = economicCategories.reduce((filters, categ
   return filters;
 }, {} as Record<EconomicCategoryId, boolean>);
 
+const calendarFilterStorageKey = "walnut:event-calendar:filters:v1";
+
+type PersistedCalendarFilters = {
+  kinds?: Partial<Record<EventCalendarKind, boolean>>;
+  economicCategories?: Partial<Record<EconomicCategoryId, boolean>>;
+};
+
+function mergeBooleanFilters<T extends string>(defaults: Record<T, boolean>, saved?: Partial<Record<T, boolean>>) {
+  const next = { ...defaults };
+  if (!saved || typeof saved !== "object") return next;
+  for (const key of Object.keys(defaults) as T[]) {
+    if (typeof saved[key] === "boolean") next[key] = saved[key];
+  }
+  return next;
+}
+
+function readPersistedCalendarFilters(): PersistedCalendarFilters | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(calendarFilterStorageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as PersistedCalendarFilters) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCalendarFilters(kinds: Record<EventCalendarKind, boolean>, economicCategories: Record<EconomicCategoryId, boolean>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      calendarFilterStorageKey,
+      JSON.stringify({
+        kinds,
+        economicCategories,
+      }),
+    );
+  } catch {
+    // Preference persistence is best-effort; filtering should still work if storage is unavailable.
+  }
+}
+
 function monthStart(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), 1);
 }
@@ -321,6 +364,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   const [prefStatus, setPrefStatus] = useState<string | null>(null);
   const [savingPref, setSavingPref] = useState(false);
   const [popover, setPopover] = useState<EventPopoverState | null>(null);
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const closePopoverTimer = useRef<number | null>(null);
 
@@ -427,6 +471,20 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   const applyAllAlertKinds = () => {
     setAlertKinds(defaultCalendarAlertKinds);
   };
+
+  useEffect(() => {
+    const saved = readPersistedCalendarFilters();
+    if (saved) {
+      setActiveKinds(mergeBooleanFilters(defaultKindFilters, saved.kinds));
+      setActiveEconomicCategories(mergeBooleanFilters(defaultEconomicCategoryFilters, saved.economicCategories));
+    }
+    setFiltersHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) return;
+    writePersistedCalendarFilters(activeKinds, activeEconomicCategories);
+  }, [activeEconomicCategories, activeKinds, filtersHydrated]);
 
   useEffect(() => {
     if (!canUseEventCalendar) return;
