@@ -13272,17 +13272,79 @@ def _monitored_saved_screens_for_user(request: Request, db: Session, user: UserA
     if not entitlements.has_feature("screener_monitoring"):
         return []
     allowed_screen_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["saved_screen_ids"]
-    if not allowed_screen_ids:
+    subscribed_screen_ids = _saved_screen_subscription_ids_for_user(db, user)
+    screen_ids = set(allowed_screen_ids).union(subscribed_screen_ids)
+    if not screen_ids:
         return []
     return (
         db.execute(
             select(SavedScreen)
             .where(SavedScreen.user_id == user.id)
-            .where(SavedScreen.id.in_(allowed_screen_ids))
+            .where(SavedScreen.id.in_(screen_ids))
         )
         .scalars()
         .all()
     )
+
+
+def _saved_screen_id_from_source_id(source_id: str | None) -> int | None:
+    raw = str(source_id or "").strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return int(raw)
+    prefix = "saved-screen:"
+    if raw.startswith(prefix):
+        value = raw[len(prefix) :]
+        if value.isdigit():
+            return int(value)
+    return None
+
+
+def _saved_screen_id_from_subscription(subscription: NotificationSubscription) -> int | None:
+    direct = _saved_screen_id_from_source_id(subscription.source_id)
+    if direct is not None:
+        return direct
+    try:
+        payload = json.loads(subscription.source_payload_json or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
+        return None
+    for key in ("saved_screen_id", "savedScreenId", "id", "scopeKey"):
+        parsed = _saved_screen_id_from_source_id(str(payload.get(key) or ""))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _saved_screen_notification_subscriptions_for_user(db: Session, user: UserAccount) -> list[NotificationSubscription]:
+    try:
+        return (
+            db.execute(
+                select(NotificationSubscription)
+                .where(func.lower(NotificationSubscription.email) == str(user.email or "").strip().lower())
+                .where(NotificationSubscription.active.is_(True))
+                .where(func.lower(NotificationSubscription.source_type).in_(("saved_view", "saved_screen")))
+                .order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
+            )
+            .scalars()
+            .all()
+        )
+    except OperationalError as exc:
+        db.rollback()
+        if "notification_subscriptions" not in str(exc).lower():
+            raise
+        return []
+
+
+def _saved_screen_subscription_ids_for_user(db: Session, user: UserAccount) -> set[int]:
+    return {
+        screen_id
+        for subscription in _saved_screen_notification_subscriptions_for_user(db, user)
+        for screen_id in [_saved_screen_id_from_subscription(subscription)]
+        if screen_id is not None
+    }
 
 
 def _saved_screen_alert_unread_counts(db: Session, user_id: int) -> dict[tuple[str, str], int]:
@@ -13332,6 +13394,10 @@ def _notification_subscription_ids_for_user(db: Session, user: UserAccount) -> d
         key = (str(subscription.source_type), str(subscription.source_id))
         if key not in ids:
             ids[key] = int(subscription.id)
+        if str(subscription.source_type) in {"saved_view", "saved_screen"}:
+            saved_screen_id = _saved_screen_id_from_subscription(subscription)
+            if saved_screen_id is not None:
+                ids.setdefault(("saved_screen", str(saved_screen_id)), int(subscription.id))
     return ids
 
 

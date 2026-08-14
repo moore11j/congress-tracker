@@ -28,6 +28,7 @@ from app.models import (
     Event,
     FeatureGate,
     MonitoringAlert,
+    NotificationSubscription,
     PlanLimit,
     PlanPrice,
     SavedScreen,
@@ -61,6 +62,7 @@ def _session():
             WatchlistItem.__table__,
             WatchlistViewState.__table__,
             MonitoringAlert.__table__,
+            NotificationSubscription.__table__,
             SavedScreen.__table__,
             AppSetting.__table__,
             FeatureGate.__table__,
@@ -853,6 +855,44 @@ def test_inbox_includes_alert_only_saved_screen_source_in_counts():
         assert source["name"] == "Bullish confirmation"
         assert source["unread_count"] == 1
         assert source["new_count"] == 1
+    finally:
+        db.close()
+
+
+def test_inbox_keeps_subscribed_saved_screen_source_with_no_alerts():
+    db = _session()
+    try:
+        user, _watchlist, _now = _seed_watchlist(db)
+        user.entitlement_tier = "premium"
+        screen = SavedScreen(user_id=user.id, name="Bullish confirmation", params_json='{"confirmation_direction":"bullish"}')
+        db.add_all(
+            [
+                screen,
+                PlanLimit(tier="premium", feature_key="monitoring_sources", limit_value=1),
+            ]
+        )
+        db.flush()
+        subscription = NotificationSubscription(
+            email=user.email,
+            source_type="saved_view",
+            source_id=f"saved-screen:{screen.id}",
+            source_name=screen.name,
+            source_payload_json=json.dumps({"id": f"saved-screen:{screen.id}", "surface": "screener"}),
+            active=True,
+            frequency="daily",
+            only_if_new=True,
+            alert_triggers_json=json.dumps(["saved_screen_entry"]),
+        )
+        db.add(subscription)
+        db.commit()
+
+        inbox = get_monitoring_inbox(_request_for_user(user), db)
+
+        source = next(item for item in inbox["sources"] if item["id"] == str(screen.id) and item["type"] == "saved_screen")
+        assert source["name"] == "Bullish confirmation"
+        assert source["subscription_id"] == subscription.id
+        assert source["unread_count"] == 0
+        assert source["new_count"] == 0
     finally:
         db.close()
 

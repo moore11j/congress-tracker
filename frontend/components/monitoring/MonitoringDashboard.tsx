@@ -528,7 +528,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     const shouldShowSource = (sourceType: string, sourceId: string) => {
       if (!inbox) return true;
       const metadata = inboxSourceMetadata.get(monitoringSourceKey(normalizedMonitoringSourceType(sourceType), sourceId));
-      return Boolean(metadata?.subscription_id);
+      return Boolean(metadata);
     };
 
     for (const watchlist of visibleWatchlists) {
@@ -575,7 +575,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     }
 
     for (const source of additionalInboxSources) {
-      if (!source.subscription_id) continue;
       const count = Math.max(Number(source.unread_count) || 0, 0);
       rows.push({
         key: `inbox-source-${source.type}-${source.id}`,
@@ -933,7 +932,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       subtitle={source.subtitle}
                       countLabel={source.countLabel}
                       countClassName={source.countClassName}
-                      onRemove={() => setPendingRemoveSource(source)}
+                      onRemove={source.subscriptionId ? () => setPendingRemoveSource(source) : undefined}
                       removeDisabled={Boolean(pendingRemoveKey)}
                     />
                   ))}
