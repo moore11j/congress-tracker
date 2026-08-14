@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v15:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v16:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -517,7 +517,7 @@ def test_institutions_overview_compares_previous_quarter_and_classifies_mega_cap
         db.add(
             InstitutionalPosition(
                 filing_id=index + 100,
-                cik=f"100{index}",
+                cik=f"000000100{index}" if index == 1 else f"100{index}",
                 symbol=symbol,
                 normalized_symbol=symbol,
                 issuer_name=symbol,
@@ -600,6 +600,9 @@ def test_institutions_overview_compares_previous_quarter_and_classifies_mega_cap
     assert payload["summary"][3]["previous_value"] == 0
     assert payload["summary"][4]["value"] == 50_000
     assert payload["summary"][4]["previous_value"] == 25_000
+    alpha_row = next(row for row in payload["top_institutions"] if row["cik"] == "0000001001")
+    assert alpha_row["previous_value"] == 500_000
+    assert alpha_row["qoq_change"] == 100.0
     latest = payload["sector_exposure"][-1]["segments"]
     assert latest[0]["label"] == "Technology"
     assert latest[0]["percent"] > 90

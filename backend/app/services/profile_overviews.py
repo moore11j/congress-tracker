@@ -1511,7 +1511,7 @@ def _top_institutions(db: Session, year: int, quarter: int, *, previous_period: 
                 "cik": normalize_cik(cik),
                 "portfolio_value": _float_or_int(value),
                 "previous_value": previous,
-                "qoq_change": _pct(value, previous),
+                "qoq_change": _change_pct(value, previous),
                 "positions": int(positions or 0),
                 "largest_holding": {"symbol": top[0], "company": top[1], "value": _float_or_int(top[2])} if top else None,
                 "href": f"/institution/{normalize_cik(cik)}" if normalize_cik(cik) else None,
@@ -1524,7 +1524,21 @@ def _previous_institution_value(db: Session, cik: str, *, previous_period: tuple
     if previous_period is None:
         return None
     prev_year, prev_quarter = previous_period
-    return _float_or_int(db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(InstitutionalPosition.cik == cik, InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter)).scalar_one())
+    variants = _institution_cik_variants(cik)
+    if not variants:
+        return None
+    return _float_or_int(db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(InstitutionalPosition.cik.in_(variants), InstitutionalPosition.report_year == prev_year, InstitutionalPosition.report_quarter == prev_quarter)).scalar_one())
+
+
+def _institution_cik_variants(cik: Any) -> list[str]:
+    variants = {str(cik).strip()} if cik is not None and str(cik).strip() else set()
+    normalized = normalize_cik(str(cik)) if cik is not None else None
+    if normalized:
+        variants.add(normalized)
+        stripped = normalized.lstrip("0")
+        if stripped:
+            variants.add(stripped)
+    return sorted(variants)
 
 
 def _institutional_position_changes(db: Session, year: int, quarter: int, *, change_types: tuple[str, ...] | None = None, limit: int = 10, descending: bool = True) -> list[dict[str, Any]]:
