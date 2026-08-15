@@ -3824,7 +3824,12 @@ def _startup_step_skipped(name: str, reason: str) -> None:
 
 def _is_postgres_lock_timeout(exc: BaseException) -> bool:
     message = str(exc).lower()
-    return "locknotavailable" in message or "lock timeout" in message or "canceling statement due to lock timeout" in message
+    return (
+        "locknotavailable" in message
+        or "lock timeout" in message
+        or "canceling statement due to lock timeout" in message
+        or "canceling statement due to statement timeout" in message
+    )
 
 
 def _run_required_startup_step(name: str, fn) -> None:
