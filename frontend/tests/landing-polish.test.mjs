@@ -43,8 +43,8 @@ test("landing removes standalone tool promos but preserves access paths", () => 
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Congress &amp; Insider Profiles<\/SectionEyebrow>/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Stock Comparison Tool<\/SectionEyebrow>/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
-  assert.match(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
-  assert.match(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.doesNotMatch(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.doesNotMatch(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
   assert.match(marketingHeader, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
   assert.match(marketingHeader, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
 });
@@ -92,9 +92,9 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.match(marketingHeader, /\{ label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
   assert.match(marketingHeader, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
   assert.match(marketingHeader, /\{ label: "Backtesting", href: `\$\{appUrl\}\/backtesting`/);
-  assert.match(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
-  assert.match(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
-  assert.match(marketingHeader, /\{ label: "Strategies", comingSoon: true/);
+  assert.doesNotMatch(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
+  assert.doesNotMatch(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
+  assert.match(marketingHeader, /\{ label: "Strategies", href: `\$\{appUrl\}\/strategies`, beta: true/);
   assert.match(landingPage, /<MarketingHeader pricingHref="#pricing" \/>/);
   assert.match(landingPage, /<section id="insights"/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
@@ -146,9 +146,9 @@ test("landing page adds real product proof and future product sections", () => {
   assert.match(landingPage, /data-outcomes-screenshot="confirmation-events"/);
   assert.match(landingPage, /Scores are research context, not predictions of future performance/);
   assert.match(landingPage, /<SectionEyebrow>Research Memory - Coming Soon<\/SectionEyebrow>/);
-  assert.match(landingPage, /<SectionEyebrow>Walnut Strategies - Coming Soon<\/SectionEyebrow>/);
+  assert.match(landingPage, /<SectionEyebrow>Walnut Strategies - Live Beta<\/SectionEyebrow>/);
   assert.match(landingPage, /Why settle for average market returns\?/);
-  assert.match(landingPage, /Walnut Strategies will use its historical databases to identify and evaluate repeatable investment approaches based on combinations of real market activity and historic outcomes\./);
+  assert.match(landingPage, /Explore published Walnut strategies with transparent methodology, stored performance records, and the data behind each approach\./);
   assert.match(landingPage, /\["Cleo Fields Portfolio", "Congress Strategies", "58\.9%", "CAGR"\][\s\S]*\["Insider Open-Market Buys", "Insider Strategies", "37\.7%", "CAGR"\][\s\S]*\["Insider \+ Institutional Accumulation", "Hybrid Strategies", "52\.1%", "CAGR"\]/);
   assert.doesNotMatch(landingPage, /Awaiting validated backtest|Historical outcome|Historical CAGR[\s\S]*[0-9]+\%|Win rate[\s\S]*[0-9]+\%/);
   assert.ok(fs.existsSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")));

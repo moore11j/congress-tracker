@@ -185,7 +185,7 @@ const featureDepthItems = [
   ["Research Briefs", "Published and generated research"],
   ["Outcomes", "Historical accountability layer"],
   ["Research Memory", "Coming Soon"],
-  ["Walnut Strategies", "Coming Soon"],
+  ["Walnut Strategies", "Live Beta — explore published strategies with transparent methodology and performance"],
 ] as const;
 
 const strategyConcepts = [
@@ -1069,12 +1069,12 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
           <div>
-            <SectionEyebrow>Walnut Strategies - Coming Soon</SectionEyebrow>
+            <SectionEyebrow>Walnut Strategies - Live Beta</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Why settle for average market returns?</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut Strategies will use its historical databases to identify and evaluate repeatable investment approaches based on combinations of real market activity and historic outcomes.
+              Explore published Walnut strategies with transparent methodology, stored performance records, and the data behind each approach.
             </p>
-            <p className="mt-4 text-sm leading-6 text-slate-500">These are not generic AI-generated stock strategies. The long-term product is structured around Walnut data and historical outcomes.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-500">Live beta: strategy research built from Walnut data and historical outcomes, not generic AI-generated picks.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             {strategyConcepts.map(([title, type, value, status]) => (

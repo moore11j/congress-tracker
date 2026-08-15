@@ -22,9 +22,7 @@ const toolsNavLinks = [
   { label: "Stock Screener", href: `${appUrl}/screener`, description: "Screen public companies by Walnut evidence and market data." },
   { label: "Stock Comparisons", href: `${appUrl}/compare`, description: "Compare two tickers across the research workflow." },
   { label: "Backtesting", href: `${appUrl}/backtesting`, description: "Test saved screens and disclosure strategies against history." },
-  { label: "Congress", href: `${appUrl}/feed?mode=congress`, description: "Track reported congressional trading activity." },
-  { label: "Insiders", href: `${appUrl}/feed?mode=insider`, description: "Review reported officer, director, and owner trades." },
-  { label: "Strategies", comingSoon: true, description: "Historical strategy research is coming soon." },
+  { label: "Strategies", href: `${appUrl}/strategies`, beta: true, description: "Explore published strategies with transparent methodology and performance." },
 ] as const;
 
 const companyNavLinks = [
@@ -47,7 +45,7 @@ function NavMenuItems({
   items,
   mobile = false,
 }: {
-  items: readonly ({ label: string; href?: string; description: string; comingSoon?: boolean })[];
+  items: readonly ({ label: string; href?: string; description: string; comingSoon?: boolean; beta?: boolean })[];
   mobile?: boolean;
 }) {
   const itemClassName = mobile
@@ -64,6 +62,11 @@ function NavMenuItems({
           <a key={item.label} href={item.href} className={itemClassName}>
             <span className="flex items-center justify-between gap-3">
               <span className="font-semibold text-slate-100">{item.label}</span>
+              {item.beta ? (
+                <span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                  Beta
+                </span>
+              ) : null}
             </span>
             <span className="mt-1 block text-xs leading-5 text-slate-400">{item.description}</span>
           </a>
@@ -92,7 +95,7 @@ function DesktopMenu({
 }: {
   label: string;
   heading: string;
-  items: readonly ({ label: string; href?: string; description: string; comingSoon?: boolean })[];
+  items: readonly ({ label: string; href?: string; description: string; comingSoon?: boolean; beta?: boolean })[];
 }) {
   return (
     <details className="group relative isolate z-[9000]" style={{ zIndex: 9000 }}>
