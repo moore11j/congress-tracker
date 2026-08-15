@@ -84,3 +84,18 @@ Liabilities
     assert len(holdings) == 1
     assert holdings[0].symbol == "GOOGL"
     assert holdings[0].value_range == "$5,000,001 - $25,000,000"
+
+
+def test_parse_house_annual_assets_stops_before_date_tx_schedule():
+    text = """
+Asset Owner Value of Asset Income Type(s) Income Tx. > $1,000?
+Apple Inc. (AAPL) [ST] $15,001 - $50,000 Dividends $1 - $200
+Asset Owner Date Tx.
+Type Amount Cap. Gains > $200?
+NVIDIA Corporation (NVDA) [ST] 04/03/2025 P $1,001 - $15,000
+Liabilities
+"""
+
+    holdings = parse_holdings_from_pdf_text(text)
+
+    assert [holding.symbol for holding in holdings] == ["AAPL"]

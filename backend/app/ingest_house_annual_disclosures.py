@@ -47,6 +47,7 @@ OWNER_RE = re.compile(r"^(SP|DC|JT|self|spouse|dependent|joint)\b[:\s-]*", re.I)
 OWNER_SUFFIX_RE = re.compile(r"\b(?P<owner>SP|DC|JT|self|spouse|dependent|joint)\s*$", re.I)
 SECTION_START_RE = re.compile(r"assets?\s+and\s+unearned\s+income|assets?\s+unearned\s+income", re.I)
 SECTION_STOP_RE = re.compile(r"\b(transactions|liabilities|agreements|earned income|positions held)\b", re.I)
+TRANSACTION_TABLE_HEADER_RE = re.compile(r"\basset\s+owner\s+date\s+(?:tx\.?|transaction)\b", re.I)
 ASSET_TYPE_TERMS = ("stock", "common stock", "equity", "option", "mutual fund", "etf", "bond", "fund")
 ASSET_ROW_START_RE = re.compile(r"\([A-Z][A-Z0-9.\-]{0,9}\)\s+\[(?P<asset_code>[A-Z]{1,3})\]")
 
@@ -203,6 +204,10 @@ def _is_asset_table_noise(line: str) -> bool:
         or lowered.startswith("description:")
         or lowered in {"none", "n/a"}
     )
+
+
+def _is_asset_table_end(line: str) -> bool:
+    return bool(SECTION_STOP_RE.search(line) or TRANSACTION_TABLE_HEADER_RE.search(line))
 
 
 def _asset_type_from_code(asset_code: str | None, row_text: str) -> str | None:
@@ -435,7 +440,7 @@ def parse_holdings_from_pdf_text(text: str) -> list[ParsedHolding]:
         if _is_asset_table_start(line):
             in_assets = True
             continue
-        if in_assets and SECTION_STOP_RE.search(line):
+        if in_assets and _is_asset_table_end(line):
             break
         if not in_assets:
             continue
