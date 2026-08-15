@@ -1161,7 +1161,7 @@ def _insider_sector_activity(db: Session, clauses: list[Any]) -> list[dict[str, 
 def _insider_monthly_activity(db: Session, clauses: list[Any]) -> list[dict[str, Any]]:
     now = datetime.now(timezone.utc)
     months = [_add_months(date(now.year, now.month, 1), offset) for offset in range(-11, 1)]
-    buckets: dict[date, dict[str, float]] = {month: {"buy": 0.0, "sell": 0.0, "trades": 0.0} for month in months}
+    buckets: dict[date, dict[str, Any]] = {month: {"buy": 0.0, "sell": 0.0, "trades": 0.0, "value": 0.0, "insiders": set()} for month in months}
     rows = db.execute(
         select(InsiderTransactionNormalized)
         .where(*clauses)
@@ -1176,6 +1176,10 @@ def _insider_monthly_activity(db: Session, clauses: list[Any]) -> list[dict[str,
         if bucket is None:
             continue
         bucket["trades"] += 1
+        bucket["value"] += float(row.value or 0)
+        owner_key = normalize_cik(row.reporting_owner_cik) or (row.reporting_owner_name or "").strip().casefold()
+        if owner_key:
+            bucket["insiders"].add(owner_key)
         bucket["buy" if _is_buy_transaction(row) else "sell"] += float(row.value or 0)
     return [
         {
@@ -1184,6 +1188,8 @@ def _insider_monthly_activity(db: Session, clauses: list[Any]) -> list[dict[str,
             "buy_value": _float_or_int(value["buy"]) or 0,
             "sell_value": _float_or_int(value["sell"]) or 0,
             "trades": int(value["trades"] or 0),
+            "active_insiders": len(value["insiders"]),
+            "average_trade_size": _float_or_int(value["value"] / value["trades"]) if value["trades"] else None,
         }
         for month, value in buckets.items()
     ]

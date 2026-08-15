@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v16:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v17:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -469,6 +469,8 @@ def test_insiders_overview_uses_normalized_open_market_transactions():
     assert payload["monthly_activity"][-1]["period"] == today.strftime("%b %y")
     assert payload["monthly_activity"][-1]["net_value"] == 300_000
     assert payload["monthly_activity"][-1]["trades"] == 3
+    assert payload["monthly_activity"][-1]["active_insiders"] == 2
+    assert payload["monthly_activity"][-1]["average_trade_size"] == 133333.33333333334
     assert payload["top_insiders"][0]["name"] == "John Buyer"
     assert payload["top_insiders"][0]["href"] == "/insider/john-buyer-0000002222"
     assert payload["recent_purchases"][0]["profile"] != "Profile unavailable"

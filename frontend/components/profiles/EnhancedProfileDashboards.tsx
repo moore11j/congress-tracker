@@ -211,7 +211,7 @@ function ProfileDashboard({ flavor, eyebrow, title, subtitle, filter, comparison
         {snapshotStats.map((card, index) => <SnapshotCard key={index} {...card} />)}
       </div>
     </section>
-    <MetricCards metrics={metrics} comparison={comparison} />
+    <MetricCards metrics={metrics} comparison={comparison} flavor={flavor} insiderMonthlyActivity={insiderMonthlyActivity} />
     {lockedMessage ? <Panel title="Institutional detail"><p className="text-sm leading-6 text-slate-300">{lockedMessage}</p><Link href="/pricing" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">View Pro access -&gt;</Link></Panel> : <>
       <section className="grid gap-3 xl:grid-cols-2"><DataTable {...primary} /><DataTable {...secondary} /></section>
       <section className="grid gap-3 xl:grid-cols-[1.05fr_.85fr_.8fr]">
@@ -275,7 +275,52 @@ function Panel({ title, subtitle, action, children }: { title: string; subtitle?
   return <section className="min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/65 p-4 shadow-[0_18px_50px_rgba(0,0,0,.18)]"><div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-sm font-semibold uppercase tracking-[.15em] text-white">{title}</h2>{subtitle ? <p className="mt-1 text-xs text-slate-400">{subtitle}</p> : null}</div>{action ? <span className="text-[10px] font-semibold uppercase tracking-[.12em] text-slate-400">{action}</span> : null}</div><div className="mt-4">{children}</div></section>;
 }
 
-function MetricCards({ metrics, comparison }: { metrics: ProfileMetric[]; comparison: string }) { return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{metrics.map((metric) => <div key={metric.label} className="min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/65 p-4"><p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">{metric.label}</p><p className="mt-3 truncate text-2xl font-semibold tabular-nums text-white">{formatMetric(metric)}</p><p className={`mt-2 text-xs font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}% vs ${comparison}` : "Latest available period"}</p></div>)}</section>; }
+function MetricCards({ metrics, comparison, flavor, insiderMonthlyActivity = [] }: { metrics: ProfileMetric[]; comparison: string; flavor?: DashboardFlavor; insiderMonthlyActivity?: NonNullable<InsidersOverviewResponse["monthly_activity"]> }) {
+  return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{metrics.map((metric) => {
+    const chartPoints = flavor === "insiders" ? insiderMetricSeries(metric.label, insiderMonthlyActivity) : [];
+    const tone = metric.label.toLowerCase().includes("sell") ? "red" : "green";
+    return <div key={metric.label} className="min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/65 p-4">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">{metric.label}</p>
+      <div className={chartPoints.length ? "mt-3 grid grid-cols-[minmax(0,.72fr)_minmax(5rem,.88fr)] items-end gap-3" : "mt-3"}>
+        <div className="min-w-0">
+          <p className="truncate text-2xl font-semibold tabular-nums text-white">{formatMetric(metric)}</p>
+          <p className={`mt-2 text-xs font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}% vs ${comparison}` : "Latest available period"}</p>
+        </div>
+        {chartPoints.length ? <MetricSparkline id={`insider-metric-${metric.label}`} points={chartPoints} tone={tone} /> : null}
+      </div>
+    </div>;
+  })}</section>;
+}
+
+function insiderMetricSeries(label: string, rows: NonNullable<InsidersOverviewResponse["monthly_activity"]>) {
+  const normalized = label.toLowerCase();
+  const key = normalized.includes("open-market") ? "trades" : normalized.includes("net") ? "net_value" : normalized.includes("buy") ? "buy_value" : normalized.includes("sell") ? "sell_value" : normalized.includes("active") ? "active_insiders" : normalized.includes("average") ? "average_trade_size" : null;
+  if (!key) return [];
+  return rows.slice(-12).map((row) => ({ label: row.period, value: Number(row[key] ?? 0) })).filter((point) => Number.isFinite(point.value));
+}
+
+function MetricSparkline({ id, points, tone }: { id: string; points: Array<{ label: string; value: number }>; tone: "green" | "red" }) {
+  if (points.length < 2) return null;
+  const color = tone === "red" ? "#fb7185" : "#55e3b0";
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+  const range = Math.max(max - min, 1);
+  const plotTop = 5;
+  const plotBottom = 46;
+  const xy = points.map((point, index) => {
+    const x = (index / Math.max(points.length - 1, 1)) * 100;
+    const y = plotBottom - ((point.value - min) / range) * (plotBottom - plotTop);
+    return `${x},${Math.max(plotTop, Math.min(plotBottom, y))}`;
+  });
+  const area = `M ${xy.join(" L ")} L 100 ${plotBottom} L 0 ${plotBottom} Z`;
+  return <svg viewBox="0 0 100 50" preserveAspectRatio="none" className="h-14 w-full overflow-hidden" aria-hidden="true">
+    <defs><linearGradient id={`${safeId}-fill`} x1="0" x2="0" y1="0" y2="1"><stop stopColor={color} stopOpacity=".32" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+    <path d={area} fill={`url(#${safeId}-fill)`} />
+    <polyline points={xy.join(" ")} fill="none" stroke={color} strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
+  </svg>;
+}
 
 function DataTable({ title, rows, columns }: TableSpec) { return <Panel title={title}>{!rows.length ? <p className="py-8 text-sm text-slate-400">No database records are available for this selection.</p> : <div className="overflow-x-auto"><table className="min-w-[38rem] w-full text-left text-xs"><thead className="border-b border-white/10 text-[10px] uppercase tracking-[.13em] text-slate-500"><tr>{columns.map(([, label]) => <th key={label} className="px-2 py-2.5 font-semibold">{label}</th>)}</tr></thead><tbody className="divide-y divide-white/5">{rows.slice(0, 10).map((row, index) => <tr key={index}>{columns.map(([key, , format]) => <td key={key} className="max-w-44 truncate px-2 py-2.5 text-slate-300">{renderCell(row, key, format)}</td>)}</tr>)}</tbody></table></div>}</Panel>; }
 

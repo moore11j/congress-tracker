@@ -311,7 +311,7 @@ export type InsidersOverviewResponse = {
   summary: ProfileMetric[];
   top_insiders: Array<Record<string, unknown>>;
   most_traded_stocks: Array<Record<string, unknown>>;
-  monthly_activity?: Array<{ period: string; net_value: number; buy_value: number; sell_value: number; trades: number }>;
+  monthly_activity?: Array<{ period: string; net_value: number; buy_value: number; sell_value: number; trades: number; active_insiders?: number; average_trade_size?: number | null }>;
   sector_activity: ProfileSectorPeriod[];
   sector_net_activity?: Array<{ sector: string; current_value: number; buy_value: number; sell_value: number; trades: number }>;
   role_mix?: Array<{ label: string; value: number; percent: number }>;
