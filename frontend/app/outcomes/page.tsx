@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { OutcomeLedgerClient } from "@/components/outcomes/OutcomeLedgerClient";
 import { getOutcomeLedgerStatus, getOutcomeLedgerSummary, getOutcomeSnapshots } from "@/lib/api";
 
-export const revalidate = 43200;
+// Outcome data is provider-backed and can exceed the static build timeout.
+// Render it at request time and retain the existing client fallback instead.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Outcome Ledger | Walnut Markets",
