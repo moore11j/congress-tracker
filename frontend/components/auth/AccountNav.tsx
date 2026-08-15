@@ -198,7 +198,7 @@ export function AccountNav() {
             onClick={() => setMenuOpen(false)}
             className="flex items-center justify-between gap-4 rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"
           >
-            <span>Inbox</span>
+            <span>Inbox &amp; Monitoring</span>
             {unreadCount > 0 ? (
               <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500/15 px-1.5 py-0.5 text-xs font-bold text-red-200">
                 {unreadLabel}

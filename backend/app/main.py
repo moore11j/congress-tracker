@@ -65,6 +65,7 @@ from app.db import (
     ensure_trade_outcomes_amount_bigint,
     ensure_user_account_billing_schema,
     ensure_watchlist_item_target_schema,
+    ensure_watchlist_delivery_indexes,
     get_db,
     is_database_locked_error,
 )
@@ -124,6 +125,7 @@ from app.models import (
     FundamentalsCache,
     Member,
     MonitoringAlert,
+    MonitoringSourcePreference,
     NotificationSubscription,
     PriceCache,
     QuoteCache,
@@ -4079,6 +4081,7 @@ def _startup_create_tables():
         ("schema_institutional_activity", lambda: ensure_institutional_activity_schema(engine)),
         ("schema_event_columns", ensure_event_columns),
         ("schema_watchlist_item_targets", lambda: ensure_watchlist_item_target_schema(engine)),
+        ("schema_watchlist_delivery_indexes", lambda: ensure_watchlist_delivery_indexes(engine)),
         ("schema_monitoring_alert_columns", ensure_monitoring_alert_columns),
         ("schema_house_annual_disclosure", ensure_house_annual_disclosure_schema),
         ("schema_trade_outcomes_amount_bigint", ensure_trade_outcomes_amount_bigint),
@@ -13183,43 +13186,74 @@ def _watchlist_view_summary(db: Session, watchlist_id: int, user_id: int | None 
     return watchlist_unread_summary(db, watchlist_id, user_id=user_id)
 
 
+def _disabled_monitoring_sources(db: Session, user_id: int) -> set[tuple[str, str]]:
+    """Return source-level monitoring opt-outs without touching source data."""
+    return {
+        (str(source_type), str(source_id))
+        for source_type, source_id in db.execute(
+            select(MonitoringSourcePreference.source_type, MonitoringSourcePreference.source_id).where(
+                MonitoringSourcePreference.user_id == user_id,
+                MonitoringSourcePreference.is_monitored.is_(False),
+            )
+        ).all()
+    }
+
+
 @app.get("/api/watchlists")
 def list_watchlists(request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
-    rows = db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc())).scalars().all()
-    watchlist_ids = [w.id for w in rows]
+    rows = db.execute(
+        select(Watchlist.id, Watchlist.name, func.count(WatchlistItem.id))
+        .outerjoin(
+            WatchlistItem,
+            and_(WatchlistItem.watchlist_id == Watchlist.id, WatchlistItem.target_type == "ticker"),
+        )
+        .where(Watchlist.owner_user_id == user.id)
+        .group_by(Watchlist.id, Watchlist.name)
+        .order_by(Watchlist.name.asc())
+    ).all()
+    watchlist_ids = [int(row[0]) for row in rows]
     symbols_by_watchlist: dict[int, list[str]] = {watchlist_id: [] for watchlist_id in watchlist_ids}
     if watchlist_ids:
-        symbol_rows = db.execute(
+        for watchlist_id, symbol in db.execute(
             select(WatchlistItem.watchlist_id, Security.symbol)
             .join(Security, WatchlistItem.security_id == Security.id)
             .where(WatchlistItem.watchlist_id.in_(watchlist_ids))
             .where(WatchlistItem.target_type == "ticker")
             .order_by(WatchlistItem.watchlist_id.asc(), Security.symbol.asc())
-        ).all()
-        for watchlist_id, symbol in symbol_rows:
-            normalized_symbol = (symbol or "").strip().upper()
-            if normalized_symbol:
-                symbols_by_watchlist.setdefault(watchlist_id, []).append(normalized_symbol)
-    targets_by_watchlist: dict[int, list[dict[str, str | int | None]]] = {watchlist_id: [] for watchlist_id in watchlist_ids}
+        ).all():
+            if symbol:
+                symbols_by_watchlist[int(watchlist_id)].append(str(symbol).strip().upper())
+    unread_counts: dict[str, int] = {}
     if watchlist_ids:
-        target_rows = db.execute(
-            select(WatchlistItem)
-            .where(WatchlistItem.watchlist_id.in_(watchlist_ids))
-            .where(WatchlistItem.target_type != "ticker")
-            .order_by(WatchlistItem.watchlist_id.asc(), WatchlistItem.target_type.asc(), WatchlistItem.target_label.asc())
-        ).scalars().all()
-        for item in target_rows:
-            targets_by_watchlist.setdefault(item.watchlist_id, []).append(_watchlist_target_response(item))
+        unread_rows = db.execute(
+            select(MonitoringAlert.source_id, func.count())
+            .where(MonitoringAlert.user_id == user.id)
+            .where(MonitoringAlert.source_type == "watchlist")
+            .where(MonitoringAlert.source_id.in_([str(watchlist_id) for watchlist_id in watchlist_ids]))
+            .where(MonitoringAlert.read_at.is_(None), MonitoringAlert.dismissed_at.is_(None))
+            .group_by(MonitoringAlert.source_id)
+        ).all()
+        unread_counts = {str(source_id): int(count or 0) for source_id, count in unread_rows}
+    # Until the background sweep has created MonitoringAlert rows for an older
+    # watchlist, retain the checkpoint-based unread calculation. Once alerts
+    # exist, the grouped query above avoids the former per-watchlist N+1 work.
+    fallback_summaries = {
+        watchlist_id: _watchlist_view_summary(db, watchlist_id, user.id)
+        for watchlist_id in watchlist_ids
+        if str(watchlist_id) not in unread_counts
+    }
     return [
         {
-            "id": w.id,
-            "name": w.name,
-            "symbols": symbols_by_watchlist.get(w.id, []),
-            "targets": targets_by_watchlist.get(w.id, []),
-            **_watchlist_view_summary(db, w.id, user.id),
+            "id": int(watchlist_id),
+            "name": name,
+            "ticker_count": int(ticker_count or 0),
+            "symbols": symbols_by_watchlist.get(int(watchlist_id), []),
+            "unseen_count": unread_counts.get(str(watchlist_id), fallback_summaries.get(watchlist_id, {}).get("unseen_count", 0)),
+            "unread_count": unread_counts.get(str(watchlist_id), fallback_summaries.get(watchlist_id, {}).get("unread_count", 0)),
+            "new_count": unread_counts.get(str(watchlist_id), fallback_summaries.get(watchlist_id, {}).get("new_count", 0)),
         }
-        for w in rows
+        for watchlist_id, name, ticker_count in rows
     ]
 
 
@@ -13228,8 +13262,12 @@ def _monitored_watchlists_for_user(request: Request, db: Session, user: UserAcco
     source_limit = max(int(entitlements.limit("monitoring_sources") or 0), 0)
     if source_limit <= 0:
         return []
+    disabled_ids = [int(source_id) for source_type, source_id in _disabled_monitoring_sources(db, user.id) if source_type == "watchlist" and source_id.isdigit()]
+    query = _owned_watchlist_query(user).order_by(Watchlist.name.asc(), Watchlist.id.asc())
+    if disabled_ids:
+        query = query.where(Watchlist.id.not_in(disabled_ids))
     return (
-        db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc(), Watchlist.id.asc()).limit(source_limit))
+        db.execute(query.limit(source_limit))
         .scalars()
         .all()
     )
@@ -13273,7 +13311,16 @@ def _monitored_saved_screens_for_user(request: Request, db: Session, user: UserA
         return []
     allowed_screen_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["saved_screen_ids"]
     subscribed_screen_ids = _saved_screen_subscription_ids_for_user(db, user)
-    screen_ids = set(allowed_screen_ids).union(subscribed_screen_ids)
+    disabled_source_ids = {
+        source_id
+        for source_type, source_id in _disabled_monitoring_sources(db, user.id)
+        if source_type == "saved_screen"
+    }
+    screen_ids = {
+        screen_id
+        for screen_id in set(allowed_screen_ids).union(subscribed_screen_ids)
+        if str(screen_id) not in disabled_source_ids
+    }
     if not screen_ids:
         return []
     return (
@@ -13348,10 +13395,11 @@ def _saved_screen_subscription_ids_for_user(db: Session, user: UserAccount) -> s
 
 
 def _saved_screen_alert_unread_counts(db: Session, user_id: int) -> dict[tuple[str, str], int]:
+    disabled_sources = _disabled_monitoring_sources(db, user_id)
     return {
         key: count
         for key, count in unread_count_by_source(db, user_id=user_id).items()
-        if key[0] != "watchlist"
+        if key[0] != "watchlist" and key not in disabled_sources
     }
 
 
@@ -13540,9 +13588,11 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db), refres
 
     counts = _monitoring_counts_payload(request, db, user, watchlists=watchlists, saved_screens=saved_screens)
     entitlements = entitlements_for_user(db, user)
+    disabled_sources = _disabled_monitoring_sources(db, user.id)
     alerts = [
         monitoring_alert_to_dict(alert, can_view_signal_context=entitlements.has_feature("signals"))
         for alert in recent_alerts(db, user_id=user.id, unread_only=False, limit=100)
+        if (str(alert.source_type), str(alert.source_id)) not in disabled_sources
     ]
     unread_alerts = [item for item in alerts if item.get("is_unread")]
     return {
@@ -13554,6 +13604,66 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db), refres
         "alerts": alerts,
         "items": alerts,
     }
+
+
+@app.delete("/api/monitoring/sources/{source_type}/{source_id}", status_code=204, dependencies=[Depends(rate_limit_notification_mutation)])
+def stop_monitoring_source(source_type: str, source_id: str, request: Request, db: Session = Depends(get_db)):
+    """Stop monitoring a source without deleting the underlying source object."""
+    user = _require_account(request, db)
+    normalized_type = "saved_screen" if source_type in {"saved_screen", "saved-screen", "saved_view"} else source_type
+    normalized_id = str(source_id).strip()
+    if normalized_type not in {"watchlist", "saved_screen", "strategy"} or not normalized_id:
+        raise HTTPException(status_code=422, detail="Unsupported monitoring source.")
+
+    if normalized_type == "watchlist":
+        watchlist_id = int(normalized_id) if normalized_id.isdigit() else -1
+        _get_owned_watchlist(db, user, watchlist_id)
+    elif normalized_type == "saved_screen":
+        saved_screen_id = int(normalized_id) if normalized_id.isdigit() else -1
+        saved_screen = db.get(SavedScreen, saved_screen_id)
+        if saved_screen is None or saved_screen.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Saved screen not found.")
+    else:
+        subscription = (
+            db.execute(
+                select(StrategySubscription)
+                .join(StrategyDefinition, StrategyDefinition.id == StrategySubscription.strategy_id)
+                .where(StrategySubscription.user_id == user.id, StrategyDefinition.slug == normalized_id)
+            )
+            .scalars()
+            .first()
+        )
+        if subscription is None:
+            raise HTTPException(status_code=404, detail="Strategy monitoring subscription not found.")
+        db.delete(subscription)
+        db.commit()
+        return None
+
+    preference = db.execute(
+        select(MonitoringSourcePreference).where(
+            MonitoringSourcePreference.user_id == user.id,
+            MonitoringSourcePreference.source_type == normalized_type,
+            MonitoringSourcePreference.source_id == normalized_id,
+        )
+    ).scalar_one_or_none()
+    if preference is None:
+        preference = MonitoringSourcePreference(user_id=user.id, source_type=normalized_type, source_id=normalized_id, is_monitored=False)
+        db.add(preference)
+    else:
+        preference.is_monitored = False
+
+    subscriptions = db.execute(
+        select(NotificationSubscription).where(func.lower(NotificationSubscription.email) == str(user.email or "").strip().lower())
+    ).scalars().all()
+    for subscription in subscriptions:
+        subscription_type = str(subscription.source_type)
+        matches = subscription_type == normalized_type and str(subscription.source_id) == normalized_id
+        if normalized_type == "saved_screen" and subscription_type in {"saved_screen", "saved_view"}:
+            matches = _saved_screen_id_from_subscription(subscription) == int(normalized_id)
+        if matches:
+            db.delete(subscription)
+    db.commit()
+    return None
 
 
 @app.post("/api/monitoring/items/mark-read", dependencies=[Depends(rate_limit_notification_mutation)])

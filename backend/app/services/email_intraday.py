@@ -41,6 +41,8 @@ from app.services.email_digests import (
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
+from app.services.watchlist_content_events import sync_watchlist_content_events
+from app.services.watchlist_delivery import category_for_trigger, is_delivery_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,8 @@ INTRADAY_EVENT_TYPES = (
     *PRICE_VOLUME_EVENT_TYPES,
     *FUNDAMENTAL_EVENT_TYPES,
     "signal",
+    "news_article",
+    "press_release",
 )
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 SIGNAL_ALERT_TYPES = (
@@ -226,6 +230,7 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
         watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
         if not user or not watchlist:
             continue
+        sync_watchlist_content_events(db, watchlist.id)
         symbols = _watchlist_symbols(db, watchlist.id)
         if not symbols:
             continue
@@ -269,7 +274,12 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
                 .where(MonitoringAlert.user_id == user.id)
                 .where(MonitoringAlert.dismissed_at.is_(None))
                 .where(MonitoringAlert.event_created_at >= since)
-                .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(SIGNAL_ALERT_TYPES)))
+                .where(
+                    or_(
+                        MonitoringAlert.source_type == "saved_screen",
+                        (MonitoringAlert.source_type != "watchlist") & MonitoringAlert.alert_type.in_(SIGNAL_ALERT_TYPES),
+                    )
+                )
                 .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
                 .limit(limit)
             )
@@ -326,22 +336,28 @@ def _watchlist_candidate(user: UserAccount, watchlist: Watchlist, event: Event) 
     trigger = _watchlist_trigger(event, payload, score, amount)
     ticker = (event.symbol or "UNKNOWN").upper()
     actor = _event_actor(event, payload)
+    is_content = event.event_type in {"news_article", "press_release"}
+    content_label = "News" if event.event_type == "news_article" else "Press release"
+    headline = str(payload.get("title") or "").strip()
     context = {
         "first_name": _first_name(user),
         "ticker": ticker,
         "watchlist_name": watchlist.name,
-        "alert_title": f"High-priority watchlist activity: {ticker}",
-        "alert_intro": f"Walnut found high-priority activity for {ticker} on {watchlist.name}.",
-        "event_type": event.event_type.replace("_", " "),
+        "alert_title": f"{ticker} — {content_label}" if is_content else f"Watchlist activity: {ticker}",
+        "alert_intro": headline if is_content and headline else f"Walnut found monitoring activity for {ticker} on {watchlist.name}.",
+        "event_type": content_label if is_content else event.event_type.replace("_", " "),
         "actor": actor,
         "amount": _amount(event.amount_min, event.amount_max),
         "signal_score": _score_display(score),
         "direction": _direction_from_payload(payload),
         "trigger": _trigger_label(trigger),
+        "monitored_through": watchlist.name,
+        "monitoring_source_type": "Watchlist",
+        "alert_type": _trigger_label(trigger),
         "why_notable": _watchlist_reason(event, trigger),
         "source_stack": _source_stack(payload, event.source),
         "event_date": _format_date(event.event_date or event.ts),
-        "alert_url": f"{_frontend_base_url()}/watchlists/{watchlist.id}",
+        "alert_url": str(payload.get("url") or f"{_frontend_base_url()}/watchlists/{watchlist.id}"),
         "sort_timestamp": _coerce_aware(event.event_date or event.ts).isoformat(),
     }
     return IntradayAlertCandidate(
@@ -376,6 +392,9 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         "signal_score": _score_display(score),
         "direction": str(payload.get("direction") or after.get("direction") or "mixed"),
         "trigger": _trigger_label(trigger),
+        "monitored_through": alert.source_name or alert.source_type.replace("_", " ").title(),
+        "monitoring_source_type": "Saved screen" if alert.source_type == "saved_screen" else alert.source_type.replace("_", " ").title(),
+        "alert_type": _trigger_label(trigger),
         "why_notable": alert.title or alert.alert_type.replace("_", " "),
         "source_stack": alert.source_name or alert.source_type.replace("_", " "),
         "event_date": _format_datetime(alert.event_created_at),
@@ -563,6 +582,10 @@ def _intraday_key(candidate: IntradayAlertCandidate) -> str:
 
 def _watchlist_trigger(event: Event, payload: dict[str, Any], score: int | None, amount: int | float | None) -> str | None:
     event_type = (event.event_type or "").strip().lower()
+    if event_type in {"news", "news_article", "market_news"}:
+        return "news"
+    if event_type in {"press_release", "press_releases", "issuer_press_release"}:
+        return "press_releases"
     if event_type in GOVERNMENT_CONTRACT_EVENT_TYPES:
         if amount is None:
             return "government_contract"
@@ -636,6 +659,10 @@ def _with_subscription_trigger_skip(
     candidate: IntradayAlertCandidate,
     subscription: NotificationSubscription,
 ) -> IntradayAlertCandidate:
+    category = category_for_trigger(candidate.trigger, candidate.event_type, candidate.context)
+    uses_matrix = isinstance(_loads_dict(subscription.source_payload_json).get("alert_delivery_modes"), dict)
+    if subscription.source_type == "watchlist" and uses_matrix and category and not is_delivery_enabled(subscription, category, "intraday"):
+        return _replace_skip_reason(candidate, "intraday_delivery_disabled")
     if not _subscription_intraday_alerts_enabled(subscription):
         return _replace_skip_reason(candidate, "intraday_alerts_disabled")
     if candidate.skip_reason is None and not _subscription_allows_trigger(subscription, candidate.trigger, candidate.event_type):
@@ -655,6 +682,10 @@ def _with_optional_subscription_trigger_skip(
 def _subscription_allows_trigger(subscription: NotificationSubscription, trigger: str | None, event_type: str | None) -> bool:
     if not trigger:
         return False
+    category = category_for_trigger(trigger, event_type)
+    uses_matrix = isinstance(_loads_dict(subscription.source_payload_json).get("alert_delivery_modes"), dict)
+    if subscription.source_type == "watchlist" and uses_matrix and category:
+        return is_delivery_enabled(subscription, category, "intraday")
     triggers = set(normalize_alert_triggers(_loads_list(subscription.alert_triggers_json)))
     if trigger in triggers:
         return True

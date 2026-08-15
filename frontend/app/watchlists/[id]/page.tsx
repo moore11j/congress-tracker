@@ -19,10 +19,6 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo(`/watchlists/${id}`, sp);
   const authToken = await requirePageAuth(returnTo);
-  const entitlements = authToken
-    ? await getEntitlements(authToken, { source: "WatchlistDetailPage" }).catch(() => defaultEntitlements)
-    : defaultEntitlements;
-  const canViewPremiumMetrics = Boolean(authToken && hasEntitlement(entitlements, "premium_feed_metrics"));
 
   const mode = parseMode(getParam(sp, "mode"));
   const recentDays = getParam(sp, "recent_days") || "30";
@@ -46,7 +42,12 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
     );
   }
 
-  const watchlist = await getWatchlist(watchlistId, authToken).catch(() => null);
+  const watchlistPromise = (async () => await getWatchlist(watchlistId, authToken).catch(() => null))();
+  const [watchlist, entitlements] = await Promise.all([
+    watchlistPromise,
+    getEntitlements(authToken, { source: "WatchlistDetailPage" }).catch(() => defaultEntitlements),
+  ]);
+  const canViewPremiumMetrics = Boolean(hasEntitlement(entitlements, "premium_feed_metrics"));
   if (!watchlist) {
     return (
       <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
@@ -55,12 +56,10 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
     );
   }
 
-  const confirmationEventsResponse = await getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken }).catch(() => ({ items: [] }));
-  const confirmationEvents = confirmationEventsResponse.items ?? [];
   const hydratedState = initialState.onlyNew
     ? { ...initialState, newSince: initialState.newSince || watchlist.unseen_since || "" }
     : initialState;
-  const activity = await (async () => {
+  const activityPromise = (async () => {
     try {
       return mode === "signals"
         ? await getWatchlistSignals(watchlistId, {
@@ -91,6 +90,11 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       return { items: [], next_cursor: null };
     }
   })();
+  const [confirmationEventsResponse, activity] = await Promise.all([
+    getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken }).catch(() => ({ items: [] })),
+    activityPromise,
+  ]);
+  const confirmationEvents = confirmationEventsResponse.items ?? [];
 
   const items =
     mode === "signals"

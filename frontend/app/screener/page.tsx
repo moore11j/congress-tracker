@@ -1005,7 +1005,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
 
         {!canUseMonitoring ? (
           <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.05] px-4 py-3 text-sm text-slate-300">
-            Saved screen monitoring is visible here as a Premium workflow upgrade. Free accounts can save screens, but Inbox events and background monitoring stay locked until upgrade.
+            Saved screen monitoring is visible here as a Premium workflow upgrade. Free accounts can save screens, but Inbox &amp; Monitoring events and background monitoring stay locked until upgrade.
           </div>
         ) : null}
 

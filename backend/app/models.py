@@ -513,6 +513,34 @@ class WatchlistViewState(Base):
     )
 
 
+class MonitoringSourcePreference(Base):
+    """Per-user opt-out state for a monitored source.
+
+    Monitoring eligibility is otherwise derived from a user's plan and owned
+    sources.  A row is only needed when the user explicitly stops monitoring a
+    source, so it must not be confused with the underlying object or its email
+    delivery subscription.
+    """
+
+    __tablename__ = "monitoring_source_preferences"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_type", "source_id", name="uq_monitoring_source_preference"),
+        Index("ix_monitoring_source_preferences_user_enabled", "user_id", "is_monitored"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int]
+    source_type: Mapped[str] = mapped_column(Text)
+    source_id: Mapped[str] = mapped_column(Text)
+    is_monitored: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class InstitutionalIngestJobState(Base):
     __tablename__ = "institutional_ingest_job_state"
     __table_args__ = (Index("ix_institutional_ingest_job_state_status", "last_status"),)
@@ -1515,6 +1543,7 @@ class Event(Base):
         Index("ix_events_event_date", "event_date"),
         Index("ix_events_symbol_event_date", "symbol", "event_date"),
         Index("ix_events_symbol_ts", "symbol", "ts"),
+        Index("ix_events_source_filing_id", "source_filing_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

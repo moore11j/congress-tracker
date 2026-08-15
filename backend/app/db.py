@@ -4851,6 +4851,19 @@ def ensure_reddit_ads_assistant_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reddit_ad_drafts_token_hash ON reddit_ad_drafts (extension_token_hash)"))
 
 
+def ensure_watchlist_delivery_indexes(bind=engine) -> None:
+    """Indexes used by watchlist metadata and cached-content event matching."""
+    with bind.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_source_filing_id ON events (source_filing_id)"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_monitoring_alerts_source_event_created "
+                "ON monitoring_alerts (user_id, source_type, source_id, event_created_at)"
+            )
+        )
+
+
 def ensure_outcome_ledger_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

@@ -489,6 +489,7 @@ export type MacroSnapshotResponse = {
 export type WatchlistSummary = {
   id: number;
   name: string;
+  ticker_count?: number;
   symbols?: string[];
   targets?: WatchlistTarget[];
   unseen_count?: number;
@@ -596,8 +597,13 @@ export type MonitoringAlert = {
   source_type: "watchlist" | "saved-screen" | string;
   source_id: string;
   source_name: string;
+  monitoring_source_type?: "watchlist" | "saved_screen" | "strategy" | string;
+  monitoring_source_id?: string;
+  monitoring_source_name?: string;
   event_id: number;
   alert_type: string;
+  trigger_type?: string;
+  data_category?: string;
   symbol?: string | null;
   title: string;
   description?: string | null;

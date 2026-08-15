@@ -22,12 +22,14 @@ from app.main import (
     mark_monitoring_alert_unread,
     mark_monitoring_source_read,
     mark_monitoring_source_unread,
+    stop_monitoring_source,
 )
 from app.models import (
     AppSetting,
     Event,
     FeatureGate,
     MonitoringAlert,
+    MonitoringSourcePreference,
     NotificationSubscription,
     PlanLimit,
     PlanPrice,
@@ -62,6 +64,7 @@ def _session():
             WatchlistItem.__table__,
             WatchlistViewState.__table__,
             MonitoringAlert.__table__,
+            MonitoringSourcePreference.__table__,
             NotificationSubscription.__table__,
             SavedScreen.__table__,
             AppSetting.__table__,
@@ -1097,5 +1100,34 @@ def test_bulk_dismiss_selected_items_removes_them_from_inbox_and_counts():
         assert len(inbox["items"]) == 1
         assert inbox["items"][0]["id"] == alerts[1].id
         assert db.get(MonitoringAlert, alerts[0].id).dismissed_at is not None
+    finally:
+        db.close()
+
+
+def test_stop_monitoring_keeps_watchlist_and_disables_its_subscription():
+    db = _session()
+    try:
+        user, watchlist, _now = _seed_watchlist(db)
+        db.add(
+            NotificationSubscription(
+                email=user.email,
+                source_type="watchlist",
+                source_id=str(watchlist.id),
+                source_name=watchlist.name,
+                frequency="daily",
+                active=True,
+                alert_triggers_json="[]",
+            )
+        )
+        db.commit()
+
+        stop_monitoring_source("watchlist", str(watchlist.id), _request_for_user(user), db)
+
+        preference = db.query(MonitoringSourcePreference).one()
+        assert db.get(Watchlist, watchlist.id) is not None
+        assert preference.source_type == "watchlist"
+        assert preference.source_id == str(watchlist.id)
+        assert preference.is_monitored is False
+        assert db.query(NotificationSubscription).count() == 0
     finally:
         db.close()

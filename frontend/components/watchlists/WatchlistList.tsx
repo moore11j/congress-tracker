@@ -99,6 +99,7 @@ export function WatchlistList({ items }: Props) {
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span className="shrink-0 text-xs text-slate-500">#{index + 1}</span>
               <span className={`min-w-0 max-w-full truncate font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
+              {typeof watchlist.ticker_count === "number" ? <span className="shrink-0 text-xs text-slate-500">{watchlist.ticker_count} tickers</span> : null}
               {unreadCount > 0 ? (
                 <span className="shrink-0 rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2 py-0.5 text-xs font-semibold text-emerald-100">
                   {unreadCount} new

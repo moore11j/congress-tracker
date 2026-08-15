@@ -369,9 +369,9 @@ const featureDefinitions: FeatureDefinition[] = [
   },
   {
     feature_key: "inbox_alerts",
-    label: "Inbox and alerts",
+    label: "Inbox & Monitoring",
     kind: "feature",
-    description: "Inbox alerts for monitored watchlists and saved screens.",
+    description: "Inbox & Monitoring alerts for monitored watchlists and saved screens.",
     required_tier: "free",
     unit_singular: "",
     unit_plural: "",

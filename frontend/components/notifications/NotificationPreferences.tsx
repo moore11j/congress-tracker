@@ -22,6 +22,47 @@ type NotificationPreferencesProps = {
   compact?: boolean;
 };
 
+type DeliveryMode = "off" | "daily" | "intraday" | "both";
+type DeliveryCategory =
+  | "bullish_bearish_monitor"
+  | "congress"
+  | "conviction_threshold"
+  | "cross_source"
+  | "fundamentals"
+  | "government_contracts"
+  | "insiders"
+  | "institutional_activity"
+  | "large_trade_contract"
+  | "news"
+  | "press_releases";
+
+const deliveryCategories: { value: DeliveryCategory; label: string; trigger: AlertTriggerType }[] = [
+  { value: "bullish_bearish_monitor", label: "Bullish/bearish monitor", trigger: "monitor_state" },
+  { value: "congress", label: "Congress", trigger: "congress_activity" },
+  { value: "conviction_threshold", label: "Conviction threshold", trigger: "smart_score_threshold" },
+  { value: "cross_source", label: "Cross-source", trigger: "cross_source_confirmation" },
+  { value: "fundamentals", label: "Fundamentals", trigger: "fundamentals" },
+  { value: "government_contracts", label: "Government contracts", trigger: "government_contract" },
+  { value: "insiders", label: "Insiders", trigger: "insider_activity" },
+  { value: "institutional_activity", label: "Institutional activity", trigger: "institutional_activity" },
+  { value: "large_trade_contract", label: "Large trade / contract", trigger: "large_trade_threshold" },
+  { value: "news", label: "News", trigger: "news" },
+  { value: "press_releases", label: "Press releases", trigger: "press_releases" },
+];
+
+const defaultDeliveryModes = (): Record<DeliveryCategory, DeliveryMode> =>
+  Object.fromEntries(deliveryCategories.map((category) => [category.value, "both"])) as Record<DeliveryCategory, DeliveryMode>;
+
+function normalizeDeliveryModes(value: unknown): Record<DeliveryCategory, DeliveryMode> {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const defaults = Object.fromEntries(deliveryCategories.map((category) => [category.value, "off"])) as Record<DeliveryCategory, DeliveryMode>;
+  for (const category of deliveryCategories) {
+    const mode = raw[category.value];
+    if (mode === "off" || mode === "daily" || mode === "intraday" || mode === "both") defaults[category.value] = mode;
+  }
+  return defaults;
+}
+
 const emailStorageKey = "ct:notificationEmail";
 
 const triggerOptions: { value: AlertTriggerType; label: string }[] = [
@@ -93,6 +134,7 @@ export function NotificationPreferences({
   const [dailyDigestEnabled, setDailyDigestEnabled] = useState(true);
   const [intradayAlertsEnabled, setIntradayAlertsEnabled] = useState(true);
   const [watchlistNewsEnabled, setWatchlistNewsEnabled] = useState(false);
+  const [deliveryModes, setDeliveryModes] = useState<Record<DeliveryCategory, DeliveryMode>>(defaultDeliveryModes);
   const [triggers, setTriggers] = useState<AlertTriggerType[]>([
     "cross_source_confirmation",
     "smart_score_threshold",
@@ -128,7 +170,9 @@ export function NotificationPreferences({
   const panelClassName = compact
     ? "min-w-[20rem] space-y-4 font-sans"
     : "min-h-[13.5rem] rounded-lg border border-white/10 bg-slate-950/45 p-5 font-sans shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]";
-  const active = dailyDigestEnabled || intradayAlertsEnabled;
+  const active = sourceType === "watchlist"
+    ? Object.values(deliveryModes).some((mode) => mode !== "off")
+    : dailyDigestEnabled || intradayAlertsEnabled;
   const alertState = subscription ? (active ? "Active" : "Paused") : "Not subscribed";
   const alertStateClassName = subscription
     ? active
@@ -169,7 +213,19 @@ export function NotificationPreferences({
           setDailyDigestEnabled(typeof payload.daily_digest_enabled === "boolean" ? payload.daily_digest_enabled : match.active);
           setIntradayAlertsEnabled(typeof payload.intraday_alerts_enabled === "boolean" ? payload.intraday_alerts_enabled : match.active);
           setWatchlistNewsEnabled(typeof payload.watchlist_news_enabled === "boolean" ? payload.watchlist_news_enabled : false);
-          setTriggers(match.alert_triggers.length ? match.alert_triggers : []);
+          const selectedTriggers = match.alert_triggers.length ? match.alert_triggers : [];
+          setTriggers(selectedTriggers);
+          if (payload.alert_delivery_modes && typeof payload.alert_delivery_modes === "object") {
+            setDeliveryModes(normalizeDeliveryModes(payload.alert_delivery_modes));
+          } else {
+            const daily = typeof payload.daily_digest_enabled === "boolean" ? payload.daily_digest_enabled : match.active;
+            const intraday = typeof payload.intraday_alerts_enabled === "boolean" ? payload.intraday_alerts_enabled : match.active;
+            const legacyMode: DeliveryMode = daily && intraday ? "both" : daily ? "daily" : intraday ? "intraday" : "off";
+            setDeliveryModes(Object.fromEntries(deliveryCategories.map((category) => [
+              category.value,
+              selectedTriggers.includes(category.trigger) ? legacyMode : "off",
+            ])) as Record<DeliveryCategory, DeliveryMode>);
+          }
           if (!accountEmailDestination) window.localStorage.setItem(emailStorageKey, match.email);
         }
       })
@@ -190,7 +246,7 @@ export function NotificationPreferences({
     setTriggers((current) => (current.includes(trigger) ? current.filter((item) => item !== trigger) : [...current, trigger]));
   };
 
-  const save = async () => {
+  const save = async (nextDeliveryModes = deliveryModes) => {
     if (!canUseDigests) {
       setStatus("Email digests and high-signal alerts are included with Premium.");
       return;
@@ -203,6 +259,9 @@ export function NotificationPreferences({
     setLoading(true);
     setStatus(null);
     try {
+      const matrixTriggers = deliveryCategories
+        .filter((category) => nextDeliveryModes[category.value] !== "off")
+        .map((category) => category.trigger);
       const next = await saveNotificationSubscription({
         ...(accountEmailDestination ? {} : { email: trimmedEmail }),
         source_type: sourceType,
@@ -213,10 +272,11 @@ export function NotificationPreferences({
           daily_digest_enabled: dailyDigestEnabled,
           intraday_alerts_enabled: intradayAlertsEnabled,
           watchlist_news_enabled: watchlistNewsEnabled,
+          ...(sourceType === "watchlist" ? { alert_delivery_modes: nextDeliveryModes } : {}),
         },
         only_if_new: onlyIfNew,
-        active,
-        alert_triggers: triggers,
+        active: sourceType === "watchlist" ? Object.values(nextDeliveryModes).some((mode) => mode !== "off") : active,
+        alert_triggers: sourceType === "watchlist" ? matrixTriggers : triggers,
         min_smart_score: minSmartScore,
         large_trade_amount: largeTradeAmount,
       });
@@ -228,6 +288,12 @@ export function NotificationPreferences({
     } finally {
       setLoading(false);
     }
+  };
+
+  const selectDeliveryMode = (category: DeliveryCategory, mode: DeliveryMode) => {
+    const next = { ...deliveryModes, [category]: mode };
+    setDeliveryModes(next);
+    void save(next);
   };
 
   const remove = async () => {
@@ -244,6 +310,72 @@ export function NotificationPreferences({
       setLoading(false);
     }
   };
+
+  if (sourceType === "watchlist") {
+    return (
+      <section className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/45 p-4 shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Monitoring alerts</h2>
+            <p className="mt-1 text-sm text-slate-400">Choose how each type of activity is delivered for this watchlist.</p>
+          </div>
+          <span className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${alertStateClassName}`}>{alertState}</span>
+        </div>
+        {!entitlementsLoaded ? (
+          <div className="mt-4 h-24 animate-pulse rounded-xl bg-white/[0.04]" aria-busy="true" />
+        ) : !canUseDigests ? (
+          <div className="mt-4"><UpgradePrompt title="Premium alerts" body="Email digests and high-signal alerts are included with Premium." compact={true} /></div>
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+            <div className="min-w-[660px]">
+              <div className="grid grid-cols-[minmax(230px,1.8fr)_repeat(4,minmax(82px,0.62fr))] border-b border-white/10 bg-white/[0.04] text-xs font-semibold text-slate-300">
+                <div className="px-3 py-2.5">Alert type</div>
+                {(["off", "daily", "intraday", "both"] as DeliveryMode[]).map((mode) => <div key={mode} className="px-2 py-2.5 text-center capitalize">{mode}</div>)}
+              </div>
+              {deliveryCategories.map((category) => (
+                <div key={category.value} className="grid grid-cols-[minmax(230px,1.8fr)_repeat(4,minmax(82px,0.62fr))] border-b border-white/10 last:border-b-0">
+                  <div className="px-3 py-2 text-sm font-medium text-slate-100">{category.label}</div>
+                  {(["off", "daily", "intraday", "both"] as DeliveryMode[]).map((mode) => {
+                    const selected = deliveryModes[category.value] === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        aria-label={`${category.label}: ${mode}`}
+                        disabled={loading}
+                        onClick={() => selectDeliveryMode(category.value, mode)}
+                        className={`flex items-center justify-center border-l border-white/10 py-2 transition disabled:opacity-60 ${selected ? "bg-emerald-400/10" : "hover:bg-white/[0.03]"}`}
+                      >
+                        <span className={`h-4 w-4 rounded-full border-2 ${selected ? "border-emerald-200 bg-emerald-300 shadow-[0_0_0_3px_rgba(52,211,153,0.15)]" : "border-slate-500"}`} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <DigestSwitch
+            checked={onlyIfNew}
+            disabled={!canUseDigests || loading}
+            label="Daily digest only when new"
+            description="Skip the daily email unless qualifying activity occurred."
+            onCheckedChange={(checked) => { setOnlyIfNew(checked); }}
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => void save()} disabled={loading || !canUseDigests} className={subtlePrimaryButtonClassName}>
+              {loading ? "Saving..." : subscription ? "Save digest setting" : "Start monitoring"}
+            </button>
+            <span className="text-xs text-slate-500">Each row independently controls daily and intraday delivery.</span>
+          </div>
+        </div>
+        {status ? <p className="mt-3 text-sm text-slate-400" role="status">{status}</p> : null}
+      </section>
+    );
+  }
 
   return (
     <div className={panelClassName}>
@@ -315,15 +447,6 @@ export function NotificationPreferences({
             onCheckedChange={setOnlyIfNew}
           />
 
-          {sourceType === "watchlist" ? (
-            <DigestSwitch
-              checked={watchlistNewsEnabled}
-              disabled={!canUseDigests || !dailyDigestEnabled}
-              label="Watchlist news and press releases"
-              description="Add ticker news links, article thumbnails, and issuer press release links to daily digests."
-              onCheckedChange={setWatchlistNewsEnabled}
-            />
-          ) : null}
         </div>
 
         <div className="space-y-2">
@@ -358,7 +481,7 @@ export function NotificationPreferences({
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <button
           type="button"
-          onClick={save}
+          onClick={() => void save()}
           disabled={loading || !canUseDigests}
           className={subtlePrimaryButtonClassName}
         >

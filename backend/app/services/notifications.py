@@ -31,6 +31,8 @@ SUPPORTED_ALERT_TRIGGERS = {
     "event_calendar",
     "saved_screen_entry",
     "monitor_state",
+    "news",
+    "press_releases",
 }
 
 MONITOR_STATE_EVENT_TYPES = {

@@ -598,6 +598,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             "signal_score",
             "direction",
             "trigger",
+            "monitored_through",
+            "monitoring_source_type",
+            "alert_type",
             "why_notable",
             "source_stack",
             "event_date",
@@ -657,6 +660,9 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             "signal_score",
             "direction",
             "trigger",
+            "monitored_through",
+            "monitoring_source_type",
+            "alert_type",
             "why_notable",
             "source_stack",
             "event_date",
@@ -666,7 +672,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             greeting="Hello {{first_name}},",
             intro="{{alert_intro}}",
             sections=[
-                "Intraday Monitoring Alert\nTicker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nTrigger: {{trigger}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}\nObserved: {{event_date}}",
+                "Intraday Monitoring Alert\nTicker: {{ticker}}\nMonitored through: {{monitored_through}}\nType: {{monitoring_source_type}}\nAlert type: {{alert_type}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nObserved: {{event_date}}",
                 "Daily Monitoring Digest\nNormal monitoring activity that does not clear intraday criteria is summarized in the daily monitoring digest.",
             ],
             cta_label="Review monitoring",
@@ -682,11 +688,12 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             content_html=walnut_metric_card(
                 [
                     ("Ticker", "{{ticker}}"),
+                    ("Monitored through", "{{monitored_through}}"),
+                    ("Type", "{{monitoring_source_type}}"),
+                    ("Alert type", "{{alert_type}}"),
                     ("Signal score", "{{signal_score}}"),
                     ("Direction", "{{direction}}"),
-                    ("Trigger", "{{trigger}}"),
                     ("Why notable", "{{why_notable}}"),
-                    ("Source stack", "{{source_stack}}"),
                 ]
             )
             + walnut_info_card("Daily Monitoring Digest", "Normal monitoring activity that does not clear intraday criteria is summarized in the daily monitoring digest."),

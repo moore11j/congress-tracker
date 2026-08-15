@@ -23,7 +23,7 @@ test("account nav renders unread badges only when unread count is positive", () 
   assert.match(accountNavSource, /onMouseEnter=\{\(\) => setMenuOpen\(true\)\}/);
   assert.match(accountNavSource, /onClick=\{\(\) => setMenuOpen\(\(open\) => !open\)\}/);
   assert.match(accountNavSource, /pointer-events-none absolute -right-1 -top-1/);
-  assert.match(accountNavSource, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?\{unreadLabel\}/);
+  assert.match(accountNavSource, /href="\/monitoring"[\s\S]*?<span>Inbox &amp; Monitoring<\/span>[\s\S]*?\{unreadLabel\}/);
   assert.match(accountNavSource, /bg-red-500/);
   assert.match(accountNavSource, /unreadCount > 9 \? "9\+"/);
   assert.match(accountNavSource, /event instanceof CustomEvent/);
@@ -56,6 +56,9 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.match(monitoringSource, /isSavedScreenSourceType/);
   assert.match(monitoringSource, /applyInboxMutation/);
   assert.match(monitoringSource, /mergeInboxCounts/);
+  assert.match(monitoringSource, /stopMonitoringSource/);
+  assert.match(monitoringSource, /Monitored through/);
+  assert.match(monitoringSource, /Trigger/);
 });
 
 test("api client includes read and unread monitoring mutations", () => {

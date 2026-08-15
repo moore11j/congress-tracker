@@ -58,6 +58,7 @@ export function WatchlistTickerManager({
     { title: "Institutions in this watchlist", empty: "No institutions followed yet.", items: institutions },
   ]);
   const [symbol, setSymbol] = useState("");
+  const [showAllTickers, setShowAllTickers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
@@ -187,12 +188,14 @@ export function WatchlistTickerManager({
     });
   };
 
+  const visibleRows = showAllTickers ? rows : rows.slice(0, 12);
+
   return (
-    <div className="w-full min-w-0 rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
+    <div className="w-full min-w-0 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-card">
       <div className="flex flex-col gap-3 border-b border-white/10 pb-4">
         <h2 className="text-lg font-semibold text-white">Tickers in this watchlist</h2>
-        <p className="text-sm text-slate-400">Add symbols to shape the monitoring feed for this research theme.</p>
-        <form onSubmit={handleAdd} className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <p className="text-sm text-slate-400">Add a ticker to shape the monitoring feed for this watchlist.</p>
+        <form onSubmit={handleAdd} className="flex gap-2">
           <WatchlistTickerAutocomplete
             value={symbol}
             onChange={setSymbol}
@@ -221,12 +224,12 @@ export function WatchlistTickerManager({
           />
         ) : null}
       </div>
-      <div className="mt-4 flex flex-col gap-3">
+      <div className="mt-3 divide-y divide-white/10 overflow-hidden rounded-xl border border-white/10">
         {rows.length === 0 ? (
           <p className="text-sm text-slate-400">No tickers yet. Add a symbol to start tracking filings, insider trades, and signals.</p>
         ) : (
-          rows.map((ticker) => (
-            <div key={ticker.symbol} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+          visibleRows.map((ticker) => (
+            <div key={ticker.symbol} className="flex items-center justify-between gap-3 bg-white/[0.025] px-3 py-2.5">
               <div className="min-w-0">
                 {tickerHref(ticker.symbol) ? (
                   <Link href={tickerHref(ticker.symbol)!} prefetch={false} className={tickerLinkClassName}>
@@ -239,16 +242,23 @@ export function WatchlistTickerManager({
               </div>
               <button
                 type="button"
-                className={ghostButtonClassName}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-lg leading-none text-slate-300 transition hover:bg-rose-400/10 hover:text-rose-200 disabled:opacity-60"
                 onClick={() => handleRemove(ticker.symbol)}
                 disabled={isPending}
+                aria-label={`Remove ${ticker.symbol}`}
+                title={`Remove ${ticker.symbol}`}
               >
-                Remove
+                ×
               </button>
             </div>
           ))
         )}
       </div>
+      {rows.length > 12 ? (
+        <button type="button" onClick={() => setShowAllTickers((value) => !value)} className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-sky-300 hover:border-sky-300/30 hover:text-sky-200">
+          {showAllTickers ? "Show fewer tickers" : `View all ${rows.length} tickers →`}
+        </button>
+      ) : null}
       <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
         {targetSections.map((section) => (
           <div key={section.title} className="space-y-3">

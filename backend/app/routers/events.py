@@ -63,6 +63,7 @@ from app.services.institutional_activity import (
 from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.services.feed_cache_epoch import current_feed_events_epoch
+from app.services.watchlist_content_events import sync_watchlist_content_events
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 from app.request_guards import (
@@ -6132,6 +6133,7 @@ def list_watchlist_events(
     ).scalar_one_or_none()
     if not watchlist:
         raise HTTPException(status_code=404, detail="Watchlist not found")
+    sync_watchlist_content_events(db, id)
 
     symbols = (
         db.execute(

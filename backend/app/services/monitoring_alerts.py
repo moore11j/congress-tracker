@@ -15,6 +15,7 @@ from app.services.government_departments import canonical_department_name
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import build_monitoring_event_title
 from app.services.ticker_meta import normalize_cik
+from app.services.watchlist_content_events import sync_watchlist_content_events
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ ALERTABLE_EVENT_TYPES = (
     "government_contract",
     "government_contract_new",
     "analyst_consensus_change",
+    "news_article",
+    "press_release",
     "institutional_activity_change",
     *INSTITUTIONAL_EVENT_TYPES,
 )
@@ -406,6 +409,10 @@ def refresh_watchlist_alerts(
     lookback_days: int = 7,
     force_lookback: bool = False,
 ) -> int:
+    # News and releases are fetched by the existing ticker-content ingestion
+    # pipeline. Materialize that durable cache before matching Events so the
+    # inbox and both email jobs share one provenance-bearing event record.
+    sync_watchlist_content_events(db, watchlist.id)
     can_view_institutional, can_view_signal_context = _visibility_for_user(db, user_id)
     symbols = watchlist_symbols(db, watchlist.id)
     targets = watchlist_targets(db, watchlist.id)
@@ -720,8 +727,13 @@ def alert_to_dict(alert: MonitoringAlert, *, can_view_signal_context: bool = Tru
         "source_type": alert.source_type,
         "source_id": alert.source_id,
         "source_name": alert.source_name,
+        "monitoring_source_type": alert.source_type,
+        "monitoring_source_id": alert.source_id,
+        "monitoring_source_name": alert.source_name,
         "event_id": alert.event_id,
         "alert_type": alert.alert_type,
+        "trigger_type": alert.alert_type,
+        "data_category": alert.alert_type,
         "symbol": alert.symbol,
         "title": alert.title,
         "description": alert.body,
@@ -945,6 +957,8 @@ def _event_title(event: Event, payload: dict[str, Any]) -> str:
 
 
 def _event_body(event: Event, payload: dict[str, Any]) -> str | None:
+    if event.event_type in {"news_article", "press_release"}:
+        return payload.get("summary") or payload.get("publisher") or "New watchlist market content."
     date_value = (
         payload.get("filing_date")
         or payload.get("filingDate")

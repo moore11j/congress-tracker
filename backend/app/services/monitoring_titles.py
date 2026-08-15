@@ -101,6 +101,10 @@ def build_monitoring_event_title(event: Event, payload: dict[str, Any]) -> str:
     if symbol:
         symbol = symbol.upper()
 
+    if event.event_type in {"news_article", "press_release"}:
+        headline = _clean_text(payload.get("title")) or event.event_type.replace("_", " ").title()
+        return " - ".join(part for part in (symbol, "News" if event.event_type == "news_article" else "Press release", headline) if part)
+
     if event.event_type in INSTITUTIONAL_EVENT_TYPES:
         action = _institutional_action_label(event.event_type, event.trade_type, event.transaction_type, payload)
         return " - ".join(part for part in (symbol, "Institutional Activity", action) if part)

@@ -41,6 +41,8 @@ from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
+from app.services.watchlist_content_events import sync_watchlist_content_events
+from app.services.watchlist_delivery import category_for_trigger, categories_for_event, is_delivery_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,8 @@ ALERT_EVENT_TYPES = (
     "fundamentals_change",
     "fundamentals_flip",
     "signal",
+    "news_article",
+    "press_release",
 )
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 GOVERNMENT_CONTRACT_ALERT_TYPES = (
@@ -1036,6 +1040,7 @@ def _watchlist_events(
     user: UserAccount,
     subscription: NotificationSubscription | None,
 ) -> list[Event]:
+    sync_watchlist_content_events(db, watchlist_id)
     symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
         return []
@@ -1117,12 +1122,15 @@ def _watchlist_market_news_items(
     since: datetime,
     subscription: NotificationSubscription | None,
 ) -> list[dict[str, Any]]:
+    # Matrix subscribers use persisted Event rows exclusively. Retain this
+    # provider fallback only for untouched legacy subscriptions so existing
+    # `watchlist_news_enabled` customers are not silently switched off before
+    # their next preference save.
+    if subscription is None or "alert_delivery_modes" in _subscription_payload(subscription):
+        return []
     if not _watchlist_market_news_enabled(subscription):
         return []
     symbols = _watchlist_symbols(db, watchlist.id)
-    if not symbols:
-        return []
-
     collected: list[dict[str, Any]] = []
     for symbol in symbols:
         for kind, getter in (("news_article", get_stock_news), ("press_release", get_press_releases)):
@@ -1130,25 +1138,16 @@ def _watchlist_market_news_items(
                 payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
             except Exception:
                 continue
-            rows = payload.get("items") if isinstance(payload, dict) else None
-            if not isinstance(rows, list):
-                continue
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                item = _market_news_item(symbol, kind, row, since=since)
-                if item:
+            for row in payload.get("items", []) if isinstance(payload, dict) else []:
+                if isinstance(row, dict) and (item := _market_news_item(symbol, kind, row, since=since)):
                     collected.append(item)
-
-    seen_urls: set[str] = set()
     deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for item in sorted(collected, key=lambda row: str(row.get("sort_timestamp") or ""), reverse=True):
-        url = str(item.get("url") or "").strip()
-        key = url.lower() or f"{item.get('kind')}:{item.get('ticker')}:{item.get('title')}:{item.get('published_at')}"
-        if key in seen_urls:
-            continue
-        seen_urls.add(key)
-        deduped.append(item)
+        key = str(item.get("url") or "").lower()
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(item)
         if len(deduped) >= WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT:
             break
     return deduped
@@ -1168,6 +1167,10 @@ def _subscription_has_trigger_filters(subscription: NotificationSubscription | N
 def _watchlist_event_allowed(subscription: NotificationSubscription | None, event: Event) -> bool:
     if subscription is None:
         return True
+    payload = _loads_dict(event.payload_json)
+    categories = categories_for_event(event.event_type, payload)
+    if categories and not any(is_delivery_enabled(subscription, category, "daily") for category in categories):
+        return False
     return _subscription_allows_any_trigger(subscription, _watchlist_event_triggers(event))
 
 
@@ -1187,6 +1190,10 @@ def _watchlist_event_triggers(event: Event) -> set[str]:
         triggers.add("congress_activity")
     if event_type.startswith("insider_trade"):
         triggers.add("insider_activity")
+    if event_type in {"news", "news_article", "market_news"}:
+        triggers.add("news")
+    if event_type in {"press_release", "press_releases", "issuer_press_release"}:
+        triggers.add("press_releases")
     if _numeric_score(payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)) is not None:
         triggers.add("smart_score_threshold")
     if event.amount_max is not None or event.amount_min is not None:
@@ -1197,6 +1204,11 @@ def _watchlist_event_triggers(event: Event) -> set[str]:
 
 
 def _subscription_allows_any_trigger(subscription: NotificationSubscription, item_triggers: set[str]) -> bool:
+    if subscription.source_type == "watchlist" and isinstance(_subscription_payload(subscription).get("alert_delivery_modes"), dict):
+        for trigger in item_triggers:
+            category = category_for_trigger(trigger)
+            if category and is_delivery_enabled(subscription, category, "daily"):
+                return True
     selected = set(normalize_alert_triggers(_loads_list(subscription.alert_triggers_json)))
     if not selected:
         return False
@@ -1515,6 +1527,8 @@ def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
         "timestamp": _format_datetime(event.created_at),
         "sort_timestamp": _coerce_aware(event.created_at).isoformat() if event.created_at else "",
         "reason": event.body or payload.get("event_type") or event.event_type,
+        "monitored_through": "Watchlist",
+        "monitoring_source_type": "Watchlist",
         "source_type": "confirmation_monitoring",
         "source_id": str(event.watchlist_id),
         "alert_type": event.event_type,
@@ -1536,6 +1550,8 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "timestamp": _format_datetime(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
         "reason": alert.body or alert.alert_type.replace("_", " "),
+        "monitored_through": alert.source_name,
+        "monitoring_source_type": "Watchlist" if alert.source_type == "watchlist" else alert.source_type.replace("_", " ").title(),
         "source_type": alert.source_type,
         "source_id": alert.source_id,
         "alert_type": alert.alert_type,
@@ -2025,7 +2041,7 @@ def _monitoring_items_text(items: list[dict[str, Any]]) -> str:
     if not items:
         return "No monitoring changes."
     return "\n".join(
-        f"- {item['ticker']}: {item['title']} | score {item['score_change']} | direction {item['direction_change']} | {item['timestamp']} | {item['reason']}"
+        f"- {item['ticker']}: {item['title']} | score {item['score_change']} | direction {item['direction_change']} | {item['reason']} | monitored through {item.get('monitored_through', '--')} | {item['timestamp']}"
         for item in items
     )
 
@@ -2039,11 +2055,12 @@ def _monitoring_items_html(items: list[dict[str, Any]]) -> str:
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['title']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['score_change']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['direction_change']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('monitored_through', '--')))}<br><span style=\"color:#64748b;font-size:11px;\">{html_escape(str(item.get('alert_type', ''))).replace('_', ' ')}</span></td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item['timestamp']))}</td>"
         "</tr>"
         for item in items
     )
-    return _table(["Ticker", "Title", "Score", "Direction", "Time"], rows)
+    return _table(["Ticker", "What changed", "Score", "Direction", "Monitored through", "Time"], rows)
 
 
 def _signal_items_text(items: list[dict[str, Any]]) -> str:

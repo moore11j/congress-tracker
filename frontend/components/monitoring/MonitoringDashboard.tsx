@@ -8,8 +8,6 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   ApiError,
-  deleteNotificationSubscription,
-  deleteStrategySubscription,
   getEntitlements,
   getEvents,
   hasClientAuthHint,
@@ -20,6 +18,7 @@ import {
   markMonitoringItemsRead,
   markMonitoringItemsUnread,
   listSavedScreenEvents,
+  stopMonitoringSource,
   getWatchlistEvents,
   type EventItem,
   type MonitoringReadMutationResponse,
@@ -123,6 +122,11 @@ function sourceTypeLabel(sourceType: string) {
   if (sourceType === "strategy") return "strategy";
   if (sourceType === "confirmation_monitoring") return "confirmation monitoring";
   return sourceType.replaceAll("_", " ");
+}
+
+function monitoringCategoryLabel(value: string | null | undefined) {
+  if (!value) return "Monitoring update";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function sourceGroup(sourceType: string): MonitoringSourceGroup {
@@ -444,11 +448,16 @@ function removeInboxSource(current: MonitoringInboxResponse | null, source: Moni
     sources: nextSources,
     ...countSummary,
   };
+  const excludesSource = (item: { source_type: string; source_id: string }) =>
+    normalizedMonitoringSourceType(item.source_type) === removedType && String(item.source_id) === removedId;
   return {
     ...current,
     unread_total: nextUnreadTotal,
     sources: nextSources,
     counts: nextCounts,
+    latest_important: (current.latest_important ?? []).filter((item) => !excludesSource(item)),
+    alerts: (current.alerts ?? []).filter((item) => !excludesSource(item)),
+    items: (current.items ?? []).filter((item) => !excludesSource(item)),
   };
 }
 
@@ -465,6 +474,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const [watchlistsStatus, setWatchlistsStatus] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [inboxSourceFilter, setInboxSourceFilter] = useState("all");
+  const [inboxCategoryFilter, setInboxCategoryFilter] = useState("all");
   const [inboxPageSize, setInboxPageSize] = useState<5 | 10 | 25>(5);
   const [inboxPage, setInboxPage] = useState(1);
   const [pendingRemoveSource, setPendingRemoveSource] = useState<MonitoredSourceRow | null>(null);
@@ -608,11 +619,31 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       ),
     [inbox],
   );
+  const inboxSourceFilterOptions = useMemo(
+    () => Array.from(new Set(inboxItems.map((item) => normalizedMonitoringSourceType(item.monitoring_source_type ?? item.source_type)))).sort(),
+    [inboxItems],
+  );
+  const inboxCategoryFilterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          inboxItems
+            .map((item) => item.data_category ?? item.trigger_type ?? item.alert_type)
+            .filter((category): category is string => Boolean(category)),
+        ),
+      ).sort(),
+    [inboxItems],
+  );
   const filteredInboxItems = useMemo(() => {
-    if (inboxFilter === "unread") return inboxItems.filter((item) => item.is_unread ?? !item.read_at);
-    if (inboxFilter === "read") return inboxItems.filter((item) => item.is_read ?? Boolean(item.read_at));
-    return inboxItems;
-  }, [inboxFilter, inboxItems]);
+    return inboxItems.filter((item) => {
+      const unread = item.is_unread ?? !item.read_at;
+      if (inboxFilter === "unread" && !unread) return false;
+      if (inboxFilter === "read" && unread) return false;
+      if (inboxSourceFilter !== "all" && normalizedMonitoringSourceType(item.monitoring_source_type ?? item.source_type) !== inboxSourceFilter) return false;
+      const category = item.data_category ?? item.trigger_type ?? item.alert_type;
+      return inboxCategoryFilter === "all" || category === inboxCategoryFilter;
+    });
+  }, [inboxCategoryFilter, inboxFilter, inboxItems, inboxSourceFilter]);
   const totalInboxPages = Math.max(1, Math.ceil(filteredInboxItems.length / inboxPageSize));
   const currentInboxPage = Math.min(inboxPage, totalInboxPages);
   const pagedInboxItems = useMemo(() => {
@@ -708,13 +739,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     setPendingRemoveKey(actionKey);
     setReadActionMessage(null);
     try {
-      if (source.sourceType === "strategy") {
-        await deleteStrategySubscription(source.sourceId);
-      } else if (source.subscriptionId) {
-        await deleteNotificationSubscription(source.subscriptionId);
-      } else {
-        throw new Error("Missing monitoring subscription.");
-      }
+      await stopMonitoringSource(normalizedMonitoringSourceType(source.sourceType), source.sourceId);
       setInbox((current) => removeInboxSource(current, source));
       setPendingRemoveSource(null);
       setReadActionMessage("Monitoring removed.");
@@ -757,7 +782,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
   useEffect(() => {
     setInboxPage(1);
-  }, [inboxFilter, inboxPageSize]);
+  }, [inboxCategoryFilter, inboxFilter, inboxPageSize, inboxSourceFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -862,35 +887,44 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, [visibleSavedViews]);
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-3 sm:grid-cols-3">
+    <div className="flex flex-col gap-6">
+      <section className="order-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Watchlists</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Watchlist events</div>
           <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : totalWatchlistNew}</div>
-          <p className="mt-1 text-sm text-slate-400">new items</p>
+          <p className="mt-1 text-sm text-slate-400">new</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved screens</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved screen events</div>
           <div className="mt-2 text-3xl font-semibold text-white">{inboxStatus && !inbox ? "-" : totalSavedViewNew}</div>
-          <p className="mt-1 text-sm text-slate-400">new items</p>
+          <p className="mt-1 text-sm text-slate-400">new</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources monitored</div>
           <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : monitoredSourceCount}</div>
-          <p className="mt-1 text-sm text-slate-400">monitored</p>
+          <p className="mt-1 text-sm text-slate-400">active</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Alerts today</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{inboxStatus && !inbox ? "-" : inbox?.unread_total ?? 0}</div>
+          <p className="mt-1 text-sm text-slate-400">unread</p>
         </div>
       </section>
 
       {!entitlementsLoading && hiddenSourceCount > 0 ? (
-        <UpgradePrompt
+        <div className="order-2">
+          <UpgradePrompt
           title="Monitor every source with Premium"
           body={`Free monitors ${monitoringLimit} sources in the inbox. ${hiddenSourceCount} saved source${hiddenSourceCount === 1 ? " is" : "s are"} waiting behind the Premium limit.`}
-        />
+          />
+        </div>
       ) : null}
 
-      <EventCalendarPanel canUseEventCalendar={canUseEventCalendar} loadingEntitlements={entitlementsLoading} />
+      <div className="order-4 xl:order-3">
+        <EventCalendarPanel canUseEventCalendar={canUseEventCalendar} loadingEntitlements={entitlementsLoading} />
+      </div>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(280px,0.8fr)_minmax(520px,1.4fr)]">
+      <section className="order-3 grid gap-6 xl:order-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(520px,1.4fr)]">
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -932,7 +966,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       subtitle={source.subtitle}
                       countLabel={source.countLabel}
                       countClassName={source.countClassName}
-                      onRemove={source.subscriptionId ? () => setPendingRemoveSource(source) : undefined}
+                      onRemove={() => setPendingRemoveSource(source)}
                       removeDisabled={Boolean(pendingRemoveKey)}
                     />
                   ))}
@@ -985,6 +1019,36 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                 {filter}
               </button>
             ))}
+            {inboxSourceFilterOptions.length > 1 ? (
+              <label className="ml-1 flex items-center gap-2 text-xs font-semibold text-slate-400">
+                Source
+                <select
+                  value={inboxSourceFilter}
+                  onChange={(event) => setInboxSourceFilter(event.target.value)}
+                  className="rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-xs font-semibold text-slate-200 outline-none transition focus:border-emerald-300/40"
+                >
+                  <option value="all">All sources</option>
+                  {inboxSourceFilterOptions.map((sourceType) => (
+                    <option key={sourceType} value={sourceType}>{sourceTypeLabel(sourceType)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {inboxCategoryFilterOptions.length > 1 ? (
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                Event
+                <select
+                  value={inboxCategoryFilter}
+                  onChange={(event) => setInboxCategoryFilter(event.target.value)}
+                  className="rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-xs font-semibold text-slate-200 outline-none transition focus:border-emerald-300/40"
+                >
+                  <option value="all">All events</option>
+                  {inboxCategoryFilterOptions.map((category) => (
+                    <option key={category} value={category}>{monitoringCategoryLabel(category)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-slate-950/40 p-2">
@@ -1048,10 +1112,10 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                 const unread = item.is_unread ?? !item.read_at;
                 const displayTitle = displayMonitoringAlertTitle(item);
                 const href =
-                  item.source_type === "watchlist"
-                    ? `/watchlists/${encodeURIComponent(item.source_id)}?mode=all&recent_days=30&limit=25&only_new=1`
-                    : item.symbol
-                      ? `/ticker/${encodeURIComponent(item.symbol)}`
+                  item.symbol
+                    ? `/ticker/${encodeURIComponent(item.symbol)}`
+                    : item.source_type === "watchlist"
+                      ? `/watchlists/${encodeURIComponent(item.source_id)}?mode=all&recent_days=30&limit=25&only_new=1`
                       : "/monitoring";
                 return (
                 <div
@@ -1079,10 +1143,11 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       ) : null}
                       </div>
                       {item.description || item.body ? <p className="mt-1 text-sm text-slate-400">{item.description ?? item.body}</p> : null}
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                        <span>{item.source_name}</span>
-                        <span>{sourceTypeLabel(item.source_type)}</span>
-                        {item.symbol ? <span>{item.symbol}</span> : null}
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                        {item.symbol ? <span className="font-semibold text-slate-300">{item.symbol}</span> : null}
+                        <span><span className="text-slate-600">Monitored through </span>{item.monitoring_source_name ?? item.source_name}</span>
+                        <span><span className="text-slate-600">Trigger </span>{monitoringCategoryLabel(item.trigger_type ?? item.alert_type)}</span>
+                        <span>{sourceTypeLabel(item.monitoring_source_type ?? item.source_type)}</span>
                         <span>{new Date(item.timestamp ?? item.event_created_at ?? item.created_at).toLocaleString()}</span>
                       </div>
                     </Link>

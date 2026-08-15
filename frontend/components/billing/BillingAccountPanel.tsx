@@ -296,7 +296,7 @@ export function BillingAccountPanel() {
         <Metric label="Watchlists" value={entitlements.limits.watchlists} />
         <Metric label="Tickers per list" value={entitlements.limits.watchlist_tickers} />
         <Metric label="Saved views" value={entitlements.limits.saved_views} />
-        <Metric label="Inbox sources" value={entitlements.limits.monitoring_sources} />
+        <Metric label="Monitored sources" value={entitlements.limits.monitoring_sources} />
       </div>
 
       {nonRenewing ? (

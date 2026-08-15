@@ -1086,7 +1086,9 @@ export type AlertTriggerType =
   | "fundamentals"
   | "event_calendar"
   | "saved_screen_entry"
-  | "monitor_state";
+  | "monitor_state"
+  | "news"
+  | "press_releases";
 
 export type EventCalendarScope = "watchlist";
 export type EventCalendarKind = "economic" | "earnings" | "dividend" | "ipo" | "split";
@@ -8313,6 +8315,12 @@ export async function getMonitoringInbox(authToken?: string, options?: { source?
     cache: "no-store",
     next: { revalidate: 0 },
     source: options?.source ?? "MonitoringInbox",
+  });
+}
+
+export async function stopMonitoringSource(sourceType: string, sourceId: string): Promise<void> {
+  return fetchNoContent(buildApiUrl(`/api/monitoring/sources/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}`), {
+    method: "DELETE",
   });
 }
 

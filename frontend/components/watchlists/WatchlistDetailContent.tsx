@@ -6,7 +6,7 @@ import { NotificationPreferences } from "@/components/notifications/Notification
 import { ConfirmationMonitoringPanel } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
 import { WatchlistRecentActivity } from "@/components/watchlists/WatchlistRecentActivity";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
-import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
+import { ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { ConfirmationMonitoringEvent, FeedItem, WatchlistDetail } from "@/lib/types";
 import type { WatchlistActivityState } from "@/lib/watchlistActivity";
 
@@ -77,7 +77,7 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
         </div>
       </div>
 
-      <div className="grid w-full min-w-0 gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+      <div className="grid w-full min-w-0 gap-6 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
         <WatchlistTickerManager
           watchlistId={watchlist.watchlist_id}
           tickers={watchlist.tickers}
@@ -87,7 +87,7 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
           institutions={watchlist.institutions}
         />
 
-        <section className={`${cardClassName} min-w-0 space-y-4`}>
+        <div className="min-w-0 space-y-4">
           <NotificationPreferences
             sourceType="watchlist"
             sourceId={String(watchlist.watchlist_id)}
@@ -99,18 +99,19 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
             }}
           />
 
-          <ConfirmationMonitoringPanel watchlistId={watchlist.watchlist_id} initialEvents={confirmationEvents} />
-
-          <WatchlistRecentActivity
-            watchlistId={watchlist.watchlist_id}
-            tickerCount={watchlist.tickers.length}
-            unseenCount={unseenCount}
-            unseenSince={watchlist.unseen_since ?? ""}
-            initialState={initialState}
-            initialData={initialData}
-            canViewPremiumMetrics={canViewPremiumMetrics}
-          />
-        </section>
+          <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <ConfirmationMonitoringPanel watchlistId={watchlist.watchlist_id} initialEvents={confirmationEvents} />
+            <WatchlistRecentActivity
+              watchlistId={watchlist.watchlist_id}
+              tickerCount={watchlist.tickers.length}
+              unseenCount={unseenCount}
+              unseenSince={watchlist.unseen_since ?? ""}
+              initialState={initialState}
+              initialData={initialData}
+              canViewPremiumMetrics={canViewPremiumMetrics}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
