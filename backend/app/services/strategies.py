@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -21,6 +22,8 @@ from app.models import (
     StrategyTrade,
     StrategyVersion,
     ReplicatedPortfolioPosition,
+    HouseAnnualDisclosureDocument,
+    HouseAnnualDisclosureHolding,
 )
 
 STRATEGY_SORT_FIELDS = {
@@ -39,6 +42,8 @@ STRATEGY_PERIOD_DAYS = {
     "3y": 1095,
 }
 
+_INDIVIDUAL_CONGRESS_PORTFOLIO_SLUG = re.compile(r"^congress-portfolio-([a-z]\d{6})-\d+d$", re.IGNORECASE)
+
 
 def _json_loads(value: str | None, fallback: Any) -> Any:
     if not value:
@@ -55,6 +60,109 @@ def _iso(value: Any) -> str | None:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     return str(value)
+
+
+def _individual_congress_member_id(slug: str) -> str | None:
+    match = _INDIVIDUAL_CONGRESS_PORTFOLIO_SLUG.fullmatch((slug or "").strip())
+    return match.group(1).upper() if match else None
+
+
+def _annual_disclosure_value_bounds(holdings: list[HouseAnnualDisclosureHolding]) -> tuple[float | None, float | None]:
+    lower_total = 0.0
+    upper_total = 0.0
+    has_lower = False
+    has_open_upper_bound = False
+    for holding in holdings:
+        if holding.value_min is not None:
+            lower_total += float(holding.value_min)
+            has_lower = True
+        if holding.value_max is None:
+            has_open_upper_bound = True
+        else:
+            upper_total += float(holding.value_max)
+    return (lower_total if has_lower else None, None if has_open_upper_bound else upper_total)
+
+
+def _reported_holdings_payload(
+    db: Session,
+    *,
+    strategy_slug: str,
+    offset: int,
+    limit: int,
+) -> dict[str, Any] | None:
+    """Return the latest official House filing for an individual portfolio strategy.
+
+    This is intentionally separate from the point-in-time backtest holdings.
+    """
+    member_id = _individual_congress_member_id(strategy_slug)
+    if member_id is None:
+        return None
+    document = (
+        db.execute(
+            select(HouseAnnualDisclosureDocument)
+            .where(HouseAnnualDisclosureDocument.member_bioguide_id == member_id)
+            .order_by(
+                HouseAnnualDisclosureDocument.filing_year.desc(),
+                HouseAnnualDisclosureDocument.filing_date.desc(),
+                HouseAnnualDisclosureDocument.document_id.desc(),
+            )
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if document is None:
+        return {
+            "status": "unavailable",
+            "memberId": member_id,
+            "source": "annual_financial_disclosure",
+            "reason": "No verified annual disclosure snapshot has been ingested for this member.",
+            "report": None,
+            "total": 0,
+            "offset": offset,
+            "items": [],
+        }
+
+    all_holdings = (
+        db.execute(
+            select(HouseAnnualDisclosureHolding)
+            .where(HouseAnnualDisclosureHolding.document_row_id == int(document.id))
+            .order_by(HouseAnnualDisclosureHolding.asset_name.asc(), HouseAnnualDisclosureHolding.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    value_lower_bound, value_upper_bound = _annual_disclosure_value_bounds(all_holdings)
+    holdings = all_holdings[offset : offset + limit]
+    return {
+        "status": "ok",
+        "memberId": member_id,
+        "source": document.source,
+        "report": {
+            "documentId": document.document_id,
+            "filingYear": document.filing_year,
+            "filingType": document.filing_type,
+            "filingDate": _iso(document.filing_date),
+            "reportUrl": document.report_url,
+        },
+        "total": len(all_holdings),
+        "offset": offset,
+        "visibleSymbols": sorted({str(holding.symbol).strip().upper() for holding in all_holdings if holding.symbol and str(holding.symbol).strip()}),
+        "valueLowerBound": value_lower_bound,
+        "valueUpperBound": value_upper_bound,
+        "items": [
+            {
+                "assetName": holding.asset_name,
+                "symbol": holding.symbol,
+                "owner": holding.owner,
+                "assetType": holding.asset_type,
+                "valueRange": holding.value_range,
+                "valueMin": holding.value_min,
+                "valueMax": holding.value_max,
+            }
+            for holding in holdings
+        ],
+    }
 
 
 def _can_follow_strategy(entitlements: TierEntitlements) -> bool:
@@ -328,6 +436,8 @@ def strategy_detail(
     holdings_limit: int = 20,
     history_offset: int = 0,
     history_limit: int = 20,
+    reported_offset: int = 0,
+    reported_limit: int = 20,
     include_drafts: bool = False,
 ) -> dict[str, Any]:
     statement = select(StrategyDefinition).where(StrategyDefinition.slug == slug)
@@ -380,6 +490,8 @@ def strategy_detail(
     holdings_limit = max(1, min(100, int(holdings_limit)))
     history_offset = max(0, int(history_offset))
     history_limit = max(1, min(100, int(history_limit)))
+    reported_offset = max(0, int(reported_offset))
+    reported_limit = max(1, min(100, int(reported_limit)))
     live_holdings_count = int(
         db.execute(
             select(func.count()).select_from(StrategyLiveHolding).where(StrategyLiveHolding.strategy_id == int(strategy.id))
@@ -547,6 +659,12 @@ def strategy_detail(
     payload["transactionHistoryTotal"] = transaction_total
     payload["transactionHistoryOffset"] = history_offset
     payload["transactionHistoryStartDate"] = _iso(history_start_date)
+    payload["reportedHoldings"] = _reported_holdings_payload(
+        db,
+        strategy_slug=strategy.slug,
+        offset=reported_offset,
+        limit=reported_limit,
+    )
     payload["strategyAccess"] = {
         "canViewCurrentHoldings": can_follow,
         "canFollow": can_follow,

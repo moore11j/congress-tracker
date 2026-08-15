@@ -3260,6 +3260,33 @@ export type StrategyDetailPayload = StrategyDefinitionPayload & {
   transactionHistoryTotal?: number;
   transactionHistoryOffset?: number;
   transactionHistoryStartDate?: string | null;
+  reportedHoldings?: {
+    status: "ok" | "unavailable" | string;
+    memberId: string;
+    source: string;
+    reason?: string | null;
+    report?: {
+      documentId: string;
+      filingYear: number;
+      filingType?: string | null;
+      filingDate?: string | null;
+      reportUrl?: string | null;
+    } | null;
+    total: number;
+    offset: number;
+    visibleSymbols?: string[];
+    valueLowerBound?: number | null;
+    valueUpperBound?: number | null;
+    items: Array<{
+      assetName: string;
+      symbol?: string | null;
+      owner?: string | null;
+      assetType?: string | null;
+      valueRange?: string | null;
+      valueMin?: number | null;
+      valueMax?: number | null;
+    }>;
+  } | null;
   strategyAccess?: {
     canViewCurrentHoldings: boolean;
     canFollow: boolean;
@@ -3379,7 +3406,7 @@ export async function getStrategies(params?: {
 
 export async function getStrategy(
   slug: string,
-  params?: { period?: string; equityLimit?: number; holdingsOffset?: number; holdingsLimit?: number; historyOffset?: number; historyLimit?: number; authToken?: string | null },
+  params?: { period?: string; equityLimit?: number; holdingsOffset?: number; holdingsLimit?: number; historyOffset?: number; historyLimit?: number; reportedOffset?: number; reportedLimit?: number; authToken?: string | null },
 ): Promise<StrategyDetailPayload> {
   return fetchJson<StrategyDetailPayload>(
     buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}`, {
@@ -3389,6 +3416,8 @@ export async function getStrategy(
       holdings_limit: params?.holdingsLimit,
       history_offset: params?.historyOffset,
       history_limit: params?.historyLimit,
+      reported_offset: params?.reportedOffset,
+      reported_limit: params?.reportedLimit,
     }),
     {
       cache: "no-store",

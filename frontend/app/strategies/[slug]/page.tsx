@@ -17,9 +17,11 @@ export default async function StrategyPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const resolvedSearchParams = await searchParams;
   const period = one(resolvedSearchParams?.period) || "max";
-  const positions = one(resolvedSearchParams?.positions) === "history" ? "history" : "holdings";
+  const requestedPositions = one(resolvedSearchParams?.positions);
+  const positions = requestedPositions === "history" || requestedPositions === "reported" ? requestedPositions : "holdings";
   const holdingsPage = Math.max(1, Number(one(resolvedSearchParams?.holdings_page)) || 1);
   const historyPage = Math.max(1, Number(one(resolvedSearchParams?.history_page)) || 1);
+  const reportedPage = Math.max(1, Number(one(resolvedSearchParams?.reported_page)) || 1);
   const token = await optionalPageAuthToken();
   const strategy = await getStrategy(slug, {
     period,
@@ -28,8 +30,10 @@ export default async function StrategyPage({ params, searchParams }: Props) {
     holdingsLimit: 20,
     historyOffset: (historyPage - 1) * 20,
     historyLimit: 20,
+    reportedOffset: (reportedPage - 1) * 20,
+    reportedLimit: 20,
     authToken: token,
   }).catch(() => null);
   if (!strategy) notFound();
-  return <StrategyDetail strategy={strategy} period={period} positionsMode={positions} holdingsPage={holdingsPage} historyPage={historyPage} />;
+  return <StrategyDetail strategy={strategy} period={period} positionsMode={positions} holdingsPage={holdingsPage} historyPage={historyPage} reportedPage={reportedPage} />;
 }

@@ -10,6 +10,8 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base, ensure_strategy_storage_schema
 from app.entitlements import ENTITLEMENTS
 from app.models import (
+    HouseAnnualDisclosureDocument,
+    HouseAnnualDisclosureHolding,
     ReplicatedPortfolioPosition,
     ReplicatedPortfolioPoint,
     StrategyBacktestRun,
@@ -557,6 +559,72 @@ def test_strategy_detail_exposes_replicated_portfolio_source_history():
         assert payload["transactionHistory"][0]["recordType"] == "reconstructed_position"
         assert payload["transactionHistory"][0]["symbol"] == "NVDA"
         assert payload["transactionHistory"][0]["sourceType"] == "reported_purchase"
+    finally:
+        db.close()
+
+
+def test_individual_congress_strategy_exposes_latest_official_reported_holdings():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="congress-portfolio-m000001-1095d",
+            name="Test Member Portfolio",
+            category="congress",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        document = HouseAnnualDisclosureDocument(
+            member_name="Test Member",
+            member_bioguide_id="M000001",
+            filing_year=2025,
+            filing_type="O",
+            document_id="report-2025",
+            filing_date=date(2026, 5, 1),
+            report_url="https://example.test/report",
+        )
+        db.add_all([strategy, document])
+        db.flush()
+        db.add_all(
+            [
+                HouseAnnualDisclosureHolding(
+                    document_row_id=document.id,
+                    member_name="Test Member",
+                    member_bioguide_id="M000001",
+                    filing_year=2025,
+                    document_id="report-2025",
+                    asset_name=f"Asset {index:02d}",
+                    symbol=f"T{index:02d}",
+                    value_range="$15,001 - $50,000",
+                    value_min=15_001,
+                    value_max=50_000,
+                )
+                for index in range(1, 22)
+            ]
+        )
+        db.commit()
+
+        first_page = strategy_detail(
+            db,
+            slug=strategy.slug,
+            entitlements=ENTITLEMENTS["premium"],
+            reported_limit=20,
+        )
+        final_page = strategy_detail(
+            db,
+            slug=strategy.slug,
+            entitlements=ENTITLEMENTS["premium"],
+            reported_offset=20,
+            reported_limit=20,
+        )
+
+        assert first_page["reportedHoldings"]["status"] == "ok"
+        assert first_page["reportedHoldings"]["report"]["filingYear"] == 2025
+        assert first_page["reportedHoldings"]["total"] == 21
+        assert len(first_page["reportedHoldings"]["items"]) == 20
+        assert final_page["reportedHoldings"]["offset"] == 20
+        assert [item["symbol"] for item in final_page["reportedHoldings"]["items"]] == ["T21"]
     finally:
         db.close()
 
