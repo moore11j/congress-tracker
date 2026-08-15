@@ -3320,8 +3320,6 @@ def _enrich_payload_company_name(
         if _should_replace_company_name(payload.get("security_name"), symbol):
             payload["security_name"] = company_name
             payload["securityName"] = company_name
-        if _should_replace_company_name(payload.get("headline"), symbol):
-            payload["headline"] = company_name
         return payload
 
     payload["company_name"] = company_name
