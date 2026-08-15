@@ -172,7 +172,6 @@ def test_strategy_detail_keeps_public_performance_but_withholds_current_position
                 strategy_value=110,
                 benchmark_value=105,
                 active_holdings=7,
-                active_tickers=1,
             ),
             StrategyCurrentHolding(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 8, 1), symbol="NVDA", company_name="NVIDIA"),
         ])

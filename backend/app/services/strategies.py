@@ -396,6 +396,15 @@ def strategy_detail(
         ).scalar_one()
         or 0
     )
+    if equity_curve and not use_live_holdings:
+        holdings_as_of = db.execute(
+            select(func.max(StrategyCurrentHolding.as_of_date)).where(StrategyCurrentHolding.strategy_id == int(strategy.id))
+        ).scalar_one_or_none()
+        # Older stored curves only have lot counts. When their final point and
+        # the persisted model portfolio represent the same date, prefer the
+        # portfolio's canonical unique-ticker count.
+        if holdings_as_of is not None and equity_curve[-1]["date"] == _iso(holdings_as_of):
+            equity_curve[-1]["activeHoldings"] = current_holdings_count
     if can_follow:
         holdings = db.execute(
             select(holdings_model)
