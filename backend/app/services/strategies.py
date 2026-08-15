@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -14,6 +14,8 @@ from app.models import (
     StrategyCurrentHolding,
     StrategyDefinition,
     StrategyEquityCurvePoint,
+    StrategyHoldingsSnapshot,
+    StrategyHistoricalTransaction,
     StrategyLiveHolding,
     StrategyPerformanceSnapshot,
     StrategyTrade,
@@ -260,10 +262,19 @@ def set_strategy_publication(
     if published:
         run = _latest_run(db, int(strategy.id))
         snapshot = _latest_performance(db, strategy_id=int(strategy.id), run_id=int(run.id), period="max") if run else None
-        if run is None or snapshot is None:
+        holdings_snapshot = (
+            db.execute(
+                select(StrategyHoldingsSnapshot.id)
+                .where(StrategyHoldingsSnapshot.strategy_id == int(strategy.id), StrategyHoldingsSnapshot.run_id == int(run.id) if run else False)
+                .limit(1)
+            ).scalar_one_or_none()
+            if run is not None
+            else None
+        )
+        if run is None or snapshot is None or holdings_snapshot is None:
             raise HTTPException(
                 status_code=422,
-                detail="A successful reproducible run and max-period performance snapshot are required before publication.",
+                detail="A successful reproducible run, performance snapshot, and model-portfolio snapshot are required before publication.",
             )
         strategy.status = "published"
         strategy.published_at = datetime.now(timezone.utc)
@@ -284,6 +295,8 @@ def strategy_detail(
     equity_limit: int = 1500,
     holdings_offset: int = 0,
     holdings_limit: int = 20,
+    history_offset: int = 0,
+    history_limit: int = 20,
     include_drafts: bool = False,
 ) -> dict[str, Any]:
     statement = select(StrategyDefinition).where(StrategyDefinition.slug == slug)
@@ -325,9 +338,20 @@ def strategy_detail(
             }
             for point in points
         ]
-    holdings_model = StrategyLiveHolding if payload["prospectiveActive"] else StrategyCurrentHolding
     holdings_offset = max(0, int(holdings_offset))
     holdings_limit = max(1, min(100, int(holdings_limit)))
+    history_offset = max(0, int(history_offset))
+    history_limit = max(1, min(100, int(history_limit)))
+    live_holdings_count = int(
+        db.execute(
+            select(func.count()).select_from(StrategyLiveHolding).where(StrategyLiveHolding.strategy_id == int(strategy.id))
+        ).scalar_one()
+        or 0
+    )
+    # A newly activated version has no daily evaluation ledger yet. Preserve the
+    # last reproducible model portfolio until live monitoring produces one.
+    use_live_holdings = bool(payload["prospectiveActive"] and live_holdings_count > 0)
+    holdings_model = StrategyLiveHolding if use_live_holdings else StrategyCurrentHolding
     current_holdings_count = int(
         db.execute(
             select(func.count()).select_from(holdings_model).where(holdings_model.strategy_id == int(strategy.id))
@@ -342,7 +366,7 @@ def strategy_detail(
             .offset(holdings_offset)
             .limit(holdings_limit)
         ).scalars().all()
-        if payload["prospectiveActive"]:
+        if use_live_holdings:
             current_holdings = [
                 {
                     "symbol": row.symbol,
@@ -384,10 +408,24 @@ def strategy_detail(
     payload["currentHoldingsCount"] = current_holdings_count
     payload["currentHoldingsTotal"] = current_holdings_count
     payload["currentHoldingsOffset"] = holdings_offset
-    payload["holdingsSource"] = "prospective_monitor" if payload["prospectiveActive"] else "historical_backtest"
+    payload["holdingsSource"] = "prospective_monitor" if use_live_holdings else "historical_backtest"
     transaction_history: list[dict[str, Any]] = []
     transaction_total = 0
+    history_start_date = (run.backtest_end_date - timedelta(days=1095)) if run and run.backtest_end_date else None
     if can_follow:
+        historical_statement = (
+            select(StrategyHistoricalTransaction)
+            .where(StrategyHistoricalTransaction.strategy_id == int(strategy.id))
+            .where(StrategyHistoricalTransaction.strategy_run_id == int(run.id) if run else False)
+        )
+        if history_start_date is not None:
+            historical_statement = historical_statement.where(StrategyHistoricalTransaction.effective_date >= history_start_date)
+        historical_rows = db.execute(
+            historical_statement.order_by(
+                StrategyHistoricalTransaction.effective_date.desc().nullslast(),
+                StrategyHistoricalTransaction.id.desc(),
+            )
+        ).scalars().all()
         model_trades = db.execute(
             select(StrategyTrade)
             .where(StrategyTrade.strategy_id == int(strategy.id))
@@ -403,7 +441,28 @@ def strategy_detail(
                     .where(ReplicatedPortfolioPosition.run_id == int(source_run_id))
                     .order_by(ReplicatedPortfolioPosition.entry_date.desc().nullslast(), ReplicatedPortfolioPosition.id.desc())
                 ).scalars().all()
-        if model_trades:
+        if historical_rows:
+            transaction_total = len(historical_rows)
+            transaction_history = [
+                {
+                    "recordType": row.record_type,
+                    "symbol": row.symbol,
+                    "tickerAtTime": row.ticker_at_time,
+                    "action": row.action,
+                    "status": row.status,
+                    "effectiveDate": _iso(row.effective_date),
+                    "entryDate": _iso(row.entry_date),
+                    "exitDate": _iso(row.exit_date),
+                    "entryPrice": row.entry_price,
+                    "exitPrice": row.exit_price,
+                    "returnPct": row.return_pct,
+                    "weightPct": row.weight_pct,
+                    "sourceType": row.source_type,
+                    "confidence": row.confidence,
+                }
+                for row in historical_rows[history_offset : history_offset + history_limit]
+            ]
+        elif model_trades:
             transaction_total = len(model_trades)
             transaction_history = [
                 {
@@ -418,7 +477,7 @@ def strategy_detail(
                     "weightPct": row.weight_pct,
                     "exitReason": row.exit_reason,
                 }
-                for row in model_trades[holdings_offset : holdings_offset + holdings_limit]
+                for row in model_trades[history_offset : history_offset + history_limit]
             ]
         else:
             transaction_total = len(source_positions)
@@ -435,11 +494,12 @@ def strategy_detail(
                     "sourceType": row.source_type,
                     "confidence": row.confidence,
                 }
-                for row in source_positions[holdings_offset : holdings_offset + holdings_limit]
+                for row in source_positions[history_offset : history_offset + history_limit]
             ]
     payload["transactionHistory"] = transaction_history
     payload["transactionHistoryTotal"] = transaction_total
-    payload["transactionHistoryOffset"] = holdings_offset
+    payload["transactionHistoryOffset"] = history_offset
+    payload["transactionHistoryStartDate"] = _iso(history_start_date)
     payload["strategyAccess"] = {
         "canViewCurrentHoldings": can_follow,
         "canFollow": can_follow,

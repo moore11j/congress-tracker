@@ -18,6 +18,7 @@ from app.models import (
     StrategyEquityCurvePoint,
     StrategyHoldingRow,
     StrategyHoldingsSnapshot,
+    StrategyHistoricalTransaction,
     StrategyPerformanceSnapshot,
 )
 from app.services.replicated_portfolio_strategy_refresh import persist_top_congress_portfolio_strategies
@@ -157,6 +158,7 @@ def test_persist_top_congress_portfolio_strategies_apply_is_idempotent():
         assert _count(db, StrategyHoldingsSnapshot) == 1
         assert _count(db, StrategyHoldingRow) == 2
         assert _count(db, StrategyCurrentHolding) == 2
+        assert _count(db, StrategyHistoricalTransaction) == 2
         strategy = db.execute(select(StrategyDefinition)).scalars().one()
         assert strategy.status == "draft"
         assert strategy.family == "individual_portfolio"

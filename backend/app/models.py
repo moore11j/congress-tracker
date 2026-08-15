@@ -3250,6 +3250,38 @@ class StrategyTrade(Base):
     )
 
 
+class StrategyHistoricalTransaction(Base):
+    """Immutable historical portfolio records from a reproducible backtest run."""
+
+    __tablename__ = "strategy_historical_transactions"
+    __table_args__ = (
+        UniqueConstraint("strategy_run_id", "source_key", name="uq_strategy_historical_transactions_run_source"),
+        Index("ix_strategy_historical_transactions_strategy_effective", "strategy_id", "effective_date"),
+        Index("ix_strategy_historical_transactions_run_effective", "strategy_run_id", "effective_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(nullable=False)
+    strategy_run_id: Mapped[int] = mapped_column(nullable=False)
+    source_key: Mapped[str] = mapped_column(Text, nullable=False)
+    record_type: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ticker_at_time: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    effective_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    exit_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class StrategyEvent(Base):
     """Canonical, idempotent event stream for email today and API/webhooks later."""
 

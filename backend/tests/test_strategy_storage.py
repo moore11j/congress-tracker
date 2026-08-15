@@ -18,6 +18,9 @@ from app.models import (
     StrategyEvaluationRun,
     StrategyEvent,
     StrategyEventDelivery,
+    StrategyHoldingsSnapshot,
+    StrategyHistoricalTransaction,
+    StrategyLiveHolding,
     StrategyPerformanceSnapshot,
     StrategySubscription,
     StrategyTrade,
@@ -50,6 +53,7 @@ def test_ensure_strategy_storage_schema_creates_expected_tables_and_indexes():
         "strategy_evaluation_runs",
         "strategy_live_holdings",
         "strategy_trades",
+        "strategy_historical_transactions",
         "strategy_events",
         "strategy_subscriptions",
         "strategy_event_deliveries",
@@ -223,6 +227,7 @@ def test_strategy_publication_requires_a_completed_run_and_max_snapshot():
                 cagr_pct=12,
             )
         )
+        db.add(StrategyHoldingsSnapshot(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 7, 31), holdings_count=0))
         db.commit()
 
         published = set_strategy_publication(
@@ -400,15 +405,15 @@ def test_strategy_detail_pages_persisted_transaction_history_and_hides_it_when_l
         )
         db.commit()
 
-        first_page = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], holdings_limit=2)
+        first_page = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], history_limit=2)
         final_page = strategy_detail(
             db,
             slug=strategy.slug,
             entitlements=ENTITLEMENTS["premium"],
-            holdings_offset=2,
-            holdings_limit=2,
+            history_offset=2,
+            history_limit=2,
         )
-        locked = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["free"], holdings_limit=2)
+        locked = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["free"], history_limit=2)
 
         assert first_page["transactionHistoryTotal"] == 3
         assert len(first_page["transactionHistory"]) == 2
@@ -469,11 +474,61 @@ def test_strategy_detail_exposes_replicated_portfolio_source_history():
         )
         db.commit()
 
-        payload = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], holdings_limit=1)
+        payload = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], history_limit=1)
 
         assert payload["transactionHistoryTotal"] == 2
         assert payload["transactionHistory"][0]["recordType"] == "reconstructed_position"
         assert payload["transactionHistory"][0]["symbol"] == "NVDA"
         assert payload["transactionHistory"][0]["sourceType"] == "reported_purchase"
+    finally:
+        db.close()
+
+
+def test_strategy_detail_falls_back_to_persisted_holdings_until_live_monitoring_has_positions():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(slug="live-fallback", name="Live fallback", category="congress", status="published", methodology_version="v1")
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(strategy_id=strategy.id, run_key="live-fallback-run", status="ok", completed_at=datetime.now(timezone.utc), methodology_version="v1")
+        version = StrategyVersion(strategy_id=strategy.id, version=1, status="active")
+        db.add_all([run, version])
+        db.flush()
+        db.add(StrategyCurrentHolding(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 8, 14), symbol="NVDA", rank=1))
+        db.commit()
+
+        fallback = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"])
+        assert fallback["holdingsSource"] == "historical_backtest"
+        assert fallback["currentHoldings"][0]["symbol"] == "NVDA"
+
+        db.add(StrategyLiveHolding(strategy_id=strategy.id, strategy_version_id=version.id, strategy_run_id=1, opening_trade_id=1, symbol="MSFT", ticker_at_time="MSFT", as_of_date=date(2026, 8, 15), rank=1))
+        db.commit()
+        live = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"])
+        assert live["holdingsSource"] == "prospective_monitor"
+        assert live["currentHoldings"][0]["symbol"] == "MSFT"
+    finally:
+        db.close()
+
+
+def test_strategy_detail_prefers_persisted_three_year_transaction_history():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(slug="persisted-history", name="Persisted history", category="congress", status="published", methodology_version="v1")
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(strategy_id=strategy.id, run_key="persisted-history-run", status="ok", completed_at=datetime.now(timezone.utc), backtest_end_date=date(2026, 8, 14), methodology_version="v1")
+        db.add(run)
+        db.flush()
+        db.add_all([
+            StrategyHistoricalTransaction(strategy_id=strategy.id, strategy_run_id=run.id, source_key="one", record_type="backtest_lot", symbol="NVDA", action="buy", effective_date=date(2026, 8, 1)),
+            StrategyHistoricalTransaction(strategy_id=strategy.id, strategy_run_id=run.id, source_key="old", record_type="backtest_lot", symbol="OLD", action="buy", effective_date=date(2020, 8, 1)),
+        ])
+        db.commit()
+        payload = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"])
+        assert payload["transactionHistoryTotal"] == 1
+        assert payload["transactionHistory"][0]["symbol"] == "NVDA"
+        assert payload["transactionHistoryStartDate"] == "2023-08-15"
     finally:
         db.close()

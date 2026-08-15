@@ -13,6 +13,7 @@ from app.models import (
     StrategyEquityCurvePoint,
     StrategyHoldingRow,
     StrategyHoldingsSnapshot,
+    StrategyHistoricalTransaction,
     StrategyPerformanceSnapshot,
 )
 from app.services.strategy_refresh import persist_candidate_strategy_artifact
@@ -203,5 +204,6 @@ def test_persist_candidate_strategy_artifact_apply_is_idempotent():
         assert _count(db, StrategyHoldingsSnapshot) == 1
         assert _count(db, StrategyHoldingRow) == 1
         assert _count(db, StrategyCurrentHolding) == 1
+        assert _count(db, StrategyHistoricalTransaction) == 2
     finally:
         db.close()

@@ -5,7 +5,8 @@ import { StrategyFollowButton } from "@/components/strategies/StrategyFollowButt
 import type { StrategyDetailPayload } from "@/lib/api";
 import { displayStrategyName, displayStrategyUniverse } from "@/lib/strategyPresentation";
 
-type Props = { strategy: StrategyDetailPayload; period: string };
+type PositionsMode = "holdings" | "history";
+type Props = { strategy: StrategyDetailPayload; period: string; positionsMode: PositionsMode; holdingsPage: number; historyPage: number };
 type ScoreDetails = { score: number; components: Record<string, unknown>; penalties: Array<Record<string, unknown>> };
 
 const periodLabels: Record<string, string> = { "30d": "30D", "1y": "1Y", "2y": "2Y", "3y": "3Y", max: "All" };
@@ -51,7 +52,28 @@ function MetricCard({ label, value, tone }: { label: string; value: string; tone
   return <div className="min-w-0 rounded-lg border border-white/10 bg-slate-950/35 px-4 py-3"><div className="flex items-center gap-2"><span className={`h-7 w-7 rounded-full border ${tone.includes("rose") ? "border-rose-300/25 bg-rose-300/[0.07]" : "border-emerald-300/25 bg-emerald-300/[0.07]"}`} /><div className="text-xs text-slate-400">{label}</div></div><div className={`mt-2 text-xl font-semibold tabular-nums ${tone}`}>{value}</div></div>;
 }
 
-export function StrategyDetail({ strategy, period }: Props) {
+function recordsHrefForStrategy(slug: string, period: string, positionsMode: PositionsMode, holdingsPage: number, historyPage: number) {
+  const query = new URLSearchParams();
+  if (period !== "max") query.set("period", period);
+  if (positionsMode === "history") query.set("positions", "history");
+  if (holdingsPage > 1) query.set("holdings_page", String(holdingsPage));
+  if (historyPage > 1) query.set("history_page", String(historyPage));
+  const value = query.toString();
+  return `/strategies/${strategySlug(slug)}${value ? `?${value}` : ""}`;
+}
+
+function strategySlug(value: string) {
+  return encodeURIComponent(value);
+}
+
+function Pager({ currentPage, total, pageHref }: { currentPage: number; total: number; pageHref: (page: number) => string }) {
+  const pageSize = 20;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= pageSize) return null;
+  return <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3 text-xs"><span className="text-slate-500">Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, total)} of {total}</span><div className="flex gap-2"><Link href={pageHref(Math.max(1, currentPage - 1))} aria-disabled={currentPage <= 1} className={`rounded border px-2 py-1 ${currentPage <= 1 ? "pointer-events-none border-white/5 text-slate-600" : "border-white/15 text-slate-300 hover:border-emerald-300/40"}`}>Previous</Link><Link href={pageHref(Math.min(pageCount, currentPage + 1))} aria-disabled={currentPage >= pageCount} className={`rounded border px-2 py-1 ${currentPage >= pageCount ? "pointer-events-none border-white/5 text-slate-600" : "border-white/15 text-slate-300 hover:border-emerald-300/40"}`}>Next</Link></div></div>;
+}
+
+export function StrategyDetail({ strategy, period, positionsMode, holdingsPage, historyPage }: Props) {
   const performance = strategy.performance;
   const run = strategy.latestRun;
   const equityCurve = strategy.equityCurve ?? [];
@@ -74,6 +96,25 @@ export function StrategyDetail({ strategy, period }: Props) {
     ["Win rate", pct(performance?.winRatePct), "text-emerald-300"],
     ["Strategy status", isProspective ? "Daily monitoring" : "Backtested", isProspective ? "text-emerald-300" : "text-sky-200"],
   ];
+  const recordsHref = (mode: PositionsMode, nextHoldingsPage = holdingsPage, nextHistoryPage = historyPage) => recordsHrefForStrategy(strategy.slug, period, mode, nextHoldingsPage, nextHistoryPage);
+  const currentHoldingsTotal = strategy.currentHoldingsTotal ?? strategy.currentHoldingsCount ?? 0;
+  const currentHoldingsDescription = strategy.holdingsSource === "prospective_monitor"
+    ? "Model positions from the latest daily evaluation."
+    : "Latest modeled portfolio from the reproducible strategy run.";
+  const portfolioRecords = <section className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/35">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-200">Portfolio records</h2>
+        <p className="mt-1 text-xs text-slate-500">{positionsMode === "holdings" ? currentHoldingsDescription : `Entries and exits from the most recent three years${strategy.transactionHistoryStartDate ? `, since ${formatDate(strategy.transactionHistoryStartDate)}` : ""}.`}</p>
+      </div>
+      {canViewCurrentHoldings ? <span className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-400">{positionsMode === "holdings" ? currentHoldingsTotal : strategy.transactionHistoryTotal ?? 0} records</span> : null}
+    </div>
+    <div className="flex border-b border-white/10 px-4 pt-3">
+      <Link href={recordsHref("holdings", 1, historyPage)} className={`border-b-2 px-3 py-2 text-sm font-semibold ${positionsMode === "holdings" ? "border-emerald-300 text-emerald-200" : "border-transparent text-slate-500 hover:text-white"}`}>Current model positions</Link>
+      <Link href={recordsHref("history", holdingsPage, 1)} className={`border-b-2 px-3 py-2 text-sm font-semibold ${positionsMode === "history" ? "border-emerald-300 text-emerald-200" : "border-transparent text-slate-500 hover:text-white"}`}>Transaction history</Link>
+    </div>
+    {!canViewCurrentHoldings ? <div className="px-4 py-5"><p className="text-sm font-semibold text-white">{currentHoldingsTotal} current positions</p><p className="mt-1 text-sm leading-6 text-slate-400">Unlock the complete model portfolio and its transaction history.</p><div className="mt-4"><UpgradePrompt title="Unlock strategy portfolio records" body="Premium includes current model positions and historical transaction records." compact /></div></div> : positionsMode === "holdings" ? strategy.currentHoldings?.length ? <><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-white/10 bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Ticker</th><th className="px-3 py-3">First added</th><th className="px-3 py-3">Reference price</th><th className="px-3 py-3">Return</th><th className="px-3 py-3">Weight</th><th className="px-4 py-3">Signals</th></tr></thead><tbody className="divide-y divide-white/10">{strategy.currentHoldings.map((holding) => <tr key={holding.symbol}><td className="px-4 py-3"><Link href={`/ticker/${holding.symbol}`} className="font-semibold text-white hover:text-emerald-200">{holding.symbol}</Link><div className="mt-0.5 text-xs text-slate-500">{holding.companyName}</div></td><td className="px-3 py-3 text-slate-300">{formatDate(holding.entryDate)}</td><td className="px-3 py-3 tabular-nums text-slate-300">{currency(holding.lastPrice)}</td><td className={`px-3 py-3 font-semibold tabular-nums ${metricTone(holding.returnPct)}`}>{pct(holding.returnPct)}</td><td className="px-3 py-3 tabular-nums text-slate-300">{pct(holding.weightPct)}</td><td className="px-4 py-3 text-slate-300">{holding.sourceSignalCount ?? "--"}</td></tr>)}</tbody></table></div><Pager currentPage={holdingsPage} total={currentHoldingsTotal} pageHref={(nextPage) => recordsHref("holdings", nextPage, historyPage)} /></> : <p className="px-4 py-8 text-center text-sm text-slate-400">This strategy is currently all cash. No model positions were open on the latest evaluation date.</p> : strategy.transactionHistory?.length ? <><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-white/10 bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Date</th><th className="px-3 py-3">Ticker</th><th className="px-3 py-3">Action</th><th className="px-3 py-3">Entry</th><th className="px-3 py-3">Exit</th><th className="px-3 py-3">Return</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-white/10">{strategy.transactionHistory.map((transaction, index) => <tr key={`${transaction.recordType}-${transaction.symbol}-${transaction.effectiveDate}-${index}`}><td className="px-4 py-3 text-slate-300">{formatDate(transaction.effectiveDate)}</td><td className="px-3 py-3 font-semibold text-white">{transaction.symbol ?? transaction.tickerAtTime ?? "--"}</td><td className="px-3 py-3 capitalize text-emerald-200">{transaction.action ?? "--"}</td><td className="px-3 py-3 tabular-nums text-slate-300">{currency(transaction.entryPrice)}</td><td className="px-3 py-3 tabular-nums text-slate-300">{currency(transaction.exitPrice)}</td><td className={`px-3 py-3 font-semibold tabular-nums ${metricTone(transaction.returnPct)}`}>{pct(transaction.returnPct)}</td><td className="px-4 py-3 capitalize text-slate-300">{transaction.status ?? "--"}</td></tr>)}</tbody></table></div><Pager currentPage={historyPage} total={strategy.transactionHistoryTotal ?? 0} pageHref={(nextPage) => recordsHref("history", holdingsPage, nextPage)} /></> : <p className="px-4 py-8 text-center text-sm text-slate-400">No transaction history has been persisted for this strategy yet.</p>}
+  </section>;
 
   return <div className="space-y-3 py-3 sm:py-5">
     <section className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">{strategy.category.replaceAll("_", " ")}</p><h1 className="mt-2 text-3xl font-semibold text-white">{displayStrategyName(strategy.name)}</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{strategy.shortDescription ?? strategy.walnutTake ?? "Published Walnut model strategy."}</p></div><div className="flex flex-wrap gap-2"><Link href="/strategies" className="rounded-md border border-white/15 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-emerald-300/40">Back to strategies</Link>{isProspective ? <StrategyFollowButton slug={strategy.slug} compact /> : null}</div></section>
@@ -84,7 +125,7 @@ export function StrategyDetail({ strategy, period }: Props) {
 
       <section className="rounded-lg border border-white/10 bg-slate-950/35 p-4"><h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-200">Methodology</h2>{chips.length ? <div className="mt-3 flex flex-wrap gap-2">{chips.map((chip) => <span key={chip} className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.06] px-2 py-1 text-xs font-semibold capitalize text-emerald-100">{chip}</span>)}</div> : null}<p className="mt-4 text-sm leading-6 text-slate-400">{strategy.methodology ?? "The methodology text for this strategy is still under review."}</p></section>
 
-      <section className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/35"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3"><div><h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-200">Current model positions</h2><p className="mt-1 text-xs text-slate-500">{isProspective ? "Positions created by daily monitoring after newly available public filings." : "Positions from the selected historical backtest run."}</p></div>{canViewCurrentHoldings ? <span className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-400">{strategy.currentHoldings?.length ?? 0} positions</span> : null}</div>{canViewCurrentHoldings && strategy.currentHoldings?.length ? <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-white/10 bg-slate-950/60 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Ticker</th><th className="px-3 py-3">First added</th><th className="px-3 py-3">Reference price</th><th className="px-3 py-3">Return</th><th className="px-3 py-3">Weight</th><th className="px-4 py-3">Signals</th></tr></thead><tbody className="divide-y divide-white/10">{strategy.currentHoldings.map((holding) => <tr key={holding.symbol}><td className="px-4 py-3"><Link href={`/ticker/${holding.symbol}`} className="font-semibold text-white hover:text-emerald-200">{holding.symbol}</Link><div className="mt-0.5 text-xs text-slate-500">{holding.companyName}</div></td><td className="px-3 py-3 text-slate-300">{formatDate(holding.entryDate)}</td><td className="px-3 py-3 tabular-nums text-slate-300">{currency(holding.lastPrice)}</td><td className={`px-3 py-3 font-semibold tabular-nums ${metricTone(holding.returnPct)}`}>{pct(holding.returnPct)}</td><td className="px-3 py-3 tabular-nums text-slate-300">{pct(holding.weightPct)}</td><td className="px-4 py-3 text-slate-300">{holding.sourceSignalCount ?? "--"}</td></tr>)}</tbody></table></div> : canViewCurrentHoldings ? <p className="px-4 py-8 text-center text-sm text-slate-400">{isProspective ? "Monitoring is active. No new qualifying filings have created a model position yet." : "No current holdings are stored for this strategy."}</p> : <div className="px-4 py-5"><p className="text-sm font-semibold text-white">{strategy.currentHoldingsCount ?? 0} current positions</p><p className="mt-1 text-sm leading-6 text-slate-400">Unlock the complete current model portfolio and follow strategy changes.</p><div className="mt-4"><UpgradePrompt title="Unlock current strategy positions" body="Premium includes the complete current portfolio plus daily strategy updates." compact /></div></div>}</section>
+      {portfolioRecords}
 
       <section className="rounded-lg border border-dashed border-white/15 bg-slate-950/20 px-4 py-5"><h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-200">Strategy activity</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{isProspective ? "Daily monitoring records each new model position, reported exit, and rebalance before the subscriber update is delivered." : "This backtest is available for review. Daily monitoring begins only after an active strategy version is approved."}</p></section></div>
 

@@ -789,6 +789,34 @@ def ensure_strategy_storage_schema(bind=engine) -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS strategy_historical_transactions (
+                    id {id_type},
+                    strategy_id INTEGER NOT NULL,
+                    strategy_run_id INTEGER NOT NULL,
+                    source_key TEXT NOT NULL,
+                    record_type TEXT NOT NULL,
+                    symbol TEXT,
+                    ticker_at_time TEXT,
+                    action TEXT NOT NULL,
+                    status TEXT,
+                    effective_date DATE,
+                    entry_date DATE,
+                    exit_date DATE,
+                    entry_price {float_type},
+                    exit_price {float_type},
+                    return_pct {float_type},
+                    weight_pct {float_type},
+                    source_type TEXT,
+                    confidence TEXT,
+                    payload_json TEXT NOT NULL DEFAULT '{{}}',
+                    created_at {timestamp_type} NOT NULL DEFAULT {now_default}
+                )
+                """
+            )
+        )
         for statement in (
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_strategy_definitions_slug ON strategy_definitions (slug)",
             "CREATE INDEX IF NOT EXISTS ix_strategy_definitions_category_status ON strategy_definitions (category, status)",
@@ -814,6 +842,9 @@ def ensure_strategy_storage_schema(bind=engine) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_current_holdings_strategy_symbol ON strategy_current_holdings (strategy_id, symbol)",
             "CREATE INDEX IF NOT EXISTS ix_strategy_current_holdings_strategy_rank ON strategy_current_holdings (strategy_id, rank)",
             "CREATE INDEX IF NOT EXISTS ix_strategy_current_holdings_symbol ON strategy_current_holdings (symbol)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_strategy_historical_transactions_run_source ON strategy_historical_transactions (strategy_run_id, source_key)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_historical_transactions_strategy_effective ON strategy_historical_transactions (strategy_id, effective_date)",
+            "CREATE INDEX IF NOT EXISTS ix_strategy_historical_transactions_run_effective ON strategy_historical_transactions (strategy_run_id, effective_date)",
         ):
             conn.execute(text(statement))
 

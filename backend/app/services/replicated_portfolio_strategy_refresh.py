@@ -21,6 +21,7 @@ from app.models import (
     StrategyEquityCurvePoint,
     StrategyHoldingRow,
     StrategyHoldingsSnapshot,
+    StrategyHistoricalTransaction,
     StrategyPerformanceSnapshot,
 )
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
@@ -557,6 +558,69 @@ def _current_holding(row: StrategyHoldingRow, *, as_of_date: date) -> StrategyCu
     )
 
 
+def _historical_transactions(
+    *,
+    strategy_id: int,
+    strategy_run_id: int,
+    positions: list[ReplicatedPortfolioPosition],
+) -> list[StrategyHistoricalTransaction]:
+    rows: list[StrategyHistoricalTransaction] = []
+    for position in positions:
+        if position.status == "skipped" or not position.symbol or position.entry_date is None:
+            continue
+        payload = {
+            "sourceEventId": position.source_event_id,
+            "sourceReason": position.source_reason,
+            "sourceDocumentId": position.source_document_id,
+            "sourceUrl": position.source_url,
+        }
+        source_key = f"position:{position.id}"
+        rows.append(
+            StrategyHistoricalTransaction(
+                strategy_id=strategy_id,
+                strategy_run_id=strategy_run_id,
+                source_key=f"{source_key}:buy",
+                record_type="replicated_position",
+                symbol=position.symbol,
+                ticker_at_time=position.symbol,
+                action="buy" if position.side == "buy" else position.side,
+                status=position.status,
+                effective_date=position.entry_date,
+                entry_date=position.entry_date,
+                exit_date=position.exit_date,
+                entry_price=position.entry_price,
+                exit_price=position.exit_price,
+                return_pct=position.return_pct,
+                source_type=position.source_type,
+                confidence=position.confidence,
+                payload_json=json_dumps(payload),
+            )
+        )
+        if position.exit_date:
+            rows.append(
+                StrategyHistoricalTransaction(
+                    strategy_id=strategy_id,
+                    strategy_run_id=strategy_run_id,
+                    source_key=f"{source_key}:sell",
+                    record_type="replicated_position",
+                    symbol=position.symbol,
+                    ticker_at_time=position.symbol,
+                    action="sell",
+                    status="completed",
+                    effective_date=position.exit_date,
+                    entry_date=position.entry_date,
+                    exit_date=position.exit_date,
+                    entry_price=position.entry_price,
+                    exit_price=position.exit_price,
+                    return_pct=position.return_pct,
+                    source_type=position.source_type,
+                    confidence=position.confidence,
+                    payload_json=json_dumps(payload),
+                )
+            )
+    return rows
+
+
 def persist_top_congress_portfolio_strategies(
     db: Session,
     *,
@@ -739,6 +803,11 @@ def persist_top_congress_portfolio_strategies(
             holding.snapshot_id = int(snapshot.id)
         db.add_all(holdings)
         db.add_all([_current_holding(holding, as_of_date=as_of_date) for holding in holdings])
+        db.add_all(_historical_transactions(
+            strategy_id=int(strategy.id),
+            strategy_run_id=int(strategy_run.id),
+            positions=positions,
+        ))
         rows.append({**preview, "strategy_id": int(strategy.id), "run_id": int(strategy_run.id)})
 
     if apply:

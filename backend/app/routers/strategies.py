@@ -77,6 +77,8 @@ def strategy(
     equity_limit: int = Query(default=1500, ge=1, le=5000),
     holdings_offset: int = Query(default=0, ge=0),
     holdings_limit: int = Query(default=20, ge=1, le=100),
+    history_offset: int = Query(default=0, ge=0),
+    history_limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, max-age=60"
@@ -89,6 +91,8 @@ def strategy(
         equity_limit=equity_limit,
         holdings_offset=holdings_offset,
         holdings_limit=holdings_limit,
+        history_offset=history_offset,
+        history_limit=history_limit,
         include_drafts=False,
     )
 
@@ -158,6 +162,8 @@ def admin_strategy(
     equity_limit: int = Query(default=1500, ge=1, le=5000),
     holdings_offset: int = Query(default=0, ge=0),
     holdings_limit: int = Query(default=20, ge=1, le=100),
+    history_offset: int = Query(default=0, ge=0),
+    history_limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, no-store"
@@ -170,6 +176,8 @@ def admin_strategy(
         equity_limit=equity_limit,
         holdings_offset=holdings_offset,
         holdings_limit=holdings_limit,
+        history_offset=history_offset,
+        history_limit=history_limit,
         include_drafts=True,
     )
 

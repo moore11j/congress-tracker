@@ -3246,6 +3246,8 @@ export type StrategyDetailPayload = StrategyDefinitionPayload & {
     action?: string | null;
     status?: string | null;
     effectiveDate?: string | null;
+    entryDate?: string | null;
+    exitDate?: string | null;
     entryPrice?: number | null;
     exitPrice?: number | null;
     returnPct?: number | null;
@@ -3256,6 +3258,7 @@ export type StrategyDetailPayload = StrategyDefinitionPayload & {
   }>;
   transactionHistoryTotal?: number;
   transactionHistoryOffset?: number;
+  transactionHistoryStartDate?: string | null;
   strategyAccess?: {
     canViewCurrentHoldings: boolean;
     canFollow: boolean;
@@ -3375,12 +3378,16 @@ export async function getStrategies(params?: {
 
 export async function getStrategy(
   slug: string,
-  params?: { period?: string; equityLimit?: number; authToken?: string | null },
+  params?: { period?: string; equityLimit?: number; holdingsOffset?: number; holdingsLimit?: number; historyOffset?: number; historyLimit?: number; authToken?: string | null },
 ): Promise<StrategyDetailPayload> {
   return fetchJson<StrategyDetailPayload>(
     buildApiUrl(`/api/strategies/${encodeURIComponent(slug)}`, {
       period: params?.period,
       equity_limit: params?.equityLimit,
+      holdings_offset: params?.holdingsOffset,
+      holdings_limit: params?.holdingsLimit,
+      history_offset: params?.historyOffset,
+      history_limit: params?.historyLimit,
     }),
     {
       cache: "no-store",

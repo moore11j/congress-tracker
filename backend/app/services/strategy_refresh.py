@@ -16,6 +16,7 @@ from app.models import (
     StrategyEquityCurvePoint,
     StrategyHoldingRow,
     StrategyHoldingsSnapshot,
+    StrategyHistoricalTransaction,
     StrategyPerformanceSnapshot,
 )
 from app.strategy_research.candidate_strategy_artifacts import CandidateStrategyArtifact
@@ -528,8 +529,69 @@ def _current_holding_from_row(
     )
 
 
+def _historical_transactions(
+    *,
+    strategy_id: int,
+    run_id: int,
+    artifact: CandidateStrategyArtifact,
+) -> list[StrategyHistoricalTransaction]:
+    """Persist every historical entry and exit so detail pages never depend on transient artifacts."""
+    rows: list[StrategyHistoricalTransaction] = []
+    for index, lot in enumerate(artifact.lots, start=1):
+        source_payload = {
+            "eventId": lot.signal.event_id,
+            "disclosureDate": lot.signal.disclosure_date,
+            "sourceFilingId": lot.signal.source_filing_id,
+            "sourceDocumentUrl": lot.signal.source_document_url,
+            "memberName": lot.signal.member_name,
+        }
+        rows.append(
+            StrategyHistoricalTransaction(
+                strategy_id=strategy_id,
+                strategy_run_id=run_id,
+                source_key=f"lot:{index}:buy",
+                record_type="backtest_lot",
+                symbol=lot.signal.symbol,
+                ticker_at_time=lot.signal.symbol,
+                action="buy",
+                status="completed" if lot.exit_date else "open",
+                effective_date=lot.entry_date,
+                entry_date=lot.entry_date,
+                exit_date=lot.exit_date,
+                entry_price=lot.entry_price,
+                exit_price=lot.exit_price,
+                return_pct=lot.net_return,
+                source_type=artifact.candidate.source,
+                payload_json=json_dumps(source_payload),
+            )
+        )
+        if lot.exit_date:
+            rows.append(
+                StrategyHistoricalTransaction(
+                    strategy_id=strategy_id,
+                    strategy_run_id=run_id,
+                    source_key=f"lot:{index}:sell",
+                    record_type="backtest_lot",
+                    symbol=lot.signal.symbol,
+                    ticker_at_time=lot.signal.symbol,
+                    action="sell",
+                    status="completed",
+                    effective_date=lot.exit_date,
+                    entry_date=lot.entry_date,
+                    exit_date=lot.exit_date,
+                    entry_price=lot.entry_price,
+                    exit_price=lot.exit_price,
+                    return_pct=lot.net_return,
+                    source_type=artifact.candidate.source,
+                    payload_json=json_dumps(source_payload),
+                )
+            )
+    return rows
+
+
 def _delete_run_children(db: Session, *, strategy_id: int, run_id: int) -> None:
     db.execute(delete(StrategyCurrentHolding).where(StrategyCurrentHolding.strategy_id == strategy_id))
+    db.execute(delete(StrategyHistoricalTransaction).where(StrategyHistoricalTransaction.strategy_run_id == run_id))
     db.execute(delete(StrategyHoldingRow).where(StrategyHoldingRow.run_id == run_id))
     db.execute(delete(StrategyHoldingsSnapshot).where(StrategyHoldingsSnapshot.run_id == run_id))
     db.execute(delete(StrategyEquityCurvePoint).where(StrategyEquityCurvePoint.run_id == run_id))
@@ -656,6 +718,7 @@ def persist_candidate_strategy_artifact(
         row.snapshot_id = int(snapshot.id)
     db.add_all(holdings)
     db.add_all([_current_holding_from_row(row, as_of_date=as_of_date) for row in holdings])
+    db.add_all(_historical_transactions(strategy_id=int(strategy.id), run_id=int(run.id), artifact=artifact))
     db.commit()
     return {
         "mode": "apply",
