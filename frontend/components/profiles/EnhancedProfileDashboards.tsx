@@ -28,11 +28,6 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
       <section className="relative z-10 grid gap-3 xl:grid-cols-4">
         {data.cards.map((card) => <OverviewCard key={card.kind} card={card} />)}
       </section>
-      <section className="relative z-10">
-        <Panel title="Activity over time (Quarterly)" action="8 quarters">
-          <ActivityLineChart series={data.activity_by_profile_type ?? []} />
-        </Panel>
-      </section>
       <section className="relative z-10 grid gap-3 xl:grid-cols-[.8fr_1.1fr]">
         <Panel title="Where the activity is">
           <Donut values={counts} colors={categories.map((category) => PROFILE_COLORS[category])} label="Records" value={formatNumber(total)} />
@@ -50,6 +45,11 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {(data.directories?.length ? data.directories : data.cards.map((card) => ({ kind: card.kind, title: card.title, href: card.href, primary_title: card.title, primary_items: activity.filter((item) => profileKind(item.type) === card.kind).sort((left, right) => (right.value ?? 0) - (left.value ?? 0)).slice(0, 5).map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href })) }))).map((directory) => <DirectoryLeaders key={directory.kind} title={directory.primary_title || directory.title} href={directory.href} rows={directory.primary_items ?? []} />)}
           </div>
+        </Panel>
+      </section>
+      <section className="relative z-10">
+        <Panel title="Activity over time (Quarterly)" action="8 quarters">
+          <ActivityLineChart series={data.activity_by_profile_type ?? []} />
         </Panel>
       </section>
     </main>
