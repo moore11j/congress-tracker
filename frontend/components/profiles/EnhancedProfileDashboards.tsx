@@ -166,7 +166,8 @@ export function EnhancedInsiderDashboard({ data, periodFilter }: { data: Insider
 
 export function EnhancedInstitutionDashboard({ data, period }: { data: InstitutionsOverviewResponse; period: string }) {
   if (data.locked) {
-    return <ProfileDashboard flavor="institutions" eyebrow="INSTITUTIONS" title="Institutional Holdings" subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure." filter={<PeriodBadge label={period} />} comparison="previous comparable quarter" snapshotTitle="Institutional holdings snapshot" snapshotSeries={[]} snapshotLabel="Institutional detail is available with Pro." metrics={data.summary} primary={{ title: "Top institutions", rows: [], columns: [] }} secondary={{ title: "Top increased positions", rows: [], columns: [] }} sectorRows={[]} sectorTitle="Sector exposure over time" left={{ title: "Most widely held stocks", rows: [], columns: [] }} right={{ title: "Recent notable filings", rows: [], columns: [] }} recent={[]} lockedMessage={data.message} />;
+    const preview = institutionalLockedPreview(data.summary);
+    return <ProfileDashboard flavor="institutions" eyebrow="INSTITUTIONS" title="Institutional Holdings" subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure." filter={<PeriodBadge label={period} />} comparison="previous comparable quarter" snapshotTitle="Institutional holdings snapshot" snapshotSeries={periodTotals(preview.sector_exposure)} snapshotLabel="Aggregate reported portfolio value by filing quarter" metrics={preview.summary} primary={{ title: "Top institutions by portfolio value", rows: preview.top_institutions, columns: [["name", "Institution", "link"], ["portfolio_value", "Portfolio value", "currency"], ["previous_value", "Previous quarter", "currency"], ["qoq_change", "QoQ change", "percent"], ["positions", "Positions", "number"]] }} secondary={{ title: "Top increased positions", rows: preview.position_changes, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["current_value", "Current value", "currency"], ["previous_value", "Previous value", "currency"], ["increase_value", "Increase", "currency"]] }} sectorRows={preview.sector_exposure} institutionalActivity={preview.institutional_activity_over_time} sectorTitle="Sector exposure over time" left={{ title: "Most widely held stocks", rows: preview.most_widely_held, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["value", "Total value", "currency"], ["holders", "Institutions", "number"]] }} right={{ title: "Recent notable filings", rows: preview.recent_filings, columns: [["name", "Institution", "link"], ["symbol", "Ticker", "link"], ["action", "Action"], ["value", "Value", "currency"], ["filing_date", "Date", "date"]] }} recent={[]} lockedMessage={data.message ?? "Upgrade to Pro to unlock institutional holdings, 13F position changes, and sector exposure."} />;
   }
   return <ProfileDashboard
     flavor="institutions"
@@ -190,6 +191,68 @@ export function EnhancedInstitutionDashboard({ data, period }: { data: Instituti
   />;
 }
 
+function institutionalLockedPreview(summary: ProfileMetric[]) {
+  const previewSummary: ProfileMetric[] = summary.length ? summary : [
+    { label: "Tracked institutions", value: 487, format: "number" },
+    { label: "Total portfolio value", value: 38_500_000_000_000, format: "currency" },
+    { label: "Total position increases", value: 146_319, format: "number" },
+    { label: "Total position decreases", value: 14_548, format: "number" },
+    { label: "Net reported value change", value: 10_100_000_000_000, format: "currency" },
+  ];
+  const sector_exposure: ProfileSectorPeriod[] = [
+    { period: "Q2 '24", segments: [{ label: "Technology", value: 35, percent: 28 }, { label: "Financials", value: 24, percent: 19 }, { label: "Healthcare", value: 18, percent: 14 }, { label: "Consumer Discretionary", value: 14, percent: 11 }, { label: "Industrials", value: 34, percent: 28 }] },
+    { period: "Q3 '24", segments: [{ label: "Technology", value: 38, percent: 30 }, { label: "Financials", value: 23, percent: 18 }, { label: "Healthcare", value: 17, percent: 13 }, { label: "Consumer Discretionary", value: 15, percent: 12 }, { label: "Industrials", value: 34, percent: 27 }] },
+    { period: "Q4 '24", segments: [{ label: "Technology", value: 41, percent: 32 }, { label: "Financials", value: 22, percent: 17 }, { label: "Healthcare", value: 18, percent: 14 }, { label: "Consumer Discretionary", value: 14, percent: 11 }, { label: "Industrials", value: 33, percent: 26 }] },
+    { period: "Q1 '25", segments: [{ label: "Technology", value: 44, percent: 34 }, { label: "Financials", value: 21, percent: 16 }, { label: "Healthcare", value: 18, percent: 14 }, { label: "Consumer Discretionary", value: 15, percent: 12 }, { label: "Industrials", value: 31, percent: 24 }] },
+    { period: "Q2 '25", segments: [{ label: "Technology", value: 46, percent: 35 }, { label: "Financials", value: 22, percent: 17 }, { label: "Healthcare", value: 17, percent: 13 }, { label: "Consumer Discretionary", value: 15, percent: 12 }, { label: "Industrials", value: 30, percent: 23 }] },
+    { period: "Q3 '25", segments: [{ label: "Technology", value: 48, percent: 36 }, { label: "Financials", value: 22, percent: 16 }, { label: "Healthcare", value: 18, percent: 13 }, { label: "Consumer Discretionary", value: 16, percent: 12 }, { label: "Industrials", value: 31, percent: 23 }] },
+    { period: "Q4 '25", segments: [{ label: "Technology", value: 51, percent: 37 }, { label: "Financials", value: 23, percent: 17 }, { label: "Healthcare", value: 18, percent: 13 }, { label: "Consumer Discretionary", value: 16, percent: 12 }, { label: "Industrials", value: 29, percent: 21 }] },
+    { period: "Q1 '26", segments: [{ label: "Technology", value: 55, percent: 39 }, { label: "Financials", value: 23, percent: 16 }, { label: "Healthcare", value: 18, percent: 13 }, { label: "Consumer Discretionary", value: 17, percent: 12 }, { label: "Industrials", value: 28, percent: 20 }] },
+  ];
+  return {
+    summary: previewSummary,
+    top_institutions: [
+      { name: "BlackRock, Inc.", portfolio_value: 5_700_000_000_000, previous_value: 5_900_000_000_000, qoq_change: -3.3, positions: 5685 },
+      { name: "Vanguard Group", portfolio_value: 4_600_000_000_000, previous_value: 4_100_000_000_000, qoq_change: 11.7, positions: 4062 },
+      { name: "State Street Corp", portfolio_value: 2_900_000_000_000, previous_value: 2_600_000_000_000, qoq_change: 11.0, positions: 4269 },
+      { name: "Fidelity Investments", portfolio_value: 2_400_000_000_000, previous_value: 2_200_000_000_000, qoq_change: 8.0, positions: 3512 },
+      { name: "Geode Capital Management", portfolio_value: 1_600_000_000_000, previous_value: 1_400_000_000_000, qoq_change: 13.4, positions: 4513 },
+    ],
+    position_changes: [
+      { symbol: "NVDA", company: "NVIDIA Corporation", current_value: 1_700_000_000_000, previous_value: 1_000_000_000_000, increase_value: 681_900_000_000 },
+      { symbol: "AAPL", company: "Apple Inc", current_value: 1_500_000_000_000, previous_value: 897_300_000_000, increase_value: 602_200_000_000 },
+      { symbol: "AMZN", company: "Amazon.com Inc", current_value: 685_000_000_000, previous_value: 496_100_000_000, increase_value: 188_900_000_000 },
+      { symbol: "GOOGL", company: "Alphabet Inc", current_value: 601_600_000_000, previous_value: 420_900_000_000, increase_value: 180_700_000_000 },
+      { symbol: "AVGO", company: "Broadcom Inc", current_value: 513_200_000_000, previous_value: 361_300_000_000, increase_value: 151_900_000_000 },
+    ],
+    sector_exposure,
+    institutional_activity_over_time: [
+      { period: "Q2 '24", position_increase_value: 700_000_000_000, position_decrease_value: -500_000_000_000, total_positions: 126_000 },
+      { period: "Q3 '24", position_increase_value: 820_000_000_000, position_decrease_value: -650_000_000_000, total_positions: 142_000 },
+      { period: "Q4 '24", position_increase_value: 1_050_000_000_000, position_decrease_value: -900_000_000_000, total_positions: 158_000 },
+      { period: "Q1 '25", position_increase_value: 960_000_000_000, position_decrease_value: -540_000_000_000, total_positions: 150_000 },
+      { period: "Q2 '25", position_increase_value: 1_100_000_000_000, position_decrease_value: -620_000_000_000, total_positions: 162_000 },
+      { period: "Q3 '25", position_increase_value: 1_180_000_000_000, position_decrease_value: -740_000_000_000, total_positions: 170_000 },
+      { period: "Q4 '25", position_increase_value: 1_080_000_000_000, position_decrease_value: -610_000_000_000, total_positions: 168_000 },
+      { period: "Q1 '26", position_increase_value: 1_250_000_000_000, position_decrease_value: -720_000_000_000, total_positions: 181_000 },
+    ],
+    most_widely_held: [
+      { symbol: "AAPL", company: "Apple Inc", value: 1_500_000_000_000, holders: 229 },
+      { symbol: "MSFT", company: "Microsoft Corp", value: 931_000_000_000, holders: 241 },
+      { symbol: "NVDA", company: "NVIDIA Corporation", value: 1_700_000_000_000, holders: 245 },
+      { symbol: "AMZN", company: "Amazon.com Inc", value: 685_000_000_000, holders: 249 },
+      { symbol: "GOOGL", company: "Alphabet Inc Class A", value: 602_000_000_000, holders: 230 },
+    ],
+    recent_filings: [
+      { name: "BlackRock, Inc.", symbol: "NVDA", action: "Increase", value: 2_300_000_000, filing_date: "2026-05-15" },
+      { name: "Vanguard Group", symbol: "AAPL", action: "Increase", value: 1_400_000_000, filing_date: "2026-05-15" },
+      { name: "State Street Corp", symbol: "MSFT", action: "Increase", value: 987_000_000, filing_date: "2026-05-15" },
+      { name: "Fidelity Investments", symbol: "AMZN", action: "Increase", value: 842_000_000, filing_date: "2026-05-15" },
+      { name: "Capital Group Companies", symbol: "META", action: "Increase", value: 612_000_000, filing_date: "2026-05-14" },
+    ],
+  };
+}
+
 type TableSpec = { title: string; rows: Row[]; columns: Array<[string, string, CellFormat?]> };
 type CellFormat = "currency" | "signed_currency" | "number" | "date" | "percent" | "link";
 type SnapshotIconName = "buyer" | "ticker" | "cluster" | "sector";
@@ -199,30 +262,43 @@ type DashboardFlavor = "congress" | "insiders" | "institutions";
 
 function ProfileDashboard({ flavor, eyebrow, title, subtitle, filter, comparison, snapshotTitle, snapshotSeries, snapshotLabel, snapshotContent, snapshotCards, netActivityContent, insiderRoleMix = [], insiderTopMovingSectors = [], insiderRecentNotableTrades = [], insiderMonthlyActivity = [], metrics, primary, secondary, sectorRows, sectorTitle, left, right, recent, note, lockedMessage, institutionalActivity = [] }: { flavor: DashboardFlavor; eyebrow: string; title: string; subtitle: string; filter: ReactNode; comparison: string; snapshotTitle: string; snapshotSeries: Array<{ label: string; value: number }>; snapshotLabel: string; snapshotContent?: ReactNode; snapshotCards?: SnapshotCardSpec[]; netActivityContent?: ReactNode; insiderRoleMix?: NonNullable<InsidersOverviewResponse["role_mix"]>; insiderTopMovingSectors?: NonNullable<InsidersOverviewResponse["top_moving_sectors"]>; insiderRecentNotableTrades?: ProfileActivityItem[]; insiderMonthlyActivity?: NonNullable<InsidersOverviewResponse["monthly_activity"]>; metrics: ProfileMetric[]; primary: TableSpec; secondary: TableSpec; sectorRows: ProfileSectorPeriod[]; sectorTitle: string; left: TableSpec; right: TableSpec; recent: ProfileActivityItem[]; note?: string; lockedMessage?: string | null; institutionalActivity?: InstitutionalActivityPeriod[] }) {
   const snapshotStats = snapshotCards ?? [primary.rows[0], secondary.rows[0], left.rows[0], right.rows[0]].map((row, index) => ({ row, label: snapshotLabels(flavor)[index] }));
+  const dashboardContent = <>
+    <section className="relative z-10 grid gap-3 xl:grid-cols-[1.68fr_.9fr]">
+      <Panel title={snapshotTitle} subtitle={snapshotLabel} action="Live data">{snapshotContent ?? <TrendChart series={snapshotSeries} />}</Panel>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
+        {snapshotStats.map((card, index) => <SnapshotCard key={index} {...card} />)}
+      </div>
+    </section>
+    <MetricCards metrics={metrics} comparison={comparison} flavor={flavor} insiderMonthlyActivity={insiderMonthlyActivity} />
+    <section className="grid gap-3 xl:grid-cols-2"><DataTable {...primary} /><DataTable {...secondary} /></section>
+    <section className="grid gap-3 xl:grid-cols-[1.05fr_.85fr_.8fr]">
+      <SectorPanel title={sectorTitle} rows={sectorRows} note={note} />
+      {flavor === "institutions" ? <Panel title="Net position change by sector" action="QoQ change"><NetPositionChangeBySector rows={sectorRows} /></Panel> : <Panel title="Net activity by sector" action={flavor === "insiders" ? "TTM" : undefined}>{netActivityContent ?? <SectorMomentum rows={sectorRows} />}</Panel>}
+      <Panel title={flavor === "institutions" ? "Increases vs decreases mix" : "Buy vs sell mix"}><ActivityMix flavor={flavor} metrics={metrics} /></Panel>
+    </section>
+    {flavor === "insiders" ? <section className="grid gap-3 xl:grid-cols-[.85fr_1.05fr_1.1fr]"><Panel title="Transaction mix by role (TTM)"><InsiderRoleMixDonut rows={insiderRoleMix} /></Panel><Panel title="Top moving sectors (vs prior TTM)"><InsiderTopMovingSectors rows={insiderTopMovingSectors} /></Panel><InsiderNotableTrades items={insiderRecentNotableTrades.length ? insiderRecentNotableTrades : recent} /></section> : <section className="grid gap-3 xl:grid-cols-[.9fr_1fr_1.1fr]"><DataTable {...left} /><DataTable {...right} /><Panel title="Top moving sectors"><SectorMovers rows={sectorRows} /></Panel></section>}
+    {flavor === "insiders" ? <Panel title="Activity over time (USD)" action="Monthly"><InsiderActivityOverTime rows={insiderMonthlyActivity} /></Panel> : null}
+    {flavor === "institutions" ? <Panel title="Activity over time (quarterly)" action="8 quarters"><InstitutionalActivityOverTime rows={institutionalActivity} /></Panel> : flavor === "insiders" ? null : <section className="grid gap-3 xl:grid-cols-[1.15fr_.85fr]"><Panel title="Activity over time" subtitle="Reported value by period"><ActivityColumns series={snapshotSeries} /></Panel><Panel title="Recent notable activity"><CompactActivity items={recent} /></Panel></section>}
+  </>;
   return <main className="relative min-w-0 space-y-3 overflow-hidden pb-3">
     <OverviewGlow />
     <header className="relative z-10 flex flex-col gap-3 pt-2 md:flex-row md:items-end md:justify-between">
       <div><p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-300">{eyebrow}</p><h1 className="mt-2 text-3xl font-semibold leading-tight text-white md:text-4xl">{title}</h1><p className="mt-2 text-sm leading-6 text-slate-300">{subtitle}</p></div>
       {filter}
     </header>
-      <section className="relative z-10 grid gap-3 xl:grid-cols-[1.68fr_.9fr]">
-        <Panel title={snapshotTitle} subtitle={snapshotLabel} action="Live data">{snapshotContent ?? <TrendChart series={snapshotSeries} />}</Panel>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
-        {snapshotStats.map((card, index) => <SnapshotCard key={index} {...card} />)}
+    {lockedMessage ? <section className="relative z-10">
+      <div aria-hidden="true" className="pointer-events-none select-none space-y-3 opacity-60 blur-[5px]">
+        {dashboardContent}
       </div>
-    </section>
-    <MetricCards metrics={metrics} comparison={comparison} flavor={flavor} insiderMonthlyActivity={insiderMonthlyActivity} />
-    {lockedMessage ? <Panel title="Institutional detail"><p className="text-sm leading-6 text-slate-300">{lockedMessage}</p><Link href="/pricing" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">View Pro access -&gt;</Link></Panel> : <>
-      <section className="grid gap-3 xl:grid-cols-2"><DataTable {...primary} /><DataTable {...secondary} /></section>
-      <section className="grid gap-3 xl:grid-cols-[1.05fr_.85fr_.8fr]">
-        <SectorPanel title={sectorTitle} rows={sectorRows} note={note} />
-        {flavor === "institutions" ? <Panel title="Net position change by sector" action="QoQ change"><NetPositionChangeBySector rows={sectorRows} /></Panel> : <Panel title="Net activity by sector" action={flavor === "insiders" ? "TTM" : undefined}>{netActivityContent ?? <SectorMomentum rows={sectorRows} />}</Panel>}
-        <Panel title={flavor === "institutions" ? "Increases vs decreases mix" : "Buy vs sell mix"}><ActivityMix flavor={flavor} metrics={metrics} /></Panel>
-      </section>
-      {flavor === "insiders" ? <section className="grid gap-3 xl:grid-cols-[.85fr_1.05fr_1.1fr]"><Panel title="Transaction mix by role (TTM)"><InsiderRoleMixDonut rows={insiderRoleMix} /></Panel><Panel title="Top moving sectors (vs prior TTM)"><InsiderTopMovingSectors rows={insiderTopMovingSectors} /></Panel><InsiderNotableTrades items={insiderRecentNotableTrades.length ? insiderRecentNotableTrades : recent} /></section> : <section className="grid gap-3 xl:grid-cols-[.9fr_1fr_1.1fr]"><DataTable {...left} /><DataTable {...right} /><Panel title="Top moving sectors"><SectorMovers rows={sectorRows} /></Panel></section>}
-      {flavor === "insiders" ? <Panel title="Activity over time (USD)" action="Monthly"><InsiderActivityOverTime rows={insiderMonthlyActivity} /></Panel> : null}
-      {flavor === "institutions" ? <Panel title="Activity over time (quarterly)" action="8 quarters"><InstitutionalActivityOverTime rows={institutionalActivity} /></Panel> : flavor === "insiders" ? null : <section className="grid gap-3 xl:grid-cols-[1.15fr_.85fr]"><Panel title="Activity over time" subtitle="Reported value by period"><ActivityColumns series={snapshotSeries} /></Panel><Panel title="Recent notable activity"><CompactActivity items={recent} /></Panel></section>}
-    </>}
+      <div className="absolute inset-x-0 top-10 z-20 flex justify-center px-4 sm:top-16">
+        <div className="max-w-md rounded-lg border border-emerald-300/30 bg-slate-950/95 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,.45)] backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-[.2em] text-emerald-300">Pro feature</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">Unlock institutional holdings</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{lockedMessage}</p>
+          <Link href="/pricing" className="mt-4 inline-flex rounded-full border border-emerald-300/35 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200/60 hover:bg-emerald-300/20">Upgrade to Pro</Link>
+        </div>
+      </div>
+    </section> : dashboardContent}
   </main>;
 }
 
