@@ -52,6 +52,14 @@ def test_member_reported_holdings_uses_latest_annual_document_only():
             document_id="old-document",
             filing_date=date(2025, 5, 1),
         )
+        older_amendment = HouseAnnualDisclosureDocument(
+            member_name="Test Member",
+            member_bioguide_id="M000001",
+            filing_year=2024,
+            filing_type="A",
+            document_id="old-amendment",
+            filing_date=date(2026, 5, 15),
+        )
         latest = HouseAnnualDisclosureDocument(
             member_name="Test Member",
             member_bioguide_id="M000001",
@@ -60,7 +68,7 @@ def test_member_reported_holdings_uses_latest_annual_document_only():
             filing_date=date(2026, 5, 1),
             report_url="https://example.test/latest.pdf",
         )
-        db.add_all([older, latest])
+        db.add_all([older, older_amendment, latest])
         db.flush()
         db.add_all(
             [
@@ -74,6 +82,17 @@ def test_member_reported_holdings_uses_latest_annual_document_only():
                     symbol="OLD",
                     value_min=10_000,
                     value_max=15_000,
+                ),
+                HouseAnnualDisclosureHolding(
+                    document_row_id=older_amendment.id,
+                    member_name="Test Member",
+                    member_bioguide_id="M000001",
+                    filing_year=2024,
+                    document_id="old-amendment",
+                    asset_name="Late amendment that must not replace a newer reporting year",
+                    symbol="LATE",
+                    value_min=500_000,
+                    value_max=1_000_000,
                 ),
                 HouseAnnualDisclosureHolding(
                     document_row_id=latest.id,

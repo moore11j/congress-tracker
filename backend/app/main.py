@@ -5132,8 +5132,8 @@ def member_reported_holdings(member_id: str, request: Request, db: Session = Dep
             select(HouseAnnualDisclosureDocument)
             .where(HouseAnnualDisclosureDocument.member_bioguide_id == canonical_member_id)
             .order_by(
-                HouseAnnualDisclosureDocument.filing_date.desc(),
                 HouseAnnualDisclosureDocument.filing_year.desc(),
+                HouseAnnualDisclosureDocument.filing_date.desc(),
                 HouseAnnualDisclosureDocument.document_id.desc(),
             )
             .limit(1)
