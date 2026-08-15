@@ -54,18 +54,23 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
         </div>
       ) : null}
 
-      <div className="grid w-full min-w-0 items-center gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-semibold text-white">{watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}</h1>
-            {unseenCount > 0 ? (
-              <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2.5 py-1 text-xs font-semibold text-emerald-100">
-                {unseenCount} new
-              </span>
-            ) : null}
+      <div className="grid w-full min-w-0 items-center gap-6 lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-emerald-300/35 bg-emerald-300/[0.08] text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.08)]">
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-[1.75]">
+              <path d="m12 3 2.78 5.64 6.22.91-4.5 4.38 1.06 6.19L12 17.2l-5.56 2.92 1.06-6.19L3 9.55l6.22-.91L12 3Z" />
+            </svg>
           </div>
-          <p className="text-sm text-slate-400">Monitor filings, insider trades, and unusual signals across saved tickers.</p>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-semibold text-white">{watchlist.name ?? `Watchlist #${watchlist.watchlist_id}`}</h1>
+              <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2.5 py-1 text-xs font-semibold text-emerald-100">
+                {watchlist.tickers.length} {watchlist.tickers.length === 1 ? "ticker" : "tickers"}
+              </span>
+            </div>
+            <p className="text-sm text-slate-400">Monitor filings, insider trades, and unusual signals across saved tickers.</p>
+          </div>
         </div>
         <div className="flex w-full min-w-0 gap-2 lg:justify-end">
           <Link href={`/backtesting?strategy=watchlist&watchlist_id=${watchlist.watchlist_id}`} className={subtlePrimaryButtonClassName} prefetch={false}>
