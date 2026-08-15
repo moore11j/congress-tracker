@@ -600,7 +600,7 @@ function MemberHoldingsPanel({
         </div>
       ) : locked ? (
         <p className="mt-3 text-sm text-slate-400">
-          Holdings estimates use annual financial disclosure baselines when available and are unlocked with portfolio simulation.
+          Verified annual disclosure snapshots are available with portfolio research when Walnut has ingested the source filing.
         </p>
       ) : (
         hasVerifiedSnapshot ? (
