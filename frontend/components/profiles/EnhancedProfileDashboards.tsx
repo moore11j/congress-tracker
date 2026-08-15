@@ -154,8 +154,8 @@ export function EnhancedInsiderDashboard({ data, periodFilter }: { data: Insider
       { label: "Sector breadth", row: sectorBreadth, icon: "sector", valueKey: "percent", valueFormat: "percent", subLabelKey: "breadth_status" },
     ]}
     metrics={data.summary}
-    primary={{ title: "Top insiders by net buying", rows: data.top_insiders, columns: [["name", "Insider", "link"], ["company", "Company"], ["role", "Role"], ["net_buy_value", "Net buy value", "currency"], ["trades", "Trades", "number"]] }}
-    secondary={{ title: "Most traded stocks", rows: data.most_traded_stocks, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["buy_value", "Buy value", "currency"], ["sell_value", "Sell value", "currency"], ["net_value", "Net value", "currency"]] }}
+    primary={{ title: "Top insiders by net buying", rows: data.top_insiders.slice(0, 5), columns: [["name", "Insider", "link"], ["company", "Company"], ["role", "Role"], ["net_buy_value", "Net buy value", "currency"], ["trades", "Trades", "number"], ["last_transaction", "Last transaction", "date"]] }}
+    secondary={{ title: "Most traded stocks", rows: data.most_traded_stocks.slice(0, 5), columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["buy_value", "Buy value", "currency"], ["sell_value", "Sell value", "currency"], ["net_value", "Net value", "signed_currency"], ["actor_count", "Unique insiders", "number"]] }}
     sectorRows={data.sector_activity}
     sectorTitle="Insider activity by sector"
     left={{ title: "Recent open-market purchases", rows: data.recent_purchases as Row[], columns: [["profile", "Insider", "link"], ["symbol", "Ticker", "link"], ["activity", "Action"], ["value", "Value", "currency"], ["time", "Date", "date"]] }}

@@ -240,8 +240,8 @@ def insiders_overview(db: Session, *, period_days: int = 365, sector: str | None
             _metric("Active Insiders", active_insiders, None),
             _metric("Average Trade Size", average_trade_size, None, "currency"),
         ],
-        "top_insiders": _top_insiders(db, base),
-        "most_traded_stocks": _most_traded_insider_stocks(db, base),
+        "top_insiders": _top_insiders(db, base, limit=5),
+        "most_traded_stocks": _most_traded_insider_stocks(db, base, limit=5),
         "monthly_activity": _insider_monthly_activity(db, base),
         "sector_activity": _insider_sector_activity(db, base),
         "sector_net_activity": _insider_sector_net_activity(db, base),
@@ -1061,7 +1061,7 @@ def _congress_market_analytics(db: Session, *, since: datetime, chamber: str) ->
     return {"monthly_activity": [{"period": month.strftime("%b %y"), "trades": value["trades"], "buy_value": _float_or_int(value["buy"]) or 0, "sell_value": _float_or_int(value["sell"]) or 0, "active_members": len(value["members"]), "average_trade_size": _float_or_int(value["value"] / value["trades"]) if value["trades"] else None} for month, value in monthly.items()], "sector_exposure": _allocation_payload(exposure), "sector_activity": activity[:10], "top_moving_sectors": sorted(activity, key=lambda row: abs(float(row.get("change_pct") or 0)), reverse=True)[:6], "chamber_mix": [{"label": label, "value": _float_or_int(value) or 0} for label, value in sorted(chambers.items(), key=lambda item: -item[1])]}
 
 
-def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
+def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 5) -> list[dict[str, Any]]:
     owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
     symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
     buy_value = func.sum(case((_insider_side_clause("buy"), InsiderTransactionNormalized.value), else_=0))
@@ -1108,7 +1108,7 @@ def _top_insiders(db: Session, clauses: list[Any], *, limit: int = 10) -> list[d
     ]
 
 
-def _most_traded_insider_stocks(db: Session, clauses: list[Any], *, limit: int = 10) -> list[dict[str, Any]]:
+def _most_traded_insider_stocks(db: Session, clauses: list[Any], *, limit: int = 5) -> list[dict[str, Any]]:
     owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
     symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
     buy_value = func.sum(case((_insider_side_clause("buy"), InsiderTransactionNormalized.value), else_=0))
