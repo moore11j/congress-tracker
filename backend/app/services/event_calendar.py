@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models import Security, UserAccount, Watchlist, WatchlistItem
+from app.models import Security, TickerContentCache, UserAccount, Watchlist, WatchlistItem
 from app.services.fmp_client import FMPControlledError, request_fmp_json
 from app.utils.symbols import normalize_symbol, symbol_variants
 
@@ -38,6 +39,8 @@ _WATCHLIST_SYMBOL_ENDPOINTS: tuple[tuple[CalendarEventKind, str], ...] = (
     ("dividend", "dividends"),
     ("split", "splits"),
 )
+_CALENDAR_CACHE_CONTENT_TYPE = "event_calendar"
+_CALENDAR_CACHE_SYMBOL = "CALENDAR"
 
 
 def watchlist_symbols_for_user(db: Session, user_id: int) -> list[str]:
@@ -84,6 +87,11 @@ def fetch_event_calendar(
 ) -> CalendarFetchResult:
     symbols = set(watchlist_symbols_for_user(db, user.id))
     provider_symbols = watchlist_provider_symbols_for_user(db, user.id)
+    cache_key = _calendar_cache_key(user.id, scope, start, end, provider_symbols)
+    if source != "scheduled_job":
+        cached = _load_calendar_cache(db, cache_key, start=start, end=end)
+        if cached is not None:
+            return cached
     raw_items: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     params = {"from": start.isoformat(), "to": end.isoformat()}
@@ -148,7 +156,96 @@ def fetch_event_calendar(
 
     items = _dedupe_items(raw_items)
     items.sort(key=lambda item: (str(item.get("date") or ""), _kind_order(str(item.get("kind") or "")), str(item.get("symbol") or ""), str(item.get("title") or "")))
+    if not errors:
+        _store_calendar_cache(db, cache_key, items)
     return CalendarFetchResult(items=items, errors=errors)
+
+
+def _calendar_cache_key(user_id: int, scope: CalendarScope, start: date, end: date, provider_symbols: list[str]) -> str:
+    symbol_digest = hashlib.sha1("|".join(sorted(provider_symbols)).encode("utf-8")).hexdigest()[:16]
+    return f"u{user_id}:{scope}:{start.isoformat()}:{end.isoformat()}:{symbol_digest}"
+
+
+def _calendar_cache_ttl(start: date, end: date) -> timedelta | None:
+    today = datetime.now(timezone.utc).date()
+    if end < today:
+        return None
+    if start <= today <= end:
+        return timedelta(minutes=15)
+    return timedelta(hours=6)
+
+
+def _calendar_cache_is_fresh(row: TickerContentCache, *, start: date, end: date) -> bool:
+    ttl = _calendar_cache_ttl(start, end)
+    if ttl is None:
+        return True
+    fetched_at = row.fetched_at
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return fetched_at >= datetime.now(timezone.utc) - ttl
+
+
+def _load_calendar_cache(db: Session, cache_key: str, *, start: date, end: date) -> CalendarFetchResult | None:
+    try:
+        row = db.execute(
+            select(TickerContentCache)
+            .where(TickerContentCache.content_type == _CALENDAR_CACHE_CONTENT_TYPE)
+            .where(func.upper(TickerContentCache.symbol) == _CALENDAR_CACHE_SYMBOL)
+            .where(TickerContentCache.window_key == cache_key)
+            .where(TickerContentCache.status == "ok")
+            .limit(1)
+        ).scalar_one_or_none()
+    except SQLAlchemyError:
+        db.rollback()
+        return None
+    if row is None or not _calendar_cache_is_fresh(row, start=start, end=end):
+        return None
+    try:
+        payload = json.loads(row.payload_json or "{}")
+        items = payload.get("items") if isinstance(payload, dict) else None
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(items, list):
+        return None
+    return CalendarFetchResult(items=[item for item in items if isinstance(item, dict)], errors=[])
+
+
+def _store_calendar_cache(db: Session, cache_key: str, items: list[dict[str, Any]]) -> None:
+    now = datetime.now(timezone.utc)
+    payload_json = json.dumps({"items": items}, sort_keys=True, default=str)
+    try:
+        row = db.execute(
+            select(TickerContentCache)
+            .where(TickerContentCache.content_type == _CALENDAR_CACHE_CONTENT_TYPE)
+            .where(func.upper(TickerContentCache.symbol) == _CALENDAR_CACHE_SYMBOL)
+            .where(TickerContentCache.window_key == cache_key)
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            db.add(
+                TickerContentCache(
+                    content_type=_CALENDAR_CACHE_CONTENT_TYPE,
+                    symbol=_CALENDAR_CACHE_SYMBOL,
+                    window_key=cache_key,
+                    cache_key=f"{_CALENDAR_CACHE_CONTENT_TYPE}:{cache_key}",
+                    status="ok",
+                    item_count=len(items),
+                    payload_json=payload_json,
+                    source="fmp",
+                    fetched_at=now,
+                )
+            )
+        else:
+            row.cache_key = f"{_CALENDAR_CACHE_CONTENT_TYPE}:{cache_key}"
+            row.status = "ok"
+            row.item_count = len(items)
+            row.payload_json = payload_json
+            row.source = "fmp"
+            row.fetched_at = now
+            row.updated_at = now
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
 
 
 def upcoming_event_calendar_items(
