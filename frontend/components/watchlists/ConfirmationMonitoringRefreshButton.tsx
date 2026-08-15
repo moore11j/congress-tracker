@@ -26,6 +26,9 @@ function compactDate(value: string) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    // This component renders on both the server and client. Pinning the zone
+    // prevents a server/visitor locale difference from breaking hydration.
+    timeZone: "UTC",
   });
 }
 
