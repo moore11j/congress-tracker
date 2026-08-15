@@ -358,7 +358,7 @@ export function BillingAccountPanel() {
         <p className="text-xs font-semibold uppercase tracking-wide text-rose-300">Danger zone</p>
         <h2 className="mt-1 text-xl font-semibold text-white">Delete account</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-400">
-          Deactivate your Walnut account and mark it as deleted. Admins can still see the deleted record for audit and support.
+          Your account will be disabled. If you change your mind, we’ll email you a reactivation link. Free accounts can be restored within 7 days; paid accounts can be restored until the end of the current billing period.
         </p>
         <button
           type="button"
