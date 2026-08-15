@@ -24,6 +24,71 @@ def _session():
     return Session()
 
 
+def test_research_brief_schema_migrates_legacy_drafts_before_keyword_index(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    db.execute(
+        text(
+            """
+            CREATE TABLE research_brief_drafts (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                created_by INTEGER,
+                primary_ticker TEXT,
+                slug TEXT,
+                campaign_id TEXT,
+                campaign_item_id TEXT,
+                scheduled_at TEXT,
+                approved_at TEXT,
+                data_as_of TEXT,
+                earnings_period_used TEXT,
+                generator_version TEXT,
+                last_publish_error TEXT,
+                updated_at TEXT,
+                published_at TEXT,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+    )
+    draft = {
+        "id": "legacy-published-brief",
+        "status": "published",
+        "primary_ticker": "AAPL",
+        "updated_at": "2026-08-15T00:00:00+00:00",
+        "published_at": "2026-08-15T00:00:00+00:00",
+        "article": {"slug": "aapl-legacy-brief", "title": "AAPL legacy research", "primary_ticker": "AAPL"},
+    }
+    db.execute(
+        text(
+            """
+            INSERT INTO research_brief_drafts (
+                id, status, primary_ticker, slug, updated_at, published_at, payload_json
+            ) VALUES (
+                :id, :status, :primary_ticker, :slug, :updated_at, :published_at, :payload_json
+            )
+            """
+        ),
+        {
+            "id": draft["id"],
+            "status": draft["status"],
+            "primary_ticker": draft["primary_ticker"],
+            "slug": draft["article"]["slug"],
+            "updated_at": draft["updated_at"],
+            "published_at": draft["published_at"],
+            "payload_json": json.dumps(draft),
+        },
+    )
+    db.commit()
+
+    cards = service.published_cards(db=db)
+
+    assert cards["items"]
+    assert cards["items"][0]["route"] == "/research/aapl-legacy-brief"
+    columns = {row["name"] for row in db.execute(text("PRAGMA table_info(research_brief_drafts)")).mappings()}
+    assert "target_keyword" in columns
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)

@@ -1616,14 +1616,6 @@ def ensure_research_brief_store_schema(db: Session) -> None:
             """
         )
     )
-    db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_brief_jobs_admin_request ON research_brief_generation_jobs (created_by_admin_id, client_request_id)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_jobs_status_created ON research_brief_generation_jobs (status, created_at)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_status_updated ON research_brief_drafts (status, updated_at)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_scheduled ON research_brief_drafts (status, scheduled_at)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_keyword ON research_brief_drafts (target_keyword, primary_ticker)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaigns_active ON research_campaigns (active, updated_at)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaign_items_due ON research_campaign_items (status, generate_at)"))
-    db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_campaign_items_idempotency ON research_campaign_items (idempotency_key)"))
     for column, ddl in {
         "campaign_id": "ALTER TABLE research_brief_drafts ADD COLUMN campaign_id TEXT",
         "campaign_item_id": "ALTER TABLE research_brief_drafts ADD COLUMN campaign_item_id TEXT",
@@ -1663,6 +1655,17 @@ def ensure_research_brief_store_schema(db: Session) -> None:
             db.execute(text("ALTER TABLE research_campaign_items ADD COLUMN target_keyword TEXT"))
         except Exception:
             pass
+    # All legacy columns must exist before an index can reference them. In
+    # PostgreSQL, a failed CREATE INDEX aborts the transaction and previously
+    # published cards would otherwise be hidden by the fallback store.
+    db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_brief_jobs_admin_request ON research_brief_generation_jobs (created_by_admin_id, client_request_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_jobs_status_created ON research_brief_generation_jobs (status, created_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_status_updated ON research_brief_drafts (status, updated_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_scheduled ON research_brief_drafts (status, scheduled_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_keyword ON research_brief_drafts (target_keyword, primary_ticker)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaigns_active ON research_campaigns (active, updated_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaign_items_due ON research_campaign_items (status, generate_at)"))
+    db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_campaign_items_idempotency ON research_campaign_items (idempotency_key)"))
     db.commit()
 
 
