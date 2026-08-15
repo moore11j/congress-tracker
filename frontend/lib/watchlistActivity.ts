@@ -66,6 +66,7 @@ export function eventToFeedItem(event: EventItem): FeedItem {
     payloadText(payload, ["company_name", "companyName", "security_name", "securityName"]) ??
     symbol ??
     "Unknown";
+  const activityDetail = payloadText(payload, ["headline", "title", "summary", "description"]);
 
   return {
     id: event.id,
@@ -83,7 +84,7 @@ export function eventToFeedItem(event: EventItem): FeedItem {
       asset_class: payloadText(payload, ["asset_class", "securityName"]) ?? "stock",
       sector: payloadText(payload, ["sector"]),
     },
-    transaction_type: event.trade_type ?? "",
+    transaction_type: event.trade_type ?? event.transaction_type ?? activityDetail ?? "",
     owner_type: payloadText(payload, ["owner_type", "ownership"]) ?? (isInsider ? "insider" : ""),
     trade_date: payloadText(payload, ["transaction_date", "transactionDate", "trade_date", "tradeDate"]),
     report_date: payloadText(payload, ["filing_date", "filingDate", "report_date", "reportDate"]) ?? event.ts,

@@ -76,9 +76,9 @@ function activityCopy(item: FeedItem) {
   if (kind.includes("insider")) return { category: "Insiders", detail: hasPerson ? `${person}: ${readableTrade(item.transaction_type)}` : readableTrade(item.transaction_type) };
   if (kind.includes("institution")) return { category: "Institutional activity", detail: readableTrade(item.transaction_type) };
   if (kind.includes("contract")) return { category: "Large trade / contract", detail: readableTrade(item.transaction_type) };
-  if (kind.includes("press")) return { category: "Press releases", detail: item.security?.name || "New company release" };
-  if (kind.includes("news")) return { category: "News", detail: item.security?.name || "New market news" };
-  return { category: "Watchlist activity", detail: item.security?.name || "New monitoring activity" };
+  if (kind.includes("press")) return { category: "Press releases", detail: item.transaction_type || item.security?.name || "New company release" };
+  if (kind.includes("news")) return { category: "News", detail: item.transaction_type || item.security?.name || "New market news" };
+  return { category: "Watchlist activity", detail: item.transaction_type || item.security?.name || "New monitoring activity" };
 }
 
 function RecentActivitySkeleton() {
