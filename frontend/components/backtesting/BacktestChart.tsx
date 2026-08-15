@@ -156,7 +156,7 @@ export function BacktestChart({ timeline }: Props) {
                 <span className="font-semibold text-slate-100">{formatPriceTight(hoveredPoint.benchmark_value)}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400">Active positions</span>
+                <span className="text-slate-400">Active tickers</span>
                 <span className="font-semibold text-white">{hoveredPoint.active_positions}</span>
               </div>
             </div>

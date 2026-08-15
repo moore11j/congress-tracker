@@ -394,6 +394,7 @@ def _equity_points(
                 benchmark_value=float(point.get("benchmark_value")) if point.get("benchmark_value") is not None else None,
                 drawdown_pct=round(drawdown, 4) if drawdown is not None else None,
                 active_holdings=int(point.get("active_lots") or 0),
+                active_tickers=int(point.get("active_tickers") or point.get("active_lots") or 0),
             )
         )
     return points

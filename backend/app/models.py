@@ -3041,6 +3041,9 @@ class StrategyEquityCurvePoint(Base):
     benchmark_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     drawdown_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     active_holdings: Mapped[Optional[int]] = mapped_column(nullable=True)
+    # Kept separately from lot count so public charts use the same ticker-level
+    # definition as the current model-positions table.
+    active_tickers: Mapped[Optional[int]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

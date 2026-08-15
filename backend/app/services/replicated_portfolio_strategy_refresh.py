@@ -140,6 +140,7 @@ def _curve_points(
     strategy_id: int,
     strategy_run_id: int,
     points: list[ReplicatedPortfolioPoint],
+    positions: list[ReplicatedPortfolioPosition],
 ) -> list[StrategyEquityCurvePoint]:
     peak = 0.0
     rows: list[StrategyEquityCurvePoint] = []
@@ -147,6 +148,11 @@ def _curve_points(
         strategy_value = float(point.strategy_value or 0.0)
         peak = max(peak, strategy_value)
         drawdown = ((strategy_value / peak) - 1.0) * 100.0 if peak > 0 else None
+        active_tickers = {
+            normalize_symbol(position.symbol)
+            for position in positions
+            if _active_position(position, point.asof_date) and normalize_symbol(position.symbol)
+        }
         rows.append(
             StrategyEquityCurvePoint(
                 strategy_id=strategy_id,
@@ -156,6 +162,7 @@ def _curve_points(
                 benchmark_value=float(point.benchmark_value) if point.benchmark_value is not None else None,
                 drawdown_pct=round(drawdown, 4) if drawdown is not None else None,
                 active_holdings=int(point.active_positions or 0),
+                active_tickers=len(active_tickers),
             )
         )
     return rows
@@ -792,7 +799,14 @@ def persist_top_congress_portfolio_strategies(
                 points=points,
             )
         )
-        db.add_all(_curve_points(strategy_id=int(strategy.id), strategy_run_id=int(strategy_run.id), points=points))
+        db.add_all(
+            _curve_points(
+                strategy_id=int(strategy.id),
+                strategy_run_id=int(strategy_run.id),
+                points=points,
+                positions=positions,
+            )
+        )
         holdings = _holding_rows(
             strategy_id=int(strategy.id),
             strategy_run_id=int(strategy_run.id),

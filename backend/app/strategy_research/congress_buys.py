@@ -537,7 +537,10 @@ def simulate_active_lot_portfolio(
             "date": day.isoformat(),
             "strategy_value": round(strategy_curve[index], 6),
             "benchmark_value": round(benchmark_curve[index], 6),
-            "active_lots": holdings_counts[index - 1] if index > 0 and index - 1 < len(holdings_counts) else 0,
+            # A point is labeled with its own date, so use that date's active
+            # lots rather than the previous return interval's positions.
+            "active_lots": len(active_by_day.get(day, [])),
+            "active_tickers": len({lot.signal.symbol for lot in active_by_day.get(day, [])}),
         }
         for index, day in enumerate(calendar)
     ]

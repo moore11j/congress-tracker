@@ -11,6 +11,7 @@ from app.db import Base, ensure_strategy_storage_schema
 from app.entitlements import ENTITLEMENTS
 from app.models import (
     ReplicatedPortfolioPosition,
+    ReplicatedPortfolioPoint,
     StrategyBacktestRun,
     StrategyCurrentHolding,
     StrategyDefinition,
@@ -27,6 +28,7 @@ from app.models import (
     StrategyVersion,
 )
 from app.services.strategies import list_strategy_cards, set_strategy_publication, strategy_detail
+from app.services.replicated_portfolio_strategy_refresh import _curve_points
 
 
 def _session():
@@ -163,7 +165,15 @@ def test_strategy_detail_keeps_public_performance_but_withholds_current_position
         db.flush()
         db.add_all([
             StrategyPerformanceSnapshot(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 8, 1), period="max", cagr_pct=18),
-            StrategyEquityCurvePoint(strategy_id=strategy.id, run_id=run.id, date=date(2026, 8, 1), strategy_value=110, benchmark_value=105),
+            StrategyEquityCurvePoint(
+                strategy_id=strategy.id,
+                run_id=run.id,
+                date=date(2026, 8, 1),
+                strategy_value=110,
+                benchmark_value=105,
+                active_holdings=7,
+                active_tickers=1,
+            ),
             StrategyCurrentHolding(strategy_id=strategy.id, run_id=run.id, as_of_date=date(2026, 8, 1), symbol="NVDA", company_name="NVIDIA"),
         ])
         db.commit()
@@ -172,6 +182,8 @@ def test_strategy_detail_keeps_public_performance_but_withholds_current_position
         assert free["access"]["locked"] is False
         assert free["performance"]["cagrPct"] == 18
         assert len(free["equityCurve"]) == 1
+        assert free["equityCurve"][0]["activeHoldings"] == 1
+        assert free["equityCurve"][0]["activeLots"] == 7
         assert free["currentHoldings"] == []
         assert free["currentHoldingsCount"] == 1
         assert free["strategyAccess"]["canViewCurrentHoldings"] is False
@@ -181,6 +193,23 @@ def test_strategy_detail_keeps_public_performance_but_withholds_current_position
         assert premium["strategyAccess"]["canFollow"] is True
     finally:
         db.close()
+
+
+def test_replicated_curve_counts_unique_active_tickers_not_open_lots():
+    points = [
+        ReplicatedPortfolioPoint(asof_date=date(2026, 1, 2), strategy_value=100, active_positions=2),
+        ReplicatedPortfolioPoint(asof_date=date(2026, 1, 3), strategy_value=101, active_positions=3),
+    ]
+    positions = [
+        ReplicatedPortfolioPosition(symbol="WFC", status="open", entry_date=date(2026, 1, 1)),
+        ReplicatedPortfolioPosition(symbol="WFC", status="open", entry_date=date(2026, 1, 2)),
+        ReplicatedPortfolioPosition(symbol="SPG", status="closed", entry_date=date(2026, 1, 1), exit_date=date(2026, 1, 3)),
+    ]
+
+    curve = _curve_points(strategy_id=1, strategy_run_id=1, points=points, positions=positions)
+
+    assert [point.active_holdings for point in curve] == [2, 3]
+    assert [point.active_tickers for point in curve] == [2, 1]
 
 
 def test_strategy_detail_curve_matches_selected_period_and_preserves_endpoints():

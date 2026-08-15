@@ -691,11 +691,20 @@ def ensure_strategy_storage_schema(bind=engine) -> None:
                     benchmark_value {float_type},
                     drawdown_pct {float_type},
                     active_holdings INTEGER,
+                    active_tickers INTEGER,
                     created_at {timestamp_type} NOT NULL DEFAULT {now_default}
                 )
                 """
             )
         )
+        # Existing installations predate ticker-level curve counts. Add the
+        # nullable column without rewriting historical strategy records here.
+        if dialect_name == "sqlite":
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(strategy_equity_curve_points)"))}
+            if "active_tickers" not in columns:
+                conn.execute(text("ALTER TABLE strategy_equity_curve_points ADD COLUMN active_tickers INTEGER"))
+        else:
+            conn.execute(text("ALTER TABLE strategy_equity_curve_points ADD COLUMN IF NOT EXISTS active_tickers INTEGER"))
         conn.execute(
             text(
                 f"""

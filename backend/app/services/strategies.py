@@ -369,7 +369,10 @@ def strategy_detail(
                 "strategyValue": point.strategy_value,
                 "benchmarkValue": point.benchmark_value,
                 "drawdownPct": point.drawdown_pct,
-                "activeHoldings": point.active_holdings,
+                # Portfolio records aggregate repeat buys into a single ticker.
+                # The chart must use that same user-facing position definition.
+                "activeHoldings": point.active_tickers if point.active_tickers is not None else point.active_holdings,
+                "activeLots": point.active_holdings,
             }
             for point in points
         ]

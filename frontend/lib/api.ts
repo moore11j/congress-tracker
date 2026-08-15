@@ -3197,6 +3197,7 @@ export type StrategyEquityPoint = {
   benchmarkValue?: number | null;
   drawdownPct?: number | null;
   activeHoldings?: number | null;
+  activeLots?: number | null;
 };
 
 export type StrategyDefinitionPayload = {
