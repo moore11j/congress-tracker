@@ -7,6 +7,7 @@ import {
   deleteAdminResearchBriefDraft,
   deleteAdminResearchCampaign,
   getAdminResearchCampaigns,
+  getAdminResearchPublishingHealth,
   getAdminResearchBriefDraft,
   getAdminResearchBriefGenerationDraft,
   getAdminResearchBriefGenerationJob,
@@ -32,6 +33,7 @@ import {
   type AdminResearchCampaign,
   type AdminResearchCampaignPayload,
   type AdminResearchCampaignTheme,
+  type AdminResearchPublishingHealth,
 } from "@/lib/api";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
@@ -180,6 +182,9 @@ const DEFAULT_CAMPAIGN_FORM: AdminResearchCampaignPayload = {
   article_count: 3,
   window_days: 5,
   active: true,
+  target_keywords: { NBIS: "NBIS stock buy now", CRWV: "CRWV stock buy now", COHR: "COHR stock buy now" },
+  secondary_keywords: [],
+  search_intent: "Is [TICKER] a good stock to buy right now?",
 };
 
 function fieldClassName(extra = "") {
@@ -467,6 +472,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [activePane, setActivePane] = useState<"create" | "scheduled" | "drafts" | "published" | "campaigns" | "settings">("create");
   const [preflightReadiness, setPreflightReadiness] = useState<Record<string, unknown> | null>(null);
   const [campaigns, setCampaigns] = useState<AdminResearchCampaign[]>([]);
+  const [publishingHealth, setPublishingHealth] = useState<AdminResearchPublishingHealth | null>(null);
   const [campaignForm, setCampaignForm] = useState<AdminResearchCampaignPayload>(DEFAULT_CAMPAIGN_FORM);
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
@@ -511,6 +517,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       .catch(() => undefined);
     getAdminResearchBriefDrafts().then((payload) => alive && setDrafts(payload.items)).catch(() => undefined);
     getAdminResearchCampaigns().then((payload) => alive && setCampaigns(payload.items)).catch(() => undefined);
+    getAdminResearchPublishingHealth().then((payload) => alive && setPublishingHealth(payload)).catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -1161,6 +1168,10 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                   placeholder="Specific earnings issue, known catalyst, metric to investigate, requested comparison, or notes."
                 />
               </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Target keyword</span>
+                <input value={config.target_keyword || ""} onChange={(event) => updateConfig("target_keyword", event.target.value)} className={fieldClassName("mt-2")} placeholder="NBIS stock buy now" />
+              </label>
 
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Add source URL manually</span>
@@ -1326,6 +1337,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         <CampaignsPanel
           themes={options.campaign_themes}
           campaigns={campaigns}
+          health={publishingHealth}
           form={campaignForm}
           busy={busy}
           onFormChange={setCampaignForm}
@@ -1610,6 +1622,27 @@ function SourceDiscoveryDiagnostics({ draft }: { draft: AdminResearchBriefDraft 
   );
 }
 
+function PublicationReadinessPanel({ draft }: { draft: AdminResearchBriefDraft }) {
+  const readiness = objectValue(draft.validation?.publication_readiness);
+  const overlaps = Array.isArray(readiness.potential_cannibalization) ? readiness.potential_cannibalization : [];
+  const rows = [
+    ["Search intent identified", readiness.search_intent_identified ? "yes" : "missing"],
+    ["Walnut-native data", readiness.walnut_native_data_included ? "yes" : "needs review"],
+    ["Confirmation Score", readiness.confirmation_score_included ? "included" : "not used"],
+    ["Internal links out", String(readiness.internal_links_out ?? 0)],
+    ["Inbound opportunities", String(readiness.inbound_link_opportunities ?? 0)],
+    ["Potential overlap", overlaps.length ? "review" : "none"],
+  ];
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Publication readiness</p>
+      <div className="mt-2 space-y-1.5">
+        {rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 text-xs"><span className="text-slate-400">{label}</span><span className="font-semibold capitalize text-slate-200">{value}</span></div>)}
+      </div>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
@@ -1738,7 +1771,9 @@ function ScheduledBriefsPanel({ drafts, onOpen }: { drafts: AdminResearchBriefDr
               <th className="px-3 py-2">Ticker/topic</th>
               <th className="px-3 py-2">Title</th>
               <th className="px-3 py-2">Campaign</th>
+              <th className="px-3 py-2">Target keyword</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Indexation</th>
               <th className="px-3 py-2">Data as of</th>
             </tr>
           </thead>
@@ -1754,10 +1789,12 @@ function ScheduledBriefsPanel({ drafts, onOpen }: { drafts: AdminResearchBriefDr
                   <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{draft.article?.summary}</p>
                 </td>
                 <td className="px-3 py-3">{draft.campaign_name || draft.campaign_id || "-"}</td>
+                <td className="px-3 py-3 text-xs text-slate-400">{draft.target_keyword || draft.config?.target_keyword || "-"}</td>
                 <td className="px-3 py-3">
                   <span className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold uppercase text-slate-300">{draft.status}</span>
                   {draft.last_publish_error ? <p className="mt-2 text-xs leading-5 text-rose-200">{draft.last_publish_error}</p> : null}
                 </td>
+                <td className="px-3 py-3"><span className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold uppercase text-slate-300">{draft.index_status || "unknown"}</span></td>
                 <td className="px-3 py-3 whitespace-nowrap">{formatDateTime(draft.data_as_of || draft.generated_at)}</td>
               </tr>
             ))}
@@ -1772,6 +1809,7 @@ function ScheduledBriefsPanel({ drafts, onOpen }: { drafts: AdminResearchBriefDr
 function CampaignsPanel({
   themes,
   campaigns,
+  health,
   form,
   busy,
   onFormChange,
@@ -1782,6 +1820,7 @@ function CampaignsPanel({
 }: {
   themes: AdminResearchCampaignTheme[];
   campaigns: AdminResearchCampaign[];
+  health: AdminResearchPublishingHealth | null;
   form: AdminResearchCampaignPayload;
   busy: string | null;
   onFormChange: (form: AdminResearchCampaignPayload) => void;
@@ -1840,6 +1879,15 @@ function CampaignsPanel({
               <input value={form.topic || ""} onChange={(event) => onFormChange({ ...form, topic: event.target.value })} className={fieldClassName("mt-2")} placeholder={selectedTheme?.intent || "Research topic"} />
             </label>
           )}
+          <label>
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Target keyword</span>
+            <input value={form.target_keyword || ""} onChange={(event) => onFormChange({ ...form, target_keyword: event.target.value })} className={fieldClassName("mt-2")} placeholder="NBIS stock buy now" />
+            <span className="mt-1 block text-xs text-slate-500">For Good Buy Now, Walnut defaults each ticker to “[ticker] stock buy now” when empty.</span>
+          </label>
+          <label>
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Secondary keywords</span>
+            <input value={(form.secondary_keywords || []).join(", ")} onChange={(event) => onFormChange({ ...form, secondary_keywords: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} className={fieldClassName("mt-2")} placeholder="earnings analysis, institutional ownership" />
+          </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <Select label="Cadence" value={form.cadence} options={["one_time", "daily", "weekly", "custom"]} onChange={(cadence) => onFormChange({ ...form, cadence })} />
             <label>
@@ -1860,6 +1908,17 @@ function CampaignsPanel({
       </div>
       <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
         <h3 className="text-base font-semibold text-white">Campaigns</h3>
+        {health ? (
+          <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/45 p-3 text-xs text-slate-400">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Metric label="30d published" value={String(health.published_last_30_days)} />
+              <Metric label="Indexed" value={String(health.indexed)} />
+              <Metric label="Index rate" value={health.indexation_rate == null ? "-" : `${health.indexation_rate}%`} />
+              <Metric label="Daily cap" value={String(health.daily_automated_publish_cap)} />
+            </div>
+            {health.cadence_warning ? <p className="mt-3 text-amber-100">{health.cadence_warning}</p> : null}
+          </div>
+        ) : null}
         <div className="mt-4 grid gap-3">
           {campaigns.map((campaign) => (
             <div key={campaign.id} className="rounded-lg border border-white/10 bg-slate-950/45 p-4">
@@ -2129,6 +2188,7 @@ function EditorPanel({
         {draft.data_as_of ? <Metric label="Data as of" value={formatDateTime(draft.data_as_of)} /> : null}
         {draft.earnings_period_used ? <Metric label="Earnings period" value={draft.earnings_period_used} /> : null}
         <ResearchReadinessPanel draft={draft} />
+        <PublicationReadinessPanel draft={draft} />
         <SourceDiscoveryDiagnostics draft={draft} />
         {draft.validation?.source_link_count === 0 ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">

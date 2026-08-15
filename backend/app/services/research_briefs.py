@@ -34,7 +34,7 @@ from app.services.confirmation_score import get_confirmation_score_bundles_for_t
 from app.services.email_delivery import send_email
 from app.utils.symbols import normalize_symbol
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v2_walnut_investor_voice"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v3_search_intent_walnut_context"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -97,6 +97,9 @@ STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "scheduled_review",
 CAMPAIGN_ITEM_STATUS_OPTIONS = {"pending", "generating", "generated", "failed"}
 RESEARCH_CAMPAIGN_REVIEW_TEMPLATE_KEY = "research_brief.scheduled_review"
 RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION = "research_campaign_v1"
+RESEARCH_DAILY_PUBLISH_CAP = "RESEARCH_DAILY_PUBLISH_CAP"
+RESEARCH_DAILY_PUBLISH_CAP_DEFAULT = 1
+INDEX_STATUSES = {"indexed", "crawled_not_indexed", "discovered", "unknown"}
 RESEARCH_CAMPAIGN_THEMES: list[dict[str, Any]] = [
     {"key": "good_buy_now", "label": "Good Buy Now", "content_type": "ticker", "intent": "Is [TICKER] a Good Stock to Buy Right Now?"},
     {"key": "why_is_it_moving", "label": "Why Is It Moving", "content_type": "ticker", "intent": "Why Is [TICKER] Stock Moving?"},
@@ -1553,6 +1556,14 @@ def ensure_research_brief_store_schema(db: Session) -> None:
                 earnings_period_used TEXT,
                 generator_version TEXT,
                 last_publish_error TEXT,
+                target_keyword TEXT,
+                search_intent TEXT,
+                index_status TEXT,
+                first_seen_indexed_at TEXT,
+                last_checked_at TEXT,
+                search_console_impressions REAL,
+                search_console_clicks REAL,
+                average_position REAL,
                 updated_at TEXT,
                 published_at TEXT,
                 payload_json TEXT NOT NULL
@@ -1598,6 +1609,7 @@ def ensure_research_brief_store_schema(db: Session) -> None:
                 idempotency_key TEXT,
                 generated_at TEXT,
                 last_error TEXT,
+                target_keyword TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )
@@ -1608,6 +1620,7 @@ def ensure_research_brief_store_schema(db: Session) -> None:
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_jobs_status_created ON research_brief_generation_jobs (status, created_at)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_status_updated ON research_brief_drafts (status, updated_at)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_scheduled ON research_brief_drafts (status, scheduled_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_keyword ON research_brief_drafts (target_keyword, primary_ticker)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaigns_active ON research_campaigns (active, updated_at)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaign_items_due ON research_campaign_items (status, generate_at)"))
     db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_campaign_items_idempotency ON research_campaign_items (idempotency_key)"))
@@ -1620,6 +1633,14 @@ def ensure_research_brief_store_schema(db: Session) -> None:
         "earnings_period_used": "ALTER TABLE research_brief_drafts ADD COLUMN earnings_period_used TEXT",
         "generator_version": "ALTER TABLE research_brief_drafts ADD COLUMN generator_version TEXT",
         "last_publish_error": "ALTER TABLE research_brief_drafts ADD COLUMN last_publish_error TEXT",
+        "target_keyword": "ALTER TABLE research_brief_drafts ADD COLUMN target_keyword TEXT",
+        "search_intent": "ALTER TABLE research_brief_drafts ADD COLUMN search_intent TEXT",
+        "index_status": "ALTER TABLE research_brief_drafts ADD COLUMN index_status TEXT",
+        "first_seen_indexed_at": "ALTER TABLE research_brief_drafts ADD COLUMN first_seen_indexed_at TEXT",
+        "last_checked_at": "ALTER TABLE research_brief_drafts ADD COLUMN last_checked_at TEXT",
+        "search_console_impressions": "ALTER TABLE research_brief_drafts ADD COLUMN search_console_impressions REAL",
+        "search_console_clicks": "ALTER TABLE research_brief_drafts ADD COLUMN search_console_clicks REAL",
+        "average_position": "ALTER TABLE research_brief_drafts ADD COLUMN average_position REAL",
     }.items():
         try:
             db.execute(text(f"ALTER TABLE research_brief_drafts ADD COLUMN IF NOT EXISTS {column} TEXT"))
@@ -1633,6 +1654,13 @@ def ensure_research_brief_store_schema(db: Session) -> None:
     except Exception:
         try:
             db.execute(text("ALTER TABLE research_brief_generation_jobs ADD COLUMN updated_at TEXT"))
+        except Exception:
+            pass
+    try:
+        db.execute(text("ALTER TABLE research_campaign_items ADD COLUMN IF NOT EXISTS target_keyword TEXT"))
+    except Exception:
+        try:
+            db.execute(text("ALTER TABLE research_campaign_items ADD COLUMN target_keyword TEXT"))
         except Exception:
             pass
     db.commit()
@@ -1732,6 +1760,14 @@ def _upsert_db_draft(db: Session, draft: dict[str, Any]) -> None:
         "earnings_period_used": draft.get("earnings_period_used"),
         "generator_version": draft.get("generator_version") or draft.get("prompt_version"),
         "last_publish_error": draft.get("last_publish_error"),
+        "target_keyword": draft.get("target_keyword") or (draft.get("config") or {}).get("target_keyword"),
+        "search_intent": draft.get("search_intent") or (draft.get("config") or {}).get("search_intent"),
+        "index_status": draft.get("index_status") or "unknown",
+        "first_seen_indexed_at": draft.get("first_seen_indexed_at"),
+        "last_checked_at": draft.get("last_checked_at"),
+        "search_console_impressions": draft.get("search_console_impressions"),
+        "search_console_clicks": draft.get("search_console_clicks"),
+        "average_position": draft.get("average_position"),
         "updated_at": draft.get("updated_at"),
         "published_at": draft.get("published_at"),
         "payload_json": _json_dump(draft),
@@ -1742,12 +1778,16 @@ def _upsert_db_draft(db: Session, draft: dict[str, Any]) -> None:
             INSERT INTO research_brief_drafts (
                 id, status, created_by, primary_ticker, slug, campaign_id, campaign_item_id,
                 scheduled_at, approved_at, data_as_of, earnings_period_used, generator_version,
-                last_publish_error, updated_at, published_at, payload_json
+                last_publish_error, target_keyword, search_intent, index_status, first_seen_indexed_at,
+                last_checked_at, search_console_impressions, search_console_clicks, average_position,
+                updated_at, published_at, payload_json
             )
             VALUES (
                 :id, :status, :created_by, :primary_ticker, :slug, :campaign_id, :campaign_item_id,
                 :scheduled_at, :approved_at, :data_as_of, :earnings_period_used, :generator_version,
-                :last_publish_error, :updated_at, :published_at, :payload_json
+                :last_publish_error, :target_keyword, :search_intent, :index_status, :first_seen_indexed_at,
+                :last_checked_at, :search_console_impressions, :search_console_clicks, :average_position,
+                :updated_at, :published_at, :payload_json
             )
             ON CONFLICT(id) DO UPDATE SET
                 status = excluded.status,
@@ -1761,6 +1801,14 @@ def _upsert_db_draft(db: Session, draft: dict[str, Any]) -> None:
                 earnings_period_used = excluded.earnings_period_used,
                 generator_version = excluded.generator_version,
                 last_publish_error = excluded.last_publish_error,
+                target_keyword = excluded.target_keyword,
+                search_intent = excluded.search_intent,
+                index_status = excluded.index_status,
+                first_seen_indexed_at = excluded.first_seen_indexed_at,
+                last_checked_at = excluded.last_checked_at,
+                search_console_impressions = excluded.search_console_impressions,
+                search_console_clicks = excluded.search_console_clicks,
+                average_position = excluded.average_position,
                 updated_at = excluded.updated_at,
                 published_at = excluded.published_at,
                 payload_json = excluded.payload_json
@@ -1838,6 +1886,13 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         article_count = len(tickers) if content_type == "ticker" else 1
     publish_start_at = _parse_schedule_datetime(payload.get("publish_start_at")) or datetime.now(timezone.utc)
+    target_keyword = str(payload.get("target_keyword") or "").strip()[:240]
+    secondary_keywords = _dedupe_strings([str(item).strip()[:120] for item in (payload.get("secondary_keywords") or []) if str(item).strip()])[:12]
+    target_keywords = {
+        normalize_symbol(symbol): str(keyword).strip()[:240]
+        for symbol, keyword in (payload.get("target_keywords") or {}).items()
+        if normalize_symbol(symbol) and str(keyword).strip()
+    }
     return {
         "name": str(payload.get("name") or theme["label"]).strip()[:180],
         "theme": theme["key"],
@@ -1851,6 +1906,10 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "window_days": window_days,
         "publish_start_at": publish_start_at.isoformat(),
         "publish_time": str(payload.get("publish_time") or "").strip()[:20],
+        "target_keyword": target_keyword,
+        "secondary_keywords": secondary_keywords,
+        "search_intent": str(payload.get("search_intent") or theme.get("intent") or "").strip()[:120],
+        "target_keywords": target_keywords,
     }
 
 
@@ -1919,15 +1978,20 @@ def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str,
         item_id = f"rci_{uuid.uuid4().hex}"
         ticker = target if config["content_type"] == "ticker" else None
         topic = None if config["content_type"] == "ticker" else target
+        target_keyword = (
+            config["target_keywords"].get(ticker)
+            if ticker
+            else config["target_keyword"]
+        ) or (f"{ticker} stock buy now" if ticker and config["theme"] == "good_buy_now" else config["target_keyword"])
         db.execute(
             text(
                 """
                 INSERT INTO research_campaign_items (
                     id, campaign_id, ticker, topic, generate_at, publish_at, status,
-                    idempotency_key, created_at, updated_at
+                    idempotency_key, target_keyword, created_at, updated_at
                 ) VALUES (
                     :id, :campaign_id, :ticker, :topic, :generate_at, :publish_at, 'pending',
-                    :idempotency_key, :created_at, :updated_at
+                    :idempotency_key, :target_keyword, :created_at, :updated_at
                 )
                 """
             ),
@@ -1939,6 +2003,7 @@ def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str,
                 "generate_at": generate_at.isoformat(),
                 "publish_at": publish_at.isoformat(),
                 "idempotency_key": f"{campaign_id}:{ticker or topic}:{publish_at.isoformat()}",
+                "target_keyword": target_keyword,
                 "created_at": now,
                 "updated_at": now,
             },
@@ -2116,6 +2181,10 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         "generate_thumbnail": True,
         "selected_model": "",
         "manual_source_url": "",
+        "target_keyword": item.get("target_keyword") or campaign_config.get("target_keyword") or f"{ticker} stock buy now",
+        "secondary_keywords": campaign_config.get("secondary_keywords") or [],
+        "search_intent": campaign_config.get("search_intent") or title_intent,
+        "content_type": "ticker",
     }
 
 
@@ -2186,6 +2255,12 @@ def _mark_draft_scheduled_review(draft: dict[str, Any], item: dict[str, Any], ca
     updated["data_as_of"] = context.get("generated_at") or now
     updated["earnings_period_used"] = _earnings_period_from_context(context)
     updated["generator_version"] = RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION
+    config = updated.get("config") if isinstance(updated.get("config"), dict) else {}
+    updated["target_keyword"] = str(config.get("target_keyword") or item.get("target_keyword") or "").strip() or None
+    updated["secondary_keywords"] = config.get("secondary_keywords") or []
+    updated["search_intent"] = str(config.get("search_intent") or campaign_config.get("search_intent") or "").strip() or None
+    updated["content_type"] = str(config.get("content_type") or campaign_config.get("content_type") or "ticker")
+    updated["index_status"] = str(updated.get("index_status") or "unknown")
     updated["updated_at"] = now
     article["current_data_as_of"] = updated["data_as_of"]
     seo = article.setdefault("seo", {})
@@ -2196,6 +2271,7 @@ def _mark_draft_scheduled_review(draft: dict[str, Any], item: dict[str, Any], ca
         "dateModified": now,
         "datePublished": updated.get("scheduled_at"),
     }
+    article["target_keyword"] = updated["target_keyword"]
     updated["article"] = article
     return updated
 
@@ -2278,6 +2354,15 @@ def reschedule_research_brief(db: Session, draft_id: str, scheduled_at: str) -> 
 
 def run_due_scheduled_research_publications(db: Session, *, limit: int = 20) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
+    cap = _research_daily_publish_cap()
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    published_today = db.execute(
+        text("SELECT COUNT(*) FROM research_brief_drafts WHERE status = 'published' AND published_at >= :today_start"),
+        {"today_start": today_start},
+    ).scalar() or 0
+    remaining = max(0, cap - int(published_today)) if cap > 0 else max(1, min(100, limit))
+    if cap > 0 and remaining == 0:
+        return {"published": 0, "failed": 0, "skipped": 0, "checked": 0, "warning": f"Daily automated publishing cap ({cap}) reached."}
     rows = db.execute(
         text(
             """
@@ -2288,7 +2373,7 @@ def run_due_scheduled_research_publications(db: Session, *, limit: int = 20) -> 
             LIMIT :limit
             """
         ),
-        {"now": _now(), "limit": max(1, min(100, limit))},
+        {"now": _now(), "limit": min(max(1, min(100, limit)), remaining)},
     ).mappings().all()
     published = 0
     failed = 0
@@ -2311,7 +2396,52 @@ def run_due_scheduled_research_publications(db: Session, *, limit: int = 20) -> 
             draft["updated_at"] = _now()
             _upsert_db_draft(db, draft)
             logger.warning("scheduled_research_publish_failed draft_id=%s error=%s", row["id"], exc.__class__.__name__, exc_info=True)
-    return {"published": published, "failed": failed, "skipped": skipped, "checked": len(rows)}
+    return {"published": published, "failed": failed, "skipped": skipped, "checked": len(rows), "daily_cap": cap, "published_today": int(published_today)}
+
+
+def _research_daily_publish_cap() -> int:
+    try:
+        return max(0, int(os.getenv(RESEARCH_DAILY_PUBLISH_CAP, str(RESEARCH_DAILY_PUBLISH_CAP_DEFAULT))))
+    except (TypeError, ValueError):
+        return RESEARCH_DAILY_PUBLISH_CAP_DEFAULT
+
+
+def research_publishing_health(db: Session) -> dict[str, Any]:
+    """Small operator view; Search Console values remain ready for a later connector."""
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=30)).isoformat()
+    drafts = _db_drafts(db, status="published")
+    recent = [draft for draft in drafts if str(draft.get("published_at") or draft.get("updated_at") or "") >= cutoff]
+    statuses = {status: sum(1 for draft in recent if str(draft.get("index_status") or "unknown") == status) for status in INDEX_STATUSES}
+    indexed = statuses["indexed"]
+    index_rate = round((indexed / len(recent) * 100), 1) if recent else None
+    days_to_index: list[float] = []
+    impressions: list[float] = []
+    positions: list[float] = []
+    for draft in recent:
+        published_at = _parse_iso_datetime(draft.get("published_at"))
+        first_seen = _parse_iso_datetime(draft.get("first_seen_indexed_at"))
+        if published_at and first_seen:
+            days_to_index.append((first_seen - published_at).total_seconds() / 86400)
+        if str(draft.get("index_status") or "unknown") == "indexed":
+            if _safe_float(draft.get("search_console_impressions")) is not None:
+                impressions.append(float(draft["search_console_impressions"]))
+            if _safe_float(draft.get("average_position")) is not None:
+                positions.append(float(draft["average_position"]))
+    median_days = sorted(days_to_index)[len(days_to_index) // 2] if days_to_index else None
+    return {
+        "published_last_30_days": len(recent),
+        "indexed": indexed,
+        "crawled_not_indexed": statuses["crawled_not_indexed"],
+        "discovered": statuses["discovered"],
+        "unknown": statuses["unknown"],
+        "indexation_rate": index_rate,
+        "median_days_to_index": round(median_days, 1) if median_days is not None else None,
+        "average_impressions_per_indexed_brief": round(sum(impressions) / len(impressions), 1) if impressions else None,
+        "average_position": round(sum(positions) / len(positions), 1) if positions else None,
+        "daily_automated_publish_cap": _research_daily_publish_cap(),
+        "cadence_warning": f"Only {index_rate}% of Research Briefs published in the last 30 days are currently indexed. Consider slowing publication or improving internal linking." if index_rate is not None and index_rate < 50 else None,
+    }
 
 
 def _system_admin_for_scheduler(db: Session) -> UserAccount:
@@ -2708,6 +2838,56 @@ def _validated_confirmation_context(symbol: str, value: Any, *, role: str, stric
     return cleaned
 
 
+def retrieve_walnut_site_context(db: Session, *, symbol: str, target_keyword: str, search_intent: str) -> dict[str, Any]:
+    """Return a deliberately small, crawler-safe slice of Walnut context for a brief."""
+    related: list[dict[str, str]] = []
+    keyword_terms = {term for term in re.findall(r"[a-z0-9]{3,}", f"{target_keyword} {search_intent}".lower())}
+    try:
+        drafts = _db_drafts(db, status="published")
+    except Exception:
+        drafts = []
+    for draft in drafts:
+        article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
+        title = str(article.get("title") or "")
+        article_symbol = normalize_symbol(article.get("primary_ticker") or draft.get("primary_ticker"))
+        words = set(re.findall(r"[a-z0-9]{3,}", title.lower()))
+        if article_symbol == symbol or len(keyword_terms & words) >= 2:
+            slug = str(article.get("slug") or "").strip()
+            if slug:
+                related.append({"title": title or slug, "url": f"/research/{slug}", "source_type": "related_research"})
+    links = [
+        {"title": f"{symbol} ticker research", "url": f"/ticker/{symbol}", "source_type": "ticker_page"},
+        {"title": "Research Briefs", "url": "/research", "source_type": "research_hub"},
+        {"title": "Walnut Confirmation Score", "url": "/stock-confirmation-score", "source_type": "methodology"},
+        *related[:3],
+    ]
+    return {"query": target_keyword, "search_intent": search_intent, "links": links[:5], "related_research": related[:3]}
+
+
+def potential_research_overlap(db: Session, *, symbol: str, target_keyword: str, search_intent: str, exclude_draft_id: str | None = None) -> list[dict[str, str]]:
+    matches: list[dict[str, str]] = []
+    normalized_keyword = re.sub(r"\s+", " ", target_keyword.lower()).strip()
+    intent_terms = set(re.findall(r"[a-z0-9]{4,}", search_intent.lower()))
+    try:
+        drafts = _db_drafts(db)
+    except Exception:
+        drafts = []
+    for draft in drafts:
+        if exclude_draft_id and draft.get("id") == exclude_draft_id:
+            continue
+        article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
+        config = draft.get("config") if isinstance(draft.get("config"), dict) else {}
+        candidate_keyword = str(draft.get("target_keyword") or config.get("target_keyword") or "").lower().strip()
+        candidate_intent = str(draft.get("search_intent") or config.get("search_intent") or config.get("research_question") or "").lower()
+        same_symbol = normalize_symbol(draft.get("primary_ticker") or article.get("primary_ticker")) == symbol
+        same_keyword = bool(normalized_keyword and candidate_keyword == normalized_keyword)
+        same_intent = bool(intent_terms and len(intent_terms & set(re.findall(r"[a-z0-9]{4,}", candidate_intent))) >= min(2, len(intent_terms)))
+        if same_keyword or (same_symbol and same_intent):
+            slug = str(article.get("slug") or "").strip()
+            matches.append({"id": str(draft.get("id") or ""), "title": str(article.get("title") or draft.get("id")), "url": f"/research/{slug}" if slug else "", "status": str(draft.get("status") or "draft")})
+    return matches[:3]
+
+
 def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     symbol, identity = normalize_supported_symbol(db, payload.get("ticker"))
     comparison_symbols = normalize_comparison_tickers(payload, primary_ticker=symbol)
@@ -2832,8 +3012,53 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         context["comparisons"].append(comparison_context)
     if context["comparisons"]:
         context["comparison"] = context["comparisons"][0]
+    context["walnut_site_context"] = retrieve_walnut_site_context(
+        db,
+        symbol=symbol,
+        target_keyword=str(payload.get("target_keyword") or payload.get("research_question") or ""),
+        search_intent=str(payload.get("search_intent") or payload.get("research_question") or ""),
+    )
+    context["potential_overlap"] = potential_research_overlap(
+        db,
+        symbol=symbol,
+        target_keyword=str(payload.get("target_keyword") or payload.get("research_question") or ""),
+        search_intent=str(payload.get("search_intent") or payload.get("research_question") or ""),
+    )
+    context["research_packet"] = _research_packet(context)
     context["research_readiness"] = research_readiness(context)
     return context
+
+
+def _research_packet(context: dict[str, Any]) -> dict[str, Any]:
+    """Stable packet boundary: omit unavailable data instead of narrating its absence."""
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
+    external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
+    official = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
+    packet = {
+        "ticker": identity.get("symbol"),
+        "company": identity.get("company_name"),
+        "latest_price": (primary.get("quote") or {}).get("price") if isinstance(primary.get("quote"), dict) else None,
+        "latest_earnings": official.get("latest_official_quarter") or (primary.get("financials") or {}).get("latest_quarter") if isinstance(primary.get("financials"), dict) else official.get("latest_official_quarter"),
+        "guidance": official.get("guidance"),
+        "valuation": (primary.get("fundamentals") or {}) if isinstance(primary.get("fundamentals"), dict) else None,
+        "confirmation_score": confirmation.get("score") or confirmation.get("confirmation_score"),
+        "directional_judgment": confirmation.get("direction") or confirmation.get("status"),
+        "score_components": confirmation.get("sources"),
+        "what_changed": confirmation.get("what_changed"),
+        "fundamentals": primary.get("fundamentals"),
+        "technicals": primary.get("market_state"),
+        "insiders": primary.get("insider_activity"),
+        "congress": primary.get("congress_activity"),
+        "institutions": primary.get("institutional_activity"),
+        "government_contracts": primary.get("government_contracts"),
+        "analysts": (primary.get("financials") or {}).get("forecasts") if isinstance(primary.get("financials"), dict) else None,
+        "relevant_recent_news": external.get("reviewed_sources"),
+        "related_research": (context.get("walnut_site_context") or {}).get("related_research") if isinstance(context.get("walnut_site_context"), dict) else None,
+        "source_timestamps": {"data_as_of": context.get("generated_at")},
+    }
+    return {key: value for key, value in packet.items() if value not in (None, {}, [], "")}
 
 
 def discover_external_research(
@@ -3170,8 +3395,16 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
         "selected_model": str(config.get("selected_model") or "").strip(),
         "hero_image": config.get("hero_image") or "",
         "manual_source_url": _normalize_manual_source_url(config.get("manual_source_url")),
+        "target_keyword": str(config.get("target_keyword") or "").strip()[:240],
+        "secondary_keywords": _dedupe_strings([str(item).strip()[:120] for item in (config.get("secondary_keywords") or []) if str(item).strip()])[:12],
+        "search_intent": str(config.get("search_intent") or "").strip()[:120],
+        "content_type": str(config.get("content_type") or "ticker").strip()[:80],
     }
     normalized["selected_model"] = _selected_research_model(normalized, strict=strict_selected_model)
+    if not normalized["target_keyword"]:
+        normalized["target_keyword"] = normalized["research_question"][:240]
+    if not normalized["search_intent"]:
+        normalized["search_intent"] = normalized["research_question"][:120]
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
         raise HTTPException(status_code=422, detail="Comparison tickers are required for peer comparison briefs.")
     return normalized
@@ -3329,6 +3562,7 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
         article = sanitize_research_brief_article(article, normalized_config, context)
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *((context.get("external_research") or {}).get("reviewed_sources") or [])])
+        article = enrich_internal_links(article, context)
         article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *(context.get("missing_data_notes") or [])], context.get("data_availability") or {})
         if normalized_config.get("generate_thumbnail"):
             if progress_callback:
@@ -3922,6 +4156,8 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             f"COMPARISON_TICKERS: {', '.join(comparison_symbols) if comparison_symbols else 'None'}",
             "Every company-specific statement must be about PRIMARY_COMPANY unless it is explicitly framed as comparison, industry, or macro context. Do not analyze Nvidia, AMD, CoreWeave, or any other company as the subject unless that ticker is listed in COMPARISON_TICKERS.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
+            "The target search query is the organizing question, not a phrase to repeat. Answer it immediately, then earn the conclusion with Walnut-native evidence.",
+            "Walnut site context contains only approved first-party pages. Use 2-4 relevant internal links where they genuinely help a reader navigate; do not create random keyword links or link every sentence.",
             "If core earnings research is unavailable, do not write around it. The backend should stop generation before this prompt. Never write paragraphs saying Walnut needs to go find the data.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
             "Do not say an item was 'not independently verified in reviewed primary sources' when the item is present in Walnut context or marked available in data_availability.",
@@ -4292,6 +4528,17 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if _duplicate_slug(slug, draft_id=draft_id):
         warnings.append(_warning("duplicate_slug", f"Slug '{slug}' is already published or reserved.", blocking=True))
         blocking = True
+    site_context = context.get("walnut_site_context") if isinstance(context.get("walnut_site_context"), dict) else {}
+    internal_links = _internal_link_count(article, body)
+    inbound_opportunities = len(site_context.get("links") or []) if isinstance(site_context.get("links"), list) else 0
+    labels["search_intent"] = "passed" if context.get("search_intent") or context.get("research_question") else "failed"
+    labels["walnut_native_data"] = "passed" if _context_has_numbers(context) else "failed"
+    labels["internal_links"] = "passed" if internal_links else "failed"
+    if not internal_links:
+        warnings.append(_warning("missing_internal_links", "No Walnut internal links found. Add the relevant ticker page or research hub before publishing.", blocking=False))
+    overlaps = context.get("potential_overlap") if isinstance(context.get("potential_overlap"), list) else []
+    if overlaps:
+        warnings.append(_warning("potential_overlap", "Potential overlap with existing research. Review the linked brief and choose whether to update or publish a distinct angle.", blocking=False))
     if not article.get("hero_image"):
         warnings.append(_warning("missing_hero_image", "No hero image selected; the public page will use the polished fallback.", blocking=False))
     return {
@@ -4303,7 +4550,24 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "labels": labels,
         "source_discovery": source_discovery,
         "research_readiness": readiness,
+        "publication_readiness": {
+            "search_intent_identified": bool(context.get("search_intent") or context.get("research_question")),
+            "walnut_native_data_included": _context_has_numbers(context),
+            "confirmation_score_included": include_confirmation_score,
+            "unique_thesis": not bool(overlaps),
+            "internal_links_out": internal_links,
+            "inbound_link_opportunities": inbound_opportunities,
+            "data_freshness": context.get("generated_at") or "unknown",
+            "potential_cannibalization": overlaps,
+        },
     }
+
+
+def _internal_link_count(article: dict[str, Any], body: str) -> int:
+    links = article.get("source_links") if isinstance(article.get("source_links"), list) else []
+    linked_urls = [str(link.get("url") or "") for link in links if isinstance(link, dict)]
+    inline_urls = re.findall(r"\]\((/[^)\s]+)\)", body)
+    return len({url for url in [*linked_urls, *inline_urls] if url.startswith("/")})
 
 
 def _source_discovery_validation_warnings(context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -4609,6 +4873,13 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
         "created_at": created,
         "updated_at": created,
         "published_at": None,
+        "target_keyword": config.get("target_keyword"),
+        "secondary_keywords": config.get("secondary_keywords") or [],
+        "search_intent": config.get("search_intent"),
+        "content_type": config.get("content_type") or "ticker",
+        "index_status": "unknown",
+        "first_seen_indexed_at": None,
+        "last_checked_at": None,
         "model": article.get("_model") or config.get("selected_model") or research_brief_model(None),
         "prompt_version": RESEARCH_BRIEF_PROMPT_VERSION,
         "research_context_timestamp": context.get("generated_at"),
@@ -4625,6 +4896,28 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
         },
         "research_context": context,
     }
+
+
+def enrich_internal_links(article: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Attach only contextually relevant first-party links and a compact related module."""
+    enriched = deepcopy(article)
+    site_context = context.get("walnut_site_context") if isinstance(context.get("walnut_site_context"), dict) else {}
+    candidates = site_context.get("links") if isinstance(site_context.get("links"), list) else []
+    internal = [item for item in candidates if isinstance(item, dict) and str(item.get("url") or "").startswith("/")]
+    enriched["source_links"] = _dedupe_source_links([*(enriched.get("source_links") or []), *internal])
+    body = "\n".join(str(section.get("body_markdown") or "") for section in (enriched.get("sections") or []) if isinstance(section, dict))
+    useful = [item for item in internal if item.get("source_type") in {"ticker_page", "research_hub", "related_research"}][:3]
+    if useful and not _internal_link_count(enriched, body):
+        links = " · ".join(f"[{item.get('title')}]({item.get('url')})" for item in useful)
+        enriched.setdefault("sections", []).append({"key": "related-walnut-research", "heading": "Related Walnut research", "body_markdown": f"{links}"})
+    enriched["internal_linking"] = {
+        "outbound_links": useful,
+        "inbound_opportunities": [
+            {"page": item.get("url"), "module": "Related Research" if item.get("source_type") in {"ticker_page", "related_research"} else "Research hub"}
+            for item in useful
+        ],
+    }
+    return enriched
 
 
 def generate_thumbnail_asset(db: Session, config: dict[str, Any], article: dict[str, Any]) -> dict[str, Any]:

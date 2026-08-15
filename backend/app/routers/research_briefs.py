@@ -79,6 +79,10 @@ class ResearchBriefGeneratePayload(BaseModel):
     generate_thumbnail: bool = True
     hero_image: str | None = Field(default=None, max_length=1000)
     manual_source_url: str | None = Field(default=None, max_length=1000)
+    target_keyword: str | None = Field(default=None, max_length=240)
+    secondary_keywords: list[str] = Field(default_factory=list, max_length=12)
+    search_intent: str | None = Field(default=None, max_length=120)
+    content_type: str | None = Field(default=None, max_length=80)
     client_request_id: str | None = Field(default=None, max_length=120)
 
 
@@ -105,6 +109,10 @@ class ResearchCampaignPayload(BaseModel):
     article_count: int = Field(default=1, ge=1, le=50)
     window_days: int = Field(default=1, ge=1, le=30)
     active: bool = True
+    target_keyword: str | None = Field(default=None, max_length=240)
+    secondary_keywords: list[str] = Field(default_factory=list, max_length=12)
+    search_intent: str | None = Field(default=None, max_length=120)
+    target_keywords: dict[str, str] = Field(default_factory=dict)
 
 
 class ActivePayload(BaseModel):
@@ -148,6 +156,14 @@ def admin_research_campaign_themes(request: Request, db: Session = Depends(get_d
 def admin_research_campaigns(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     return list_research_campaigns(db)
+
+
+@router.get("/admin/research-briefs/health")
+def admin_research_brief_health(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    from app.services.research_briefs import research_publishing_health
+
+    return research_publishing_health(db)
 
 
 @router.post("/admin/research-briefs/campaigns", dependencies=[Depends(rate_limit_admin_mutation)])

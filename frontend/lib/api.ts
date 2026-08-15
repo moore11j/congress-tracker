@@ -6774,6 +6774,10 @@ export type AdminResearchBriefConfig = {
   generate_thumbnail: boolean;
   hero_image?: string | null;
   manual_source_url?: string | null;
+  target_keyword?: string | null;
+  secondary_keywords?: string[];
+  search_intent?: string | null;
+  content_type?: string | null;
   client_request_id?: string | null;
 };
 
@@ -6865,6 +6869,7 @@ export type AdminResearchBriefValidation = {
   labels?: Record<string, "passed" | "repaired" | "failed" | string>;
   source_discovery?: Record<string, unknown>;
   research_readiness?: Record<string, unknown>;
+  publication_readiness?: Record<string, unknown>;
 };
 
 export type AdminResearchBriefDraft = {
@@ -6886,6 +6891,15 @@ export type AdminResearchBriefDraft = {
   campaign_theme?: string | null;
   generator_version?: string | null;
   last_publish_error?: string | null;
+  target_keyword?: string | null;
+  secondary_keywords?: string[];
+  search_intent?: string | null;
+  index_status?: "indexed" | "crawled_not_indexed" | "discovered" | "unknown" | string;
+  first_seen_indexed_at?: string | null;
+  last_checked_at?: string | null;
+  search_console_impressions?: number | null;
+  search_console_clicks?: number | null;
+  average_position?: number | null;
   model: string;
   prompt_version: string;
   research_context_timestamp?: string | null;
@@ -6986,6 +7000,24 @@ export type AdminResearchCampaignPayload = {
   article_count: number;
   window_days: number;
   active: boolean;
+  target_keyword?: string | null;
+  secondary_keywords?: string[];
+  search_intent?: string | null;
+  target_keywords?: Record<string, string>;
+};
+
+export type AdminResearchPublishingHealth = {
+  published_last_30_days: number;
+  indexed: number;
+  crawled_not_indexed: number;
+  discovered: number;
+  unknown: number;
+  indexation_rate?: number | null;
+  median_days_to_index?: number | null;
+  average_impressions_per_indexed_brief?: number | null;
+  average_position?: number | null;
+  daily_automated_publish_cap: number;
+  cadence_warning?: string | null;
 };
 
 export type PublicResearchBriefCard = {
@@ -8343,6 +8375,14 @@ export async function getMonitoringInbox(authToken?: string, options?: { source?
     cache: "no-store",
     next: { revalidate: 0 },
     source: options?.source ?? "MonitoringInbox",
+  });
+}
+
+export async function getAdminResearchPublishingHealth(): Promise<AdminResearchPublishingHealth> {
+  return fetchJson<AdminResearchPublishingHealth>(buildApiUrl("/api/admin/research-briefs/health"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminResearchBriefs",
   });
 }
 
