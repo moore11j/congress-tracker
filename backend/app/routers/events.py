@@ -149,6 +149,8 @@ INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
     "new_institutional_position",
 )
 INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
+# Editorial content belongs in its dedicated surfaces, not the unified activity feed.
+FEED_EXCLUDED_EVENT_TYPES = ("news_article",)
 COMPACT_COMMON_PAYLOAD_KEYS = {
     "symbol",
     "ticker",
@@ -5525,6 +5527,10 @@ def list_events(
     q = q.where(insider_visibility_clause())
     q = q.where(_government_contract_action_events_only_clause())
     applied_filters.append("insider_visibility")
+    all_feed_scope = tape_value == "all" or (tape_value is None and (mode or "").strip().lower() == "all")
+    if not type_list and all_feed_scope:
+        q = q.where(Event.event_type.notin_(FEED_EXCLUDED_EVENT_TYPES))
+        applied_filters.append("all_feed_excludes_editorial_content")
     if not can_view_institutional:
         q = q.where(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
         applied_filters.append("institutional_entitlement")

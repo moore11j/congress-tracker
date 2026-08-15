@@ -47,6 +47,8 @@ type FeedState = {
   errorMessage: string | null;
 };
 
+const FEED_EXCLUDED_EVENT_TYPES = new Set(["news_article"]);
+
 function FeedResultsSectionSkeleton() {
   return (
     <section className="space-y-4" aria-live="polite" aria-busy="true">
@@ -150,6 +152,7 @@ export function FeedResultsClient({
 
   const items = useMemo(() => {
     const mapped = state.events.items
+      .filter((event) => !FEED_EXCLUDED_EVENT_TYPES.has(event.event_type))
       .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
       .map((event) => eventToRenderedFeedItem(event, state.companyNames))
       .filter(Boolean) as FeedItem[];
