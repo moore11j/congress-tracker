@@ -776,8 +776,17 @@ def process_data_enrichment_jobs(
     try:
         now = datetime.now(timezone.utc)
         recover_stale_running_enrichment_jobs(db, now=now)
+        # Keep queue selection data independent from the Session identity map. Each
+        # job is committed independently, and guard checks may also touch the
+        # Session. Holding ORM instances across either boundary can detach or expire
+        # them before their status transition is persisted.
         statement = (
-            select(DataEnrichmentJob)
+            select(
+                DataEnrichmentJob.id,
+                DataEnrichmentJob.job_type,
+                DataEnrichmentJob.symbol,
+                DataEnrichmentJob.source,
+            )
             .where(DataEnrichmentJob.status == "queued")
             .where(DataEnrichmentJob.next_run_at <= now)
             .order_by(DataEnrichmentJob.priority.asc(), DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
@@ -791,10 +800,10 @@ def process_data_enrichment_jobs(
             normalized_symbols = sorted({symbol for raw in symbols if (symbol := normalize_symbol(raw))})
             if normalized_symbols:
                 statement = statement.where(DataEnrichmentJob.symbol.in_(normalized_symbols))
-        jobs = db.execute(statement).scalars().all()
-        for index, job in enumerate(jobs):
+        jobs = db.execute(statement).mappings().all()
+        for index, job_snapshot in enumerate(jobs):
             if deadline is not None and time.monotonic() >= deadline:
-                skipped = len(jobs) - processed
+                skipped += len(jobs) - index
                 logger.info(
                     "data_enrichment_queue_time_limit_reached processed=%s skipped=%s max_seconds=%s",
                     processed,
@@ -814,8 +823,17 @@ def process_data_enrichment_jobs(
                         guard.to_dict(),
                     )
                     break
+            job_id = int(job_snapshot["id"])
+            job_type_value = str(job_snapshot["job_type"])
+            job_symbol = job_snapshot["symbol"]
+            job_source = job_snapshot["source"]
+            job = db.get(DataEnrichmentJob, job_id)
+            if job is None or job.status != "queued":
+                skipped += 1
+                logger.info("data_enrichment_job_skipped id=%s reason=no_longer_queued", job_id)
+                continue
             processed += 1
-            if _job_requires_symbol(job.job_type) and not is_valid_enrichment_symbol(job.symbol):
+            if _job_requires_symbol(job_type_value) and not is_valid_enrichment_symbol(job_symbol):
                 skipped += 1
                 job.status = "skipped"
                 job.reason = "invalid_symbol"
@@ -824,21 +842,24 @@ def process_data_enrichment_jobs(
                 db.commit()
                 logger.info(
                     "data_enrichment_job_rejected reason=invalid_symbol id=%s job_type=%s symbol=%s",
-                    job.id,
-                    job.job_type,
-                    job.symbol,
+                    job_id,
+                    job_type_value,
+                    job_symbol,
                 )
                 continue
             job.status = "running"
             job.updated_at = datetime.now(timezone.utc)
             db.commit()
             try:
+                job = db.get(DataEnrichmentJob, job_id)
+                if job is None:
+                    raise RuntimeError("enrichment_job_missing_after_claim")
                 token = set_request_context(
                     {
                         "path": "background",
                         "priority": "background",
-                        "job_type": job.job_type,
-                        "source": job.source,
+                        "job_type": job_type_value,
+                        "source": job_source,
                     }
                 )
                 try:
@@ -848,6 +869,15 @@ def process_data_enrichment_jobs(
             except Exception as exc:
                 db.rollback()
                 failed += 1
+                job = db.get(DataEnrichmentJob, job_id)
+                if job is None:
+                    logger.warning(
+                        "data_enrichment_job_failed id=%s type=%s symbol=%s reason=job_missing_after_failure",
+                        job_id,
+                        job_type_value,
+                        job_symbol,
+                    )
+                    continue
                 attempts = int(job.attempts or 0) + 1
                 max_attempts = int(job.max_attempts or 5)
                 reason_code = getattr(exc, "reason_code", None) or ("provider_timeout" if isinstance(exc, requests.Timeout) else None)
@@ -860,15 +890,26 @@ def process_data_enrichment_jobs(
                 db.commit()
                 logger.warning(
                     "data_enrichment_job_failed id=%s type=%s symbol=%s attempts=%s reason=%s retryable=%s",
-                    job.id,
-                    job.job_type,
-                    job.symbol,
+                    job_id,
+                    job_type_value,
+                    job_symbol,
                     attempts,
                     reason_code or "job_failed",
                     bool(getattr(exc, "retryable", False) or reason_code == "provider_timeout"),
                 )
                 continue
             succeeded += 1
+            job = db.get(DataEnrichmentJob, job_id)
+            if job is None:
+                failed += 1
+                succeeded -= 1
+                logger.warning(
+                    "data_enrichment_job_failed id=%s type=%s symbol=%s reason=job_missing_before_completion",
+                    job_id,
+                    job_type_value,
+                    job_symbol,
+                )
+                continue
             job.status = "done"
             job.error = None
             job.updated_at = datetime.now(timezone.utc)

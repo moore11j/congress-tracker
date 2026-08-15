@@ -205,6 +205,52 @@ def test_enrichment_queue_recovers_stale_running_jobs(monkeypatch):
         db.close()
 
 
+def test_enrichment_queue_uses_stable_job_snapshot_when_guard_expires_session(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(queue_module, "SessionLocal", Session)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
+    monkeypatch.setenv("DATA_ENRICHMENT_QUEUE_PER_JOB_GUARD_ENABLED", "true")
+    processed_symbols: list[str | None] = []
+
+    def expiring_guard(db):
+        db.expunge_all()
+        return SimpleNamespace(proceed=True, reason="ok", to_dict=lambda: {"reason": "ok"})
+
+    monkeypatch.setattr(queue_module, "_check_enrichment_queue_pressure", expiring_guard)
+    monkeypatch.setattr(queue_module, "_process_one", lambda _db, job: processed_symbols.append(job.symbol))
+
+    db = Session()
+    try:
+        db.add(
+            DataEnrichmentJob(
+                job_type="quote",
+                symbol="AAPL",
+                dedupe_key="quote|AAPL||",
+                priority=10,
+                status="queued",
+                attempts=0,
+                max_attempts=3,
+                source="test",
+                reason="test",
+                next_run_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    summary = process_data_enrichment_jobs(limit=1)
+
+    db = Session()
+    try:
+        row = db.execute(select(DataEnrichmentJob)).scalar_one()
+        assert summary == {"processed": 1, "succeeded": 1, "failed": 0, "skipped": 0}
+        assert processed_symbols == ["AAPL"]
+        assert row.status == "done"
+    finally:
+        db.close()
+
+
 def test_stale_running_recovery_exhausts_max_attempts():
     Session = _session_factory()
     db = Session()
