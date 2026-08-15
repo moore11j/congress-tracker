@@ -312,6 +312,7 @@ def _index_row_from_xml(
     resolved = None
     if not fallback_bioguide_id and metadata is not None:
         resolved = metadata.resolve(
+            bioguide_id=None,
             first_name=first,
             last_name=last,
             full_name=f"{first or ''} {last or ''}".strip() or None,
