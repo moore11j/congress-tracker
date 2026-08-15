@@ -66,7 +66,7 @@ export function eventToFeedItem(event: EventItem): FeedItem {
     payloadText(payload, ["company_name", "companyName", "security_name", "securityName"]) ??
     symbol ??
     "Unknown";
-  const activityDetail = payloadText(payload, ["headline", "title", "summary", "description"]);
+  const activityDetail = event.headline ?? event.summary ?? payloadText(payload, ["headline", "title", "summary", "description"]);
 
   return {
     id: event.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type EventItem,
   getWatchlistEvents,
@@ -109,6 +109,7 @@ export function WatchlistRecentActivity({
   const [data, setData] = useState(initialData);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasRequestedInitialData = useRef(initialData.items.length > 0 || initialState.onlyNew);
 
   async function fetchActivity(nextState: WatchlistActivityState, append = false) {
     setIsLoading(true);
@@ -154,6 +155,14 @@ export function WatchlistRecentActivity({
     fetchActivity({ ...state, mode, onlyNew: mode === "signals" ? false : state.onlyNew });
   }
 
+  useEffect(() => {
+    if (hasRequestedInitialData.current) return;
+    hasRequestedInitialData.current = true;
+    void fetchActivity(initialState);
+    // The current watchlist route is the only intentional initial request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlistId]);
+
   return (
     <section className="min-w-0 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -177,7 +186,7 @@ export function WatchlistRecentActivity({
 
       <div className="mt-3" aria-busy={isLoading}>
         {error ? <div className="rounded-lg border border-rose-300/20 bg-rose-500/10 p-3 text-sm text-rose-100">{error}</div> : null}
-        {isLoading ? <RecentActivitySkeleton /> : data.items.length === 0 ? (
+        {isLoading && data.items.length === 0 ? <RecentActivitySkeleton /> : data.items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/15 px-3 py-5 text-sm text-slate-400">No recent activity for this view.</div>
         ) : (
           <div className="divide-y divide-white/10 overflow-hidden rounded-xl border border-white/10">

@@ -24,8 +24,10 @@ test("confirmation monitor clears through the shared confirmation dialog", () =>
 });
 
 test("watchlist recent activity keeps the selected window while showing new items", () => {
-  assert.match(watchlistPageSource, /recent_days: Number\(recentDays\)/);
-  assert.match(watchlistPageSource, /unread_only: hydratedState\.onlyNew \? 1 : undefined/);
+  assert.match(watchlistPageSource, /Activity is hydrated in the client/);
+  assert.match(recentActivitySource, /recent_days: Number\(nextState\.recentDays\)/);
+  assert.match(recentActivitySource, /unread_only: nextState\.onlyNew \? 1 : undefined/);
+  assert.match(recentActivitySource, /void fetchActivity\(initialState\)/);
   assert.match(watchlistClientSource, /recent_days: Number\(hydratedState\.recentDays\)/);
   assert.match(watchlistClientSource, /unread_only: hydratedState\.onlyNew \? 1 : undefined/);
   assert.match(recentActivitySource, /Showing new activity since/);
