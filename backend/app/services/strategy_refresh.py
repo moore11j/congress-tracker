@@ -610,6 +610,27 @@ def persist_candidate_strategy_artifact(
     timeline = list(artifact.simulation.get("timeline") or [])
     as_of_date = _parse_day(artifact.performance.get("end_date")) or _parse_day(timeline[-1].get("date") if timeline else None)
     walnut_score = (validation_result or {}).get("walnut_strategy_score", {}).get("score")
+    # A storage-only artifact refresh must not erase a previously validated score.
+    # Full validation remains authoritative whenever it is supplied.
+    if walnut_score is None:
+        existing_strategy = db.execute(
+            select(StrategyDefinition).where(StrategyDefinition.slug == artifact.candidate.slug)
+        ).scalars().first()
+        if existing_strategy is not None:
+            existing_score = db.execute(
+                select(StrategyBacktestRun.walnut_strategy_score)
+                .where(StrategyBacktestRun.strategy_id == int(existing_strategy.id))
+                .where(StrategyBacktestRun.status == "ok")
+                .where(StrategyBacktestRun.walnut_strategy_score.is_not(None))
+                .order_by(StrategyBacktestRun.completed_at.desc().nullslast(), StrategyBacktestRun.id.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if existing_score is not None:
+                walnut_score = float(existing_score)
+                validation_result = {
+                    "walnut_strategy_score": {"score": walnut_score},
+                    "score_source": "preserved_existing_validation",
+                }
     run_key = run_key_for_artifact(artifact, code_version=code_version, validation_result=validation_result)
     open_lots = _open_lots_as_of(artifact, as_of_date=as_of_date) if as_of_date else []
     open_symbols = {lot.signal.symbol for lot in open_lots}
