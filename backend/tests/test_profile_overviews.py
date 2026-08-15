@@ -159,7 +159,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v18:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v19:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 

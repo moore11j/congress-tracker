@@ -1146,7 +1146,6 @@ def _insider_sector_activity(db: Session, clauses: list[Any]) -> list[dict[str, 
         select(InsiderTransactionNormalized.transaction_date, func.upper(InsiderTransactionNormalized.ticker_normalized), InsiderTransactionNormalized.value)
         .where(*clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
         .order_by(InsiderTransactionNormalized.transaction_date.asc())
-        .limit(10000)
     ).all()
     sector_by_symbol = _sectors(db, [row[1] for row in rows])
     buckets: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -1166,7 +1165,6 @@ def _insider_monthly_activity(db: Session, clauses: list[Any]) -> list[dict[str,
         select(InsiderTransactionNormalized)
         .where(*clauses)
         .order_by(InsiderTransactionNormalized.transaction_date.asc(), InsiderTransactionNormalized.id.asc())
-        .limit(20000)
     ).scalars().all()
     for row in rows:
         if not isinstance(row.transaction_date, date):
@@ -1254,13 +1252,11 @@ def _insider_top_moving_sectors(db: Session, current_clauses: list[Any], previou
         select(InsiderTransactionNormalized)
         .where(*current_clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
         .order_by(InsiderTransactionNormalized.transaction_date.asc(), InsiderTransactionNormalized.id.asc())
-        .limit(20000)
     ).scalars().all()
     previous_rows = db.execute(
         select(InsiderTransactionNormalized)
         .where(*previous_clauses, InsiderTransactionNormalized.ticker_normalized.is_not(None))
         .order_by(InsiderTransactionNormalized.transaction_date.asc(), InsiderTransactionNormalized.id.asc())
-        .limit(20000)
     ).scalars().all()
     sector_by_symbol = _sectors(db, [row.ticker_normalized or row.ticker_raw for row in [*current_rows, *previous_rows]])
     buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {"buy": 0.0, "sell": 0.0, "previous_activity": 0.0, "trades": 0, "trend": defaultdict(float)})
