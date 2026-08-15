@@ -622,6 +622,8 @@ def test_individual_congress_strategy_exposes_latest_official_reported_holdings(
         assert first_page["reportedHoldings"]["status"] == "ok"
         assert first_page["reportedHoldings"]["report"]["filingYear"] == 2025
         assert first_page["reportedHoldings"]["total"] == 21
+        assert first_page["reportedHoldings"]["estimatedNetWorth"] == 682_510.5
+        assert first_page["reportedHoldings"]["estimatedNetWorthIsConservative"] is False
         assert len(first_page["reportedHoldings"]["items"]) == 20
         assert final_page["reportedHoldings"]["offset"] == 20
         assert [item["symbol"] for item in final_page["reportedHoldings"]["items"]] == ["T21"]

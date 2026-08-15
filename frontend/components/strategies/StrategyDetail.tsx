@@ -106,7 +106,7 @@ export function StrategyDetail({ strategy, period, positionsMode, holdingsPage, 
     ? "Model positions from the latest daily evaluation."
     : "Latest modeled portfolio from the reproducible strategy run.";
   const reportedHoldingsDescription = reportedHoldings?.status === "ok"
-    ? `Latest official annual filing${reportedHoldings.report?.filingDate ? `, filed ${formatDate(reportedHoldings.report.filingDate)}` : ""}. This is a reported snapshot, not the backtest model portfolio.`
+    ? `Latest official annual filing${reportedHoldings.report?.filingDate ? `, filed ${formatDate(reportedHoldings.report.filingDate)}` : ""}${reportedHoldings.estimatedNetWorth != null ? `. Estimated net worth: ${currency(reportedHoldings.estimatedNetWorth)}${reportedHoldings.estimatedNetWorthIsConservative ? " (conservative)" : ""}` : ""}. This is a reported snapshot, not the backtest model portfolio.`
     : "No verified annual disclosure snapshot has been ingested for this member.";
   const portfolioRecordsDescription = positionsMode === "holdings"
     ? currentHoldingsDescription

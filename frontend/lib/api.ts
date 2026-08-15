@@ -3277,6 +3277,9 @@ export type StrategyDetailPayload = StrategyDefinitionPayload & {
     visibleSymbols?: string[];
     valueLowerBound?: number | null;
     valueUpperBound?: number | null;
+    estimatedNetWorth?: number | null;
+    estimatedNetWorthIsConservative?: boolean;
+    estimatedNetWorthMethod?: string | null;
     items: Array<{
       assetName: string;
       symbol?: string | null;
@@ -6355,6 +6358,9 @@ export type MemberReportedHoldings = {
   visible_symbols?: string[];
   value_lower_bound?: number | null;
   value_upper_bound?: number | null;
+  estimated_net_worth?: number | null;
+  estimated_net_worth_is_conservative?: boolean;
+  estimated_net_worth_method?: string | null;
   items: Array<{
     asset_name: string;
     symbol?: string | null;

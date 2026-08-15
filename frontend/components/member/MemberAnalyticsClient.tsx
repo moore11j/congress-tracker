@@ -579,11 +579,9 @@ function MemberHoldingsPanel({
 }) {
   const hasVerifiedSnapshot = holdings?.status === "ok" && Boolean(holdings.report);
   const symbols = holdings?.visible_symbols ?? [];
-  const valueLabel = holdings?.value_lower_bound == null
+  const estimatedNetWorthLabel = holdings?.estimated_net_worth == null
     ? "Not disclosed"
-    : holdings.value_upper_bound == null
-      ? `At least ${compactUSD(holdings.value_lower_bound)}`
-      : compactUSD(holdings.value_lower_bound);
+    : compactUSD(holdings.estimated_net_worth);
 
   return (
     <section id="member-holdings" className={`${CARD} scroll-mt-6 p-3`}>
@@ -604,8 +602,8 @@ function MemberHoldingsPanel({
               <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(holdings?.positions_count)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
-              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Disclosed value</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{valueLabel}</p>
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Estimated net worth</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{estimatedNetWorthLabel}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Visible symbols</p>
@@ -613,11 +611,11 @@ function MemberHoldingsPanel({
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Basis</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white">Annual disclosure</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white">Range midpoint</p>
             </div>
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            Filed {formatDateShort(holdings?.report?.filing_date ?? null)}. This is a dated disclosure snapshot, not a live brokerage position feed.
+            Filed {formatDateShort(holdings?.report?.filing_date ?? null)}. Estimated net worth uses the midpoint of each reported asset range{holdings?.estimated_net_worth_is_conservative ? "; open-ended ranges use their disclosed minimum" : ""}. This is a dated disclosure snapshot, not a live brokerage position feed.
           </p>
           {holdings?.report?.report_url ? (
             <a className="mt-1 inline-flex text-xs font-semibold text-emerald-300 hover:text-emerald-200" href={holdings.report.report_url} target="_blank" rel="noreferrer">

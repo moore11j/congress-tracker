@@ -5116,6 +5116,28 @@ def _disclosure_holding_value_bounds(holdings: list[HouseAnnualDisclosureHolding
     return (lower_total if has_lower else None, None if has_open_upper_bound else upper_total)
 
 
+def _estimated_disclosure_net_worth(holdings: list[HouseAnnualDisclosureHolding]) -> tuple[float | None, bool]:
+    """Estimate reported asset value from the midpoint of each disclosed range.
+
+    Open-ended "Over $X" rows use their disclosed floor rather than an invented
+    upper bound, so the aggregate is explicitly identified as conservative.
+    """
+    estimated_total = 0.0
+    has_estimate = False
+    is_conservative = False
+    for holding in holdings:
+        if holding.value_min is None:
+            continue
+        minimum = float(holding.value_min)
+        if holding.value_max is None:
+            estimated_total += minimum
+            is_conservative = True
+        else:
+            estimated_total += (minimum + float(holding.value_max)) / 2
+        has_estimate = True
+    return (estimated_total if has_estimate else None, is_conservative)
+
+
 @app.get("/api/members/{member_id}/reported-holdings")
 def member_reported_holdings(member_id: str, request: Request, db: Session = Depends(get_db)):
     """Return the latest stored annual disclosure snapshot, never simulated portfolio holdings."""
@@ -5161,6 +5183,7 @@ def member_reported_holdings(member_id: str, request: Request, db: Session = Dep
         .all()
     )
     value_lower_bound, value_upper_bound = _disclosure_holding_value_bounds(holdings)
+    estimated_net_worth, estimated_net_worth_is_conservative = _estimated_disclosure_net_worth(holdings)
     symbols = sorted({str(holding.symbol).strip().upper() for holding in holdings if holding.symbol and str(holding.symbol).strip()})
     return {
         "status": "ok",
@@ -5177,6 +5200,9 @@ def member_reported_holdings(member_id: str, request: Request, db: Session = Dep
         "visible_symbols": symbols,
         "value_lower_bound": value_lower_bound,
         "value_upper_bound": value_upper_bound,
+        "estimated_net_worth": estimated_net_worth,
+        "estimated_net_worth_is_conservative": estimated_net_worth_is_conservative,
+        "estimated_net_worth_method": "midpoint_of_reported_asset_ranges",
         "items": [
             {
                 "asset_name": holding.asset_name,

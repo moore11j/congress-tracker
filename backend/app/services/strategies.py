@@ -83,6 +83,24 @@ def _annual_disclosure_value_bounds(holdings: list[HouseAnnualDisclosureHolding]
     return (lower_total if has_lower else None, None if has_open_upper_bound else upper_total)
 
 
+def _estimated_annual_disclosure_net_worth(holdings: list[HouseAnnualDisclosureHolding]) -> tuple[float | None, bool]:
+    """Estimate reported asset value from per-asset disclosed range midpoints."""
+    estimated_total = 0.0
+    has_estimate = False
+    is_conservative = False
+    for holding in holdings:
+        if holding.value_min is None:
+            continue
+        minimum = float(holding.value_min)
+        if holding.value_max is None:
+            estimated_total += minimum
+            is_conservative = True
+        else:
+            estimated_total += (minimum + float(holding.value_max)) / 2
+        has_estimate = True
+    return (estimated_total if has_estimate else None, is_conservative)
+
+
 def _reported_holdings_payload(
     db: Session,
     *,
@@ -133,6 +151,7 @@ def _reported_holdings_payload(
         .all()
     )
     value_lower_bound, value_upper_bound = _annual_disclosure_value_bounds(all_holdings)
+    estimated_net_worth, estimated_net_worth_is_conservative = _estimated_annual_disclosure_net_worth(all_holdings)
     holdings = all_holdings[offset : offset + limit]
     return {
         "status": "ok",
@@ -150,6 +169,9 @@ def _reported_holdings_payload(
         "visibleSymbols": sorted({str(holding.symbol).strip().upper() for holding in all_holdings if holding.symbol and str(holding.symbol).strip()}),
         "valueLowerBound": value_lower_bound,
         "valueUpperBound": value_upper_bound,
+        "estimatedNetWorth": estimated_net_worth,
+        "estimatedNetWorthIsConservative": estimated_net_worth_is_conservative,
+        "estimatedNetWorthMethod": "midpoint_of_reported_asset_ranges",
         "items": [
             {
                 "assetName": holding.asset_name,

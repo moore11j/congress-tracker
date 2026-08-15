@@ -127,6 +127,9 @@ def test_member_reported_holdings_uses_latest_annual_document_only():
         assert payload["visible_symbols"] == ["AAPL"]
         assert payload["value_lower_bound"] == 1_015_002
         assert payload["value_upper_bound"] is None
+        assert payload["estimated_net_worth"] == 1_032_501.5
+        assert payload["estimated_net_worth_is_conservative"] is True
+        assert payload["estimated_net_worth_method"] == "midpoint_of_reported_asset_ranges"
     finally:
         db.close()
 
