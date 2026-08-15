@@ -122,6 +122,20 @@ Apple Inc. (AAPL) [ST] 04/03/2025 P $1,001 - $15,000
     assert [holding.asset_type for holding in holdings] == ["cash", "cash", "mutual fund"]
 
 
+def test_parse_house_annual_assets_excludes_none_asset_values():
+    text = """
+Asset Owner Value of Asset Income Type(s) Income Tx. > $1,000?
+Apple Inc. (AAPL) [ST] SP $15,001 - $50,000 Dividends $1 - $200
+Former holding (OLD) [ST] SP None Capital Gains $201 - $1,000
+Asset Owner Date Tx.
+NVIDIA Corporation (NVDA) [ST] 04/03/2025 P $1,001 - $15,000
+"""
+
+    holdings = parse_holdings_from_pdf_text(text)
+
+    assert [(holding.asset_name, holding.symbol) for holding in holdings] == [("Apple Inc.", "AAPL")]
+
+
 def test_parse_house_annual_assets_preserves_wrapped_asset_name_before_type_code():
     text = """
 Asset Owner Value of Asset Income Type(s) Income Tx. > $1,000?

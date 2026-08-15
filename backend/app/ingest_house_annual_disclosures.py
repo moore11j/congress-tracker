@@ -497,7 +497,14 @@ def parse_holdings_from_pdf_text(text: str) -> list[ParsedHolding]:
         if _is_asset_table_noise(line):
             continue
         asset_lines.append(line)
-    return _parse_joined_asset_rows(asset_lines)
+    # A disclosed asset is a Schedule A row with an actual asset value. Rows
+    # marked "None" describe income or a disposed asset and must not inflate
+    # the member's current reported holdings.
+    return [
+        holding
+        for holding in _parse_joined_asset_rows(asset_lines)
+        if holding.value_range and holding.value_range.lower() != "none"
+    ]
 
 
 def _target_last_name(db, member_id: str | None) -> str | None:
