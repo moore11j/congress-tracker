@@ -303,7 +303,7 @@ function CalendarMonth({
           return (
             <div
               key={cell.key}
-              className={`min-h-[5.75rem] rounded-md border p-1.5 ${
+              className={`min-h-[3rem] rounded-md border p-1 ${
                 cell.day ? "border-white/10 bg-slate-900/60" : "border-transparent"
               }`}
             >
@@ -368,9 +368,11 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const closePopoverTimer = useRef<number | null>(null);
 
-  const months = useMemo(() => [addMonths(anchorMonth, -1), anchorMonth, addMonths(anchorMonth, 1)], [anchorMonth]);
-  const start = dateKey(months[0]);
-  const end = dateKey(monthEnd(months[2]));
+  // The monitoring inbox needs to keep the activity queue visible above the fold.
+  // A focused month preserves the calendar context without turning the dashboard
+  // into a three-month planner.
+  const start = dateKey(anchorMonth);
+  const end = dateKey(monthEnd(anchorMonth));
   const years = selectedYearRange(anchorMonth);
   const filteredItems = useMemo(
     () =>
@@ -707,21 +709,14 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-3 xl:grid-cols-3">
-        {months.map((month, index) => (
-          <CalendarMonth
-            key={`${month.getFullYear()}-${month.getMonth()}`}
-            month={month}
-            itemsByDate={itemsByDate}
-            muted={index === 0}
-            onPreviewItems={(date, nextItems, element) => showPopover(date, nextItems, element, false)}
-            onPinItems={(date, nextItems, element) => showPopover(date, nextItems, element, true)}
-            onLeavePreview={schedulePopoverClose}
-          />
-        ))}
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(15rem,0.78fr)_minmax(17rem,0.95fr)]">
+        <CalendarMonth
+          month={anchorMonth}
+          itemsByDate={itemsByDate}
+          onPreviewItems={(date, nextItems, element) => showPopover(date, nextItems, element, false)}
+          onPinItems={(date, nextItems, element) => showPopover(date, nextItems, element, true)}
+          onLeavePreview={schedulePopoverClose}
+        />
         <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Next dates</div>
           <div className="mt-2 space-y-2">
