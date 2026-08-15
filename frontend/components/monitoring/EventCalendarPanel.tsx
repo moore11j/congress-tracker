@@ -1,8 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import {
   ApiError,
   getEventCalendar,
@@ -352,6 +352,35 @@ function CalendarMonth({
   );
 }
 
+function CalendarUpgradePreview() {
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Event calendar</p>
+      <h2 className="mt-1 text-lg font-semibold text-white">Earnings and market dates</h2>
+      <p className="mt-1 text-sm text-slate-400">Earnings, dividends, IPOs, splits, and economic releases across your watchlist.</p>
+      <div className="relative mt-4 min-h-72 overflow-hidden rounded-lg border border-white/10 bg-slate-950/45">
+        <div aria-hidden="true" className="pointer-events-none select-none p-4 opacity-65 blur-[5px]">
+          <div className="flex gap-2"><span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filters</span><span className="rounded border border-cyan-300/35 px-1.5 py-0.5 text-[10px] text-cyan-100">Eco (14)</span><span className="rounded border border-emerald-300/35 px-1.5 py-0.5 text-[10px] text-emerald-100">Earn (8)</span><span className="rounded border border-violet-300/35 px-1.5 py-0.5 text-[10px] text-violet-100">IPO (22)</span></div>
+          <div className="mt-4 grid grid-cols-7 gap-2">
+            {Array.from({ length: 35 }).map((_, index) => <div key={index} className="h-11 rounded border border-white/10 bg-slate-900/70 p-1 text-[10px] text-slate-400">{index % 6 === 1 ? "Earnings" : index % 8 === 3 ? "IPO" : ""}</div>)}
+          </div>
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/45 px-5 text-center backdrop-blur-[2px]">
+          <div className="max-w-md">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Premium feature</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">Unlock the event calendar</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-300">Plan around watchlist earnings, dividends, IPOs, splits, and market-moving economic releases.</p>
+            <div className="mt-4 flex justify-center gap-2">
+              <Link href="/account/billing" prefetch={false} className="inline-flex h-10 items-center justify-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/20">Upgrade to Premium</Link>
+              <Link href="/account/billing#compare" prefetch={false} className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white">Compare plans</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }: EventCalendarPanelProps) {
   const [anchorMonth, setAnchorMonth] = useState(() => monthStart(new Date()));
   const [items, setItems] = useState<EventCalendarItem[]>([]);
@@ -592,12 +621,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   }
 
   if (!canUseEventCalendar) {
-    return (
-      <UpgradePrompt
-        title="Premium event calendar"
-        body="Earnings, dividends, IPOs, splits, and economic releases on the monitoring calendar are available with Premium and Pro."
-      />
-    );
+    return <CalendarUpgradePreview />;
   }
 
   return (
