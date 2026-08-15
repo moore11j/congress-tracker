@@ -90,6 +90,26 @@ class PdfExtractionResult:
     parser_errors: list[str]
 
 
+def _dedupe_holdings(holdings: list[ParsedHolding]) -> list[ParsedHolding]:
+    """Keep one row for an exact duplicate in the source asset table."""
+    unique: list[ParsedHolding] = []
+    seen: set[tuple[object, ...]] = set()
+    for holding in holdings:
+        key = (
+            holding.asset_name,
+            holding.symbol,
+            holding.owner,
+            holding.value_range,
+            holding.income_type,
+            holding.income_range,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(holding)
+    return unique
+
+
 def _parse_date(value: object | None) -> date | None:
     text = str(value or "").strip()
     if not text:
@@ -543,7 +563,7 @@ def _upsert_document_and_holdings(
             income_range=holding.income_range,
             payload_json=json.dumps({"raw_text": holding.raw_text}, sort_keys=True),
         )
-        for holding in holdings
+        for holding in _dedupe_holdings(holdings)
     ]
     db.add_all(holding_rows)
     return inserted_document, len(holding_rows)
@@ -590,14 +610,16 @@ def ingest_house_annual_disclosures(
                 pdf_bytes = _fetch_bytes(row.report_url, session=session)
                 extraction = _extract_pdf_text_with_ocr(pdf_bytes)
                 parsed_holdings = parse_holdings_from_pdf_text(extraction.text)
-                holdings_parsed += len(parsed_holdings)
-                resolved_symbols = sorted({holding.symbol for holding in parsed_holdings if holding.symbol})
+                deduped_holdings = _dedupe_holdings(parsed_holdings)
+                duplicate_holding_rows = len(parsed_holdings) - len(deduped_holdings)
+                holdings_parsed += len(deduped_holdings)
+                resolved_symbols = sorted({holding.symbol for holding in deduped_holdings if holding.symbol})
                 unresolved_holdings = [
                     {
                         "asset_name": holding.asset_name,
                         "value_range": holding.value_range,
                     }
-                    for holding in parsed_holdings
+                    for holding in deduped_holdings
                     if not holding.symbol
                 ][:20]
                 documents.append(
@@ -608,10 +630,11 @@ def ingest_house_annual_disclosures(
                         "filing_type": row.filing_type,
                         "filing_date": row.filing_date.isoformat() if row.filing_date else None,
                         "report_url": row.report_url,
-                        "holdings_parsed": len(parsed_holdings),
+                        "holdings_parsed": len(deduped_holdings),
+                        "duplicate_holding_rows": duplicate_holding_rows,
                         "tickers_resolved": len(resolved_symbols),
                         "resolved_symbols": resolved_symbols[:50],
-                        "unresolved_holdings_count": len([holding for holding in parsed_holdings if not holding.symbol]),
+                        "unresolved_holdings_count": len([holding for holding in deduped_holdings if not holding.symbol]),
                         "unresolved_holdings_sample": unresolved_holdings,
                         "extraction_method": extraction.extraction_method,
                         "pages_processed": extraction.pages_processed,
@@ -620,7 +643,7 @@ def ingest_house_annual_disclosures(
                     }
                 )
                 if apply:
-                    inserted_document, inserted_holdings = _upsert_document_and_holdings(db, row, parsed_holdings, extraction)
+                    inserted_document, inserted_holdings = _upsert_document_and_holdings(db, row, deduped_holdings, extraction)
                     documents_inserted += 1 if inserted_document else 0
                     holdings_inserted += inserted_holdings
                     db.commit()
@@ -637,6 +660,7 @@ def ingest_house_annual_disclosures(
                         "filing_date": row.filing_date.isoformat() if row.filing_date else None,
                         "report_url": row.report_url,
                         "holdings_parsed": 0,
+                        "duplicate_holding_rows": 0,
                         "tickers_resolved": 0,
                         "resolved_symbols": [],
                         "unresolved_holdings_count": 0,

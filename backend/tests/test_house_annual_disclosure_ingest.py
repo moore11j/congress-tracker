@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from xml.etree import ElementTree as etree
 
-from app.ingest_house_annual_disclosures import _index_row_from_xml, parse_holdings_from_pdf_text
+from app.ingest_house_annual_disclosures import _dedupe_holdings, _index_row_from_xml, parse_holdings_from_pdf_text
 
 
 def test_index_row_resolves_members_with_current_metadata_resolver_signature():
@@ -28,6 +28,23 @@ def test_index_row_resolves_members_with_current_metadata_resolver_signature():
     )
 
     assert row.member_bioguide_id == "B001291"
+
+
+def test_exact_duplicate_source_holdings_are_collapsed_before_persistence():
+    holdings = parse_holdings_from_pdf_text(
+        """
+Asset Owner Value of Asset Income Type(s) Income Tx. > $1,000?
+Fund (VMFXX) [MF] JT $1 - $1,000 Dividends $201 - $1,000
+Fund (VMFXX) [MF] JT $1 - $1,000 Dividends $201 - $1,000
+Liabilities
+"""
+    )
+
+    deduped = _dedupe_holdings(holdings)
+
+    assert len(holdings) == 2
+    assert len(deduped) == 1
+    assert deduped[0].symbol == "VMFXX"
 
 
 def test_parse_house_annual_asset_table_with_corrupt_heading_and_equity_rows():
