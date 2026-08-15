@@ -71,6 +71,8 @@ export function eventToFeedItem(event: EventItem): FeedItem {
   return {
     id: event.id,
     kind: event.event_type as FeedItem["kind"],
+    payload,
+    url: event.url ?? payloadText(payload, ["url", "source_url", "sourceUrl", "link", "finalLink"]),
     member: {
       bioguide_id: event.member_bioguide_id ?? "",
       name: isInsider ? insiderName : event.member_name ?? "Unknown",

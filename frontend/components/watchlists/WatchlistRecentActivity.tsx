@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
   type EventItem,
@@ -16,6 +17,9 @@ import {
   type ActivityMode,
   type WatchlistActivityState,
 } from "@/lib/watchlistActivity";
+import { insiderHref } from "@/lib/insider";
+import { memberHref } from "@/lib/memberSlug";
+import { tickerHref } from "@/lib/ticker";
 
 type RecentActivityData = {
   items: FeedItem[];
@@ -69,16 +73,48 @@ function readableTrade(value?: string | null) {
 
 function activityCopy(item: FeedItem) {
   const kind = String(item.kind || "").toLowerCase();
-  const person = item.insider?.name || item.member?.name || "";
-  const hasPerson = person && !/^unknown/i.test(person);
 
   if (kind.includes("congress")) return { category: "Congress", detail: `Change in trade: ${readableTrade(item.transaction_type)}` };
-  if (kind.includes("insider")) return { category: "Insiders", detail: hasPerson ? `${person}: ${readableTrade(item.transaction_type)}` : readableTrade(item.transaction_type) };
+  if (kind.includes("insider")) return { category: "Insiders", detail: readableTrade(item.transaction_type) };
   if (kind.includes("institution")) return { category: "Institutional activity", detail: readableTrade(item.transaction_type) };
   if (kind.includes("contract")) return { category: "Large trade / contract", detail: readableTrade(item.transaction_type) };
   if (kind.includes("press")) return { category: "Press releases", detail: item.transaction_type || item.security?.name || "New company release" };
   if (kind.includes("news")) return { category: "News", detail: item.transaction_type || item.security?.name || "New market news" };
   return { category: "Watchlist activity", detail: item.transaction_type || item.security?.name || "New monitoring activity" };
+}
+
+function activityIcon(category: string) {
+  const className = "h-4 w-4 shrink-0 fill-none stroke-current stroke-[1.8]";
+  if (category === "Congress") return <svg viewBox="0 0 24 24" className={className} aria-hidden="true"><path d="M3 10h18M5 10v8m4-8v8m6-8v8m4-8v8M3 21h18M12 3l9 5H3l9-5Z" /></svg>;
+  if (category === "Insiders") return <svg viewBox="0 0 24 24" className={className} aria-hidden="true"><circle cx="12" cy="8" r="3" /><path d="M5 21a7 7 0 0 1 14 0M3 13h2m14 0h2" /></svg>;
+  if (category === "Institutional activity") return <svg viewBox="0 0 24 24" className={className} aria-hidden="true"><path d="M4 21h16M6 21V8l6-4 6 4v13M9 11h2m2 0h2m-6 4h2m2 0h2" /></svg>;
+  if (category === "Large trade / contract") return <svg viewBox="0 0 24 24" className={className} aria-hidden="true"><path d="M4 7h11m0 0-3-3m3 3-3 3M20 17H9m0 0 3-3m-3 3 3 3" /></svg>;
+  if (category === "Press releases") return <svg viewBox="0 0 24 24" className={className} aria-hidden="true"><path d="M4 5h12v14H4zM8 9h4m-4 4h4m8-5v8m0 0-3-3m3 3 3-3" /></svg>;
+  return <svg viewBox="0 0 24 24" className={className} aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></svg>;
+}
+
+function safeExternalHref(value?: string | null) {
+  return value && /^https?:\/\//i.test(value) ? value : null;
+}
+
+function ActivityDetail({ item, category, detail }: { item: FeedItem; category: string; detail: string }) {
+  const memberName = item.member?.name?.trim();
+  const insiderName = item.insider?.name?.trim();
+  const personName = category === "Insiders" ? insiderName : memberName;
+  const personHref = category === "Congress"
+    ? memberHref({ name: memberName, memberId: item.member?.bioguide_id })
+    : category === "Insiders"
+      ? insiderHref(insiderName, item.insider?.reporting_cik)
+      : null;
+  const articleHref = safeExternalHref(item.url);
+
+  if (articleHref && (category === "News" || category === "Press releases")) {
+    return <a href={articleHref} target="_blank" rel="noreferrer" className="block truncate text-sky-300 transition hover:text-sky-100 hover:underline" title={detail}>{detail}</a>;
+  }
+  if (personName && personHref && (category === "Congress" || category === "Insiders")) {
+    return <span className="block truncate text-slate-400"><Link href={personHref} prefetch={false} className="font-medium text-slate-200 hover:text-emerald-200 hover:underline">{personName}</Link>{" · "}{detail}</span>;
+  }
+  return <span className="block truncate text-slate-400" title={detail}>{detail}</span>;
 }
 
 function RecentActivitySkeleton() {
@@ -109,9 +145,11 @@ export function WatchlistRecentActivity({
   const [data, setData] = useState(initialData);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const hasRequestedInitialData = useRef(initialData.items.length > 0 || initialState.onlyNew);
 
-  async function fetchActivity(nextState: WatchlistActivityState, append = false) {
+  async function fetchActivity(nextState: WatchlistActivityState, cursor: string | null = null, nextPageIndex = 0) {
     setIsLoading(true);
     setError(null);
     try {
@@ -119,7 +157,7 @@ export function WatchlistRecentActivity({
       let nextCursor: string | null = null;
       let nextOffset = 0;
       if (nextState.mode === "signals") {
-        const offset = append ? data.offset : 0;
+        const offset = nextPageIndex * nextState.limit;
         const response = await getWatchlistSignals(watchlistId, { mode: "all", sort: "smart", limit: nextState.limit, offset });
         nextItems = (response.items as SignalItem[]).map(signalToFeedItem);
         nextOffset = offset + nextItems.length;
@@ -129,7 +167,7 @@ export function WatchlistRecentActivity({
           recent_days: Number(nextState.recentDays),
           since: resolveWatchlistEventSince(nextState),
           unread_only: nextState.onlyNew ? 1 : undefined,
-          cursor: append ? data.nextCursor || undefined : undefined,
+          cursor: cursor || undefined,
           limit: nextState.limit,
           source: "WatchlistPage",
         }) as EventsResponse;
@@ -137,13 +175,14 @@ export function WatchlistRecentActivity({
         nextCursor = response.next_cursor ?? null;
       }
       setState(nextState);
-      setData((current) => ({
-        items: append ? [...current.items, ...nextItems] : nextItems,
+      setPageIndex(nextPageIndex);
+      setData({
+        items: nextItems,
         nextCursor,
         offset: nextOffset,
         hasMore: nextState.mode === "signals" ? nextItems.length === nextState.limit : Boolean(nextCursor),
-      }));
-      window.history.replaceState(null, "", buildActivityUrl(watchlistId, nextState, append ? nextCursor : null, append ? nextOffset : 0));
+      });
+      window.history.replaceState(null, "", buildActivityUrl(watchlistId, nextState, nextState.mode === "signals" ? null : cursor, nextState.mode === "signals" ? nextPageIndex * nextState.limit : 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load recent activity.");
     } finally {
@@ -152,7 +191,27 @@ export function WatchlistRecentActivity({
   }
 
   function changeMode(mode: ActivityMode) {
+    setPageCursors([null]);
     fetchActivity({ ...state, mode, onlyNew: mode === "signals" ? false : state.onlyNew });
+  }
+
+  function goToNextPage() {
+    if (!data.hasMore || isLoading) return;
+    const nextIndex = pageIndex + 1;
+    const cursor = state.mode === "signals" ? null : data.nextCursor;
+    if (state.mode !== "signals" && !cursor) return;
+    setPageCursors((current) => {
+      const next = [...current];
+      next[nextIndex] = cursor;
+      return next;
+    });
+    void fetchActivity(state, cursor, nextIndex);
+  }
+
+  function goToPreviousPage() {
+    if (pageIndex === 0 || isLoading) return;
+    const previousIndex = pageIndex - 1;
+    void fetchActivity(state, state.mode === "signals" ? null : pageCursors[previousIndex] ?? null, previousIndex);
   }
 
   useEffect(() => {
@@ -180,7 +239,7 @@ export function WatchlistRecentActivity({
           const active = option.value === state.mode;
           return <button key={option.value} type="button" onClick={() => changeMode(option.value)} disabled={isLoading} className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${active ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-slate-300 hover:border-white/20 hover:text-white"}`}>{option.label}</button>;
         })}
-        {unseenCount > 0 && state.mode !== "signals" ? <button type="button" onClick={() => fetchActivity({ ...state, onlyNew: !state.onlyNew, newSince: !state.onlyNew ? unseenSince : "" })} disabled={isLoading} className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${state.onlyNew ? "border-sky-300/40 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-300"}`}>{state.onlyNew ? "New only" : `New (${unseenCount})`}</button> : null}
+        {unseenCount > 0 && state.mode !== "signals" ? <button type="button" onClick={() => { setPageCursors([null]); void fetchActivity({ ...state, onlyNew: !state.onlyNew, newSince: !state.onlyNew ? unseenSince : "" }); }} disabled={isLoading} className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${state.onlyNew ? "border-sky-300/40 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-300"}`}>{state.onlyNew ? "New only" : `New (${unseenCount})`}</button> : null}
       </div>
       {state.onlyNew ? <p className="mt-2 text-xs text-sky-100">Showing new activity since the latest checkpoint. Switch to All to see every item inside the selected {state.recentDays}-day window.</p> : null}
 
@@ -193,11 +252,13 @@ export function WatchlistRecentActivity({
             {data.items.map((item) => {
               const activity = activityCopy(item);
               const symbol = displaySymbol(item.security?.symbol);
+              const symbolHref = tickerHref(symbol);
               return (
-                <div key={`${item.kind}-${item.id}`} className="grid min-w-0 grid-cols-[minmax(7.5rem,.85fr)_minmax(0,1fr)_auto_auto] items-center gap-3 bg-white/[0.02] px-3 py-2.5 text-sm">
-                  <div className="min-w-0 truncate font-semibold text-slate-100">{activity.category}</div>
-                  <div className="min-w-0 truncate text-slate-400">{activity.detail}</div>
-                  {symbol ? <span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-200">{symbol}</span> : <span />}
+                <div key={`${item.kind}-${item.id}`} className="grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-x-2.5 gap-y-1 bg-white/[0.02] px-3 py-2.5 text-sm">
+                  <span className="text-slate-300" title={activity.category}>{activityIcon(activity.category)}</span>
+                  <div className="min-w-0 whitespace-nowrap font-semibold text-slate-100">{activity.category}</div>
+                  <div className="min-w-0"><ActivityDetail item={item} category={activity.category} detail={activity.detail} /></div>
+                  {symbolHref ? <Link href={symbolHref} prefetch={false} className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-200 transition hover:border-emerald-200/60 hover:text-emerald-100">{symbol}</Link> : symbol ? <span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-200">{symbol}</span> : <span />}
                   <time className="whitespace-nowrap text-xs text-slate-500">{formatActivityTime(item.report_date || item.trade_date)}</time>
                 </div>
               );
@@ -206,8 +267,12 @@ export function WatchlistRecentActivity({
         )}
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
-        <span className="text-xs text-slate-500">Last {state.recentDays} days</span>
-        {data.hasMore ? <button type="button" onClick={() => fetchActivity(state, true)} disabled={isLoading} className="text-sm font-semibold text-sky-300 hover:text-sky-200">View all activity →</button> : null}
+        <span className="text-xs text-slate-500">Last {state.recentDays} days · 20 per page</span>
+        <div className="flex items-center gap-2 text-xs">
+          <button type="button" onClick={goToPreviousPage} disabled={pageIndex === 0 || isLoading} className="rounded-md border border-white/10 px-2 py-1 font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+          <span className="min-w-12 text-center text-slate-400">Page {pageIndex + 1}</span>
+          <button type="button" onClick={goToNextPage} disabled={!data.hasMore || isLoading} className="rounded-md border border-white/10 px-2 py-1 font-semibold text-sky-300 transition hover:border-sky-300/35 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+        </div>
       </div>
     </section>
   );

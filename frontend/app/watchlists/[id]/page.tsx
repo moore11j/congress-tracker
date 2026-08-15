@@ -22,8 +22,8 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const mode = parseMode(getParam(sp, "mode"));
   const recentDays = getParam(sp, "recent_days") || "30";
   const offset = Number(getParam(sp, "offset") || "0");
-  const limit = getParam(sp, "limit") || "25";
-  const numericLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
+  const limit = getParam(sp, "limit") || "20";
+  const numericLimit = Math.min(Math.max(Number(limit) || 20, 1), 20);
   const initialState: WatchlistActivityState = {
     mode,
     recentDays,
