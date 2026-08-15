@@ -883,6 +883,7 @@ function PairedNumberInputs({
 export async function ScreenerPageRenderer({ searchParams, requestHeaders }: ScreenerPageRenderProps) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/screener", sp);
+  const planConfigRequest = withServerTimeout(getPlanConfig(), "screener:plan-config").catch(() => defaultPlanConfig);
   const authState = requestMayHavePageAuthState(requestHeaders)
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
@@ -890,7 +891,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
   const entitlements = authToken
     ? await withServerTimeout(getEntitlements(authToken), "screener:entitlements").catch(() => defaultEntitlements)
     : entitlementsFromTierHint(authState.entitlementHint);
-  const planConfig = await withServerTimeout(getPlanConfig(), "screener:plan-config").catch(() => defaultPlanConfig);
+  const planConfig = await planConfigRequest;
   const params = currentParams(sp);
   const resultsTriggerKey = JSON.stringify(params);
   const sort = String(params.sort ?? "relevance");

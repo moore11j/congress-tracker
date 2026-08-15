@@ -7213,12 +7213,26 @@ export async function deleteAdminResearchBriefDraft(draftId: string): Promise<{ 
   });
 }
 
+const generatedResearchBriefCardsServerInflight = new Map<string, Promise<{ items: PublicResearchBriefCard[] }>>();
+
 export async function getGeneratedResearchBriefCards(): Promise<{ items: PublicResearchBriefCard[] }> {
-  return fetchJson<{ items: PublicResearchBriefCard[] }>(buildApiUrl("/api/research/briefs"), {
+  const url = buildApiUrl("/api/research/briefs");
+  const requestInit = {
     cache: "no-store",
     next: { revalidate: 0 },
     source: "ResearchBriefs",
+  } satisfies ApiRequestInit;
+  // Share only concurrent server renders. Each new request still reads the live source.
+  if (typeof window !== "undefined") return fetchJson<{ items: PublicResearchBriefCard[] }>(url, requestInit);
+
+  const existing = generatedResearchBriefCardsServerInflight.get(url);
+  if (existing) return existing;
+
+  const promise = fetchJson<{ items: PublicResearchBriefCard[] }>(url, requestInit).finally(() => {
+    generatedResearchBriefCardsServerInflight.delete(url);
   });
+  generatedResearchBriefCardsServerInflight.set(url, promise);
+  return promise;
 }
 
 export async function getGeneratedResearchBrief(slug: string, options?: { authToken?: string | null; source?: string }): Promise<AdminResearchBriefDraft> {

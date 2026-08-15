@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type PublicResearchBriefCard, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -252,6 +252,19 @@ function canonicalTickerUrlForSymbol(symbol: string): string {
 
 function publicTickerMetadataTitle(symbol: string, companyName?: string | null): string {
   return `${symbol} Stock Analysis & Research | Walnut Markets`;
+}
+
+function TickerRelatedResearch({ symbol, items }: { symbol: string; items: PublicResearchBriefCard[] }) {
+  const related = items.filter((item) => item.tickers.map((ticker) => ticker.toUpperCase()).includes(symbol)).slice(0, 3);
+  if (!related.length) return null;
+  return (
+    <section className={`${cardClassName} p-4`}>
+      <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-white">Related Research</h2><Link href="/research" className="text-sm font-semibold text-emerald-200">All research</Link></div>
+      <div className="mt-3 grid gap-2">
+        {related.map((item) => <Link key={item.slug} href={item.route} className={`${compactInteractiveSurfaceClassName} block p-3`}><p className={compactInteractiveTitleClassName}>{item.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p></Link>)}
+      </div>
+    </section>
+  );
 }
 
 function publicTickerMetadataDescription(symbol: string, companyName?: string | null): string {
@@ -3890,9 +3903,12 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
     : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
   const publicStalePageCache = !authToken && !authState.hasAuthHint;
-  const entitlements = authToken
-    ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
-    : entitlementsFromTierHint(authState.entitlementHint);
+  const entitlementsRequest = authToken
+    ? getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
+    : Promise.resolve(entitlementsFromTierHint(authState.entitlementHint));
+  const relatedResearchRequest = getGeneratedResearchBriefCards()
+    .then((response) => response.items)
+    .catch(() => [] as PublicResearchBriefCard[]);
   const useAnonymousTickerSsrShell = publicStalePageCache
     ? false
     : shouldUseAnonymousTickerSsrShell({
@@ -3947,6 +3963,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           }
           throw error;
         });
+  const [entitlements, relatedResearch] = await Promise.all([entitlementsRequest, relatedResearchRequest]);
   const profile = contextBundleResult.profile;
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
   const contextBundle = contextBundleResult.bundle;
@@ -4195,6 +4212,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           {shellFallbackMessage}
         </div>
       ) : null}
+      <TickerRelatedResearch symbol={normalizedSymbol} items={relatedResearch} />
       <Suspense fallback={<DeferredTickerSummarySkeleton />}>
         <DeferredTickerContent
           activityPromise={activityPromise}
