@@ -123,6 +123,8 @@ from app.models import (
     Event,
     Filing,
     FundamentalsCache,
+    HouseAnnualDisclosureDocument,
+    HouseAnnualDisclosureHolding,
     Member,
     MonitoringAlert,
     MonitoringSourcePreference,
@@ -5096,6 +5098,98 @@ def member_portfolio_performance(
     if public_safety_flags:
         return _unavailable_portfolio_payload(payload, public_safety_flags)
     return payload
+
+
+def _disclosure_holding_value_bounds(holdings: list[HouseAnnualDisclosureHolding]) -> tuple[float | None, float | None]:
+    lower_total = 0.0
+    upper_total = 0.0
+    has_lower = False
+    has_open_upper_bound = False
+    for holding in holdings:
+        if holding.value_min is not None:
+            lower_total += float(holding.value_min)
+            has_lower = True
+        if holding.value_max is None:
+            has_open_upper_bound = True
+        else:
+            upper_total += float(holding.value_max)
+    return (lower_total if has_lower else None, None if has_open_upper_bound else upper_total)
+
+
+@app.get("/api/members/{member_id}/reported-holdings")
+def member_reported_holdings(member_id: str, request: Request, db: Session = Depends(get_db)):
+    """Return the latest stored annual disclosure snapshot, never simulated portfolio holdings."""
+    prefetch_response = _api_prefetch_response(request, endpoint="member_reported_holdings")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        return {"status": "skipped", "member_id": member_id, "items": []}
+
+    resolved_member, _ = _resolve_member_analytics_aliases(db, member_id)
+    canonical_member_id = resolved_member.bioguide_id if resolved_member else member_id
+    document = (
+        db.execute(
+            select(HouseAnnualDisclosureDocument)
+            .where(HouseAnnualDisclosureDocument.member_bioguide_id == canonical_member_id)
+            .order_by(
+                HouseAnnualDisclosureDocument.filing_date.desc(),
+                HouseAnnualDisclosureDocument.filing_year.desc(),
+                HouseAnnualDisclosureDocument.document_id.desc(),
+            )
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if document is None:
+        return {
+            "status": "unavailable",
+            "member_id": canonical_member_id,
+            "source": "annual_financial_disclosure",
+            "reason": "No verified annual disclosure snapshot has been ingested for this member.",
+            "report": None,
+            "items": [],
+        }
+
+    holdings = (
+        db.execute(
+            select(HouseAnnualDisclosureHolding)
+            .where(HouseAnnualDisclosureHolding.document_row_id == int(document.id))
+            .order_by(HouseAnnualDisclosureHolding.asset_name.asc(), HouseAnnualDisclosureHolding.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    value_lower_bound, value_upper_bound = _disclosure_holding_value_bounds(holdings)
+    symbols = sorted({str(holding.symbol).strip().upper() for holding in holdings if holding.symbol and str(holding.symbol).strip()})
+    return {
+        "status": "ok",
+        "member_id": canonical_member_id,
+        "source": document.source,
+        "report": {
+            "document_id": document.document_id,
+            "filing_year": document.filing_year,
+            "filing_type": document.filing_type,
+            "filing_date": document.filing_date.isoformat() if document.filing_date else None,
+            "report_url": document.report_url,
+        },
+        "positions_count": len(holdings),
+        "visible_symbols": symbols,
+        "value_lower_bound": value_lower_bound,
+        "value_upper_bound": value_upper_bound,
+        "items": [
+            {
+                "asset_name": holding.asset_name,
+                "symbol": holding.symbol,
+                "owner": holding.owner,
+                "asset_type": holding.asset_type,
+                "value_range": holding.value_range,
+                "value_min": holding.value_min,
+                "value_max": holding.value_max,
+            }
+            for holding in holdings
+        ],
+    }
 
 
 @app.get("/api/members/{member_id}/trades")

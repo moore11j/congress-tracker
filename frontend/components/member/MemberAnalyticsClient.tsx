@@ -6,9 +6,11 @@ import {
   getEntitlements,
   getMemberAlphaSummary,
   getMemberPortfolioPerformance,
+  getMemberReportedHoldings,
   getMemberTrades,
   type MemberAlphaSummary,
   type MemberPortfolioPerformance,
+  type MemberReportedHoldings,
   type MemberTradesResponse,
 } from "@/lib/api";
 import type { MemberTrade } from "@/lib/types";
@@ -567,33 +569,25 @@ function MemberPortfolioPanel({
 }
 
 function MemberHoldingsPanel({
-  portfolio,
+  holdings,
   loading,
   locked,
 }: {
-  portfolio: MemberPortfolioPerformance | null;
+  holdings: MemberReportedHoldings | null;
   loading: boolean;
   locked: boolean;
 }) {
-  const diagnostics = portfolio?.warmup_diagnostics ?? null;
-  const snapshotCount =
-    portfolio?.annual_disclosure_snapshot_positions_count ??
-    diagnostics?.annual_disclosure_snapshot_positions_count ??
-    0;
-  const snapshotSymbols =
-    portfolio?.annual_disclosure_snapshot_symbols ??
-    diagnostics?.annual_disclosure_snapshot_symbols ??
-    [];
-  const snapshotValue =
-    portfolio?.annual_disclosure_snapshot_value ??
-    diagnostics?.annual_disclosure_snapshot_value ??
-    null;
-  const hasVerifiedSnapshot = snapshotCount > 0;
-  const symbols = snapshotSymbols;
+  const hasVerifiedSnapshot = holdings?.status === "ok" && Boolean(holdings.report);
+  const symbols = holdings?.visible_symbols ?? [];
+  const valueLabel = holdings?.value_lower_bound == null
+    ? "Not disclosed"
+    : holdings.value_upper_bound == null
+      ? `At least ${compactUSD(holdings.value_lower_bound)}`
+      : compactUSD(holdings.value_lower_bound);
 
   return (
     <section id="member-holdings" className={`${CARD} scroll-mt-6 p-3`}>
-      <SectionTitle title="Reported Holdings" detail="Latest verified annual-report snapshot" />
+      <SectionTitle title="Reported Holdings" detail={hasVerifiedSnapshot ? "Latest verified annual-report snapshot" : "Verified annual report required"} />
       {loading ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-14 w-full" />)}
@@ -602,17 +596,16 @@ function MemberHoldingsPanel({
         <p className="mt-3 text-sm text-slate-400">
           Verified annual disclosure snapshots are available with portfolio research when Walnut has ingested the source filing.
         </p>
-      ) : (
-        hasVerifiedSnapshot ? (
+      ) : hasVerifiedSnapshot ? (
         <>
           <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-4">
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Reported positions</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(snapshotCount)}</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(holdings?.positions_count)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
-              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Est. value</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{compactUSD(snapshotValue)}</p>
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Disclosed value</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{valueLabel}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Visible symbols</p>
@@ -624,8 +617,13 @@ function MemberHoldingsPanel({
             </div>
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            This is the latest verified annual-report snapshot available to Walnut. It is not a live brokerage position feed.
+            Filed {formatDateShort(holdings?.report?.filing_date ?? null)}. This is a dated disclosure snapshot, not a live brokerage position feed.
           </p>
+          {holdings?.report?.report_url ? (
+            <a className="mt-1 inline-flex text-xs font-semibold text-emerald-300 hover:text-emerald-200" href={holdings.report.report_url} target="_blank" rel="noreferrer">
+              View official report
+            </a>
+          ) : null}
           {symbols.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {symbols.slice(0, 12).map((symbol) => (
@@ -634,11 +632,10 @@ function MemberHoldingsPanel({
             </div>
           ) : null}
         </>
-        ) : (
-          <p className="mt-3 text-sm leading-6 text-slate-400">
-            No verified annual holdings disclosure has been ingested for this member yet. Walnut does not show simulated portfolio warmup positions as reported holdings.
-          </p>
-        )
+      ) : (
+        <p className="mt-3 text-sm leading-6 text-slate-400">
+          {holdings?.reason ?? "No verified annual holdings disclosure has been ingested for this member yet."} Walnut does not show simulated portfolio warmup positions as reported holdings.
+        </p>
       )}
     </section>
   );
@@ -672,6 +669,7 @@ export function MemberAnalyticsClient({
   const [alphaSummary, setAlphaSummary] = useState<MemberAlphaSummary>(() => initialAlphaSummary ?? alphaFallback(memberId, lookbackDays));
   const [portfolioTradeCountSummary, setPortfolioTradeCountSummary] = useState<MemberAlphaSummary | null>(null);
   const [portfolio, setPortfolio] = useState<MemberPortfolioPerformance | null>(null);
+  const [reportedHoldings, setReportedHoldings] = useState<MemberReportedHoldings | null>(null);
   const [trades, setTrades] = useState<MemberTradesResponse>(() => initialTrades ?? tradesFallback(memberId, lookbackDays));
   const [trendTrades, setTrendTrades] = useState<MemberTradesResponse>(() =>
     initialTrendTrades?.items.length
@@ -686,6 +684,7 @@ export function MemberAnalyticsClient({
   const hasInitialAnalytics = Boolean(initialAlphaSummary || initialTrades);
   const [loading, setLoading] = useState(!hasInitialAnalytics);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [reportedHoldingsLoading, setReportedHoldingsLoading] = useState(false);
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [portfolioUnavailable, setPortfolioUnavailable] = useState(false);
   const [tradesUnavailable, setTradesUnavailable] = useState(false);
@@ -765,6 +764,27 @@ export function MemberAnalyticsClient({
         if (!cancelled && data.items.length > 0) setTrendTrades(data);
       })
       .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [memberId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    setReportedHoldingsLoading(true);
+    getMemberReportedHoldings(memberId, { source: "MemberAnalytics", signal: controller.signal })
+      .then((data) => {
+        if (!cancelled) setReportedHoldings(data);
+      })
+      .catch(() => {
+        if (!cancelled) setReportedHoldings(null);
+      })
+      .finally(() => {
+        if (!cancelled) setReportedHoldingsLoading(false);
+      });
 
     return () => {
       cancelled = true;
@@ -1152,8 +1172,8 @@ export function MemberAnalyticsClient({
       </div>
 
       <MemberHoldingsPanel
-        portfolio={portfolio}
-        loading={!entitlementsLoaded || portfolioLoading}
+        holdings={reportedHoldings}
+        loading={reportedHoldingsLoading}
         locked={entitlementsLoaded && !canViewPortfolio}
       />
     </div>

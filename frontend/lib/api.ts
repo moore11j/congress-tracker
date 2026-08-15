@@ -6310,6 +6310,33 @@ export type MemberPortfolioPerformance = {
   skip_diagnostics?: Record<string, number>;
 };
 
+export type MemberReportedHoldings = {
+  status: "ok" | "unavailable" | "skipped";
+  member_id: string;
+  source?: string | null;
+  reason?: string | null;
+  report: {
+    document_id: string;
+    filing_year: number;
+    filing_type?: string | null;
+    filing_date?: string | null;
+    report_url?: string | null;
+  } | null;
+  positions_count?: number | null;
+  visible_symbols?: string[];
+  value_lower_bound?: number | null;
+  value_upper_bound?: number | null;
+  items: Array<{
+    asset_name: string;
+    symbol?: string | null;
+    owner?: string | null;
+    asset_type?: string | null;
+    value_range?: string | null;
+    value_min?: number | null;
+    value_max?: number | null;
+  }>;
+};
+
 export type MemberAlphaSummary = {
   member_id: string;
   lookback_days: number;
@@ -6627,6 +6654,19 @@ export async function getMemberPortfolioPerformance(
       lookback_days: params?.lookback_days,
       mode: params?.mode,
     }),
+    {
+      signal: params?.signal,
+      source: params?.source ?? "MemberAnalytics",
+    },
+  );
+}
+
+export async function getMemberReportedHoldings(
+  bioguideId: string,
+  params?: { source?: string; signal?: AbortSignal },
+): Promise<MemberReportedHoldings> {
+  return fetchJson<MemberReportedHoldings>(
+    buildApiUrl(`/api/members/${bioguideId}/reported-holdings`),
     {
       signal: params?.signal,
       source: params?.source ?? "MemberAnalytics",
