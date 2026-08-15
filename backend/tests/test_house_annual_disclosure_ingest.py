@@ -99,3 +99,41 @@ Liabilities
     holdings = parse_holdings_from_pdf_text(text)
 
     assert [holding.symbol for holding in holdings] == ["AAPL"]
+
+
+def test_parse_house_annual_assets_includes_non_ticker_assets():
+    text = """
+Asset Owner Value of Asset Income Type(s) Income Tx. > $1,000?
+Credit Union One [BA] JT $100,001 - $250,000 None
+Charles Schwab Brokerage Account 595 ⇒ Charles Schwab Bank [BA] SP $15,001 - $50,000 None
+CIT Polen International (CPIFX) [MF] SP $1,001 - $15,000 Capital Gains $1 - $200
+Asset Owner Date Tx.
+Apple Inc. (AAPL) [ST] 04/03/2025 P $1,001 - $15,000
+"""
+
+    holdings = parse_holdings_from_pdf_text(text)
+
+    assert [holding.asset_name for holding in holdings] == [
+        "Credit Union One",
+        "Charles Schwab Bank",
+        "CIT Polen International",
+    ]
+    assert [holding.symbol for holding in holdings] == [None, None, "CPIFX"]
+    assert [holding.asset_type for holding in holdings] == ["cash", "cash", "mutual fund"]
+
+
+def test_parse_house_annual_assets_preserves_wrapped_asset_name_before_type_code():
+    text = """
+Asset Owner Value of Asset Income Type(s) Income Tx. > $1,000?
+Charles Schwab 401K ⇒ First Fund (GOOGL) [MF] SP $1,001 - $15,000 Tax-Deferred
+Charles Schwab 401K ⇒ Second Fund with a Wrapped Name
+(NVDA) [MF] SP $15,001 - $50,000 Tax-Deferred
+Asset Owner Date Tx.
+"""
+
+    holdings = parse_holdings_from_pdf_text(text)
+
+    assert [(holding.asset_name, holding.symbol) for holding in holdings] == [
+        ("First Fund", "GOOGL"),
+        ("Second Fund with a Wrapped Name", "NVDA"),
+    ]

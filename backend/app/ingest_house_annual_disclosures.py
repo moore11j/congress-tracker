@@ -49,7 +49,11 @@ SECTION_START_RE = re.compile(r"assets?\s+and\s+unearned\s+income|assets?\s+unea
 SECTION_STOP_RE = re.compile(r"\b(transactions|liabilities|agreements|earned income|positions held)\b", re.I)
 TRANSACTION_TABLE_HEADER_RE = re.compile(r"\basset\s+owner\s+date\s+(?:tx\.?|transaction)\b", re.I)
 ASSET_TYPE_TERMS = ("stock", "common stock", "equity", "option", "mutual fund", "etf", "bond", "fund")
-ASSET_ROW_START_RE = re.compile(r"\([A-Z][A-Z0-9.\-]{0,9}\)\s+\[(?P<asset_code>[A-Z]{1,3})\]")
+# Schedule A contains reportable assets that do not have market tickers (cash,
+# bank accounts, real estate, partnerships, and retirement accounts). The Clerk
+# emits an asset classification code for every Schedule A row, so use that code
+# as the row boundary rather than requiring a ticker.
+ASSET_ROW_START_RE = re.compile(r"\[(?P<asset_code>[A-Z]{1,3})\]")
 
 
 @dataclass(frozen=True)
@@ -202,6 +206,7 @@ def _is_asset_table_noise(line: str) -> bool:
         or lowered.startswith("state/district:")
         or lowered.startswith("location:")
         or lowered.startswith("description:")
+        or re.fullmatch(r"\$[\d,]+\?", line)
         or lowered in {"none", "n/a"}
     )
 
@@ -222,11 +227,24 @@ def _asset_type_from_code(asset_code: str | None, row_text: str) -> str | None:
         return "option"
     if code in {"BD", "B"}:
         return "bond"
+    if code == "BA":
+        return "cash"
+    if code in {"PS", "OL"}:
+        return "partnership interest"
+    if code == "RE":
+        return "real estate"
+    if code == "PE":
+        return "pension"
+    if code == "GS":
+        return "government security"
     return _asset_type_from_text(row_text)
 
 
 def _clean_asset_name(value: str) -> str:
-    text = re.sub(r"\[[A-Z]{1,3}\]", "", value)
+    # Clerk PDFs use the arrow to qualify an account's underlying asset. The
+    # reportable item is the final asset, not its account wrapper.
+    text = value.rsplit("⇒", 1)[-1].strip()
+    text = re.sub(r"\[[A-Z]{1,3}\]", "", text)
     text = re.sub(r"\((?:[A-Z][A-Z0-9.\-]{0,9})\)", "", text)
     return text.strip(" -:,")
 
@@ -253,11 +271,12 @@ def _parse_holding_row(row: str, *, asset_code: str | None = None) -> ParsedHold
             owner = owner_suffix.group("owner").lower()
             before = before[: owner_suffix.start()].strip(" -:")
 
-    symbol = _symbol_from_asset(before)
     value_min, value_max = _amount_range(value_range)
+    underlying_asset_text = before.rsplit("⇒", 1)[-1].strip()
     asset_name = _clean_asset_name(before)
     if not asset_name:
         return None
+    symbol = _symbol_from_asset(underlying_asset_text)
 
     income_type = None
     income_range = None
@@ -283,19 +302,50 @@ def _parse_holding_row(row: str, *, asset_code: str | None = None) -> ParsedHold
     )
 
 
+def _row_has_complete_asset_value(row: list[str]) -> bool:
+    text = " ".join(row)
+    match = ASSET_VALUE_RANGE_RE.search(text)
+    if not match:
+        return False
+    # A PDF may split "$5,000 - $50,000" after the hyphen. Do not treat the
+    # left side as a finished row or the range will be truncated.
+    return not text[match.end() :].lstrip().startswith("-")
+
+
+def _is_post_value_asset_noise(line: str) -> bool:
+    """Identify the separate income-column text emitted after a Schedule A value."""
+    lowered = line.lower().strip()
+    return bool(
+        not lowered
+        or lowered.startswith(("d:", "$", "none", "tax-deferred"))
+        or bool(re.match(r"^(?:capital gains|dividends|interest|rent|royalties)(?:[,\s]|$)", lowered))
+    )
+
+
 def _parse_joined_asset_rows(lines: list[str]) -> list[ParsedHolding]:
     rows: list[tuple[str, str | None]] = []
     current: list[str] = []
+    pending_prefix: list[str] = []
     current_asset_code: str | None = None
     for line in lines:
         start_match = ASSET_ROW_START_RE.search(line)
         if start_match:
             if current:
                 rows.append((" ".join(current), current_asset_code))
-            current = [line]
+            current = [*pending_prefix, line]
+            pending_prefix = []
             current_asset_code = start_match.group("asset_code")
         elif current:
-            current.append(line)
+            # Text extractors often put a wrapped next asset's account prefix
+            # and name before its [asset-type] marker. Once the current row has
+            # its Schedule A value, reserve subsequent text for that next row.
+            if _row_has_complete_asset_value(current):
+                if not _is_post_value_asset_noise(line):
+                    pending_prefix.append(line)
+            else:
+                current.append(line)
+        else:
+            pending_prefix.append(line)
     if current:
         rows.append((" ".join(current), current_asset_code))
 
