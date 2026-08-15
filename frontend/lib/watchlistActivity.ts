@@ -2,7 +2,7 @@ import type { EventItem, SignalItem } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import type { FeedItem } from "@/lib/types";
 
-export type ActivityMode = "all" | "congress" | "insider" | "government_contracts" | "signals";
+export type ActivityMode = "all" | "congress" | "insider" | "institutional" | "government_contracts" | "news" | "press" | "signals";
 
 export type WatchlistActivityState = {
   mode: ActivityMode;
@@ -18,7 +18,7 @@ export function getParam(sp: Record<string, string | string[] | undefined>, key:
 }
 
 export function parseMode(value: string): ActivityMode {
-  return value === "congress" || value === "insider" || value === "government_contracts" || value === "signals" ? value : "all";
+  return value === "congress" || value === "insider" || value === "institutional" || value === "government_contracts" || value === "news" || value === "press" || value === "signals" ? value : "all";
 }
 
 export function recentDaysToSince(value: string): string | undefined {

@@ -1,8 +1,7 @@
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { WatchlistDetailClient } from "@/components/watchlists/WatchlistDetailClient";
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
-import { getEntitlements, getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
-import { defaultEntitlements, hasEntitlement } from "@/lib/entitlements";
+import { getWatchlist, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import { eventToFeedItem, getParam, parseMode, resolveWatchlistEventSince, signalToFeedItem, type WatchlistActivityState } from "@/lib/watchlistActivity";
 
@@ -42,12 +41,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
     );
   }
 
-  const watchlistPromise = (async () => await getWatchlist(watchlistId, authToken).catch(() => null))();
-  const [watchlist, entitlements] = await Promise.all([
-    watchlistPromise,
-    getEntitlements(authToken, { source: "WatchlistDetailPage" }).catch(() => defaultEntitlements),
-  ]);
-  const canViewPremiumMetrics = Boolean(hasEntitlement(entitlements, "premium_feed_metrics"));
+  const watchlist = await getWatchlist(watchlistId, authToken).catch(() => null);
   if (!watchlist) {
     return (
       <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
@@ -90,11 +84,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       return { items: [], next_cursor: null };
     }
   })();
-  const [confirmationEventsResponse, activity] = await Promise.all([
-    getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken }).catch(() => ({ items: [] })),
-    activityPromise,
-  ]);
-  const confirmationEvents = confirmationEventsResponse.items ?? [];
+  const activity = await activityPromise;
 
   const items =
     mode === "signals"
@@ -105,9 +95,9 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
     <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <WatchlistDetailContent
         watchlist={watchlist}
-        confirmationEvents={confirmationEvents}
+        confirmationEvents={[]}
         initialState={hydratedState}
-        canViewPremiumMetrics={canViewPremiumMetrics}
+        canViewPremiumMetrics={false}
         initialData={{
           items,
           nextCursor: "next_cursor" in activity ? activity.next_cursor ?? null : null,

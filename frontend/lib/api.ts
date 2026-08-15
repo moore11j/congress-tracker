@@ -5939,8 +5939,14 @@ export async function getWatchlistEvents(id: number, params: QueryParamsWithRequ
     nextParams.types = "congress_trade";
   } else if (mode === "insider") {
     nextParams.types = "insider_trade";
+  } else if (mode === "institutional") {
+    nextParams.types = "institutional_buy,institutional_accumulation,institutional_distribution,new_institutional_position,major_holder_reduction,major_holder_exit,cluster_accumulation,cluster_distribution";
   } else if (mode === "government_contracts" || mode === "government_contract") {
     nextParams.types = "government_contract";
+  } else if (mode === "news") {
+    nextParams.types = "news_article";
+  } else if (mode === "press") {
+    nextParams.types = "press_release";
   } else {
     delete nextParams.types;
   }

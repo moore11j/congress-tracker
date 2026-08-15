@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
-import { clearWatchlistConfirmationEvent, clearWatchlistConfirmationEvents, refreshWatchlistConfirmationMonitoring } from "@/lib/api";
+import { clearWatchlistConfirmationEvent, clearWatchlistConfirmationEvents, getWatchlistConfirmationEvents, refreshWatchlistConfirmationMonitoring } from "@/lib/api";
 import type { ConfirmationMonitoringEvent } from "@/lib/types";
 
 type Props = {
@@ -38,6 +38,21 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   const [pending, setPending] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<"all" | ConfirmationMonitoringEvent | null>(null);
+
+  useEffect(() => {
+    if (initialEvents.length > 0) return;
+    let cancelled = false;
+    getWatchlistConfirmationEvents(watchlistId, { limit: 5 })
+      .then((result) => {
+        if (!cancelled) setEvents(result.items ?? []);
+      })
+      .catch(() => {
+        // This is supplemental monitoring context and must never block the page.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialEvents.length, watchlistId]);
 
   async function refresh() {
     setPending(true);

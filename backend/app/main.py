@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import BackgroundTasks, FastAPI, Depends, Query, HTTPException, Request
+from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal, inspect
 from sqlalchemy.orm import Session
@@ -14102,13 +14102,10 @@ def mark_watchlist_seen(watchlist_id: int, request: Request, db: Session = Depen
 def get_watchlist(
     watchlist_id: int,
     request: Request,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     user = _require_account(request, db)
     watchlist = _get_owned_watchlist(db, user, watchlist_id)
-    if background_tasks is not None:
-        background_tasks.add_task(_refresh_watchlist_alerts_background, user.id, watchlist_id)
 
     q = (
         select(Security.symbol, Security.name)
@@ -14120,6 +14117,17 @@ def get_watchlist(
 
     rows = db.execute(q).all()
     target_groups = _watchlist_non_ticker_targets(db, watchlist_id)
+    last_seen_at = db.get(WatchlistViewState, watchlist_id)
+    unread_count, alert_since = db.execute(
+        select(func.count(), func.min(MonitoringAlert.event_created_at)).where(
+            MonitoringAlert.user_id == user.id,
+            MonitoringAlert.source_type == "watchlist",
+            MonitoringAlert.source_id == str(watchlist_id),
+            MonitoringAlert.read_at.is_(None),
+            MonitoringAlert.dismissed_at.is_(None),
+        )
+    ).one()
+    unseen_count = int(unread_count or 0)
 
     return {
         "watchlist_id": watchlist_id,
@@ -14129,7 +14137,11 @@ def get_watchlist(
         ],
         "targets": [target for items in target_groups.values() for target in items],
         **target_groups,
-        **_watchlist_view_summary(db, watchlist_id, user.id),
+        "last_seen_at": last_seen_at.last_seen_at if last_seen_at else None,
+        "unseen_since": alert_since if unseen_count else None,
+        "unseen_count": unseen_count,
+        "unread_count": unseen_count,
+        "new_count": unseen_count,
     }
 
 

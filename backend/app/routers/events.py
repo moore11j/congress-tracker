@@ -63,7 +63,6 @@ from app.services.institutional_activity import (
 from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.services.feed_cache_epoch import current_feed_events_epoch
-from app.services.watchlist_content_events import sync_watchlist_content_events
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 from app.request_guards import (
@@ -6133,7 +6132,9 @@ def list_watchlist_events(
     ).scalar_one_or_none()
     if not watchlist:
         raise HTTPException(status_code=404, detail="Watchlist not found")
-    sync_watchlist_content_events(db, id)
+    # Content caches are materialized by the monitoring/delivery jobs. Doing it
+    # here turns a simple read into hundreds of existence checks and makes the
+    # watchlist page wait behind background database work.
 
     symbols = (
         db.execute(
@@ -6189,8 +6190,14 @@ def list_watchlist_events(
         db,
         q,
         limit,
+        enrich_prices=False,
+        include_net_flows=False,
         use_effective_activity_date=True,
-        allow_live_quote_fallback=_allow_visible_feed_quote_fallback(request, enrich_prices=True),
+        enqueue_feed_outcomes=False,
+        enqueue_metadata_refresh=False,
+        allow_live_quote_fallback=False,
+        payload_mode="compact",
+        include_confirmation_metrics=False,
     )
 
     if not _is_production_runtime() or is_admin_user(user):

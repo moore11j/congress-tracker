@@ -12,7 +12,7 @@ import { formatCompanyName } from "@/lib/companyName";
 import { departmentHref } from "@/lib/departments";
 import { insiderHref } from "@/lib/insider";
 import { memberHref } from "@/lib/memberSlug";
-import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
+import { subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import type { WatchlistTarget } from "@/lib/types";
 
@@ -259,19 +259,19 @@ export function WatchlistTickerManager({
           {showAllTickers ? "Show fewer tickers" : `View all ${rows.length} tickers →`}
         </button>
       ) : null}
-      <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+      <div className="mt-5 space-y-4 border-t border-white/10 pt-4">
         {targetSections.map((section) => (
-          <div key={section.title} className="space-y-3">
+          <div key={section.title} className="space-y-2">
             <h3 className="text-sm font-semibold text-white">{section.title}</h3>
             {section.items.length === 0 ? (
               <p className="text-sm text-slate-500">{section.empty}</p>
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y divide-white/10 overflow-hidden rounded-xl border border-white/10">
                 {section.items.map((target) => {
                   const href = watchlistTargetHref(target);
                   const label = target.label ?? target.value;
                   return (
-                    <div key={`${target.type}-${target.value}`} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div key={`${target.type}-${target.value}`} className="flex items-center justify-between gap-3 bg-white/[0.025] px-3 py-2.5">
                       <div className="min-w-0">
                         {href ? (
                           <Link href={href} prefetch={false} className={`${tickerLinkClassName} block truncate`}>
@@ -280,15 +280,17 @@ export function WatchlistTickerManager({
                         ) : (
                           <p className="truncate text-sm font-semibold text-slate-100">{label}</p>
                         )}
-                        <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{target.type}</p>
+                        <p className="text-xs text-slate-400">{target.type}</p>
                       </div>
                       <button
                         type="button"
-                        className={ghostButtonClassName}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-lg leading-none text-slate-300 transition hover:bg-rose-400/10 hover:text-rose-200 disabled:opacity-60"
                         onClick={() => handleRemoveTarget(target)}
                         disabled={isPending}
+                        aria-label={`Remove ${label}`}
+                        title={`Remove ${label}`}
                       >
-                        Remove
+                        ×
                       </button>
                     </div>
                   );
