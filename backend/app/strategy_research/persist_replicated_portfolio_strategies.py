@@ -53,6 +53,10 @@ def main() -> None:
     parser.add_argument("--lookback-days", type=int, default=1095)
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--benchmark", default="SPY")
+    parser.add_argument(
+        "--entity-ids",
+        help="Optional comma-separated Congress member IDs. Refreshes only these existing portfolio strategies.",
+    )
     parser.add_argument("--min-positions", type=int, default=1)
     parser.add_argument("--min-points", type=int, default=2)
     parser.add_argument("--ranking", choices=("alpha", "cagr", "walnut_score"), default="alpha", help="Match the Congress leaderboard rank order.")
@@ -75,6 +79,7 @@ def main() -> None:
             min_positions=args.min_positions,
             min_points=args.min_points,
             ranking=args.ranking,
+            entity_ids=[value.strip() for value in (args.entity_ids or "").split(",") if value.strip()],
             code_version=code_version,
             publish=args.publish,
             apply=args.apply,

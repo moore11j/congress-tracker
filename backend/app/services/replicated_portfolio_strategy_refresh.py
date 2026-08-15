@@ -5,7 +5,7 @@ import json
 import math
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Collection
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -630,6 +630,7 @@ def persist_top_congress_portfolio_strategies(
     min_positions: int = 1,
     min_points: int = 2,
     ranking: str = "alpha",
+    entity_ids: Collection[str] | None = None,
     code_version: str | None = None,
     publish: bool = False,
     apply: bool = False,
@@ -644,6 +645,17 @@ def persist_top_congress_portfolio_strategies(
         min_points=min_points,
         ranking=ranking,
     )
+    requested_entities = {
+        entity_id.strip().upper()
+        for entity_id in (entity_ids or [])
+        if isinstance(entity_id, str) and entity_id.strip()
+    }
+    if requested_entities:
+        ranked = [
+            item
+            for item in ranked
+            if (item[0].entity_id or "").strip().upper() in requested_entities
+        ]
     selected = ranked[: max(0, top)]
     rows: list[dict[str, Any]] = []
     for rank, (source_run, member, score, status_payload) in enumerate(selected, start=1):
@@ -822,6 +834,7 @@ def persist_top_congress_portfolio_strategies(
             "min_positions": min_positions,
             "min_points": min_points,
             "ranking": ranking,
+            "entity_ids": sorted(requested_entities),
             "eligible_runs": len(ranked),
             "rows": len(rows),
         },

@@ -141,6 +141,23 @@ def test_persist_top_congress_portfolio_strategies_dry_run_writes_nothing():
         assert _count(db, StrategyBacktestRun) == 0
 
 
+def test_persist_top_congress_portfolio_strategies_can_target_named_members():
+    SessionLocal = _session()
+    with SessionLocal() as db:
+        _seed_replicated_run(db)
+        result = persist_top_congress_portfolio_strategies(
+            db,
+            top=10,
+            min_positions=1,
+            min_points=2,
+            entity_ids=["x001"],
+        )
+
+        assert result["metadata"]["entity_ids"] == ["X001"]
+        assert result["metadata"]["eligible_runs"] == 1
+        assert [row["slug"] for row in result["rows"]] == ["congress-portfolio-x001-1095d"]
+
+
 def test_persist_top_congress_portfolio_strategies_apply_is_idempotent():
     SessionLocal = _session()
     with SessionLocal() as db:
