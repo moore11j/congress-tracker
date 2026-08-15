@@ -32,6 +32,13 @@ STRATEGY_SORT_FIELDS = {
     "drawdown": "max_drawdown_pct",
 }
 
+STRATEGY_PERIOD_DAYS = {
+    "30d": 30,
+    "1y": 365,
+    "2y": 730,
+    "3y": 1095,
+}
+
 
 def _json_loads(value: str | None, fallback: Any) -> Any:
     if not value:
@@ -185,6 +192,30 @@ def _latest_performance(db: Session, *, strategy_id: int, run_id: int, period: s
     )
 
 
+def _curve_points_for_period(
+    points: list[StrategyEquityCurvePoint],
+    *,
+    period: str,
+    max_points: int,
+) -> list[StrategyEquityCurvePoint]:
+    """Select the complete metric window before reducing visual point count."""
+    if not points:
+        return []
+
+    days = STRATEGY_PERIOD_DAYS.get(period)
+    if days is not None:
+        cutoff = points[-1].date - timedelta(days=days)
+        points = [point for point in points if point.date >= cutoff]
+
+    limit = max(2, int(max_points))
+    if len(points) <= limit:
+        return points
+
+    last_index = len(points) - 1
+    indexes = {round(index * last_index / (limit - 1)) for index in range(limit)}
+    return [point for index, point in enumerate(points) if index in indexes]
+
+
 def _sort_value(item: dict[str, Any], sort: str) -> float:
     performance = item.get("performance") or {}
     if sort == "drawdown":
@@ -323,10 +354,14 @@ def strategy_detail(
                 select(StrategyEquityCurvePoint)
                 .where(StrategyEquityCurvePoint.run_id == int(run.id))
                 .order_by(StrategyEquityCurvePoint.date.asc(), StrategyEquityCurvePoint.id.asc())
-                .limit(max(1, min(equity_limit, 5000)))
             )
             .scalars()
             .all()
+        )
+        points = _curve_points_for_period(
+            points,
+            period=period,
+            max_points=max(2, min(equity_limit, 5000)),
         )
         equity_curve = [
             {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
@@ -179,6 +179,55 @@ def test_strategy_detail_keeps_public_performance_but_withholds_current_position
         premium = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"])
         assert premium["currentHoldings"][0]["symbol"] == "NVDA"
         assert premium["strategyAccess"]["canFollow"] is True
+    finally:
+        db.close()
+
+
+def test_strategy_detail_curve_matches_selected_period_and_preserves_endpoints():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        strategy = StrategyDefinition(
+            slug="curve-window",
+            name="Curve Window",
+            category="walnut",
+            status="published",
+            access_tier="premium",
+            methodology_version="v1",
+        )
+        db.add(strategy)
+        db.flush()
+        run = StrategyBacktestRun(strategy_id=strategy.id, run_key="curve-window-run", status="ok", methodology_version="v1")
+        db.add(run)
+        db.flush()
+        start = date(2023, 1, 1)
+        for offset in range(800):
+            db.add(
+                StrategyEquityCurvePoint(
+                    strategy_id=strategy.id,
+                    run_id=run.id,
+                    date=start + timedelta(days=offset),
+                    strategy_value=100.0 + offset,
+                    benchmark_value=100.0 + offset * 0.5,
+                )
+            )
+        db.commit()
+
+        all_period = strategy_detail(db, slug=strategy.slug, entitlements=ENTITLEMENTS["premium"], equity_limit=25)
+        one_year = strategy_detail(
+            db,
+            slug=strategy.slug,
+            entitlements=ENTITLEMENTS["premium"],
+            period="1y",
+            equity_limit=25,
+        )
+
+        assert len(all_period["equityCurve"]) == 25
+        assert all_period["equityCurve"][0]["date"] == start.isoformat()
+        assert all_period["equityCurve"][-1]["date"] == (start + timedelta(days=799)).isoformat()
+        assert len(one_year["equityCurve"]) == 25
+        assert one_year["equityCurve"][0]["date"] >= (start + timedelta(days=434)).isoformat()
+        assert one_year["equityCurve"][-1]["date"] == (start + timedelta(days=799)).isoformat()
     finally:
         db.close()
 
