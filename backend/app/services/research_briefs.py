@@ -1579,7 +1579,7 @@ def ensure_research_brief_store_schema(db: Session) -> None:
                 name TEXT NOT NULL,
                 theme TEXT NOT NULL,
                 content_type TEXT NOT NULL,
-                active BOOLEAN NOT NULL DEFAULT 1,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
                 cadence TEXT NOT NULL DEFAULT 'one_time',
                 config_json TEXT NOT NULL,
                 created_by INTEGER,

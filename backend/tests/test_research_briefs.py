@@ -89,6 +89,24 @@ def test_research_brief_schema_migrates_legacy_drafts_before_keyword_index(tmp_p
     assert "target_keyword" in columns
 
 
+def test_research_brief_schema_uses_postgres_safe_boolean_default():
+    class CapturingSession:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, statement):
+            self.statements.append(str(statement))
+
+        def commit(self):
+            pass
+
+    db = CapturingSession()
+
+    service.ensure_research_brief_store_schema(db)
+
+    assert any("active BOOLEAN NOT NULL DEFAULT TRUE" in statement for statement in db.statements)
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)
