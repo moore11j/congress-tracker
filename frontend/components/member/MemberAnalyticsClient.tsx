@@ -588,40 +588,12 @@ function MemberHoldingsPanel({
     portfolio?.annual_disclosure_snapshot_value ??
     diagnostics?.annual_disclosure_snapshot_value ??
     null;
-  const annualCount =
-    portfolio?.opening_holdings_from_annual_disclosure ??
-    diagnostics?.opening_holdings_from_annual_disclosure ??
-    0;
-  const annualSymbols =
-    portfolio?.annual_disclosure_opening_positions_symbols ??
-    diagnostics?.annual_disclosure_opening_positions_symbols ??
-    [];
-  const annualValue =
-    portfolio?.annual_disclosure_opening_positions_value ??
-    diagnostics?.annual_disclosure_opening_positions_value ??
-    null;
-  const estimatedCount =
-    portfolio?.estimated_opening_positions_count ??
-    diagnostics?.estimated_opening_positions_count ??
-    0;
-  const estimatedValue =
-    portfolio?.estimated_opening_positions_value ??
-    diagnostics?.estimated_opening_positions_value ??
-    null;
-  const estimatedSymbols =
-    portfolio?.estimated_opening_positions_symbols ??
-    diagnostics?.estimated_opening_positions_symbols ??
-    [];
-  const symbols = snapshotSymbols.length > 0 ? snapshotSymbols : annualSymbols.length > 0 ? annualSymbols : estimatedSymbols;
-  const displayCount = snapshotCount > 0 ? snapshotCount : annualCount > 0 ? annualCount : estimatedCount > 0 ? estimatedCount : symbols.length;
-  const displayValue = snapshotCount > 0 ? snapshotValue : annualCount > 0 ? annualValue : estimatedValue ?? annualValue;
-  const basisLabel = snapshotCount > 0 || annualCount > 0 ? "Annual disclosure" : "Estimated";
-  const sectionDetail = snapshotCount > 0 ? "Annual snapshot" : annualCount > 0 ? "Simulated openings" : "Estimated positions";
-  const positionLabel = snapshotCount > 0 || annualCount > 0 ? "Reported positions" : "Estimated positions";
+  const hasVerifiedSnapshot = snapshotCount > 0;
+  const symbols = snapshotSymbols;
 
   return (
     <section id="member-holdings" className={`${CARD} scroll-mt-6 p-3`}>
-      <SectionTitle title="Reported Holdings" detail={sectionDetail} />
+      <SectionTitle title="Reported Holdings" detail="Latest verified annual-report snapshot" />
       {loading ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-14 w-full" />)}
@@ -631,15 +603,16 @@ function MemberHoldingsPanel({
           Holdings estimates use annual financial disclosure baselines when available and are unlocked with portfolio simulation.
         </p>
       ) : (
+        hasVerifiedSnapshot ? (
         <>
           <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-4">
             <div className="bg-[#081321] px-3 py-2.5">
-              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">{positionLabel}</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(displayCount)}</p>
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Reported positions</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(snapshotCount)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Est. value</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{compactUSD(displayValue)}</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{compactUSD(snapshotValue)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Visible symbols</p>
@@ -647,11 +620,11 @@ function MemberHoldingsPanel({
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Basis</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white">{basisLabel}</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white">Annual disclosure</p>
             </div>
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            Holdings are estimated from annual disclosure filings and portfolio warmup diagnostics, not live brokerage positions.
+            This is the latest verified annual-report snapshot available to Walnut. It is not a live brokerage position feed.
           </p>
           {symbols.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -661,6 +634,11 @@ function MemberHoldingsPanel({
             </div>
           ) : null}
         </>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-slate-400">
+            No verified annual holdings disclosure has been ingested for this member yet. Walnut does not show simulated portfolio warmup positions as reported holdings.
+          </p>
+        )
       )}
     </section>
   );
