@@ -24,6 +24,7 @@ from app.models import (
     StrategyPerformanceSnapshot,
 )
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
+from app.services.strategy_performance_metrics import trailing_snapshot_values
 from app.services.strategy_refresh import _delete_run_children, _parse_day, json_dumps
 from app.utils.symbols import normalize_symbol
 
@@ -190,6 +191,7 @@ def _latest_ranked_runs(
     benchmark: str,
     min_positions: int,
     min_points: int,
+    ranking: str,
 ) -> list[tuple[ReplicatedPortfolioRun, Member | None, float, dict[str, Any]]]:
     benchmark_symbol = normalize_symbol(benchmark) or "SPY"
     rows = (
@@ -227,15 +229,34 @@ def _latest_ranked_runs(
         payload = _json_loads(run.status_message)
         score = _score_run(run, status_payload=payload)
         ranked.append((run, members.get(run.entity_id), score, payload))
-    ranked.sort(
-        key=lambda item: (
-            item[2],
-            item[0].cagr_pct if item[0].cagr_pct is not None else -999.0,
-            item[0].alpha_pct if item[0].alpha_pct is not None else -999.0,
-            item[0].positions_count or 0,
-        ),
-        reverse=True,
-    )
+    if ranking == "alpha":
+        ranked.sort(
+            key=lambda item: (
+                item[0].alpha_pct if item[0].alpha_pct is not None else -999.0,
+                item[0].cagr_pct if item[0].cagr_pct is not None else -999.0,
+                item[0].positions_count or 0,
+            ),
+            reverse=True,
+        )
+    elif ranking == "cagr":
+        ranked.sort(
+            key=lambda item: (
+                item[0].cagr_pct if item[0].cagr_pct is not None else -999.0,
+                item[0].alpha_pct if item[0].alpha_pct is not None else -999.0,
+                item[0].positions_count or 0,
+            ),
+            reverse=True,
+        )
+    else:
+        ranked.sort(
+            key=lambda item: (
+                item[2],
+                item[0].cagr_pct if item[0].cagr_pct is not None else -999.0,
+                item[0].alpha_pct if item[0].alpha_pct is not None else -999.0,
+                item[0].positions_count or 0,
+            ),
+            reverse=True,
+        )
     return ranked
 
 
@@ -426,18 +447,18 @@ def _performance_snapshots(
     points: list[ReplicatedPortfolioPoint],
 ) -> list[StrategyPerformanceSnapshot]:
     return [
-        StrategyPerformanceSnapshot(
-            **_snapshot_values(
-                strategy_id=strategy_id,
-                strategy_run_id=strategy_run_id,
-                as_of_date=as_of_date,
-                period=period,
-                metrics=metrics,
-                walnut_score=walnut_score,
-                points=points,
-            )
+        StrategyPerformanceSnapshot(**{
+            **values,
+            "metrics_json": json_dumps(values["metrics_json"]),
+        })
+        for values in trailing_snapshot_values(
+            strategy_id=strategy_id,
+            run_id=strategy_run_id,
+            as_of_date=as_of_date,
+            points=points,
+            baseline_metrics=metrics,
+            walnut_score=walnut_score,
         )
-        for period in ("max", "30d", "1y", "2y", "3y")
     ]
 
 
@@ -542,18 +563,22 @@ def persist_top_congress_portfolio_strategies(
     lookback_days: int = 1095,
     top: int = 10,
     benchmark: str = "SPY",
-    min_positions: int = 10,
-    min_points: int = 250,
+    min_positions: int = 1,
+    min_points: int = 2,
+    ranking: str = "alpha",
     code_version: str | None = None,
     publish: bool = False,
     apply: bool = False,
 ) -> dict[str, Any]:
+    if ranking not in {"alpha", "cagr", "walnut_score"}:
+        raise ValueError("ranking must be one of: alpha, cagr, walnut_score")
     ranked = _latest_ranked_runs(
         db,
         lookback_days=lookback_days,
         benchmark=benchmark,
         min_positions=min_positions,
         min_points=min_points,
+        ranking=ranking,
     )
     selected = ranked[: max(0, top)]
     rows: list[dict[str, Any]] = []
@@ -727,6 +752,7 @@ def persist_top_congress_portfolio_strategies(
             "benchmark": normalize_symbol(benchmark) or "SPY",
             "min_positions": min_positions,
             "min_points": min_points,
+            "ranking": ranking,
             "eligible_runs": len(ranked),
             "rows": len(rows),
         },

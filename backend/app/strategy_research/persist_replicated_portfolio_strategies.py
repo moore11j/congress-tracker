@@ -53,8 +53,9 @@ def main() -> None:
     parser.add_argument("--lookback-days", type=int, default=1095)
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--benchmark", default="SPY")
-    parser.add_argument("--min-positions", type=int, default=10)
-    parser.add_argument("--min-points", type=int, default=250)
+    parser.add_argument("--min-positions", type=int, default=1)
+    parser.add_argument("--min-points", type=int, default=2)
+    parser.add_argument("--ranking", choices=("alpha", "cagr", "walnut_score"), default="alpha", help="Match the Congress leaderboard rank order.")
     parser.add_argument("--code-version", help="Code version to record. Defaults to current git short SHA when available.")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--publish", action="store_true", help="Publish strategies immediately. Requires --apply.")
@@ -73,6 +74,7 @@ def main() -> None:
             benchmark=benchmark,
             min_positions=args.min_positions,
             min_points=args.min_points,
+            ranking=args.ranking,
             code_version=code_version,
             publish=args.publish,
             apply=args.apply,

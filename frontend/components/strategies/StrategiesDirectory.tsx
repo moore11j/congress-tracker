@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
+import { BadgeCheck, Percent, Radio, Target, TrendingUp, type LucideIcon } from "lucide-react";
 import { BacktestChart } from "@/components/backtesting/BacktestChart";
 import type { StrategyDefinitionPayload, StrategyDetailPayload, StrategyListResponse, StrategyPerformanceSnapshot } from "@/lib/api";
 import { displayStrategyName, displayStrategyUniverse } from "@/lib/strategyPresentation";
@@ -71,8 +72,9 @@ function ruleChips(strategy: StrategyDefinitionPayload) {
     .map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`);
 }
 
-function MetricCard({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "good" }) {
-  return <div className="min-w-0 rounded-lg border border-white/10 bg-slate-950/35 px-4 py-3"><div className="flex items-center gap-2"><span className={`h-7 w-7 rounded-full border ${tone === "good" ? "border-emerald-300/25 bg-emerald-300/[0.08]" : "border-slate-300/15 bg-white/[0.03]"}`} /><div className="text-xs font-medium text-slate-400">{label}</div></div><div className={`mt-2 text-2xl font-semibold tabular-nums ${tone === "good" ? "text-emerald-300" : "text-white"}`}>{value}</div></div>;
+function MetricCard({ label, value, icon: Icon, tone = "default" }: { label: string; value: string; icon: LucideIcon; tone?: "default" | "good" }) {
+  const iconTone = tone === "good" ? "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-200" : "border-slate-300/15 bg-white/[0.03] text-slate-300";
+  return <div className="min-w-0 rounded-lg border border-white/10 bg-slate-950/35 px-4 py-3"><div className="flex items-center gap-2"><span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${iconTone}`}><Icon aria-hidden="true" size={16} strokeWidth={2} /></span><div className="text-xs font-medium text-slate-400">{label}</div></div><div className={`mt-2 text-2xl font-semibold tabular-nums ${tone === "good" ? "text-emerald-300" : "text-white"}`}>{value}</div></div>;
 }
 
 function StatusPill({ strategy }: { strategy: StrategyDefinitionPayload }) {
@@ -152,7 +154,7 @@ export function StrategiesDirectory({ data, featured, category, period, sort }: 
       <nav aria-label="Strategy categories" className="flex min-w-0 overflow-x-auto rounded-lg border border-white/10 bg-slate-950/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{categoryOptions.map((value) => { const active = category === value || (!category && value === "all"); const count = value === "all" ? items.length : categoryCounts[value]; return <button key={value} type="button" onClick={() => setQuery({ category: value })} className={`shrink-0 rounded-md px-3 py-2 text-sm font-semibold ${active ? "bg-emerald-300/15 text-emerald-100" : "text-slate-400 hover:text-white"}`}>{value === "all" ? "All strategies" : categoryLabel(value)} <span className="ml-1 text-xs opacity-70">{count}</span></button>; })}</nav>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><MetricCard label="Published strategies" value={String(items.length)} /><MetricCard label={`Best ${labelPeriod(period)} CAGR`} value={formatPct(cagrs.length ? Math.max(...cagrs) : null)} tone="good" /><MetricCard label={`Median ${labelPeriod(period)} return`} value={formatPct(medianReturn)} tone="good" /><MetricCard label={`Beating ${benchmark}`} value={items.length ? `${Math.round((beatingSpy / items.length) * 100)}%` : "--"} tone="good" /><MetricCard label="Live strategies" value={String(liveCount)} /></section>
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><MetricCard label="Published strategies" value={String(items.length)} icon={BadgeCheck} /><MetricCard label={`Best ${labelPeriod(period)} CAGR`} value={formatPct(cagrs.length ? Math.max(...cagrs) : null)} icon={TrendingUp} tone="good" /><MetricCard label={`Median ${labelPeriod(period)} return`} value={formatPct(medianReturn)} icon={Percent} tone="good" /><MetricCard label={`Beating ${benchmark}`} value={items.length ? `${Math.round((beatingSpy / items.length) * 100)}%` : "--"} icon={Target} tone="good" /><MetricCard label="Live strategies" value={String(liveCount)} icon={Radio} tone="good" /></section>
 
     {items.length ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(19rem,0.9fr)]">
       <div className="space-y-4">

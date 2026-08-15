@@ -26,6 +26,7 @@ from app.strategy_research.congress_buys import (
     _next_rebalance_on_or_after,
     _price_on_or_before,
 )
+from app.services.strategy_performance_metrics import trailing_snapshot_values
 
 PERSISTENCE_METHODOLOGY_VERSION = "strategy_persistence_v1"
 
@@ -355,38 +356,20 @@ def _trailing_snapshots(
     performance: dict[str, Any],
     walnut_score: float | None,
 ) -> list[StrategyPerformanceSnapshot]:
-    snapshots = [
-        StrategyPerformanceSnapshot(**_max_snapshot_values(
+    return [
+        StrategyPerformanceSnapshot(**{
+            **values,
+            "metrics_json": json_dumps(values["metrics_json"]),
+        })
+        for values in trailing_snapshot_values(
             strategy_id=strategy_id,
             run_id=run_id,
             as_of_date=as_of_date,
-            performance=performance,
+            points=timeline,
+            baseline_metrics=performance,
             walnut_score=walnut_score,
-        ))
-    ]
-    for period, days in (("30d", 30), ("1y", 365), ("2y", 730), ("3y", 1095)):
-        total_return = _period_return(timeline, days=days, value_key="strategy_value")
-        benchmark_return = _period_return(timeline, days=days, value_key="benchmark_value")
-        cagr = _annualized_return(total_return, days)
-        benchmark_cagr = _annualized_return(benchmark_return, days)
-        snapshots.append(
-            StrategyPerformanceSnapshot(
-                strategy_id=strategy_id,
-                run_id=run_id,
-                as_of_date=as_of_date,
-                period=period,
-                total_return_pct=total_return,
-                cagr_pct=cagr,
-                benchmark_return_pct=benchmark_return,
-                benchmark_cagr_pct=benchmark_cagr,
-                alpha_cagr_pct=round(cagr - benchmark_cagr, 4) if cagr is not None and benchmark_cagr is not None else None,
-                trade_count=performance.get("trade_count"),
-                independent_signal_count=performance.get("independent_signals"),
-                walnut_strategy_score=walnut_score,
-                metrics_json=json_dumps({"period": period, "days": days, "source": "equity_curve_trailing_return"}),
-            )
         )
-    return snapshots
+    ]
 
 
 def _equity_points(
