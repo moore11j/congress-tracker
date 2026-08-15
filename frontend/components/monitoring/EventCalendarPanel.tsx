@@ -656,9 +656,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-3 py-1.5 text-xs font-semibold text-emerald-100">
-          Watchlists
-        </span>
+        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Filters</span>
         <div className="flex flex-wrap gap-1 pl-1">
           {calendarKinds.map((kind) => (
             <button
@@ -736,7 +734,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Calendar alerts</div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Choose what upcoming calendar dates can be included in monitoring alerts and digests.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Choose what upcoming calendar dates can be included in the daily digest.</p>
             </div>
             <span className={`rounded-lg border px-2 py-1 text-xs font-semibold ${subscription?.active ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-400"}`}>
               {subscription?.active ? "Active" : "Not active"}
