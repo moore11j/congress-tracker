@@ -47,6 +47,8 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
     "government_contracts_feed:",
     "government_contracts_filters:",
     "premium_feed_metrics:",
+    "analyst_consensus:",
+    "analyst_consensus_history:",
   ];
   const marketPositions = marketMarkers.map((marker) => marketOrderSource.indexOf(marker));
   marketPositions.forEach((position, index) => assert.notEqual(position, -1, `missing market marker ${marketMarkers[index]}`));
@@ -116,7 +118,7 @@ test("advanced workflow rows mark future options flow without hiding active inst
     source,
     /"peer_compare"[\s\S]*?return "Screener & signals";/,
   );
-  assert.match(source, /"premium_feed_metrics"[\s\S]*?return "Market feeds";/);
+  assert.match(source, /"analyst_consensus", "analyst_consensus_history"\]\.includes\(featureKey\)\) return "Market feeds";/);
   assert.doesNotMatch(source, /"options_flow_feed", "institutional_feed"/);
   assert.match(source, /if \(\["options_flow_feed", "options_flow_filters", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
   assert.doesNotMatch(source, /institutional_feed"[\s\S]*?return "Coming soon"/);
