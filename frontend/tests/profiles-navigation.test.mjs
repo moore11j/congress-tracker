@@ -18,6 +18,18 @@ test("top nav adds Profiles dropdown between Insights and Signals", () => {
   assert.match(nav, /link\.href !== "\/insights"[\s\S]*<Fragment key="insights-profiles">[\s\S]*\{navLink\}[\s\S]*Profiles/);
 });
 
+test("terminal dropdowns open on hover and close when the pointer leaves", () => {
+  const nav = read("components/AppTopNav.tsx");
+
+  assert.match(nav, /onMouseEnter=\{\(\) => \{[\s\S]*setProfilesOpen\(true\)[\s\S]*setToolsOpen\(false\)[\s\S]*setCompanyOpen\(false\)/);
+  assert.match(nav, /onMouseLeave=\{\(\) => setProfilesOpen\(false\)\}/);
+  assert.match(nav, /onMouseLeave=\{\(\) => setToolsOpen\(false\)\}/);
+  assert.match(nav, /onMouseLeave=\{\(\) => setCompanyOpen\(false\)\}/);
+  assert.doesNotMatch(nav, /setProfilesOpen\(\(open\) => !open\)/);
+  assert.doesNotMatch(nav, /setToolsOpen\(\(open\) => !open\)/);
+  assert.doesNotMatch(nav, /setCompanyOpen\(\(open\) => !open\)/);
+});
+
 test("top nav adds Company dropdown after Pricing with matching arrows", () => {
   const nav = read("components/AppTopNav.tsx");
 

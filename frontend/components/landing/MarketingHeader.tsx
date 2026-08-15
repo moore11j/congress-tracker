@@ -6,8 +6,9 @@ const navLinks = [
   { label: "Feed", href: `${appUrl}/feed` },
   { label: "Insights", href: `${appUrl}/insights` },
   { label: "Signals", href: `${appUrl}/signals` },
-  { label: "Outcomes", href: `${appUrl}/outcomes` },
   { label: "Leaderboards", href: `${appUrl}/leaderboards/congress-traders` },
+  { label: "Strategies", href: `${appUrl}/strategies` },
+  { label: "Outcomes", href: `${appUrl}/outcomes` },
 ] as const;
 
 const profilesNavLinks = [
@@ -98,20 +99,30 @@ function DesktopMenu({
   items: readonly ({ label: string; href?: string; description: string; comingSoon?: boolean; beta?: boolean })[];
 }) {
   return (
-    <details className="group relative isolate z-[9000]" style={{ zIndex: 9000 }}>
-      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1 py-1 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 [&::-webkit-details-marker]:hidden">
+    <div className="group relative isolate z-[9000]" style={{ zIndex: 9000 }}>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        className="flex cursor-default items-center gap-1 rounded-md px-1 py-1 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50"
+      >
         <span>{label}</span>
-        <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
+        <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-hover:rotate-180">
           &#9662;
         </span>
-      </summary>
-      <div className="absolute left-1/2 top-full z-[10000] mt-3 w-80 -translate-x-1/2 rounded-lg border border-white/15 bg-[#030712] p-2 shadow-2xl shadow-black ring-1 ring-black" style={{ zIndex: 10000 }}>
-        <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{heading}</div>
-        <div className="grid gap-1">
-          <NavMenuItems items={items} />
+      </button>
+      <div
+        role="menu"
+        className="pointer-events-none invisible absolute left-1/2 top-full z-[10000] w-80 -translate-x-1/2 pt-3 opacity-0 transition group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
+        style={{ zIndex: 10000 }}
+      >
+        <div className="rounded-lg border border-white/15 bg-[#030712] p-2 shadow-2xl shadow-black ring-1 ring-black">
+          <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{heading}</div>
+          <div className="grid gap-1">
+            <NavMenuItems items={items} />
+          </div>
         </div>
       </div>
-    </details>
+    </div>
   );
 }
 

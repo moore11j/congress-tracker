@@ -72,6 +72,15 @@ test("landing header dropdowns layer above page content", () => {
   assert.match(landingSearch, /relative z-\[80\][\s\S]*z-\[1400\]/);
 });
 
+test("landing header menus are hover-only and include Strategies in the primary sequence", () => {
+  assert.match(
+    marketingHeader,
+    /\{ label: "Feed"[\s\S]*\{ label: "Insights"[\s\S]*\{ label: "Signals"[\s\S]*\{ label: "Leaderboards"[\s\S]*\{ label: "Strategies"[\s\S]*\{ label: "Outcomes"/,
+  );
+  assert.match(marketingHeader, /group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100/);
+  assert.doesNotMatch(marketingHeader, /<details className="group relative isolate z-\[9000\]"/);
+});
+
 test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /Explore Ticker Research/);
   assert.doesNotMatch(landingPage, /View Congress Trades/);

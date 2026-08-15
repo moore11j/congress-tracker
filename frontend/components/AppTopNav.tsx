@@ -100,7 +100,7 @@ export function AppTopNav() {
     const menuWidth = 256;
     const viewportPadding = 16;
     const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
-    setProfilesMenuPosition({ left, top: rect.bottom + 8 });
+    setProfilesMenuPosition({ left, top: rect.bottom });
   }, []);
 
   const updateToolsMenuPosition = useCallback(() => {
@@ -109,7 +109,7 @@ export function AppTopNav() {
     const menuWidth = 256;
     const viewportPadding = 16;
     const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
-    setToolsMenuPosition({ left, top: rect.bottom + 8 });
+    setToolsMenuPosition({ left, top: rect.bottom });
   }, []);
 
   const updateCompanyMenuPosition = useCallback(() => {
@@ -118,7 +118,7 @@ export function AppTopNav() {
     const menuWidth = 256;
     const viewportPadding = 16;
     const left = Math.min(Math.max(rect.left, viewportPadding), window.innerWidth - menuWidth - viewportPadding);
-    setCompanyMenuPosition({ left, top: rect.bottom + 8 });
+    setCompanyMenuPosition({ left, top: rect.bottom });
   }, []);
 
   useEffect(() => {
@@ -272,7 +272,18 @@ export function AppTopNav() {
           return (
             <Fragment key="insights-profiles">
               {navLink}
-              <div ref={profilesRef} className="relative" onKeyDown={handleProfilesKeyDown}>
+              <div
+                ref={profilesRef}
+                className="relative"
+                onKeyDown={handleProfilesKeyDown}
+                onMouseEnter={() => {
+                  updateProfilesMenuPosition();
+                  setProfilesOpen(true);
+                  setToolsOpen(false);
+                  setCompanyOpen(false);
+                }}
+                onMouseLeave={() => setProfilesOpen(false)}
+              >
                 <button
                   ref={profilesButtonRef}
                   type="button"
@@ -280,7 +291,7 @@ export function AppTopNav() {
                   aria-expanded={profilesOpen}
                   onClick={() => {
                     updateProfilesMenuPosition();
-                    setProfilesOpen((open) => !open);
+                    setProfilesOpen(true);
                     setToolsOpen(false);
                     setCompanyOpen(false);
                   }}
@@ -329,7 +340,18 @@ export function AppTopNav() {
             </Fragment>
           );
         })}
-        <div ref={toolsRef} className="relative" onKeyDown={handleToolsKeyDown}>
+        <div
+          ref={toolsRef}
+          className="relative"
+          onKeyDown={handleToolsKeyDown}
+          onMouseEnter={() => {
+            updateToolsMenuPosition();
+            setToolsOpen(true);
+            setProfilesOpen(false);
+            setCompanyOpen(false);
+          }}
+          onMouseLeave={() => setToolsOpen(false)}
+        >
           <button
             ref={toolsButtonRef}
             type="button"
@@ -337,7 +359,7 @@ export function AppTopNav() {
             aria-expanded={toolsOpen}
             onClick={() => {
               updateToolsMenuPosition();
-              setToolsOpen((open) => !open);
+              setToolsOpen(true);
               setProfilesOpen(false);
               setCompanyOpen(false);
             }}
@@ -404,7 +426,18 @@ export function AppTopNav() {
             </Link>
           );
         })()}
-        <div ref={companyRef} className="relative" onKeyDown={handleCompanyKeyDown}>
+        <div
+          ref={companyRef}
+          className="relative"
+          onKeyDown={handleCompanyKeyDown}
+          onMouseEnter={() => {
+            updateCompanyMenuPosition();
+            setCompanyOpen(true);
+            setProfilesOpen(false);
+            setToolsOpen(false);
+          }}
+          onMouseLeave={() => setCompanyOpen(false)}
+        >
           <button
             ref={companyButtonRef}
             type="button"
@@ -412,7 +445,7 @@ export function AppTopNav() {
             aria-expanded={companyOpen}
             onClick={() => {
               updateCompanyMenuPosition();
-              setCompanyOpen((open) => !open);
+              setCompanyOpen(true);
               setProfilesOpen(false);
               setToolsOpen(false);
             }}
