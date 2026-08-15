@@ -698,6 +698,7 @@ const globalSearchCache = new Map<string, { value: GlobalSearchResponse; expires
 const searchSuggestCache = new Map<string, { value: SearchSuggestResponse; expiresAt: number }>();
 const searchSuggestPromises = new Map<string, Promise<SearchSuggestResponse>>();
 const eventsCache = new Map<string, { value: EventsResponse; expiresAt: number }>();
+const eventCalendarCache = new Map<string, { value: EventCalendarResponse; expiresAt: number }>();
 const eventsPromises = new Map<string, Promise<EventsResponse>>();
 const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
 const tickerDataPromises = new Map<string, Promise<unknown>>();
@@ -8337,19 +8338,28 @@ export async function getEventCalendar(params: {
   signal?: AbortSignal;
   source?: string;
 }): Promise<EventCalendarResponse> {
-  return fetchJson<EventCalendarResponse>(
-    buildApiUrl("/api/monitoring/event-calendar", {
+  const query = {
       start: params.start,
       end: params.end,
       scope: params.scope ?? "watchlist",
-    }),
-    {
+  };
+  const url = buildApiUrl("/api/monitoring/event-calendar", query);
+  const cacheKey = `${query.start}:${query.end}:${query.scope}`;
+  const isHistorical = new Date(`${params.end}T23:59:59Z`).getTime() < Date.now();
+  if (typeof window !== "undefined" && !params.signal?.aborted) {
+    const cached = eventCalendarCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+  }
+  const response = await fetchJson<EventCalendarResponse>(url, {
       cache: "no-store",
       next: { revalidate: 0 },
       signal: params.signal,
       source: params.source ?? "EventCalendar",
-    },
-  );
+  });
+  if (typeof window !== "undefined" && !params.signal?.aborted) {
+    eventCalendarCache.set(cacheKey, { value: response, expiresAt: Date.now() + (isHistorical ? 24 * 60 * 60_000 : 5 * 60_000) });
+  }
+  return response;
 }
 
 export type MonitoringUnreadCountResponse = {

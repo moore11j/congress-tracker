@@ -42,9 +42,12 @@ def get_monitoring_event_calendar(
         start=start,
         end=end,
         scope=scope,
-        source="page_load",
-        allow_live_fetch=True,
-        allow_user_request=True,
+        # Calendar reads are cache-only. Scheduled ingestion owns provider
+        # refreshes, so opening the monitoring page never fan-outs into live
+        # requests for every ticker in a watchlist.
+        source="page_cache",
+        allow_live_fetch=False,
+        allow_user_request=False,
     )
     watchlist_symbols = watchlist_symbols_for_user(db, user.id)
     return {

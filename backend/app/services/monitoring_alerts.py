@@ -267,17 +267,14 @@ def set_watchlist_checkpoint(db: Session, watchlist_id: int, checkpoint: datetim
     db.add(WatchlistViewState(watchlist_id=watchlist_id, last_seen_at=checkpoint))
 
 
-def _watchlist_alerts_exist(db: Session, watchlist_id: int) -> bool:
-    return bool(
-        db.execute(
-            select(MonitoringAlert.id)
-            .where(
-                MonitoringAlert.source_type == "watchlist",
-                MonitoringAlert.source_id == str(watchlist_id),
-            )
-            .limit(1)
-        ).scalar_one_or_none()
+def _watchlist_alerts_exist(db: Session, watchlist_id: int, *, user_id: int | None = None) -> bool:
+    query = select(MonitoringAlert.id).where(
+        MonitoringAlert.source_type == "watchlist",
+        MonitoringAlert.source_id == str(watchlist_id),
     )
+    if user_id is not None:
+        query = query.where(MonitoringAlert.user_id == user_id)
+    return bool(db.execute(query.limit(1)).scalar_one_or_none())
 
 
 def _user_can_view_institutional_activity(db: Session, user_id: int | None) -> bool:
@@ -345,7 +342,7 @@ def _redact_premium_signal_payload(value: Any) -> Any:
 
 
 def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime | None = None, user_id: int | None = None) -> int:
-    if _watchlist_alerts_exist(db, watchlist_id):
+    if _watchlist_alerts_exist(db, watchlist_id, user_id=user_id):
         query = (
             select(func.count())
             .select_from(MonitoringAlert)
@@ -356,6 +353,8 @@ def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime 
                 MonitoringAlert.dismissed_at.is_(None),
             )
         )
+        if user_id is not None:
+            query = query.where(MonitoringAlert.user_id == user_id)
         return int(
             db.execute(_exclude_institutional_alerts(query, db, user_id)).scalar_one()
             or 0
@@ -377,20 +376,48 @@ def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime 
 
 
 def watchlist_unread_counts(db: Session, watchlist_ids: list[int], user_id: int | None = None) -> dict[int, int]:
-    return {watchlist_id: watchlist_unread_count(db, watchlist_id, user_id=user_id) for watchlist_id in watchlist_ids}
+    normalized_ids = sorted({int(watchlist_id) for watchlist_id in watchlist_ids})
+    if not normalized_ids:
+        return {}
+
+    source_ids = [str(watchlist_id) for watchlist_id in normalized_ids]
+    can_view_institutional, can_view_signal_context = _visibility_for_user(db, user_id)
+    query = (
+        select(MonitoringAlert.source_id, func.count())
+        .where(MonitoringAlert.source_type == "watchlist")
+        .where(MonitoringAlert.source_id.in_(source_ids))
+        .where(MonitoringAlert.read_at.is_(None), MonitoringAlert.dismissed_at.is_(None))
+        .group_by(MonitoringAlert.source_id)
+    )
+    if user_id is not None:
+        query = query.where(MonitoringAlert.user_id == user_id)
+    if not can_view_institutional:
+        query = query.where(MonitoringAlert.alert_type.notin_(INSTITUTIONAL_ALERT_TYPES))
+    if not can_view_signal_context:
+        query = query.where(MonitoringAlert.alert_type.notin_(SIGNAL_ALERT_TYPES))
+
+    counts = {int(source_id): int(count or 0) for source_id, count in db.execute(query).all() if str(source_id).isdigit()}
+    # Legacy watchlists can predate materialized alerts. Retain their checkpoint
+    # fallback, but only for those exceptional sources rather than every source.
+    for watchlist_id in normalized_ids:
+        if watchlist_id not in counts:
+            counts[watchlist_id] = watchlist_unread_count(db, watchlist_id, user_id=user_id)
+    return counts
 
 
 def watchlist_unread_summary(db: Session, watchlist_id: int, user_id: int | None = None) -> dict[str, Any]:
     checkpoint = watchlist_checkpoint(db, watchlist_id)
     count = watchlist_unread_count(db, watchlist_id, checkpoint, user_id=user_id)
     alert_since = None
-    if _watchlist_alerts_exist(db, watchlist_id):
+    if _watchlist_alerts_exist(db, watchlist_id, user_id=user_id):
         query = select(func.min(MonitoringAlert.event_created_at)).where(
                 MonitoringAlert.source_type == "watchlist",
                 MonitoringAlert.source_id == str(watchlist_id),
                 MonitoringAlert.read_at.is_(None),
                 MonitoringAlert.dismissed_at.is_(None),
         )
+        if user_id is not None:
+            query = query.where(MonitoringAlert.user_id == user_id)
         alert_since = db.execute(_exclude_institutional_alerts(query, db, user_id)).scalar_one_or_none()
     return {
         "last_seen_at": checkpoint,

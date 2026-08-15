@@ -13592,7 +13592,7 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db), refres
         saved_screens = _monitored_saved_screens_for_user(request, db, user)
 
     counts = _monitoring_counts_payload(request, db, user, watchlists=watchlists, saved_screens=saved_screens)
-    entitlements = entitlements_for_user(db, user)
+    entitlements = current_entitlements(request, db)
     disabled_sources = _disabled_monitoring_sources(db, user.id)
     alerts = [
         monitoring_alert_to_dict(alert, can_view_signal_context=entitlements.has_feature("signals"))

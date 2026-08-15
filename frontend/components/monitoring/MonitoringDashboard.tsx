@@ -496,6 +496,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     watchlists.length + (canUseScreenMonitoring ? savedViews.length : 0) - monitoringLimit,
     0,
   );
+  const inboxLoading = inbox === null && inboxStatus === null;
   const inboxSourceCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const source of inbox?.sources ?? []) {
@@ -693,7 +694,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const applyMutationSuccess = (response: MonitoringReadMutationResponse) => {
     setInbox((current) => mergeInboxCounts(current, response.counts));
     dispatchUnreadUpdated(response.counts?.total_unread ?? response.unread_count);
-    void refreshInbox();
   };
 
   const mutateItems = async (itemIds: number[], read: boolean) => {
@@ -744,7 +744,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       setPendingRemoveSource(null);
       setReadActionMessage("Monitoring removed.");
       dispatchUnreadUpdated(Math.max((inbox?.unread_total ?? 0) - source.count, 0));
-      void refreshInbox();
     } catch {
       setReadActionMessage("Couldn't remove monitoring. Try again.");
     } finally {
@@ -891,22 +890,22 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       <section className="order-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Watchlist events</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : totalWatchlistNew}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : inboxLoading && watchlists.length === 0 ? "—" : totalWatchlistNew}</div>
           <p className="mt-1 text-sm text-slate-400">new</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved screen events</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{inboxStatus && !inbox ? "-" : totalSavedViewNew}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{inboxLoading ? "—" : inboxStatus && !inbox ? "-" : totalSavedViewNew}</div>
           <p className="mt-1 text-sm text-slate-400">new</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sources monitored</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : monitoredSourceCount}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{inboxLoading && watchlists.length === 0 ? "—" : watchlistsStatus && watchlists.length === 0 ? "-" : monitoredSourceCount}</div>
           <p className="mt-1 text-sm text-slate-400">active</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Alerts today</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{inboxStatus && !inbox ? "-" : inbox?.unread_total ?? 0}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{inboxLoading ? "—" : inboxStatus && !inbox ? "-" : inbox?.unread_total ?? 0}</div>
           <p className="mt-1 text-sm text-slate-400">unread</p>
         </div>
       </section>
@@ -986,7 +985,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
               <p className="text-sm text-slate-400">Select updates to mark read, mark unread, or delete.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">{inboxStatus && !inbox ? "-" : (inbox?.unread_total ?? 0)} unread</span>
+              <span className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-400">{inboxLoading ? "Loading" : inboxStatus && !inbox ? "-" : (inbox?.unread_total ?? 0)} unread</span>
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-400">
                 Page size
                 <select
@@ -1087,7 +1086,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
             </div>
           </div>
 
-          <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+          <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1" aria-busy={inboxLoading}>
             {inboxStatus ? (
               <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-5">
                 <h3 className="font-semibold text-amber-100">Monitoring updates could not load.</h3>
@@ -1100,6 +1099,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                   Retry
                 </button>
               </div>
+            ) : inboxLoading ? (
+              <MonitoringPanelSkeleton />
             ) : filteredInboxItems.length === 0 ? (
               <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-5">
                 <h3 className="font-semibold text-white">{inboxFilter === "unread" ? "No unread monitoring updates." : "No monitoring updates yet"}</h3>

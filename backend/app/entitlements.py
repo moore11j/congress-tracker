@@ -1361,6 +1361,14 @@ def effective_user_plan_source(user: UserAccount | None) -> EffectivePlanSource:
 
 
 def entitlements_for_user(db: Session | None, user: UserAccount) -> TierEntitlements:
+    # A request touches entitlements from several monitoring helpers. Keep the
+    # result on the request-scoped SQLAlchemy session so those helpers do not
+    # repeatedly seed/read the full plan configuration while rendering one page.
+    cache_key = (int(user.id or 0), str(user.role or ""), str(user.entitlement_tier or ""), str(user.subscription_status or ""))
+    if db is not None:
+        cached = db.info.setdefault("walnut_entitlements", {}).get(cache_key)
+        if cached is not None:
+            return cached
     tier = effective_user_tier(user)
     limits = _limits_for_tier(db, "pro" if is_admin_user(user) else tier)
     if is_admin_user(user):
@@ -1368,12 +1376,15 @@ def entitlements_for_user(db: Session | None, user: UserAccount) -> TierEntitlem
             feature: 1 if int(value or 0) <= 1 else max(int(value or 0), 1_000_000)
             for feature, value in limits.items()
         }
-    return TierEntitlements(
+    entitlements = TierEntitlements(
         tier=tier,
         rank=ENTITLEMENTS[tier].rank,
         limits=limits,
         features=_features_for_tier(db, tier, is_admin=is_admin_user(user)),
     )
+    if db is not None:
+        db.info.setdefault("walnut_entitlements", {})[cache_key] = entitlements
+    return entitlements
 
 
 def _features_for_tier(db: Session | None, tier: TierName, *, is_admin: bool = False) -> frozenset[FeatureKey]:
