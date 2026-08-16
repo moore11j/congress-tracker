@@ -7493,11 +7493,12 @@ export async function getInstitutionsOverview(params?: { year?: number; quarter?
 }
 
 export async function getDepartmentsOverview(params?: { fiscal_year?: number; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<DepartmentsOverviewResponse> {
-  return fetchJson<DepartmentsOverviewResponse>(
-    buildApiUrl("/api/profiles/departments/overview", {
+  const url = buildApiUrl("/api/profiles/departments/overview", {
       fiscal_year: params?.fiscal_year,
       period_days: params?.period_days,
-    }),
+    });
+  const request = () => fetchJson<DepartmentsOverviewResponse>(
+    url,
     {
       headers: authHeaders(params?.authToken ?? undefined),
       cache: "no-store",
@@ -7506,6 +7507,11 @@ export async function getDepartmentsOverview(params?: { fiscal_year?: number; pe
       source: "DepartmentsOverview",
     },
   );
+  // The Departments overview contains public aggregate data only. Share its
+  // short server cache for identical renders, but leave abortable callers
+  // independent so client navigation behavior is unchanged.
+  if (params?.signal) return request();
+  return serverCachedJson(`departments-overview:${url}`, request);
 }
 
 export async function getDepartments(): Promise<DepartmentListResponse> {
