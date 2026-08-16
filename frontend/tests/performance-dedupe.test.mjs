@@ -38,6 +38,7 @@ test("events and auth helpers coalesce identical short-lived requests", () => {
   assert.match(api, /const eventsPromises = new Map/);
   assert.match(api, /const serverInflightJsonRequests = new Map/);
   assert.match(api, /function serverInflightJson/);
+  assert.match(api, /serverInflightJson\(`server-cache:\$\{cacheKey\}`/);
   assert.match(api, /const EVENTS_CACHE_TTL_MS = 5_000/);
   assert.match(api, /const cacheKey = `events:\$\{url\}`/);
   assert.match(api, /const canShareServerInflight = typeof window === "undefined" && !authToken && requestSource === "ssr"/);

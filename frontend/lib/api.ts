@@ -781,14 +781,20 @@ async function serverCachedJson<T>(
   const cached = serverPublicJsonCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.value as T;
 
-  const response = await request();
-  while (serverPublicJsonCache.size >= SERVER_PUBLIC_CACHE_MAX_ENTRIES) {
-    const oldestKey = serverPublicJsonCache.keys().next().value;
-    if (!oldestKey) break;
-    serverPublicJsonCache.delete(oldestKey);
-  }
-  serverPublicJsonCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
-  return response;
+  return serverInflightJson(`server-cache:${cacheKey}`, async () => {
+    // Another request may have completed after this caller missed the cache.
+    const refreshed = serverPublicJsonCache.get(cacheKey);
+    if (refreshed && refreshed.expiresAt > Date.now()) return refreshed.value as T;
+
+    const response = await request();
+    while (serverPublicJsonCache.size >= SERVER_PUBLIC_CACHE_MAX_ENTRIES) {
+      const oldestKey = serverPublicJsonCache.keys().next().value;
+      if (!oldestKey) break;
+      serverPublicJsonCache.delete(oldestKey);
+    }
+    serverPublicJsonCache.set(cacheKey, { value: response, expiresAt: Date.now() + ttlMs });
+    return response;
+  });
 }
 
 async function serverInflightJson<T>(
