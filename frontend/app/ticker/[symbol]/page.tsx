@@ -3903,6 +3903,86 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
     : { token: null, hasAuthHint: false, entitlementHint: null };
   const authToken = authState.token;
   const publicStalePageCache = !authToken && !authState.hasAuthHint;
+  // These public activity panels do not depend on the context bundle. Start them
+  // alongside it so the streamed detail section does not inherit a second wait.
+  const earlyPublicActivityRequests = publicStalePageCache
+    ? (() => {
+        const tradeType = sideToTradeType(side);
+        return {
+          congress:
+            source === "all" || source === "congress"
+              ? getEvents({
+                  symbol: normalizedSymbol,
+                  recent_days: lookbackDays,
+                  limit: ACTIVITY_FETCH_SIZE,
+                  offset: congressPage * ACTIVITY_PAGE_SIZE,
+                  enrich_prices: 1,
+                  tape: "congress",
+                  source: "TickerCongressActivity",
+                  requestSource: "ssr",
+                  routeFamily: "ticker",
+                  stalePageCache: true,
+                  ...(tradeType ? { trade_type: tradeType } : {}),
+                }).catch((error) => {
+                  console.error("[ticker-congress-activity] unavailable", {
+                    symbol: normalizedSymbol,
+                    status: error instanceof ApiError ? error.status : null,
+                    name: error instanceof Error ? error.name : "unknown",
+                  });
+                  return emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE);
+                })
+              : Promise.resolve(undefined),
+          insider:
+            source === "all" || source === "insider"
+              ? getEvents({
+                  symbol: normalizedSymbol,
+                  recent_days: lookbackDays,
+                  limit: ACTIVITY_FETCH_SIZE,
+                  offset: insiderPage * ACTIVITY_PAGE_SIZE,
+                  enrich_prices: 1,
+                  tape: "insider",
+                  source: "TickerInsiderActivity",
+                  requestSource: "ssr",
+                  routeFamily: "ticker",
+                  stalePageCache: true,
+                  ...(tradeType ? { trade_type: tradeType } : {}),
+                }).catch((error) => {
+                  console.error("[ticker-insider-activity] unavailable", {
+                    symbol: normalizedSymbol,
+                    status: error instanceof ApiError ? error.status : null,
+                    name: error instanceof Error ? error.name : "unknown",
+                  });
+                  return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
+                })
+              : Promise.resolve(undefined),
+          government:
+            source === "all" || source === "government_contract"
+              ? getTickerGovernmentContracts(normalizedSymbol, {
+                  lookback_days: lookbackDays,
+                  min_amount: 1_000_000,
+                  limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+                  page: contractsPage,
+                  activeUser: false,
+                  stalePageCache: true,
+                  source: "TickerGovernmentContracts",
+                }).catch((error) => {
+                  console.error("[ticker-government-contracts] unavailable", error);
+                  return {
+                    symbol: normalizedSymbol,
+                    status: "unavailable",
+                    source_status: "unavailable",
+                    items: [],
+                    total: 0,
+                    contract_count: 0,
+                    page: contractsPage,
+                    limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+                    has_next: false,
+                  };
+                })
+              : Promise.resolve(undefined),
+        };
+      })()
+    : null;
   const entitlementsRequest = authToken
     ? getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : Promise.resolve(entitlementsFromTierHint(authState.entitlementHint));
@@ -4036,7 +4116,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
     const shouldFetchInstitutionalActivity = canViewProContext && (source === "all" || source === "institutional");
     const tradeType = sideToTradeType(side);
     const congressActivityRequest =
-      shouldFetchCongressActivity
+      earlyPublicActivityRequests?.congress ?? (shouldFetchCongressActivity
         ? getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
@@ -4057,9 +4137,9 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             });
             return emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE);
           })
-        : Promise.resolve(undefined);
+        : Promise.resolve(undefined));
     const insiderActivityRequest =
-      shouldFetchInsiderActivity
+      earlyPublicActivityRequests?.insider ?? (shouldFetchInsiderActivity
         ? getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
@@ -4080,7 +4160,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             });
             return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
           })
-        : Promise.resolve(undefined);
+        : Promise.resolve(undefined));
     const institutionalActivityRequest =
       shouldFetchInstitutionalActivity
         ? getEvents({
@@ -4105,7 +4185,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           })
         : Promise.resolve(undefined);
     const governmentContractsRequest =
-      shouldFetchGovernmentContracts
+      earlyPublicActivityRequests?.government ?? (shouldFetchGovernmentContracts
         ? getTickerGovernmentContracts(normalizedSymbol, {
             lookback_days: lookbackDays,
             min_amount: 1_000_000,
@@ -4128,7 +4208,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
               has_next: false,
             };
           })
-        : Promise.resolve(undefined);
+        : Promise.resolve(undefined));
     const [
       congressActivity,
       insiderActivity,
