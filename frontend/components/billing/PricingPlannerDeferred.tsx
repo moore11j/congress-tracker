@@ -6,7 +6,10 @@ import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 const PricingPlanner = dynamic(
   () => import("@/components/billing/PricingPlanner").then((module) => module.PricingPlanner),
   {
-    ssr: false,
+    // Render the unchanged initial plan table with the document so it is the
+    // largest visible element at first paint. Account-specific state still
+    // hydrates and refreshes client-side inside PricingPlanner.
+    ssr: true,
     loading: () => <PricingFallback />,
   },
 );
