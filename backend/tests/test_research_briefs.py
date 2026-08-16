@@ -107,6 +107,79 @@ def test_research_brief_schema_uses_postgres_safe_boolean_default():
     assert any("active BOOLEAN NOT NULL DEFAULT TRUE" in statement for statement in db.statements)
 
 
+def test_keyword_opportunity_discovery_stores_admin_review_candidates(monkeypatch):
+    db = _session()
+    admin = _user(db, "keywords@example.com", role="admin")
+    monkeypatch.setattr(service, "resolved_setting_value", lambda _db, key: "test-key" if key == service.OPENAI_API_KEY else "gpt-test")
+
+    class Response:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return {
+                "output_text": json.dumps(
+                    {
+                        "market_note": "Recent AI-infrastructure discussion is active.",
+                        "candidates": [
+                            {
+                                "target_keyword": "NBIS government contracts",
+                                "secondary_keywords": ["Nebius federal contracts"],
+                                "search_intent": "Does NBIS have meaningful government contract exposure?",
+                                "content_type": "ticker",
+                                "ticker": "NBIS",
+                                "topic": "NBIS government contract exposure",
+                                "recommended_theme": "government_contracts",
+                                "trend_signal": "recent",
+                                "competition_assessment": "lower",
+                                "opportunity_score": 84,
+                                "rationale": "A specific, answerable question has recent attention.",
+                                "walnut_angle": "Compare awarded contract data with price and fundamentals.",
+                                "source_urls": ["https://www.reddit.com/r/stocks/comments/example", "https://trends.google.com/trends/explore?q=NBIS"],
+                                "metric_note": "Directional SERP assessment; no licensed volume feed connected.",
+                            }
+                        ],
+                    }
+                )
+            }
+
+    request_body = {}
+
+    def fake_post(*_args, **kwargs):
+        request_body.update(kwargs["json"])
+        return Response()
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    result = service.discover_research_keyword_opportunities(db, admin, {"seed_topics": ["AI infrastructure"], "tickers": ["NBIS"]})
+
+    assert result["items"][0]["target_keyword"] == "NBIS government contracts"
+    assert result["items"][0]["status"] == "new"
+    assert result["metric_provider_configured"] is False
+    assert request_body["tools"] == [{"type": "web_search", "search_context_size": "medium"}]
+    stored = service.list_research_keyword_opportunities(db)
+    assert stored["items"][0]["ticker"] == "NBIS"
+
+
+def test_keyword_opportunity_status_can_be_updated(monkeypatch):
+    db = _session()
+    service.ensure_research_brief_store_schema(db)
+    db.execute(
+        text(
+            """
+            INSERT INTO research_keyword_opportunities (
+                id, status, target_keyword, opportunity_score, discovered_at, updated_at, payload_json
+            ) VALUES ('rko_test', 'new', 'stock keyword', 50, '2026-08-16T00:00:00+00:00', '2026-08-16T00:00:00+00:00', :payload_json)
+            """
+        ),
+        {"payload_json": json.dumps({"target_keyword": "stock keyword", "opportunity_score": 50})},
+    )
+    db.commit()
+
+    updated = service.update_research_keyword_opportunity_status(db, "rko_test", "used")
+
+    assert updated["status"] == "used"
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)

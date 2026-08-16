@@ -99,6 +99,9 @@ RESEARCH_CAMPAIGN_REVIEW_TEMPLATE_KEY = "research_brief.scheduled_review"
 RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION = "research_campaign_v1"
 RESEARCH_DAILY_PUBLISH_CAP = "RESEARCH_DAILY_PUBLISH_CAP"
 RESEARCH_DAILY_PUBLISH_CAP_DEFAULT = 1
+RESEARCH_KEYWORD_DISCOVERY_MODEL = "RESEARCH_KEYWORD_DISCOVERY_MODEL"
+RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES = 8
+RESEARCH_KEYWORD_OPPORTUNITY_STATUSES = {"new", "used", "dismissed"}
 INDEX_STATUSES = {"indexed", "crawled_not_indexed", "discovered", "unknown"}
 RESEARCH_CAMPAIGN_THEMES: list[dict[str, Any]] = [
     {"key": "good_buy_now", "label": "Good Buy Now", "content_type": "ticker", "intent": "Is [TICKER] a Good Stock to Buy Right Now?"},
@@ -1597,6 +1600,25 @@ def ensure_research_brief_store_schema(db: Session) -> None:
     db.execute(
         text(
             """
+            CREATE TABLE IF NOT EXISTS research_keyword_opportunities (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'new',
+                created_by INTEGER,
+                created_by_email TEXT,
+                target_keyword TEXT NOT NULL,
+                opportunity_score INTEGER,
+                ticker TEXT,
+                topic TEXT,
+                discovered_at TEXT,
+                updated_at TEXT,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
             CREATE TABLE IF NOT EXISTS research_campaign_items (
                 id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
@@ -1666,6 +1688,7 @@ def ensure_research_brief_store_schema(db: Session) -> None:
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaigns_active ON research_campaigns (active, updated_at)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_campaign_items_due ON research_campaign_items (status, generate_at)"))
     db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_campaign_items_idempotency ON research_campaign_items (idempotency_key)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_keyword_opportunities_status_created ON research_keyword_opportunities (status, discovered_at)"))
     db.commit()
 
 
@@ -1845,6 +1868,223 @@ def _db_drafts(db: Session, status: str | None = None) -> list[dict[str, Any]]:
 
 def research_campaign_themes() -> dict[str, Any]:
     return {"items": deepcopy(RESEARCH_CAMPAIGN_THEMES)}
+
+
+def _keyword_opportunity_from_row(row: Any) -> dict[str, Any]:
+    opportunity = _load_json((dict(row or {})).get("payload_json")) or {}
+    if not isinstance(opportunity, dict):
+        opportunity = {}
+    source = dict(row or {})
+    opportunity.update(
+        {
+            "id": source.get("id"),
+            "status": source.get("status") or opportunity.get("status") or "new",
+            "created_by": source.get("created_by"),
+            "created_by_email": source.get("created_by_email"),
+            "target_keyword": source.get("target_keyword") or opportunity.get("target_keyword"),
+            "opportunity_score": source.get("opportunity_score") if source.get("opportunity_score") is not None else opportunity.get("opportunity_score"),
+            "ticker": source.get("ticker") or opportunity.get("ticker"),
+            "topic": source.get("topic") or opportunity.get("topic"),
+            "discovered_at": source.get("discovered_at") or opportunity.get("discovered_at"),
+            "updated_at": source.get("updated_at") or opportunity.get("updated_at"),
+        }
+    )
+    return opportunity
+
+
+def list_research_keyword_opportunities(db: Session, *, status: str | None = None, limit: int = 50) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    normalized_status = str(status or "").strip().lower()
+    params: dict[str, Any] = {"limit": max(1, min(100, int(limit or 50)))}
+    if normalized_status and normalized_status != "all":
+        if normalized_status not in RESEARCH_KEYWORD_OPPORTUNITY_STATUSES:
+            raise HTTPException(status_code=422, detail="Unsupported keyword opportunity status.")
+        rows = db.execute(
+            text("SELECT * FROM research_keyword_opportunities WHERE status = :status ORDER BY discovered_at DESC LIMIT :limit"),
+            {**params, "status": normalized_status},
+        ).mappings().all()
+    else:
+        rows = db.execute(text("SELECT * FROM research_keyword_opportunities ORDER BY discovered_at DESC LIMIT :limit"), params).mappings().all()
+    return {"items": [_keyword_opportunity_from_row(row) for row in rows]}
+
+
+def _keyword_discovery_model(db: Session) -> str:
+    configured = os.getenv(RESEARCH_KEYWORD_DISCOVERY_MODEL, "").strip()
+    return configured or research_brief_model(db)
+
+
+def _keyword_discovery_prompt(payload: dict[str, Any]) -> str:
+    seeds = _dedupe_strings([str(item).strip()[:120] for item in (payload.get("seed_topics") or []) if str(item).strip()])[:12]
+    tickers = _dedupe_strings([normalize_symbol(item) for item in (payload.get("tickers") or []) if normalize_symbol(item)])[:12]
+    seed_text = ", ".join(seeds) if seeds else "No fixed topic; find timely US public-market investor questions."
+    ticker_text = ", ".join(tickers) if tickers else "No fixed tickers; prefer names or themes Walnut can support with its data."
+    return "\n".join(
+        [
+            "You are Walnut Markets' SEO and answer-engine research strategist.",
+            "Use web search before answering. Look for fresh investor attention and explainable search intent using a mix of current reporting, Google Trends pages/results when available, and relevant Reddit discussion. Prefer primary company, filing, regulatory, or reputable market sources for factual claims.",
+            "Do not claim exact Google search volume, keyword difficulty, CPC, or Reddit engagement unless a source explicitly provides it. Google Trends is relative-interest evidence only. Treat competition as a directional SERP assessment, not a verified commercial keyword metric.",
+            "Only suggest queries Walnut can answer with an original angle from its own evidence: congressional trades, insider activity, institutional ownership, government contracts, confirmations, fundamentals, or price/volume context.",
+            "Avoid generic stock-picking queries, unsupported financial promises, and candidates that would merely rewrite a current news headline. Return distinct, answerable long-tail opportunities that have a clear investor question.",
+            f"SEED_TOPICS: {seed_text}",
+            f"MANUAL_TICKERS: {ticker_text}",
+            "Return JSON matching the requested schema. Include 2-4 source URLs per candidate from pages actually used. Give each candidate a 0-100 editorial opportunity score, not a prediction of traffic.",
+        ]
+    )
+
+
+def _keyword_opportunity_schema() -> dict[str, Any]:
+    candidate = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "target_keyword", "secondary_keywords", "search_intent", "content_type", "ticker", "topic",
+            "recommended_theme", "trend_signal", "competition_assessment", "opportunity_score", "rationale",
+            "walnut_angle", "source_urls", "metric_note",
+        ],
+        "properties": {
+            "target_keyword": {"type": "string"},
+            "secondary_keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 6},
+            "search_intent": {"type": "string"},
+            "content_type": {"type": "string", "enum": ["ticker", "non_ticker"]},
+            "ticker": {"type": "string"},
+            "topic": {"type": "string"},
+            "recommended_theme": {"type": "string"},
+            "trend_signal": {"type": "string", "enum": ["rising", "recent", "evergreen", "unclear"]},
+            "competition_assessment": {"type": "string", "enum": ["lower", "moderate", "higher", "unknown"]},
+            "opportunity_score": {"type": "integer", "minimum": 0, "maximum": 100},
+            "rationale": {"type": "string"},
+            "walnut_angle": {"type": "string"},
+            "source_urls": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5},
+            "metric_note": {"type": "string"},
+        },
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["candidates", "market_note"],
+        "properties": {
+            "candidates": {"type": "array", "items": candidate, "maxItems": RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES},
+            "market_note": {"type": "string"},
+        },
+    }
+
+
+def _normalize_keyword_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    target_keyword = str(candidate.get("target_keyword") or "").strip()[:240]
+    if not target_keyword:
+        return None
+    content_type = str(candidate.get("content_type") or "non_ticker").strip().lower()
+    content_type = content_type if content_type in {"ticker", "non_ticker"} else "non_ticker"
+    ticker = normalize_symbol(candidate.get("ticker")) if content_type == "ticker" else ""
+    topic = str(candidate.get("topic") or target_keyword).strip()[:300]
+    if content_type == "ticker" and not ticker:
+        content_type = "non_ticker"
+    theme = str(candidate.get("recommended_theme") or "").strip().lower()
+    if theme not in {item["key"] for item in RESEARCH_CAMPAIGN_THEMES}:
+        theme = "good_buy_now" if content_type == "ticker" else "conflicting_stock_research_data"
+    try:
+        score = max(0, min(100, int(candidate.get("opportunity_score") or 0)))
+    except (TypeError, ValueError):
+        score = 0
+    return {
+        "target_keyword": target_keyword,
+        "secondary_keywords": _dedupe_strings([str(item).strip()[:120] for item in (candidate.get("secondary_keywords") or []) if str(item).strip()])[:6],
+        "search_intent": str(candidate.get("search_intent") or target_keyword).strip()[:240],
+        "content_type": content_type,
+        "ticker": ticker or None,
+        "topic": topic,
+        "recommended_theme": theme,
+        "trend_signal": str(candidate.get("trend_signal") or "unclear").strip().lower() if str(candidate.get("trend_signal") or "").strip().lower() in {"rising", "recent", "evergreen", "unclear"} else "unclear",
+        "competition_assessment": str(candidate.get("competition_assessment") or "unknown").strip().lower() if str(candidate.get("competition_assessment") or "").strip().lower() in {"lower", "moderate", "higher", "unknown"} else "unknown",
+        "opportunity_score": score,
+        "rationale": str(candidate.get("rationale") or "").strip()[:1200],
+        "walnut_angle": str(candidate.get("walnut_angle") or "").strip()[:800],
+        "source_urls": _dedupe_strings([str(item).strip()[:1000] for item in (candidate.get("source_urls") or []) if str(item).strip().startswith(("http://", "https://"))])[:5],
+        "metric_note": str(candidate.get("metric_note") or "Directional assessment only; no verified keyword-volume provider is connected.").strip()[:500],
+    }
+
+
+def discover_research_keyword_opportunities(db: Session, admin: UserAccount, payload: dict[str, Any]) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before discovering keyword opportunities.")
+    response = requests.post(
+        RESPONSES_ENDPOINT,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": _keyword_discovery_model(db),
+            "input": _keyword_discovery_prompt(payload),
+            "tools": [{"type": "web_search", "search_context_size": "medium"}],
+            "tool_choice": "required",
+            "store": False,
+            "max_output_tokens": 5000,
+            "text": {"format": {"type": "json_schema", "name": "walnut_keyword_opportunities", "schema": _keyword_opportunity_schema(), "strict": True}},
+        },
+        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    )
+    if response.status_code == 429:
+        raise HTTPException(status_code=429, detail="OpenAI rate limit hit while discovering keyword opportunities. Try again later.")
+    if response.status_code >= 400:
+        logger.warning("research_keyword_discovery_failed status=%s body=%s", response.status_code, response.text[:500])
+        raise HTTPException(status_code=502, detail="Keyword discovery failed. Check the configured OpenAI model and web-search access.")
+    try:
+        parsed = json.loads(_response_text(response.json()))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="OpenAI returned invalid keyword opportunity JSON.") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=502, detail="OpenAI returned an invalid keyword opportunity payload.")
+    created_at = _now()
+    opportunities: list[dict[str, Any]] = []
+    for raw_candidate in (parsed.get("candidates") or [])[:RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES]:
+        candidate = _normalize_keyword_candidate(raw_candidate) if isinstance(raw_candidate, dict) else None
+        if not candidate:
+            continue
+        opportunity_id = f"rko_{uuid.uuid4().hex}"
+        candidate.update({"id": opportunity_id, "status": "new", "discovered_at": created_at, "updated_at": created_at})
+        db.execute(
+            text(
+                """
+                INSERT INTO research_keyword_opportunities (
+                    id, status, created_by, created_by_email, target_keyword, opportunity_score, ticker, topic,
+                    discovered_at, updated_at, payload_json
+                ) VALUES (
+                    :id, :status, :created_by, :created_by_email, :target_keyword, :opportunity_score, :ticker, :topic,
+                    :discovered_at, :updated_at, :payload_json
+                )
+                """
+            ),
+            {
+                **candidate,
+                "created_by": admin.id,
+                "created_by_email": getattr(admin, "email", None),
+                "payload_json": _json_dump(candidate),
+            },
+        )
+        opportunities.append(candidate)
+    db.commit()
+    return {
+        "items": opportunities,
+        "market_note": str(parsed.get("market_note") or ""),
+        "metric_provider_configured": False,
+        "metric_provider_note": "Google Trends and web search provide relative demand and SERP evidence. Connect a licensed keyword-metrics provider before treating competition or volume as verified.",
+    }
+
+
+def update_research_keyword_opportunity_status(db: Session, opportunity_id: str, status: str) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status not in RESEARCH_KEYWORD_OPPORTUNITY_STATUSES:
+        raise HTTPException(status_code=422, detail="Keyword opportunity status must be new, used, or dismissed.")
+    result = db.execute(
+        text("UPDATE research_keyword_opportunities SET status = :status, updated_at = :updated_at WHERE id = :id"),
+        {"id": opportunity_id, "status": normalized_status, "updated_at": _now()},
+    )
+    db.commit()
+    if getattr(result, "rowcount", 0) != 1:
+        raise HTTPException(status_code=404, detail="Keyword opportunity not found.")
+    row = db.execute(text("SELECT * FROM research_keyword_opportunities WHERE id = :id"), {"id": opportunity_id}).mappings().first()
+    return _keyword_opportunity_from_row(row)
 
 
 def _campaign_theme(theme: Any) -> dict[str, Any]:

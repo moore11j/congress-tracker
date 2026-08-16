@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   approveScheduledAdminResearchBriefDraft,
   createAdminResearchCampaign,
+  discoverAdminResearchKeywordOpportunities,
   deleteAdminResearchBriefDraft,
   deleteAdminResearchCampaign,
   getAdminResearchCampaigns,
+  getAdminResearchKeywordOpportunities,
   getAdminResearchPublishingHealth,
   getAdminResearchBriefDraft,
   getAdminResearchBriefGenerationDraft,
@@ -25,6 +27,7 @@ import {
   startAdminResearchBriefGeneration,
   unpublishAdminResearchBriefDraft,
   updateAdminResearchBriefDraft,
+  updateAdminResearchKeywordOpportunityStatus,
   validateAdminResearchBriefTicker,
   type AdminResearchBriefArticle,
   type AdminResearchBriefConfig,
@@ -33,6 +36,7 @@ import {
   type AdminResearchCampaign,
   type AdminResearchCampaignPayload,
   type AdminResearchCampaignTheme,
+  type AdminResearchKeywordOpportunity,
   type AdminResearchPublishingHealth,
 } from "@/lib/api";
 import { normalizeTickerSymbol } from "@/lib/ticker";
@@ -472,6 +476,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [activePane, setActivePane] = useState<"create" | "scheduled" | "drafts" | "published" | "campaigns" | "settings">("create");
   const [preflightReadiness, setPreflightReadiness] = useState<Record<string, unknown> | null>(null);
   const [campaigns, setCampaigns] = useState<AdminResearchCampaign[]>([]);
+  const [keywordOpportunities, setKeywordOpportunities] = useState<AdminResearchKeywordOpportunity[]>([]);
+  const [keywordMarketNote, setKeywordMarketNote] = useState("");
   const [publishingHealth, setPublishingHealth] = useState<AdminResearchPublishingHealth | null>(null);
   const [campaignForm, setCampaignForm] = useState<AdminResearchCampaignPayload>(DEFAULT_CAMPAIGN_FORM);
 
@@ -517,6 +523,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       .catch(() => undefined);
     getAdminResearchBriefDrafts().then((payload) => alive && setDrafts(payload.items)).catch(() => undefined);
     getAdminResearchCampaigns().then((payload) => alive && setCampaigns(payload.items)).catch(() => undefined);
+    getAdminResearchKeywordOpportunities().then((payload) => alive && setKeywordOpportunities(payload.items)).catch(() => undefined);
     getAdminResearchPublishingHealth().then((payload) => alive && setPublishingHealth(payload)).catch(() => undefined);
     return () => {
       alive = false;
@@ -707,6 +714,67 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   async function refreshCampaigns() {
     const payload = await getAdminResearchCampaigns();
     setCampaigns(payload.items);
+  }
+
+  async function refreshKeywordOpportunities() {
+    const payload = await getAdminResearchKeywordOpportunities();
+    setKeywordOpportunities(payload.items);
+  }
+
+  async function discoverKeywordOpportunities() {
+    setBusy("keyword-discovery");
+    try {
+      const result = await discoverAdminResearchKeywordOpportunities({
+        tickers: campaignForm.content_type === "ticker" ? campaignForm.tickers : [],
+        seed_topics: [campaignForm.topic || "", campaignForm.search_intent || "", campaignForm.target_keyword || ""].filter(Boolean),
+      });
+      setKeywordMarketNote(result.market_note || "");
+      await refreshKeywordOpportunities();
+      showToast?.(`${result.items.length} keyword opportunities saved for review.`, "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to discover keyword opportunities.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function useKeywordOpportunity(opportunity: AdminResearchKeywordOpportunity) {
+    const contentType = opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker";
+    setCampaignForm((current) => ({
+      ...current,
+      name: current.name || opportunity.target_keyword,
+      theme: options.campaign_themes.some((theme) => theme.key === opportunity.recommended_theme) ? opportunity.recommended_theme : current.theme,
+      content_type: contentType,
+      tickers: contentType === "ticker" && opportunity.ticker ? [opportunity.ticker] : [],
+      topic: contentType === "non_ticker" ? (opportunity.topic || opportunity.target_keyword) : current.topic,
+      article_count: 1,
+      target_keyword: opportunity.target_keyword,
+      secondary_keywords: opportunity.secondary_keywords || [],
+      search_intent: opportunity.search_intent,
+      target_keywords: contentType === "ticker" && opportunity.ticker ? { [opportunity.ticker]: opportunity.target_keyword } : {},
+    }));
+    setBusy(`keyword-use-${opportunity.id}`);
+    try {
+      await updateAdminResearchKeywordOpportunityStatus(opportunity.id, "used");
+      await refreshKeywordOpportunities();
+      showToast?.("Opportunity loaded into the campaign form. Review it, then create the campaign.", "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to update keyword opportunity.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function dismissKeywordOpportunity(opportunity: AdminResearchKeywordOpportunity) {
+    setBusy(`keyword-dismiss-${opportunity.id}`);
+    try {
+      await updateAdminResearchKeywordOpportunityStatus(opportunity.id, "dismissed");
+      await refreshKeywordOpportunities();
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to dismiss keyword opportunity.", "error");
+    } finally {
+      setBusy(null);
+    }
   }
 
   function applySavedDraft(draft: AdminResearchBriefDraft) {
@@ -1345,6 +1413,11 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           onToggle={toggleCampaign}
           onRunNow={runCampaignNow}
           onDelete={removeCampaign}
+          opportunities={keywordOpportunities}
+          marketNote={keywordMarketNote}
+          onDiscover={discoverKeywordOpportunities}
+          onUseOpportunity={useKeywordOpportunity}
+          onDismissOpportunity={dismissKeywordOpportunity}
         />
       ) : null}
 
@@ -1812,22 +1885,32 @@ function CampaignsPanel({
   health,
   form,
   busy,
+  opportunities,
+  marketNote,
   onFormChange,
   onSubmit,
   onToggle,
   onRunNow,
   onDelete,
+  onDiscover,
+  onUseOpportunity,
+  onDismissOpportunity,
 }: {
   themes: AdminResearchCampaignTheme[];
   campaigns: AdminResearchCampaign[];
   health: AdminResearchPublishingHealth | null;
   form: AdminResearchCampaignPayload;
   busy: string | null;
+  opportunities: AdminResearchKeywordOpportunity[];
+  marketNote: string;
   onFormChange: (form: AdminResearchCampaignPayload) => void;
   onSubmit: () => void;
   onToggle: (campaign: AdminResearchCampaign) => void;
   onRunNow: (campaign: AdminResearchCampaign) => void;
   onDelete: (campaign: AdminResearchCampaign) => void;
+  onDiscover: () => void;
+  onUseOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
+  onDismissOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
 }) {
   const selectedTheme = themes.find((theme) => theme.key === form.theme) || themes[0];
   return (
@@ -1888,6 +1971,11 @@ function CampaignsPanel({
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Secondary keywords</span>
             <input value={(form.secondary_keywords || []).join(", ")} onChange={(event) => onFormChange({ ...form, secondary_keywords: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} className={fieldClassName("mt-2")} placeholder="earnings analysis, institutional ownership" />
           </label>
+          <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.03] p-3 text-xs text-slate-300">
+            <p className="font-semibold text-cyan-100">Live keyword discovery</p>
+            <p className="mt-1 leading-5 text-slate-400">Searches current web signals—including Google Trends pages and relevant Reddit discussions where available—then ranks only questions Walnut can answer with original data. It never creates or publishes a campaign automatically.</p>
+            <Button disabled={Boolean(busy)} onClick={onDiscover}>{busy === "keyword-discovery" ? "Finding opportunities..." : "Find high-impact opportunities"}</Button>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Select label="Cadence" value={form.cadence} options={["one_time", "daily", "weekly", "custom"]} onChange={(cadence) => onFormChange({ ...form, cadence })} />
             <label>
@@ -1907,6 +1995,38 @@ function CampaignsPanel({
         </div>
       </div>
       <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+        <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.03] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-semibold text-white">Keyword opportunities</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-400">Directional opportunity scores blend freshness, answerability, Walnut data fit, and a SERP assessment. They are not verified search volume or keyword-difficulty metrics.</p>
+            </div>
+            <Button disabled={Boolean(busy)} onClick={onDiscover}>{busy === "keyword-discovery" ? "Searching..." : "Refresh signals"}</Button>
+          </div>
+          {marketNote ? <p className="mt-2 text-xs text-cyan-100">{marketNote}</p> : null}
+          <div className="mt-3 grid gap-3">
+            {opportunities.filter((opportunity) => opportunity.status === "new").slice(0, 8).map((opportunity) => (
+              <div key={opportunity.id} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-white">{opportunity.target_keyword}</p>
+                    <p className="mt-1 text-xs text-slate-400">{opportunity.search_intent}</p>
+                  </div>
+                  <span className="rounded-md border border-cyan-300/25 px-2 py-1 text-xs font-semibold text-cyan-100">Score {opportunity.opportunity_score}</span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-300">{opportunity.rationale}</p>
+                <p className="mt-1 text-xs leading-5 text-emerald-100">Walnut angle: {opportunity.walnut_angle}</p>
+                <p className="mt-2 text-xs text-slate-500">Trend: {opportunity.trend_signal} · Competition: {opportunity.competition_assessment} · {opportunity.metric_note}</p>
+                {opportunity.source_urls?.length ? <p className="mt-2 text-xs text-slate-500">Signals: {opportunity.source_urls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="mr-2 text-cyan-200 hover:underline">source</a>)}</p> : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{busy === `keyword-use-${opportunity.id}` ? "Loading..." : "Use in campaign"}</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onDismissOpportunity(opportunity)}>Dismiss</Button>
+                </div>
+              </div>
+            ))}
+            {opportunities.filter((opportunity) => opportunity.status === "new").length === 0 ? <p className="text-sm text-slate-500">No saved opportunities yet. Run a discovery pass when you want fresh signals.</p> : null}
+          </div>
+        </div>
         <h3 className="text-base font-semibold text-white">Campaigns</h3>
         {health ? (
           <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/45 p-3 text-xs text-slate-400">

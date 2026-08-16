@@ -7088,6 +7088,34 @@ export type AdminResearchCampaignPayload = {
   target_keywords?: Record<string, string>;
 };
 
+export type AdminResearchKeywordOpportunity = {
+  id: string;
+  status: "new" | "used" | "dismissed" | string;
+  target_keyword: string;
+  secondary_keywords: string[];
+  search_intent: string;
+  content_type: "ticker" | "non_ticker" | string;
+  ticker?: string | null;
+  topic?: string | null;
+  recommended_theme: string;
+  trend_signal: "rising" | "recent" | "evergreen" | "unclear" | string;
+  competition_assessment: "lower" | "moderate" | "higher" | "unknown" | string;
+  opportunity_score: number;
+  rationale: string;
+  walnut_angle: string;
+  source_urls: string[];
+  metric_note: string;
+  discovered_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type AdminResearchKeywordDiscovery = {
+  items: AdminResearchKeywordOpportunity[];
+  market_note: string;
+  metric_provider_configured: boolean;
+  metric_provider_note: string;
+};
+
 export type AdminResearchPublishingHealth = {
   published_last_30_days: number;
   indexed: number;
@@ -7347,6 +7375,32 @@ export async function getGeneratedResearchBriefCards(): Promise<{ items: PublicR
   });
   generatedResearchBriefCardsServerInflight.set(url, promise);
   return promise;
+}
+
+export async function getAdminResearchKeywordOpportunities(status?: string): Promise<{ items: AdminResearchKeywordOpportunity[] }> {
+  return fetchJson<{ items: AdminResearchKeywordOpportunity[] }>(buildApiUrl("/api/admin/research-briefs/keyword-opportunities", status ? { status } : undefined), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function discoverAdminResearchKeywordOpportunities(payload: { seed_topics?: string[]; tickers?: string[] }): Promise<AdminResearchKeywordDiscovery> {
+  return fetchJson<AdminResearchKeywordDiscovery>(buildApiUrl("/api/admin/research-briefs/keyword-opportunities/discover"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function updateAdminResearchKeywordOpportunityStatus(opportunityId: string, status: "new" | "used" | "dismissed"): Promise<AdminResearchKeywordOpportunity> {
+  return fetchJson<AdminResearchKeywordOpportunity>(buildApiUrl(`/api/admin/research-briefs/keyword-opportunities/${encodeURIComponent(opportunityId)}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+    source: "AdminResearchCampaigns",
+  });
 }
 
 export async function getGeneratedResearchBrief(slug: string, options?: { authToken?: string | null; source?: string }): Promise<AdminResearchBriefDraft> {

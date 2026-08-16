@@ -25,6 +25,7 @@ from app.services.research_briefs import (
     create_research_campaign,
     delete_draft,
     delete_research_campaign,
+    discover_research_keyword_opportunities,
     enqueue_research_brief_generation_job,
     get_research_brief_generation_job,
     get_research_brief_generation_job_draft,
@@ -32,6 +33,7 @@ from app.services.research_briefs import (
     get_research_campaign,
     list_drafts,
     list_research_campaigns,
+    list_research_keyword_opportunities,
     normalize_supported_symbol,
     publish_draft,
     published_article,
@@ -48,6 +50,7 @@ from app.services.research_briefs import (
     set_research_campaign_active,
     unpublish_draft,
     update_draft,
+    update_research_keyword_opportunity_status,
     validate_config,
 )
 
@@ -115,6 +118,15 @@ class ResearchCampaignPayload(BaseModel):
     target_keywords: dict[str, str] = Field(default_factory=dict)
 
 
+class ResearchKeywordDiscoveryPayload(BaseModel):
+    seed_topics: list[str] = Field(default_factory=list, max_length=12)
+    tickers: list[str] = Field(default_factory=list, max_length=12)
+
+
+class ResearchKeywordOpportunityStatusPayload(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+
+
 class ActivePayload(BaseModel):
     active: bool
 
@@ -156,6 +168,34 @@ def admin_research_campaign_themes(request: Request, db: Session = Depends(get_d
 def admin_research_campaigns(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     return list_research_campaigns(db)
+
+
+@router.get("/admin/research-briefs/keyword-opportunities")
+def admin_research_keyword_opportunities(
+    status: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return list_research_keyword_opportunities(db, status=status, limit=limit)
+
+
+@router.post("/admin/research-briefs/keyword-opportunities/discover", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_discover_research_keyword_opportunities(payload: ResearchKeywordDiscoveryPayload, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    return discover_research_keyword_opportunities(db, admin, payload.model_dump())
+
+
+@router.patch("/admin/research-briefs/keyword-opportunities/{opportunity_id}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_update_research_keyword_opportunity(
+    opportunity_id: str,
+    payload: ResearchKeywordOpportunityStatusPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return update_research_keyword_opportunity_status(db, opportunity_id, payload.status)
 
 
 @router.get("/admin/research-briefs/health")

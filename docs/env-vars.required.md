@@ -42,6 +42,7 @@ Required for production runtime:
 | `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
 | `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.6-sol`; do not store in admin DB settings. |
 | `RESEARCH_BRIEF_MODEL_DEFAULT` | Research Brief Generator default model | Optional. Overrides the legacy `RESEARCH_BRIEF_GENERATOR_MODEL` for admin research briefs. Defaults to `gpt-5.6-terra`. |
+| `RESEARCH_KEYWORD_DISCOVERY_MODEL` | Keyword opportunity discovery model | Optional. Uses the Research Brief default model when unset. The selected model must support the Responses API web-search tool. |
 | `RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED` | Enables Walnut Research Brief campaign generation and approved scheduled publishing cron | Optional. Set to `1` after owner review. Defaults off. |
 | `RESEARCH_CAMPAIGNS_SCHEDULE_LIMIT` | Max research campaign items/scheduled publications processed per cron run | Optional. Defaults to `10`. |
 | `RESEARCH_DAILY_PUBLISH_CAP` | Global cap for automatically published approved Research Briefs | Optional. Defaults to `1`; set `0` only for an owner-approved override. Manual “Publish Now” remains an explicit review action. |
