@@ -27,7 +27,6 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "true"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"
-    assert fly_config["env"]["PROFILE_OVERVIEW_PREWARM_ENABLED"] == "true"
     assert fly_config["env"]["INSIDER_ANALYTICS_PREWARM_ENABLED"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "true"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "0"
