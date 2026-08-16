@@ -159,7 +159,6 @@ from app.routers.institutional import router as institutional_router
 from app.routers.institutional_ingest_admin import router as institutional_ingest_admin_router
 from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
-from app.routers.admin_data_sources import router as admin_data_sources_router
 from app.routers.ai_marketing import router as ai_marketing_router
 from app.routers.research_briefs import router as research_briefs_router
 from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
@@ -14583,7 +14582,6 @@ app.include_router(event_calendar_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
 app.include_router(strategies_router, prefix="/api")
-app.include_router(admin_data_sources_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
 app.include_router(reddit_ads_assistant_router, prefix="/api")
 app.include_router(research_briefs_router, prefix="/api")

@@ -22,24 +22,18 @@ import { AdminUsersView } from "@/components/admin/AdminUsersView";
 import { PageAnalyticsReport } from "@/components/admin/PageAnalyticsReport";
 import { ProviderUsageReport } from "@/components/admin/ProviderUsageReport";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
-import { DataSourcesReport } from "@/components/admin/DataSourcesReport";
 import { AdminAiMarketingView } from "@/components/admin/AdminAiMarketingView";
 import { AdminResearchBriefGeneratorView } from "@/components/admin/AdminResearchBriefGeneratorView";
 import { AdminStrategiesView } from "@/components/admin/AdminStrategiesView";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
-type AdminTab = "settings" | "data_sources" | "reports" | "email" | "ai_marketing" | "research_briefs" | "strategies" | "users";
+type AdminTab = "settings" | "reports" | "email" | "ai_marketing" | "research_briefs" | "strategies" | "users";
 
 const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> = [
   {
     key: "settings",
     label: "Settings",
     description: "Stripe setup, Stripe Tax readiness, OAuth setup, plan configuration, and feature gates.",
-  },
-  {
-    key: "data_sources",
-    label: "Data Sources",
-    description: "Provider status, endpoint coverage, Builder-safe mode, and official shadow pipelines.",
   },
   {
     key: "reports",
@@ -978,10 +972,6 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
             </div>
           </section>
         </>
-      ) : null}
-
-      {activeTab === "data_sources" ? (
-        <DataSourcesReport />
       ) : null}
 
       {activeTab === "reports" ? (
