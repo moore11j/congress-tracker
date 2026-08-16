@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from statistics import mean, median
@@ -3109,6 +3110,39 @@ def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder
                 inflight.set()
 
 
+def _run_profile_overview_prewarm() -> None:
+    """Warm the two entitlement-safe Profiles landing payloads after app startup.
+
+    The complete landing summary is intentionally cached for an hour, but a
+    newly deployed process can otherwise make the first visitor wait for its
+    aggregate queries. This runs after readiness in the existing bounded
+    background-maintenance lane and never changes the response shape.
+    """
+    activity_per_type = 5
+    cache_keys = (
+        ("profiles_summary", "all", 25, False, True, activity_per_type),
+        ("profiles_summary", "all", 25, True, True, activity_per_type),
+    )
+    db = SessionLocal()
+    try:
+        for key in cache_keys:
+            include_institutions = bool(key[3])
+            _cached_profile_overview_response(
+                db,
+                key,
+                lambda include_institutions=include_institutions: build_profiles_summary(
+                    db,
+                    activity_type="all",
+                    activity_limit=25,
+                    activity_per_type=activity_per_type,
+                    include_institutions=include_institutions,
+                    include_activity=True,
+                ),
+            )
+    finally:
+        db.close()
+
+
 def _request_route_family(path: str, header_family: str | None = None) -> str:
     header = _bounded_log_value(header_family, max_length=40).lower().replace("-", "_")
     if header and header != "none":
@@ -3319,6 +3353,7 @@ async def csrf_origin_guard(request: Request, call_next):
 @app.middleware("http")
 async def log_slow_requests(request: Request, call_next):
     started = perf_counter()
+    request_id = request.headers.get("x-walnut-request-id") or uuid.uuid4().hex
     walnut_route = request.headers.get("x-walnut-route") or "unknown"
     walnut_component = request.headers.get("x-walnut-component") or "unknown"
     priority = classify_request(request.url.path, request.query_params)
@@ -3326,6 +3361,8 @@ async def log_slow_requests(request: Request, call_next):
     context_token = set_request_context(
         {
             "started_at": started,
+            "request_id": request_id,
+            "diagnostic_trace": _is_sampled_diagnostic_request(request, request_id),
             "path": request.url.path,
             "priority": priority.value,
             "walnut_route": walnut_route,
@@ -3334,6 +3371,7 @@ async def log_slow_requests(request: Request, call_next):
             "request_source": attribution_fields["request_source"],
             "user_agent_class": attribution_fields["user_agent_class"],
             "panel": attribution_fields["panel"],
+            "public_cache_status": getattr(request.state, "public_cache_status", "bypass"),
         }
     )
     heavy_slot_acquired = False
@@ -3388,6 +3426,28 @@ async def log_slow_requests(request: Request, call_next):
 
         response = await call_next(request)
         elapsed_ms = (perf_counter() - started) * 1000
+        response.headers["x-walnut-request-id"] = request_id
+        context = get_request_context() or {}
+        if context.get("diagnostic_trace"):
+            # Production keeps ordinary application INFO logs quiet. Diagnostic traces
+            # are explicitly opted in by the load-test header, so use WARNING to ensure
+            # they reach Fly without adding noise for normal traffic.
+            logger.warning(
+                "diagnostic_backend_timing request_id=%s path=%s status=%s request_total_ms=%.1f route_handler_ms=%.1f public_cache_status=%s db_checkout_wait_ms=%.1f db_checkout_attempt_count=%s db_checkout_error_count=%s db_query_total_ms=%.1f db_query_count=%s db_query_max_ms=%.1f db_queries=%s",
+                request_id,
+                request.url.path,
+                response.status_code,
+                elapsed_ms,
+                elapsed_ms,
+                context.get("public_cache_status", "bypass"),
+                float(context.get("db_checkout_wait_ms") or 0.0),
+                context.get("db_checkout_attempt_count", 0),
+                context.get("db_checkout_error_count", 0),
+                float(context.get("db_query_total_ms") or 0.0),
+                context.get("db_query_count", 0),
+                float(context.get("db_query_max_ms") or 0.0),
+                context.get("db_queries", []),
+            )
         if _is_secondary_analytics_path(request.url.path):
             logger.info(
                 "secondary_analytics_request path=%s panel=%s status=%s priority=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
@@ -3446,9 +3506,44 @@ async def log_slow_requests(request: Request, call_next):
         reset_request_context(context_token)
 
 
+def _log_diagnostic_public_cache_short_circuit(
+    request: Request,
+    *,
+    status_code: int,
+    cache_status: str,
+    started: float,
+) -> None:
+    """Record diagnostic cache hits that return before the inner request logger."""
+    request_id = request.headers.get("x-walnut-request-id") or "unknown"
+    if not _is_sampled_diagnostic_request(request, request_id):
+        return
+    elapsed_ms = (perf_counter() - started) * 1000
+    # See the matching diagnostic branch in log_slow_requests: these records are
+    # opt-in and must survive the production INFO log threshold.
+    logger.warning(
+        "diagnostic_backend_timing request_id=%s path=%s status=%s request_total_ms=%.1f route_handler_ms=0.0 public_cache_status=%s db_checkout_wait_ms=0.0 db_checkout_attempt_count=0 db_checkout_error_count=0 db_query_total_ms=0.0 db_query_count=0 db_query_max_ms=0.0 db_queries=[]",
+        request_id,
+        request.url.path,
+        status_code,
+        elapsed_ms,
+        cache_status,
+    )
+
+
+def _is_sampled_diagnostic_request(request: Request, request_id: str) -> bool:
+    if request.headers.get("x-walnut-load-test") != "capacity-smoke":
+        return False
+    request_hash = 0
+    for character in request_id:
+        request_hash = ((request_hash * 31) + ord(character)) & 0xFFFFFFFF
+    return request_hash % 25 == 0
+
+
 @app.middleware("http")
 async def public_get_response_cache(request: Request, call_next):
+    started = perf_counter()
     cache_key = _public_get_cache_key(request)
+    request.state.public_cache_status = "miss" if cache_key else "bypass"
     cache_key_hash = _public_get_cache_key_hash(cache_key) if cache_key else None
     complete_data_path = _is_public_get_complete_data_path(request.url.path) if cache_key else False
     inflight_event: asyncio.Event | None = None
@@ -3466,6 +3561,12 @@ async def public_get_response_cache(request: Request, call_next):
                     hit_headers = dict(headers)
                     hit_headers["x-walnut-public-cache"] = "hit"
                     hit_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+                    _log_diagnostic_public_cache_short_circuit(
+                        request,
+                        status_code=status_code,
+                        cache_status="hit",
+                        started=started,
+                    )
                     return Response(content=body, status_code=status_code, headers=hit_headers)
                 if expires_at + _public_get_cache_stale_seconds() > now:
                     stale_cached = (status_code, dict(headers), body)
@@ -3494,6 +3595,12 @@ async def public_get_response_cache(request: Request, call_next):
                             hit_headers = dict(headers)
                             hit_headers["x-walnut-public-cache"] = "hit"
                             hit_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+                            _log_diagnostic_public_cache_short_circuit(
+                                request,
+                                status_code=status_code,
+                                cache_status="hit",
+                                started=started,
+                            )
                             return Response(content=body, status_code=status_code, headers=hit_headers)
                         if expires_at + _public_get_cache_stale_seconds() > now:
                             stale_cached = (status_code, dict(headers), body)
@@ -3506,6 +3613,12 @@ async def public_get_response_cache(request: Request, call_next):
                 stale_headers = dict(headers)
                 stale_headers["x-walnut-public-cache"] = "stale"
                 stale_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+                _log_diagnostic_public_cache_short_circuit(
+                    request,
+                    status_code=status_code,
+                    cache_status="stale",
+                    started=started,
+                )
                 return Response(content=body, status_code=status_code, headers=stale_headers)
             if not inflight_leader and inflight_event is not None:
                 await inflight_event.wait()
@@ -3520,6 +3633,12 @@ async def public_get_response_cache(request: Request, call_next):
                             hit_headers = dict(headers)
                             hit_headers["x-walnut-public-cache"] = "hit"
                             hit_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+                            _log_diagnostic_public_cache_short_circuit(
+                                request,
+                                status_code=status_code,
+                                cache_status="hit",
+                                started=started,
+                            )
                             return Response(content=body, status_code=status_code, headers=hit_headers)
 
     try:
@@ -3547,6 +3666,12 @@ async def public_get_response_cache(request: Request, call_next):
             stale_headers = dict(headers)
             stale_headers["x-walnut-public-cache"] = "stale"
             stale_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+            _log_diagnostic_public_cache_short_circuit(
+                request,
+                status_code=status_code,
+                cache_status="stale",
+                started=started,
+            )
             return Response(content=body, status_code=status_code, headers=stale_headers)
         return response
     headers = {
@@ -4116,6 +4241,13 @@ def _startup_create_tables():
         _schedule_startup_maintenance("startup_auto_backfill", _run_startup_auto_backfill)
     else:
         _startup_step_skipped("startup_auto_backfill", "AUTO_BACKFILL_EVENTS_ON_STARTUP disabled")
+
+    # Starts only after the service is ready, so a heavy dashboard aggregate
+    # cannot delay health checks or interrupt a rolling deployment.
+    if _startup_maintenance_enabled("PROFILE_OVERVIEW_PREWARM_ENABLED"):
+        _schedule_startup_maintenance("startup_profile_overview_prewarm", _run_profile_overview_prewarm)
+    else:
+        _startup_step_skipped("startup_profile_overview_prewarm", "PROFILE_OVERVIEW_PREWARM_ENABLED disabled")
 
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:
