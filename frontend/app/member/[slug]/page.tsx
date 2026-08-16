@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { MemberAnalyticsClient } from "@/components/member/MemberAnalyticsClient";
@@ -167,6 +168,33 @@ function initialsForName(name: string) {
   return `${first}${last ?? ""}`.toUpperCase();
 }
 
+function MemberHeadshotFallback({ memberName }: { memberName: string }) {
+  return (
+    <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full border border-white/15 bg-slate-950/70 text-2xl font-semibold text-emerald-100 shadow-inner">
+      {initialsForName(memberName)}
+    </div>
+  );
+}
+
+async function StreamedMemberHeadshot({
+  memberName,
+  headshotPromise,
+}: {
+  memberName: string;
+  headshotPromise: ReturnType<typeof resolveWikipediaHeadshot>;
+}) {
+  const headshot = await headshotPromise;
+  if (!headshot) return <MemberHeadshotFallback memberName={memberName} />;
+  return (
+    <img
+      src={headshot.src}
+      alt={`${memberName} headshot from Wikipedia`}
+      className="h-20 w-20 shrink-0 rounded-full border border-white/15 bg-slate-950/70 object-cover shadow-inner"
+      referrerPolicy="no-referrer"
+    />
+  );
+}
+
 function VerifiedBadge() {
   return (
     <span className="grid h-4 w-4 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_12px_rgba(14,165,233,0.35)]">
@@ -260,7 +288,8 @@ export default async function MemberPage({ params, searchParams }: Props) {
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 px-4 text-xs font-semibold text-slate-100 transition hover:border-white/25 hover:bg-white/[0.04] sm:text-sm";
   const primaryActionClassName =
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-4 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/18 sm:text-sm";
-  const [initialAlphaSummaryResult, initialTradesResult, initialTrendTradesResult, headshotResult] = await Promise.allSettled([
+  const headshotPromise = resolveWikipediaHeadshot(memberName, { kind: "member" });
+  const [initialAlphaSummaryResult, initialTradesResult, initialTrendTradesResult] = await Promise.allSettled([
     getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb, source: "MemberProfileInitialAlpha", stalePageCache: publicStalePageCache }),
     getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100, source: "MemberProfileInitialTrades", stalePageCache: publicStalePageCache }),
     getMemberTrades(canonicalMemberId, {
@@ -269,11 +298,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
       source: "MemberProfileInitialActivityTrend",
       stalePageCache: publicStalePageCache,
     }),
-    resolveWikipediaHeadshot(memberName, { kind: "member" }),
   ]);
   const initialAlphaSummary =
     initialAlphaSummaryResult.status === "fulfilled" ? initialAlphaSummaryResult.value : undefined;
-  const headshot = headshotResult.status === "fulfilled" ? headshotResult.value : null;
   const fallbackInitialTrades =
     data.trades.length > 0
       ? { member_id: canonicalMemberId, lookback_days: lb, limit: data.trades.length, items: data.trades }
@@ -314,18 +341,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
           </div>
         </div>
         <div className="mt-3 flex min-w-0 gap-4 pb-2 lg:pr-[28rem]">
-            {headshot ? (
-              <img
-                src={headshot.src}
-                alt={`${memberName} headshot from Wikipedia`}
-                className="h-20 w-20 shrink-0 rounded-full border border-white/15 bg-slate-950/70 object-cover shadow-inner"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full border border-white/15 bg-slate-950/70 text-2xl font-semibold text-emerald-100 shadow-inner">
-                {initialsForName(memberName)}
-              </div>
-            )}
+            <Suspense fallback={<MemberHeadshotFallback memberName={memberName} />}>
+              <StreamedMemberHeadshot memberName={memberName} headshotPromise={headshotPromise} />
+            </Suspense>
             <div className="min-w-0 pt-0.5">
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{memberName} Stock Trades</h1>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades, getSeoSnapshot } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
@@ -186,6 +187,33 @@ function initialsForName(name: string) {
   return `${first}${last ?? ""}`.toUpperCase();
 }
 
+function InsiderHeadshotFallback({ insiderName }: { insiderName: string }) {
+  return (
+    <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full border border-white/15 bg-slate-950/70 text-2xl font-semibold text-emerald-100 shadow-inner">
+      {initialsForName(insiderName)}
+    </div>
+  );
+}
+
+async function StreamedInsiderHeadshot({
+  insiderName,
+  headshotPromise,
+}: {
+  insiderName: string;
+  headshotPromise: ReturnType<typeof resolveWikipediaHeadshot>;
+}) {
+  const headshot = await headshotPromise;
+  if (!headshot) return <InsiderHeadshotFallback insiderName={insiderName} />;
+  return (
+    <img
+      src={headshot.src}
+      alt={`${insiderName} headshot from Wikipedia`}
+      className="h-20 w-20 shrink-0 rounded-full border border-white/15 bg-slate-950/70 object-cover shadow-inner"
+      referrerPolicy="no-referrer"
+    />
+  );
+}
+
 function VerifiedBadge() {
   return (
     <span className="grid h-4 w-4 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_12px_rgba(14,165,233,0.35)]">
@@ -299,7 +327,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const companyText =
     firstText(summary.primary_company_name, headerTrade?.company_name, headerTrade?.companyName, headerTrade?.security_name, headerTrade?.securityName) ??
     "Company unavailable";
-  const [initialAlphaSummaryResult, initialTradesResult, headshotResult] = await Promise.allSettled([
+  const headshotPromise = resolveWikipediaHeadshot(insiderName, {
+    kind: "insider",
+    company: companyText,
+    role: roleText,
+    symbol: stockSymbol,
+  });
+  const [initialAlphaSummaryResult, initialTradesResult] = await Promise.allSettled([
     getInsiderAlphaSummary(reportingCik, {
       lookback_days: lookbackDays,
       issuer: normalizedIssuer,
@@ -311,18 +345,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
       source: "InsiderProfileInitialTrades",
       stalePageCache: publicStalePageCache,
     }),
-    resolveWikipediaHeadshot(insiderName, {
-      kind: "insider",
-      company: companyText,
-      role: roleText,
-      symbol: stockSymbol,
-    }),
   ]);
   const initialAlphaSummary =
     initialAlphaSummaryResult.status === "fulfilled" ? initialAlphaSummaryResult.value : undefined;
   const initialTrades =
     initialTradesResult.status === "fulfilled" ? initialTradesResult.value : undefined;
-  const headshot = headshotResult.status === "fulfilled" ? headshotResult.value : null;
   const initialBuyCount = initialTrades?.items.filter((trade) => {
     const value = (trade.trade_type ?? trade.tradeType ?? "").toLowerCase();
     return value === "p" || value.includes("buy") || value.includes("purchase") || value.includes("acquire");
@@ -364,18 +391,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           </div>
         </div>
         <div className="mt-3 flex min-w-0 gap-4 pb-2 lg:pr-[28rem]">
-            {headshot ? (
-              <img
-                src={headshot.src}
-                alt={`${insiderName} headshot from Wikipedia`}
-                className="h-20 w-20 shrink-0 rounded-full border border-white/15 bg-slate-950/70 object-cover shadow-inner"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full border border-white/15 bg-slate-950/70 text-2xl font-semibold text-emerald-100 shadow-inner">
-                {initialsForName(insiderName)}
-              </div>
-            )}
+            <Suspense fallback={<InsiderHeadshotFallback insiderName={insiderName} />}>
+              <StreamedInsiderHeadshot insiderName={insiderName} headshotPromise={headshotPromise} />
+            </Suspense>
             <div className="min-w-0 pt-0.5">
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName} Insider Activity</h1>
