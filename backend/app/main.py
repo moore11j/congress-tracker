@@ -3109,6 +3109,39 @@ def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder
                 inflight.set()
 
 
+def _run_profile_overview_prewarm() -> None:
+    """Warm the two entitlement-safe Profiles landing payloads after app startup.
+
+    The complete landing summary is intentionally cached for an hour, but a
+    newly deployed process can otherwise make the first visitor wait for its
+    aggregate queries. This runs after readiness in the existing bounded
+    background-maintenance lane and never changes the response shape.
+    """
+    activity_per_type = 5
+    cache_keys = (
+        ("profiles_summary", "all", 25, False, True, activity_per_type),
+        ("profiles_summary", "all", 25, True, True, activity_per_type),
+    )
+    db = SessionLocal()
+    try:
+        for key in cache_keys:
+            include_institutions = bool(key[3])
+            _cached_profile_overview_response(
+                db,
+                key,
+                lambda include_institutions=include_institutions: build_profiles_summary(
+                    db,
+                    activity_type="all",
+                    activity_limit=25,
+                    activity_per_type=activity_per_type,
+                    include_institutions=include_institutions,
+                    include_activity=True,
+                ),
+            )
+    finally:
+        db.close()
+
+
 def _request_route_family(path: str, header_family: str | None = None) -> str:
     header = _bounded_log_value(header_family, max_length=40).lower().replace("-", "_")
     if header and header != "none":
@@ -4116,6 +4149,13 @@ def _startup_create_tables():
         _schedule_startup_maintenance("startup_auto_backfill", _run_startup_auto_backfill)
     else:
         _startup_step_skipped("startup_auto_backfill", "AUTO_BACKFILL_EVENTS_ON_STARTUP disabled")
+
+    # Starts only after the service is ready, so a heavy dashboard aggregate
+    # cannot delay health checks or interrupt a rolling deployment.
+    if _startup_maintenance_enabled("PROFILE_OVERVIEW_PREWARM_ENABLED"):
+        _schedule_startup_maintenance("startup_profile_overview_prewarm", _run_profile_overview_prewarm)
+    else:
+        _startup_step_skipped("startup_profile_overview_prewarm", "PROFILE_OVERVIEW_PREWARM_ENABLED disabled")
 
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:

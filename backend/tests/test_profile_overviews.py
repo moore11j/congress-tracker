@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.main import _profile_overview_database_cache_get, _profile_overview_persistent_key
+from app.main import _profile_overview_database_cache_get, _profile_overview_persistent_key, _run_profile_overview_prewarm
 from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
 from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profile_activity, profiles_summary
 
@@ -270,6 +270,34 @@ def test_profile_subpage_overview_caches_serve_stale_payloads_before_expiry():
 
     for index, key in enumerate(keys):
         assert _profile_overview_database_cache_get(db, key, now=now) == {"status": "ok", "marker": index}
+
+
+def test_profile_overview_prewarm_warms_public_and_entitled_summaries(monkeypatch):
+    from app import main
+
+    seen_keys = []
+
+    class FakeSession:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    session = FakeSession()
+    monkeypatch.setattr(main, "SessionLocal", lambda: session)
+    monkeypatch.setattr(
+        main,
+        "_cached_profile_overview_response",
+        lambda db, key, builder: seen_keys.append((db, key)),
+    )
+
+    _run_profile_overview_prewarm()
+
+    assert [key for _, key in seen_keys] == [
+        ("profiles_summary", "all", 25, False, True, 5),
+        ("profiles_summary", "all", 25, True, True, 5),
+    ]
+    assert session.closed
 
 
 def test_congress_overview_returns_page_ready_sections():
