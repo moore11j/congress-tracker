@@ -45,6 +45,7 @@ from app.services.research_briefs import (
     research_brief_model_labels,
     research_brief_model_options,
     research_brief_model,
+    regenerate_research_keyword_opportunity,
     reschedule_research_brief,
     run_research_campaign_now,
     set_research_campaign_active,
@@ -131,6 +132,10 @@ class ResearchKeywordOpportunityStatusPayload(BaseModel):
     status: str = Field(min_length=1, max_length=20)
 
 
+class ResearchKeywordOpportunityRegeneratePayload(BaseModel):
+    instructions: str | None = Field(default=None, max_length=2000)
+
+
 class ActivePayload(BaseModel):
     active: bool
 
@@ -200,6 +205,17 @@ def admin_update_research_keyword_opportunity(
 ):
     require_admin_user(db, request)
     return update_research_keyword_opportunity_status(db, opportunity_id, payload.status)
+
+
+@router.post("/admin/research-briefs/keyword-opportunities/{opportunity_id}/regenerate", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_regenerate_research_keyword_opportunity(
+    opportunity_id: str,
+    payload: ResearchKeywordOpportunityRegeneratePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    return regenerate_research_keyword_opportunity(db, admin, opportunity_id, payload.instructions)
 
 
 @router.get("/admin/research-briefs/health")

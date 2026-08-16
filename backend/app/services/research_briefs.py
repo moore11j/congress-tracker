@@ -2102,6 +2102,101 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
     }
 
 
+def _keyword_opportunity_regeneration_prompt(opportunity: dict[str, Any], instructions: str) -> str:
+    """Ask for one replacement opportunity while retaining the useful original context."""
+    original = {
+        key: opportunity.get(key)
+        for key in (
+            "target_keyword", "secondary_keywords", "search_intent", "content_type", "ticker", "topic",
+            "recommended_theme", "trend_signal", "competition_assessment", "opportunity_score", "rationale",
+            "walnut_angle", "source_urls", "metric_note",
+        )
+    }
+    requested_changes = instructions.strip() or "Find a meaningfully different, stronger angle while preserving the relevant ticker or topic when it is still justified by current signals."
+    return "\n".join(
+        [
+            "You are revising one saved Walnut Markets SEO and answer-engine keyword opportunity.",
+            "Use web search before answering. Re-check current reporting, Google Trends pages/results when available, and relevant Reddit discussions. Prefer primary company, filing, regulatory, or reputable market sources for factual claims.",
+            "Return exactly one replacement candidate. It must be a distinct, answerable long-tail investor query that Walnut can support with original evidence (congressional trades, insider activity, institutional ownership, government contracts, confirmations, fundamentals, or price/volume context).",
+            "Do not claim exact search volume, keyword difficulty, CPC, or Reddit engagement unless a source explicitly provides it. Treat Google Trends and competition as directional evidence only.",
+            "Keep search_intent at 120 characters or fewer. Include 2-4 source URLs from pages actually used. Return JSON matching the requested schema.",
+            f"SAVED_OPPORTUNITY: {_json_dump(original)}",
+            f"EDITOR_INSTRUCTIONS: {requested_changes[:2000]}",
+        ]
+    )
+
+
+def regenerate_research_keyword_opportunity(
+    db: Session,
+    admin: UserAccount,
+    opportunity_id: str,
+    instructions: str | None = None,
+) -> dict[str, Any]:
+    """Replace a saved, uncommitted opportunity in place after a fresh web-grounded pass."""
+    ensure_research_brief_store_schema(db)
+    row = db.execute(text("SELECT * FROM research_keyword_opportunities WHERE id = :id"), {"id": opportunity_id}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Keyword opportunity not found.")
+    existing = _keyword_opportunity_from_row(row)
+    if existing.get("status") != "new":
+        raise HTTPException(status_code=409, detail="Only saved, unused keyword opportunities can be regenerated.")
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before regenerating a keyword opportunity.")
+    response = requests.post(
+        RESPONSES_ENDPOINT,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": _keyword_discovery_model(db),
+            "input": _keyword_opportunity_regeneration_prompt(existing, str(instructions or "")),
+            "tools": [{"type": "web_search", "search_context_size": "medium"}],
+            "tool_choice": "required",
+            "store": False,
+            "max_output_tokens": 2600,
+            "text": {"format": {"type": "json_schema", "name": "walnut_keyword_opportunity_revision", "schema": _keyword_opportunity_schema(1), "strict": True}},
+        },
+        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    )
+    if response.status_code >= 400:
+        logger.warning("research_keyword_regeneration_failed opportunity_id=%s status=%s body=%s", opportunity_id, response.status_code, response.text[:500])
+        _raise_openai_response_error(response, operation="keyword opportunity regeneration")
+    try:
+        parsed = json.loads(_response_text(response.json()))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="OpenAI returned invalid regenerated keyword opportunity JSON.") from exc
+    candidates = parsed.get("candidates") if isinstance(parsed, dict) else None
+    candidate = _normalize_keyword_candidate(candidates[0]) if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict) else None
+    if not candidate:
+        raise HTTPException(status_code=502, detail="OpenAI did not return a usable regenerated keyword opportunity.")
+    now = _now()
+    revision_count = max(0, int(existing.get("revision_count") or 0)) + 1
+    candidate.update(
+        {
+            "id": opportunity_id,
+            "status": "new",
+            "created_by": existing.get("created_by") or admin.id,
+            "created_by_email": existing.get("created_by_email") or getattr(admin, "email", None),
+            "discovered_at": existing.get("discovered_at") or now,
+            "updated_at": now,
+            "revision_count": revision_count,
+            "last_revision_instructions": str(instructions or "").strip()[:2000] or None,
+        }
+    )
+    db.execute(
+        text(
+            """
+            UPDATE research_keyword_opportunities
+            SET target_keyword = :target_keyword, opportunity_score = :opportunity_score, ticker = :ticker, topic = :topic,
+                updated_at = :updated_at, payload_json = :payload_json
+            WHERE id = :id
+            """
+        ),
+        {**candidate, "payload_json": _json_dump(candidate)},
+    )
+    db.commit()
+    return candidate
+
+
 def update_research_keyword_opportunity_status(db: Session, opportunity_id: str, status: str) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
     normalized_status = str(status or "").strip().lower()

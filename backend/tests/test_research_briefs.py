@@ -187,6 +187,95 @@ def test_keyword_opportunity_status_can_be_updated(monkeypatch):
     assert updated["status"] == "used"
 
 
+def test_keyword_opportunity_regeneration_replaces_saved_candidate_and_preserves_id(monkeypatch):
+    db = _session()
+    admin = _user(db, "keywords@example.com", role="admin")
+    service.ensure_research_brief_store_schema(db)
+    existing = {
+        "id": "rko_regenerate",
+        "status": "new",
+        "target_keyword": "NBIS stock buy now",
+        "secondary_keywords": ["Nebius earnings"],
+        "search_intent": "Is NBIS stock a good buy right now?",
+        "content_type": "ticker",
+        "ticker": "NBIS",
+        "topic": "Nebius investment thesis",
+        "recommended_theme": "good_buy_now",
+        "trend_signal": "recent",
+        "competition_assessment": "moderate",
+        "opportunity_score": 70,
+        "rationale": "Original angle.",
+        "walnut_angle": "Original Walnut angle.",
+        "source_urls": ["https://example.com/original"],
+        "metric_note": "Directional only.",
+        "discovered_at": "2026-08-16T00:00:00+00:00",
+        "updated_at": "2026-08-16T00:00:00+00:00",
+    }
+    db.execute(
+        text(
+            """
+            INSERT INTO research_keyword_opportunities (
+                id, status, created_by, created_by_email, target_keyword, opportunity_score, ticker, topic,
+                discovered_at, updated_at, payload_json
+            ) VALUES (
+                :id, :status, :created_by, :created_by_email, :target_keyword, :opportunity_score, :ticker, :topic,
+                :discovered_at, :updated_at, :payload_json
+            )
+            """
+        ),
+        {**existing, "created_by": admin.id, "created_by_email": admin.email, "payload_json": json.dumps(existing)},
+    )
+    db.commit()
+    monkeypatch.setattr(service, "resolved_setting_value", lambda _db, key: "test-key" if key == service.OPENAI_API_KEY else "gpt-test")
+    request_body = {}
+
+    class Response:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return {"output_text": json.dumps({"market_note": "", "candidates": [{
+                "target_keyword": "Is Nebius stock overvalued after Q2 earnings?",
+                "secondary_keywords": ["NBIS valuation", "Nebius Q2 earnings"],
+                "search_intent": "Is NBIS stock overvalued after Q2 earnings?",
+                "content_type": "ticker",
+                "ticker": "NBIS",
+                "topic": "Nebius valuation after earnings",
+                "recommended_theme": "good_buy_now",
+                "trend_signal": "rising",
+                "competition_assessment": "lower",
+                "opportunity_score": 91,
+                "rationale": "A revised post-earnings valuation question.",
+                "walnut_angle": "Compare earnings execution with valuation and Walnut signals.",
+                "source_urls": ["https://example.com/earnings"],
+                "metric_note": "Directional only.",
+            }]})}
+
+    def fake_post(*_args, **kwargs):
+        request_body.update(kwargs["json"])
+        return Response()
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    revised = service.regenerate_research_keyword_opportunity(
+        db,
+        admin,
+        "rko_regenerate",
+        "Focus on valuation risk after earnings and avoid the generic buy-now framing.",
+    )
+
+    assert revised["id"] == "rko_regenerate"
+    assert revised["status"] == "new"
+    assert revised["opportunity_score"] == 91
+    assert revised["revision_count"] == 1
+    assert "Focus on valuation risk" in revised["last_revision_instructions"]
+    assert request_body["tools"] == [{"type": "web_search", "search_context_size": "medium"}]
+    assert "EDITOR_INSTRUCTIONS: Focus on valuation risk" in request_body["input"]
+    stored = service.list_research_keyword_opportunities(db)["items"][0]
+    assert stored["id"] == "rko_regenerate"
+    assert stored["target_keyword"] == "Is Nebius stock overvalued after Q2 earnings?"
+    assert stored["revision_count"] == 1
+
+
 def test_openai_credit_balance_exhaustion_is_not_reported_as_rate_limit():
     class Response:
         status_code = 429

@@ -6786,6 +6786,8 @@ export type AdminResearchKeywordOpportunity = {
   walnut_angle: string;
   source_urls: string[];
   metric_note: string;
+  revision_count?: number;
+  last_revision_instructions?: string | null;
   discovered_at?: string | null;
   updated_at?: string | null;
 };
@@ -7081,6 +7083,15 @@ export async function updateAdminResearchKeywordOpportunityStatus(opportunityId:
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function regenerateAdminResearchKeywordOpportunity(opportunityId: string, payload: { instructions?: string | null }): Promise<AdminResearchKeywordOpportunity> {
+  return fetchJson<AdminResearchKeywordOpportunity>(buildApiUrl(`/api/admin/research-briefs/keyword-opportunities/${encodeURIComponent(opportunityId)}/regenerate`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
     source: "AdminResearchCampaigns",
   });
 }

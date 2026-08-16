@@ -20,6 +20,7 @@ import {
   publishNowAdminResearchBriefDraft,
   recordProductEvent,
   refreshAdminResearchBriefSources,
+  regenerateAdminResearchKeywordOpportunity,
   rejectAdminResearchBriefDraft,
   rescheduleAdminResearchBriefDraft,
   runAdminResearchCampaignNow,
@@ -480,6 +481,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [keywordOpportunities, setKeywordOpportunities] = useState<AdminResearchKeywordOpportunity[]>([]);
   const [keywordMarketNote, setKeywordMarketNote] = useState("");
   const [selectedKeywordOpportunityIds, setSelectedKeywordOpportunityIds] = useState<string[]>([]);
+  const [keywordOpportunityInstructions, setKeywordOpportunityInstructions] = useState<Record<string, string>>({});
   const [publishingHealth, setPublishingHealth] = useState<AdminResearchPublishingHealth | null>(null);
   const [campaignForm, setCampaignForm] = useState<AdminResearchCampaignPayload>(DEFAULT_CAMPAIGN_FORM);
 
@@ -769,6 +771,43 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       await refreshKeywordOpportunities();
     } catch (err) {
       showToast?.(err instanceof Error ? err.message : "Unable to dismiss keyword opportunity.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function regenerateKeywordOpportunity(opportunity: AdminResearchKeywordOpportunity) {
+    setBusy(`keyword-regenerate-${opportunity.id}`);
+    try {
+      const revised = await regenerateAdminResearchKeywordOpportunity(opportunity.id, {
+        instructions: keywordOpportunityInstructions[opportunity.id] || null,
+      });
+      setKeywordOpportunities((current) => current.map((item) => (item.id === revised.id ? revised : item)));
+      setKeywordOpportunityInstructions((current) => ({ ...current, [opportunity.id]: "" }));
+      if (selectedKeywordOpportunityIds.includes(revised.id)) {
+        setCampaignForm((current) => {
+          if (revised.content_type === "ticker" && revised.ticker) {
+            return {
+              ...current,
+              target_keyword: revised.target_keyword.slice(0, 240),
+              search_intent: revised.search_intent.slice(0, 120),
+              secondary_keywords: revised.secondary_keywords.slice(0, 12),
+              target_keywords: { ...current.target_keywords, [revised.ticker]: revised.target_keyword.slice(0, 240) },
+              target_search_intents: { ...current.target_search_intents, [revised.ticker]: revised.search_intent.slice(0, 120) },
+            };
+          }
+          return {
+            ...current,
+            topic: revised.topic || revised.target_keyword,
+            target_keyword: revised.target_keyword.slice(0, 240),
+            search_intent: revised.search_intent.slice(0, 120),
+            secondary_keywords: revised.secondary_keywords.slice(0, 12),
+          };
+        });
+      }
+      showToast?.("Opportunity regenerated from current signals. Your campaign plan was updated if it was loaded.", "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to regenerate keyword opportunity.", "error");
     } finally {
       setBusy(null);
     }
@@ -1424,6 +1463,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           onDiscover={discoverKeywordOpportunities}
           onUseOpportunity={useKeywordOpportunity}
           onDismissOpportunity={dismissKeywordOpportunity}
+          opportunityInstructions={keywordOpportunityInstructions}
+          onOpportunityInstructionsChange={(opportunityId, instructions) => setKeywordOpportunityInstructions((current) => ({ ...current, [opportunityId]: instructions }))}
+          onRegenerateOpportunity={regenerateKeywordOpportunity}
         />
       ) : null}
 
@@ -1902,6 +1944,9 @@ function CampaignsPanel({
   onDiscover,
   onUseOpportunity,
   onDismissOpportunity,
+  opportunityInstructions,
+  onOpportunityInstructionsChange,
+  onRegenerateOpportunity,
 }: {
   themes: AdminResearchCampaignTheme[];
   campaigns: AdminResearchCampaign[];
@@ -1919,6 +1964,9 @@ function CampaignsPanel({
   onDiscover: (maxCandidates?: number) => void;
   onUseOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
   onDismissOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
+  opportunityInstructions: Record<string, string>;
+  onOpportunityInstructionsChange: (opportunityId: string, instructions: string) => void;
+  onRegenerateOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
 }) {
   const selectedTheme = themes.find((theme) => theme.key === form.theme) || themes[0];
   const [opportunityCount, setOpportunityCount] = useState(5);
@@ -2055,8 +2103,20 @@ function CampaignsPanel({
                 <p className="mt-1 text-xs leading-5 text-emerald-100">Walnut angle: {opportunity.walnut_angle}</p>
                 <p className="mt-2 text-xs text-slate-500">Trend: {opportunity.trend_signal} · Competition: {opportunity.competition_assessment} · {opportunity.metric_note}</p>
                 {opportunity.source_urls?.length ? <p className="mt-2 text-xs text-slate-500">Signals: {opportunity.source_urls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="mr-2 text-cyan-200 hover:underline">source</a>)}</p> : null}
+                <label className="mt-3 block">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Change request (optional)</span>
+                  <textarea
+                    value={opportunityInstructions[opportunity.id] || ""}
+                    onChange={(event) => onOpportunityInstructionsChange(opportunity.id, event.target.value.slice(0, 2000))}
+                    rows={2}
+                    className={fieldClassName("mt-2 resize-y")}
+                    placeholder="e.g. focus on valuation risk after earnings, avoid backlog, or make this more AEO-friendly"
+                  />
+                  <span className="mt-1 block text-xs text-slate-500">Walnut will re-check current web signals and replace this saved opportunity. It will not create a campaign.</span>
+                </label>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{isOpportunityLoaded(opportunity) ? "Loaded in campaign plan" : "Add to campaign"}</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onRegenerateOpportunity(opportunity)}>{busy === `keyword-regenerate-${opportunity.id}` ? "Regenerating..." : "Regenerate opportunity"}</Button>
                   <Button disabled={Boolean(busy)} onClick={() => onDismissOpportunity(opportunity)}>Dismiss</Button>
                 </div>
               </div>
