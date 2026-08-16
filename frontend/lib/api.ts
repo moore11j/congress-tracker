@@ -6765,6 +6765,7 @@ export type AdminResearchCampaignPayload = {
   secondary_keywords?: string[];
   search_intent?: string | null;
   target_keywords?: Record<string, string>;
+  target_search_intents?: Record<string, string>;
 };
 
 export type AdminResearchKeywordOpportunity = {
@@ -6806,6 +6807,7 @@ export type AdminResearchPublishingHealth = {
   average_impressions_per_indexed_brief?: number | null;
   average_position?: number | null;
   daily_automated_publish_cap: number;
+  campaign_schedule_enabled?: boolean;
   cadence_warning?: string | null;
 };
 

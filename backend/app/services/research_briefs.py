@@ -99,6 +99,7 @@ RESEARCH_CAMPAIGN_REVIEW_TEMPLATE_KEY = "research_brief.scheduled_review"
 RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION = "research_campaign_v1"
 RESEARCH_DAILY_PUBLISH_CAP = "RESEARCH_DAILY_PUBLISH_CAP"
 RESEARCH_DAILY_PUBLISH_CAP_DEFAULT = 1
+RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED = "RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED"
 RESEARCH_KEYWORD_DISCOVERY_MODEL = "RESEARCH_KEYWORD_DISCOVERY_MODEL"
 RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES = 8
 RESEARCH_KEYWORD_OPPORTUNITY_STATUSES = {"new", "used", "dismissed"}
@@ -1944,7 +1945,7 @@ def _keyword_opportunity_schema() -> dict[str, Any]:
         "properties": {
             "target_keyword": {"type": "string"},
             "secondary_keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 6},
-            "search_intent": {"type": "string"},
+            "search_intent": {"type": "string", "maxLength": 120},
             "content_type": {"type": "string", "enum": ["ticker", "non_ticker"]},
             "ticker": {"type": "string"},
             "topic": {"type": "string"},
@@ -2016,7 +2017,7 @@ def _normalize_keyword_candidate(candidate: dict[str, Any]) -> dict[str, Any] | 
     return {
         "target_keyword": target_keyword,
         "secondary_keywords": _dedupe_strings([str(item).strip()[:120] for item in (candidate.get("secondary_keywords") or []) if str(item).strip()])[:6],
-        "search_intent": str(candidate.get("search_intent") or target_keyword).strip()[:240],
+        "search_intent": str(candidate.get("search_intent") or target_keyword).strip()[:120],
         "content_type": content_type,
         "ticker": ticker or None,
         "topic": topic,
@@ -2161,6 +2162,11 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         for symbol, keyword in (payload.get("target_keywords") or {}).items()
         if normalize_symbol(symbol) and str(keyword).strip()
     }
+    target_search_intents = {
+        normalize_symbol(symbol): str(intent).strip()[:120]
+        for symbol, intent in (payload.get("target_search_intents") or {}).items()
+        if normalize_symbol(symbol) and str(intent).strip()
+    }
     return {
         "name": str(payload.get("name") or theme["label"]).strip()[:180],
         "theme": theme["key"],
@@ -2178,6 +2184,7 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "secondary_keywords": secondary_keywords,
         "search_intent": str(payload.get("search_intent") or theme.get("intent") or "").strip()[:120],
         "target_keywords": target_keywords,
+        "target_search_intents": target_search_intents,
     }
 
 
@@ -2451,7 +2458,7 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         "manual_source_url": "",
         "target_keyword": item.get("target_keyword") or campaign_config.get("target_keyword") or f"{ticker} stock buy now",
         "secondary_keywords": campaign_config.get("secondary_keywords") or [],
-        "search_intent": campaign_config.get("search_intent") or title_intent,
+        "search_intent": campaign_config.get("target_search_intents", {}).get(ticker) or campaign_config.get("search_intent") or title_intent,
         "content_type": "ticker",
     }
 
@@ -2708,6 +2715,7 @@ def research_publishing_health(db: Session) -> dict[str, Any]:
         "average_impressions_per_indexed_brief": round(sum(impressions) / len(impressions), 1) if impressions else None,
         "average_position": round(sum(positions) / len(positions), 1) if positions else None,
         "daily_automated_publish_cap": _research_daily_publish_cap(),
+        "campaign_schedule_enabled": _env_flag_enabled(RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED),
         "cadence_warning": f"Only {index_rate}% of Research Briefs published in the last 30 days are currently indexed. Consider slowing publication or improving internal linking." if index_rate is not None and index_rate < 50 else None,
     }
 

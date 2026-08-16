@@ -465,6 +465,16 @@ def test_research_campaign_create_distributes_ticker_items(tmp_path, monkeypatch
             "publish_start_at": "2026-08-14T09:00:00+00:00",
             "article_count": 3,
             "window_days": 5,
+            "target_keywords": {
+                "NBIS": "Is NBIS stock overvalued after Q2 2026 earnings?",
+                "CRWV": "Does CoreWeave backlog outweigh debt and capex risk?",
+                "COHR": "Is Coherent stock an AI optics play after fiscal 2026 earnings?",
+            },
+            "target_search_intents": {
+                "NBIS": "Is NBIS stock overvalued after Q2 2026 earnings?",
+                "CRWV": "Does CoreWeave backlog outweigh debt and capex risk?",
+                "COHR": "Is Coherent stock an AI optics play after fiscal 2026 earnings?",
+            },
         },
     )
 
@@ -474,6 +484,25 @@ def test_research_campaign_create_distributes_ticker_items(tmp_path, monkeypatch
     assert [item["ticker"] for item in campaign["items"]] == ["NBIS", "CRWV", "COHR"]
     assert len({item["publish_at"][:10] for item in campaign["items"]}) == 3
     assert service.list_research_campaigns(db)["items"][0]["pending_count"] == 3
+    assert campaign["config"]["target_search_intents"]["CRWV"] == "Does CoreWeave backlog outweigh debt and capex risk?"
+    item_config = service._campaign_item_generation_config({"ticker": "CRWV", "target_keyword": "Does CoreWeave backlog outweigh debt and capex risk?"}, campaign["config"])
+    assert item_config["search_intent"] == "Does CoreWeave backlog outweigh debt and capex risk?"
+
+
+def test_research_campaign_normalizes_long_search_intent_without_rejecting_payload():
+    normalized = service._normalize_campaign_payload(
+        {
+            "name": "Campaign",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["NBIS"],
+            "search_intent": "x" * 240,
+            "target_search_intents": {"NBIS": "y" * 240},
+        }
+    )
+
+    assert len(normalized["search_intent"]) == 120
+    assert len(normalized["target_search_intents"]["NBIS"]) == 120
 
 
 def test_scheduled_research_publish_requires_approval(tmp_path, monkeypatch):

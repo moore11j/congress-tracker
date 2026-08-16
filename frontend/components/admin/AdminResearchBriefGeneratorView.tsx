@@ -187,6 +187,11 @@ const DEFAULT_CAMPAIGN_FORM: AdminResearchCampaignPayload = {
   window_days: 5,
   active: true,
   target_keywords: { NBIS: "NBIS stock buy now", CRWV: "CRWV stock buy now", COHR: "COHR stock buy now" },
+  target_search_intents: {
+    NBIS: "Is NBIS a good stock to buy right now?",
+    CRWV: "Is CRWV a good stock to buy right now?",
+    COHR: "Is COHR a good stock to buy right now?",
+  },
   secondary_keywords: [],
   search_intent: "Is [TICKER] a good stock to buy right now?",
 };
@@ -745,19 +750,20 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       name: current.name || opportunity.target_keyword,
       theme: options.campaign_themes.some((theme) => theme.key === opportunity.recommended_theme) ? opportunity.recommended_theme : current.theme,
       content_type: contentType,
-      tickers: contentType === "ticker" && opportunity.ticker ? [opportunity.ticker] : [],
+      tickers: contentType === "ticker" && opportunity.ticker ? Array.from(new Set([...current.tickers, opportunity.ticker])) : [],
       topic: contentType === "non_ticker" ? (opportunity.topic || opportunity.target_keyword) : current.topic,
-      article_count: 1,
-      target_keyword: opportunity.target_keyword,
-      secondary_keywords: opportunity.secondary_keywords || [],
-      search_intent: opportunity.search_intent,
-      target_keywords: contentType === "ticker" && opportunity.ticker ? { [opportunity.ticker]: opportunity.target_keyword } : {},
+      article_count: contentType === "ticker" && opportunity.ticker ? Array.from(new Set([...current.tickers, opportunity.ticker])).length : 1,
+      target_keyword: (opportunity.target_keyword || "").slice(0, 240),
+      secondary_keywords: (opportunity.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
+      search_intent: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120),
+      target_keywords: contentType === "ticker" && opportunity.ticker ? { ...current.target_keywords, [opportunity.ticker]: (opportunity.target_keyword || "").slice(0, 240) } : {},
+      target_search_intents: contentType === "ticker" && opportunity.ticker ? { ...current.target_search_intents, [opportunity.ticker]: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120) } : {},
     }));
     setBusy(`keyword-use-${opportunity.id}`);
     try {
       await updateAdminResearchKeywordOpportunityStatus(opportunity.id, "used");
       await refreshKeywordOpportunities();
-      showToast?.("Opportunity loaded into the campaign form. Review it, then create the campaign.", "success");
+      showToast?.("Opportunity added to the campaign plan. Add more ticker opportunities, then create the campaign.", "success");
     } catch (err) {
       showToast?.(err instanceof Error ? err.message : "Unable to update keyword opportunity.", "error");
     } finally {
@@ -987,6 +993,11 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         ...campaignForm,
         tickers: campaignForm.content_type === "ticker" ? campaignForm.tickers.map((ticker) => normalizeTickerSymbol(ticker)).filter((ticker): ticker is string => Boolean(ticker)) : [],
         article_count: campaignForm.content_type === "ticker" ? Math.max(1, campaignForm.tickers.length) : 1,
+        target_keyword: (campaignForm.target_keyword || "").slice(0, 240),
+        secondary_keywords: (campaignForm.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
+        search_intent: (campaignForm.search_intent || "").slice(0, 120),
+        target_keywords: Object.fromEntries(Object.entries(campaignForm.target_keywords || {}).map(([ticker, keyword]) => [ticker, keyword.slice(0, 240)])),
+        target_search_intents: Object.fromEntries(Object.entries(campaignForm.target_search_intents || {}).map(([ticker, intent]) => [ticker, intent.slice(0, 120)])),
       };
       const campaign = await createAdminResearchCampaign(payload);
       await refreshCampaigns();
@@ -1944,6 +1955,7 @@ function CampaignsPanel({
             </label>
           </div>
           {form.content_type === "ticker" ? (
+            <div>
             <label>
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Tickers</span>
               <input
@@ -1956,6 +1968,13 @@ function CampaignsPanel({
                 placeholder="NBIS, CRWV, COHR"
               />
             </label>
+              {form.tickers.length ? (
+                <div className="mt-2 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.03] p-2 text-xs text-slate-300">
+                  <p className="font-semibold text-emerald-100">Loaded campaign plan: {form.tickers.length} distinct draft{form.tickers.length === 1 ? "" : "s"}</p>
+                  {form.tickers.map((ticker) => <p key={ticker} className="mt-1 truncate">{ticker}: {form.target_keywords?.[ticker] || form.target_keyword || `${ticker} stock buy now`}</p>)}
+                </div>
+              ) : null}
+            </div>
           ) : (
             <label>
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Topic</span>
@@ -1963,8 +1982,9 @@ function CampaignsPanel({
             </label>
           )}
           <label>
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Target keyword</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Primary query</span>
             <input value={form.target_keyword || ""} onChange={(event) => onFormChange({ ...form, target_keyword: event.target.value })} className={fieldClassName("mt-2")} placeholder="NBIS stock buy now" />
+            <span className="mt-1 block text-xs text-slate-500">A question is valid here. Each loaded opportunity keeps its own ticker/query pair.</span>
             <span className="mt-1 block text-xs text-slate-500">For Good Buy Now, Walnut defaults each ticker to “[ticker] stock buy now” when empty.</span>
           </label>
           <label>
@@ -1991,6 +2011,7 @@ function CampaignsPanel({
               <input type="number" min={1} max={30} value={form.window_days} onChange={(event) => onFormChange({ ...form, window_days: Math.max(1, Number(event.target.value) || 1) })} className={fieldClassName("mt-2")} />
             </label>
           </div>
+          <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities, set Articles to 3 and Over days to 3. Create the campaign, then use Run Now to preview its drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
           <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? "Creating..." : "Create Campaign"}</Button>
         </div>
       </div>
@@ -2019,7 +2040,7 @@ function CampaignsPanel({
                 <p className="mt-2 text-xs text-slate-500">Trend: {opportunity.trend_signal} · Competition: {opportunity.competition_assessment} · {opportunity.metric_note}</p>
                 {opportunity.source_urls?.length ? <p className="mt-2 text-xs text-slate-500">Signals: {opportunity.source_urls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="mr-2 text-cyan-200 hover:underline">source</a>)}</p> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{busy === `keyword-use-${opportunity.id}` ? "Loading..." : "Use in campaign"}</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{busy === `keyword-use-${opportunity.id}` ? "Adding..." : "Add to campaign"}</Button>
                   <Button disabled={Boolean(busy)} onClick={() => onDismissOpportunity(opportunity)}>Dismiss</Button>
                 </div>
               </div>
@@ -2036,6 +2057,7 @@ function CampaignsPanel({
               <Metric label="Index rate" value={health.indexation_rate == null ? "-" : `${health.indexation_rate}%`} />
               <Metric label="Daily cap" value={String(health.daily_automated_publish_cap)} />
             </div>
+            <p className="mt-3 text-slate-500">Campaign scheduler: {health.campaign_schedule_enabled ? "enabled — drafts will be generated ahead of their publish times." : "off — create campaigns freely, then use Run Now to preview drafts. Automatic draft emails and scheduled publishing will not run until it is enabled."}</p>
             {health.cadence_warning ? <p className="mt-3 text-amber-100">{health.cadence_warning}</p> : null}
           </div>
         ) : null}

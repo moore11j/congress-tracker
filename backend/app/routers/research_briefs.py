@@ -84,7 +84,7 @@ class ResearchBriefGeneratePayload(BaseModel):
     manual_source_url: str | None = Field(default=None, max_length=1000)
     target_keyword: str | None = Field(default=None, max_length=240)
     secondary_keywords: list[str] = Field(default_factory=list, max_length=12)
-    search_intent: str | None = Field(default=None, max_length=120)
+    search_intent: str | None = Field(default=None, max_length=240)
     content_type: str | None = Field(default=None, max_length=80)
     client_request_id: str | None = Field(default=None, max_length=120)
 
@@ -114,8 +114,9 @@ class ResearchCampaignPayload(BaseModel):
     active: bool = True
     target_keyword: str | None = Field(default=None, max_length=240)
     secondary_keywords: list[str] = Field(default_factory=list, max_length=12)
-    search_intent: str | None = Field(default=None, max_length=120)
+    search_intent: str | None = Field(default=None, max_length=240)
     target_keywords: dict[str, str] = Field(default_factory=dict)
+    target_search_intents: dict[str, str] = Field(default_factory=dict)
 
 
 class ResearchKeywordDiscoveryPayload(BaseModel):
