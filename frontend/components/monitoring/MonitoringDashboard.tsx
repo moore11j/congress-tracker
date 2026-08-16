@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
-import { EventCalendarPanel } from "@/components/monitoring/EventCalendarPanel";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
@@ -39,6 +39,20 @@ import {
   type SavedView,
   type SavedViewsStore,
 } from "@/lib/savedViews";
+
+const EventCalendarPanel = dynamic(
+  () => import("@/components/monitoring/EventCalendarPanel").then((module) => module.EventCalendarPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4" aria-label="Loading event calendar">
+        <SkeletonBlock className="h-5 w-40" />
+        <SkeletonBlock className="mt-3 h-4 w-72" />
+        <SkeletonBlock className="mt-5 h-64 w-full" />
+      </section>
+    ),
+  },
+);
 
 type MonitoringInboxSource = MonitoringInboxResponse["sources"][number];
 
