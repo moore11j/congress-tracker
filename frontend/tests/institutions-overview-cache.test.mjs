@@ -10,6 +10,7 @@ test("anonymous Institutions overviews use the shared server cache without shari
   const source = api.slice(start, end);
 
   assert.match(source, /const request = \(\) => fetchJson<InstitutionsOverviewResponse>/);
-  assert.match(source, /if \(params\?\.authToken \|\| params\?\.signal\) return request\(\)/);
-  assert.match(source, /serverCachedJson\(`institutions-overview:\$\{url\}`, request\)/);
+  assert.match(source, /if \(params\?\.authToken \|\| params\?\.signal\) return resilientRequest\(\)/);
+  assert.match(source, /serverCachedJson\(`institutions-overview:\$\{url\}`, resilientRequest\)/);
+  assert.match(source, /\[502, 503, 504\]\.includes\(error\.status\)/);
 });

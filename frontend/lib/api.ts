@@ -7466,11 +7466,24 @@ export async function getInstitutionsOverview(params?: { year?: number; quarter?
       source: "InstitutionsOverview",
     },
   );
+  const resilientRequest = async () => {
+    try {
+      return await request();
+    } catch (error) {
+      // Fly can briefly return a gateway error while an instance wakes or
+      // rotates. A single short retry keeps the complete dashboard available
+      // without changing its data, entitlements, or page structure.
+      if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status) || params?.signal?.aborted) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (params?.signal?.aborted) throw error;
+      return request();
+    }
+  };
   // The public overview is identical for anonymous visitors. Keep account-
   // scoped and abortable requests isolated, but coalesce the short public
   // refresh so concurrent page renders do not duplicate the API round trip.
-  if (params?.authToken || params?.signal) return request();
-  return serverCachedJson(`institutions-overview:${url}`, request);
+  if (params?.authToken || params?.signal) return resilientRequest();
+  return serverCachedJson(`institutions-overview:${url}`, resilientRequest);
 }
 
 export async function getDepartmentsOverview(params?: { fiscal_year?: number; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<DepartmentsOverviewResponse> {
