@@ -7436,11 +7436,12 @@ export async function getCongressOverview(params?: { chamber?: string; period_da
 }
 
 export async function getInsidersOverview(params?: { sector?: string; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<InsidersOverviewResponse> {
-  return fetchJson<InsidersOverviewResponse>(
-    buildApiUrl("/api/profiles/insiders/overview", {
+  const url = buildApiUrl("/api/profiles/insiders/overview", {
       sector: params?.sector,
       period_days: params?.period_days,
-    }),
+    });
+  const request = () => fetchJson<InsidersOverviewResponse>(
+    url,
     {
       headers: authHeaders(params?.authToken ?? undefined),
       cache: "no-store",
@@ -7449,6 +7450,11 @@ export async function getInsidersOverview(params?: { sector?: string; period_day
       source: "InsidersOverview",
     },
   );
+  // This endpoint has no account- or entitlement-specific fields. Coalesce
+  // identical server renders for everyone, while preserving abort semantics
+  // for interactive callers.
+  if (params?.signal) return request();
+  return serverCachedJson(`insiders-overview:${url}`, request);
 }
 
 export async function getInstitutionsOverview(params?: { year?: number; quarter?: number; authToken?: string | null; signal?: AbortSignal }): Promise<InstitutionsOverviewResponse> {

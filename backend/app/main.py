@@ -3146,6 +3146,11 @@ def _run_profile_overview_prewarm() -> None:
                     include_details=include_details,
                 ),
             )
+        _cached_profile_overview_response(
+            db,
+            ("profiles_insiders_overview", "", 365),
+            lambda: build_insiders_overview(db, period_days=365),
+        )
     finally:
         db.close()
 

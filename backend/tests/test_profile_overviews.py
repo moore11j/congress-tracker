@@ -298,6 +298,7 @@ def test_profile_overview_prewarm_warms_public_and_entitled_summaries(monkeypatc
         ("profiles_summary", "all", 25, True, True, 5),
         ("profiles_institutions_overview", None, None, False),
         ("profiles_institutions_overview", None, None, True),
+        ("profiles_insiders_overview", "", 365),
     ]
     assert session.closed
 
