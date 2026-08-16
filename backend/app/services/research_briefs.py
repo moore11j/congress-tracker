@@ -1917,8 +1917,11 @@ def _keyword_discovery_model(db: Session) -> str:
 def _keyword_discovery_prompt(payload: dict[str, Any]) -> str:
     seeds = _dedupe_strings([str(item).strip()[:120] for item in (payload.get("seed_topics") or []) if str(item).strip()])[:12]
     tickers = _dedupe_strings([normalize_symbol(item) for item in (payload.get("tickers") or []) if normalize_symbol(item)])[:12]
+    requested_count = max(1, min(RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES, int(payload.get("max_candidates") or 5)))
+    theme = next((item for item in RESEARCH_CAMPAIGN_THEMES if item["key"] == str(payload.get("theme") or "").strip().lower()), None)
     seed_text = ", ".join(seeds) if seeds else "No fixed topic; find timely US public-market investor questions."
     ticker_text = ", ".join(tickers) if tickers else "No fixed tickers; prefer names or themes Walnut can support with its data."
+    theme_text = f"{theme['label']}: {theme['intent']}" if theme else "No fixed campaign theme; choose the best-fitting research angle."
     return "\n".join(
         [
             "You are Walnut Markets' SEO and answer-engine research strategist.",
@@ -1928,12 +1931,13 @@ def _keyword_discovery_prompt(payload: dict[str, Any]) -> str:
             "Avoid generic stock-picking queries, unsupported financial promises, and candidates that would merely rewrite a current news headline. Return distinct, answerable long-tail opportunities that have a clear investor question.",
             f"SEED_TOPICS: {seed_text}",
             f"MANUAL_TICKERS: {ticker_text}",
-            "Return JSON matching the requested schema. Include 2-4 source URLs per candidate from pages actually used. Give each candidate a 0-100 editorial opportunity score, not a prediction of traffic.",
+            f"CAMPAIGN_THEME: {theme_text}",
+            f"Return up to {requested_count} candidates, ordered from strongest to weakest by editorial opportunity score. Return JSON matching the requested schema. Include 2-4 source URLs per candidate from pages actually used. Give each candidate a 0-100 editorial opportunity score, not a prediction of traffic.",
         ]
     )
 
 
-def _keyword_opportunity_schema() -> dict[str, Any]:
+def _keyword_opportunity_schema(max_candidates: int = RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES) -> dict[str, Any]:
     candidate = {
         "type": "object",
         "additionalProperties": False,
@@ -1964,7 +1968,7 @@ def _keyword_opportunity_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "required": ["candidates", "market_note"],
         "properties": {
-            "candidates": {"type": "array", "items": candidate, "maxItems": RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES},
+            "candidates": {"type": "array", "items": candidate, "maxItems": max(1, min(RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES, max_candidates))},
             "market_note": {"type": "string"},
         },
     }
@@ -2034,6 +2038,7 @@ def _normalize_keyword_candidate(candidate: dict[str, Any]) -> dict[str, Any] | 
 
 def discover_research_keyword_opportunities(db: Session, admin: UserAccount, payload: dict[str, Any]) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
+    requested_count = max(1, min(RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES, int(payload.get("max_candidates") or 5)))
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before discovering keyword opportunities.")
@@ -2047,7 +2052,7 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
             "tool_choice": "required",
             "store": False,
             "max_output_tokens": 5000,
-            "text": {"format": {"type": "json_schema", "name": "walnut_keyword_opportunities", "schema": _keyword_opportunity_schema(), "strict": True}},
+            "text": {"format": {"type": "json_schema", "name": "walnut_keyword_opportunities", "schema": _keyword_opportunity_schema(requested_count), "strict": True}},
         },
         timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
     )
@@ -2062,7 +2067,7 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
         raise HTTPException(status_code=502, detail="OpenAI returned an invalid keyword opportunity payload.")
     created_at = _now()
     opportunities: list[dict[str, Any]] = []
-    for raw_candidate in (parsed.get("candidates") or [])[:RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES]:
+    for raw_candidate in (parsed.get("candidates") or [])[:requested_count]:
         candidate = _normalize_keyword_candidate(raw_candidate) if isinstance(raw_candidate, dict) else None
         if not candidate:
             continue

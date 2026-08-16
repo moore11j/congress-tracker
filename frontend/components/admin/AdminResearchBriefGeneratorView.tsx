@@ -727,12 +727,14 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setKeywordOpportunities(payload.items);
   }
 
-  async function discoverKeywordOpportunities() {
+  async function discoverKeywordOpportunities(maxCandidates = 5) {
     setBusy("keyword-discovery");
     try {
       const result = await discoverAdminResearchKeywordOpportunities({
         tickers: campaignForm.content_type === "ticker" ? campaignForm.tickers : [],
         seed_topics: [campaignForm.topic || "", campaignForm.search_intent || "", campaignForm.target_keyword || ""].filter(Boolean),
+        theme: campaignForm.theme,
+        max_candidates: maxCandidates,
       });
       setKeywordMarketNote(result.market_note || "");
       await refreshKeywordOpportunities();
@@ -1918,11 +1920,29 @@ function CampaignsPanel({
   onToggle: (campaign: AdminResearchCampaign) => void;
   onRunNow: (campaign: AdminResearchCampaign) => void;
   onDelete: (campaign: AdminResearchCampaign) => void;
-  onDiscover: () => void;
+  onDiscover: (maxCandidates?: number) => void;
   onUseOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
   onDismissOpportunity: (opportunity: AdminResearchKeywordOpportunity) => void;
 }) {
   const selectedTheme = themes.find((theme) => theme.key === form.theme) || themes[0];
+  const [opportunityCount, setOpportunityCount] = useState(5);
+  const newOpportunities = opportunities
+    .filter((opportunity) => opportunity.status === "new")
+    .sort((left, right) => Number(right.opportunity_score || 0) - Number(left.opportunity_score || 0));
+  const tickerOpportunityCounts = newOpportunities.reduce<Record<string, number>>((counts, opportunity) => {
+    if (opportunity.content_type === "ticker" && opportunity.ticker) counts[opportunity.ticker] = (counts[opportunity.ticker] || 0) + 1;
+    return counts;
+  }, {});
+  const isOpportunityLoaded = (opportunity: AdminResearchKeywordOpportunity) => {
+    if (selectedOpportunityIds.includes(opportunity.id)) return true;
+    if (opportunity.content_type === "ticker" && opportunity.ticker && form.tickers.includes(opportunity.ticker)) {
+      const configuredQuery = form.target_keywords?.[opportunity.ticker]?.trim().toLowerCase();
+      return configuredQuery
+        ? configuredQuery === opportunity.target_keyword.trim().toLowerCase()
+        : tickerOpportunityCounts[opportunity.ticker] === 1;
+    }
+    return opportunity.content_type === "non_ticker" && Boolean(form.topic && opportunity.topic && form.topic.trim().toLowerCase() === opportunity.topic.trim().toLowerCase());
+  };
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(22rem,0.7fr)_minmax(0,1.3fr)]">
       <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
@@ -1993,7 +2013,14 @@ function CampaignsPanel({
           <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.03] p-3 text-xs text-slate-300">
             <p className="font-semibold text-cyan-100">Live keyword discovery</p>
             <p className="mt-1 leading-5 text-slate-400">Searches current web signals—including Google Trends pages and relevant Reddit discussions where available—then ranks only questions Walnut can answer with original data. It never creates or publishes a campaign automatically.</p>
-            <Button disabled={Boolean(busy)} onClick={onDiscover}>{busy === "keyword-discovery" ? "Finding opportunities..." : "Find high-impact opportunities"}</Button>
+            <p className="mt-2 leading-5 text-slate-400">The selected theme, tickers, and topic are included in every discovery request; results are ranked highest score first.</p>
+            <label className="mt-3 block">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Ideas to rank</span>
+              <select value={opportunityCount} onChange={(event) => setOpportunityCount(Number(event.target.value))} className={fieldClassName("mt-2")}>
+                {[3, 5, 7, 8].map((count) => <option key={count} value={count}>{count} opportunities</option>)}
+              </select>
+            </label>
+            <Button disabled={Boolean(busy)} onClick={() => onDiscover(opportunityCount)}>{busy === "keyword-discovery" ? "Finding opportunities..." : `Find ${opportunityCount} high-impact opportunities`}</Button>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Select label="Cadence" value={form.cadence} options={["one_time", "daily", "weekly", "custom"]} onChange={(cadence) => onFormChange({ ...form, cadence })} />
@@ -2021,11 +2048,11 @@ function CampaignsPanel({
               <h3 className="text-base font-semibold text-white">Keyword opportunities</h3>
               <p className="mt-1 text-xs leading-5 text-slate-400">Directional opportunity scores blend freshness, answerability, Walnut data fit, and a SERP assessment. They are not verified search volume or keyword-difficulty metrics.</p>
             </div>
-            <Button disabled={Boolean(busy)} onClick={onDiscover}>{busy === "keyword-discovery" ? "Searching..." : "Refresh signals"}</Button>
+            <Button disabled={Boolean(busy)} onClick={() => onDiscover(opportunityCount)}>{busy === "keyword-discovery" ? "Searching..." : "Refresh signals"}</Button>
           </div>
           {marketNote ? <p className="mt-2 text-xs text-cyan-100">{marketNote}</p> : null}
           <div className="mt-3 grid gap-3">
-            {opportunities.filter((opportunity) => opportunity.status === "new").slice(0, 8).map((opportunity) => (
+            {newOpportunities.slice(0, 8).map((opportunity) => (
               <div key={opportunity.id} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -2039,12 +2066,12 @@ function CampaignsPanel({
                 <p className="mt-2 text-xs text-slate-500">Trend: {opportunity.trend_signal} · Competition: {opportunity.competition_assessment} · {opportunity.metric_note}</p>
                 {opportunity.source_urls?.length ? <p className="mt-2 text-xs text-slate-500">Signals: {opportunity.source_urls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="mr-2 text-cyan-200 hover:underline">source</a>)}</p> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{selectedOpportunityIds.includes(opportunity.id) ? "Loaded in campaign plan" : "Add to campaign"}</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{isOpportunityLoaded(opportunity) ? "Loaded in campaign plan" : "Add to campaign"}</Button>
                   <Button disabled={Boolean(busy)} onClick={() => onDismissOpportunity(opportunity)}>Dismiss</Button>
                 </div>
               </div>
             ))}
-            {opportunities.filter((opportunity) => opportunity.status === "new").length === 0 ? <p className="text-sm text-slate-500">No saved opportunities yet. Run a discovery pass when you want fresh signals.</p> : null}
+            {newOpportunities.length === 0 ? <p className="text-sm text-slate-500">No saved opportunities yet. Run a discovery pass when you want fresh signals.</p> : null}
           </div>
         </div>
         <h3 className="text-base font-semibold text-white">Campaigns</h3>

@@ -7067,7 +7067,7 @@ export async function getAdminResearchKeywordOpportunities(status?: string): Pro
   });
 }
 
-export async function discoverAdminResearchKeywordOpportunities(payload: { seed_topics?: string[]; tickers?: string[] }): Promise<AdminResearchKeywordDiscovery> {
+export async function discoverAdminResearchKeywordOpportunities(payload: { seed_topics?: string[]; tickers?: string[]; theme?: string; max_candidates?: number }): Promise<AdminResearchKeywordDiscovery> {
   return fetchJson<AdminResearchKeywordDiscovery>(buildApiUrl("/api/admin/research-briefs/keyword-opportunities/discover"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },

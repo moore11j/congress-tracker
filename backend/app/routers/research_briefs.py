@@ -123,6 +123,8 @@ class ResearchCampaignPayload(BaseModel):
 class ResearchKeywordDiscoveryPayload(BaseModel):
     seed_topics: list[str] = Field(default_factory=list, max_length=12)
     tickers: list[str] = Field(default_factory=list, max_length=12)
+    theme: str | None = Field(default=None, max_length=80)
+    max_candidates: int = Field(default=5, ge=1, le=8)
 
 
 class ResearchKeywordOpportunityStatusPayload(BaseModel):

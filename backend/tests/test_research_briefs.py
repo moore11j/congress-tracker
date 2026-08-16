@@ -150,12 +150,19 @@ def test_keyword_opportunity_discovery_stores_admin_review_candidates(monkeypatc
         return Response()
 
     monkeypatch.setattr(service.requests, "post", fake_post)
-    result = service.discover_research_keyword_opportunities(db, admin, {"seed_topics": ["AI infrastructure"], "tickers": ["NBIS"]})
+    result = service.discover_research_keyword_opportunities(
+        db,
+        admin,
+        {"seed_topics": ["AI infrastructure"], "tickers": ["NBIS"], "theme": "government_contracts", "max_candidates": 7},
+    )
 
     assert result["items"][0]["target_keyword"] == "NBIS government contracts"
     assert result["items"][0]["status"] == "new"
     assert result["metric_provider_configured"] is False
     assert request_body["tools"] == [{"type": "web_search", "search_context_size": "medium"}]
+    assert "CAMPAIGN_THEME: Government Contracts" in request_body["input"]
+    assert "up to 7 candidates" in request_body["input"]
+    assert request_body["text"]["format"]["schema"]["properties"]["candidates"]["maxItems"] == 7
     stored = service.list_research_keyword_opportunities(db)
     assert stored["items"][0]["ticker"] == "NBIS"
 
