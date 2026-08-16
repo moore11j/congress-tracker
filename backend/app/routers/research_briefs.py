@@ -117,6 +117,7 @@ class ResearchCampaignPayload(BaseModel):
     search_intent: str | None = Field(default=None, max_length=240)
     target_keywords: dict[str, str] = Field(default_factory=dict)
     target_search_intents: dict[str, str] = Field(default_factory=dict)
+    source_opportunity_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
 class ResearchKeywordDiscoveryPayload(BaseModel):

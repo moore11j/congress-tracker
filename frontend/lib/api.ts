@@ -6766,6 +6766,7 @@ export type AdminResearchCampaignPayload = {
   search_intent?: string | null;
   target_keywords?: Record<string, string>;
   target_search_intents?: Record<string, string>;
+  source_opportunity_ids?: string[];
 };
 
 export type AdminResearchKeywordOpportunity = {

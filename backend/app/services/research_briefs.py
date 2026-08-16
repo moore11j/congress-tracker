@@ -2167,6 +2167,9 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         for symbol, intent in (payload.get("target_search_intents") or {}).items()
         if normalize_symbol(symbol) and str(intent).strip()
     }
+    source_opportunity_ids = _dedupe_strings(
+        [str(opportunity_id).strip()[:100] for opportunity_id in (payload.get("source_opportunity_ids") or []) if str(opportunity_id).strip()]
+    )[:50]
     return {
         "name": str(payload.get("name") or theme["label"]).strip()[:180],
         "theme": theme["key"],
@@ -2185,6 +2188,7 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "search_intent": str(payload.get("search_intent") or theme.get("intent") or "").strip()[:120],
         "target_keywords": target_keywords,
         "target_search_intents": target_search_intents,
+        "source_opportunity_ids": source_opportunity_ids,
     }
 
 
@@ -2216,6 +2220,19 @@ def _distributed_publish_times(start: datetime, count: int, window_days: int) ->
 def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str, Any]) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
     config = _normalize_campaign_payload(payload)
+    source_opportunity_ids = config["source_opportunity_ids"]
+    opportunity_params = {f"opportunity_{index}": opportunity_id for index, opportunity_id in enumerate(source_opportunity_ids)}
+    placeholders = ", ".join(f":{key}" for key in opportunity_params)
+    if source_opportunity_ids:
+        selected_rows = db.execute(
+            text(
+                f"SELECT id FROM research_keyword_opportunities "
+                f"WHERE id IN ({placeholders}) AND status = 'new' AND created_by = :created_by"
+            ),
+            {**opportunity_params, "created_by": admin.id},
+        ).mappings().all()
+        if {str(row["id"]) for row in selected_rows} != set(source_opportunity_ids):
+            raise HTTPException(status_code=409, detail="One or more selected keyword opportunities are no longer available. Refresh the campaign plan and try again.")
     now = _now()
     campaign_id = f"rc_{uuid.uuid4().hex}"
     db.execute(
@@ -2282,6 +2299,11 @@ def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str,
                 "created_at": now,
                 "updated_at": now,
             },
+        )
+    if source_opportunity_ids:
+        db.execute(
+            text(f"UPDATE research_keyword_opportunities SET status = 'used', updated_at = :updated_at WHERE id IN ({placeholders})"),
+            {**opportunity_params, "updated_at": now},
         )
     db.commit()
     return get_research_campaign(db, campaign_id)

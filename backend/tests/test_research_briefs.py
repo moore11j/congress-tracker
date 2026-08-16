@@ -505,6 +505,39 @@ def test_research_campaign_normalizes_long_search_intent_without_rejecting_paylo
     assert len(normalized["target_search_intents"]["NBIS"]) == 120
 
 
+def test_research_campaign_marks_selected_keyword_opportunity_used_only_after_creation(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    service.ensure_research_brief_store_schema(db)
+    db.execute(
+        text(
+            """
+            INSERT INTO research_keyword_opportunities (
+                id, status, created_by, target_keyword, opportunity_score, discovered_at, updated_at, payload_json
+            ) VALUES ('rko_nbis', 'new', :created_by, 'Is NBIS stock overvalued?', 90, :now, :now, :payload_json)
+            """
+        ),
+        {"created_by": admin.id, "now": "2026-08-16T00:00:00+00:00", "payload_json": json.dumps({"target_keyword": "Is NBIS stock overvalued?"})},
+    )
+    db.commit()
+
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "NBIS earnings question",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["NBIS"],
+            "source_opportunity_ids": ["rko_nbis"],
+        },
+    )
+
+    assert campaign["config"]["source_opportunity_ids"] == ["rko_nbis"]
+    assert service.list_research_keyword_opportunities(db, status="used")["items"][0]["id"] == "rko_nbis"
+
+
 def test_scheduled_research_publish_requires_approval(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()

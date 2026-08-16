@@ -483,6 +483,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [campaigns, setCampaigns] = useState<AdminResearchCampaign[]>([]);
   const [keywordOpportunities, setKeywordOpportunities] = useState<AdminResearchKeywordOpportunity[]>([]);
   const [keywordMarketNote, setKeywordMarketNote] = useState("");
+  const [selectedKeywordOpportunityIds, setSelectedKeywordOpportunityIds] = useState<string[]>([]);
   const [publishingHealth, setPublishingHealth] = useState<AdminResearchPublishingHealth | null>(null);
   const [campaignForm, setCampaignForm] = useState<AdminResearchCampaignPayload>(DEFAULT_CAMPAIGN_FORM);
 
@@ -759,16 +760,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       target_keywords: contentType === "ticker" && opportunity.ticker ? { ...current.target_keywords, [opportunity.ticker]: (opportunity.target_keyword || "").slice(0, 240) } : {},
       target_search_intents: contentType === "ticker" && opportunity.ticker ? { ...current.target_search_intents, [opportunity.ticker]: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120) } : {},
     }));
-    setBusy(`keyword-use-${opportunity.id}`);
-    try {
-      await updateAdminResearchKeywordOpportunityStatus(opportunity.id, "used");
-      await refreshKeywordOpportunities();
-      showToast?.("Opportunity added to the campaign plan. Add more ticker opportunities, then create the campaign.", "success");
-    } catch (err) {
-      showToast?.(err instanceof Error ? err.message : "Unable to update keyword opportunity.", "error");
-    } finally {
-      setBusy(null);
-    }
+    setSelectedKeywordOpportunityIds((current) => current.includes(opportunity.id) ? current : [...current, opportunity.id]);
+    showToast?.("Opportunity added to the campaign plan. It will remain saved until you dismiss it or create the campaign.", "success");
   }
 
   async function dismissKeywordOpportunity(opportunity: AdminResearchKeywordOpportunity) {
@@ -998,9 +991,12 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         search_intent: (campaignForm.search_intent || "").slice(0, 120),
         target_keywords: Object.fromEntries(Object.entries(campaignForm.target_keywords || {}).map(([ticker, keyword]) => [ticker, keyword.slice(0, 240)])),
         target_search_intents: Object.fromEntries(Object.entries(campaignForm.target_search_intents || {}).map(([ticker, intent]) => [ticker, intent.slice(0, 120)])),
+        source_opportunity_ids: selectedKeywordOpportunityIds,
       };
       const campaign = await createAdminResearchCampaign(payload);
       await refreshCampaigns();
+      await refreshKeywordOpportunities();
+      setSelectedKeywordOpportunityIds([]);
       setCampaignForm((current) => ({ ...current, name: current.name || campaign.name }));
       showToast?.("Research campaign created.", "success");
     } catch (err) {
@@ -1425,6 +1421,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           onRunNow={runCampaignNow}
           onDelete={removeCampaign}
           opportunities={keywordOpportunities}
+          selectedOpportunityIds={selectedKeywordOpportunityIds}
           marketNote={keywordMarketNote}
           onDiscover={discoverKeywordOpportunities}
           onUseOpportunity={useKeywordOpportunity}
@@ -1897,6 +1894,7 @@ function CampaignsPanel({
   form,
   busy,
   opportunities,
+  selectedOpportunityIds,
   marketNote,
   onFormChange,
   onSubmit,
@@ -1913,6 +1911,7 @@ function CampaignsPanel({
   form: AdminResearchCampaignPayload;
   busy: string | null;
   opportunities: AdminResearchKeywordOpportunity[];
+  selectedOpportunityIds: string[];
   marketNote: string;
   onFormChange: (form: AdminResearchCampaignPayload) => void;
   onSubmit: () => void;
@@ -2011,7 +2010,7 @@ function CampaignsPanel({
               <input type="number" min={1} max={30} value={form.window_days} onChange={(event) => onFormChange({ ...form, window_days: Math.max(1, Number(event.target.value) || 1) })} className={fieldClassName("mt-2")} />
             </label>
           </div>
-          <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities, set Articles to 3 and Over days to 3. Create the campaign, then use Run Now to preview its drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
+          <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities, set Articles to 3 and Over days to 3. Added opportunities stay saved through refreshes until you dismiss them or create the campaign. Then use Run Now to preview its drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
           <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? "Creating..." : "Create Campaign"}</Button>
         </div>
       </div>
@@ -2040,7 +2039,7 @@ function CampaignsPanel({
                 <p className="mt-2 text-xs text-slate-500">Trend: {opportunity.trend_signal} · Competition: {opportunity.competition_assessment} · {opportunity.metric_note}</p>
                 {opportunity.source_urls?.length ? <p className="mt-2 text-xs text-slate-500">Signals: {opportunity.source_urls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="mr-2 text-cyan-200 hover:underline">source</a>)}</p> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{busy === `keyword-use-${opportunity.id}` ? "Adding..." : "Add to campaign"}</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onUseOpportunity(opportunity)}>{selectedOpportunityIds.includes(opportunity.id) ? "Loaded in campaign plan" : "Add to campaign"}</Button>
                   <Button disabled={Boolean(busy)} onClick={() => onDismissOpportunity(opportunity)}>Dismiss</Button>
                 </div>
               </div>
