@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionalActivityPeriod, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileMetric, ProfileSectorMover, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
+import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionalActivityPeriod, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileDirectory, ProfileMetric, ProfileSectorMover, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
 import { LatestProfileActivity } from "@/components/profiles/LatestProfileActivity";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
 
 type Row = Record<string, unknown>;
+type DirectoryLeadersInput = Pick<ProfileDirectory, "kind" | "title" | "href" | "primary_title" | "primary_items" | "locked" | "message">;
 
 export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryResponse }) {
   const activity = (data.activity ?? []).filter((item) => item.profile && item.profile !== "Profile unavailable");
@@ -16,6 +17,19 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
     : new Map(categories.map((type) => [type, activity.filter((item) => item.type === type).length]));
   const counts = categories.map((type) => Number(activityMix.get(type) ?? 0));
   const total = counts.reduce((sum, value) => sum + value, 0);
+  const directoryLeaders: DirectoryLeadersInput[] = data.directories?.length
+    ? data.directories
+    : data.cards.map((card) => ({
+      kind: card.kind,
+      title: card.title,
+      href: card.href,
+      primary_title: card.title,
+      primary_items: activity
+        .filter((item) => profileKind(item.type) === card.kind)
+        .sort((left, right) => (right.value ?? 0) - (left.value ?? 0))
+        .slice(0, 5)
+        .map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href })),
+    }));
 
   return (
     <main className="relative min-w-0 space-y-3 overflow-hidden pb-3">
@@ -43,7 +57,7 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
         <Panel title="Latest profile activity" action={<Link href="/feed" className="text-emerald-200 hover:text-emerald-100">View feed -&gt;</Link>}><LatestProfileActivity items={activity} /></Panel>
         <Panel title="Most active profiles">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {(data.directories?.length ? data.directories : data.cards.map((card) => ({ kind: card.kind, title: card.title, href: card.href, primary_title: card.title, primary_items: activity.filter((item) => profileKind(item.type) === card.kind).sort((left, right) => (right.value ?? 0) - (left.value ?? 0)).slice(0, 5).map((item) => ({ label: item.profile, value: item.value, value_format: "currency", href: item.profile_href })) }))).map((directory) => <DirectoryLeaders key={directory.kind} title={directory.primary_title || directory.title} href={directory.href} rows={directory.primary_items ?? []} locked={directory.locked} message={directory.message} />)}
+            {directoryLeaders.map((directory) => <DirectoryLeaders key={directory.kind} title={directory.primary_title || directory.title} href={directory.href} rows={directory.primary_items ?? []} locked={directory.locked} message={directory.message} />)}
           </div>
         </Panel>
       </section>
