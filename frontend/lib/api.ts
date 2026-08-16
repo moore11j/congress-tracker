@@ -7452,11 +7452,12 @@ export async function getInsidersOverview(params?: { sector?: string; period_day
 }
 
 export async function getInstitutionsOverview(params?: { year?: number; quarter?: number; authToken?: string | null; signal?: AbortSignal }): Promise<InstitutionsOverviewResponse> {
-  return fetchJson<InstitutionsOverviewResponse>(
-    buildApiUrl("/api/profiles/institutions/overview", {
+  const url = buildApiUrl("/api/profiles/institutions/overview", {
       year: params?.year,
       quarter: params?.quarter,
-    }),
+    });
+  const request = () => fetchJson<InstitutionsOverviewResponse>(
+    url,
     {
       headers: authHeaders(params?.authToken ?? undefined),
       cache: "no-store",
@@ -7465,6 +7466,11 @@ export async function getInstitutionsOverview(params?: { year?: number; quarter?
       source: "InstitutionsOverview",
     },
   );
+  // The public overview is identical for anonymous visitors. Keep account-
+  // scoped and abortable requests isolated, but coalesce the short public
+  // refresh so concurrent page renders do not duplicate the API round trip.
+  if (params?.authToken || params?.signal) return request();
+  return serverCachedJson(`institutions-overview:${url}`, request);
 }
 
 export async function getDepartmentsOverview(params?: { fiscal_year?: number; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<DepartmentsOverviewResponse> {
