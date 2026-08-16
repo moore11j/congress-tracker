@@ -218,6 +218,8 @@ class InstitutionalPosition(Base):
         Index("ix_institutional_positions_symbol", "normalized_symbol"),
         Index("ix_institutional_positions_cik", "cik"),
         Index("ix_institutional_positions_period", "report_year", "report_quarter"),
+        Index("ix_institutional_positions_period_cik", "report_year", "report_quarter", "cik"),
+        Index("ix_institutional_positions_period_symbol", "report_year", "report_quarter", "normalized_symbol"),
         Index("ix_institutional_positions_filing_date", "filing_date"),
         Index("ix_institutional_positions_cusip", "cusip"),
     )
@@ -262,6 +264,7 @@ class InstitutionalPositionChange(Base):
         Index("ix_institutional_position_changes_symbol", "normalized_symbol"),
         Index("ix_institutional_position_changes_cik", "cik"),
         Index("ix_institutional_position_changes_period", "report_year", "report_quarter"),
+        Index("ix_institutional_position_changes_period_symbol", "report_year", "report_quarter", "normalized_symbol"),
         Index("ix_institutional_position_changes_filing_date", "filing_date"),
         Index("ix_institutional_position_changes_materiality", "materiality_score"),
     )

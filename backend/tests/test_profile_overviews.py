@@ -296,6 +296,8 @@ def test_profile_overview_prewarm_warms_public_and_entitled_summaries(monkeypatc
     assert [key for _, key in seen_keys] == [
         ("profiles_summary", "all", 25, False, True, 5),
         ("profiles_summary", "all", 25, True, True, 5),
+        ("profiles_institutions_overview", None, None, False),
+        ("profiles_institutions_overview", None, None, True),
     ]
     assert session.closed
 

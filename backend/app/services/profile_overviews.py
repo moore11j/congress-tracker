@@ -19,6 +19,7 @@ from app.models import (
     InstitutionalHolder,
     InstitutionalPosition,
     InstitutionalPositionChange,
+    InstitutionalSymbolSummary,
     Member,
     Security,
     TickerMeta,
@@ -1554,15 +1555,66 @@ def _top_institutions(db: Session, year: int, quarter: int, *, previous_period: 
         .order_by(func.sum(InstitutionalPosition.value_usd).desc().nullslast())
         .limit(limit)
     ).all()
+    ciks = [str(cik) for cik, *_ in rows if cik]
+    top_holdings: dict[str, tuple[Any, Any, Any]] = {}
+    if ciks:
+        ranked_holdings = (
+            select(
+                InstitutionalPosition.cik.label("cik"),
+                InstitutionalPosition.normalized_symbol.label("symbol"),
+                InstitutionalPosition.issuer_name.label("issuer_name"),
+                InstitutionalPosition.value_usd.label("value_usd"),
+                func.row_number().over(
+                    partition_by=InstitutionalPosition.cik,
+                    order_by=InstitutionalPosition.value_usd.desc().nullslast(),
+                ).label("position_rank"),
+            )
+            .where(
+                InstitutionalPosition.cik.in_(ciks),
+                InstitutionalPosition.report_year == year,
+                InstitutionalPosition.report_quarter == quarter,
+            )
+            .subquery()
+        )
+        top_holdings = {
+            str(cik): (symbol, issuer_name, value_usd)
+            for cik, symbol, issuer_name, value_usd in db.execute(
+                select(
+                    ranked_holdings.c.cik,
+                    ranked_holdings.c.symbol,
+                    ranked_holdings.c.issuer_name,
+                    ranked_holdings.c.value_usd,
+                ).where(ranked_holdings.c.position_rank == 1)
+            ).all()
+        }
+
+    previous_values: dict[str, float | None] = {}
+    if previous_period and ciks:
+        previous_variants = {variant for cik in ciks for variant in _institution_cik_variants(cik)}
+        variant_values = {
+            str(cik): _float_or_int(value)
+            for cik, value in db.execute(
+                select(InstitutionalPosition.cik, func.sum(InstitutionalPosition.value_usd))
+                .where(
+                    InstitutionalPosition.cik.in_(previous_variants),
+                    InstitutionalPosition.report_year == previous_period[0],
+                    InstitutionalPosition.report_quarter == previous_period[1],
+                )
+                .group_by(InstitutionalPosition.cik)
+            ).all()
+        }
+        for cik in ciks:
+            previous_values[cik] = sum(
+                float(variant_values[variant] or 0)
+                for variant in _institution_cik_variants(cik)
+                if variant in variant_values
+            ) or None
+
     result = []
     for cik, name, value, positions in rows:
-        top = db.execute(
-            select(InstitutionalPosition.normalized_symbol, InstitutionalPosition.issuer_name, InstitutionalPosition.value_usd)
-            .where(InstitutionalPosition.cik == cik, InstitutionalPosition.report_year == year, InstitutionalPosition.report_quarter == quarter)
-            .order_by(InstitutionalPosition.value_usd.desc().nullslast())
-            .limit(1)
-        ).first()
-        previous = _previous_institution_value(db, str(cik), previous_period=previous_period)
+        cik_key = str(cik)
+        top = top_holdings.get(cik_key)
+        previous = previous_values.get(cik_key)
         result.append(
             {
                 "name": name or "Institution unavailable",
@@ -1647,14 +1699,27 @@ def _institution_sector_exposure(db: Session) -> list[dict[str, Any]]:
     if not periods:
         return []
     rows = db.execute(
-        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol), func.sum(InstitutionalPosition.value_usd))
-        .where(
-            tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods),  # type: ignore[name-defined]
-            InstitutionalPosition.normalized_symbol.is_not(None),
-            InstitutionalPosition.value_usd.is_not(None),
+        select(
+            InstitutionalSymbolSummary.report_year,
+            InstitutionalSymbolSummary.report_quarter,
+            func.upper(InstitutionalSymbolSummary.normalized_symbol),
+            InstitutionalSymbolSummary.total_value_usd,
         )
-        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol))
+        .where(
+            tuple_(InstitutionalSymbolSummary.report_year, InstitutionalSymbolSummary.report_quarter).in_(periods),  # type: ignore[name-defined]
+            InstitutionalSymbolSummary.total_value_usd.is_not(None),
+        )
     ).all()
+    if not rows:
+        rows = db.execute(
+            select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol), func.sum(InstitutionalPosition.value_usd))
+            .where(
+                tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods),  # type: ignore[name-defined]
+                InstitutionalPosition.normalized_symbol.is_not(None),
+                InstitutionalPosition.value_usd.is_not(None),
+            )
+            .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.upper(InstitutionalPosition.normalized_symbol))
+        ).all()
     sectors = _sectors(db, [row[2] for row in rows])
     buckets: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for year, quarter, symbol, value in rows:
@@ -1706,12 +1771,26 @@ def _institutional_activity_over_time(db: Session) -> list[dict[str, Any]]:
 
 def _most_widely_held(db: Session, year: int, quarter: int, *, limit: int = 8) -> list[dict[str, Any]]:
     rows = db.execute(
-        select(func.upper(InstitutionalPosition.normalized_symbol), func.count(func.distinct(InstitutionalPosition.cik)), func.sum(InstitutionalPosition.value_usd))
-        .where(InstitutionalPosition.report_year == year, InstitutionalPosition.report_quarter == quarter, InstitutionalPosition.normalized_symbol.is_not(None))
-        .group_by(func.upper(InstitutionalPosition.normalized_symbol))
-        .order_by(func.count(func.distinct(InstitutionalPosition.cik)).desc(), func.sum(InstitutionalPosition.value_usd).desc().nullslast())
+        select(
+            func.upper(InstitutionalSymbolSummary.normalized_symbol),
+            InstitutionalSymbolSummary.total_holders,
+            InstitutionalSymbolSummary.total_value_usd,
+        )
+        .where(
+            InstitutionalSymbolSummary.report_year == year,
+            InstitutionalSymbolSummary.report_quarter == quarter,
+        )
+        .order_by(InstitutionalSymbolSummary.total_holders.desc(), InstitutionalSymbolSummary.total_value_usd.desc().nullslast())
         .limit(limit)
     ).all()
+    if not rows:
+        rows = db.execute(
+            select(func.upper(InstitutionalPosition.normalized_symbol), func.count(func.distinct(InstitutionalPosition.cik)), func.sum(InstitutionalPosition.value_usd))
+            .where(InstitutionalPosition.report_year == year, InstitutionalPosition.report_quarter == quarter, InstitutionalPosition.normalized_symbol.is_not(None))
+            .group_by(func.upper(InstitutionalPosition.normalized_symbol))
+            .order_by(func.count(func.distinct(InstitutionalPosition.cik)).desc(), func.sum(InstitutionalPosition.value_usd).desc().nullslast())
+            .limit(limit)
+        ).all()
     company_names = _company_names(db, [row[0] for row in rows])
     return [{"symbol": row[0], "company": company_names.get(row[0]) or row[0], "holders": int(row[1] or 0), "value": _float_or_int(row[2]), "href": f"/ticker/{row[0]}"} for row in rows]
 

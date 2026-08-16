@@ -3109,7 +3109,7 @@ def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder
 
 
 def _run_profile_overview_prewarm() -> None:
-    """Warm the two entitlement-safe Profiles landing payloads after app startup.
+    """Warm Profiles and Institutions overview payloads after app startup.
 
     The complete landing summary is intentionally cached for an hour, but a
     newly deployed process can otherwise make the first visitor wait for its
@@ -3135,6 +3135,15 @@ def _run_profile_overview_prewarm() -> None:
                     activity_per_type=activity_per_type,
                     include_institutions=include_institutions,
                     include_activity=True,
+                ),
+            )
+        for include_details in (False, True):
+            _cached_profile_overview_response(
+                db,
+                ("profiles_institutions_overview", None, None, include_details),
+                lambda include_details=include_details: build_institutions_overview(
+                    db,
+                    include_details=include_details,
                 ),
             )
     finally:
