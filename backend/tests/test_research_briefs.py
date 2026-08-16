@@ -180,6 +180,36 @@ def test_keyword_opportunity_status_can_be_updated(monkeypatch):
     assert updated["status"] == "used"
 
 
+def test_openai_credit_balance_exhaustion_is_not_reported_as_rate_limit():
+    class Response:
+        status_code = 429
+        headers = {}
+
+        def json(self):
+            return {"error": {"type": "insufficient_quota", "code": "credit_balance_exhausted"}}
+
+    with pytest.raises(HTTPException) as raised:
+        service._raise_openai_response_error(Response(), operation="keyword discovery")
+
+    assert raised.value.status_code == 503
+    assert "credit balance is exhausted" in str(raised.value.detail).lower()
+
+
+def test_openai_true_rate_limit_retains_retry_guidance():
+    class Response:
+        status_code = 429
+        headers = {"retry-after": "15"}
+
+        def json(self):
+            return {"error": {"type": "rate_limit_error", "code": "rate_limit_exceeded"}}
+
+    with pytest.raises(HTTPException) as raised:
+        service._raise_openai_response_error(Response(), operation="keyword discovery")
+
+    assert raised.value.status_code == 429
+    assert "15 seconds" in str(raised.value.detail)
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)

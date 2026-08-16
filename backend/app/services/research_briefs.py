@@ -1969,6 +1969,33 @@ def _keyword_opportunity_schema() -> dict[str, Any]:
     }
 
 
+def _openai_error_code(response: Any) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return ""
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return ""
+    return str(error.get("code") or error.get("type") or "").strip().lower()
+
+
+def _raise_openai_response_error(response: Any, *, operation: str) -> None:
+    error_code = _openai_error_code(response)
+    if response.status_code == 429:
+        if error_code in {"credit_balance_exhausted", "insufficient_quota", "billing_hard_limit_reached"}:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI API credit balance is exhausted. Add API billing credit or raise the project budget, then try again.",
+            )
+        headers = getattr(response, "headers", {}) or {}
+        retry_after = headers.get("retry-after") if hasattr(headers, "get") else None
+        retry_suffix = f" Retry after {retry_after} seconds." if retry_after else " Try again shortly."
+        raise HTTPException(status_code=429, detail=f"OpenAI is rate limiting {operation}.{retry_suffix}")
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"OpenAI {operation} failed. Check the configured model, account access, and request size.")
+
+
 def _normalize_keyword_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
     target_keyword = str(candidate.get("target_keyword") or "").strip()[:240]
     if not target_keyword:
@@ -2023,11 +2050,9 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
         },
         timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
     )
-    if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="OpenAI rate limit hit while discovering keyword opportunities. Try again later.")
     if response.status_code >= 400:
         logger.warning("research_keyword_discovery_failed status=%s body=%s", response.status_code, response.text[:500])
-        raise HTTPException(status_code=502, detail="Keyword discovery failed. Check the configured OpenAI model and web-search access.")
+        _raise_openai_response_error(response, operation="keyword discovery")
     try:
         parsed = json.loads(_response_text(response.json()))
     except Exception as exc:
@@ -4337,10 +4362,8 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
         },
         timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
     )
-    if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="OpenAI rate limit hit. Try again later.")
     if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail="OpenAI generation failed. Check model, quota, and prompt size.")
+        _raise_openai_response_error(response, operation="research brief generation")
     data = response.json()
     text = _response_text(data)
     try:
