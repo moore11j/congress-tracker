@@ -24,6 +24,10 @@ export default async function ProfilesPage() {
 function activityVisibleAcrossFilters(items: ProfileActivityItem[], perTypeLimit = 5): ProfileActivityItem[] {
   const counts = new Map<string, number>();
   return items.filter((item) => {
+    // Do this before counting a type. Otherwise records the dashboard cannot
+    // render usefully can consume the entire five-row allowance and leave the
+    // activity widget with fewer current entries than are actually available.
+    if (!item.profile || item.profile === "Profile unavailable") return false;
     const count = counts.get(item.type) ?? 0;
     if (count >= perTypeLimit) return false;
     counts.set(item.type, count + 1);

@@ -174,6 +174,29 @@ def test_profile_activity_per_type_limit_preserves_each_activity_tab():
     assert counts == {"Congress": 5, "Insider": 5, "Department": 5}
 
 
+def test_profile_activity_labels_unnamed_insider_filings_and_keeps_them_visible():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    for event_id in range(1, 8):
+        db.add(
+            Event(
+                id=event_id,
+                event_type="insider_trade",
+                ts=now - timedelta(minutes=event_id),
+                symbol="WALN",
+                source="test",
+                payload_json=json.dumps({"issuer_name": "Walnut Markets"}),
+            )
+        )
+    db.commit()
+
+    activity = profile_activity(db, per_type_limit=5, include_institutions=False)
+
+    assert len(activity) == 5
+    assert all(item["profile"] == "Walnut Markets insider filing" for item in activity)
+    assert all(item["profile_href"] is None for item in activity)
+
+
 def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     db = _db()
     now = datetime.now(timezone.utc)

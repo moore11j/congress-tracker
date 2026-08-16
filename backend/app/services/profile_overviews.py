@@ -410,7 +410,10 @@ def profile_activity(
                     .where(Event.event_type.in_(group_event_types))
                     .where(Event.ts <= now)
                     .order_by(Event.ts.desc(), Event.id.desc())
-                    .limit(bounded_per_type_limit)
+                    # Source rows can lack a reportable profile name. Fetch a
+                    # small buffer so those records do not starve a tab of the
+                    # five useful entries the dashboard can render.
+                    .limit(bounded_per_type_limit * 3)
                 ).scalars().all()
             )
         rows.sort(key=lambda row: (row.ts or datetime.min.replace(tzinfo=timezone.utc), row.id or 0), reverse=True)
@@ -423,7 +426,20 @@ def profile_activity(
             .limit(bounded_limit)
         ).scalars().all()
     company_names = _company_names(db, [row.symbol for row in rows])
-    return [_activity_payload(row, company_names) for row in rows]
+    activity = [_activity_payload(row, company_names) for row in rows]
+    if requested == "all" and per_type_limit is not None:
+        visible: list[dict[str, Any]] = []
+        counts: dict[str, int] = defaultdict(int)
+        for item in activity:
+            if not item.get("profile") or item["profile"] == "Profile unavailable":
+                continue
+            kind = str(item["type"])
+            if counts[kind] >= bounded_per_type_limit:
+                continue
+            counts[kind] += 1
+            visible.append(item)
+        return visible
+    return activity
 
 
 def profile_directories(
@@ -2018,8 +2034,16 @@ def _activity_payload(row: Event, company_names: dict[str, str]) -> dict[str, An
     symbol = normalize_symbol(row.symbol)
     payload = _safe_json(row.payload_json)
     kind = _profile_kind(row.event_type)
-    profile_name = row.member_name or _payload_first(payload, "insider_name", "holder_name", "institution_name", "department", "agency") or "Profile unavailable"
-    profile_href = _profile_href(kind, profile_name, row.member_bioguide_id, payload)
+    company_name = company_names.get(symbol or "") or _payload_first(payload, "company_name", "issuer_name", "recipient_name") or symbol
+    profile_name = row.member_name or _payload_first(payload, "insider_name", "holder_name", "institution_name", "department", "agency")
+    # Preserve an otherwise useful filing when the source has an issuer but no
+    # reporting-person name. It is deliberately not linked as a person profile.
+    if not profile_name and kind == "Insider" and company_name:
+        profile_name = f"{company_name} insider filing"
+        profile_href = None
+    else:
+        profile_name = profile_name or "Profile unavailable"
+        profile_href = _profile_href(kind, profile_name, row.member_bioguide_id, payload)
     value = row.amount_max if row.amount_max is not None else row.amount_min
     return {
         "id": row.id,
@@ -2028,7 +2052,7 @@ def _activity_payload(row: Event, company_names: dict[str, str]) -> dict[str, An
         "profile": profile_name,
         "profile_href": profile_href,
         "symbol": symbol,
-        "company": company_names.get(symbol or "") or _payload_first(payload, "company_name", "issuer_name", "recipient_name") or symbol,
+        "company": company_name,
         "ticker_href": f"/ticker/{symbol}" if symbol else None,
         "activity": _activity_label(row.event_type, row.trade_type or row.transaction_type),
         "value": _float_or_int(value),
