@@ -1,9 +1,13 @@
+import dynamic from "next/dynamic";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
-import { WatchlistDetailClient } from "@/components/watchlists/WatchlistDetailClient";
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
 import { getWatchlist } from "@/lib/api";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import { getParam, parseMode, type WatchlistActivityState } from "@/lib/watchlistActivity";
+
+const WatchlistDetailClient = dynamic(
+  () => import("@/components/watchlists/WatchlistDetailClient").then((module) => module.WatchlistDetailClient),
+);
 
 type Props = {
   params: Promise<{ id: string }>;

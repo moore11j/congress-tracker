@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
-import { ConfirmationMonitoringPanel } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
+import dynamic from "next/dynamic";
 import { WatchlistRecentActivity } from "@/components/watchlists/WatchlistRecentActivity";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
 import { ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
@@ -26,6 +25,26 @@ type Props = {
 };
 
 const pendingWatchlistToastKey = "watchlist:create-toast";
+
+function DeferredWatchlistPanel({ label }: { label: string }) {
+  return (
+    <section className="min-h-24 animate-pulse rounded-xl border border-white/10 bg-slate-900/55 p-4" aria-label={`Loading ${label}`}>
+      <div className="h-4 w-40 rounded bg-white/10" />
+      <div className="mt-3 h-3 w-full rounded bg-white/[0.06]" />
+      <div className="mt-2 h-3 w-4/5 rounded bg-white/[0.06]" />
+    </section>
+  );
+}
+
+const NotificationPreferences = dynamic(
+  () => import("@/components/notifications/NotificationPreferences").then((module) => module.NotificationPreferences),
+  { ssr: false, loading: () => <DeferredWatchlistPanel label="notification preferences" /> },
+);
+
+const ConfirmationMonitoringPanel = dynamic(
+  () => import("@/components/watchlists/ConfirmationMonitoringRefreshButton").then((module) => module.ConfirmationMonitoringPanel),
+  { ssr: false, loading: () => <DeferredWatchlistPanel label="confirmation monitor" /> },
+);
 
 export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData, canViewPremiumMetrics }: Props) {
   const unseenCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
