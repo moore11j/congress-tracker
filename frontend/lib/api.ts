@@ -7398,21 +7398,25 @@ export async function getDepartmentProfile(slug: string, params?: { limit?: numb
 }
 
 export async function getProfilesSummary(params?: { activity_type?: string; activity_limit?: number; activity_per_type?: number; include_activity?: boolean; authToken?: string | null; signal?: AbortSignal }): Promise<ProfilesSummaryResponse> {
-  return fetchJson<ProfilesSummaryResponse>(
-    buildApiUrl("/api/profiles/summary", {
-      activity_type: params?.activity_type,
-      activity_limit: params?.activity_limit,
-      activity_per_type: params?.activity_per_type,
-      include_activity: params?.include_activity ? "true" : undefined,
-    }),
-    {
-      headers: authHeaders(params?.authToken ?? undefined),
-      cache: "no-store",
-      next: { revalidate: 0 },
-      signal: params?.signal,
-      source: "ProfilesSummary",
-    },
-  );
+  const url = buildApiUrl("/api/profiles/summary", {
+    activity_type: params?.activity_type,
+    activity_limit: params?.activity_limit,
+    activity_per_type: params?.activity_per_type,
+    include_activity: params?.include_activity ? "true" : undefined,
+  });
+  const request = () => fetchJson<ProfilesSummaryResponse>(url, {
+    headers: authHeaders(params?.authToken ?? undefined),
+    cache: "no-store",
+    next: { revalidate: 0 },
+    signal: params?.signal,
+    source: "ProfilesSummary",
+  });
+
+  // Never share an entitlement-scoped response. Anonymous profile dashboards
+  // all use the same public payload, so coalescing its short refresh removes
+  // unnecessary Vercel-to-API round trips without changing rendered data.
+  if (params?.authToken || params?.signal) return request();
+  return serverCachedJson(`profiles-summary:${url}`, request);
 }
 
 export async function getCongressOverview(params?: { chamber?: string; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<CongressOverviewResponse> {
