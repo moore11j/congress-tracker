@@ -56,6 +56,7 @@ def profiles_summary(
     *,
     activity_type: str = "all",
     activity_limit: int = 25,
+    activity_per_type: int | None = None,
     include_institutions: bool = False,
     include_activity: bool = False,
 ) -> dict[str, Any]:
@@ -147,7 +148,13 @@ def profiles_summary(
                 "insider_trade_count": insider_trade_count,
             },
         ),
-        "activity": profile_activity(db, activity_type=activity_type, limit=activity_limit, include_institutions=include_institutions) if include_activity else [],
+        "activity": profile_activity(
+            db,
+            activity_type=activity_type,
+            limit=activity_limit,
+            per_type_limit=activity_per_type,
+            include_institutions=include_institutions,
+        ) if include_activity else [],
         "activity_mix": _profile_activity_mix(
             db,
             congress_trades=congress_trade_count,
@@ -360,7 +367,14 @@ def departments_overview(db: Session, *, fiscal_year: int | None = None, period_
     }
 
 
-def profile_activity(db: Session, *, activity_type: str = "all", limit: int = 25, include_institutions: bool = False) -> list[dict[str, Any]]:
+def profile_activity(
+    db: Session,
+    *,
+    activity_type: str = "all",
+    limit: int = 25,
+    per_type_limit: int | None = None,
+    include_institutions: bool = False,
+) -> list[dict[str, Any]]:
     bounded_limit = max(1, min(int(limit or 25), 100))
     requested = (activity_type or "all").strip().lower()
     now = datetime.now(timezone.utc) + timedelta(days=1)
@@ -375,13 +389,39 @@ def profile_activity(db: Session, *, activity_type: str = "all", limit: int = 25
         event_types = ["government_contract"]
     if not include_institutions:
         event_types = [value for value in event_types if not value.startswith(("institutional", "major_holder", "cluster", "smart_money"))]
-    rows = db.execute(
-        select(Event)
-        .where(Event.event_type.in_(event_types))
-        .where(Event.ts <= now)
-        .order_by(Event.ts.desc(), Event.id.desc())
-        .limit(bounded_limit)
-    ).scalars().all()
+    # The Profiles activity widget renders five records for All or for any one
+    # of its type tabs. Fetch the newest records per tab for the overview rather
+    # than a global list that can crowd out less-frequent activity types.
+    if requested == "all" and per_type_limit is not None:
+        bounded_per_type_limit = max(1, min(int(per_type_limit), 10))
+        activity_groups = (
+            ("congress", ["congress_trade"]),
+            ("insiders", ["insider_trade"]),
+            ("institutions", [value for value in PROFILE_ACTIVITY_TYPES if value.startswith(("institutional", "major_holder", "cluster", "smart_money"))]),
+            ("departments", ["government_contract"]),
+        )
+        rows = []
+        for group, group_event_types in activity_groups:
+            if group == "institutions" and not include_institutions:
+                continue
+            rows.extend(
+                db.execute(
+                    select(Event)
+                    .where(Event.event_type.in_(group_event_types))
+                    .where(Event.ts <= now)
+                    .order_by(Event.ts.desc(), Event.id.desc())
+                    .limit(bounded_per_type_limit)
+                ).scalars().all()
+            )
+        rows.sort(key=lambda row: (row.ts or datetime.min.replace(tzinfo=timezone.utc), row.id or 0), reverse=True)
+    else:
+        rows = db.execute(
+            select(Event)
+            .where(Event.event_type.in_(event_types))
+            .where(Event.ts <= now)
+            .order_by(Event.ts.desc(), Event.id.desc())
+            .limit(bounded_limit)
+        ).scalars().all()
     company_names = _company_names(db, [row.symbol for row in rows])
     return [_activity_payload(row, company_names) for row in rows]
 

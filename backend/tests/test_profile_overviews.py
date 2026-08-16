@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import Base
 from app.main import _profile_overview_database_cache_get, _profile_overview_persistent_key
 from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
-from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profiles_summary
+from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profile_activity, profiles_summary
 
 
 def _db() -> Session:
@@ -140,6 +140,38 @@ def test_profiles_summary_uses_real_aggregate_counts():
     assert payload["directories"][0]["primary_title"] == "Top Congress by Trading Value"
     assert payload["activity"][0]["profile_href"] == "/member/nancy-pelosi"
     assert activity_mix == {"Congress": 1, "Insider": 1, "Institution": 2, "Department": 1}
+
+
+def test_profile_activity_per_type_limit_preserves_each_activity_tab():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    event_types = (
+        ("congress_trade", "Congress"),
+        ("insider_trade", "Insider"),
+        ("government_contract", "Department"),
+    )
+    event_id = 1
+    for event_type, profile_name in event_types:
+        for offset in range(7):
+            db.add(
+                Event(
+                    id=event_id,
+                    event_type=event_type,
+                    ts=now - timedelta(minutes=event_id),
+                    event_date=now - timedelta(minutes=event_id),
+                    source="test",
+                    payload_json=json.dumps({"insider_name": profile_name, "department": profile_name}),
+                    member_name=profile_name if event_type == "congress_trade" else None,
+                )
+            )
+            event_id += 1
+    db.commit()
+
+    activity = profile_activity(db, per_type_limit=5, include_institutions=False)
+    counts = {activity_type: sum(item["type"] == activity_type for item in activity) for activity_type in ("Congress", "Insider", "Department")}
+
+    assert len(activity) == 15
+    assert counts == {"Congress": 5, "Insider": 5, "Department": 5}
 
 
 def test_profiles_summary_cache_ignores_payload_without_activity_mix():

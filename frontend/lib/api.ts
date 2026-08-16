@@ -7658,11 +7658,12 @@ export async function getDepartmentProfile(slug: string, params?: { limit?: numb
   );
 }
 
-export async function getProfilesSummary(params?: { activity_type?: string; activity_limit?: number; include_activity?: boolean; authToken?: string | null; signal?: AbortSignal }): Promise<ProfilesSummaryResponse> {
+export async function getProfilesSummary(params?: { activity_type?: string; activity_limit?: number; activity_per_type?: number; include_activity?: boolean; authToken?: string | null; signal?: AbortSignal }): Promise<ProfilesSummaryResponse> {
   return fetchJson<ProfilesSummaryResponse>(
     buildApiUrl("/api/profiles/summary", {
       activity_type: params?.activity_type,
       activity_limit: params?.activity_limit,
+      activity_per_type: params?.activity_per_type,
       include_activity: params?.include_activity ? "true" : undefined,
     }),
     {

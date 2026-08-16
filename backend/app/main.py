@@ -4815,6 +4815,7 @@ def profiles_summary(
     request: Request,
     activity_type: str = Query("all", pattern="^(all|congress|insiders|institutions|departments)$"),
     activity_limit: int = Query(25, ge=1, le=100),
+    activity_per_type: int | None = Query(None, ge=1, le=10),
     include_activity: bool = Query(False),
     db: Session = Depends(get_db),
 ):
@@ -4823,19 +4824,20 @@ def profiles_summary(
         return prefetch_response
     entitlements = current_entitlements(request, db)
     include_institutions = entitlements.has_feature("institutional_feed")
-    cache_activity_limit = 100 if include_activity else activity_limit
+    cache_activity_limit = 100 if include_activity and activity_per_type is None else activity_limit
     payload = _cached_profile_overview_response(
         db,
-        ("profiles_summary", activity_type, cache_activity_limit, include_institutions, include_activity),
+        ("profiles_summary", activity_type, cache_activity_limit, include_institutions, include_activity, activity_per_type),
         lambda: build_profiles_summary(
             db,
             activity_type=activity_type,
             activity_limit=cache_activity_limit,
+            activity_per_type=activity_per_type,
             include_institutions=include_institutions,
             include_activity=include_activity,
         ),
     )
-    if include_activity and activity_limit < cache_activity_limit and isinstance(payload, dict):
+    if include_activity and activity_per_type is None and activity_limit < cache_activity_limit and isinstance(payload, dict):
         payload = copy.deepcopy(payload)
         payload["activity"] = list(payload.get("activity") or [])[:activity_limit]
     return payload
