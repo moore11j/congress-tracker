@@ -15,6 +15,6 @@ test("watchlist detail defers supplemental panels without removing them", () => 
 test("watchlist detail keeps the session-recovery client in a separate route chunk", () => {
   const source = readFileSync(join(process.cwd(), "app/watchlists/[id]/page.tsx"), "utf8");
 
-  assert.match(source, /dynamic\(\s*\(\) => import\("@\/components\/watchlists\/WatchlistDetailClient"/);
+  assert.match(source, /nextDynamic\(\s*\(\) => import\("@\/components\/watchlists\/WatchlistDetailClient"/);
   assert.match(source, /<WatchlistDetailClient/);
 });

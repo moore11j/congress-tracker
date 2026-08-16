@@ -1,11 +1,11 @@
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
 import { getWatchlist } from "@/lib/api";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import { getParam, parseMode, type WatchlistActivityState } from "@/lib/watchlistActivity";
 
-const WatchlistDetailClient = dynamic(
+const WatchlistDetailClient = nextDynamic(
   () => import("@/components/watchlists/WatchlistDetailClient").then((module) => module.WatchlistDetailClient),
 );
 
