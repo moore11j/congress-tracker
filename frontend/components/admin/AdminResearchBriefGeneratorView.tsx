@@ -175,23 +175,19 @@ const fallbackOptions: ResearchBriefOptions = {
 };
 
 const DEFAULT_CAMPAIGN_FORM: AdminResearchCampaignPayload = {
-  name: "Post-Earnings: Is It a Good Buy?",
+  name: "",
   theme: "good_buy_now",
   content_type: "ticker",
-  tickers: ["NBIS", "CRWV", "COHR"],
+  tickers: [],
   topic: "",
   cadence: "one_time",
   publish_start_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
   publish_time: "",
-  article_count: 3,
+  article_count: 1,
   window_days: 5,
   active: true,
-  target_keywords: { NBIS: "NBIS stock buy now", CRWV: "CRWV stock buy now", COHR: "COHR stock buy now" },
-  target_search_intents: {
-    NBIS: "Is NBIS a good stock to buy right now?",
-    CRWV: "Is CRWV a good stock to buy right now?",
-    COHR: "Is COHR a good stock to buy right now?",
-  },
+  target_keywords: {},
+  target_search_intents: {},
   secondary_keywords: [],
   search_intent: "Is [TICKER] a good stock to buy right now?",
 };
@@ -1929,17 +1925,11 @@ function CampaignsPanel({
   const newOpportunities = opportunities
     .filter((opportunity) => opportunity.status === "new")
     .sort((left, right) => Number(right.opportunity_score || 0) - Number(left.opportunity_score || 0));
-  const tickerOpportunityCounts = newOpportunities.reduce<Record<string, number>>((counts, opportunity) => {
-    if (opportunity.content_type === "ticker" && opportunity.ticker) counts[opportunity.ticker] = (counts[opportunity.ticker] || 0) + 1;
-    return counts;
-  }, {});
   const isOpportunityLoaded = (opportunity: AdminResearchKeywordOpportunity) => {
     if (selectedOpportunityIds.includes(opportunity.id)) return true;
     if (opportunity.content_type === "ticker" && opportunity.ticker && form.tickers.includes(opportunity.ticker)) {
       const configuredQuery = form.target_keywords?.[opportunity.ticker]?.trim().toLowerCase();
-      return configuredQuery
-        ? configuredQuery === opportunity.target_keyword.trim().toLowerCase()
-        : tickerOpportunityCounts[opportunity.ticker] === 1;
+      return configuredQuery === opportunity.target_keyword.trim().toLowerCase();
     }
     return opportunity.content_type === "non_ticker" && Boolean(form.topic && opportunity.topic && form.topic.trim().toLowerCase() === opportunity.topic.trim().toLowerCase());
   };
@@ -1989,8 +1979,8 @@ function CampaignsPanel({
             </label>
               {form.tickers.length ? (
                 <div className="mt-2 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.03] p-2 text-xs text-slate-300">
-                  <p className="font-semibold text-emerald-100">Loaded campaign plan: {form.tickers.length} distinct draft{form.tickers.length === 1 ? "" : "s"}</p>
-                  {form.tickers.map((ticker) => <p key={ticker} className="mt-1 truncate">{ticker}: {form.target_keywords?.[ticker] || form.target_keyword || `${ticker} stock buy now`}</p>)}
+                  <p className="font-semibold text-emerald-100">Ticker plan: {form.tickers.length} distinct draft{form.tickers.length === 1 ? "" : "s"}</p>
+                  {form.tickers.map((ticker) => <p key={ticker} className="mt-1 truncate">{ticker}: {form.target_keywords?.[ticker] || "No opportunity query selected yet"}</p>)}
                 </div>
               ) : null}
             </div>
