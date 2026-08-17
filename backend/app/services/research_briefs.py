@@ -2669,6 +2669,8 @@ def _generate_campaign_brief_with_corrections(
             correction_notes.append(correction_note)
             prior_context = str(retry_config.get("additional_context") or "").strip()
             retry_config["additional_context"] = f"{prior_context}\n\n{correction_note}".strip()[:4000]
+            # Corrective campaign attempts need room to complete the full strict JSON payload.
+            retry_config["retry_output_tokens"] = 10000
     raise RuntimeError("Campaign generation retry loop unexpectedly completed.")
 
 
@@ -3994,6 +3996,7 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
         "secondary_keywords": _dedupe_strings([str(item).strip()[:120] for item in (config.get("secondary_keywords") or []) if str(item).strip()])[:12],
         "search_intent": str(config.get("search_intent") or "").strip()[:120],
         "content_type": str(config.get("content_type") or "ticker").strip()[:80],
+        "retry_output_tokens": _retry_output_tokens(config.get("retry_output_tokens")),
     }
     normalized["selected_model"] = _selected_research_model(normalized, strict=strict_selected_model)
     if not normalized["target_keyword"]:
@@ -4003,6 +4006,13 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
         raise HTTPException(status_code=422, detail="Comparison tickers are required for peer comparison briefs.")
     return normalized
+
+
+def _retry_output_tokens(value: Any) -> int:
+    try:
+        return max(0, min(10000, int(value or 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _research_required_plan(value: Any, *, premium_required: bool = False) -> str | None:
@@ -4677,6 +4687,7 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
     if not api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before generating.")
     model = _selected_research_model(config, db)
+    max_output_tokens = _retry_output_tokens(config.get("retry_output_tokens")) or _max_output_tokens(config["length"])
     response = requests.post(
         RESPONSES_ENDPOINT,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -4684,7 +4695,7 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
             "model": model,
             "input": _prompt(config, context),
             "store": False,
-            "max_output_tokens": _max_output_tokens(config["length"]),
+            "max_output_tokens": max_output_tokens,
             "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
         },
         timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),

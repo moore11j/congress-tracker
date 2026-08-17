@@ -750,6 +750,7 @@ def test_campaign_quality_gate_failure_is_retried_with_correction_note(tmp_path,
     assert result["quality_gate_correction_note"].startswith("Walnut quality-gate correction note:")
     assert len(configs) == 2
     assert "Source links are required" in configs[1]["additional_context"]
+    assert configs[1]["retry_output_tokens"] == 10000
 
 
 def test_campaign_invalid_structured_output_is_retried_with_format_correction(tmp_path, monkeypatch):
@@ -774,6 +775,7 @@ def test_campaign_invalid_structured_output_is_retried_with_format_correction(tm
     assert len(configs) == 2
     assert len(notes) == 1
     assert "RFC 8259 JSON" in configs[1]["additional_context"]
+    assert configs[1]["retry_output_tokens"] == 10000
 
 
 def test_research_campaign_marks_selected_keyword_opportunity_used_only_after_creation(tmp_path, monkeypatch):
