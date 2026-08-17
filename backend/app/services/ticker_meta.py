@@ -380,6 +380,7 @@ def get_ticker_meta(
     *,
     allow_refresh: bool = True,
     enqueue_refresh: bool = True,
+    allow_public_live_refresh: bool = False,
 ) -> dict[str, dict[str, str | None]]:
     try:
         normalized = sorted({sym for raw in symbols for sym in [normalize_symbol(raw)] if sym})
@@ -416,7 +417,11 @@ def get_ticker_meta(
                 reason = "missing_profile_identity" if by_symbol.get(symbol) is not None else "cache_miss"
                 _enqueue_ticker_meta_refresh(symbol, reason=reason)
 
-        if stale_or_missing and allow_refresh and not _is_public_request_context():
+        # Page requests normally enqueue a refresh to protect provider capacity.
+        # An explicit user-visible ticker cache miss is the exception: fetch the
+        # small identity payload immediately, cache it, and keep the queue entry
+        # for the remaining enrichment work.
+        if stale_or_missing and allow_refresh and (not _is_public_request_context() or allow_public_live_refresh):
             _release_read_transaction(db, reason="ticker_meta_provider_refresh")
             resolved: dict[str, tuple[str | None, str | None, str | None, str | None, str | None]] = {}
             for symbol in stale_or_missing:

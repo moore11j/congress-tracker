@@ -6,9 +6,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import app.services.ticker_hydration as hydration_module
+import app.services.ticker_meta as ticker_meta_module
 from app.db import Base
 from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, Security, TickerMeta
+from app.request_priority import reset_request_context, set_request_context
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
+from app.services.ticker_meta import get_ticker_meta
 
 
 def _db():
@@ -243,7 +246,12 @@ def test_live_hydration_cache_miss_uses_bounded_direct_refresh_without_global_sw
     monkeypatch.delenv("FMP_TICKER_REFRESH_WATCHLIST_ONLY", raising=False)
     monkeypatch.setattr(hydration_module, "enqueue_data_enrichment_job", lambda **kwargs: False)
     monkeypatch.setattr("app.services.quote_lookup.get_current_prices_meta_db", lambda *args, **kwargs: calls.append("quote") or {})
-    monkeypatch.setattr("app.services.ticker_meta.get_ticker_meta", lambda *args, **kwargs: calls.append("profile") or {})
+    def profile_refresh(*args, **kwargs):
+        calls.append("profile")
+        assert kwargs["allow_public_live_refresh"] is True
+        return {}
+
+    monkeypatch.setattr("app.services.ticker_meta.get_ticker_meta", profile_refresh)
 
     try:
         result = request_ticker_hydration(db, "NBIS", reason="ticker_page_cache_miss", priority=1, live=True)
@@ -252,4 +260,28 @@ def test_live_hydration_cache_miss_uses_bounded_direct_refresh_without_global_sw
         assert result["refreshed"]["calls"] == 2
         assert calls == ["quote", "profile"]
     finally:
+        db.close()
+
+
+def test_public_live_identity_cache_miss_fetches_name_and_keeps_enrichment_job(monkeypatch):
+    db = _db()
+    fetched: list[str] = []
+    queued: list[dict] = []
+    token = set_request_context({"path": "/api/tickers/NP/hydration-request"})
+
+    def fetch_meta(symbol):
+        fetched.append(symbol)
+        return ("Neptune Example Corp.", "NASDAQ", "Technology", "Software", "US")
+
+    monkeypatch.setattr(ticker_meta_module, "_fetch_symbol_meta", fetch_meta)
+    monkeypatch.setattr(ticker_meta_module, "enqueue_data_enrichment_job", lambda **kwargs: queued.append(kwargs) or True)
+    try:
+        metadata = get_ticker_meta(db, ["NP"], allow_public_live_refresh=True)
+
+        assert fetched == ["NP"]
+        assert metadata["NP"]["company_name"] == "Neptune Example Corp."
+        assert queued[0]["job_type"] == "ticker_meta"
+        assert queued[0]["symbol"] == "NP"
+    finally:
+        reset_request_context(token)
         db.close()

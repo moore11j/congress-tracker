@@ -4270,7 +4270,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
     <div className="space-y-6">
       <EntitlementHintRefresh enabled={!authToken && authState.hasAuthHint} renderedTier={entitlements?.tier ?? null} />
       <TickerLiveContextRefresh
-        enabled={Boolean(shellFallbackMessage)}
+        enabled={Boolean(shellFallbackMessage) || !showTickerName}
         symbol={normalizedSymbol}
         side={side}
         lookbackDays={lookbackDays}

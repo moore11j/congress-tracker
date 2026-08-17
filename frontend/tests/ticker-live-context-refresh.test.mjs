@@ -9,7 +9,7 @@ test("ticker page uses a bounded server budget and background live refresh", () 
 
   assert.match(page, /const TICKER_CONTEXT_SSR_TIMEOUT_MS = 2500/);
   assert.match(page, /withinTickerLoadBudget\(getTickerContextBundle/);
-  assert.match(page, /TickerLiveContextRefresh[\s\S]*enabled=\{Boolean\(shellFallbackMessage\)\}/);
+  assert.match(page, /TickerLiveContextRefresh[\s\S]*enabled=\{Boolean\(shellFallbackMessage\) \|\| !showTickerName\}/);
   assert.match(refresh, /activeUser: true/);
   assert.match(refresh, /requestTickerHydration/);
   assert.match(refresh, /live: true/);

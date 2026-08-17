@@ -472,7 +472,7 @@ def _bounded_refresh(
         if calls < max_calls and critical.get("profile") != "ok":
             from app.services.ticker_meta import get_ticker_meta
 
-            get_ticker_meta(db, [symbol], allow_refresh=True)
+            get_ticker_meta(db, [symbol], allow_refresh=True, allow_public_live_refresh=force_live)
             calls += 1
             refreshed.append("profile")
         if calls < max_calls and critical.get("chart_30d") != "ok":
