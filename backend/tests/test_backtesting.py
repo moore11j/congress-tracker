@@ -927,13 +927,13 @@ def test_max_drawdown_uses_indexed_curve_not_raw_balance_with_contributions():
             user_id=user.id,
         )
 
-        assert round(result.summary.max_drawdown_pct, 4) == 58.3333
+        assert round(result.summary.max_drawdown_pct, 4) == -58.3333
     finally:
         db.close()
 
 
 def test_max_drawdown_metric_uses_peak_to_trough_drop():
-    assert round(compute_max_drawdown_pct([100.0, 120.0, 90.0, 110.0]), 4) == 25.0
+    assert round(compute_max_drawdown_pct([100.0, 120.0, 90.0, 110.0]), 4) == -25.0
 
 
 def test_backtest_route_is_premium_gated():
