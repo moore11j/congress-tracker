@@ -2926,7 +2926,9 @@ def _earnings_period_from_context(context: dict[str, Any]) -> str | None:
 
 
 def send_research_campaign_review_email(db: Session, admin: UserAccount, draft: dict[str, Any], item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any] | None:
-    to_email = str(getattr(admin, "email", "") or item.get("campaign_created_by_email") or "").strip()
+    # Campaign review is an editorial workflow, not an account-notification
+    # workflow. Keep its destination explicit and configurable.
+    to_email = os.getenv("RESEARCH_BRIEF_REVIEW_EMAIL", "jarod@walnutmarkets.com").strip()
     if not to_email:
         return None
     article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
@@ -5797,7 +5799,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
 
     price = market.get("price")
     price_text = _format_brief_money(price) if price is not None else "not available"
-    price_as_of = str(market.get("price_as_of") or "").replace("T", " ").replace("+00:00", " UTC")
+    price_as_of = str(market.get("price_as_of") or "").split(".", 1)[0].replace("T", " ").replace("+00:00", " UTC")
     try:
         volume_text = f"{float(market.get('volume')):,.0f}"
     except (TypeError, ValueError):

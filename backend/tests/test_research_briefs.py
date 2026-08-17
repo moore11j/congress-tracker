@@ -849,6 +849,29 @@ def test_campaign_generation_preserves_selected_opportunity_question():
     assert config["research_question"] == "Is Nebius stock overvalued after Q2 2026 earnings?"
 
 
+def test_campaign_review_email_uses_editorial_recipient_by_default(monkeypatch):
+    db = _session()
+    admin = _user(db, "different-admin@example.com", role="admin")
+    captured = {}
+
+    def fake_send_email(_db, **kwargs):
+        captured.update(kwargs)
+        return {"status": "sent"}
+
+    monkeypatch.delenv("RESEARCH_BRIEF_REVIEW_EMAIL", raising=False)
+    monkeypatch.setattr(service, "send_email", fake_send_email)
+
+    service.send_research_campaign_review_email(
+        db,
+        admin,
+        {"id": "rb_email", "article": {"title": "NBIS review"}, "primary_ticker": "NBIS"},
+        {},
+        {},
+    )
+
+    assert captured["to_email"] == "jarod@walnutmarkets.com"
+
+
 def test_walnut_data_fallback_marks_low_information_density_for_review_not_failure():
     article = {
         "_generation_mode": "walnut_data_fallback",
