@@ -874,6 +874,10 @@ def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path,
     assert draft["validation"]["status"] == "passed"
     assert draft["config"]["use_deterministic_draft"] is True
 
+    updated = service.update_draft(admin, draft["id"], {"title": "MU Stock: Research Review"}, db=db)
+
+    assert updated["validation"]["status"] == "passed"
+
 
 def test_final_confirmation_guard_runs_after_enrichment(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))

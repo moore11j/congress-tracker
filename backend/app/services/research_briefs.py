@@ -2780,7 +2780,7 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
     theme = _campaign_theme(campaign_config.get("theme"))
     title_intent = str(theme.get("intent") or "").replace("[TICKER]", ticker)
     if theme["key"] == "good_buy_now":
-        question = f"Is {ticker} a good stock to buy right now after the latest earnings and current Walnut data?"
+        question = f"Is {ticker} a good stock to buy right now after the latest earnings and current company data?"
         angle = "Post-earnings review"
     else:
         question = title_intent or f"What does current Walnut data say about {ticker}?"
@@ -5883,9 +5883,12 @@ def update_draft(
                 draft.get("research_context") or {},
                 repair_generated_sections=False,
             )
+            if config.get("use_deterministic_draft"):
+                draft["article"]["_generation_mode"] = "walnut_data_fallback"
             if status:
                 draft["status"] = _normalize_update_status(draft.get("status"), status)
             draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
+            draft["article"].pop("_generation_mode", None)
             draft["updated_at"] = _now()
             _upsert_db_draft(db, draft)
             return deepcopy(draft)
@@ -5905,9 +5908,12 @@ def update_draft(
                     draft.get("research_context") or {},
                     repair_generated_sections=False,
                 )
+                if config.get("use_deterministic_draft"):
+                    draft["article"]["_generation_mode"] = "walnut_data_fallback"
                 if status:
                     draft["status"] = _normalize_update_status(draft.get("status"), status)
                 draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
+                draft["article"].pop("_generation_mode", None)
                 draft["updated_at"] = _now()
                 _append_audit(store, action="save", admin=admin, draft_id=draft_id)
                 _write_store(store)
