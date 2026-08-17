@@ -849,6 +849,29 @@ def test_campaign_generation_preserves_selected_opportunity_question():
     assert config["research_question"] == "Is Nebius stock overvalued after Q2 2026 earnings?"
 
 
+def test_campaign_generation_drops_other_company_secondary_keywords():
+    config = service._campaign_item_generation_config(
+        {"ticker": "NBIS", "target_keyword": "Nebius stock overvalued after Q2 2026 earnings"},
+        {"theme": "good_buy_now", "secondary_keywords": ["CRWV Q2 earnings analysis", "CoreWeave capex", "Nebius earnings analysis"]},
+    )
+
+    assert config["secondary_keywords"] == ["Nebius earnings analysis"]
+
+
+def test_seo_keyword_coverage_requires_title_and_body_terms_for_campaigns():
+    context = {"seo_keyword_enforced": True, "target_keyword": "Nebius stock overvalued after Q2 2026 earnings"}
+
+    assert service._seo_keyword_coverage_warnings(
+        "Nebius Stock: Is Nebius stock overvalued after Q2 2026 earnings?",
+        "Our answer to whether Nebius stock is overvalued after Q2 2026 earnings is bullish but expensive.",
+        context,
+    ) == []
+    assert {warning["code"] for warning in service._seo_keyword_coverage_warnings("NBIS research", "NBIS earnings review", context)} == {
+        "seo_keyword_missing_from_title",
+        "seo_keyword_missing_from_body",
+    }
+
+
 def test_campaign_review_email_uses_editorial_recipient_by_default(monkeypatch):
     db = _session()
     admin = _user(db, "different-admin@example.com", role="admin")

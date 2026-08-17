@@ -1457,16 +1457,19 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onSuggestedCardChange={updateSuggestedCard}
             onBodyChange={setBodyMarkdown}
             onSave={() => saveDraft(selectedDraft?.status === "published" ? "published" : "draft")}
-            onReady={() => saveDraft("ready_for_review")}
-            onPublish={requestPublishSelected}
+            onDiscard={() => {
+              if (!selectedDraft) return;
+              setArticleDraft(selectedDraft.article);
+              setBodyMarkdown(articleToMarkdown(selectedDraft.article));
+              setConfig({ ...DEFAULT_CONFIG, ...(selectedDraft.config || {}) });
+              showToast?.("Unsaved changes discarded.", "info");
+            }}
             onPublishNow={publishNowSelected}
             onApproveScheduled={approveScheduledSelected}
             onReject={rejectSelected}
             onReschedule={rescheduleSelected}
             onUnpublish={unpublishSelected}
             onDelete={requestDeleteSelected}
-            onRefreshSources={refreshSources}
-            onRegenerate={regenerateWith}
             blockingWarnings={publishHardStopWarnings.length}
             walnutCallInvalid={walnutCallInvalid}
           />
@@ -2299,16 +2302,13 @@ function EditorPanel({
   onSuggestedCardChange,
   onBodyChange,
   onSave,
-  onReady,
-  onPublish,
+  onDiscard,
   onPublishNow,
   onApproveScheduled,
   onReject,
   onReschedule,
   onUnpublish,
   onDelete,
-  onRefreshSources,
-  onRegenerate,
   blockingWarnings,
   walnutCallInvalid,
 }: {
@@ -2320,16 +2320,13 @@ function EditorPanel({
   onSuggestedCardChange: (updates: Partial<AdminResearchBriefArticle["suggested_card"]>) => void;
   onBodyChange: (value: string) => void;
   onSave: () => void;
-  onReady: () => void;
-  onPublish: () => void;
+  onDiscard: () => void;
   onPublishNow: () => void;
   onApproveScheduled: () => void;
   onReject: (correctionInstructions: string) => void;
   onReschedule: (scheduledAt: string) => void;
   onUnpublish: () => void;
   onDelete: () => void;
-  onRefreshSources: () => void;
-  onRegenerate: (change: string) => void;
   blockingWarnings: number;
   walnutCallInvalid: boolean;
 }) {
@@ -2559,8 +2556,8 @@ function EditorPanel({
           </div>
         ) : null}
         <div className="grid gap-2">
-          <Button disabled={Boolean(busy)} onClick={onSave}>{draft.status === "published" ? "Save Published Changes" : "Save Draft"}</Button>
-          <Button disabled={Boolean(busy)} onClick={onReady}>Ready for Review</Button>
+          <Button disabled={Boolean(busy)} onClick={onSave}>Save Draft</Button>
+          <Button disabled={Boolean(busy)} onClick={onDiscard}>Discard Changes</Button>
           {isScheduledDraft ? (
             <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
               <label className="block">
@@ -2580,28 +2577,12 @@ function EditorPanel({
                     maxLength={2000}
                   />
                 </label>
-                <Button disabled={Boolean(busy)} onClick={() => onReject(rejectionInstructions)}>Reject & regenerate</Button>
-                <p className="text-xs leading-5 text-slate-500">The rejected version is retained. Walnut creates a corrected replacement and emails it for review.</p>
+                <Button disabled={Boolean(busy)} onClick={() => onReject(rejectionInstructions)}>Apply Corrections</Button>
                 <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || (draft.validation?.source_link_count || 0) === 0} onClick={onPublishNow}>Publish Now</Button>
               </div>
             </div>
           ) : null}
-          <Button disabled={Boolean(busy)} onClick={onRefreshSources}>{busy === "refresh-sources" ? "Refreshing..." : "Find Sources / Refresh Research"}</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into an X post.")}>Convert to X post</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into Reddit DD.")}>Convert to Reddit DD</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into a WallStreetBets version without changing facts.")}>Convert to WSB version</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into a ValueInvesting version without changing facts.")}>Convert to ValueInvesting version</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Generate or regenerate the thumbnail prompt and hero image from the final post conclusion.")}>Generate thumbnail</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Regenerate the entire brief with the same data.")}>Regenerate Entire Brief</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Shorten the brief while preserving all supported evidence.")}>Shorten</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Expand the brief with more detail from supplied Walnut data only.")}>Expand</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Make the framing more bullish using only genuine bullish evidence.")}>Make More Bullish</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Make the framing more bearish using only genuine bearish evidence.")}>Make More Bearish</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Make the framing more balanced without weakening the final judgment.")}>Make More Neutral</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the title.")}>Improve Title</Button>
-          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the final Walnut judgment.")}>Improve Walnut Judgment</Button>
-          <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || (draft.validation?.source_link_count || 0) === 0} onClick={onPublish}>Publish</Button>
-          <Button disabled={Boolean(busy) || draft.status !== "published"} onClick={onUnpublish}>Unpublish</Button>
+          {draft.status === "published" ? <Button disabled={Boolean(busy)} onClick={onUnpublish}>Unpublish</Button> : null}
           <Button tone="danger" disabled={Boolean(busy)} onClick={onDelete}>Delete Draft</Button>
         </div>
       </aside>

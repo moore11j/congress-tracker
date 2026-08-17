@@ -2845,7 +2845,7 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         "selected_model": "",
         "manual_source_url": "",
         "target_keyword": item.get("target_keyword") or campaign_config.get("target_keyword") or f"{ticker} stock buy now",
-        "secondary_keywords": campaign_config.get("secondary_keywords") or [],
+        "secondary_keywords": _secondary_keywords_for_ticker(campaign_config.get("secondary_keywords") or [], ticker),
         "search_intent": campaign_config.get("target_search_intents", {}).get(ticker) or campaign_config.get("search_intent") or title_intent,
         "content_type": "ticker",
     }
@@ -3686,6 +3686,9 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         "external_research_mode": payload.get("external_research_mode") or "Standard",
         "desired_angle": payload.get("desired_angle") or "",
         "research_question": payload.get("research_question") or "",
+        "target_keyword": payload.get("target_keyword") or payload.get("research_question") or "",
+        "seo_keyword_enforced": bool(payload.get("seo_keyword_enforced")),
+        "secondary_keywords": payload.get("secondary_keywords") or [],
         "section_format": payload.get("section_format") or "Walnut Research Brief",
         "include_confirmation_score": bool(payload.get("include_confirmation_score")),
         "include_cross_source_confirmations": bool(payload.get("include_cross_source_confirmations")),
@@ -4083,6 +4086,23 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
 
+def _secondary_keywords_for_ticker(keywords: list[Any], ticker: str | None) -> list[str]:
+    """Keep generic and primary-ticker terms; drop terms that name another company."""
+    primary = normalize_symbol(ticker) or ""
+    filtered: list[str] = []
+    for raw_keyword in keywords:
+        keyword = str(raw_keyword).strip()
+        if not keyword:
+            continue
+        mentions_other_company = any(
+            symbol != primary and any(re.search(rf"\b{re.escape(alias)}\b", keyword, flags=re.IGNORECASE) for alias in aliases)
+            for symbol, aliases in COMPANY_IDENTITY_GUARDS.items()
+        )
+        if not mentions_other_company:
+            filtered.append(keyword)
+    return _dedupe_strings(filtered)
+
+
 def validate_config(config: dict[str, Any], *, strict_selected_model: bool = True) -> dict[str, Any]:
     ticker = config.get("ticker")
     prompt = str(config.get("research_question") or "").strip()
@@ -4119,6 +4139,7 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
         "hero_image": config.get("hero_image") or "",
         "manual_source_url": _normalize_manual_source_url(config.get("manual_source_url")),
         "target_keyword": str(config.get("target_keyword") or "").strip()[:240],
+        "seo_keyword_enforced": bool(str(config.get("target_keyword") or "").strip()),
         "secondary_keywords": _dedupe_strings([str(item).strip()[:120] for item in (config.get("secondary_keywords") or []) if str(item).strip()])[:12],
         "search_intent": str(config.get("search_intent") or "").strip()[:120],
         "content_type": str(config.get("content_type") or "ticker").strip()[:80],
@@ -4130,6 +4151,7 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
         normalized["target_keyword"] = normalized["research_question"][:240]
     if not normalized["search_intent"]:
         normalized["search_intent"] = normalized["research_question"][:120]
+    normalized["secondary_keywords"] = _secondary_keywords_for_ticker(normalized["secondary_keywords"], normalized_ticker)
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
         raise HTTPException(status_code=422, detail="Comparison tickers are required for peer comparison briefs.")
     return normalized
@@ -4902,6 +4924,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Every company-specific statement must be about PRIMARY_COMPANY unless it is explicitly framed as comparison, industry, or macro context. Do not analyze Nvidia, AMD, CoreWeave, or any other company as the subject unless that ticker is listed in COMPARISON_TICKERS.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             "The target search query is the organizing question, not a phrase to repeat. Answer it immediately, then earn the conclusion with Walnut-native evidence.",
+            "SEO requirement: put the primary target keyword or its grammatically natural question form in the title and in the opening section. Cover every meaningful term from that query in the body without keyword stuffing. Use secondary keywords only when they are relevant to PRIMARY_TICKER; never insert a different company's keyword into a single-ticker brief.",
             "Walnut site context contains only approved first-party pages. Use 2-4 relevant internal links where they genuinely help a reader navigate; do not create random keyword links or link every sentence.",
             "If core earnings research is unavailable, do not write around it. The backend should stop generation before this prompt. Never write paragraphs saying Walnut needs to go find the data.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
@@ -5125,6 +5148,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "company_identity": "passed",
         "numeric_validation": "passed",
         "style": "passed",
+        "seo_keyword_coverage": "passed",
     }
     readiness = context.get("research_readiness") if isinstance(context.get("research_readiness"), dict) else research_readiness(context)
     if readiness.get("status") == "not_ready":
@@ -5155,6 +5179,11 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         blocking = True
     if not title:
         warnings.append(_warning("missing_title", "Title is required.", blocking=True))
+        blocking = True
+    seo_keyword_warnings = _seo_keyword_coverage_warnings(title, body, context)
+    if seo_keyword_warnings:
+        warnings.extend(seo_keyword_warnings)
+        labels["seo_keyword_coverage"] = "failed"
         blocking = True
     if len(body) < 800:
         warnings.append(_warning("thin_body", "Article body appears too short for a professional research brief.", blocking=True))
@@ -5891,6 +5920,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "heading": "Executive thesis",
             "body_markdown": (
                 f"{company} ({symbol}) is not a simple value case after its latest reported quarter. "
+                f"Our answer to “{question}?” is {walnut_call.lower()}. "
                 f"At {price_text}{f' as of {price_as_of}' if price_as_of else ''}, the available valuation cache shows roughly {forward_pe_text} forward earnings "
                 f"and {price_to_book_text} price to book where those fields are available. The operating story improved, but the valuation still demands sustained execution through an exceptionally capital intensive buildout.\n\n"
                 f"Our working judgment is **{walnut_call}**. {call_basis} "
@@ -5978,6 +6008,26 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
         "suggested_card": {"title": f"{symbol}: expensive or justified after Q2?", "description": f"A Walnut review of {symbol}'s Q2 2026 earnings, current price, valuation, capex, and catalysts.", "judgment": article_judgment, "tickers": [symbol]},
         "seo": {"title": f"Is {symbol} Stock Overvalued After Q2 2026 Earnings?", "description": f"Review {symbol}'s Q2 2026 earnings, {price_text} price snapshot, valuation, capex, catalysts, risks, and Walnut judgment."},
     }
+
+
+def _seo_keyword_coverage_warnings(title: str, body: str, context: dict[str, Any]) -> list[dict[str, Any]]:
+    if not context.get("seo_keyword_enforced"):
+        return []
+    target_keyword = str(context.get("target_keyword") or context.get("research_question") or "").strip()
+    if not target_keyword:
+        return []
+    stop_words = {"a", "an", "and", "after", "for", "in", "is", "now", "of", "on", "or", "the", "to"}
+    terms = [term for term in re.findall(r"[a-z0-9]+", target_keyword.lower()) if len(term) >= 2 and term not in stop_words]
+    if not terms:
+        return []
+    title_terms = set(re.findall(r"[a-z0-9]+", title.lower()))
+    body_terms = set(re.findall(r"[a-z0-9]+", body.lower()))
+    warnings: list[dict[str, Any]] = []
+    if not set(terms).issubset(title_terms):
+        warnings.append(_warning("seo_keyword_missing_from_title", "Title must cover every meaningful term in the primary target keyword.", blocking=True))
+    if not set(terms).issubset(body_terms):
+        warnings.append(_warning("seo_keyword_missing_from_body", "Opening/body copy must naturally cover every meaningful term in the primary target keyword.", blocking=True))
+    return warnings
 
 
 def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
