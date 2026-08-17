@@ -46,7 +46,9 @@ from app.services.research_briefs import (
     research_brief_model_options,
     research_brief_model,
     regenerate_research_keyword_opportunity,
+    reschedule_research_campaign_item,
     reschedule_research_brief,
+    run_research_campaign_item_now,
     run_research_campaign_now,
     set_research_campaign_active,
     unpublish_draft,
@@ -248,6 +250,24 @@ def admin_set_research_campaign_active(campaign_id: str, payload: ActivePayload,
 def admin_run_research_campaign_now(campaign_id: str, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     return run_research_campaign_now(db, campaign_id)
+
+
+@router.post("/admin/research-briefs/campaigns/{campaign_id}/items/{item_id}/run-now", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_run_research_campaign_item_now(campaign_id: str, item_id: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return run_research_campaign_item_now(db, campaign_id, item_id)
+
+
+@router.post("/admin/research-briefs/campaigns/{campaign_id}/items/{item_id}/reschedule", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_reschedule_research_campaign_item(
+    campaign_id: str,
+    item_id: str,
+    payload: ReschedulePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return reschedule_research_campaign_item(db, campaign_id, item_id, payload.scheduled_at)
 
 
 @router.delete("/admin/research-briefs/campaigns/{campaign_id}", dependencies=[Depends(rate_limit_admin_mutation)])

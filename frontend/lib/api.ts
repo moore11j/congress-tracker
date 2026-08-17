@@ -7087,6 +7087,22 @@ export async function updateAdminResearchKeywordOpportunityStatus(opportunityId:
   });
 }
 
+export async function runAdminResearchCampaignItemNow(campaignId: string, itemId: string): Promise<{ generated: number; failed: number; skipped: number; checked: number }> {
+  return fetchJson<{ generated: number; failed: number; skipped: number; checked: number }>(buildApiUrl(`/api/admin/research-briefs/campaigns/${encodeURIComponent(campaignId)}/items/${encodeURIComponent(itemId)}/run-now`), {
+    method: "POST",
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function rescheduleAdminResearchCampaignItem(campaignId: string, itemId: string, scheduledAt: string): Promise<AdminResearchCampaignItem> {
+  return fetchJson<AdminResearchCampaignItem>(buildApiUrl(`/api/admin/research-briefs/campaigns/${encodeURIComponent(campaignId)}/items/${encodeURIComponent(itemId)}/reschedule`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scheduled_at: scheduledAt }),
+    source: "AdminResearchCampaigns",
+  });
+}
+
 export async function regenerateAdminResearchKeywordOpportunity(opportunityId: string, payload: { instructions?: string | null }): Promise<AdminResearchKeywordOpportunity> {
   return fetchJson<AdminResearchKeywordOpportunity>(buildApiUrl(`/api/admin/research-briefs/keyword-opportunities/${encodeURIComponent(opportunityId)}/regenerate`), {
     method: "POST",

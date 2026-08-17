@@ -22,7 +22,9 @@ import {
   refreshAdminResearchBriefSources,
   regenerateAdminResearchKeywordOpportunity,
   rejectAdminResearchBriefDraft,
+  rescheduleAdminResearchCampaignItem,
   rescheduleAdminResearchBriefDraft,
+  runAdminResearchCampaignItemNow,
   runAdminResearchCampaignNow,
   setAdminResearchCampaignActive,
   startAdminResearchBriefGeneration,
@@ -1072,6 +1074,33 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
   }
 
+  async function runCampaignItemNow(campaign: AdminResearchCampaign, itemId: string) {
+    setBusy(`campaign-item-run-${itemId}`);
+    try {
+      const result = await runAdminResearchCampaignItemNow(campaign.id, itemId);
+      await refreshCampaigns();
+      await refreshDrafts();
+      showToast?.(`Draft generation complete: ${result.generated} generated, ${result.failed} failed.`, result.failed ? "error" : "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to generate this campaign draft.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function rescheduleCampaignItem(campaign: AdminResearchCampaign, itemId: string, publishAt: string) {
+    setBusy(`campaign-item-reschedule-${itemId}`);
+    try {
+      await rescheduleAdminResearchCampaignItem(campaign.id, itemId, publishAt);
+      await refreshCampaigns();
+      showToast?.("Campaign item schedule updated.", "success");
+    } catch (err) {
+      showToast?.(err instanceof Error ? err.message : "Unable to update this campaign schedule.", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function removeCampaign(campaign: AdminResearchCampaign) {
     if (!window.confirm(`Delete campaign "${campaign.name}"? Generated articles are kept.`)) return;
     setBusy(`campaign-delete-${campaign.id}`);
@@ -1439,6 +1468,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         <ScheduledBriefsPanel
           drafts={scheduledDrafts}
           campaigns={campaigns}
+          busy={busy}
+          onRunPendingItem={runCampaignItemNow}
+          onReschedulePendingItem={rescheduleCampaignItem}
           onViewCampaigns={() => setActivePane("campaigns")}
           onOpen={(draft) => {
             setSelectedDraft(draft);
@@ -1882,19 +1914,26 @@ function toDateTimeLocal(value?: string | null) {
 function ScheduledBriefsPanel({
   drafts,
   campaigns,
+  busy,
   onOpen,
   onViewCampaigns,
+  onRunPendingItem,
+  onReschedulePendingItem,
 }: {
   drafts: AdminResearchBriefDraft[];
   campaigns: AdminResearchCampaign[];
+  busy: string | null;
   onOpen: (draft: AdminResearchBriefDraft) => void;
   onViewCampaigns: () => void;
+  onRunPendingItem: (campaign: AdminResearchCampaign, itemId: string) => void;
+  onReschedulePendingItem: (campaign: AdminResearchCampaign, itemId: string, publishAt: string) => void;
 }) {
   const pendingItems = campaigns.flatMap((campaign) =>
     (campaign.items || [])
       .filter((item) => item.status === "pending" || item.status === "generating")
-      .map((item) => ({ ...item, campaignName: campaign.name })),
+      .map((item) => ({ ...item, campaign, campaignName: campaign.name })),
   );
+  const [pendingPublishTimes, setPendingPublishTimes] = useState<Record<string, string>>({});
   return (
     <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1906,23 +1945,43 @@ function ScheduledBriefsPanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-sm font-semibold text-cyan-100">Pending campaign queue</h4>
-              <p className="mt-1 text-xs leading-5 text-slate-400">These are scheduled campaign items that have not generated a draft yet. Use Run Now in Campaigns when you want the drafts and review emails immediately.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">These are scheduled campaign items that have not generated a draft yet. Change a publish time here, or generate one draft now and receive its review email.</p>
             </div>
             <Button onClick={onViewCampaigns}>Open Campaigns</Button>
           </div>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                <tr><th className="px-3 py-2">Publish time</th><th className="px-3 py-2">Ticker/topic</th><th className="px-3 py-2">Campaign</th><th className="px-3 py-2">Generation</th><th className="px-3 py-2">Status</th></tr>
+                <tr><th className="px-3 py-2">Publish time</th><th className="px-3 py-2">Ticker/topic</th><th className="px-3 py-2">Campaign</th><th className="px-3 py-2">Generation</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {pendingItems.map((item) => (
                   <tr key={item.id} className="text-slate-300">
-                    <td className="px-3 py-3 whitespace-nowrap">{formatDateTime(item.publish_at)}</td>
+                    <td className="px-3 py-3">
+                      <input
+                        type="datetime-local"
+                        value={pendingPublishTimes[item.id] ?? toDateTimeLocal(item.publish_at)}
+                        onChange={(event) => setPendingPublishTimes((current) => ({ ...current, [item.id]: event.target.value }))}
+                        className={fieldClassName("min-w-52 text-xs")}
+                      />
+                    </td>
                     <td className="px-3 py-3 font-semibold text-slate-100">{item.ticker || item.topic || "Topic"}</td>
                     <td className="px-3 py-3">{item.campaignName}</td>
                     <td className="px-3 py-3 whitespace-nowrap text-xs text-slate-400">{formatDateTime(item.generate_at)}</td>
                     <td className="px-3 py-3"><span className="rounded-md border border-cyan-300/25 px-2 py-1 text-xs font-semibold uppercase text-cyan-100">{item.status}</span></td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          disabled={Boolean(busy) || !((pendingPublishTimes[item.id] ?? toDateTimeLocal(item.publish_at)).trim())}
+                          onClick={() => onReschedulePendingItem(item.campaign, item.id, new Date(pendingPublishTimes[item.id] ?? toDateTimeLocal(item.publish_at)).toISOString())}
+                        >
+                          {busy === `campaign-item-reschedule-${item.id}` ? "Saving..." : "Save time"}
+                        </Button>
+                        <Button disabled={Boolean(busy)} onClick={() => onRunPendingItem(item.campaign, item.id)}>
+                          {busy === `campaign-item-run-${item.id}` ? "Generating..." : "Send draft now"}
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

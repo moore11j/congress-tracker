@@ -603,6 +603,41 @@ def test_research_campaign_normalizes_long_search_intent_without_rejecting_paylo
     assert len(normalized["target_search_intents"]["NBIS"]) == 120
 
 
+def test_pending_campaign_item_can_be_rescheduled_or_run_individually(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "Campaign",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["NBIS", "CRWV"],
+            "publish_start_at": "2026-08-17T09:00:00+00:00",
+            "article_count": 2,
+            "window_days": 2,
+        },
+    )
+    nbis = campaign["items"][0]
+    updated = service.reschedule_research_campaign_item(db, campaign["id"], nbis["id"], "2026-08-18T09:00:00-07:00")
+
+    assert updated["id"] == nbis["id"]
+    assert updated["publish_at"].startswith("2026-08-18T16:00:00")
+    calls = []
+
+    def fake_run_due(_db, **kwargs):
+        calls.append(kwargs)
+        return {"generated": 1, "failed": 0, "skipped": 0, "checked": 1}
+
+    monkeypatch.setattr(service, "run_due_research_campaign_generation", fake_run_due)
+    result = service.run_research_campaign_item_now(db, campaign["id"], nbis["id"])
+
+    assert result["generated"] == 1
+    assert calls == [{"limit": 1, "campaign_id": campaign["id"], "item_id": nbis["id"]}]
+
+
 def test_research_campaign_marks_selected_keyword_opportunity_used_only_after_creation(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()

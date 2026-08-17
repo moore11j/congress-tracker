@@ -2463,9 +2463,55 @@ def run_research_campaign_now(db: Session, campaign_id: str, *, limit: int = 10)
     return run_due_research_campaign_generation(db, limit=limit, campaign_id=campaign_id)
 
 
-def run_due_research_campaign_generation(db: Session, *, limit: int = 10, campaign_id: str | None = None) -> dict[str, Any]:
+def reschedule_research_campaign_item(db: Session, campaign_id: str, item_id: str, publish_at: str) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    parsed = _parse_schedule_datetime(publish_at)
+    if not parsed:
+        raise HTTPException(status_code=422, detail="A valid publish_at timestamp is required.")
+    row = db.execute(
+        text("SELECT * FROM research_campaign_items WHERE id = :id AND campaign_id = :campaign_id"),
+        {"id": item_id, "campaign_id": campaign_id},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Campaign item not found.")
+    if str(row.get("status") or "") != "pending":
+        raise HTTPException(status_code=409, detail="Only pending campaign items can be rescheduled here. Open the generated draft to change its schedule.")
+    now = datetime.now(timezone.utc)
+    generate_at = min(now, parsed - timedelta(hours=18))
+    db.execute(
+        text("UPDATE research_campaign_items SET publish_at = :publish_at, generate_at = :generate_at, updated_at = :updated_at WHERE id = :id"),
+        {"id": item_id, "publish_at": parsed.isoformat(), "generate_at": generate_at.isoformat(), "updated_at": _now()},
+    )
+    db.commit()
+    updated = db.execute(text("SELECT * FROM research_campaign_items WHERE id = :id"), {"id": item_id}).mappings().first()
+    return _campaign_item_from_row(updated)
+
+
+def run_research_campaign_item_now(db: Session, campaign_id: str, item_id: str) -> dict[str, Any]:
+    ensure_research_brief_store_schema(db)
+    result = db.execute(
+        text(
+            "UPDATE research_campaign_items SET generate_at = :now, updated_at = :now "
+            "WHERE id = :id AND campaign_id = :campaign_id AND status = 'pending'"
+        ),
+        {"id": item_id, "campaign_id": campaign_id, "now": _now()},
+    )
+    db.commit()
+    if getattr(result, "rowcount", 0) != 1:
+        raise HTTPException(status_code=409, detail="This campaign item is no longer pending. Refresh the schedule and try again.")
+    return run_due_research_campaign_generation(db, limit=1, campaign_id=campaign_id, item_id=item_id)
+
+
+def run_due_research_campaign_generation(
+    db: Session,
+    *,
+    limit: int = 10,
+    campaign_id: str | None = None,
+    item_id: str | None = None,
+) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
     where_campaign = "AND c.id = :campaign_id" if campaign_id else ""
+    where_item = "AND i.id = :item_id" if item_id else ""
     rows = db.execute(
         text(
             f"""
@@ -2473,12 +2519,12 @@ def run_due_research_campaign_generation(db: Session, *, limit: int = 10, campai
                    c.config_json AS campaign_config_json, c.created_by AS campaign_created_by, c.created_by_email AS campaign_created_by_email
             FROM research_campaign_items i
             JOIN research_campaigns c ON c.id = i.campaign_id
-            WHERE i.status = 'pending' AND c.active = 1 AND i.generate_at <= :now {where_campaign}
+            WHERE i.status = 'pending' AND c.active = 1 AND i.generate_at <= :now {where_campaign} {where_item}
             ORDER BY i.generate_at ASC
             LIMIT :limit
             """
         ),
-        {"now": _now(), "limit": max(1, min(50, limit)), "campaign_id": campaign_id},
+        {"now": _now(), "limit": max(1, min(50, limit)), "campaign_id": campaign_id, "item_id": item_id},
     ).mappings().all()
     generated = 0
     failed = 0
