@@ -34,7 +34,7 @@ from app.services.confirmation_score import get_confirmation_score_bundles_for_t
 from app.services.email_delivery import send_email
 from app.utils.symbols import normalize_symbol
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v3_search_intent_walnut_context"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v4_decisive_human_voice"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -304,6 +304,8 @@ MISSING_DATA_AWKWARD_RE = re.compile(
     re.IGNORECASE,
 )
 STYLE_TIC_PATTERNS = [
+    ("banned AI watermark word", r"\b(?:furthermore|moreover|in conclusion|strictly speaking|fundamentally|inherently|delve|leverage|utilize|foster|optimize|revolutionize|underscore|crucial|paramount|meticulous|bespoke|testament)\b"),
+    ("unnecessary hyphenation", r"\b(?:capital-intensive|free-cash-flow|self-funded|ai-cloud|balance-sheet|watch-and-verify)\b"),
     ("reviewed record supplied", r"\bthe reviewed record supplied\b"),
     ("available evidence does not permit", r"\bthe available evidence does not permit\b"),
     ("we reserve judgment", r"\bwe (?:therefore )?reserve judgment\b"),
@@ -1217,15 +1219,21 @@ def _infer_earnings_walnut_call(article: dict[str, Any], context: dict[str, Any]
     bearish_business = _earnings_business_weakness(fundamentals, confirmation, text)
     expensive = _earnings_setup_expensive(fundamentals, financials, text)
     capex_risk = bool(re.search(r"\bcapex\b|capital expenditures?|free cash flow|fcf|reality labs|ai spend|ai infrastructure", text))
-    defensive = bool(re.search(r"\bdefensive\b|resilien\w+|services|buybacks?|institutional safety|safe-haven|installed base|franchise", text))
+    score_direction = _confirmation_score_direction(context)
     balanced = bool(re.search(r"\bgenuinely balanced\b|balanced evidence|two-sided|offsetting evidence", text))
 
+    if score_direction == "bullish":
+        if capex_risk:
+            return "Bullish with capex risk"
+        if expensive:
+            return "Bullish but expensive"
+        return "Very bullish" if _earnings_business_very_strong(fundamentals, confirmation, text) else "Bullish"
+    if score_direction == "bearish":
+        return "Very bearish" if _earnings_business_very_weak(fundamentals, confirmation, text) else "Bearish"
     if bearish_business and not bullish_business:
         return "Very bearish" if _earnings_business_very_weak(fundamentals, confirmation, text) else "Bearish"
     if bullish_business and capex_risk:
-        return "Mixed with capex risk"
-    if bullish_business and expensive and defensive:
-        return "Neutral but expensive"
+        return "Bullish with capex risk"
     if bullish_business and expensive:
         return "Bullish but expensive"
     if bullish_business:
@@ -1324,6 +1332,7 @@ def _earnings_setup_judgment_explanation(walnut_call: str, article: dict[str, An
         "Very bullish": "The market issue is whether results and guidance can confirm an already strong operating read.",
         "Bullish": "The market issue is whether results and guidance can confirm that strength without a valuation reset.",
         "Bullish but expensive": "The market issue is that valuation and expectations already price in a lot of the resilience.",
+        "Bullish with capex risk": "The market issue is whether revenue growth can stay ahead of capital spending and protect financing flexibility.",
         "Neutral": "The market issue is that the business is not broken, but the setup does not justify a cleaner directional call.",
         "Neutral but expensive": "The market issue is that investors are already paying for resilience, recurring revenue quality, buybacks, and institutional safety.",
         "Neutral with capex risk": "The market issue is whether capex intensity and free cash flow conversion can keep pace with the core business strength.",
@@ -1337,6 +1346,7 @@ def _earnings_setup_judgment_explanation(walnut_call: str, article: dict[str, An
         "Very bullish": "Confirmation would be upside in the core operating metrics plus guidance that extends the strength; the call breaks if demand or margins roll over.",
         "Bullish": "Confirmation would be upside in the core operating metrics plus supportive guidance; the call breaks if demand or margins roll over.",
         "Bullish but expensive": "Confirmation would be upside to growth or margins that justifies the multiple; the call breaks if guidance is merely in line while expectations stay high.",
+        "Bullish with capex risk": "Confirmation would be stronger revenue momentum with capital spending and free cash flow guidance that does not worsen; the call breaks if spending absorbs the upside.",
         "Neutral": "Confirmation would require a cleaner growth, margin, or guidance signal; the call breaks lower if the print shows demand or margin pressure.",
         "Neutral but expensive": "Confirmation would be durable growth, margin discipline, and measurable AI or product contribution; the call breaks if the print shows safety was already fully priced.",
         "Neutral with capex risk": "Confirmation would be stronger revenue momentum with capex and free cash flow guidance that does not worsen; the call breaks if spending absorbs the upside.",
@@ -1439,12 +1449,17 @@ def _confirmation_score_value(context: dict[str, Any]) -> int | None:
     return score if score > 0 else None
 
 
+def _confirmation_score_direction(context: dict[str, Any]) -> str | None:
+    confirmation = _primary_confirmation(context)
+    direction = str(confirmation.get("direction") or confirmation.get("confirmation_direction") or "").strip().lower()
+    return direction if direction in {"bullish", "bearish", "neutral", "mixed"} else None
+
+
 def _confirmation_score_sentence(context: dict[str, Any]) -> str:
     score = _confirmation_score_value(context)
     if score is None:
         return ""
-    confirmation = _primary_confirmation(context)
-    direction = str(confirmation.get("direction") or confirmation.get("confirmation_direction") or "").strip().lower()
+    direction = _confirmation_score_direction(context)
     direction_text = f" The score direction is {direction}." if direction in {"bullish", "bearish", "neutral", "mixed"} else ""
     return f"Our proprietary confirmation score is {score}/100.{direction_text} This score is separate from the underlying data."
 
@@ -1602,6 +1617,14 @@ def _article_walnut_call(article: dict[str, Any]) -> str | None:
     if call:
         return call
     return _walnut_call_from_body(article)
+
+
+def _walnut_call_matches_confirmation_direction(call: str | None, direction: str) -> bool:
+    if direction == "bullish":
+        return call in {"Very bullish", "Bullish", "Bullish but expensive", "Bullish with capex risk"}
+    if direction == "bearish":
+        return call in {"Bearish", "Very bearish"}
+    return True
 
 
 def _walnut_call_from_body(article: dict[str, Any]) -> str | None:
@@ -4897,6 +4920,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "The Walnut call must be the full final judgment. Do not output a separate setup label. Allowed Walnut calls are: " + ", ".join(WALNUT_CALL_VALUES) + ".",
             "For earnings setup briefs, use this plain-text call format in the final call section: 'Our call: [allowed call]'. Do not wrap it in markdown bold markers. Mixed should be rare; use a more specific call such as Bullish but expensive, Neutral but expensive, Neutral with capex risk, or Mixed with capex risk when that is what the evidence says.",
             "For earnings setup briefs, if the business is strong but valuation or expectations are high, use Bullish but expensive or Neutral but expensive. If the business is strong but capex/free cash flow is the main market risk, use Neutral with capex risk or Mixed with capex risk. Use Insufficient data to make a call only when required primary data is unavailable.",
+            "The final call must agree with the confirmation-score direction when that direction is available. A bullish score requires a bullish call such as Bullish, Bullish but expensive, or Bullish with capex risk. A bearish score requires a bearish call. Name the risk inside the call; do not use Neutral or Mixed to contradict the score direction.",
             "For earnings previews, lead with numbers: consensus revenue/EPS, prior quarter revenue/EPS versus consensus, prior reaction if available, and the main setup. Avoid broad industry throat-clearing.",
             "For earnings previews, prefer this structure: Opening setup; What changed since last earnings; The numbers that matter; Business and fundamentals; Price / positioning; Bull case; Bear case; What we're watching; The call.",
             "Selected sections are conditional: include a selected section only when meaningful supported data exists. If a selected data area is empty, use one short factual line instead of filler.",
@@ -4910,8 +4934,10 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Answer the headline question in the opening 2-4 short paragraphs. Get to the data quickly. Use real numbers. Acknowledge conflicting evidence. Clearly separate fact from interpretation. Do not pretend every stock has a strong conclusion.",
             "For ticker question briefs, prefer natural sections such as Quick answer, What earnings changed, What our data is seeing, Fundamentals, Price / technical context, Bull case, Bear case, What to watch next, and Bottom line. Do not force every Walnut dataset into the article.",
             "If Congress, insider, institutional, contracts, options, macro, or analyst data is unavailable or irrelevant, omit that section. Do not turn missing data into paragraphs.",
-            "Strict copy rules: never write 'The reviewed record supplied for this brief does not contain', 'The available information is insufficient to assess', 'Investors should carefully consider', 'In today's rapidly evolving market', 'Unlock', 'Delve', 'Robust', 'Comprehensive', 'Holistic', 'Investment case', or 'Vibes'.",
+            "Strict copy rules: never write 'The reviewed record supplied for this brief does not contain', 'The available information is insufficient to assess', 'Investors should carefully consider', 'In today's rapidly evolving market', 'Unlock', 'Delve', 'Robust', 'Comprehensive', 'Holistic', 'Investment case', or 'Vibes'. Never use these AI-watermark words: furthermore, moreover, in conclusion, strictly speaking, fundamentally, inherently, delve, leverage, utilize, foster, optimize, revolutionize, underscore, crucial, paramount, meticulous, bespoke, testament.",
             "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'the central question,' 'against this backdrop,' 'on balance,' 'evidence suggests,' 'the appropriate next step,' 'credible bull case requires,' 'we reserve judgment,' 'It is important to note,' 'Looking ahead,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
+            "Use active voice. Vary sentence length and rhythm: follow a longer analytical sentence with a short sentence or fragment where it sharpens the point. Do not write consecutive sentences with the same cadence. Take a definitive, evidence-backed stand.",
+            "Use hyphens only when they remove real ambiguity. Write capital intensive, free cash flow, self funded, AI cloud, balance sheet, and watch and verify without hyphens.",
             "Prefer active sentences that sound like a senior analyst wrote them after reading the data. Do not become promotional, cute, or chatty.",
             "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
             "End with a clear judgment. Do not add generic investment disclaimers inside the article body; Walnut's public legal/footer language handles that.",
@@ -5213,6 +5239,16 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
                 _warning(
                     "earnings_walnut_call",
                     "Earnings setup briefs must include a single expanded Walnut call.",
+                    blocking=True,
+                )
+            )
+            blocking = True
+        score_direction = _confirmation_score_direction(context)
+        if score_direction and not _walnut_call_matches_confirmation_direction(earnings_call, score_direction):
+            warnings.append(
+                _warning(
+                    "confirmation_score_call_mismatch",
+                    f"The final Walnut call must match the {score_direction} confirmation-score direction.",
                     blocking=True,
                 )
             )
@@ -5822,6 +5858,19 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
     guidance_text = str(guidance.get("value") or "No current company guidance field was available in the reviewed context.")
     score = _confirmation_score_value(context)
     score_text = f"{score}/100" if score is not None else "not available"
+    score_direction = _confirmation_score_direction(context)
+    if score_direction == "bullish":
+        walnut_call, article_judgment = "Bullish but expensive", "bullish"
+        call_basis = f"The Q2 operating trend and the {score_text} bullish confirmation score support a bullish view."
+        final_stand = "We take the bullish side. The stock is not cheap, and the thesis fails if growth, funding, or guidance slips. Watch and verify the next results."
+    elif score_direction == "bearish":
+        walnut_call, article_judgment = "Bearish", "bearish"
+        call_basis = f"The {score_text} bearish confirmation score keeps the evidence pointed down despite the latest operating data."
+        final_stand = "We take the bearish side. Better results must change the score and the operating trend before the thesis changes."
+    else:
+        walnut_call, article_judgment = "Neutral but expensive", "mixed"
+        call_basis = "The available operating data does not support a clean directional score call."
+        final_stand = "The stock is not cheap, and the next results need to settle the open questions."
     forward_pe = valuation_metrics.get("forward_pe", valuation.get("forwardPE"))
     price_to_book = health.get("priceToBook")
     current_ratio = health.get("currentRatio")
@@ -5843,8 +5892,9 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "body_markdown": (
                 f"{company} ({symbol}) is not a simple value case after its latest reported quarter. "
                 f"At {price_text}{f' as of {price_as_of}' if price_as_of else ''}, the available valuation cache shows roughly {forward_pe_text} forward earnings "
-                f"and {price_to_book_text} price-to-book where those fields are available. The operating story improved, but the valuation still assumes sustained execution through an exceptionally capital-intensive buildout.\n\n"
-                f"Our working judgment is **Neutral but expensive**: the Q2 operating trend and bullish market confirmation make a purely bearish call incomplete, while the multiple, funding needs, and free-cash-flow burn keep the shares from clearing a conservative value bar. Research only. Not investment advice."
+                f"and {price_to_book_text} price to book where those fields are available. The operating story improved, but the valuation still demands sustained execution through an exceptionally capital intensive buildout.\n\n"
+                f"Our working judgment is **{walnut_call}**. {call_basis} "
+                f"The multiple, funding needs, and free cash flow burn make the shares expensive. That is the risk."
             ),
         },
         {
@@ -5861,8 +5911,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "heading": "Fundamentals, cash, and capital intensity",
             "body_markdown": (
                 f"The quarter generated {_format_brief_money(latest.get('operatingCashFlow'))} of operating cash flow, but capital expenditure was {_format_brief_money(latest.get('capex'))}, producing free cash flow of {_format_brief_money(latest.get('freeCashFlow'))}. "
-                f"That spread is the core fundamental risk: growth is being funded by a large infrastructure investment cycle rather than self-funded free cash flow.\n\n"
-                f"The available balance-sheet snapshot shows a current ratio of {current_ratio_text} and debt-to-equity of {debt_to_equity_text} where reported. Investors should watch cash, debt capacity, capex, and customer-funded demand together rather than treating revenue growth alone as proof of durable economics."
+                f"That spread is the core fundamental risk. {company} is funding growth through a large infrastructure investment cycle, not self funded free cash flow.\n\n"
+                f"The available balance sheet snapshot shows a current ratio of {current_ratio_text} and debt to equity of {debt_to_equity_text} where reported. Watch cash, debt capacity, capex, and customer funded demand together. Revenue growth alone does not prove durable economics."
             ),
         },
         {
@@ -5878,8 +5928,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "key": "catalysts",
             "heading": "Upcoming catalysts",
             "body_markdown": (
-                f"The primary upside catalysts are {catalyst_text}. Near-term evidence should include revenue conversion, ARR progression, capacity deployment, AI-cloud customer wins, and whether guidance is maintained or raised. "
-                f"The next scheduled earnings field in the research context should be rechecked before publication because calendar data can change."
+                f"The primary upside catalysts are {catalyst_text}. Watch revenue conversion, ARR progression, capacity deployment, AI cloud customer wins, and whether management maintains or raises guidance. "
+                f"Recheck the next earnings date before publication because calendar data can change."
             ),
         },
         {
@@ -5887,26 +5937,26 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "heading": "Risks that could break the thesis",
             "body_markdown": (
                 f"The biggest risks are capex running ahead of durable demand, a renewed funding requirement, a miss against the revenue trajectory implied by {guidance_text}, and valuation compression from the current {forward_pe_text} forward P/E field. "
-                f"Institutional activity is reported with a filing lag, and bullish price confirmation can reverse quickly after a high-expectations earnings print."
+                f"Institutional activity arrives with a filing lag, and bullish price confirmation can reverse quickly after a high expectations earnings print."
             ),
         },
         {
             "key": "final-walnut-judgment",
             "heading": "Final Walnut judgment",
             "body_markdown": (
-                f"**Neutral but expensive.** {symbol} has real operating momentum: {_format_brief_money(revenue)} quarterly revenue, {_format_brief_percent(sequential_growth)} sequential growth, and a {score_text} Walnut confirmation score with bullish price and reported institutional signals. "
-                f"The central valuation issue is whether the operating improvement is already more than priced in. For now, the evidence supports a watch-and-verify stance rather than treating {symbol} as obviously cheap after Q2 2026."
+                f"**{walnut_call}.** {symbol} has real operating momentum: {_format_brief_money(revenue)} quarterly revenue, {_format_brief_percent(sequential_growth)} sequential growth, and a {score_text} Walnut confirmation score with bullish price and reported institutional signals. "
+                f"{final_stand}"
             ),
         },
     ]
     return {
         "title": title[:180],
         "slug": _slugify(f"{symbol} stock overvalued after q2 2026 earnings", fallback=f"{symbol.lower()}-research-brief"),
-        "subtitle": f"A data-grounded review of {symbol} after Q2 2026 earnings, valuation, and capital intensity.",
-        "summary": f"{symbol} improved operationally after Q2 2026, but {price_text} and roughly {forward_pe_text} forward earnings leave little room for execution misses. Research only. Not investment advice.",
-        "preview_body": f"{symbol} has improving revenue and bullish price confirmation, but heavy capex and negative free cash flow keep the valuation debate open. Research only. Not investment advice.",
-        "judgment": "mixed",
-        "walnut_call": "Neutral but expensive",
+        "subtitle": f"A data grounded review of {symbol} after Q2 2026 earnings, valuation, and capital intensity.",
+        "summary": f"{symbol} has bullish Q2 momentum and a bullish confirmation score. {price_text} and roughly {forward_pe_text} forward earnings make the stock expensive, not bearish.",
+        "preview_body": f"{symbol} has improving revenue and bullish price confirmation. Heavy capex and negative free cash flow make the valuation demanding.",
+        "judgment": article_judgment,
+        "walnut_call": walnut_call,
         "confidence": "medium",
         "confirmation_score_included": score is not None,
         "primary_ticker": symbol,
@@ -5919,13 +5969,13 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             f"Current price was {price_text}; the forward P/E field was approximately {forward_pe_text}.",
             f"Capex of {_format_brief_money(latest.get('capex'))} left free cash flow at {_format_brief_money(latest.get('freeCashFlow'))}.",
         ],
-        "catalysts": [f"Evidence of {item}" for item in catalysts[:4]] or ["ARR growth", "Capacity deployment", "AI-cloud customer wins"],
-        "risks": ["Capex and free-cash-flow pressure", "Funding or dilution risk", "Valuation compression after an execution miss"],
+        "catalysts": [f"Evidence of {item}" for item in catalysts[:4]] or ["ARR growth", "Capacity deployment", "AI cloud customer wins"],
+        "risks": ["Capex and free cash flow pressure", "Funding or dilution risk", "Valuation compression after an execution miss"],
         "watch_items": ["Revenue and ARR conversion", "Capex versus operating cash flow", "Guidance changes", "Price/volume confirmation after earnings"],
         "data_freshness": [str(context.get("generated_at") or ""), f"Price snapshot: {price_as_of}" if price_as_of else ""],
         "missing_data_notes": list(context.get("missing_data_notes") or []),
         "source_links": [item for item in sources if isinstance(item, dict)][:8],
-        "suggested_card": {"title": f"{symbol}: expensive or justified after Q2?", "description": f"A Walnut review of {symbol}'s Q2 2026 earnings, current price, valuation, capex, and catalysts.", "judgment": "mixed", "tickers": [symbol]},
+        "suggested_card": {"title": f"{symbol}: expensive or justified after Q2?", "description": f"A Walnut review of {symbol}'s Q2 2026 earnings, current price, valuation, capex, and catalysts.", "judgment": article_judgment, "tickers": [symbol]},
         "seo": {"title": f"Is {symbol} Stock Overvalued After Q2 2026 Earnings?", "description": f"Review {symbol}'s Q2 2026 earnings, {price_text} price snapshot, valuation, capex, catalysts, risks, and Walnut judgment."},
     }
 

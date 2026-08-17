@@ -905,12 +905,34 @@ def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path,
 
     assert draft["validation"]["status"] == "passed"
     assert draft["config"]["use_deterministic_draft"] is True
+    fallback_text = service._article_full_text(draft["article"]).lower()
+    assert "free-cash-flow" not in fallback_text
+    assert "watch-and-verify" not in fallback_text
     headings = {section["heading"] for section in draft["article"]["sections"]}
     assert {"Q2 2026 earnings and guidance", "Current price, valuation, and technical context", "Upcoming catalysts", "Risks that could break the thesis", "Final Walnut judgment"} <= headings
 
     updated = service.update_draft(admin, draft["id"], {"title": "MU Stock: Research Review"}, db=db)
 
     assert updated["validation"]["status"] == "passed"
+
+
+def test_walnut_data_fallback_matches_bullish_confirmation_score_direction():
+    article = service._walnut_data_fallback_article(
+        {"ticker": "NBIS", "research_question": "Is Nebius stock overvalued after Q2 2026 earnings?"},
+        {
+            "primary": {
+                "identity": {"symbol": "NBIS", "company_name": "Nebius"},
+                "market_state": {"price": 277.69, "volume": 29_024_669},
+                "financials": {"income": {"quarterly": []}, "valuation": {}, "health": {}},
+                "confirmation": {"score": 87, "direction": "bullish"},
+            },
+            "external_research": {"official_facts": {}, "reviewed_sources": []},
+        },
+    )
+
+    assert article["walnut_call"] == "Bullish but expensive"
+    assert article["judgment"] == "bullish"
+    assert "Neutral but expensive" not in service._article_full_text(article)
 
 
 def test_final_confirmation_guard_runs_after_enrichment(tmp_path, monkeypatch):
@@ -1831,6 +1853,8 @@ def test_prompt_restricts_missing_limitations_to_filtered_notes():
     assert "Only list fields from missing_data_notes as missing" in prompt
     assert "experienced investor explaining the setup" in prompt
     assert "Avoid generic AI phrasing" in prompt
+    assert "AI-watermark words" in prompt
+    assert "bullish score requires a bullish call" in prompt
 
 
 def test_validation_fails_when_draft_marks_available_data_missing():
@@ -1960,7 +1984,7 @@ def _earnings_context(symbol: str, *, missing_notes: list[str] | None = None, fu
     }
 
 
-def test_aapl_earnings_setup_uses_expensive_defensive_not_wait():
+def test_aapl_earnings_setup_keeps_bullish_score_direction_when_expensive():
     body = (
         "Walnut judgment: mixed / wait for the print\n\n"
         "Apple is a high-quality franchise with Services growth, buybacks, resilience, and institutional safety. "
@@ -1972,14 +1996,14 @@ def test_aapl_earnings_setup_uses_expensive_defensive_not_wait():
     cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("AAPL"))
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Our call: Neutral but expensive" in text
+    assert "Our call: Bullish but expensive" in text
     assert "**" not in text
     assert "Setup:" not in text
     assert "mixed / wait for the print" not in text
-    assert cleaned["walnut_call"] == "Neutral but expensive"
+    assert cleaned["walnut_call"] == "Bullish but expensive"
 
 
-def test_meta_earnings_setup_uses_capex_risk_when_core_ads_are_strong():
+def test_meta_earnings_setup_keeps_bullish_score_direction_with_capex_risk():
     body = (
         "Meta's ad business is strong and the core business still looks constructive. "
         "The market debate is AI capex, free cash flow conversion, and Reality Labs losses. "
@@ -1990,7 +2014,7 @@ def test_meta_earnings_setup_uses_capex_risk_when_core_ads_are_strong():
     cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("META"))
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Our call: Mixed with capex risk" in text
+    assert "Our call: Bullish with capex risk" in text
     assert "**" not in text
     assert "Setup:" not in text
     assert "free cash flow" in text
