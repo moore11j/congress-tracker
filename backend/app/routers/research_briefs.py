@@ -146,6 +146,10 @@ class ReschedulePayload(BaseModel):
     scheduled_at: str = Field(min_length=1, max_length=80)
 
 
+class RejectResearchBriefPayload(BaseModel):
+    correction_instructions: str | None = Field(default=None, max_length=2000)
+
+
 @router.get("/admin/research-briefs/options")
 def admin_research_brief_options(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
@@ -356,9 +360,14 @@ def admin_research_brief_approve_scheduled(draft_id: str, request: Request, db: 
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/reject", dependencies=[Depends(rate_limit_admin_mutation)])
-def admin_research_brief_reject(draft_id: str, request: Request, db: Session = Depends(get_db)):
+def admin_research_brief_reject(
+    draft_id: str,
+    payload: RejectResearchBriefPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     admin = require_admin_user(db, request)
-    return reject_scheduled_research_brief(db, admin, draft_id)
+    return reject_scheduled_research_brief(db, admin, draft_id, payload.correction_instructions)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/reschedule", dependencies=[Depends(rate_limit_admin_mutation)])

@@ -7005,9 +7005,10 @@ export async function approveScheduledAdminResearchBriefDraft(draftId: string): 
   });
 }
 
-export async function rejectAdminResearchBriefDraft(draftId: string): Promise<AdminResearchBriefDraft> {
+export async function rejectAdminResearchBriefDraft(draftId: string, correctionInstructions?: string): Promise<AdminResearchBriefDraft> {
   return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/reject`), {
     method: "POST",
+    body: JSON.stringify({ correction_instructions: correctionInstructions || null }),
     source: "AdminResearchBriefs",
   });
 }

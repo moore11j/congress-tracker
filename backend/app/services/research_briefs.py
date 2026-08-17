@@ -911,6 +911,7 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
         sanitized = _strip_confirmation_score_from_article(sanitized)
     sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
     sections = [_strip_confirmation_content_from_section(section, include_score=include_score, include_cross_source=include_cross_source) for section in sections if isinstance(section, dict)]
+    sections = [_remove_confirmation_data_conflation_from_section(section) for section in sections]
     sections = [section for section in sections if str(section.get("body_markdown") or "").strip()]
     sanitized["sections"] = sections
     sanitized["confirmation_score_included"] = bool(include_score and _confirmation_score_value(context) is not None)
@@ -934,6 +935,22 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
                 key="cross_source_confirmations",
             )
     return sanitized
+
+
+def _remove_confirmation_data_conflation_from_section(section: dict[str, Any]) -> dict[str, Any]:
+    """Drop a model sentence that incorrectly equates qualitative data with the score."""
+    cleaned = dict(section)
+    body = str(cleaned.get("body_markdown") or "")
+    data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|data categories)"
+    patterns = (
+        rf"\bconfirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,80}}{data_terms}",
+        rf"{data_terms}.{{0,80}}\s+(?:are|is)\s+the\s+confirmation score",
+        r"\bconfirmation score\s+and\s+underlying data\s+are\s+the\s+same",
+    )
+    for pattern in patterns:
+        body = _remove_sentences_matching(body, pattern)
+    cleaned["body_markdown"] = body.strip()
+    return cleaned
 
 
 def _strip_confirmation_score_from_article(article: dict[str, Any]) -> dict[str, Any]:
@@ -2563,7 +2580,18 @@ def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
         draft = _generate_non_ticker_campaign_stub(db, admin, item, campaign_config)
     else:
         config = _campaign_item_generation_config(item, campaign_config)
-        draft = generate_research_brief(db, admin, config)
+        try:
+            draft = generate_research_brief(db, admin, config)
+        except HTTPException as exc:
+            if exc.status_code != 422 or not str(exc.detail).startswith("Draft generation failed validation."):
+                raise
+            correction_note = _quality_gate_correction_note(str(exc.detail))
+            retry_config = deepcopy(config)
+            retry_config["additional_context"] = f"{config.get('additional_context') or ''}\n\n{correction_note}".strip()
+            # A quality-gate rejection is actionable feedback, not a silently lost campaign item.
+            # Retry exactly once with the concrete failure note; any second failure remains visible.
+            draft = generate_research_brief(db, admin, retry_config)
+            draft["quality_gate_correction_note"] = correction_note
     draft = _mark_draft_scheduled_review(draft, item, campaign_config)
     _upsert_db_draft(db, draft)
     db.execute(
@@ -2580,6 +2608,15 @@ def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
     db.commit()
     send_research_campaign_review_email(db, admin, draft, item, campaign_config)
     return draft
+
+
+def _quality_gate_correction_note(validation_error: str) -> str:
+    detail = str(validation_error or "").strip()[:500]
+    return (
+        "Walnut quality-gate correction note: the previous draft was rejected before review. "
+        f"Correct this specific validation issue: {detail}. "
+        "Regenerate the entire brief using only supported source-backed claims, and do not repeat the rejected wording."
+    )
 
 
 def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
@@ -2747,6 +2784,7 @@ def send_research_campaign_review_email(db: Session, admin: UserAccount, draft: 
         "data_as_of": draft.get("data_as_of") or "",
         "review_url": review_url,
         "approve_url": review_url,
+        "revision_note": draft.get("revision_request") or draft.get("quality_gate_correction_note") or "",
     }
     return send_email(
         db,
@@ -2772,17 +2810,73 @@ def approve_scheduled_research_brief(db: Session, admin: UserAccount, draft_id: 
     return deepcopy(draft)
 
 
-def reject_scheduled_research_brief(db: Session, admin: UserAccount, draft_id: str) -> dict[str, Any]:
+def reject_scheduled_research_brief(
+    db: Session,
+    admin: UserAccount,
+    draft_id: str,
+    correction_instructions: str | None = None,
+) -> dict[str, Any]:
     draft = get_draft(draft_id, db=db)
+    correction_note = str(correction_instructions or "").strip()
     draft["status"] = "rejected"
     draft["rejected_at"] = _now()
     draft["rejected_by"] = admin.id
+    draft["rejection_request"] = correction_note or None
     draft["updated_at"] = _now()
     _upsert_db_draft(db, draft)
     if draft.get("campaign_id"):
         db.execute(text("UPDATE research_campaigns SET rejected_count = rejected_count + 1, updated_at = :now WHERE id = :id"), {"id": draft["campaign_id"], "now": _now()})
         db.commit()
-    return deepcopy(draft)
+    if not draft.get("campaign_id") or not draft.get("campaign_item_id"):
+        return deepcopy(draft)
+
+    row = db.execute(
+        text(
+            """
+            SELECT i.*, c.name AS campaign_name, c.theme AS campaign_theme, c.content_type AS campaign_content_type,
+                   c.config_json AS campaign_config_json, c.created_by AS campaign_created_by, c.created_by_email AS campaign_created_by_email
+            FROM research_campaign_items i
+            JOIN research_campaigns c ON c.id = i.campaign_id
+            WHERE i.id = :item_id AND i.campaign_id = :campaign_id
+            """
+        ),
+        {"item_id": draft["campaign_item_id"], "campaign_id": draft["campaign_id"]},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Campaign item for this draft was not found.")
+
+    item = _campaign_item_from_row(row)
+    campaign_config = _load_json(item.get("campaign_config_json")) or {}
+    revision_config = deepcopy(draft.get("config") or {})
+    prior_context = str(revision_config.get("additional_context") or "").strip()
+    user_note = correction_note or "Revise the brief substantially while preserving supported claims and source attribution."
+    revision_note = (
+        "Editor correction instructions: "
+        f"{user_note}\n\nCreate a replacement draft. Address these instructions directly, "
+        "retain only evidence supported by the supplied data and sources, and do not reuse the rejected copy verbatim."
+    )
+    revision_config["additional_context"] = f"{prior_context}\n\n{revision_note}".strip()[:4000]
+    replacement = generate_research_brief(db, admin, revision_config)
+    replacement = _mark_draft_scheduled_review(replacement, item, campaign_config)
+    replacement["revision_of"] = draft["id"]
+    replacement["revision_number"] = int(draft.get("revision_number") or 0) + 1
+    replacement["revision_request"] = user_note
+    replacement["updated_at"] = _now()
+    _upsert_db_draft(db, replacement)
+    db.execute(
+        text(
+            """
+            UPDATE research_campaign_items
+            SET status = 'generated', research_article_id = :draft_id, generated_at = :generated_at,
+                updated_at = :updated_at, last_error = NULL
+            WHERE id = :id
+            """
+        ),
+        {"id": item["id"], "draft_id": replacement["id"], "generated_at": replacement["generated_at"], "updated_at": _now()},
+    )
+    db.commit()
+    send_research_campaign_review_email(db, admin, replacement, item, campaign_config)
+    return deepcopy(replacement)
 
 
 def reschedule_research_brief(db: Session, draft_id: str, scheduled_at: str) -> dict[str, Any]:

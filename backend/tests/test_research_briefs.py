@@ -306,6 +306,28 @@ def test_openai_true_rate_limit_retains_retry_guidance():
     assert "15 seconds" in str(raised.value.detail)
 
 
+def test_sanitizer_removes_sentence_that_conflates_confirmation_score_with_data():
+    article = {
+        "title": "NBIS research",
+        "sections": [
+            {
+                "heading": "What our data is seeing",
+                "body_markdown": "The confirmation score is based on fundamentals and price/volume. The operating evidence remains mixed.",
+            }
+        ],
+    }
+
+    cleaned = service.sanitize_research_brief_article(
+        article,
+        {"include_confirmation_score": False, "include_cross_source_confirmations": True},
+        {},
+    )
+
+    body = " ".join(section["body_markdown"] for section in cleaned["sections"])
+    assert "confirmation score is based on fundamentals" not in body.lower()
+    assert "operating evidence remains mixed" in body.lower()
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)
@@ -636,6 +658,90 @@ def test_pending_campaign_item_can_be_rescheduled_or_run_individually(tmp_path, 
 
     assert result["generated"] == 1
     assert calls == [{"limit": 1, "campaign_id": campaign["id"], "item_id": nbis["id"]}]
+
+
+def test_rejected_campaign_draft_creates_corrected_replacement_and_review_email(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "Campaign",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["MU"],
+            "publish_start_at": "2026-08-18T09:00:00+00:00",
+        },
+    )
+    item = campaign["items"][0]
+    rejected = _minimal_scheduled_draft(admin, campaign_id=campaign["id"])
+    rejected["campaign_item_id"] = item["id"]
+    rejected["campaign_name"] = campaign["name"]
+    service._upsert_db_draft(db, rejected)
+
+    replacement = _minimal_scheduled_draft(admin, campaign_id=campaign["id"])
+    replacement["id"] = "rb_corrected"
+    replacement["generated_at"] = datetime.now(timezone.utc).isoformat()
+    sent = []
+    monkeypatch.setattr(service, "generate_research_brief", lambda *_args, **_kwargs: deepcopy(replacement))
+    monkeypatch.setattr(service, "send_research_campaign_review_email", lambda *_args: sent.append(True))
+
+    result = service.reject_scheduled_research_brief(
+        db,
+        admin,
+        rejected["id"],
+        "Make the valuation explanation more concrete.",
+    )
+
+    assert service.get_draft(rejected["id"], db=db)["status"] == "rejected"
+    assert result["status"] == "scheduled_review"
+    assert result["revision_of"] == rejected["id"]
+    assert result["revision_number"] == 1
+    assert result["revision_request"] == "Make the valuation explanation more concrete."
+    assert sent == [True]
+
+
+def test_campaign_quality_gate_failure_is_retried_with_correction_note(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {"name": "Campaign", "theme": "good_buy_now", "content_type": "ticker", "tickers": ["MU"]},
+    )
+    item = campaign["items"][0]
+    row = db.execute(
+        text(
+            """
+            SELECT i.*, c.name AS campaign_name, c.theme AS campaign_theme, c.content_type AS campaign_content_type,
+                   c.config_json AS campaign_config_json, c.created_by AS campaign_created_by, c.created_by_email AS campaign_created_by_email
+            FROM research_campaign_items i JOIN research_campaigns c ON c.id = i.campaign_id WHERE i.id = :id
+            """
+        ),
+        {"id": item["id"]},
+    ).mappings().first()
+    generated = _minimal_scheduled_draft(admin, campaign_id=campaign["id"])
+    generated["id"] = "rb_quality_retry"
+    generated["generated_at"] = datetime.now(timezone.utc).isoformat()
+    configs = []
+
+    def fake_generate(_db, _admin, config):
+        configs.append(config)
+        if len(configs) == 1:
+            raise HTTPException(status_code=422, detail="Draft generation failed validation. Source links are required.")
+        return deepcopy(generated)
+
+    monkeypatch.setattr(service, "generate_research_brief", fake_generate)
+    monkeypatch.setattr(service, "send_research_campaign_review_email", lambda *_args: None)
+
+    result = service._generate_research_campaign_item(db, row)
+
+    assert result["quality_gate_correction_note"].startswith("Walnut quality-gate correction note:")
+    assert len(configs) == 2
+    assert "Source links are required" in configs[1]["additional_context"]
 
 
 def test_research_campaign_marks_selected_keyword_opportunity_used_only_after_creation(tmp_path, monkeypatch):

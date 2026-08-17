@@ -984,14 +984,14 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
   }
 
-  async function rejectSelected() {
+  async function rejectSelected(correctionInstructions: string) {
     if (!selectedDraft) return;
     setBusy("reject");
     try {
-      const draft = await rejectAdminResearchBriefDraft(selectedDraft.id);
+      const draft = await rejectAdminResearchBriefDraft(selectedDraft.id, correctionInstructions);
       applySavedDraft(draft);
       await refreshCampaigns();
-      showToast?.("Scheduled brief rejected.", "success");
+      showToast?.("Rejected draft replaced and sent for review.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to reject scheduled brief.";
       setError(message);
@@ -2309,7 +2309,7 @@ function EditorPanel({
   onPublish: () => void;
   onPublishNow: () => void;
   onApproveScheduled: () => void;
-  onReject: () => void;
+  onReject: (correctionInstructions: string) => void;
   onReschedule: (scheduledAt: string) => void;
   onUnpublish: () => void;
   onDelete: () => void;
@@ -2320,8 +2320,10 @@ function EditorPanel({
 }) {
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [scheduledAtValue, setScheduledAtValue] = useState("");
+  const [rejectionInstructions, setRejectionInstructions] = useState("");
   useEffect(() => {
     setScheduledAtValue(toDateTimeLocal(draft?.scheduled_at));
+    setRejectionInstructions("");
   }, [draft?.id, draft?.scheduled_at]);
   if (!draft || !article) {
     return (
@@ -2553,7 +2555,18 @@ function EditorPanel({
               <div className="mt-3 grid gap-2">
                 <Button disabled={Boolean(busy) || !scheduledAtValue} onClick={() => onReschedule(new Date(scheduledAtValue).toISOString())}>Reschedule</Button>
                 <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button>
-                <Button disabled={Boolean(busy)} onClick={onReject}>Reject</Button>
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Correction instructions</span>
+                  <textarea
+                    value={rejectionInstructions}
+                    onChange={(event) => setRejectionInstructions(event.target.value)}
+                    className={fieldClassName("mt-2 min-h-20")}
+                    placeholder="Optional: explain what to change in the replacement draft."
+                    maxLength={2000}
+                  />
+                </label>
+                <Button disabled={Boolean(busy)} onClick={() => onReject(rejectionInstructions)}>Reject & regenerate</Button>
+                <p className="text-xs leading-5 text-slate-500">The rejected version is retained. Walnut creates a corrected replacement and emails it for review.</p>
                 <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || (draft.validation?.source_link_count || 0) === 0} onClick={onPublishNow}>Publish Now</Button>
               </div>
             </div>
