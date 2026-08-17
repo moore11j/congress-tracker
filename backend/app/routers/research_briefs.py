@@ -53,6 +53,7 @@ from app.services.research_briefs import (
     set_research_campaign_active,
     unpublish_draft,
     update_draft,
+    update_research_campaign,
     update_research_keyword_opportunity_status,
     validate_config,
 )
@@ -242,6 +243,12 @@ def admin_create_research_campaign(payload: ResearchCampaignPayload, request: Re
 def admin_research_campaign(campaign_id: str, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     return get_research_campaign(db, campaign_id)
+
+
+@router.patch("/admin/research-briefs/campaigns/{campaign_id}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_update_research_campaign(campaign_id: str, payload: ResearchCampaignPayload, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return update_research_campaign(db, campaign_id, payload.model_dump())
 
 
 @router.patch("/admin/research-briefs/campaigns/{campaign_id}/active", dependencies=[Depends(rate_limit_admin_mutation)])

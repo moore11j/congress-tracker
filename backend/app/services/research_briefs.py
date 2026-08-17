@@ -2572,6 +2572,112 @@ def get_research_campaign(db: Session, campaign_id: str) -> dict[str, Any]:
     return campaign
 
 
+def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Update a campaign and reconcile only its still-pending queue items.
+
+    Generated and published items are historical editorial records, so editing a
+    campaign never rewrites or deletes them. Pending items follow the saved
+    ticker/topic plan and redistributed publish window.
+    """
+    ensure_research_brief_store_schema(db)
+    row = db.execute(text("SELECT * FROM research_campaigns WHERE id = :id"), {"id": campaign_id}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Research campaign not found.")
+    existing = _campaign_from_row(row)
+    merged = {**(existing.get("config") or {}), **payload}
+    # Opportunity selection is a create-time action. Retain its history when
+    # the editor saves ordinary campaign changes.
+    merged["source_opportunity_ids"] = list((existing.get("config") or {}).get("source_opportunity_ids") or [])
+    config = _normalize_campaign_payload(merged)
+    targets = (config["tickers"] if config["content_type"] == "ticker" else [config["topic"]])[: config["article_count"]]
+    publish_times = _distributed_publish_times(_parse_schedule_datetime(config["publish_start_at"]) or datetime.now(timezone.utc), len(targets), config["window_days"])
+    schedule_by_target = {str(target): publish_times[index] for index, target in enumerate(targets)}
+    item_rows = db.execute(
+        text("SELECT * FROM research_campaign_items WHERE campaign_id = :id ORDER BY publish_at, created_at"),
+        {"id": campaign_id},
+    ).mappings().all()
+    locked_targets = {
+        str(item.get("ticker") or item.get("topic") or "")
+        for item in item_rows
+        if str(item.get("status") or "") != "pending"
+    }
+    pending_rows = [item for item in item_rows if str(item.get("status") or "") == "pending"]
+    pending_targets = [target for target in targets if str(target) not in locked_targets]
+    now = datetime.now(timezone.utc)
+
+    def target_keyword(target: str) -> str:
+        if config["content_type"] == "ticker":
+            return str(config["target_keywords"].get(target) or config["target_keyword"] or (f"{target} stock buy now" if config["theme"] == "good_buy_now" else "")).strip()
+        return str(config["target_keyword"] or "").strip()
+
+    for index, item in enumerate(pending_rows):
+        if index >= len(pending_targets):
+            db.execute(text("DELETE FROM research_campaign_items WHERE id = :id"), {"id": item["id"]})
+            continue
+        target = pending_targets[index]
+        publish_at = schedule_by_target[str(target)]
+        db.execute(
+            text(
+                """
+                UPDATE research_campaign_items
+                SET ticker = :ticker, topic = :topic, publish_at = :publish_at, generate_at = :generate_at,
+                    target_keyword = :target_keyword, idempotency_key = :idempotency_key, updated_at = :updated_at
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": item["id"],
+                "ticker": target if config["content_type"] == "ticker" else None,
+                "topic": None if config["content_type"] == "ticker" else target,
+                "publish_at": publish_at.isoformat(),
+                "generate_at": min(now, publish_at - timedelta(hours=18)).isoformat(),
+                "target_keyword": target_keyword(str(target)),
+                "idempotency_key": f"{campaign_id}:{target}:{publish_at.isoformat()}",
+                "updated_at": _now(),
+            },
+        )
+    for target in pending_targets[len(pending_rows) :]:
+        publish_at = schedule_by_target[str(target)]
+        db.execute(
+            text(
+                """
+                INSERT INTO research_campaign_items (
+                    id, campaign_id, ticker, topic, generate_at, publish_at, status,
+                    idempotency_key, target_keyword, created_at, updated_at
+                ) VALUES (
+                    :id, :campaign_id, :ticker, :topic, :generate_at, :publish_at, 'pending',
+                    :idempotency_key, :target_keyword, :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "id": f"rci_{uuid.uuid4().hex}",
+                "campaign_id": campaign_id,
+                "ticker": target if config["content_type"] == "ticker" else None,
+                "topic": None if config["content_type"] == "ticker" else target,
+                "generate_at": min(now, publish_at - timedelta(hours=18)).isoformat(),
+                "publish_at": publish_at.isoformat(),
+                "idempotency_key": f"{campaign_id}:{target}:{publish_at.isoformat()}",
+                "target_keyword": target_keyword(str(target)),
+                "created_at": _now(),
+                "updated_at": _now(),
+            },
+        )
+    db.execute(
+        text(
+            """
+            UPDATE research_campaigns
+            SET name = :name, theme = :theme, content_type = :content_type, active = :active,
+                cadence = :cadence, config_json = :config_json, updated_at = :updated_at
+            WHERE id = :id
+            """
+        ),
+        {**config, "id": campaign_id, "config_json": _json_dump(config), "updated_at": _now()},
+    )
+    db.commit()
+    return get_research_campaign(db, campaign_id)
+
+
 def list_research_campaigns(db: Session) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
     rows = db.execute(text("SELECT * FROM research_campaigns ORDER BY updated_at DESC, created_at DESC")).mappings().all()

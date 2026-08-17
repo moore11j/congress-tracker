@@ -705,6 +705,49 @@ def test_pending_campaign_item_can_be_rescheduled_or_run_individually(tmp_path, 
     assert calls == [{"limit": 1, "campaign_id": campaign["id"], "item_id": nbis["id"]}]
 
 
+def test_editing_campaign_replans_pending_items_without_touching_generated_history(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "Original campaign",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["NBIS", "CRWV"],
+            "publish_start_at": "2026-08-17T09:00:00+00:00",
+            "article_count": 2,
+            "window_days": 2,
+        },
+    )
+    first_item = campaign["items"][0]
+    db.execute(text("UPDATE research_campaign_items SET status = 'generated' WHERE id = :id"), {"id": first_item["id"]})
+    db.commit()
+
+    updated = service.update_research_campaign(
+        db,
+        campaign["id"],
+        {
+            **campaign["config"],
+            "name": "Updated campaign",
+            "tickers": ["NBIS", "COHR"],
+            "article_count": 2,
+            "publish_start_at": "2026-08-20T09:00:00+00:00",
+            "window_days": 3,
+        },
+    )
+
+    assert updated["name"] == "Updated campaign"
+    generated = next(item for item in updated["items"] if item["status"] == "generated")
+    pending = next(item for item in updated["items"] if item["status"] == "pending")
+    assert generated["id"] == first_item["id"]
+    assert generated["ticker"] == "NBIS"
+    assert pending["ticker"] == "COHR"
+    assert pending["publish_at"].startswith("2026-08-22T09:00:00")
+
+
 def test_rejected_campaign_draft_creates_corrected_replacement_and_review_email(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()

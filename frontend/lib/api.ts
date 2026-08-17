@@ -6735,6 +6735,12 @@ export type AdminResearchCampaign = {
     article_count?: number;
     window_days?: number;
     publish_start_at?: string;
+    publish_time?: string;
+    target_keyword?: string;
+    secondary_keywords?: string[];
+    search_intent?: string;
+    target_keywords?: Record<string, string>;
+    target_search_intents?: Record<string, string>;
   };
   created_by?: number | null;
   created_by_email?: string | null;
@@ -6881,6 +6887,15 @@ export async function getAdminResearchCampaigns(): Promise<{ items: AdminResearc
 export async function createAdminResearchCampaign(payload: AdminResearchCampaignPayload): Promise<AdminResearchCampaign> {
   return fetchJson<AdminResearchCampaign>(buildApiUrl("/api/admin/research-briefs/campaigns"), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminResearchCampaigns",
+  });
+}
+
+export async function updateAdminResearchCampaign(campaignId: string, payload: AdminResearchCampaignPayload): Promise<AdminResearchCampaign> {
+  return fetchJson<AdminResearchCampaign>(buildApiUrl(`/api/admin/research-briefs/campaigns/${encodeURIComponent(campaignId)}`), {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
     source: "AdminResearchCampaigns",

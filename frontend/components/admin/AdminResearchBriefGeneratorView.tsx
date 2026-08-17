@@ -30,6 +30,7 @@ import {
   startAdminResearchBriefGeneration,
   unpublishAdminResearchBriefDraft,
   updateAdminResearchBriefDraft,
+  updateAdminResearchCampaign,
   updateAdminResearchKeywordOpportunityStatus,
   validateAdminResearchBriefTicker,
   type AdminResearchBriefArticle,
@@ -194,6 +195,31 @@ const DEFAULT_CAMPAIGN_FORM: AdminResearchCampaignPayload = {
   secondary_keywords: [],
   search_intent: "Is [TICKER] a good stock to buy right now?",
 };
+
+function campaignToForm(campaign: AdminResearchCampaign): AdminResearchCampaignPayload {
+  const config = campaign.config || {};
+  const firstPublishAt = campaign.items?.[0]?.publish_at || config.publish_start_at;
+  return {
+    ...DEFAULT_CAMPAIGN_FORM,
+    name: campaign.name,
+    theme: campaign.theme,
+    content_type: campaign.content_type === "non_ticker" ? "non_ticker" : "ticker",
+    tickers: Array.isArray(config.tickers) ? config.tickers.map(String) : [],
+    topic: typeof config.topic === "string" ? config.topic : "",
+    cadence: campaign.cadence,
+    publish_start_at: toDateTimeLocal(typeof firstPublishAt === "string" ? firstPublishAt : null),
+    publish_time: typeof config.publish_time === "string" ? config.publish_time : "",
+    article_count: Number(config.article_count || campaign.item_count || 1),
+    window_days: Number(config.window_days || 1),
+    active: campaign.active,
+    target_keyword: typeof config.target_keyword === "string" ? config.target_keyword : "",
+    secondary_keywords: Array.isArray(config.secondary_keywords) ? config.secondary_keywords.map(String) : [],
+    search_intent: typeof config.search_intent === "string" ? config.search_intent : "",
+    target_keywords: typeof config.target_keywords === "object" && config.target_keywords ? config.target_keywords as Record<string, string> : {},
+    target_search_intents: typeof config.target_search_intents === "object" && config.target_search_intents ? config.target_search_intents as Record<string, string> : {},
+    source_opportunity_ids: [],
+  };
+}
 
 function fieldClassName(extra = "") {
   return `w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-emerald-300/45 focus:ring-2 focus:ring-emerald-300/10 ${extra}`;
@@ -486,6 +512,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [keywordOpportunityInstructions, setKeywordOpportunityInstructions] = useState<Record<string, string>>({});
   const [publishingHealth, setPublishingHealth] = useState<AdminResearchPublishingHealth | null>(null);
   const [campaignForm, setCampaignForm] = useState<AdminResearchCampaignPayload>(DEFAULT_CAMPAIGN_FORM);
+  const [editingCampaign, setEditingCampaign] = useState<AdminResearchCampaign | null>(null);
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
   const validationLabels = selectedDraft?.validation?.labels;
@@ -1036,12 +1063,20 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         target_search_intents: Object.fromEntries(Object.entries(campaignForm.target_search_intents || {}).map(([ticker, intent]) => [ticker, intent.slice(0, 120)])),
         source_opportunity_ids: selectedKeywordOpportunityIds,
       };
-      const campaign = await createAdminResearchCampaign(payload);
+      const campaign = editingCampaign
+        ? await updateAdminResearchCampaign(editingCampaign.id, payload)
+        : await createAdminResearchCampaign(payload);
       await refreshCampaigns();
-      await refreshKeywordOpportunities();
-      setSelectedKeywordOpportunityIds([]);
-      setCampaignForm((current) => ({ ...current, name: current.name || campaign.name }));
-      showToast?.("Research campaign created.", "success");
+      if (editingCampaign) {
+        setEditingCampaign(campaign);
+        setCampaignForm(campaignToForm(campaign));
+        showToast?.("Campaign changes saved. Pending items were rescheduled from the updated plan.", "success");
+      } else {
+        await refreshKeywordOpportunities();
+        setSelectedKeywordOpportunityIds([]);
+        setCampaignForm((current) => ({ ...current, name: current.name || campaign.name }));
+        showToast?.("Research campaign created.", "success");
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to create research campaign.";
       setError(message);
@@ -1049,6 +1084,12 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     } finally {
       setBusy(null);
     }
+  }
+
+  function editCampaign(campaign: AdminResearchCampaign) {
+    setEditingCampaign(campaign);
+    setCampaignForm(campaignToForm(campaign));
+    setActivePane("campaigns");
   }
 
   async function toggleCampaign(campaign: AdminResearchCampaign) {
@@ -1483,7 +1524,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           busy={busy}
           onRunPendingItem={runCampaignItemNow}
           onReschedulePendingItem={rescheduleCampaignItem}
-          onViewCampaigns={() => setActivePane("campaigns")}
+          onEditCampaign={editCampaign}
           onOpen={(draft) => {
             setSelectedDraft(draft);
             setActivePane("create");
@@ -1497,9 +1538,15 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           campaigns={campaigns}
           health={publishingHealth}
           form={campaignForm}
+          editingCampaign={editingCampaign}
           busy={busy}
           onFormChange={setCampaignForm}
           onSubmit={submitCampaign}
+          onCancelEdit={() => {
+            setEditingCampaign(null);
+            setCampaignForm(DEFAULT_CAMPAIGN_FORM);
+          }}
+          onEdit={editCampaign}
           onToggle={toggleCampaign}
           onRunNow={runCampaignNow}
           onDelete={removeCampaign}
@@ -1934,7 +1981,7 @@ function ScheduledBriefsPanel({
   campaigns,
   busy,
   onOpen,
-  onViewCampaigns,
+  onEditCampaign,
   onRunPendingItem,
   onReschedulePendingItem,
 }: {
@@ -1942,7 +1989,7 @@ function ScheduledBriefsPanel({
   campaigns: AdminResearchCampaign[];
   busy: string | null;
   onOpen: (draft: AdminResearchBriefDraft) => void;
-  onViewCampaigns: () => void;
+  onEditCampaign: (campaign: AdminResearchCampaign) => void;
   onRunPendingItem: (campaign: AdminResearchCampaign, itemId: string) => void;
   onReschedulePendingItem: (campaign: AdminResearchCampaign, itemId: string, publishAt: string) => void;
 }) {
@@ -1952,6 +1999,11 @@ function ScheduledBriefsPanel({
       .map((item) => ({ ...item, campaign, campaignName: campaign.name })),
   );
   const [pendingPublishTimes, setPendingPublishTimes] = useState<Record<string, string>>({});
+  const campaignEnd = (campaign: AdminResearchCampaign) => {
+    const times = (campaign.items || []).map((item) => item.publish_at).filter((value): value is string => Boolean(value)).sort();
+    return times.at(-1) || null;
+  };
+  const campaignArticleNumber = (campaign: AdminResearchCampaign, itemId: string) => Math.max(1, (campaign.items || []).findIndex((item) => item.id === itemId) + 1);
   return (
     <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1963,14 +2015,14 @@ function ScheduledBriefsPanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-sm font-semibold text-cyan-100">Pending campaign queue</h4>
-              <p className="mt-1 text-xs leading-5 text-slate-400">These are scheduled campaign items that have not generated a draft yet. Change a publish time here, or generate one draft now and receive its review email.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">These are campaign articles without a draft yet. Generate a review draft now to edit it before its scheduled publish time; it will not publish until you approve it.</p>
             </div>
-            <Button onClick={onViewCampaigns}>Open Campaigns</Button>
+            <Button onClick={() => pendingItems[0] && onEditCampaign(pendingItems[0].campaign)}>Edit Campaign</Button>
           </div>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                <tr><th className="px-3 py-2">Publish time</th><th className="px-3 py-2">Ticker/topic</th><th className="px-3 py-2">Campaign</th><th className="px-3 py-2">Generation</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Actions</th></tr>
+                <tr><th className="px-3 py-2">Publish time</th><th className="px-3 py-2">Ticker/topic</th><th className="px-3 py-2">Campaign</th><th className="px-3 py-2">Draft generation</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {pendingItems.map((item) => (
@@ -1984,7 +2036,10 @@ function ScheduledBriefsPanel({
                       />
                     </td>
                     <td className="px-3 py-3 font-semibold text-slate-100">{item.ticker || item.topic || "Topic"}</td>
-                    <td className="px-3 py-3">{item.campaignName}</td>
+                    <td className="px-3 py-3">
+                      <p>{item.campaignName}</p>
+                      <p className="mt-1 text-xs text-slate-500">Article {campaignArticleNumber(item.campaign, item.id)} of {item.campaign.items?.length || 1} · Campaign ends {formatDateTime(campaignEnd(item.campaign))}</p>
+                    </td>
                     <td className="px-3 py-3 whitespace-nowrap text-xs text-slate-400">{formatDateTime(item.generate_at)}</td>
                     <td className="px-3 py-3"><span className="rounded-md border border-cyan-300/25 px-2 py-1 text-xs font-semibold uppercase text-cyan-100">{item.status}</span></td>
                     <td className="px-3 py-3">
@@ -1993,10 +2048,10 @@ function ScheduledBriefsPanel({
                           disabled={Boolean(busy) || !((pendingPublishTimes[item.id] ?? toDateTimeLocal(item.publish_at)).trim())}
                           onClick={() => onReschedulePendingItem(item.campaign, item.id, new Date(pendingPublishTimes[item.id] ?? toDateTimeLocal(item.publish_at)).toISOString())}
                         >
-                          {busy === `campaign-item-reschedule-${item.id}` ? "Saving..." : "Save time"}
+                          {busy === `campaign-item-reschedule-${item.id}` ? "Saving..." : "Save publish time"}
                         </Button>
                         <Button disabled={Boolean(busy)} onClick={() => onRunPendingItem(item.campaign, item.id)}>
-                          {busy === `campaign-item-run-${item.id}` ? "Generating..." : "Send draft now"}
+                          {busy === `campaign-item-run-${item.id}` ? "Generating..." : "Generate draft now"}
                         </Button>
                       </div>
                     </td>
@@ -2055,12 +2110,15 @@ function CampaignsPanel({
   campaigns,
   health,
   form,
+  editingCampaign,
   busy,
   opportunities,
   selectedOpportunityIds,
   marketNote,
   onFormChange,
   onSubmit,
+  onCancelEdit,
+  onEdit,
   onToggle,
   onRunNow,
   onDelete,
@@ -2075,12 +2133,15 @@ function CampaignsPanel({
   campaigns: AdminResearchCampaign[];
   health: AdminResearchPublishingHealth | null;
   form: AdminResearchCampaignPayload;
+  editingCampaign: AdminResearchCampaign | null;
   busy: string | null;
   opportunities: AdminResearchKeywordOpportunity[];
   selectedOpportunityIds: string[];
   marketNote: string;
   onFormChange: (form: AdminResearchCampaignPayload) => void;
   onSubmit: () => void;
+  onCancelEdit: () => void;
+  onEdit: (campaign: AdminResearchCampaign) => void;
   onToggle: (campaign: AdminResearchCampaign) => void;
   onRunNow: (campaign: AdminResearchCampaign) => void;
   onDelete: (campaign: AdminResearchCampaign) => void;
@@ -2107,7 +2168,13 @@ function CampaignsPanel({
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(22rem,0.7fr)_minmax(0,1.3fr)]">
       <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
-        <h3 className="text-base font-semibold text-white">Create Campaign</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-semibold text-white">{editingCampaign ? "Edit Campaign" : "Create Campaign"}</h3>
+            {editingCampaign ? <p className="mt-1 text-xs text-slate-500">Only pending queue items change when you save. Generated and published briefs stay intact.</p> : null}
+          </div>
+          {editingCampaign ? <Button disabled={Boolean(busy)} onClick={onCancelEdit}>Cancel edit</Button> : null}
+        </div>
         <div className="mt-4 grid gap-4">
           <label>
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Campaign name</span>
@@ -2199,7 +2266,7 @@ function CampaignsPanel({
             </label>
           </div>
           <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities, set Articles to 3 and Over days to 3. Added opportunities stay saved through refreshes until you dismiss them or create the campaign. Then use Run Now to preview its drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
-          <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? "Creating..." : "Create Campaign"}</Button>
+          <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? (editingCampaign ? "Saving..." : "Creating...") : (editingCampaign ? "Save Changes" : "Create Campaign")}</Button>
         </div>
       </div>
       <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
@@ -2281,7 +2348,8 @@ function CampaignsPanel({
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button disabled={Boolean(busy)} onClick={() => onToggle(campaign)}>{campaign.active ? "Pause" : "Resume"}</Button>
-                <Button disabled={Boolean(busy)} onClick={() => onRunNow(campaign)}>Run Now</Button>
+                <Button disabled={Boolean(busy)} onClick={() => onEdit(campaign)}>Edit Campaign</Button>
+                <Button disabled={Boolean(busy)} onClick={() => onRunNow(campaign)}>Generate pending drafts</Button>
                 <Button tone="danger" disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>Delete</Button>
               </div>
             </div>
