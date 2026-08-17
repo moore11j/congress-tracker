@@ -2037,7 +2037,7 @@ function ScheduledBriefsPanel({
                     </td>
                     <td className="px-3 py-3 font-semibold text-slate-100">{item.ticker || item.topic || "Topic"}</td>
                     <td className="px-3 py-3">
-                      <p>{item.campaignName}</p>
+                      <button type="button" onClick={() => onEditCampaign(item.campaign)} className="text-left font-medium text-emerald-200 hover:text-emerald-100 hover:underline">{item.campaignName}</button>
                       <p className="mt-1 text-xs text-slate-500">Article {campaignArticleNumber(item.campaign, item.id)} of {item.campaign.items?.length || 1} · Campaign ends {formatDateTime(campaignEnd(item.campaign))}</p>
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap text-xs text-slate-400">{formatDateTime(item.generate_at)}</td>
