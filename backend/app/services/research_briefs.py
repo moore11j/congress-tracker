@@ -4168,6 +4168,9 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         article = sanitize_research_brief_article(article, normalized_config, context)
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *((context.get("external_research") or {}).get("reviewed_sources") or [])])
         article = enrich_internal_links(article, context)
+        # Enrichment can add or reshape prose after the initial sanitizer pass.
+        # Run the confirmation-score guard once more on the final public copy.
+        article = _remove_confirmation_data_conflation(article)
         article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *(context.get("missing_data_notes") or [])], context.get("data_availability") or {})
         if normalized_config.get("generate_thumbnail"):
             if progress_callback:

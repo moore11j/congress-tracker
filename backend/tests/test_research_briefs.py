@@ -778,6 +778,26 @@ def test_campaign_invalid_structured_output_is_retried_with_format_correction(tm
     assert configs[1]["retry_output_tokens"] == 10000
 
 
+def test_final_confirmation_guard_runs_after_enrichment(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.MOCK_ENV, "1")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    def add_conflated_copy(article, _context):
+        article = deepcopy(article)
+        article["sections"][0]["body_markdown"] += " The confirmation score is based on fundamentals and price/volume."
+        return article
+
+    monkeypatch.setattr(service, "enrich_internal_links", add_conflated_copy)
+    draft = service.generate_research_brief(db, admin, _payload().model_dump())
+
+    body = service._article_body_text(draft["article"]).lower()
+    assert "confirmation score is based on fundamentals" not in body
+    assert draft["validation"]["status"] == "passed"
+
+
 def test_research_campaign_marks_selected_keyword_opportunity_used_only_after_creation(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()
