@@ -66,6 +66,13 @@ function formatActivityTime(value?: string | null) {
   return parsed.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
 }
 
+function formatActivityDate(value?: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 function readableTrade(value?: string | null) {
   const normalized = (value || "").replaceAll("_", " ").trim();
   return normalized ? normalized.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Activity detected";
@@ -259,7 +266,7 @@ export function WatchlistRecentActivity({
                   <div className="min-w-0 whitespace-nowrap font-semibold text-slate-100">{activity.category}</div>
                   <div className="min-w-0"><ActivityDetail item={item} category={activity.category} detail={activity.detail} /></div>
                   {symbolHref ? <Link href={symbolHref} prefetch={false} className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-200 transition hover:border-emerald-200/60 hover:text-emerald-100">{symbol}</Link> : symbol ? <span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-emerald-200">{symbol}</span> : <span />}
-                  <time className="whitespace-nowrap text-xs text-slate-500">{formatActivityTime(item.report_date || item.trade_date)}</time>
+                  <time className="whitespace-nowrap text-xs text-slate-500">{formatActivityDate(item.report_date || item.trade_date)} · {formatActivityTime(item.report_date || item.trade_date)}</time>
                 </div>
               );
             })}
