@@ -1934,6 +1934,12 @@ def test_prompt_restricts_missing_limitations_to_filtered_notes():
     assert "AI-watermark words" in prompt
     assert "bullish score requires a bullish call" in prompt
     assert "Never describe Walnut's architecture" in prompt
+    assert "full legal name only in the title or first reference" in prompt
+
+
+def test_reader_company_name_removes_legal_entity_suffixes_from_prose():
+    assert service._reader_company_name("Nebius Group N.V.", "NBIS") == "Nebius"
+    assert service._reader_company_name("NVIDIA Corporation", "NVDA") == "NVIDIA"
 
 
 def test_validation_fails_when_draft_marks_available_data_missing():

@@ -5033,6 +5033,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             f"PRIMARY_COMPANY: {primary_company}",
             f"COMPARISON_TICKERS: {', '.join(comparison_symbols) if comparison_symbols else 'None'}",
             "Every company-specific statement must be about PRIMARY_COMPANY unless it is explicitly framed as comparison, industry, or macro context. Do not analyze Nvidia, AMD, CoreWeave, or any other company as the subject unless that ticker is listed in COMPARISON_TICKERS.",
+            "Use a company's full legal name only in the title or first reference. In the body, use the common company name or ticker: write 'Nebius' or 'NBIS,' never 'Nebius Group N.V.' after the opening. Drop legal suffixes such as Inc., Corp., Ltd., N.V., plc, and S.A. from ordinary prose.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             "The target search query is the organizing question, not a phrase to repeat. Answer it immediately, then earn the conclusion with Walnut-native evidence.",
             "SEO requirement: put the primary target keyword or its grammatically natural question form in the title and in the opening section. Cover every meaningful term from that query in the body without keyword stuffing. Use secondary keywords only when they are relevant to PRIMARY_TICKER; never insert a different company's keyword into a single-ticker brief.",
@@ -5948,12 +5949,24 @@ def _format_brief_ratio(value: Any) -> str:
         return "not available"
 
 
+def _reader_company_name(company: str, symbol: str) -> str:
+    """Use a company's reader-facing name in prose, not its legal entity name."""
+    concise = re.sub(
+        r"\s+(?:(?:group\s+)?(?:n\.v\.|n\.a\.|s\.a\.|s\.p\.a\.|plc|ltd\.?|limited|inc\.?|corp\.?|corporation))$",
+        "",
+        str(company or "").strip(),
+        flags=re.IGNORECASE,
+    ).strip()
+    return concise or str(symbol or "").strip()
+
+
 def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """Create a complete review draft from the assembled Walnut context, without invented facts."""
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
     symbol = str(identity.get("symbol") or config.get("ticker") or "").upper()
     company = str(identity.get("company_name") or symbol)
+    reader_company = _reader_company_name(company, symbol)
     market = primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}
     financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
     income = financials.get("income") if isinstance(financials.get("income"), dict) else {}
@@ -6030,7 +6043,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "key": "executive-thesis",
             "heading": "Executive thesis",
             "body_markdown": (
-                f"{company} ({symbol}) is not a simple value case after its latest reported quarter. "
+                f"{reader_company} ({symbol}) is not a simple value case after its latest reported quarter. "
                 f"Our answer to “{question}?” is {walnut_call.lower()}. "
                 f"At {price_text}{f' as of {price_as_of}' if price_as_of else ''}, the shares trade at roughly {forward_pe_text} forward earnings "
                 f"and {price_to_book_text} price to book. The operating story improved, but the valuation still demands sustained execution through an exceptionally capital intensive buildout.\n\n"
@@ -6052,7 +6065,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "heading": "Fundamentals, cash, and capital intensity",
             "body_markdown": (
                 f"The quarter generated {_format_brief_money(latest.get('operatingCashFlow'))} of operating cash flow, but capital expenditure was {_format_brief_money(latest.get('capex'))}, producing free cash flow of {_format_brief_money(latest.get('freeCashFlow'))}. "
-                f"That spread is the core fundamental risk. {company} is funding growth through a large infrastructure investment cycle, not self funded free cash flow.\n\n"
+                f"That spread is the core fundamental risk. {reader_company} is funding growth through a large infrastructure investment cycle, not self funded free cash flow.\n\n"
                 f"The available balance sheet snapshot shows a current ratio of {current_ratio_text} and debt to equity of {debt_to_equity_text} where reported. Watch cash, debt capacity, capex, and customer funded demand together. Revenue growth alone does not prove durable economics."
             ),
         },
