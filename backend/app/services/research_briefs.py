@@ -34,7 +34,7 @@ from app.services.confirmation_score import get_confirmation_score_bundles_for_t
 from app.services.email_delivery import send_email
 from app.utils.symbols import normalize_symbol
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v4_decisive_human_voice"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v5_public_copy"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -297,6 +297,11 @@ PUBLISH_COPY_FORBIDDEN_PATTERNS = [
     r"\bthe prompt\b",
     r"\bprompt\b",
     r"\bwe do not publish our proprietary confirmation score\b",
+    r"\b(?:available|valuation|financials?) cache\b",
+    r"\bcached (?:income statement|financials?|data)\b",
+    r"\b(?:backend|provider|raw|token|credential|diagnostic|pipeline)\b",
+    r"\b(?:reviewed|supplied) context\b",
+    r"\bdata_availability\b",
 ]
 PUBLISH_COPY_FORBIDDEN_RE = re.compile("|".join(PUBLISH_COPY_FORBIDDEN_PATTERNS), re.IGNORECASE)
 MISSING_DATA_AWKWARD_RE = re.compile(
@@ -5055,7 +5060,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Selected sections are conditional: include a selected section only when meaningful supported data exists. If a selected data area is empty, use one short factual line instead of filler.",
             "After the call line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the call.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
-            "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
+            "Never describe Walnut's architecture, tooling, or editorial process in user-facing copy. Never mention a cache, backend, provider, raw data, token, credential, diagnostic, pipeline, prompt, context, configuration, or data_availability. State the investor-facing fact directly instead.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
             "Core Walnut tone: Assess the data, not the hype.",
@@ -6027,8 +6032,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "body_markdown": (
                 f"{company} ({symbol}) is not a simple value case after its latest reported quarter. "
                 f"Our answer to “{question}?” is {walnut_call.lower()}. "
-                f"At {price_text}{f' as of {price_as_of}' if price_as_of else ''}, the available valuation cache shows roughly {forward_pe_text} forward earnings "
-                f"and {price_to_book_text} price to book where those fields are available. The operating story improved, but the valuation still demands sustained execution through an exceptionally capital intensive buildout.\n\n"
+                f"At {price_text}{f' as of {price_as_of}' if price_as_of else ''}, the shares trade at roughly {forward_pe_text} forward earnings "
+                f"and {price_to_book_text} price to book. The operating story improved, but the valuation still demands sustained execution through an exceptionally capital intensive buildout.\n\n"
                 f"Our working judgment is **{walnut_call}**. {call_basis} "
                 f"The multiple, funding needs, and free cash flow burn make the shares expensive. That is the risk."
             ),
@@ -6038,8 +6043,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "heading": "Q2 2026 earnings and guidance",
             "body_markdown": (
                 f"{revenue_sentence} The same quarter shows gross margin of {_format_brief_percent(latest.get('grossMargin'))}, operating margin of {_format_brief_percent(latest.get('operatingMargin'))}, "
-                f"and net income of {_format_brief_money(latest.get('netIncome'))}. GAAP EPS in the cached income statement was {_format_brief_money(latest.get('eps'))} per share.\n\n"
-                f"Management guidance in the reviewed context is: {guidance_text}. The key issue is whether revenue and ARR growth can continue fast enough to justify the capital program without a corresponding deterioration in returns or financing flexibility."
+                f"and net income of {_format_brief_money(latest.get('netIncome'))}. GAAP EPS was {_format_brief_money(latest.get('eps'))} per share.\n\n"
+                f"Management guidance is: {guidance_text}. The key issue is whether revenue and ARR growth can continue fast enough to justify the capital program without a corresponding deterioration in returns or financing flexibility."
             ),
         },
         {

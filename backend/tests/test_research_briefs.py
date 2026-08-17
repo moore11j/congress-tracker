@@ -1933,6 +1933,7 @@ def test_prompt_restricts_missing_limitations_to_filtered_notes():
     assert "Avoid generic AI phrasing" in prompt
     assert "AI-watermark words" in prompt
     assert "bullish score requires a bullish call" in prompt
+    assert "Never describe Walnut's architecture" in prompt
 
 
 def test_validation_fails_when_draft_marks_available_data_missing():
