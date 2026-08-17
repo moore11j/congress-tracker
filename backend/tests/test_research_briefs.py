@@ -336,6 +336,18 @@ def test_sanitizer_removes_sentence_that_conflates_confirmation_score_with_data(
     assert "confirmation score is based on" not in cleaned["suggested_card"]["description"].lower()
 
 
+def test_sanitizer_removes_cross_source_inputs_claim_for_confirmation_score():
+    text = (
+        "Cross-source data categories are inputs to the proprietary confirmation score. "
+        "The operating evidence remains mixed."
+    )
+
+    cleaned = service._remove_confirmation_data_conflation_from_text(text)
+
+    assert "confirmation score" not in cleaned.lower()
+    assert cleaned == "The operating evidence remains mixed."
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)

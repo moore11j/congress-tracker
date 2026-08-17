@@ -975,10 +975,13 @@ def _remove_confirmation_data_conflation_from_section(section: dict[str, Any]) -
 
 def _remove_confirmation_data_conflation_from_text(text: str) -> str:
     body = str(text or "")
-    data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|data categories)"
+    data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|(?:cross[ -]source )?data categories)"
+    score_inputs = r"(?:input|inputs|component|components|driver|drivers|factor|factors|basis|bases|source|sources)"
     patterns = (
-        rf"\bconfirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,80}}{data_terms}",
-        rf"{data_terms}.{{0,80}}\s+(?:are|is)\s+the\s+confirmation score",
+        rf"\bconfirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,160}}{data_terms}",
+        rf"{data_terms}.{{0,160}}\s+(?:are|is)\s+the\s+confirmation score",
+        rf"\bconfirmation score.{{0,160}}{score_inputs}.{{0,120}}{data_terms}",
+        rf"{data_terms}.{{0,160}}{score_inputs}.{{0,120}}\bconfirmation score",
         r"\bconfirmation score\s+and\s+underlying data\s+are\s+the\s+same",
     )
     for pattern in patterns:
@@ -5479,10 +5482,13 @@ def _numeric_format_issues(body: str) -> list[str]:
 
 
 def _conflates_confirmation_score_with_data(lowered_text: str) -> bool:
-    data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|data categories)"
+    data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|(?:cross[ -]source )?data categories)"
+    score_inputs = r"(?:input|inputs|component|components|driver|drivers|factor|factors|basis|bases|source|sources)"
     patterns = [
-        rf"confirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,80}}{data_terms}",
-        rf"{data_terms}.{{0,80}}\s+(?:are|is)\s+the\s+confirmation score",
+        rf"confirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,160}}{data_terms}",
+        rf"{data_terms}.{{0,160}}\s+(?:are|is)\s+the\s+confirmation score",
+        rf"confirmation score.{{0,160}}{score_inputs}.{{0,120}}{data_terms}",
+        rf"{data_terms}.{{0,160}}{score_inputs}.{{0,120}}confirmation score",
         r"confirmation score\s+and\s+underlying data\s+are\s+the\s+same",
     ]
     return any(re.search(pattern, lowered_text) for pattern in patterns)
