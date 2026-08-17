@@ -2692,7 +2692,16 @@ def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
         draft = _generate_non_ticker_campaign_stub(db, admin, item, campaign_config)
     else:
         config = _campaign_item_generation_config(item, campaign_config)
+        # A previously failed campaign item has already exhausted provider
+        # attempts. Its explicit rerun should produce the review draft from
+        # Walnut data immediately instead of repeating the same dead end.
+        if "Draft generation failed validation." in str(item.get("last_error") or ""):
+            config["use_deterministic_draft"] = True
         draft, correction_notes = _generate_campaign_brief_with_corrections(db, admin, config)
+        if config.get("use_deterministic_draft"):
+            correction_notes.append(
+                "Walnut data fallback: this re-run used the validated Walnut research context after the prior provider output failed review checks."
+            )
         if correction_notes:
             draft["quality_gate_correction_note"] = correction_notes[-1]
     draft = _mark_draft_scheduled_review(draft, item, campaign_config)
@@ -2748,9 +2757,17 @@ def _generate_campaign_brief_with_corrections(
             return generate_research_brief(db, admin, retry_config), correction_notes
         except HTTPException as exc:
             correction_note = _campaign_generation_correction_note(exc)
-            if not correction_note or attempt == 2:
+            if not correction_note:
                 raise
             correction_notes.append(correction_note)
+            if attempt == 2:
+                fallback_config = deepcopy(retry_config)
+                fallback_config["use_deterministic_draft"] = True
+                fallback_config["generate_thumbnail"] = False
+                correction_notes.append(
+                    "Walnut data fallback: OpenAI output failed the quality gate repeatedly, so this review-only draft was assembled from the validated Walnut research context."
+                )
+                return generate_research_brief(db, admin, fallback_config), correction_notes
             prior_context = str(retry_config.get("additional_context") or "").strip()
             retry_config["additional_context"] = f"{prior_context}\n\n{correction_note}".strip()[:4000]
             # Corrective campaign attempts need room to complete the full strict JSON payload.
@@ -4081,6 +4098,7 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
         "search_intent": str(config.get("search_intent") or "").strip()[:120],
         "content_type": str(config.get("content_type") or "ticker").strip()[:80],
         "retry_output_tokens": _retry_output_tokens(config.get("retry_output_tokens")),
+        "use_deterministic_draft": bool(config.get("use_deterministic_draft")),
     }
     normalized["selected_model"] = _selected_research_model(normalized, strict=strict_selected_model)
     if not normalized["target_keyword"]:
@@ -4248,7 +4266,13 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         started = time.perf_counter()
         if progress_callback:
             progress_callback("generating_brief", "Generating research brief.")
-        article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
+        # Campaign review must not dead-end when a provider response repeatedly
+        # misses an editorial copy rule. The deterministic path uses the same
+        # assembled Walnut context, remains review-only, and never publishes.
+        use_deterministic_draft = bool(normalized_config.get("use_deterministic_draft"))
+        article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" or use_deterministic_draft else _call_openai(db, normalized_config, context)
+        if use_deterministic_draft:
+            article["_generation_mode"] = "walnut_data_fallback"
         article = sanitize_research_brief_article(article, normalized_config, context)
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *((context.get("external_research") or {}).get("reviewed_sources") or [])])
         article = enrich_internal_links(article, context)

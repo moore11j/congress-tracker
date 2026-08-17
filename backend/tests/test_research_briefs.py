@@ -815,6 +815,31 @@ def test_campaign_invalid_structured_output_is_retried_with_format_correction(tm
     assert configs[1]["retry_output_tokens"] == 10000
 
 
+def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    config = _payload().model_dump()
+    generated = _minimal_scheduled_draft(admin)
+    configs = []
+
+    def fake_generate(_db, _admin, attempt_config):
+        configs.append(deepcopy(attempt_config))
+        if attempt_config.get("use_deterministic_draft"):
+            return deepcopy(generated)
+        raise HTTPException(status_code=422, detail="Draft generation failed validation. Cross-source data categories must not be described as the proprietary confirmation score.")
+
+    monkeypatch.setattr(service, "generate_research_brief", fake_generate)
+
+    result, notes = service._generate_campaign_brief_with_corrections(db, admin, config)
+
+    assert result["id"] == generated["id"]
+    assert len(configs) == 4
+    assert configs[-1]["use_deterministic_draft"] is True
+    assert configs[-1]["generate_thumbnail"] is False
+    assert "Walnut data fallback" in notes[-1]
+
+
 def test_final_confirmation_guard_runs_after_enrichment(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv(service.MOCK_ENV, "1")
