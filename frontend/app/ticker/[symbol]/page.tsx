@@ -3020,6 +3020,7 @@ async function DeferredTickerContent({
   confirmationScoreBundle,
   optionsFlowSummary,
   technicalIndicators,
+  relatedResearch,
   fallbackSourceEntitlements,
   allowAuthHintEntitlementOverride,
   canViewProTickerContext,
@@ -3039,6 +3040,7 @@ async function DeferredTickerContent({
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
+  relatedResearch: PublicResearchBriefCard[];
   fallbackSourceEntitlements: TickerSourceEntitlements;
   allowAuthHintEntitlementOverride: boolean;
   canViewProTickerContext: boolean;
@@ -4327,6 +4329,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           confirmationScoreBundle={profile.confirmation_score_bundle}
           optionsFlowSummary={profile.options_flow_summary}
           technicalIndicators={profile.technical_indicators}
+          relatedResearch={relatedResearch}
           fallbackSourceEntitlements={fallbackSourceEntitlements}
           allowAuthHintEntitlementOverride={authState.hasAuthHint}
           canViewProTickerContext={canViewProContext}
