@@ -29,6 +29,9 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 
 # Copy app
 COPY . .
+# Git working trees on Windows can carry CRLF into the Docker build context.
+# Normalize cron and shell entrypoints before the Linux scheduler executes them.
+RUN sed -i 's/\r$//' /app/crontab /app/scripts/*.sh
 
 # Verify backfill module exists in deployed package
 RUN python -c "import app.backfill_events_from_trades"
