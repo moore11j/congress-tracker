@@ -2519,7 +2519,7 @@ def run_due_research_campaign_generation(
                    c.config_json AS campaign_config_json, c.created_by AS campaign_created_by, c.created_by_email AS campaign_created_by_email
             FROM research_campaign_items i
             JOIN research_campaigns c ON c.id = i.campaign_id
-            WHERE i.status = 'pending' AND c.active = 1 AND i.generate_at <= :now {where_campaign} {where_item}
+            WHERE i.status = 'pending' AND c.active = TRUE AND i.generate_at <= :now {where_campaign} {where_item}
             ORDER BY i.generate_at ASC
             LIMIT :limit
             """
