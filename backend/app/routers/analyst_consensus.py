@@ -12,6 +12,7 @@ from app.services.analyst_consensus import (
     current_consensus_payload,
     events_payload,
     history_payload,
+    refresh_consensus_on_cache_miss,
 )
 from app.services.analyst_consensus_shadow_review import shadow_review_payload
 from app.utils.symbols import normalize_symbol
@@ -26,6 +27,7 @@ def _cache_headers(response: Response, *, seconds: int = 300) -> None:
 @router.get("/tickers/{symbol}/consensus")
 def ticker_consensus(symbol: str, request: Request, response: Response, db: Session = Depends(get_db)):
     entitlements = current_entitlements(request, db)
+    refresh_consensus_on_cache_miss(db, symbol)
     _cache_headers(response)
     return current_consensus_payload(
         db,

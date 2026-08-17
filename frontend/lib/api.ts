@@ -7408,11 +7408,12 @@ export async function getTickerHydrationStatus(symbol: string, params?: { signal
   );
 }
 
-export async function requestTickerHydration(symbol: string, params?: { reason?: string; priority?: number; signal?: AbortSignal; source?: string }): Promise<TickerHydrationStatus> {
+export async function requestTickerHydration(symbol: string, params?: { reason?: string; priority?: number; live?: boolean; signal?: AbortSignal; source?: string }): Promise<TickerHydrationStatus> {
   return fetchPublicJson<TickerHydrationStatus>(
     buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/hydration-request`, {
       reason: params?.reason,
       priority: params?.priority,
+      live: params?.live ? "true" : undefined,
     }),
     { method: "POST", cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerHydrationRequest" },
   );

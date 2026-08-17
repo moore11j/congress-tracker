@@ -86,6 +86,7 @@ def request_ticker_hydration(
     *,
     reason: str = "ticker_page_view",
     priority: int = 25,
+    live: bool = False,
 ) -> dict[str, Any]:
     normalized = normalize_symbol(symbol)
     if not normalized:
@@ -100,7 +101,7 @@ def request_ticker_hydration(
         }
     before = ticker_hydration_status(db, normalized)
     enqueue_result = _enqueue_missing_jobs(normalized, before, reason=reason, priority=priority)
-    refreshed = _bounded_refresh(db, normalized, before, reason=reason)
+    refreshed = _bounded_refresh(db, normalized, before, reason=reason, force_live=live, max_calls=2 if live else None)
     after = ticker_hydration_status(db, normalized)
     return {
         **after,
@@ -440,15 +441,23 @@ def _enqueue_missing_jobs(
     }
 
 
-def _bounded_refresh(db: Session, symbol: str, status: dict[str, Any], *, reason: str) -> dict[str, Any]:
-    if os.getenv("FMP_ALLOW_BOUNDED_TICKER_REFRESH", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+def _bounded_refresh(
+    db: Session,
+    symbol: str,
+    status: dict[str, Any],
+    *,
+    reason: str,
+    force_live: bool = False,
+    max_calls: int | None = None,
+) -> dict[str, Any]:
+    if not force_live and os.getenv("FMP_ALLOW_BOUNDED_TICKER_REFRESH", "false").strip().lower() not in {"1", "true", "yes", "on"}:
         return {"attempted": False, "reason": "disabled", "calls": 0, "refreshed": []}
     if _watchlist_only() and not _is_watchlist_symbol(db, symbol):
         return {"attempted": False, "reason": "watchlist_only", "calls": 0, "refreshed": []}
     if not _acquire_symbol_lock(symbol):
         return {"attempted": False, "reason": "locked", "calls": 0, "refreshed": []}
 
-    max_calls = _max_calls_per_symbol()
+    max_calls = _max_calls_per_symbol() if max_calls is None else max(0, min(10, max_calls))
     calls = 0
     refreshed: list[str] = []
     critical = status.get("critical", {})

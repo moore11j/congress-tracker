@@ -19,7 +19,6 @@ type Props = {
 };
 
 const panelClass = "rounded-lg border border-white/10 bg-slate-950/55";
-const LOADING_LABEL = "Loading";
 const EMPTY_LABEL = "-";
 
 function asNumber(value: number | null | undefined): number | null {
@@ -71,7 +70,9 @@ function statusCopy(status: string | null | undefined) {
   if (normalized === "partial") return "Partial";
   if (normalized === "stale") return "Stale";
   if (normalized === "provider_error") return "Temporarily unavailable";
-  return LOADING_LABEL;
+  if (normalized === "unavailable") return "No coverage available";
+  if (normalized === "unsupported") return "Not supported";
+  return "Unavailable";
 }
 
 function DetailMetric({ label, value, tone = "text-white" }: { label: string; value: ReactNode; tone?: string }) {
@@ -621,11 +622,14 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
   }, [locked, snapshot?.snapshotDate, snapshot?.symbol, symbol]);
 
   if (!data || !snapshot) {
+    const noCoverage = availability === "unavailable";
     return (
       <section className={`${panelClass} p-5`}>
-        <p className="text-sm font-semibold text-white">Analyst consensus is loading</p>
+        <p className="text-sm font-semibold text-white">{noCoverage ? "No analyst coverage available" : "Analyst consensus is temporarily unavailable"}</p>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          Current analyst summary for {symbol} is not available yet. The tab will populate automatically when data is ready.
+          {noCoverage
+            ? `No current analyst consensus is available for ${symbol}. Other ticker data remains available.`
+            : `Current analyst summary for ${symbol} could not be loaded right now. Please try again shortly.`}
         </p>
         <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{statusCopy(availability)}</p>
       </section>

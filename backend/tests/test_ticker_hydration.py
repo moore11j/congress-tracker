@@ -233,3 +233,23 @@ def test_bounded_ticker_refresh_respects_max_calls_and_skips_heavy_endpoints(mon
         assert "ticker_financials" not in calls
     finally:
         db.close()
+
+
+def test_live_hydration_cache_miss_uses_bounded_direct_refresh_without_global_switch(monkeypatch):
+    db = _db()
+    calls: list[str] = []
+    hydration_module._SYMBOL_LOCKS.clear()
+    monkeypatch.delenv("FMP_ALLOW_BOUNDED_TICKER_REFRESH", raising=False)
+    monkeypatch.delenv("FMP_TICKER_REFRESH_WATCHLIST_ONLY", raising=False)
+    monkeypatch.setattr(hydration_module, "enqueue_data_enrichment_job", lambda **kwargs: False)
+    monkeypatch.setattr("app.services.quote_lookup.get_current_prices_meta_db", lambda *args, **kwargs: calls.append("quote") or {})
+    monkeypatch.setattr("app.services.ticker_meta.get_ticker_meta", lambda *args, **kwargs: calls.append("profile") or {})
+
+    try:
+        result = request_ticker_hydration(db, "NBIS", reason="ticker_page_cache_miss", priority=1, live=True)
+
+        assert result["refreshed"]["attempted"] is True
+        assert result["refreshed"]["calls"] == 2
+        assert calls == ["quote", "profile"]
+    finally:
+        db.close()

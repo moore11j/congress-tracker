@@ -10,6 +10,7 @@ import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
+import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
@@ -70,6 +71,8 @@ const SIGNAL_WINDOW_DAYS = 30;
 const ACTIVITY_PAGE_SIZE = 20;
 const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE + 1;
 const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
+const TICKER_CONTEXT_SSR_TIMEOUT_MS = 2500;
+const TICKER_PROFILE_FALLBACK_TIMEOUT_MS = 1000;
 const TICKER_METADATA_DESCRIPTION =
   "Research public ticker context, Congress trades, insider activity, government contracts, technicals, fundamentals, and confirmation-stack signals in Walnut Markets.";
 
@@ -129,6 +132,15 @@ type TickerConfirmationGate = {
   label: string;
   message: string;
 };
+
+function withinTickerLoadBudget<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    request,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`Ticker request exceeded ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]);
+}
 
 type ConfirmationSummary = {
   congress_active_30d: boolean;
@@ -4014,7 +4026,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
         profile: fallbackTickerProfile(normalizedSymbol),
         fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
       }
-    : await getTickerContextBundle(normalizedSymbol, {
+    : await withinTickerLoadBudget(getTickerContextBundle(normalizedSymbol, {
         side,
         limit: 3,
         lookback_days: lookbackDays,
@@ -4023,7 +4035,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
         stalePageCache: publicStalePageCache,
         source: "TickerContextBundle",
         requestSource: "ssr",
-      })
+      }), TICKER_CONTEXT_SSR_TIMEOUT_MS)
         .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
         .catch((error) => {
           if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
@@ -4033,7 +4045,10 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
               status: error instanceof ApiError ? error.status : null,
               name: error instanceof Error ? error.name : "unknown",
             });
-            return getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback", stalePageCache: publicStalePageCache })
+            return withinTickerLoadBudget(
+              getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback", stalePageCache: publicStalePageCache }),
+              TICKER_PROFILE_FALLBACK_TIMEOUT_MS,
+            )
               .then((profile) => ({
                 bundle: null as TickerContextBundle | null,
                 profile,
@@ -4254,6 +4269,12 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   return (
     <div className="space-y-6">
       <EntitlementHintRefresh enabled={!authToken && authState.hasAuthHint} renderedTier={entitlements?.tier ?? null} />
+      <TickerLiveContextRefresh
+        enabled={Boolean(shellFallbackMessage)}
+        symbol={normalizedSymbol}
+        side={side}
+        lookbackDays={lookbackDays}
+      />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 basis-full max-w-[calc(100vw-2rem)] lg:basis-auto lg:max-w-full">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>

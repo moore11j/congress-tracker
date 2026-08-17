@@ -8133,9 +8133,10 @@ def ticker_hydration_request_endpoint(
     symbol: str,
     reason: str = Query("ticker_page_view"),
     priority: int = Query(25, ge=1, le=200),
+    live: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    return request_ticker_hydration(db, symbol, reason=reason, priority=priority)
+    return request_ticker_hydration(db, symbol, reason=reason, priority=priority, live=live)
 
 
 def _dt_iso(value: Any) -> str | None:

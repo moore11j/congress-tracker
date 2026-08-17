@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
@@ -45,6 +46,7 @@ DEFAULT_HISTORY_DAYS = 365
 MAX_HISTORY_DAYS = 730
 FRESHNESS_DAYS = 7
 STALE_DAYS = 14
+LIVE_CACHE_MISS_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -634,7 +636,14 @@ def upsert_price_target_event(db: Session, values: dict[str, Any]) -> tuple[Anal
     return row, created
 
 
-def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:
+def ingest_symbol_consensus(
+    db: Session,
+    symbol: str,
+    *,
+    observed_at: datetime | None = None,
+    provider_timeout_s: int = 15,
+    parallel_provider_fetch: bool = False,
+) -> dict[str, Any]:
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
@@ -645,17 +654,34 @@ def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime |
         "price_target_consensus": [],
         "price_target_summary": [],
     }
-    for key, fetcher in (
+    fetchers = (
         ("grades_summary", fetch_grades_summary),
         ("price_target_consensus", fetch_price_target_consensus),
         ("price_target_summary", fetch_price_target_summary),
-    ):
+    )
+
+    def fetch_rows(key: str, fetcher: Any) -> tuple[str, list[dict[str, Any]], str | None]:
         try:
-            rows[key] = fetcher(symbol=normalized, timeout_s=15)
+            return key, fetcher(symbol=normalized, timeout_s=provider_timeout_s), None
         except FMPSubscriptionRestrictedError as exc:
-            provider_error = f"subscription_restricted:{exc.__class__.__name__}"
+            return key, [], f"subscription_restricted:{exc.__class__.__name__}"
         except FMPClientError as exc:
-            provider_error = exc.__class__.__name__
+            return key, [], exc.__class__.__name__
+
+    if parallel_provider_fetch:
+        with ThreadPoolExecutor(max_workers=len(fetchers), thread_name_prefix="analyst-consensus") as executor:
+            futures = [executor.submit(fetch_rows, key, fetcher) for key, fetcher in fetchers]
+            for future in as_completed(futures):
+                key, result_rows, error = future.result()
+                rows[key] = result_rows
+                if error and provider_error is None:
+                    provider_error = error
+    else:
+        for key, fetcher in fetchers:
+            result_key, result_rows, error = fetch_rows(key, fetcher)
+            rows[result_key] = result_rows
+            if error and provider_error is None:
+                provider_error = error
     price = latest_cached_price(db, normalized)
     values = build_snapshot_payload(
         normalized,
@@ -675,6 +701,29 @@ def ingest_symbol_consensus(db: Session, symbol: str, *, observed_at: datetime |
         "provider_error": provider_error,
         "change_event_created": False,
     }
+
+
+def refresh_consensus_on_cache_miss(db: Session, symbol: str) -> dict[str, Any]:
+    """Fetch and cache a current consensus snapshot only when none exists yet.
+
+    Ticker tabs are user-facing, so a first view must not wait for the daily
+    enrichment worker. Existing snapshots remain cache-first; a cache miss gets
+    one bounded, parallel provider read and stores the resulting availability.
+    """
+    normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
+    if rejection_reason or not normalized:
+        return {"attempted": False, "reason": rejection_reason or "unsupported"}
+    if latest_snapshot(db, normalized) is not None:
+        return {"attempted": False, "reason": "cache_hit"}
+
+    result = ingest_symbol_consensus(
+        db,
+        normalized,
+        provider_timeout_s=LIVE_CACHE_MISS_TIMEOUT_SECONDS,
+        parallel_provider_fetch=True,
+    )
+    db.commit()
+    return {"attempted": True, "reason": "cache_miss", "result": result}
 
 
 def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetime | None = None) -> dict[str, Any]:

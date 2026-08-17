@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import app.services.analyst_consensus as analyst_consensus_module
 from app.db import Base, ensure_analyst_consensus_schema
 from app.models import AnalystConsensusSnapshot, AnalystGradeEvent, AnalystPriceTargetEvent, AnalystSymbolBackfillStatus, Event, PriceCache, Security, TickerMeta
 from app.entitlements import ENTITLEMENTS, require_feature
@@ -27,6 +28,7 @@ from app.services.analyst_consensus import (
     PricePoint,
     recommendation_label,
     record_symbol_backfill_attempt,
+    refresh_consensus_on_cache_miss,
     target_dispersion,
     total_rating_count,
     upsert_consensus_snapshot,
@@ -277,6 +279,41 @@ def test_current_payload_reports_unavailable_without_zero_counts():
         assert payload["currentSnapshot"] is None
         assert payload["availability"]["status"] == "unavailable"
         assert payload["interpretation"]["combinedLabel"] == "Unavailable"
+    finally:
+        db.close()
+
+
+def test_cache_miss_refresh_fetches_consensus_once_and_caches_the_result(monkeypatch):
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    calls: list[str] = []
+
+    def grades_summary(*, symbol, timeout_s):
+        calls.append(f"grades:{timeout_s}")
+        return [{"symbol": symbol, "strongBuy": 2, "buy": 3, "hold": 1, "sell": 0, "strongSell": 0}]
+
+    def target_consensus(*, symbol, timeout_s):
+        calls.append(f"consensus:{timeout_s}")
+        return [{"symbol": symbol, "targetHigh": 130, "targetLow": 90, "targetMedian": 110, "targetConsensus": 112}]
+
+    def target_summary(*, symbol, timeout_s):
+        calls.append(f"summary:{timeout_s}")
+        return [{"symbol": symbol, "allTimeCount": 6, "allTimeAvgPriceTarget": 111}]
+
+    monkeypatch.setattr(analyst_consensus_module, "fetch_grades_summary", grades_summary)
+    monkeypatch.setattr(analyst_consensus_module, "fetch_price_target_consensus", target_consensus)
+    monkeypatch.setattr(analyst_consensus_module, "fetch_price_target_summary", target_summary)
+    try:
+        first = refresh_consensus_on_cache_miss(db, "AAPL")
+        second = refresh_consensus_on_cache_miss(db, "AAPL")
+        payload = current_consensus_payload(db, "AAPL")
+
+        assert first["attempted"] is True
+        assert first["reason"] == "cache_miss"
+        assert sorted(calls) == ["consensus:5", "grades:5", "summary:5"]
+        assert second == {"attempted": False, "reason": "cache_hit"}
+        assert payload["availability"]["status"] == "available"
+        assert payload["currentSnapshot"]["priceTargetRange"]["consensus"] == 112.0
     finally:
         db.close()
 
