@@ -1738,6 +1738,30 @@ def test_validation_fails_when_draft_marks_available_data_missing():
     assert "reported institutional activity" in warning["message"]
 
 
+def test_sanitizer_removes_generated_missing_claim_for_available_walnut_data():
+    context = {
+        "data_availability": {"reported institutional activity": True},
+    }
+    article = {
+        "title": "NBIS research brief",
+        "sections": [
+            {
+                "heading": "Data limitations",
+                "body_markdown": (
+                    "Reported institutional activity was not found in reviewed sources. "
+                    "The earnings release remains the primary source."
+                ),
+            }
+        ],
+    }
+
+    cleaned = service._remove_available_data_missing_claims_from_article(article, context)
+
+    body = cleaned["sections"][0]["body_markdown"]
+    assert "institutional activity" not in body.lower()
+    assert body == "The earnings release remains the primary source."
+
+
 def _earnings_article(body: str, symbol: str = "AAPL") -> dict:
     return {
         "title": f"{symbol} earnings setup",

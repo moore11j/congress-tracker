@@ -838,6 +838,11 @@ def sanitize_research_brief_article(
     if repair_generated_sections:
         sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
         sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
+        # A model can still carry an obsolete "not found" sentence into the
+        # final copy even when Walnut's assembled context confirms that field
+        # is available. Remove only those contradictory sentences; validation
+        # remains the backstop for every other unsupported claim.
+        sanitized = _remove_available_data_missing_claims_from_article(sanitized, context or {})
     sanitized = _apply_walnut_call_metadata(sanitized)
     sanitized = _apply_research_access_metadata(sanitized, config)
     after = json.dumps(sanitized, sort_keys=True, default=str)
@@ -979,6 +984,51 @@ def _remove_confirmation_data_conflation_from_text(text: str) -> str:
     for pattern in patterns:
         body = _remove_sentences_matching(body, pattern)
     return body.strip()
+
+
+def _remove_available_data_missing_claims_from_article(article: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Remove a generated sentence that contradicts Walnut's available-data context."""
+    availability = context.get("data_availability") if isinstance(context.get("data_availability"), dict) else {}
+    missing_terms = r"(?:not found|not available|unavailable|missing|could not find|couldn't find|not directly reviewed|not independently verified(?: in reviewed primary sources)?)"
+    checks = {
+        "current price": [r"current\s+\w*\s*price", r"share\s+price", r"stock\s+price"],
+        "volume": [r"\bvolume\b"],
+        "price/volume and technicals": [r"price\s*/\s*volume", r"\btechnicals?\b", r"technical\s+levels?"],
+        "revenue consensus": [r"revenue\s+consensus", r"q[1-4]\s+revenue"],
+        "eps consensus": [r"eps\s+consensus", r"q[1-4]\s+eps"],
+        "gross margin": [r"gross\s+margin"],
+        "free cash flow": [r"free\s+cash\s+flow", r"\bfcf\b"],
+        "reported institutional activity": [r"reported\s+institutional\s+activity", r"institutional\s+activity"],
+        "insider activity": [r"insider\s+activity"],
+        "congress activity": [r"congress\s+activity"],
+        "government contracts": [r"government\s+contracts?"],
+        "valuation data": [r"valuation\s+data", r"\bvaluation\b"],
+    }
+    patterns = [
+        rf"(?:{'|'.join(synonyms)}).{{0,90}}{missing_terms}|{missing_terms}.{{0,90}}(?:{'|'.join(synonyms)})"
+        for field, synonyms in checks.items()
+        if availability.get(field)
+    ]
+    if not patterns:
+        return article
+
+    def clean(value: str) -> str:
+        cleaned = str(value or "")
+        for pattern in patterns:
+            cleaned = _remove_sentences_matching(cleaned, pattern)
+        return cleaned.strip()
+
+    sanitized = deepcopy(article)
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(sanitized.get(key), str):
+            sanitized[key] = clean(sanitized[key])
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness", "missing_data_notes"):
+        if isinstance(sanitized.get(key), list):
+            sanitized[key] = [clean(str(item)) for item in sanitized[key] if clean(str(item))]
+    for section in sanitized.get("sections") or []:
+        if isinstance(section, dict) and isinstance(section.get("body_markdown"), str):
+            section["body_markdown"] = clean(section["body_markdown"])
+    return sanitized
 
 
 def _strip_confirmation_score_from_article(article: dict[str, Any]) -> dict[str, Any]:
