@@ -5238,8 +5238,11 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     style_warnings = _style_validation_warnings(article, context)
     if style_warnings:
         warnings.extend(style_warnings)
-        labels["style"] = "failed"
-        blocking = True
+        if any(bool(warning.get("blocking")) for warning in style_warnings):
+            labels["style"] = "failed"
+            blocking = True
+        else:
+            labels["style"] = "review_required"
     if _duplicate_slug(slug, draft_id=draft_id):
         warnings.append(_warning("duplicate_slug", f"Slug '{slug}' is already published or reserved.", blocking=True))
         blocking = True
@@ -5417,7 +5420,14 @@ def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any])
         if not (has_number or has_company or has_date_or_source):
             generic_paragraphs += 1
     if generic_paragraphs >= 3:
-        warnings.append(_warning("low_information_density", "Multiple paragraphs lack company-specific facts, metrics, dated events, sources, or investor implications.", blocking=True))
+        is_walnut_data_fallback = str(article.get("_generation_mode") or "") == "walnut_data_fallback"
+        warnings.append(
+            _warning(
+                "low_information_density",
+                "Multiple paragraphs lack company-specific facts, metrics, dated events, sources, or investor implications. Review and enrich before approval.",
+                blocking=not is_walnut_data_fallback,
+            )
+        )
     return warnings
 
 

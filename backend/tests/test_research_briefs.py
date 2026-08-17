@@ -840,6 +840,41 @@ def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_
     assert "Walnut data fallback" in notes[-1]
 
 
+def test_walnut_data_fallback_marks_low_information_density_for_review_not_failure():
+    article = {
+        "_generation_mode": "walnut_data_fallback",
+        "sections": [
+            {
+                "body_markdown": (
+                    "This is a cautious research-only review of the current setup, relevant evidence, and the balance of potential upside and downside.\n\n"
+                    "The thesis remains mixed until the next update clarifies the operating picture, risk balance, and whether the setup is changing materially.\n\n"
+                    "Investors should review the cited sources, check the available information, and edit this draft before any publication decision is made."
+                )
+            }
+        ],
+    }
+    context = {"primary": {"identity": {"symbol": "MU", "company_name": "Micron"}}}
+
+    warnings = service._style_validation_warnings(article, context)
+
+    density_warning = next(warning for warning in warnings if warning["code"] == "low_information_density")
+    assert density_warning["blocking"] is False
+
+
+def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    config = _payload().model_dump()
+    config["use_deterministic_draft"] = True
+
+    draft = service.generate_research_brief(db, admin, config)
+
+    assert draft["validation"]["status"] == "passed"
+    assert draft["config"]["use_deterministic_draft"] is True
+
+
 def test_final_confirmation_guard_runs_after_enrichment(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv(service.MOCK_ENV, "1")
