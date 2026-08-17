@@ -4,6 +4,7 @@ import { CampaignEventOnMount } from "@/components/campaign/CampaignAnalytics";
 import { MuPremiumGate } from "@/components/research/MuPremiumGate";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
+import { ResearchBriefTopNav } from "@/components/research/ResearchBriefTopNav";
 import { getEntitlements } from "@/lib/api";
 import { isAdminEntitlement, normalizeTier, type Entitlements } from "@/lib/entitlements";
 import { getResearchBriefBySlug } from "@/lib/researchBriefs";
@@ -114,7 +115,9 @@ export default async function MuDdLandingPage({ searchParams }: { searchParams: 
   const userEntitlement = entitlementLabel(entitlements);
 
   return (
-    <main className="-mx-4 -my-1.5 min-h-screen bg-[#06111f] text-slate-100 sm:-mx-6 lg:-mx-8 2xl:-mx-10">
+    <>
+      <ResearchBriefTopNav />
+      <main className="min-h-screen bg-[#06111f] text-slate-100">
       {canReadFull ? (
         <>
           <CampaignEventOnMount eventName="research_preview_viewed" path={returnTo} properties={{ article_slug: "mu-dd", ticker: "MU", user_entitlement: userEntitlement }} />
@@ -232,6 +235,7 @@ export default async function MuDdLandingPage({ searchParams }: { searchParams: 
           </div>
         </section>
       )}
-    </main>
+      </main>
+    </>
   );
 }

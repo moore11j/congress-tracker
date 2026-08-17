@@ -4,6 +4,7 @@ import type { AdminResearchBriefDraft } from "@/lib/api";
 import { WALNUT_MARKETING_URL, marketingCanonicalUrl } from "@/lib/marketingMetadata";
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
 import { PremiumResearchGate } from "@/components/research/MuPremiumGate";
+import { ResearchBriefTopNav } from "@/components/research/ResearchBriefTopNav";
 
 type StoredSignalResult = {
   ticker: string;
@@ -201,9 +202,11 @@ export function GeneratedResearchBriefPage({
   const paywallCtaLabel = article.paywall_copy?.cta_label || "Subscribe to Premium";
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.article) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.breadcrumbs) }} />
+    <>
+      <ResearchBriefTopNav />
+      <main className="min-h-screen bg-slate-950 text-slate-100">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.article) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.breadcrumbs) }} />
       <section className="border-b border-white/10 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,0.18),transparent_28%),linear-gradient(180deg,rgba(2,6,23,0.96),rgba(2,6,23,1))]">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
           <Link href="/insights" className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-200">
@@ -281,10 +284,11 @@ export function GeneratedResearchBriefPage({
           {fullArticleVisible ? <SideList title="Risks" items={article.risks} /> : null}
           {fullArticleVisible ? <SideList title="What to watch" items={article.watch_items} /> : null}
           {fullArticleVisible ? <SourceList items={article.source_links || []} /> : null}
-          <TickerLookupCard currentDataAsOf={article.current_data_as_of} />
+          <TickerPageCta ticker={article.primary_ticker || draft.primary_ticker} />
         </aside>
       </section>
-    </main>
+      </main>
+    </>
   );
 }
 
@@ -489,17 +493,17 @@ function SideList({ title, items }: { title: string; items?: string[] }) {
   );
 }
 
-function TickerLookupCard({ currentDataAsOf }: { currentDataAsOf?: string }) {
+function TickerPageCta({ ticker }: { ticker?: string }) {
+  const symbol = ticker?.trim().toUpperCase();
+  if (!symbol) return null;
+
   return (
     <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Current setup</p>
-      {currentDataAsOf ? <p className="mt-2 text-xs leading-5 text-slate-400">Current data should be read separately from this historical audit. Current as of {currentDataAsOf}.</p> : null}
-      <form action="/search" className="mt-4 flex gap-2">
-        <input name="q" placeholder="Enter a ticker" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-300/50" />
-        <button type="submit" className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-          See setup
-        </button>
-      </form>
+      <p className="mt-2 text-sm leading-6 text-slate-300">See the live Walnut setup for {symbol}: price action, fundamentals, catalysts, risks, and the latest confirmation signals.</p>
+      <Link href={`/ticker/${encodeURIComponent(symbol)}`} className="mt-4 inline-flex min-h-10 items-center justify-center rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
+        View {symbol} on Walnut
+      </Link>
     </div>
   );
 }

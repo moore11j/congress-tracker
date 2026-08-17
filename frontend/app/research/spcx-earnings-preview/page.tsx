@@ -3,6 +3,7 @@ import Link from "next/link";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { CampaignCtaLink } from "@/components/research/CampaignCtaLink";
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
+import { ResearchBriefTopNav } from "@/components/research/ResearchBriefTopNav";
 import { getResearchBriefBySlug } from "@/lib/researchBriefs";
 
 export const dynamic = "force-static";
@@ -172,7 +173,9 @@ function BulletPanel({ title, items, tone = "emerald" }: { title: string; items:
 
 export default function SpcxEarningsPreviewPage() {
   return (
-    <main className="-mx-4 -my-1.5 min-h-screen bg-[#06111f] text-slate-100 sm:-mx-6 lg:-mx-8 2xl:-mx-10">
+    <>
+      <ResearchBriefTopNav />
+      <main className="min-h-screen bg-[#06111f] text-slate-100">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema).replace(/</g, "\\u003c") }} />
 
       <section className="border-b border-white/10 bg-[linear-gradient(180deg,rgba(8,20,35,0.98),rgba(6,17,31,0.94))]">
@@ -343,6 +346,7 @@ export default function SpcxEarningsPreviewPage() {
           . Data and expectations referenced as of August 3, 2026. Research only. Not investment advice.
         </div>
       </section>
-    </main>
+      </main>
+    </>
   );
 }
