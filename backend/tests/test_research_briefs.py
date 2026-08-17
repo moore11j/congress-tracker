@@ -348,6 +348,31 @@ def test_sanitizer_removes_cross_source_inputs_claim_for_confirmation_score():
     assert cleaned == "The operating evidence remains mixed."
 
 
+def test_confirmation_preferences_restore_only_canonical_score_after_novel_conflation():
+    article = {
+        "sections": [
+            {
+                "heading": "Executive thesis",
+                "body_markdown": (
+                    "Cross-source data categories are inputs to the proprietary confirmation score. "
+                    "The operating evidence remains mixed."
+                ),
+            }
+        ],
+    }
+    context = {"primary": {"confirmation": {"score": 72, "direction": "mixed"}}}
+
+    cleaned = service._apply_confirmation_preferences(
+        article,
+        {"include_confirmation_score": True, "include_cross_source_confirmations": False},
+        context,
+    )
+
+    public_text = service._article_public_text(cleaned).lower()
+    assert not service._conflates_confirmation_score_with_data(public_text)
+    assert "our proprietary confirmation score is 72/100" in public_text
+
+
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
     user = UserAccount(email=email, role=role, entitlement_tier="admin" if role == "admin" else "premium")
     db.add(user)

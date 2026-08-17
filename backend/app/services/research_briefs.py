@@ -939,7 +939,21 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
                 commentary,
                 key="cross_source_confirmations",
             )
-    return _remove_confirmation_data_conflation(sanitized)
+    sanitized = _remove_confirmation_data_conflation(sanitized)
+    # If a model uses a novel phrasing that still fails the conflation guard,
+    # drop that score sentence and restore only our canonical, separated score.
+    if _conflates_confirmation_score_with_data(_article_public_text(sanitized).lower()):
+        sanitized = _strip_confirmation_score_references_from_article(sanitized)
+        if include_score:
+            score_text = _confirmation_score_sentence(context)
+            if score_text:
+                sanitized["sections"] = _append_or_merge_generated_section(
+                    sanitized.get("sections") or [],
+                    CONFIRMATION_SCORE_SECTION_HEADING,
+                    score_text,
+                    key="walnut_confirmation_score",
+                )
+    return sanitized
 
 
 def _remove_confirmation_data_conflation(article: dict[str, Any]) -> dict[str, Any]:
@@ -978,10 +992,10 @@ def _remove_confirmation_data_conflation_from_text(text: str) -> str:
     data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|(?:cross[ -]source )?data categories)"
     score_inputs = r"(?:input|inputs|component|components|driver|drivers|factor|factors|basis|bases|source|sources)"
     patterns = (
-        rf"\bconfirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,160}}{data_terms}",
-        rf"{data_terms}.{{0,160}}\s+(?:are|is)\s+the\s+confirmation score",
-        rf"\bconfirmation score.{{0,160}}{score_inputs}.{{0,120}}{data_terms}",
-        rf"{data_terms}.{{0,160}}{score_inputs}.{{0,120}}\bconfirmation score",
+        rf"\bconfirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+[^.!?]{{0,160}}{data_terms}",
+        rf"{data_terms}[^.!?]{{0,160}}\s+(?:are|is)\s+the\s+confirmation score",
+        rf"\bconfirmation score[^.!?]{{0,160}}{score_inputs}[^.!?]{{0,120}}{data_terms}",
+        rf"{data_terms}[^.!?]{{0,160}}{score_inputs}[^.!?]{{0,120}}\bconfirmation score",
         r"\bconfirmation score\s+and\s+underlying data\s+are\s+the\s+same",
     )
     for pattern in patterns:
@@ -1052,6 +1066,23 @@ def _strip_confirmation_score_from_article(article: dict[str, Any]) -> dict[str,
         for key in ("title", "description"):
             if isinstance(suggested.get(key), str):
                 suggested[key] = _remove_sentences_matching(str(suggested[key]), r"\bconfirmation score\b").strip()
+    return cleaned
+
+
+def _strip_confirmation_score_references_from_article(article: dict[str, Any]) -> dict[str, Any]:
+    """Remove score references from all public fields before restoring canonical copy."""
+    cleaned = _strip_confirmation_score_from_article(article)
+    sections = cleaned.get("sections") if isinstance(cleaned.get("sections"), list) else []
+    cleaned_sections: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        updated = dict(section)
+        updated["heading"] = _remove_sentences_matching(str(updated.get("heading") or ""), r"\bconfirmation score\b").strip() or "Supporting context"
+        updated["body_markdown"] = _remove_sentences_matching(str(updated.get("body_markdown") or ""), r"\bconfirmation score\b").strip()
+        if updated["body_markdown"]:
+            cleaned_sections.append(updated)
+    cleaned["sections"] = cleaned_sections
     return cleaned
 
 
@@ -5485,10 +5516,10 @@ def _conflates_confirmation_score_with_data(lowered_text: str) -> bool:
     data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|(?:cross[ -]source )?data categories)"
     score_inputs = r"(?:input|inputs|component|components|driver|drivers|factor|factors|basis|bases|source|sources)"
     patterns = [
-        rf"confirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,160}}{data_terms}",
-        rf"{data_terms}.{{0,160}}\s+(?:are|is)\s+the\s+confirmation score",
-        rf"confirmation score.{{0,160}}{score_inputs}.{{0,120}}{data_terms}",
-        rf"{data_terms}.{{0,160}}{score_inputs}.{{0,120}}confirmation score",
+        rf"confirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+[^.!?]{{0,160}}{data_terms}",
+        rf"{data_terms}[^.!?]{{0,160}}\s+(?:are|is)\s+the\s+confirmation score",
+        rf"confirmation score[^.!?]{{0,160}}{score_inputs}[^.!?]{{0,120}}{data_terms}",
+        rf"{data_terms}[^.!?]{{0,160}}{score_inputs}[^.!?]{{0,120}}confirmation score",
         r"confirmation score\s+and\s+underlying data\s+are\s+the\s+same",
     ]
     return any(re.search(pattern, lowered_text) for pattern in patterns)
