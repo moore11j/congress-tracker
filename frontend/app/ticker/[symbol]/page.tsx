@@ -617,6 +617,15 @@ function tickerHeaderMetadata(ticker: Awaited<ReturnType<typeof getTickerProfile
     .filter((value): value is string => Boolean(value));
 }
 
+function tickerCompanyName(
+  ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"],
+  identity?: TickerContextBundle["identity"] | null,
+): string | null {
+  // The context bundle carries the same canonical identity as the profile. Keep
+  // the header complete if a partial profile response omits its display name.
+  return cleanTickerHeaderMetadata(ticker.name) ?? cleanTickerHeaderMetadata(identity?.company_name);
+}
+
 function payloadDateKey(payload: any): string {
   const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
   return (
@@ -4090,7 +4099,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const headerExchange = cleanTickerHeaderMetadata(profile.ticker.exchange_short_name ?? profile.ticker.exchange);
   const headerCurrency = cleanTickerHeaderMetadata(contextBundle?.identity?.currency);
-  const tickerName = profile.ticker.name?.trim();
+  const tickerName = tickerCompanyName(profile.ticker, contextBundle?.identity);
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited price history available" : null;
   const deferTickerActivityDetails = publicStalePageCache
