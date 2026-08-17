@@ -5920,7 +5920,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "heading": "Current price, valuation, and technical context",
             "body_markdown": (
                 f"{symbol} last traded at {price_text}{f' as of {price_as_of}' if price_as_of else ''}, with reported session volume of {volume_text} shares. "
-                f"The current Walnut context flags strong bullish price confirmation, but it does not turn momentum into a valuation margin of safety.\n\n"
+                f"Our data flags strong bullish price confirmation, but it does not turn momentum into a valuation margin of safety.\n\n"
                 f"The forward P/E field is approximately {forward_pe_text}, which is demanding for a business still absorbing heavy capex and negative free cash flow. This is why the stock can have a constructive tape while still being vulnerable to a multiple reset if growth, margins, funding, or guidance disappoint."
             ),
         },
@@ -5944,7 +5944,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             "key": "final-walnut-judgment",
             "heading": "Final Walnut judgment",
             "body_markdown": (
-                f"**{walnut_call}.** {symbol} has real operating momentum: {_format_brief_money(revenue)} quarterly revenue, {_format_brief_percent(sequential_growth)} sequential growth, and a {score_text} Walnut confirmation score with bullish price and reported institutional signals. "
+                f"**{walnut_call}.** {symbol} has real operating momentum: {_format_brief_money(revenue)} quarterly revenue, {_format_brief_percent(sequential_growth)} sequential growth, and our {score_text} confirmation score with bullish price and reported institutional signals. "
                 f"{final_stand}"
             ),
         },
