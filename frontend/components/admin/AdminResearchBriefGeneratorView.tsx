@@ -913,6 +913,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       const draft = await publishAdminResearchBriefDraft(savedDraft.id);
       applySavedDraft(draft);
       setPublishDialogOpen(false);
+      setActivePane("published");
       showToast?.("Draft saved and published.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to publish draft.";
@@ -923,14 +924,14 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
   }
 
-  async function unpublishSelected() {
-    if (!selectedDraft) return;
+  async function unpublishDraft(draftToUnpublish: AdminResearchBriefDraft) {
     if (!window.confirm("Unpublish this research brief from public Research Briefs?")) return;
     setBusy("unpublish");
     try {
-      const draft = await unpublishAdminResearchBriefDraft(selectedDraft.id);
+      const draft = await unpublishAdminResearchBriefDraft(draftToUnpublish.id);
       applySavedDraft(draft);
-      showToast?.("Draft unpublished.", "success");
+      setActivePane("drafts");
+      showToast?.("Article unpublished and retained as an editable draft.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to unpublish draft.";
       setError(message);
@@ -955,6 +956,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article, config: currentEditedConfig() });
       const draft = await publishNowAdminResearchBriefDraft(savedDraft.id);
       applySavedDraft(draft);
+      setActivePane("published");
       showToast?.("Scheduled brief saved and published.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to publish scheduled brief.";
@@ -1086,6 +1088,11 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     } finally {
       setBusy(null);
     }
+  }
+
+  async function unpublishSelected() {
+    if (!selectedDraft) return;
+    await unpublishDraft(selectedDraft);
   }
 
   async function rescheduleCampaignItem(campaign: AdminResearchCampaign, itemId: string, publishAt: string) {
@@ -1508,13 +1515,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           <h3 className="text-base font-semibold text-white">{activePane === "drafts" ? "Drafts" : "Published"}</h3>
           <div className="mt-4 grid gap-3">
             {(activePane === "drafts" ? generatedDrafts : publishedDrafts).map((draft) => (
-              <button
+              <article
                 key={draft.id}
-                type="button"
-                onClick={() => {
-                  setSelectedDraft(draft);
-                  setActivePane("create");
-                }}
                 className="rounded-lg border border-white/10 bg-slate-950/45 p-4 text-left transition hover:border-emerald-300/35"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1522,7 +1524,18 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                   <span className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold uppercase text-slate-300">{draft.status}</span>
                 </div>
                 <p className="mt-2 text-sm text-slate-400">{draft.article?.summary}</p>
-              </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      setSelectedDraft(draft);
+                      setActivePane("create");
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  {activePane === "published" ? <Button tone="danger" disabled={Boolean(busy)} onClick={() => void unpublishDraft(draft)}>Unpublish</Button> : null}
+                </div>
+              </article>
             ))}
             {(activePane === "drafts" ? generatedDrafts : publishedDrafts).length === 0 ? <p className="text-sm text-slate-500">No items yet.</p> : null}
           </div>
