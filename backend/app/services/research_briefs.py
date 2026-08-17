@@ -934,13 +934,41 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
                 commentary,
                 key="cross_source_confirmations",
             )
-    return sanitized
+    return _remove_confirmation_data_conflation(sanitized)
+
+
+def _remove_confirmation_data_conflation(article: dict[str, Any]) -> dict[str, Any]:
+    """Apply the confirmation-score guard to every public text field, not only sections."""
+    cleaned = deepcopy(article)
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(cleaned.get(key), str):
+            cleaned[key] = _remove_confirmation_data_conflation_from_text(cleaned[key])
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness", "missing_data_notes"):
+        if isinstance(cleaned.get(key), list):
+            cleaned[key] = [
+                value
+                for value in (_remove_confirmation_data_conflation_from_text(str(item)) for item in cleaned[key])
+                if value
+            ]
+    suggested = cleaned.get("suggested_card") if isinstance(cleaned.get("suggested_card"), dict) else None
+    if suggested:
+        for key in ("title", "description"):
+            if isinstance(suggested.get(key), str):
+                suggested[key] = _remove_confirmation_data_conflation_from_text(suggested[key])
+    sections = cleaned.get("sections") if isinstance(cleaned.get("sections"), list) else []
+    cleaned["sections"] = [_remove_confirmation_data_conflation_from_section(section) for section in sections if isinstance(section, dict)]
+    return cleaned
 
 
 def _remove_confirmation_data_conflation_from_section(section: dict[str, Any]) -> dict[str, Any]:
     """Drop a model sentence that incorrectly equates qualitative data with the score."""
     cleaned = dict(section)
-    body = str(cleaned.get("body_markdown") or "")
+    cleaned["body_markdown"] = _remove_confirmation_data_conflation_from_text(str(cleaned.get("body_markdown") or ""))
+    return cleaned
+
+
+def _remove_confirmation_data_conflation_from_text(text: str) -> str:
+    body = str(text or "")
     data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|data categories)"
     patterns = (
         rf"\bconfirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,80}}{data_terms}",
@@ -949,8 +977,7 @@ def _remove_confirmation_data_conflation_from_section(section: dict[str, Any]) -
     )
     for pattern in patterns:
         body = _remove_sentences_matching(body, pattern)
-    cleaned["body_markdown"] = body.strip()
-    return cleaned
+    return body.strip()
 
 
 def _strip_confirmation_score_from_article(article: dict[str, Any]) -> dict[str, Any]:

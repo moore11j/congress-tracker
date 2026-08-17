@@ -309,6 +309,8 @@ def test_openai_true_rate_limit_retains_retry_guidance():
 def test_sanitizer_removes_sentence_that_conflates_confirmation_score_with_data():
     article = {
         "title": "NBIS research",
+        "summary": "The confirmation score is based on fundamentals and price/volume.",
+        "suggested_card": {"title": "NBIS", "description": "The confirmation score is based on reported institutional activity."},
         "sections": [
             {
                 "heading": "What our data is seeing",
@@ -326,6 +328,8 @@ def test_sanitizer_removes_sentence_that_conflates_confirmation_score_with_data(
     body = " ".join(section["body_markdown"] for section in cleaned["sections"])
     assert "confirmation score is based on fundamentals" not in body.lower()
     assert "operating evidence remains mixed" in body.lower()
+    assert "confirmation score is based on" not in cleaned["summary"].lower()
+    assert "confirmation score is based on" not in cleaned["suggested_card"]["description"].lower()
 
 
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
