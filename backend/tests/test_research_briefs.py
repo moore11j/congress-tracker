@@ -1161,6 +1161,18 @@ def test_existing_draft_save_clears_unconfigured_selected_model(tmp_path, monkey
     assert saved["article"]["title"] == article["title"]
 
 
+@pytest.mark.parametrize("status", ["scheduled_review", "approved_scheduled"])
+def test_saving_scheduled_campaign_draft_preserves_scheduler_status(status):
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = _minimal_scheduled_draft(admin, status=status)
+    service._upsert_db_draft(db, draft)
+
+    saved = service.update_draft(admin, draft["id"], deepcopy(draft["article"]), status="draft", db=db)
+
+    assert saved["status"] == status
+
+
 def test_model_options_default_to_luna_terra_sol(monkeypatch):
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)

@@ -6437,6 +6437,11 @@ def _normalize_status(status: str) -> str:
 def _normalize_update_status(current_status: Any, requested_status: str) -> str:
     requested = _normalize_status(requested_status)
     current = str(current_status or "").strip().lower()
+    # Saving editor changes must never take a campaign review item out of its
+    # scheduled workflow.  The UI normally omits status on an ordinary save,
+    # but preserve this invariant for any client that still sends "draft".
+    if current in {"scheduled_review", "approved_scheduled"} and requested == "draft":
+        return current
     if current == "published" and requested in {"draft", "ready_for_review"}:
         return "published"
     return requested

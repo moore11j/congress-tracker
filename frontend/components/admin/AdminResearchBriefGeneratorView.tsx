@@ -1456,7 +1456,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onArticleChange={updateArticle}
             onSuggestedCardChange={updateSuggestedCard}
             onBodyChange={setBodyMarkdown}
-            onSave={() => saveDraft(selectedDraft?.status === "published" ? "published" : "draft")}
+            onSave={() => saveDraft()}
             onDiscard={() => {
               if (!selectedDraft) return;
               setArticleDraft(selectedDraft.article);
