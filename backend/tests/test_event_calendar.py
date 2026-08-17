@@ -11,7 +11,7 @@ from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.event_calendar import get_monitoring_event_calendar
-from app.services.event_calendar import fetch_event_calendar, upcoming_event_calendar_items
+from app.services.event_calendar import CalendarFetchResult, fetch_event_calendar, upcoming_event_calendar_items
 
 
 def _session():
@@ -161,6 +161,34 @@ def test_upcoming_calendar_filters_kinds_before_limit(monkeypatch):
         )
 
         assert [item["title"] for item in result.items] == ["TSM earnings"]
+    finally:
+        db.close()
+
+
+def test_upcoming_calendar_balances_dense_kinds_before_limiting(monkeypatch):
+    db = _session()
+    try:
+        user = _user(db, "balanced-calendar@example.com")
+        _watchlist(db, user, "TSM")
+
+        def fake_fetch(*args, **kwargs):
+            return CalendarFetchResult(
+                items=[
+                    *[{"kind": "ipo", "title": f"IPO {index}"} for index in range(8)],
+                    {"kind": "earnings", "title": "TSM earnings"},
+                    {"kind": "dividend", "title": "TSM dividend"},
+                ],
+                errors=[],
+            )
+
+        monkeypatch.setattr("app.services.event_calendar.fetch_event_calendar", fake_fetch)
+        result = upcoming_event_calendar_items(
+            db, user, start=date(2026, 7, 16), end=date(2026, 7, 23), scope="watchlist",
+            limit=12, kinds=("ipo", "earnings", "dividend"),
+        )
+
+        assert len([item for item in result.items if item["kind"] == "ipo"]) == 4
+        assert {item["title"] for item in result.items} >= {"TSM earnings", "TSM dividend"}
     finally:
         db.close()
 

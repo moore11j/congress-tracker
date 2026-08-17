@@ -116,7 +116,10 @@ WATCHLIST_DISPLAY_LIMIT = 10
 WATCHLIST_FETCH_LIMIT = 25
 WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT = 8
 WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT = 3
-SIGNAL_DISPLAY_LIMIT = 10
+SIGNAL_DISPLAY_LIMIT = 20
+SIGNAL_ITEMS_PER_SOURCE_LIMIT = 4
+SIGNAL_QUERY_LIMIT = 100
+CALENDAR_ITEMS_PER_KIND_LIMIT = 4
 SIGNAL_ACTIVITY_SECTION_LIMIT = 8
 SIGNAL_ALLOWED_DIRECTIONS = {"bullish", "bearish", "mixed", "neutral"}
 SIGNAL_REFRESH_TOKENS = ("refresh", "refreshed", "status", "sync", "screen refreshed")
@@ -307,8 +310,11 @@ def build_signal_alert_digest(
     watchlist: Watchlist | None = None,
     window_end: datetime | None = None,
 ) -> DigestBuild:
-    alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_DISPLAY_LIMIT)
-    confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_DISPLAY_LIMIT)
+    # Fetch enough history to let each monitoring source contribute its best
+    # candidates. A global "latest 10" query lets a noisy saved screen crowd
+    # out watchlists and other monitoring sources before ranking even starts.
+    alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_QUERY_LIMIT)
+    confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_QUERY_LIMIT)
     activity_sections = _signal_activity_sections(db, alert_rows)
     # The public Monitoring digest is a qualified ranked board. Candidates may
     # originate from MonitoringAlert rows, but broken or internal
@@ -316,8 +322,13 @@ def build_signal_alert_digest(
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
     raw_items = _apply_daily_signal_subscription_preferences(db, user, raw_items)
     items, diagnostics = _qualify_signal_items(raw_items)
+    items, source_limited_count = _limit_signal_items_per_source(items)
+    if source_limited_count:
+        diagnostics["qualified_count"] = len(items)
+        diagnostics["excluded_count"] += source_limited_count
+        reasons = diagnostics["excluded_reasons"]
+        reasons["source_display_limit"] = reasons.get("source_display_limit", 0) + source_limited_count
     _attach_company_names(db, items)
-    items = sorted(items, key=_signal_rank_key, reverse=True)[:SIGNAL_DISPLAY_LIMIT]
     lead = items[0] if items else {}
     is_single = len(items) == 1
     ticker = str(lead.get("ticker") or "Monitoring digest")
@@ -338,7 +349,7 @@ def build_signal_alert_digest(
             "signal_subject": signal_subject,
             "signal_title": signal_title,
             "signal_intro": signal_intro,
-            "signal_cta_label": f"View {ticker} monitoring" if is_single else "Review monitoring",
+            "signal_cta_label": f"View {ticker} monitoring" if is_single else "View all",
             "ticker": ticker,
             "signal_score": _score_display(lead.get("signal_score")),
             "direction": str(lead.get("direction") or "No qualified monitoring candidates"),
@@ -1023,7 +1034,7 @@ def _upcoming_calendar_events_for_digest(
             start=anchor,
             end=anchor + timedelta(days=7),
             scope="watchlist",
-            limit=12,
+            limit=CALENDAR_ITEMS_PER_KIND_LIMIT * len(enabled_kinds),
             kinds=enabled_kinds,
         )
     except Exception:
@@ -1814,17 +1825,18 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
     candidates = [item for item in raw_items if item]
     qualified: list[dict[str, Any]] = []
     excluded_reasons: dict[str, int] = {}
-    seen_tickers: set[str] = set()
+    seen_source_tickers: set[tuple[str, str]] = set()
 
     for item in sorted(candidates, key=_signal_rank_key, reverse=True):
         reason = _signal_exclusion_reason(item)
         ticker = str(item.get("ticker") or "")
-        if reason is None and ticker in seen_tickers:
+        source_ticker = (_signal_source_bucket(item), ticker)
+        if reason is None and source_ticker in seen_source_tickers:
             reason = "duplicate"
         if reason is not None:
             excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
             continue
-        seen_tickers.add(ticker)
+        seen_source_tickers.add(source_ticker)
         qualified.append(item)
 
     return qualified, {
@@ -1833,6 +1845,32 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
         "excluded_count": len(candidates) - len(qualified),
         "excluded_reasons": excluded_reasons,
     }
+
+
+def _limit_signal_items_per_source(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Keep the digest balanced while retaining the highest-ranked item first."""
+    selected: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for item in sorted(items, key=_signal_rank_key, reverse=True):
+        source = _signal_source_bucket(item)
+        if counts.get(source, 0) >= SIGNAL_ITEMS_PER_SOURCE_LIMIT:
+            continue
+        counts[source] = counts.get(source, 0) + 1
+        selected.append(item)
+        if len(selected) >= SIGNAL_DISPLAY_LIMIT:
+            break
+    return selected, max(len(items) - len(selected), 0)
+
+
+def _signal_source_bucket(item: dict[str, Any]) -> str:
+    """Combine watchlist confirmation rows and watchlist alerts into one source."""
+    source_type = str(item.get("source_type") or "monitoring").strip().lower()
+    source_id = str(item.get("source_id") or "").strip()
+    if source_type in {"watchlist", "confirmation_monitoring"}:
+        return f"watchlist:{source_id or 'default'}"
+    if source_type == "saved_screen":
+        return f"saved_screen:{source_id or 'default'}"
+    return f"{source_type}:{source_id or 'default'}"
 
 
 def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:

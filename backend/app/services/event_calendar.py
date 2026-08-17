@@ -263,7 +263,33 @@ def upcoming_event_calendar_items(
     if kinds is not None:
         enabled_kinds = set(kinds)
         items = [item for item in items if item.get("kind") in enabled_kinds]
-    return CalendarFetchResult(items=items[: max(0, limit)], errors=result.errors)
+    return CalendarFetchResult(items=_fair_calendar_limit(items, limit, kinds), errors=result.errors)
+
+
+def _fair_calendar_limit(
+    items: list[dict[str, Any]],
+    limit: int,
+    kinds: tuple[CalendarEventKind, ...] | None,
+) -> list[dict[str, Any]]:
+    """Prevent a dense calendar category (for example IPOs) from hiding others."""
+    safe_limit = max(0, limit)
+    if safe_limit == 0 or not items:
+        return []
+    if not kinds or len(kinds) <= 1:
+        return items[:safe_limit]
+
+    per_kind_limit = max(1, safe_limit // len(kinds))
+    selected: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for item in items:
+        kind = str(item.get("kind") or "other")
+        if counts.get(kind, 0) >= per_kind_limit:
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+        selected.append(item)
+        if len(selected) >= safe_limit:
+            break
+    return selected
 
 
 def _rows_from_payload(payload: Any) -> list[dict[str, Any]]:

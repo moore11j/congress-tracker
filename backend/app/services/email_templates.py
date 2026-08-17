@@ -560,7 +560,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                 "{{items_text}}",
                 "Monitoring alerts are research inputs, not recommendations. Review the source context before acting.",
             ],
-            cta_label="Review monitoring",
+            cta_label="View all",
             cta_url="digest_url",
             sender=ALERTS_FROM_NAME,
             include_investment_disclaimer=True,
@@ -572,7 +572,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="Hello {{first_name}}, your Walnut monitoring digest for {{digest_date}} includes {{summary}}.",
             content_html="{{{items_html}}}"
             + walnut_info_card("Research caution", "Monitoring alerts are research inputs, not recommendations. Review the source context before acting."),
-            cta_label="Review monitoring",
+            cta_label="View all",
             cta_url="digest_url",
             include_investment_disclaimer=True,
         ),
