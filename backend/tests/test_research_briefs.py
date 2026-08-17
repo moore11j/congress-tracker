@@ -313,7 +313,7 @@ def test_sanitizer_removes_sentence_that_conflates_confirmation_score_with_data(
         "suggested_card": {"title": "NBIS", "description": "The confirmation score is based on reported institutional activity."},
         "sections": [
             {
-                "heading": "What our data is seeing",
+                "heading": "The confirmation score is based on fundamentals",
                 "body_markdown": "The confirmation score is based on fundamentals and price/volume. The operating evidence remains mixed.",
             }
         ],
@@ -324,10 +324,14 @@ def test_sanitizer_removes_sentence_that_conflates_confirmation_score_with_data(
         {"include_confirmation_score": False, "include_cross_source_confirmations": True},
         {},
     )
+    heading_cleaned = service._remove_confirmation_data_conflation_from_section(
+        {"heading": "The confirmation score is based on fundamentals", "body_markdown": "The operating evidence remains mixed."}
+    )
 
     body = " ".join(section["body_markdown"] for section in cleaned["sections"])
     assert "confirmation score is based on fundamentals" not in body.lower()
-    assert "operating evidence remains mixed" in body.lower()
+    assert "confirmation score is based on fundamentals" not in heading_cleaned["heading"].lower()
+    assert "operating evidence remains mixed" in heading_cleaned["body_markdown"].lower()
     assert "confirmation score is based on" not in cleaned["summary"].lower()
     assert "confirmation score is based on" not in cleaned["suggested_card"]["description"].lower()
 

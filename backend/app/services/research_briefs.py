@@ -963,6 +963,7 @@ def _remove_confirmation_data_conflation(article: dict[str, Any]) -> dict[str, A
 def _remove_confirmation_data_conflation_from_section(section: dict[str, Any]) -> dict[str, Any]:
     """Drop a model sentence that incorrectly equates qualitative data with the score."""
     cleaned = dict(section)
+    cleaned["heading"] = _remove_confirmation_data_conflation_from_text(str(cleaned.get("heading") or "")) or "Supporting context"
     cleaned["body_markdown"] = _remove_confirmation_data_conflation_from_text(str(cleaned.get("body_markdown") or ""))
     return cleaned
 
