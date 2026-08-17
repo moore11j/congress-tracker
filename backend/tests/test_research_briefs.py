@@ -840,6 +840,15 @@ def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_
     assert "Walnut data fallback" in notes[-1]
 
 
+def test_campaign_generation_preserves_selected_opportunity_question():
+    config = service._campaign_item_generation_config(
+        {"ticker": "NBIS", "target_keyword": "Is Nebius stock overvalued after Q2 2026 earnings?"},
+        {"theme": "good_buy_now"},
+    )
+
+    assert config["research_question"] == "Is Nebius stock overvalued after Q2 2026 earnings?"
+
+
 def test_walnut_data_fallback_marks_low_information_density_for_review_not_failure():
     article = {
         "_generation_mode": "walnut_data_fallback",
@@ -873,6 +882,8 @@ def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path,
 
     assert draft["validation"]["status"] == "passed"
     assert draft["config"]["use_deterministic_draft"] is True
+    headings = {section["heading"] for section in draft["article"]["sections"]}
+    assert {"Q2 2026 earnings and guidance", "Current price, valuation, and technical context", "Upcoming catalysts", "Risks that could break the thesis", "Final Walnut judgment"} <= headings
 
     updated = service.update_draft(admin, draft["id"], {"title": "MU Stock: Research Review"}, db=db)
 

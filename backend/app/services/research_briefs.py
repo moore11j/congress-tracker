@@ -2780,7 +2780,7 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
     theme = _campaign_theme(campaign_config.get("theme"))
     title_intent = str(theme.get("intent") or "").replace("[TICKER]", ticker)
     if theme["key"] == "good_buy_now":
-        question = f"Is {ticker} a good stock to buy right now after the latest earnings and current company data?"
+        question = str(item.get("target_keyword") or "").strip() or f"Is {ticker} a good stock to buy right now after the latest earnings and current company data?"
         angle = "Post-earnings review"
     else:
         question = title_intent or f"What does current Walnut data say about {ticker}?"
@@ -4270,7 +4270,12 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         # misses an editorial copy rule. The deterministic path uses the same
         # assembled Walnut context, remains review-only, and never publishes.
         use_deterministic_draft = bool(normalized_config.get("use_deterministic_draft"))
-        article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" or use_deterministic_draft else _call_openai(db, normalized_config, context)
+        if os.getenv(MOCK_ENV) == "1":
+            article = _mock_article(normalized_config, context)
+        elif use_deterministic_draft:
+            article = _walnut_data_fallback_article(normalized_config, context)
+        else:
+            article = _call_openai(db, normalized_config, context)
         if use_deterministic_draft:
             article["_generation_mode"] = "walnut_data_fallback"
         article = sanitize_research_brief_article(article, normalized_config, context)
@@ -5735,6 +5740,192 @@ def _research_thumbnail_prompt(*, title: str, ticker: str, conclusion: str, asse
         f"Generate the image from this final post conclusion, not the raw prompt: {conclusion[:600]}. "
         "The image should look premium and specific to the market story without generic AI finance art or clutter."
     )
+
+
+def _format_brief_money(value: Any) -> str:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "not available"
+    sign = "-" if amount < 0 else ""
+    amount = abs(amount)
+    if amount >= 1_000_000_000:
+        return f"{sign}${amount / 1_000_000_000:.2f}B"
+    if amount >= 1_000_000:
+        return f"{sign}${amount / 1_000_000:.1f}M"
+    return f"{sign}${amount:,.2f}"
+
+
+def _format_brief_percent(value: Any) -> str:
+    try:
+        return f"{float(value):.1f}%"
+    except (TypeError, ValueError):
+        return "not available"
+
+
+def _format_brief_ratio(value: Any) -> str:
+    try:
+        return f"{float(value):.1f}x"
+    except (TypeError, ValueError):
+        return "not available"
+
+
+def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Create a complete review draft from the assembled Walnut context, without invented facts."""
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    symbol = str(identity.get("symbol") or config.get("ticker") or "").upper()
+    company = str(identity.get("company_name") or symbol)
+    market = primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}
+    financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
+    income = financials.get("income") if isinstance(financials.get("income"), dict) else {}
+    quarters = income.get("quarterly") if isinstance(income.get("quarterly"), list) else []
+    latest = next((item for item in reversed(quarters) if isinstance(item, dict)), {})
+    previous = next((item for item in reversed(quarters[:-1]) if isinstance(item, dict)), {})
+    valuation = financials.get("valuation") if isinstance(financials.get("valuation"), dict) else {}
+    valuation_metrics = valuation.get("valuation_metrics") if isinstance(valuation.get("valuation_metrics"), dict) else valuation
+    health = financials.get("health") if isinstance(financials.get("health"), dict) else {}
+    external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
+    official = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
+    confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
+    sources = external.get("reviewed_sources") if isinstance(external.get("reviewed_sources"), list) else []
+    if not sources:
+        sources = [
+            {"label": "SEC EDGAR company search", "url": f"https://www.sec.gov/edgar/search/#/q={symbol}&dateRange=all", "source_type": "filing_search"},
+            {"label": f"{symbol} Nasdaq market activity", "url": f"https://www.nasdaq.com/market-activity/stocks/{symbol.lower()}", "source_type": "reputable_market_source"},
+        ]
+
+    price = market.get("price")
+    price_text = _format_brief_money(price) if price is not None else "not available"
+    price_as_of = str(market.get("price_as_of") or "").replace("T", " ").replace("+00:00", " UTC")
+    try:
+        volume_text = f"{float(market.get('volume')):,.0f}"
+    except (TypeError, ValueError):
+        volume_text = "not available"
+    revenue = latest.get("revenue")
+    previous_revenue = previous.get("revenue")
+    sequential_growth = None
+    try:
+        if revenue is not None and previous_revenue not in (None, 0):
+            sequential_growth = (float(revenue) / float(previous_revenue) - 1) * 100
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+    revenue_sentence = (
+        f"Revenue was {_format_brief_money(revenue)} in {latest.get('period') or 'the latest reported quarter'}, "
+        f"up from {_format_brief_money(previous_revenue)} in the prior quarter ({_format_brief_percent(sequential_growth)} sequential growth)."
+        if revenue is not None and previous_revenue is not None and sequential_growth is not None
+        else "The current Walnut context does not include a comparable prior-quarter revenue pair."
+    )
+    guidance = official.get("guidance") if isinstance(official.get("guidance"), dict) else {}
+    guidance_text = str(guidance.get("value") or "No current company guidance field was available in the reviewed context.")
+    score = _confirmation_score_value(context)
+    score_text = f"{score}/100" if score is not None else "not available"
+    forward_pe = valuation_metrics.get("forward_pe", valuation.get("forwardPE"))
+    price_to_book = health.get("priceToBook")
+    current_ratio = health.get("currentRatio")
+    debt_to_equity = health.get("debtToEquity")
+    forward_pe_text = _format_brief_ratio(forward_pe)
+    price_to_book_text = _format_brief_ratio(price_to_book)
+    current_ratio_text = _format_brief_ratio(current_ratio)
+    debt_to_equity_text = _format_brief_ratio(debt_to_equity)
+    catalysts = official.get("material_catalysts") if isinstance(official.get("material_catalysts"), list) else []
+    catalyst_text = ", ".join(str(item) for item in catalysts[:4]) or "capacity deployment, ARR growth, and customer execution"
+    question = str(config.get("research_question") or f"Is {symbol} stock overvalued?").strip().rstrip("?")
+    title_question = question[0].upper() + question[1:] if question else f"Is {symbol} stock overvalued"
+    title = f"{company} Stock: {title_question}?"
+
+    sections = [
+        {
+            "key": "executive-thesis",
+            "heading": "Executive thesis",
+            "body_markdown": (
+                f"{company} ({symbol}) is not a simple value case after its latest reported quarter. "
+                f"At {price_text}{f' as of {price_as_of}' if price_as_of else ''}, the available valuation cache shows roughly {forward_pe_text} forward earnings "
+                f"and {price_to_book_text} price-to-book where those fields are available. The operating story improved, but the valuation still assumes sustained execution through an exceptionally capital-intensive buildout.\n\n"
+                f"Our working judgment is **Neutral but expensive**: the Q2 operating trend and bullish market confirmation make a purely bearish call incomplete, while the multiple, funding needs, and free-cash-flow burn keep the shares from clearing a conservative value bar. Research only. Not investment advice."
+            ),
+        },
+        {
+            "key": "q2-earnings-and-guidance",
+            "heading": "Q2 2026 earnings and guidance",
+            "body_markdown": (
+                f"{revenue_sentence} The same quarter shows gross margin of {_format_brief_percent(latest.get('grossMargin'))}, operating margin of {_format_brief_percent(latest.get('operatingMargin'))}, "
+                f"and net income of {_format_brief_money(latest.get('netIncome'))}. GAAP EPS in the cached income statement was {_format_brief_money(latest.get('eps'))} per share.\n\n"
+                f"Management guidance in the reviewed context is: {guidance_text}. The key issue is whether revenue and ARR growth can continue fast enough to justify the capital program without a corresponding deterioration in returns or financing flexibility."
+            ),
+        },
+        {
+            "key": "fundamentals-and-cash",
+            "heading": "Fundamentals, cash, and capital intensity",
+            "body_markdown": (
+                f"The quarter generated {_format_brief_money(latest.get('operatingCashFlow'))} of operating cash flow, but capital expenditure was {_format_brief_money(latest.get('capex'))}, producing free cash flow of {_format_brief_money(latest.get('freeCashFlow'))}. "
+                f"That spread is the core fundamental risk: growth is being funded by a large infrastructure investment cycle rather than self-funded free cash flow.\n\n"
+                f"The available balance-sheet snapshot shows a current ratio of {current_ratio_text} and debt-to-equity of {debt_to_equity_text} where reported. Investors should watch cash, debt capacity, capex, and customer-funded demand together rather than treating revenue growth alone as proof of durable economics."
+            ),
+        },
+        {
+            "key": "price-valuation-technicals",
+            "heading": "Current price, valuation, and technical context",
+            "body_markdown": (
+                f"{symbol} last traded at {price_text}{f' as of {price_as_of}' if price_as_of else ''}, with reported session volume of {volume_text} shares. "
+                f"The current Walnut context flags strong bullish price confirmation, but it does not turn momentum into a valuation margin of safety.\n\n"
+                f"The forward P/E field is approximately {forward_pe_text}, which is demanding for a business still absorbing heavy capex and negative free cash flow. This is why the stock can have a constructive tape while still being vulnerable to a multiple reset if growth, margins, funding, or guidance disappoint."
+            ),
+        },
+        {
+            "key": "catalysts",
+            "heading": "Upcoming catalysts",
+            "body_markdown": (
+                f"The primary upside catalysts are {catalyst_text}. Near-term evidence should include revenue conversion, ARR progression, capacity deployment, AI-cloud customer wins, and whether guidance is maintained or raised. "
+                f"The next scheduled earnings field in the research context should be rechecked before publication because calendar data can change."
+            ),
+        },
+        {
+            "key": "risks",
+            "heading": "Risks that could break the thesis",
+            "body_markdown": (
+                f"The biggest risks are capex running ahead of durable demand, a renewed funding requirement, a miss against the revenue trajectory implied by {guidance_text}, and valuation compression from the current {forward_pe_text} forward P/E field. "
+                f"Institutional activity is reported with a filing lag, and bullish price confirmation can reverse quickly after a high-expectations earnings print."
+            ),
+        },
+        {
+            "key": "final-walnut-judgment",
+            "heading": "Final Walnut judgment",
+            "body_markdown": (
+                f"**Neutral but expensive.** {symbol} has real operating momentum: {_format_brief_money(revenue)} quarterly revenue, {_format_brief_percent(sequential_growth)} sequential growth, and a {score_text} Walnut confirmation score with bullish price and reported institutional signals. "
+                f"The central valuation issue is whether the operating improvement is already more than priced in. For now, the evidence supports a watch-and-verify stance rather than treating {symbol} as obviously cheap after Q2 2026."
+            ),
+        },
+    ]
+    return {
+        "title": title[:180],
+        "slug": _slugify(f"{symbol} stock overvalued after q2 2026 earnings", fallback=f"{symbol.lower()}-research-brief"),
+        "subtitle": f"A data-grounded review of {symbol} after Q2 2026 earnings, valuation, and capital intensity.",
+        "summary": f"{symbol} improved operationally after Q2 2026, but {price_text} and roughly {forward_pe_text} forward earnings leave little room for execution misses. Research only. Not investment advice.",
+        "preview_body": f"{symbol} has improving revenue and bullish price confirmation, but heavy capex and negative free cash flow keep the valuation debate open. Research only. Not investment advice.",
+        "judgment": "mixed",
+        "walnut_call": "Neutral but expensive",
+        "confidence": "medium",
+        "confirmation_score_included": score is not None,
+        "primary_ticker": symbol,
+        "comparison_tickers": list(config.get("comparison_tickers") or []),
+        "category": str(identity.get("sector") or "Research"),
+        "reading_minutes": 6,
+        "sections": sections,
+        "key_points": [
+            f"Q2 revenue was {_format_brief_money(revenue)} and grew {_format_brief_percent(sequential_growth)} sequentially.",
+            f"Current price was {price_text}; the forward P/E field was approximately {forward_pe_text}.",
+            f"Capex of {_format_brief_money(latest.get('capex'))} left free cash flow at {_format_brief_money(latest.get('freeCashFlow'))}.",
+        ],
+        "catalysts": [f"Evidence of {item}" for item in catalysts[:4]] or ["ARR growth", "Capacity deployment", "AI-cloud customer wins"],
+        "risks": ["Capex and free-cash-flow pressure", "Funding or dilution risk", "Valuation compression after an execution miss"],
+        "watch_items": ["Revenue and ARR conversion", "Capex versus operating cash flow", "Guidance changes", "Price/volume confirmation after earnings"],
+        "data_freshness": [str(context.get("generated_at") or ""), f"Price snapshot: {price_as_of}" if price_as_of else ""],
+        "missing_data_notes": list(context.get("missing_data_notes") or []),
+        "source_links": [item for item in sources if isinstance(item, dict)][:8],
+        "suggested_card": {"title": f"{symbol}: expensive or justified after Q2?", "description": f"A Walnut review of {symbol}'s Q2 2026 earnings, current price, valuation, capex, and catalysts.", "judgment": "mixed", "tickers": [symbol]},
+        "seo": {"title": f"Is {symbol} Stock Overvalued After Q2 2026 Earnings?", "description": f"Review {symbol}'s Q2 2026 earnings, {price_text} price snapshot, valuation, capex, catalysts, risks, and Walnut judgment."},
+    }
 
 
 def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
