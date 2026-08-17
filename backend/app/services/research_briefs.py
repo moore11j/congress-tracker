@@ -2607,18 +2607,9 @@ def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
         draft = _generate_non_ticker_campaign_stub(db, admin, item, campaign_config)
     else:
         config = _campaign_item_generation_config(item, campaign_config)
-        try:
-            draft = generate_research_brief(db, admin, config)
-        except HTTPException as exc:
-            if exc.status_code != 422 or not str(exc.detail).startswith("Draft generation failed validation."):
-                raise
-            correction_note = _quality_gate_correction_note(str(exc.detail))
-            retry_config = deepcopy(config)
-            retry_config["additional_context"] = f"{config.get('additional_context') or ''}\n\n{correction_note}".strip()
-            # A quality-gate rejection is actionable feedback, not a silently lost campaign item.
-            # Retry exactly once with the concrete failure note; any second failure remains visible.
-            draft = generate_research_brief(db, admin, retry_config)
-            draft["quality_gate_correction_note"] = correction_note
+        draft, correction_notes = _generate_campaign_brief_with_corrections(db, admin, config)
+        if correction_notes:
+            draft["quality_gate_correction_note"] = correction_notes[-1]
     draft = _mark_draft_scheduled_review(draft, item, campaign_config)
     _upsert_db_draft(db, draft)
     db.execute(
@@ -2644,6 +2635,40 @@ def _quality_gate_correction_note(validation_error: str) -> str:
         f"Correct this specific validation issue: {detail}. "
         "Regenerate the entire brief using only supported source-backed claims, and do not repeat the rejected wording."
     )
+
+
+def _campaign_generation_correction_note(exc: HTTPException) -> str | None:
+    detail = str(exc.detail or "").strip()
+    if exc.status_code == 422 and detail.startswith("Draft generation failed validation."):
+        return _quality_gate_correction_note(detail)
+    if exc.status_code == 502 and detail == "OpenAI returned invalid structured research JSON.":
+        return (
+            "Walnut structured-output correction note: the previous response could not be parsed as JSON. "
+            "Return exactly one complete RFC 8259 JSON object that conforms to the supplied schema. "
+            "Do not include Markdown fences, commentary, or unescaped newlines or quotes inside string values."
+        )
+    return None
+
+
+def _generate_campaign_brief_with_corrections(
+    db: Session,
+    admin: UserAccount,
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Generate a campaign draft with at most two feedback-driven corrective retries."""
+    retry_config = deepcopy(config)
+    correction_notes: list[str] = []
+    for attempt in range(3):
+        try:
+            return generate_research_brief(db, admin, retry_config), correction_notes
+        except HTTPException as exc:
+            correction_note = _campaign_generation_correction_note(exc)
+            if not correction_note or attempt == 2:
+                raise
+            correction_notes.append(correction_note)
+            prior_context = str(retry_config.get("additional_context") or "").strip()
+            retry_config["additional_context"] = f"{prior_context}\n\n{correction_note}".strip()[:4000]
+    raise RuntimeError("Campaign generation retry loop unexpectedly completed.")
 
 
 def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:

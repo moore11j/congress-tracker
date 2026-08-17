@@ -748,6 +748,30 @@ def test_campaign_quality_gate_failure_is_retried_with_correction_note(tmp_path,
     assert "Source links are required" in configs[1]["additional_context"]
 
 
+def test_campaign_invalid_structured_output_is_retried_with_format_correction(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    config = _payload().model_dump()
+    generated = _minimal_scheduled_draft(admin)
+    configs = []
+
+    def fake_generate(_db, _admin, attempt_config):
+        configs.append(attempt_config)
+        if len(configs) == 1:
+            raise HTTPException(status_code=502, detail="OpenAI returned invalid structured research JSON.")
+        return deepcopy(generated)
+
+    monkeypatch.setattr(service, "generate_research_brief", fake_generate)
+
+    result, notes = service._generate_campaign_brief_with_corrections(db, admin, config)
+
+    assert result["id"] == generated["id"]
+    assert len(configs) == 2
+    assert len(notes) == 1
+    assert "RFC 8259 JSON" in configs[1]["additional_context"]
+
+
 def test_research_campaign_marks_selected_keyword_opportunity_used_only_after_creation(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()
