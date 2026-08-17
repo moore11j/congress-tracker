@@ -25,6 +25,7 @@ import {
   type TickerValuationResponse,
   type TickerValuationMetrics,
   type TickerValuationSection,
+  type PublicResearchBriefCard,
 } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { cardClassName } from "@/lib/styles";
@@ -39,10 +40,11 @@ type Props = {
   symbol: string;
   overview: ReactNode;
   canViewOwnership?: boolean;
+  researchItems?: PublicResearchBriefCard[];
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus";
+type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus" | "research";
 
 const TAB_CLASS = "relative flex h-12 shrink-0 items-center px-5 text-sm font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
@@ -448,7 +450,7 @@ function LoadMoreButton({
   );
 }
 
-export function TickerContextCard({ symbol, overview, canViewOwnership = false, className }: Props) {
+export function TickerContextCard({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
 
   const [newsPages, setNewsPages] = useState<InsightsNewsResponse[]>([]);
@@ -1107,17 +1109,23 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           <button
             type="button"
             onClick={() => setActiveTab("valuation")}
-            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "valuation" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+            className={`${TAB_CLASS} ${activeTab === "valuation" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             <span>Valuation</span>
-            <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("consensus")}
-            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "consensus" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+            className={`${TAB_CLASS} ${activeTab === "consensus" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             <span>Analysts</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("research")}
+            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "research" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+          >
+            <span>Research</span>
             <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
           </button>
         </div>
@@ -1219,6 +1227,31 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
                 <TickerAnalystConsensusSkeleton />
               ) : (
                 <TickerAnalystConsensusTab data={analystConsensus} symbol={symbol} />
+              )}
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "research" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Related Research</p>
+                <p className="mt-2 text-sm text-slate-400">Walnut analysis and thematic briefs related to {symbol}.</p>
+              </div>
+              <Link href="/research" className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">All research</Link>
+            </div>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              {researchItems.length ? (
+                <div className="grid gap-2">
+                  {researchItems.map((item) => (
+                    <Link key={item.slug} href={item.route} className="block rounded-lg border border-white/10 bg-slate-900/55 p-3 transition hover:border-emerald-300/35 hover:bg-slate-900/80">
+                      <p className="text-sm font-semibold text-slate-100">{item.title}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">No published research is related to {symbol} yet.</p>
               )}
             </div>
           </div>

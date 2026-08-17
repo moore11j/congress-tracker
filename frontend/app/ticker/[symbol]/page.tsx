@@ -266,19 +266,6 @@ function publicTickerMetadataTitle(symbol: string, companyName?: string | null):
   return `${symbol} Stock Analysis & Research | Walnut Markets`;
 }
 
-function TickerRelatedResearch({ symbol, items }: { symbol: string; items: PublicResearchBriefCard[] }) {
-  const related = items.filter((item) => item.tickers.map((ticker) => ticker.toUpperCase()).includes(symbol)).slice(0, 3);
-  if (!related.length) return null;
-  return (
-    <section className={`${cardClassName} p-4`}>
-      <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-white">Related Research</h2><Link href="/research" className="text-sm font-semibold text-emerald-200">All research</Link></div>
-      <div className="mt-3 grid gap-2">
-        {related.map((item) => <Link key={item.slug} href={item.route} className={`${compactInteractiveSurfaceClassName} block p-3`}><p className={compactInteractiveTitleClassName}>{item.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p></Link>)}
-      </div>
-    </section>
-  );
-}
-
 function publicTickerMetadataDescription(symbol: string, companyName?: string | null): string {
   const cleanedCompanyName = formatCompanyName(companyName);
   const identity = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase()
@@ -3167,6 +3154,9 @@ async function DeferredTickerContent({
   const summaryInsiderSells = summaryCount(summaryInsiders, "sell_count");
   const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
   const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
+  const tickerResearch = relatedResearch
+    .filter((item) => item.tickers.map((ticker) => ticker.toUpperCase()).includes(normalizedSymbol))
+    .slice(0, 3);
 
   return (
     <>
@@ -3176,6 +3166,7 @@ async function DeferredTickerContent({
             key={normalizedSymbol}
             symbol={normalizedSymbol}
             canViewOwnership={canViewProTickerContext}
+            researchItems={tickerResearch}
             className="min-w-0 xl:h-full xl:w-full"
             overview={
               <TickerOverviewPanel
@@ -4322,7 +4313,6 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           {shellFallbackMessage}
         </div>
       ) : null}
-      <TickerRelatedResearch symbol={normalizedSymbol} items={relatedResearch} />
       <Suspense fallback={<DeferredTickerSummarySkeleton />}>
         <DeferredTickerContent
           activityPromise={activityPromise}
