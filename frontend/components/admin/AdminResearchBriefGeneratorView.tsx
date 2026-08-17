@@ -1438,6 +1438,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       {activePane === "scheduled" ? (
         <ScheduledBriefsPanel
           drafts={scheduledDrafts}
+          campaigns={campaigns}
+          onViewCampaigns={() => setActivePane("campaigns")}
           onOpen={(draft) => {
             setSelectedDraft(draft);
             setActivePane("create");
@@ -1877,13 +1879,57 @@ function toDateTimeLocal(value?: string | null) {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-function ScheduledBriefsPanel({ drafts, onOpen }: { drafts: AdminResearchBriefDraft[]; onOpen: (draft: AdminResearchBriefDraft) => void }) {
+function ScheduledBriefsPanel({
+  drafts,
+  campaigns,
+  onOpen,
+  onViewCampaigns,
+}: {
+  drafts: AdminResearchBriefDraft[];
+  campaigns: AdminResearchCampaign[];
+  onOpen: (draft: AdminResearchBriefDraft) => void;
+  onViewCampaigns: () => void;
+}) {
+  const pendingItems = campaigns.flatMap((campaign) =>
+    (campaign.items || [])
+      .filter((item) => item.status === "pending" || item.status === "generating")
+      .map((item) => ({ ...item, campaignName: campaign.name })),
+  );
   return (
     <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-base font-semibold text-white">Scheduled</h3>
-        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{drafts.length} items</span>
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{pendingItems.length} pending · {drafts.length} draft review{drafts.length === 1 ? "" : "s"}</span>
       </div>
+      {pendingItems.length ? (
+        <div className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.03] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-semibold text-cyan-100">Pending campaign queue</h4>
+              <p className="mt-1 text-xs leading-5 text-slate-400">These are scheduled campaign items that have not generated a draft yet. Use Run Now in Campaigns when you want the drafts and review emails immediately.</p>
+            </div>
+            <Button onClick={onViewCampaigns}>Open Campaigns</Button>
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                <tr><th className="px-3 py-2">Publish time</th><th className="px-3 py-2">Ticker/topic</th><th className="px-3 py-2">Campaign</th><th className="px-3 py-2">Generation</th><th className="px-3 py-2">Status</th></tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {pendingItems.map((item) => (
+                  <tr key={item.id} className="text-slate-300">
+                    <td className="px-3 py-3 whitespace-nowrap">{formatDateTime(item.publish_at)}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-100">{item.ticker || item.topic || "Topic"}</td>
+                    <td className="px-3 py-3">{item.campaignName}</td>
+                    <td className="px-3 py-3 whitespace-nowrap text-xs text-slate-400">{formatDateTime(item.generate_at)}</td>
+                    <td className="px-3 py-3"><span className="rounded-md border border-cyan-300/25 px-2 py-1 text-xs font-semibold uppercase text-cyan-100">{item.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 overflow-x-auto">
         <table className="min-w-full text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
@@ -1921,7 +1967,7 @@ function ScheduledBriefsPanel({ drafts, onOpen }: { drafts: AdminResearchBriefDr
             ))}
           </tbody>
         </table>
-        {drafts.length === 0 ? <p className="py-6 text-sm text-slate-500">No scheduled briefs yet.</p> : null}
+        {drafts.length === 0 ? <p className="py-6 text-sm text-slate-500">No generated draft reviews yet.</p> : null}
       </div>
     </section>
   );

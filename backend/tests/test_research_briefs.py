@@ -579,7 +579,9 @@ def test_research_campaign_create_distributes_ticker_items(tmp_path, monkeypatch
     assert len(campaign["items"]) == 3
     assert [item["ticker"] for item in campaign["items"]] == ["NBIS", "CRWV", "COHR"]
     assert len({item["publish_at"][:10] for item in campaign["items"]}) == 3
-    assert service.list_research_campaigns(db)["items"][0]["pending_count"] == 3
+    listed = service.list_research_campaigns(db)["items"][0]
+    assert listed["pending_count"] == 3
+    assert len(listed["items"]) == 3
     assert campaign["config"]["target_search_intents"]["CRWV"] == "Does CoreWeave backlog outweigh debt and capex risk?"
     item_config = service._campaign_item_generation_config({"ticker": "CRWV", "target_keyword": "Does CoreWeave backlog outweigh debt and capex risk?"}, campaign["config"])
     assert item_config["search_intent"] == "Does CoreWeave backlog outweigh debt and capex risk?"

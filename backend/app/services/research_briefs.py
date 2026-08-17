@@ -2426,9 +2426,13 @@ def list_research_campaigns(db: Session) -> dict[str, Any]:
     items = []
     for row in rows:
         campaign = _campaign_from_row(row)
-        item_rows = db.execute(text("SELECT status FROM research_campaign_items WHERE campaign_id = :id"), {"id": campaign["id"]}).mappings().all()
+        item_rows = db.execute(
+            text("SELECT * FROM research_campaign_items WHERE campaign_id = :id ORDER BY publish_at, created_at"),
+            {"id": campaign["id"]},
+        ).mappings().all()
         campaign["item_count"] = len(item_rows)
         campaign["pending_count"] = sum(1 for item in item_rows if item.get("status") == "pending")
+        campaign["items"] = [_campaign_item_from_row(item) for item in item_rows]
         items.append(campaign)
     return {"items": items}
 
