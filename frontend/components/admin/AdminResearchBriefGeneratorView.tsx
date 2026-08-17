@@ -669,7 +669,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   }, [activeJob?.job_id, generationJobActive, showToast]);
 
   const scheduledDrafts = useMemo(() => drafts.filter((draft) => ["scheduled_review", "approved_scheduled"].includes(draft.status)), [drafts]);
-  const generatedDrafts = useMemo(() => drafts.filter((draft) => draft.status !== "published" && !["scheduled_review", "approved_scheduled"].includes(draft.status)), [drafts]);
+  // A campaign review is still a draft. Keep it in the Drafts workspace as well
+  // as the Scheduled queue so the review email always has an obvious in-app home.
+  const generatedDrafts = useMemo(() => drafts.filter((draft) => draft.status !== "published"), [drafts]);
   const publishedDrafts = useMemo(() => drafts.filter((draft) => draft.status === "published"), [drafts]);
 
   function updateConfig<K extends keyof AdminResearchBriefConfig>(key: K, value: AdminResearchBriefConfig[K]) {
