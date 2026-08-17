@@ -129,7 +129,7 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
                     as_of_date=date(2026, 7, 31),
                     period="max",
                     cagr_pct=25,
-                    max_drawdown_pct=-35,
+                    max_drawdown_pct=35,
                     walnut_strategy_score=70,
                 ),
             ]
@@ -144,6 +144,7 @@ def test_strategy_service_lists_persisted_cards_and_sorts_lowest_drawdown_first(
 
         by_default = list_strategy_cards(db, entitlements=ENTITLEMENTS["premium"])
         assert [item["slug"] for item in by_default["items"]] == ["high-return", "low-drawdown"]
+        assert by_default["items"][0]["performance"]["maxDrawdownPct"] == -35
     finally:
         db.close()
 

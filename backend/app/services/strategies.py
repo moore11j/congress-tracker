@@ -257,6 +257,10 @@ def _run_payload(run: StrategyBacktestRun | None) -> dict[str, Any] | None:
 def _performance_payload(snapshot: StrategyPerformanceSnapshot | None) -> dict[str, Any] | None:
     if snapshot is None:
         return None
+    # Older backtest writers stored the drawdown magnitude as a positive number.
+    # The public strategy contract always uses peak-to-trough returns, which are
+    # non-positive by definition.
+    max_drawdown_pct = None if snapshot.max_drawdown_pct is None else -abs(float(snapshot.max_drawdown_pct))
     return {
         "id": int(snapshot.id),
         "period": snapshot.period,
@@ -269,7 +273,7 @@ def _performance_payload(snapshot: StrategyPerformanceSnapshot | None) -> dict[s
         "beta": snapshot.beta,
         "sharpe": snapshot.sharpe,
         "sortino": snapshot.sortino,
-        "maxDrawdownPct": snapshot.max_drawdown_pct,
+        "maxDrawdownPct": max_drawdown_pct,
         "annualizedVolatilityPct": snapshot.annualized_volatility_pct,
         "winRatePct": snapshot.win_rate_pct,
         "tradeCount": snapshot.trade_count,

@@ -12,6 +12,7 @@ def pct_return(start_value: float | None, end_value: float | None) -> float:
 
 
 def compute_max_drawdown_pct(values: Sequence[float]) -> float:
+    """Return maximum peak-to-trough loss using the signed return convention."""
     running_peak: float | None = None
     max_drawdown = 0.0
     for value in values:
@@ -22,7 +23,7 @@ def compute_max_drawdown_pct(values: Sequence[float]) -> float:
             continue
         drawdown = ((value / running_peak) - 1.0) * 100.0
         max_drawdown = min(max_drawdown, drawdown)
-    return float(abs(max_drawdown))
+    return float(max_drawdown)
 
 
 def compute_volatility_pct(values: Sequence[float]) -> float:
