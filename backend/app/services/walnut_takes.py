@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,7 +10,6 @@ import requests
 from sqlalchemy.orm import Session
 
 from app.services.ai_marketing import (
-    AI_MARKETING_MODEL,
     OPENAI_API_KEY,
     _record_openai_usage_cost,
     _rewrite_public_walnut_voice,
@@ -20,11 +20,12 @@ from app.services.openai_request_audit import audited_openai_request
 logger = logging.getLogger(__name__)
 
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
-DEFAULT_WALNUT_TAKE_MODEL = "gpt-5.6-sol"
+DEFAULT_WALNUT_TAKE_MODEL = "gpt-5.4-nano"
+WALNUT_TAKE_MODEL = "WALNUT_TAKE_MODEL"
 VALID_BIASES = {"bullish", "bearish", "neutral"}
 WALNUT_TAKE_MAX_CHARS = 125
 WALNUT_SUMMARY_MAX_CHARS = 190
-WALNUT_TAKE_PROMPT_VERSION = "market_read_v5"
+WALNUT_TAKE_PROMPT_VERSION = "market_read_v6_compact"
 
 BULLISH_READ_PHRASES = (
     "stabilize trade",
@@ -165,7 +166,9 @@ def enrich_walnut_takes(
         output.append(
             {
                 **item,
-                "walnut_summary": _clean_text(generated_item.get("summary"), limit=WALNUT_SUMMARY_MAX_CHARS) or item.get("walnut_summary"),
+                # The provider summary is already stored on the article. Keep the model's
+                # work to one directional sentence instead of paying for a duplicate summary.
+                "walnut_summary": item.get("walnut_summary"),
                 "walnut_take_bias": _calibrated_bias(item, generated_item.get("bias"), generated_item=generated_item),
                 "walnut_take": _clean_take_text(item, generated_item=generated_item) or item.get("walnut_take"),
                 "walnut_take_source": "openai",
@@ -184,7 +187,9 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
         "tools": [{"type": "web_search"}],
         "input": _prompt(articles),
         "store": False,
+        "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
+        "max_output_tokens": min(4800, max(256, len(articles) * 90)),
     }
     response = audited_openai_request(
         feature="walnut_takes",
@@ -228,10 +233,11 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
     return "\n".join(
         [
             "You generate Walnut Takes for a market intelligence news list.",
-            "For each article, read the article_url when available, then return a concise factual summary and a market-impact bias.",
+            "For each article, read the article_url when available, then return one concise market-impact sentence and a bias.",
             "Use web search to open or verify article_url. If the article cannot be read, rely on title, provider_summary, ticker, source, and provider_market_read without inventing facts.",
             "Allowed bias values: bullish, bearish, neutral.",
             f"The take must be one compact sentence of {WALNUT_TAKE_MAX_CHARS} characters or fewer.",
+            "Do not write a separate summary, explanation, rationale, or preamble.",
             "The take must clearly say bullish or bearish when the article leans that way, and name the main why.",
             "The take must be a complete sentence ending with a period. Never use ellipses or trail off.",
             "Do not fill the character budget. Prefer 45-90 characters when possible.",
@@ -245,7 +251,7 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
             "Do not provide trading instructions, price targets, guarantees, or hype.",
             "Do not invent facts beyond the title, summary, ticker, source, and existing market read.",
             "Return only valid JSON with this exact shape:",
-            '{"items":[{"id":"article id","summary":"one sentence","bias":"bullish|bearish|neutral","take":"Walnut take text"}]}',
+            '{"items":[{"id":"article id","bias":"bullish|bearish|neutral","take":"one-sentence Walnut take"}]}',
             "Articles:",
             json.dumps(compact_articles, sort_keys=True),
         ]
@@ -308,7 +314,7 @@ def _article_id(item: dict[str, Any]) -> str:
 
 
 def _walnut_take_model(db: Session) -> str:
-    return resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_WALNUT_TAKE_MODEL
+    return os.getenv(WALNUT_TAKE_MODEL, "").strip() or DEFAULT_WALNUT_TAKE_MODEL
 
 
 def _clean_bias(value: Any) -> str:

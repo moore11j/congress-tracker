@@ -211,11 +211,14 @@ def test_insights_headlines_refresh_generates_and_saves_walnut_takes(monkeypatch
 
         item = payload["items"][0]
         assert captured["url"] == "https://api.openai.com/v1/responses"
-        assert captured["json"]["model"] == "gpt-5.6-sol"
+        assert captured["json"]["model"] == "gpt-5.4-nano"
         assert captured["json"]["tools"] == [{"type": "web_search"}]
+        assert captured["json"]["reasoning"] == {"effort": "none"}
+        assert captured["json"]["max_output_tokens"] == 256
         assert "read the article_url" in captured["json"]["input"]
         assert '"article_url": "https://example.com/chips"' in captured["json"]["input"]
-        assert item["walnut_summary"] == "Chip shares rallied ahead of major tech earnings."
+        assert "Do not write a separate summary" in captured["json"]["input"]
+        assert item["walnut_summary"] == "Chip shares rose as investors positioned for earnings."
         assert item["walnut_take_bias"] == "bullish"
         assert item["walnut_take_source"] == "openai"
 
