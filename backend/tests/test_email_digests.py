@@ -779,6 +779,7 @@ def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monk
         assert captured["start"].isoformat() == "2026-07-10"
         assert captured["end"].isoformat() == "2026-07-17"
         assert captured["scope"] == "watchlist"
+        assert captured["limit"] == 20
         assert captured["kinds"] == ("economic", "earnings", "dividend", "ipo", "split")
         assert "NVDA earnings" in digest.context["upcoming_events_text"]
         assert "NVDA earnings" in digest.context["upcoming_events_html"]
@@ -1011,6 +1012,36 @@ def test_signal_digest_includes_source_monitoring_alert_without_score():
         assert digest.items[0]["alert_type"] == "price_volume_flip"
         assert digest.items[0]["source_stack"] == "Price/volume"
         assert "price/volume flipped" in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_signal_digest_keeps_top_four_per_monitoring_source():
+    db = _session()
+    try:
+        user = _user(db, "signal-source-balance@example.com")
+        watchlist = _watchlist(db, user)
+        now = datetime.now(timezone.utc)
+        saved_screen_symbols = ("AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META")
+        for index, symbol in enumerate(saved_screen_symbols):
+            _monitoring_alert(
+                db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold",
+                event_id=1000 + index, symbol=symbol, ts=now - timedelta(minutes=index),
+                payload={"score": 100 - index, "direction": "bullish"},
+            )
+        for index, symbol in enumerate(("TSLA", "IBM")):
+            _monitoring_alert(
+                db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold",
+                event_id=2000 + index, symbol=symbol, ts=now - timedelta(minutes=10 + index),
+                payload={"score": 80 - index, "direction": "bullish"},
+            )
+
+        digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
+
+        assert len([item for item in digest.items if item["source_type"] == "saved_screen"]) == 4
+        assert {item["ticker"] for item in digest.items if item["source_type"] == "watchlist"} == {"TSLA", "IBM"}
+        assert digest.context["signal_cta_label"] == "View all"
+        assert digest.diagnostics["excluded_reasons"]["source_display_limit"] == 2
     finally:
         db.close()
 
