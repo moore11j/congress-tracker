@@ -48,6 +48,7 @@ from app.models import (
 )
 from app.services.confirmation_score import get_confirmation_score_bundles_for_tickers
 from app.services.email_delivery import send_email
+from app.services.openai_request_audit import audited_openai_request
 
 logger = logging.getLogger(__name__)
 
@@ -593,10 +594,13 @@ def _request_openai_credit_grants(api_key: str) -> dict[str, Any]:
         if isinstance(cached, dict):
             return cached
     try:
-        response = requests.get(
-            OPENAI_CREDIT_GRANTS_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=8,
+        response = audited_openai_request(
+            feature="ai_growth",
+            operation="credit_balance_check",
+            method="GET",
+            endpoint=OPENAI_CREDIT_GRANTS_URL,
+            payload={},
+            send=lambda: requests.get(OPENAI_CREDIT_GRANTS_URL, headers={"Authorization": f"Bearer {api_key}"}, timeout=8),
         )
     except requests.RequestException as exc:
         payload = {"ok": False, "status_code": None, "error": str(exc)}
@@ -2312,11 +2316,19 @@ def _generated_thumbnail_asset(
         "moderation": "auto",
     }
     try:
-        response = requests.post(
-            "https://api.openai.com/v1/images/generations",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=130,
+        response = audited_openai_request(
+            feature="ai_growth",
+            operation="social_thumbnail_generation",
+            method="POST",
+            endpoint="https://api.openai.com/v1/images/generations",
+            payload=payload,
+            model=model,
+            send=lambda: requests.post(
+                "https://api.openai.com/v1/images/generations",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=130,
+            ),
         )
     except requests.RequestException:
         logger.exception("ai_growth_image_generation_request_failed")
@@ -4683,14 +4695,19 @@ def generate_suggestion(
         },
     }
     try:
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=request_payload,
-            timeout=30,
+        response = audited_openai_request(
+            feature="ai_growth",
+            operation="suggestion_generation",
+            method="POST",
+            endpoint="https://api.openai.com/v1/chat/completions",
+            payload=request_payload,
+            model=model,
+            send=lambda: requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=request_payload,
+                timeout=30,
+            ),
         )
     except requests.RequestException as exc:
         _record_suggestion_failure(db, opportunity, OPENAI_GENERIC_SUGGESTION_MESSAGE, code="request_error")
@@ -5502,10 +5519,15 @@ def test_openai_connection(db: Session) -> dict[str, Any]:
     if not api_key:
         return {"ok": False, "message": "OpenAI API key missing.", "model": model}
     try:
-        response = requests.get(
-            f"https://api.openai.com/v1/models/{model}",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=20,
+        endpoint = f"https://api.openai.com/v1/models/{model}"
+        response = audited_openai_request(
+            feature="ai_growth",
+            operation="connection_test",
+            method="GET",
+            endpoint=endpoint,
+            payload={"model": model},
+            model=model,
+            send=lambda: requests.get(endpoint, headers={"Authorization": f"Bearer {api_key}"}, timeout=20),
         )
     except requests.RequestException:
         return {"ok": False, "message": "OpenAI connection request failed.", "model": model}
@@ -5587,14 +5609,19 @@ class OpenAIWebSearchProvider(WebSearchProvider):
             "input": prompt,
             "store": False,
         }
-        response = requests.post(
-            self.endpoint,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=request_payload,
-            timeout=45,
+        response = audited_openai_request(
+            feature="ai_growth",
+            operation="web_search",
+            method="POST",
+            endpoint=self.endpoint,
+            payload=request_payload,
+            model=self.model,
+            send=lambda: requests.post(
+                self.endpoint,
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                json=request_payload,
+                timeout=45,
+            ),
         )
         if response.status_code >= 400:
             raise RuntimeError("OpenAI web search request failed.")

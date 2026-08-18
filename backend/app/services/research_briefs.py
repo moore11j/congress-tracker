@@ -32,6 +32,7 @@ from app.services.ai_marketing import (
 )
 from app.services.confirmation_score import get_confirmation_score_bundles_for_tickers
 from app.services.email_delivery import send_email
+from app.services.openai_request_audit import audited_openai_request
 from app.utils.symbols import normalize_symbol
 
 RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v5_public_copy"
@@ -2194,10 +2195,7 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before discovering keyword opportunities.")
-    response = requests.post(
-        RESPONSES_ENDPOINT,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
+    request_payload = {
             "model": _keyword_discovery_model(db),
             "input": _keyword_discovery_prompt(payload),
             "tools": [{"type": "web_search", "search_context_size": "medium"}],
@@ -2205,8 +2203,10 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
             "store": False,
             "max_output_tokens": 5000,
             "text": {"format": {"type": "json_schema", "name": "walnut_keyword_opportunities", "schema": _keyword_opportunity_schema(requested_count), "strict": True}},
-        },
-        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    }
+    response = audited_openai_request(
+        feature="research_briefs", operation="keyword_discovery", method="POST", endpoint=RESPONSES_ENDPOINT, payload=request_payload,
+        send=lambda: requests.post(RESPONSES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0)),
     )
     if response.status_code >= 400:
         logger.warning("research_keyword_discovery_failed status=%s body=%s", response.status_code, response.text[:500])
@@ -2295,10 +2295,7 @@ def regenerate_research_keyword_opportunity(
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before regenerating a keyword opportunity.")
-    response = requests.post(
-        RESPONSES_ENDPOINT,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
+    request_payload = {
             "model": _keyword_discovery_model(db),
             "input": _keyword_opportunity_regeneration_prompt(existing, str(instructions or "")),
             "tools": [{"type": "web_search", "search_context_size": "medium"}],
@@ -2306,8 +2303,10 @@ def regenerate_research_keyword_opportunity(
             "store": False,
             "max_output_tokens": 2600,
             "text": {"format": {"type": "json_schema", "name": "walnut_keyword_opportunity_revision", "schema": _keyword_opportunity_schema(1), "strict": True}},
-        },
-        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    }
+    response = audited_openai_request(
+        feature="research_briefs", operation="keyword_regeneration", method="POST", endpoint=RESPONSES_ENDPOINT, payload=request_payload,
+        send=lambda: requests.post(RESPONSES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0)),
     )
     if response.status_code >= 400:
         logger.warning("research_keyword_regeneration_failed opportunity_id=%s status=%s body=%s", opportunity_id, response.status_code, response.text[:500])
@@ -2939,17 +2938,16 @@ def _call_openai_revision(
     if not api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before generating.")
     model = _selected_research_model(config, db)
-    response = requests.post(
-        RESPONSES_ENDPOINT,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
+    request_payload = {
             "model": model,
             "input": _revision_prompt(config, prior_article, correction_note, context),
             "store": False,
             "max_output_tokens": min(_max_output_tokens(config["length"]), 6000),
             "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
-        },
-        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    }
+    response = audited_openai_request(
+        feature="research_briefs", operation="quality_gate_revision", method="POST", endpoint=RESPONSES_ENDPOINT, payload=request_payload, model=model,
+        send=lambda: requests.post(RESPONSES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0)),
     )
     if response.status_code >= 400:
         _raise_openai_response_error(response, operation="research brief revision")
@@ -5159,17 +5157,16 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before generating.")
     model = _selected_research_model(config, db)
     max_output_tokens = _retry_output_tokens(config.get("retry_output_tokens")) or _max_output_tokens(config["length"])
-    response = requests.post(
-        RESPONSES_ENDPOINT,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
+    request_payload = {
             "model": model,
             "input": _prompt(config, context),
             "store": False,
             "max_output_tokens": max_output_tokens,
             "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
-        },
-        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    }
+    response = audited_openai_request(
+        feature="research_briefs", operation="brief_generation", method="POST", endpoint=RESPONSES_ENDPOINT, payload=request_payload, model=model,
+        send=lambda: requests.post(RESPONSES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0)),
     )
     if response.status_code >= 400:
         _raise_openai_response_error(response, operation="research brief generation")
@@ -6051,17 +6048,16 @@ def generate_thumbnail_asset(db: Session, config: dict[str, Any], article: dict[
         asset["source_notes"] += " Image generation skipped because OPENAI_API_KEY is not configured."
         return asset
     try:
-        response = requests.post(
-            IMAGES_ENDPOINT,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
+        request_payload = {
                 "model": model,
                 "prompt": prompt,
                 "size": os.getenv(AI_MARKETING_IMAGE_SIZE, "").strip() or DEFAULT_AI_MARKETING_IMAGE_SIZE,
                 "quality": os.getenv(AI_MARKETING_IMAGE_QUALITY, "").strip() or DEFAULT_AI_MARKETING_IMAGE_QUALITY,
                 "output_format": "jpeg",
-            },
-            timeout=_env_float(RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS, 45.0),
+        }
+        response = audited_openai_request(
+            feature="research_briefs", operation="thumbnail_generation", method="POST", endpoint=IMAGES_ENDPOINT, payload=request_payload, model=model,
+            send=lambda: requests.post(IMAGES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=_env_float(RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS, 45.0)),
         )
     except requests.RequestException:
         asset["source_notes"] += " Image generation request failed; prompt is saved for retry."

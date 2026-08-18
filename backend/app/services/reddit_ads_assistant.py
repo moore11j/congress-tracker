@@ -25,6 +25,7 @@ from app.services.ai_marketing import (
     marketing_model,
     resolved_setting_value,
 )
+from app.services.openai_request_audit import audited_openai_request
 
 logger = logging.getLogger(__name__)
 
@@ -383,11 +384,19 @@ def generate_ad_copy(db: Session, inputs: dict[str, Any]) -> tuple[dict[str, Any
         "response_format": {"type": "json_object"},
     }
     try:
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=request_payload,
-            timeout=30,
+        response = audited_openai_request(
+            feature="reddit_ads",
+            operation="ad_copy_generation",
+            method="POST",
+            endpoint="https://api.openai.com/v1/chat/completions",
+            payload=request_payload,
+            model=str(request_payload.get("model") or "") or None,
+            send=lambda: requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=request_payload,
+                timeout=30,
+            ),
         )
     except requests.RequestException as exc:
         raise OpenAISuggestionError("OpenAI ad generation request failed.", status_code=502) from exc

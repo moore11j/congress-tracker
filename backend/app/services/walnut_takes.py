@@ -15,6 +15,7 @@ from app.services.ai_marketing import (
     _rewrite_public_walnut_voice,
     resolved_setting_value,
 )
+from app.services.openai_request_audit import audited_openai_request
 
 logger = logging.getLogger(__name__)
 
@@ -185,14 +186,19 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
         "store": False,
         "text": {"verbosity": "low"},
     }
-    response = requests.post(
-        OPENAI_RESPONSES_ENDPOINT,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=request_payload,
-        timeout=35,
+    response = audited_openai_request(
+        feature="walnut_takes",
+        operation="market_headline_take",
+        method="POST",
+        endpoint=OPENAI_RESPONSES_ENDPOINT,
+        payload=request_payload,
+        model=model,
+        send=lambda: requests.post(
+            OPENAI_RESPONSES_ENDPOINT,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=request_payload,
+            timeout=35,
+        ),
     )
     if response.status_code >= 400:
         raise RuntimeError(f"OpenAI Walnut Take request failed with status {response.status_code}.")
