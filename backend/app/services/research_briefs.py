@@ -405,9 +405,7 @@ def _selected_research_model(config: dict[str, Any], db: Session | None = None, 
     selected = str(config.get("selected_model") or "").strip()
     if selected:
         if selected in RETIRED_RESEARCH_BRIEF_MODELS:
-            if not strict:
-                return ""
-            raise HTTPException(status_code=422, detail="Selected research model is no longer available for research briefs.")
+            return research_brief_model(db)
         if selected not in options:
             if not strict:
                 return ""

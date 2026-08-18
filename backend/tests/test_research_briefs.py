@@ -1250,9 +1250,7 @@ def test_research_briefs_do_not_restore_sol_from_environment(monkeypatch):
 
     assert service.research_brief_model(None) == "gpt-5.6-luna"
     assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra"]
-    with pytest.raises(HTTPException) as exc:
-        service._selected_research_model(_payload(selected_model="gpt-5.6-sol").model_dump())
-    assert exc.value.status_code == 422
+    assert service._selected_research_model(_payload(selected_model="gpt-5.6-sol").model_dump()) == "gpt-5.6-luna"
 
 
 def test_article_schema_is_strict_structured_output_compatible():
