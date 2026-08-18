@@ -821,22 +821,33 @@ def test_campaign_quality_gate_failure_is_retried_with_correction_note(tmp_path,
     generated["id"] = "rb_quality_retry"
     generated["generated_at"] = datetime.now(timezone.utc).isoformat()
     configs = []
+    revisions = []
+    candidate = {
+        "_quality_gate_candidate": True,
+        "article": {"title": "MU draft"},
+        "config": _payload().model_dump(),
+        "research_context": {"research_packet": {"ticker": "MU"}},
+        "quality_gate_error": "Draft generation failed validation. Source links are required.",
+    }
 
-    def fake_generate(_db, _admin, config):
+    def fake_initial_generate(_db, _admin, config, **_kwargs):
         configs.append(config)
-        if len(configs) == 1:
-            raise HTTPException(status_code=422, detail="Draft generation failed validation. Source links are required.")
+        return deepcopy(candidate)
+
+    def fake_revision(_db, _admin, _candidate, correction_note):
+        revisions.append(correction_note)
         return deepcopy(generated)
 
-    monkeypatch.setattr(service, "generate_research_brief", fake_generate)
+    monkeypatch.setattr(service, "generate_research_brief", fake_initial_generate)
+    monkeypatch.setattr(service, "revise_research_brief_from_quality_gate", fake_revision)
     monkeypatch.setattr(service, "send_research_campaign_review_email", lambda *_args: None)
 
     result = service._generate_research_campaign_item(db, row)
 
     assert result["quality_gate_correction_note"].startswith("Walnut quality-gate correction note:")
-    assert len(configs) == 2
-    assert "Source links are required" in configs[1]["additional_context"]
-    assert configs[1]["retry_output_tokens"] == 10000
+    assert len(configs) == 1
+    assert len(revisions) == 1
+    assert "Source links are required" in revisions[0]
 
 
 def test_campaign_invalid_structured_output_is_retried_with_format_correction(tmp_path, monkeypatch):
@@ -847,7 +858,7 @@ def test_campaign_invalid_structured_output_is_retried_with_format_correction(tm
     generated = _minimal_scheduled_draft(admin)
     configs = []
 
-    def fake_generate(_db, _admin, attempt_config):
+    def fake_generate(_db, _admin, attempt_config, **_kwargs):
         configs.append(attempt_config)
         if len(configs) == 1:
             raise HTTPException(status_code=502, detail="OpenAI returned invalid structured research JSON.")
@@ -859,9 +870,8 @@ def test_campaign_invalid_structured_output_is_retried_with_format_correction(tm
 
     assert result["id"] == generated["id"]
     assert len(configs) == 2
-    assert len(notes) == 1
-    assert "RFC 8259 JSON" in configs[1]["additional_context"]
-    assert configs[1]["retry_output_tokens"] == 10000
+    assert configs[1]["use_deterministic_draft"] is True
+    assert "RFC 8259 JSON" in notes[0]
 
 
 def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_path, monkeypatch):
@@ -872,18 +882,34 @@ def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_
     generated = _minimal_scheduled_draft(admin)
     configs = []
 
-    def fake_generate(_db, _admin, attempt_config):
+    candidate = {
+        "_quality_gate_candidate": True,
+        "article": {"title": "MU draft"},
+        "config": _payload().model_dump(),
+        "research_context": {"research_packet": {"ticker": "MU"}},
+        "quality_gate_error": "Draft generation failed validation. Confirmation wording is incorrect.",
+    }
+
+    def fake_generate(_db, _admin, attempt_config, **_kwargs):
         configs.append(deepcopy(attempt_config))
         if attempt_config.get("use_deterministic_draft"):
             return deepcopy(generated)
-        raise HTTPException(status_code=422, detail="Draft generation failed validation. Cross-source data categories must not be described as the proprietary confirmation score.")
+        return deepcopy(candidate)
+
+    revisions = []
+
+    def fake_revision(_db, _admin, _candidate, correction_note):
+        revisions.append(correction_note)
+        return deepcopy(candidate)
 
     monkeypatch.setattr(service, "generate_research_brief", fake_generate)
+    monkeypatch.setattr(service, "revise_research_brief_from_quality_gate", fake_revision)
 
     result, notes = service._generate_campaign_brief_with_corrections(db, admin, config)
 
     assert result["id"] == generated["id"]
-    assert len(configs) == 4
+    assert len(configs) == 2
+    assert len(revisions) == 2
     assert configs[-1]["use_deterministic_draft"] is True
     assert configs[-1]["generate_thumbnail"] is False
     assert "Walnut data fallback" in notes[-1]
@@ -1229,6 +1255,40 @@ def test_model_options_default_to_luna_and_terra(monkeypatch):
     assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra"]
     assert service.research_brief_model(None) == "gpt-5.6-luna"
     assert service.research_brief_model_labels(None)["gpt-5.6-luna"] == "GPT-5.6 Luna"
+
+
+def test_quality_gate_revision_uses_prior_draft_and_compact_fact_packet(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    captured = {}
+
+    def fake_post(*_args, **kwargs):
+        captured.update(kwargs["json"])
+        return _fake_openai_response(*_args, **kwargs)
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    db = _session()
+    context = {
+        "primary": {"identity": {"symbol": "MU", "company_name": "Micron Technology, Inc."}},
+        "research_packet": {"ticker": "MU", "latest_price": 100.0, "confirmation_score": 79},
+        "data_availability": {"price": True, "earnings": True},
+        "external_research": {"reviewed_sources": [{"label": "SEC", "url": "https://www.sec.gov/edgar/search/", "source_type": "filing_search"}]},
+        "source_discovery": {"official_earnings_available": True},
+    }
+
+    article = service._call_openai_revision(
+        db,
+        _payload(target_keyword="MU fundamentals").model_dump(),
+        {"title": "MU fundamentals still matter", "sections": [{"heading": "Thesis", "body_markdown": "Prior draft."}]},
+        "Fix the missing source links.",
+        context,
+    )
+
+    assert article["_model"] == "gpt-5.6-luna"
+    assert captured["store"] is False
+    assert captured["max_output_tokens"] == 6000
+    assert "PRIOR DRAFT TO REVISE:" in captured["input"]
+    assert "VERIFIED FACT PACK:" in captured["input"]
+    assert "Walnut research context:" not in captured["input"]
 
 
 def test_research_brief_default_model_stays_luna_for_campaign_audiences(monkeypatch):
@@ -2568,7 +2628,12 @@ def test_research_prompt_receives_comparison_tickers_array(tmp_path, monkeypatch
         _seed_ticker(db, symbol)
     admin = _user(db, "admin@example.com", role="admin")
 
-    job = admin_research_brief_generate(_payload(comparison_tickers=["googl,amzn,msft"]), _request_for_user(admin), Response(), db=db)
+    job = admin_research_brief_generate(
+        _payload(comparison_tickers=["googl,amzn,msft"], target_keyword="MU"),
+        _request_for_user(admin),
+        Response(),
+        db=db,
+    )
     service.run_research_brief_generation_job(job["job_id"], db)
     draft = service.get_research_brief_generation_job_draft(job["job_id"], db)
 

@@ -2873,35 +2873,177 @@ def _campaign_generation_correction_note(exc: HTTPException) -> str | None:
     return None
 
 
+def _is_quality_gate_candidate(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get("_quality_gate_candidate"))
+
+
+def _revision_fact_packet(context: dict[str, Any]) -> dict[str, Any]:
+    """Keep corrective prompts grounded without replaying the entire research context."""
+    external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
+    source_links = [
+        {key: source.get(key) for key in ("label", "url", "source_type") if source.get(key)}
+        for source in (external.get("reviewed_sources") or [])
+        if isinstance(source, dict) and str(source.get("url") or "").startswith(("https://", "http://"))
+    ][:8]
+    packet = {
+        "research_packet": context.get("research_packet") or _research_packet(context),
+        "data_availability": context.get("data_availability") or {},
+        "missing_data_notes": context.get("missing_data_notes") or [],
+        "source_discovery": context.get("source_discovery") or {},
+        "reviewed_source_links": source_links,
+    }
+    return packet
+
+
+def _revision_prompt(
+    config: dict[str, Any],
+    prior_article: dict[str, Any],
+    correction_note: str,
+    context: dict[str, Any],
+) -> str:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    symbol = str(identity.get("symbol") or config.get("ticker") or "").upper()
+    company = _reader_company_name(str(identity.get("company_name") or symbol), symbol)
+    clean_article = {key: value for key, value in prior_article.items() if not str(key).startswith("_")}
+    return "\n".join(
+        [
+            "You are revising a Walnut research brief that failed a pre-publication quality gate.",
+            "Return a complete replacement JSON article matching the supplied schema. Do not explain the changes.",
+            f"PRIMARY_TICKER: {symbol}",
+            f"PRIMARY_COMPANY: {company}",
+            f"TARGET_KEYWORD: {config.get('target_keyword') or config.get('research_question')}",
+            "Correct only the identified issues while preserving every supported point that does not need to change.",
+            "Use only the verified fact packet and reviewed source links below. Do not invent numbers, sources, or unavailable data.",
+            "Use the natural keyword question in the title and opening. Keep the final call aligned with the confirmation-score direction.",
+            "Write active, human prose. Avoid AI filler, forbidden watermark language, and unnecessary dashes. Do not describe Walnut's systems, prompts, caches, data availability, or editorial process.",
+            "QUALITY-GATE CORRECTION:",
+            correction_note[:1200],
+            "PRIOR DRAFT TO REVISE:",
+            json.dumps(clean_article, sort_keys=True, default=str)[:18000],
+            "VERIFIED FACT PACK:",
+            json.dumps(_revision_fact_packet(context), sort_keys=True, default=str)[:6500],
+            "Return only JSON matching the provided schema.",
+        ]
+    )
+
+
+def _call_openai_revision(
+    db: Session,
+    config: dict[str, Any],
+    prior_article: dict[str, Any],
+    correction_note: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before generating.")
+    model = _selected_research_model(config, db)
+    response = requests.post(
+        RESPONSES_ENDPOINT,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "input": _revision_prompt(config, prior_article, correction_note, context),
+            "store": False,
+            "max_output_tokens": min(_max_output_tokens(config["length"]), 6000),
+            "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
+        },
+        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
+    )
+    if response.status_code >= 400:
+        _raise_openai_response_error(response, operation="research brief revision")
+    data = response.json()
+    try:
+        parsed = json.loads(_response_text(data))
+    except Exception:
+        raise HTTPException(status_code=502, detail="OpenAI returned invalid structured research JSON.")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=502, detail="OpenAI returned an invalid article payload.")
+    parsed["_generation_usage"] = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    parsed["_model"] = model
+    return parsed
+
+
+def revise_research_brief_from_quality_gate(
+    db: Session,
+    admin: UserAccount,
+    candidate: dict[str, Any],
+    correction_note: str,
+) -> dict[str, Any]:
+    config = deepcopy(candidate.get("config") or {})
+    context = deepcopy(candidate.get("research_context") or {})
+    prior_article = deepcopy(candidate.get("article") or {})
+    if not config or not context or not prior_article:
+        raise HTTPException(status_code=422, detail="Research brief revision requires a rejected draft and its verified fact packet.")
+    started = time.perf_counter()
+    article = _call_openai_revision(db, config, prior_article, correction_note, context)
+    article = _prepare_generated_research_article(article, config, context)
+    validation = validate_article(article, context)
+    if validation.get("status") == "failed":
+        return {
+            "_quality_gate_candidate": True,
+            "article": article,
+            "config": config,
+            "research_context": context,
+            "validation": validation,
+            "quality_gate_error": _validation_failure_message(validation),
+            "elapsed_ms": int((time.perf_counter() - started) * 1000),
+        }
+    article = _attach_research_thumbnail(db, config, article)
+    return _persist_generated_research_draft(
+        db,
+        admin,
+        config,
+        context,
+        article,
+        validation,
+        elapsed_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
 def _generate_campaign_brief_with_corrections(
     db: Session,
     admin: UserAccount,
     config: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Generate a campaign draft with at most two feedback-driven corrective retries."""
-    retry_config = deepcopy(config)
+    """Generate once with the full packet, then revise only the rejected draft and fact pack."""
+    initial_config = deepcopy(config)
     correction_notes: list[str] = []
-    for attempt in range(3):
-        try:
-            return generate_research_brief(db, admin, retry_config), correction_notes
-        except HTTPException as exc:
-            correction_note = _campaign_generation_correction_note(exc)
-            if not correction_note:
-                raise
-            correction_notes.append(correction_note)
-            if attempt == 2:
-                fallback_config = deepcopy(retry_config)
-                fallback_config["use_deterministic_draft"] = True
-                fallback_config["generate_thumbnail"] = False
-                correction_notes.append(
-                    "Walnut data fallback: OpenAI output failed the quality gate repeatedly, so this review-only draft was assembled from the validated Walnut research context."
-                )
-                return generate_research_brief(db, admin, fallback_config), correction_notes
-            prior_context = str(retry_config.get("additional_context") or "").strip()
-            retry_config["additional_context"] = f"{prior_context}\n\n{correction_note}".strip()[:4000]
-            # Corrective campaign attempts need room to complete the full strict JSON payload.
-            retry_config["retry_output_tokens"] = 10000
-    raise RuntimeError("Campaign generation retry loop unexpectedly completed.")
+    try:
+        result = generate_research_brief(db, admin, initial_config, return_quality_gate_candidate=True)
+    except HTTPException as exc:
+        correction_note = _campaign_generation_correction_note(exc)
+        if not correction_note:
+            raise
+        correction_notes.append(correction_note)
+        result = None
+    if result and not _is_quality_gate_candidate(result):
+        return result, correction_notes
+    candidate = result if _is_quality_gate_candidate(result) else None
+    if candidate:
+        correction_notes.append(_quality_gate_correction_note(str(candidate.get("quality_gate_error") or "")))
+        for _ in range(2):
+            correction_note = correction_notes[-1]
+            try:
+                revised = revise_research_brief_from_quality_gate(db, admin, candidate, correction_note)
+            except HTTPException as exc:
+                next_note = _campaign_generation_correction_note(exc)
+                if not next_note:
+                    raise
+                correction_notes.append(next_note)
+                break
+            if not _is_quality_gate_candidate(revised):
+                return revised, correction_notes
+            candidate = revised
+            correction_notes.append(_quality_gate_correction_note(str(candidate.get("quality_gate_error") or "")))
+    fallback_config = deepcopy(initial_config)
+    fallback_config["use_deterministic_draft"] = True
+    fallback_config["generate_thumbnail"] = False
+    correction_notes.append(
+        "Walnut data fallback: OpenAI output failed the quality gate, so this review-only draft was assembled from the validated Walnut research context."
+    )
+    return generate_research_brief(db, admin, fallback_config), correction_notes
 
 
 def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
@@ -4400,7 +4542,89 @@ def _normalize_manual_source_url(value: Any) -> str:
     return url
 
 
-def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, Any], progress_callback: Any | None = None) -> dict[str, Any]:
+def _prepare_generated_research_article(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    prepared = sanitize_research_brief_article(article, config, context)
+    prepared["source_links"] = _dedupe_source_links([*(prepared.get("source_links") or []), *((context.get("external_research") or {}).get("reviewed_sources") or [])])
+    prepared = enrich_internal_links(prepared, context)
+    prepared = _remove_confirmation_data_conflation(prepared)
+    prepared["missing_data_notes"] = _filter_missing_data_notes(
+        [*(prepared.get("missing_data_notes") or []), *(context.get("missing_data_notes") or [])],
+        context.get("data_availability") or {},
+    )
+    return prepared
+
+
+def _validation_failure_message(validation: dict[str, Any]) -> str:
+    blocking_messages = [
+        str(warning.get("message") or warning.get("code"))
+        for warning in validation.get("warnings") or []
+        if isinstance(warning, dict) and warning.get("blocking")
+    ]
+    message = "Draft generation failed validation."
+    if blocking_messages:
+        message = f"{message} {blocking_messages[0]}"
+    return message[:300]
+
+
+def _attach_research_thumbnail(
+    db: Session,
+    config: dict[str, Any],
+    article: dict[str, Any],
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    if not config.get("generate_thumbnail"):
+        return article
+    if progress_callback:
+        progress_callback("generating_thumbnail", "Generating thumbnail.")
+    try:
+        article["thumbnail_asset"] = generate_thumbnail_asset(db, config, article)
+        if article["thumbnail_asset"].get("url") and not article.get("hero_image"):
+            article["hero_image"] = article["thumbnail_asset"]["url"]
+    except Exception as exc:
+        logger.warning("research_brief_thumbnail_failed ticker=%s error=%s", config.get("ticker"), exc.__class__.__name__)
+        article["thumbnail_asset"] = {
+            "image_title": str(article.get("title") or config.get("ticker") or "Walnut research")[:120],
+            "image_prompt": "",
+            "asset_type": _thumbnail_asset_type(config),
+            "url": "",
+            "thumbnail_url": "",
+            "source_notes": "Thumbnail generation failed; text draft was saved.",
+            "created_at": _now(),
+        }
+    return article
+
+
+def _persist_generated_research_draft(
+    db: Session,
+    admin: UserAccount,
+    config: dict[str, Any],
+    context: dict[str, Any],
+    article: dict[str, Any],
+    validation: dict[str, Any],
+    *,
+    elapsed_ms: int,
+) -> dict[str, Any]:
+    draft = _new_draft(admin, config, context, article, validation, elapsed_ms=elapsed_ms)
+    with _STORE_LOCK:
+        store = _read_store()
+        store["drafts"].append(draft)
+        _append_audit(store, action="generate", admin=admin, draft_id=draft["id"], metadata={"ticker": config["ticker"]})
+        _write_store(store)
+    try:
+        _upsert_db_draft(db, draft)
+    except Exception as exc:
+        logger.warning("research_brief_draft_db_persist_failed draft_id=%s error=%s", draft.get("id"), exc.__class__.__name__)
+    return draft
+
+
+def generate_research_brief(
+    db: Session,
+    admin: UserAccount,
+    config: dict[str, Any],
+    progress_callback: Any | None = None,
+    *,
+    return_quality_gate_candidate: bool = False,
+) -> dict[str, Any]:
     normalized_config = validate_config(config)
     normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
     if progress_callback:
@@ -4431,57 +4655,35 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
             article = _call_openai(db, normalized_config, context)
         if use_deterministic_draft:
             article["_generation_mode"] = "walnut_data_fallback"
-        article = sanitize_research_brief_article(article, normalized_config, context)
-        article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *((context.get("external_research") or {}).get("reviewed_sources") or [])])
-        article = enrich_internal_links(article, context)
-        # Enrichment can add or reshape prose after the initial sanitizer pass.
-        # Run the confirmation-score guard once more on the final public copy.
-        article = _remove_confirmation_data_conflation(article)
-        article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *(context.get("missing_data_notes") or [])], context.get("data_availability") or {})
-        if normalized_config.get("generate_thumbnail"):
-            if progress_callback:
-                progress_callback("generating_thumbnail", "Generating thumbnail.")
-            try:
-                article["thumbnail_asset"] = generate_thumbnail_asset(db, normalized_config, article)
-                if article["thumbnail_asset"].get("url") and not article.get("hero_image"):
-                    article["hero_image"] = article["thumbnail_asset"]["url"]
-            except Exception as exc:
-                logger.warning("research_brief_thumbnail_failed ticker=%s error=%s", normalized_config.get("ticker"), exc.__class__.__name__)
-                article["thumbnail_asset"] = {
-                    "image_title": str(article.get("title") or normalized_config.get("ticker") or "Walnut research")[:120],
-                    "image_prompt": "",
-                    "asset_type": _thumbnail_asset_type(normalized_config),
-                    "url": "",
-                    "thumbnail_url": "",
-                    "source_notes": "Thumbnail generation failed; text draft was saved.",
-                    "created_at": _now(),
-                }
+        article = _prepare_generated_research_article(article, normalized_config, context)
         if progress_callback:
             progress_callback("validating_claims", "Validating generated draft.")
         validation = validate_article(article, context)
         if validation.get("status") == "failed":
-            blocking_messages = [
-                str(warning.get("message") or warning.get("code"))
-                for warning in validation.get("warnings") or []
-                if isinstance(warning, dict) and warning.get("blocking")
-            ]
-            message = "Draft generation failed validation."
-            if blocking_messages:
-                message = f"{message} {blocking_messages[0]}"
-            raise HTTPException(status_code=422, detail=message[:300])
+            message = _validation_failure_message(validation)
+            if return_quality_gate_candidate:
+                return {
+                    "_quality_gate_candidate": True,
+                    "article": article,
+                    "config": normalized_config,
+                    "research_context": context,
+                    "validation": validation,
+                    "quality_gate_error": message,
+                    "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                }
+            raise HTTPException(status_code=422, detail=message)
+        article = _attach_research_thumbnail(db, normalized_config, article, progress_callback)
         if progress_callback:
             progress_callback("saving_draft", "Saving generated draft.")
-        draft = _new_draft(admin, normalized_config, context, article, validation, elapsed_ms=int((time.perf_counter() - started) * 1000))
-        with _STORE_LOCK:
-            store = _read_store()
-            store["drafts"].append(draft)
-            _append_audit(store, action="generate", admin=admin, draft_id=draft["id"], metadata={"ticker": normalized_config["ticker"]})
-            _write_store(store)
-        try:
-            _upsert_db_draft(db, draft)
-        except Exception as exc:
-            logger.warning("research_brief_draft_db_persist_failed draft_id=%s error=%s", draft.get("id"), exc.__class__.__name__)
-        return draft
+        return _persist_generated_research_draft(
+            db,
+            admin,
+            normalized_config,
+            context,
+            article,
+            validation,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+        )
     finally:
         _ACTIVE_GENERATIONS.discard(actor_key)
 
@@ -5970,6 +6172,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
     previous = next((item for item in reversed(quarters[:-1]) if isinstance(item, dict)), {})
     valuation = financials.get("valuation") if isinstance(financials.get("valuation"), dict) else {}
     valuation_metrics = valuation.get("valuation_metrics") if isinstance(valuation.get("valuation_metrics"), dict) else valuation
+    fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
     health = financials.get("health") if isinstance(financials.get("health"), dict) else {}
     external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
     official = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
@@ -6019,14 +6222,14 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
         walnut_call, article_judgment = "Neutral but expensive", "mixed"
         call_basis = "The available operating data does not support a clean directional score call."
         final_stand = "The stock is not cheap, and the next results need to settle the open questions."
-    forward_pe = valuation_metrics.get("forward_pe", valuation.get("forwardPE"))
+    forward_pe = valuation_metrics.get("forward_pe", valuation.get("forwardPE", fundamentals.get("forward_pe")))
     price_to_book = health.get("priceToBook")
     current_ratio = health.get("currentRatio")
     debt_to_equity = health.get("debtToEquity")
-    forward_pe_text = _format_brief_ratio(forward_pe)
-    price_to_book_text = _format_brief_ratio(price_to_book)
-    current_ratio_text = _format_brief_ratio(current_ratio)
-    debt_to_equity_text = _format_brief_ratio(debt_to_equity)
+    forward_pe_text = _format_brief_ratio(forward_pe) if forward_pe is not None else "not reported"
+    price_to_book_text = _format_brief_ratio(price_to_book) if price_to_book is not None else "not reported"
+    current_ratio_text = _format_brief_ratio(current_ratio) if current_ratio is not None else "not reported"
+    debt_to_equity_text = _format_brief_ratio(debt_to_equity) if debt_to_equity is not None else "not reported"
     catalysts = official.get("material_catalysts") if isinstance(official.get("material_catalysts"), list) else []
     catalyst_text = ", ".join(str(item) for item in catalysts[:4]) or "capacity deployment, ARR growth, and customer execution"
     question = str(config.get("research_question") or f"Is {symbol} stock overvalued?").strip().rstrip("?")
