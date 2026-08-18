@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+set -e
+set -u
 
 kind="${1:-}"
 

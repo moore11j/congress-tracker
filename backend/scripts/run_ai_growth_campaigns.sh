@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
-set -eu
+set -e
+set -u
 
 lock_dir="${AI_GROWTH_CAMPAIGN_LOCK_DIR:-/tmp/ai_growth_campaigns.lock}"
 max_seconds="${AI_GROWTH_CAMPAIGN_MAX_SECONDS:-900}"

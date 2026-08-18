@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+set -e
+set -u
 
 case "${FEED_PNL_REPAIR_ENABLED:-false}" in
   0|false|FALSE|no|NO|off|OFF)

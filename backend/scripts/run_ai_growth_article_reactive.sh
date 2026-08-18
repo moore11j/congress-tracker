@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
-set -eu
+set -e
+set -u
 
 if [ "${AI_GROWTH_ARTICLE_AUTOMATION_ENABLED:-false}" != "true" ]; then
   echo "AI Growth article-reactive automation disabled; set AI_GROWTH_ARTICLE_AUTOMATION_ENABLED=true to run."

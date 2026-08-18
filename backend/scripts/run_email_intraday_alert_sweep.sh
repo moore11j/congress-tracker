@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+set -e
+set -u
 
 lookback_minutes="${EMAIL_ALERT_SWEEP_LOOKBACK_MINUTES:-60}"
 limit="${EMAIL_ALERT_SWEEP_LIMIT:-100}"

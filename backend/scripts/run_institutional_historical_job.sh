@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+set -e
+set -u
 
 case "${INSTITUTIONAL_HISTORICAL_BACKFILL_ENABLED:-false}" in
   1|true|TRUE|yes|YES|on|ON)

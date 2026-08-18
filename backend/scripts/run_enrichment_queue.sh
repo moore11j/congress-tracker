@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+set -e
+set -u
 
 case "${FMP_BACKGROUND_REFRESH_ENABLED:-true}" in
   0|false|FALSE|no|NO|off|OFF)

@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+set -e
+set -u
 
 if [ "${RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED:-0}" != "1" ]; then
   echo "Research campaign scheduler disabled. Set RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED=1 to enable."
