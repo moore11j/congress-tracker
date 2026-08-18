@@ -720,6 +720,10 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       const response = await (read ? markMonitoringItemsRead(itemIds) : markMonitoringItemsUnread(itemIds));
       setSelectedItemIds((current) => current.filter((id) => !itemIds.includes(id)));
       applyMutationSuccess(response);
+      // Counts can cover more alerts than the initial inbox window. Refill
+      // after a read-state mutation so an active unread/read filter never
+      // appears empty while matching alerts still exist on the server.
+      void refreshInbox();
     } catch {
       void refreshInbox();
       setReadActionMessage(read ? "Unable to mark the selected updates read." : "Unable to mark the selected updates unread.");
