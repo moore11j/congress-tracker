@@ -597,7 +597,7 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert draft["article"]["preview_body"]
     assert draft["validation"]["status"] == "passed"
     assert draft["validation"]["source_link_count"] >= 2
-    assert draft["model"] == "gpt-5.6-luna"
+    assert draft["model"] == "gpt-5.4-mini"
     saved = service.list_drafts(db=db)["items"]
     assert saved[0]["id"] == draft["id"]
 
@@ -1248,13 +1248,13 @@ def test_saving_scheduled_campaign_draft_preserves_scheduler_status(status):
     assert saved["status"] == status
 
 
-def test_model_options_default_to_luna_and_terra(monkeypatch):
+def test_model_options_default_to_cost_efficient_mini(monkeypatch):
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)
 
-    assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra"]
-    assert service.research_brief_model(None) == "gpt-5.6-luna"
-    assert service.research_brief_model_labels(None)["gpt-5.6-luna"] == "GPT-5.6 Luna"
+    assert service.research_brief_model_options(None) == ["gpt-5.4-mini"]
+    assert service.research_brief_model(None) == "gpt-5.4-mini"
+    assert service.research_brief_model_labels(None)["gpt-5.4-mini"] == "GPT-5.4 mini"
 
 
 def test_quality_gate_revision_uses_prior_draft_and_compact_fact_packet(monkeypatch):
@@ -1283,7 +1283,7 @@ def test_quality_gate_revision_uses_prior_draft_and_compact_fact_packet(monkeypa
         context,
     )
 
-    assert article["_model"] == "gpt-5.6-luna"
+    assert article["_model"] == "gpt-5.4-mini"
     assert captured["store"] is False
     assert captured["max_output_tokens"] == 6000
     assert "PRIOR DRAFT TO REVISE:" in captured["input"]
@@ -1291,7 +1291,7 @@ def test_quality_gate_revision_uses_prior_draft_and_compact_fact_packet(monkeypa
     assert "Walnut research context:" not in captured["input"]
 
 
-def test_research_brief_default_model_stays_luna_for_campaign_audiences(monkeypatch):
+def test_research_brief_default_model_stays_mini_for_campaign_audiences(monkeypatch):
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)
 
@@ -1301,16 +1301,18 @@ def test_research_brief_default_model_stays_luna_for_campaign_audiences(monkeypa
         desired_angle="Valuation and catalysts",
     ).model_dump()
 
-    assert service._selected_research_model(config) == "gpt-5.6-luna"
+    assert service._selected_research_model(config) == "gpt-5.4-mini"
 
 
 def test_research_briefs_do_not_restore_sol_from_environment(monkeypatch):
     monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, "gpt-5.6-sol")
-    monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, "gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra")
+    monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, "gpt-5.4-mini,gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra")
 
-    assert service.research_brief_model(None) == "gpt-5.6-luna"
-    assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra"]
-    assert service._selected_research_model(_payload(selected_model="gpt-5.6-sol").model_dump()) == "gpt-5.6-luna"
+    assert service.research_brief_model(None) == "gpt-5.4-mini"
+    assert service.research_brief_model_options(None) == ["gpt-5.4-mini"]
+    assert service._selected_research_model(_payload(selected_model="gpt-5.6-sol").model_dump()) == "gpt-5.4-mini"
+    assert service._selected_research_model(_payload(selected_model="gpt-5.6-luna").model_dump()) == "gpt-5.4-mini"
+    assert service._selected_research_model(_payload(selected_model="gpt-5.6-terra").model_dump()) == "gpt-5.4-mini"
 
 
 def test_article_schema_is_strict_structured_output_compatible():

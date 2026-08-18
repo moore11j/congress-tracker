@@ -43,12 +43,13 @@ RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
 STORE_ENV = "RESEARCH_BRIEF_DRAFT_STORE_PATH"
 MOCK_ENV = "RESEARCH_BRIEF_GENERATOR_MOCK"
-DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.6-luna"
-DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.6-luna", "gpt-5.6-terra"]
-RETIRED_RESEARCH_BRIEF_MODELS = {"gpt-5.6-sol"}
+DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.4-mini"
+DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.4-mini"]
+# Full research briefs need more capability than headline classification, but the
+# previous 5.6 choices are no longer permitted for this cost-sensitive workflow.
+RETIRED_RESEARCH_BRIEF_MODELS = {"gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"}
 RESEARCH_BRIEF_MODEL_LABELS = {
-    "gpt-5.6-luna": "GPT-5.6 Luna",
-    "gpt-5.6-terra": "GPT-5.6 Terra",
+    "gpt-5.4-mini": "GPT-5.4 mini",
 }
 logger = logging.getLogger(__name__)
 RESEARCH_BRIEF_JOB_SAFE_ERROR = "Research brief generation failed. Try again or reduce research depth."
@@ -57,8 +58,7 @@ RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS = "RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS"
 RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS = "RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS"
 RESEARCH_BRIEF_JOB_STALE_SECONDS = "RESEARCH_BRIEF_JOB_STALE_SECONDS"
 RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
-    "gpt-5.6-luna": "Fast / cheaper",
-    "gpt-5.6-terra": "Balanced",
+    "gpt-5.4-mini": "Cost-efficient grounded research",
 }
 
 ANGLE_OPTIONS = {
