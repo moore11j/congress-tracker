@@ -42,12 +42,12 @@ RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
 STORE_ENV = "RESEARCH_BRIEF_DRAFT_STORE_PATH"
 MOCK_ENV = "RESEARCH_BRIEF_GENERATOR_MOCK"
-DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.6-terra"
-DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
+DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.6-luna"
+DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.6-luna", "gpt-5.6-terra"]
+RETIRED_RESEARCH_BRIEF_MODELS = {"gpt-5.6-sol"}
 RESEARCH_BRIEF_MODEL_LABELS = {
     "gpt-5.6-luna": "GPT-5.6 Luna",
     "gpt-5.6-terra": "GPT-5.6 Terra",
-    "gpt-5.6-sol": "GPT-5.6 Sol",
 }
 logger = logging.getLogger(__name__)
 RESEARCH_BRIEF_JOB_SAFE_ERROR = "Research brief generation failed. Try again or reduce research depth."
@@ -58,7 +58,6 @@ RESEARCH_BRIEF_JOB_STALE_SECONDS = "RESEARCH_BRIEF_JOB_STALE_SECONDS"
 RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
     "gpt-5.6-luna": "Fast / cheaper",
     "gpt-5.6-terra": "Balanced",
-    "gpt-5.6-sol": "Deep research / highest quality",
 }
 
 ANGLE_OPTIONS = {
@@ -373,13 +372,17 @@ _JOB_WORKERS: dict[str, threading.Thread] = {}
 
 def research_brief_model(db: Session | None = None) -> str:
     configured = os.getenv(RESEARCH_BRIEF_MODEL_DEFAULT, "").strip() or os.getenv(RESEARCH_BRIEF_GENERATOR_MODEL, "").strip()
-    if configured:
+    if configured and configured not in RETIRED_RESEARCH_BRIEF_MODELS:
         return configured
     return DEFAULT_RESEARCH_BRIEF_MODEL
 
 
 def research_brief_model_options(db: Session | None = None) -> list[str]:
-    configured = [item.strip() for item in os.getenv(RESEARCH_BRIEF_MODEL_OPTIONS, "").split(",") if item.strip()]
+    configured = [
+        item.strip()
+        for item in os.getenv(RESEARCH_BRIEF_MODEL_OPTIONS, "").split(",")
+        if item.strip() and item.strip() not in RETIRED_RESEARCH_BRIEF_MODELS
+    ]
     default = research_brief_model(db)
     options = configured or list(DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS)
     if default not in options:
@@ -389,7 +392,7 @@ def research_brief_model_options(db: Session | None = None) -> list[str]:
 
 def research_brief_model_descriptions(db: Session | None = None) -> dict[str, str]:
     options = research_brief_model_options(db)
-    labels = ["Fast / cheaper", "Balanced", "Deep research / highest quality"]
+    labels = ["Fast / cheaper", "Balanced"]
     return {model: RESEARCH_BRIEF_MODEL_DESCRIPTIONS.get(model) or labels[min(index, len(labels) - 1)] for index, model in enumerate(options)}
 
 
@@ -401,22 +404,16 @@ def _selected_research_model(config: dict[str, Any], db: Session | None = None, 
     options = research_brief_model_options(db)
     selected = str(config.get("selected_model") or "").strip()
     if selected:
+        if selected in RETIRED_RESEARCH_BRIEF_MODELS:
+            if not strict:
+                return ""
+            raise HTTPException(status_code=422, detail="Selected research model is no longer available for research briefs.")
         if selected not in options:
             if not strict:
                 return ""
             raise HTTPException(status_code=422, detail="Selected research model is not configured for this environment.")
         return selected
-    serious = (
-        str(config.get("section_format") or "") != "X Thread"
-        and str(config.get("intended_audience") or "") != "General investors"
-        and (
-            "valuation" in str(config.get("desired_angle") or "").lower()
-            or "dcf" in str(config.get("research_question") or "").lower()
-            or "dd" in str(config.get("section_format") or "").lower()
-            or str(config.get("intended_audience") or "") in {"Reddit DD", "Walnut Research Brief", "Professional / advanced"}
-        )
-    )
-    return options[-1] if serious else research_brief_model(db)
+    return research_brief_model(db)
 
 
 def draft_store_path() -> Path:

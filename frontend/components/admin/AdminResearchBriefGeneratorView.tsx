@@ -157,17 +157,15 @@ const fallbackOptions: ResearchBriefOptions = {
     "X Thread",
     "Internal Analyst Note",
   ],
-  model_options: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
-  model_default: "gpt-5.6-terra",
+  model_options: ["gpt-5.6-luna", "gpt-5.6-terra"],
+  model_default: "gpt-5.6-luna",
   model_descriptions: {
     "gpt-5.6-luna": "Fast / cheaper",
     "gpt-5.6-terra": "Balanced",
-    "gpt-5.6-sol": "Deep research / highest quality",
   },
   model_labels: {
     "gpt-5.6-luna": "GPT-5.6 Luna",
     "gpt-5.6-terra": "GPT-5.6 Terra",
-    "gpt-5.6-sol": "GPT-5.6 Sol",
   },
   sections: DEFAULT_SECTIONS,
   campaign_themes: [

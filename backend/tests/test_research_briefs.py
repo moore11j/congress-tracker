@@ -572,7 +572,12 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     admin = _user(db, "admin@example.com", role="admin")
     response = Response()
 
-    job = admin_research_brief_generate(_payload(client_request_id="req-1"), _request_for_user(admin), response=response, db=db)
+    job = admin_research_brief_generate(
+        _payload(client_request_id="req-1", target_keyword="MU"),
+        _request_for_user(admin),
+        response=response,
+        db=db,
+    )
 
     assert response.status_code == 202
     assert job["status"] == "queued"
@@ -582,6 +587,7 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     service.run_research_brief_generation_job(job["job_id"], db)
     store_path.unlink(missing_ok=True)
     completed = service.get_research_brief_generation_job(job["job_id"], db)
+    assert completed["status"] == "completed", completed
     draft = service.get_research_brief_generation_job_draft(job["job_id"], db)
 
     assert completed["status"] == "completed"
@@ -591,7 +597,7 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert draft["article"]["preview_body"]
     assert draft["validation"]["status"] == "passed"
     assert draft["validation"]["source_link_count"] >= 2
-    assert draft["model"] == "gpt-5.6-sol"
+    assert draft["model"] == "gpt-5.6-luna"
     saved = service.list_drafts(db=db)["items"]
     assert saved[0]["id"] == draft["id"]
 
@@ -1216,13 +1222,37 @@ def test_saving_scheduled_campaign_draft_preserves_scheduler_status(status):
     assert saved["status"] == status
 
 
-def test_model_options_default_to_luna_terra_sol(monkeypatch):
+def test_model_options_default_to_luna_and_terra(monkeypatch):
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
     monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)
 
-    assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
-    assert service.research_brief_model(None) == "gpt-5.6-terra"
+    assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra"]
+    assert service.research_brief_model(None) == "gpt-5.6-luna"
     assert service.research_brief_model_labels(None)["gpt-5.6-luna"] == "GPT-5.6 Luna"
+
+
+def test_research_brief_default_model_stays_luna_for_campaign_audiences(monkeypatch):
+    monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
+    monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)
+
+    config = _payload(
+        intended_audience="Walnut Research Brief",
+        research_question="Is MU fairly valued after earnings?",
+        desired_angle="Valuation and catalysts",
+    ).model_dump()
+
+    assert service._selected_research_model(config) == "gpt-5.6-luna"
+
+
+def test_research_briefs_do_not_restore_sol_from_environment(monkeypatch):
+    monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, "gpt-5.6-sol")
+    monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, "gpt-5.6-luna,gpt-5.6-sol,gpt-5.6-terra")
+
+    assert service.research_brief_model(None) == "gpt-5.6-luna"
+    assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra"]
+    with pytest.raises(HTTPException) as exc:
+        service._selected_research_model(_payload(selected_model="gpt-5.6-sol").model_dump())
+    assert exc.value.status_code == 422
 
 
 def test_article_schema_is_strict_structured_output_compatible():
