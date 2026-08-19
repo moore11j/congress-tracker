@@ -344,8 +344,28 @@ MISSING_DATA_AWKWARD_RE = re.compile(
     r"\b(not supplied|was supplied|were supplied|no .* was supplied|reviewed materials do not provide|supplied materials|supplied context|research configuration)\b",
     re.IGNORECASE,
 )
+BANNED_AI_WATERMARK_WORDS = (
+    "furthermore",
+    "moreover",
+    "in conclusion",
+    "strictly speaking",
+    "fundamentally",
+    "inherently",
+    "delve",
+    "leverage",
+    "utilize",
+    "foster",
+    "optimize",
+    "revolutionize",
+    "underscore",
+    "crucial",
+    "paramount",
+    "meticulous",
+    "bespoke",
+    "testament",
+)
+BANNED_AI_WATERMARK_PATTERN = r"\b(?:" + "|".join(re.escape(word) for word in BANNED_AI_WATERMARK_WORDS) + r")\b"
 STYLE_TIC_PATTERNS = [
-    ("banned AI watermark word", r"\b(?:furthermore|moreover|in conclusion|strictly speaking|fundamentally|inherently|delve|leverage|utilize|foster|optimize|revolutionize|underscore|crucial|paramount|meticulous|bespoke|testament)\b"),
     ("unnecessary hyphenation", r"\b(?:capital-intensive|free-cash-flow|self-funded|ai-cloud|balance-sheet|watch-and-verify)\b"),
     ("reviewed record supplied", r"\bthe reviewed record supplied\b"),
     ("available evidence does not permit", r"\bthe available evidence does not permit\b"),
@@ -4751,10 +4771,17 @@ def generate_research_brief(
                     "quality_gate_repair_notes": repair_notes,
                     "elapsed_ms": int((time.perf_counter() - started) * 1000),
                 }
-            raise HTTPException(status_code=422, detail=message)
+            validation["saved_with_validation_errors"] = True
+            validation["quality_gate_error"] = message
+            if repair_notes:
+                validation["auto_repair_notes"] = repair_notes
+            article["_saved_with_validation_errors"] = True
         article = _attach_research_thumbnail(db, normalized_config, article, progress_callback)
         if progress_callback:
-            progress_callback("saving_draft", "Saving generated draft.")
+            progress_callback(
+                "saving_draft",
+                "Saving generated draft for manual review." if validation.get("saved_with_validation_errors") else "Saving generated draft.",
+            )
         return _persist_generated_research_draft(
             db,
             admin,
@@ -5855,6 +5882,15 @@ def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any])
     text = _article_full_text(article)
     lowered = text.lower()
     warnings: list[dict[str, Any]] = []
+    watermark_words = sorted({match.group(0).lower() for match in re.finditer(BANNED_AI_WATERMARK_PATTERN, lowered, flags=re.IGNORECASE)})
+    if watermark_words:
+        warnings.append(
+            _warning(
+                "ai_watermark_words",
+                f"AI watermark words detected: {', '.join(watermark_words)}. Watched words: {', '.join(BANNED_AI_WATERMARK_WORDS)}.",
+                blocking=False,
+            )
+        )
     hits = [label for label, pattern in STYLE_TIC_PATTERNS if re.search(pattern, lowered, flags=re.IGNORECASE | re.DOTALL)]
     if hits:
         warnings.append(_warning("ai_style_tics", f"Generic AI-writing patterns detected: {', '.join(hits[:6])}.", blocking=True))

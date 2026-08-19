@@ -677,6 +677,82 @@ def test_manual_generation_repairs_validation_failure_before_saving(tmp_path, mo
     assert draft["article"]["title"] == "MU Earnings Research Brief: What Matters Now"
 
 
+def test_manual_generation_saves_draft_when_validation_repair_is_exhausted(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv(service.RESEARCH_BRIEF_QUALITY_REPAIR_ATTEMPTS, "1")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "manual-edit-admin@example.com", role="admin")
+    calls: list[str] = []
+
+    def fake_post(*_args, **kwargs):
+        calls.append(kwargs["json"]["input"])
+
+        class Response:
+            status_code = 200
+
+            def json(self):
+                article = {
+                    "title": "MU Preview",
+                    "slug": "mu-validation-warning-draft",
+                    "subtitle": "A Walnut research brief on MU.",
+                    "summary": "MU draft for manual review. Research only. Not investment advice.",
+                    "preview_body": "MU draft for manual review. Research only. Not investment advice.",
+                    "judgment": "bullish",
+                    "walnut_call": "Bullish",
+                    "confidence": "medium",
+                    "primary_ticker": "MU",
+                    "comparison_tickers": [],
+                    "category": "Semiconductors",
+                    "reading_minutes": 5,
+                    "sections": [
+                        {
+                            "key": "thesis",
+                            "heading": "Executive thesis",
+                            "body_markdown": (
+                                "MU is the subject, but this body intentionally omits the full target keyword from the title. "
+                                "Research only. Not investment advice. Sources: https://www.sec.gov/edgar/search/#/q=MU and https://www.nasdaq.com/market-activity/stocks/mu. "
+                                + "Evidence remains specific and useful for investors. " * 30
+                            ),
+                        }
+                    ],
+                    "key_points": ["MU remains the subject."],
+                    "catalysts": ["Next earnings update"],
+                    "risks": ["Cycle risk"],
+                    "watch_items": ["Revenue growth", "Gross margin"],
+                    "data_freshness": ["2026-07-20"],
+                    "missing_data_notes": [],
+                    "source_links": [
+                        {"label": "SEC EDGAR company search", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+                        {"label": "MU Nasdaq market activity", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+                    ],
+                    "suggested_card": {"title": "MU Preview", "description": "A Walnut research brief on MU.", "judgment": "Bullish", "tickers": ["MU"]},
+                    "seo": {"title": "MU Preview", "description": "Walnut MU research. Not investment advice."},
+                }
+                return {"output_text": json.dumps(article), "usage": {"input_tokens": 100, "output_tokens": 200}}
+
+        return Response()
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+
+    draft = service.generate_research_brief(
+        db,
+        admin,
+        _payload(
+            target_keyword="MU earnings research brief",
+            research_question="Create an MU earnings research brief for investors.",
+            generate_thumbnail=False,
+        ).model_dump(),
+    )
+
+    assert len(calls) == 2
+    assert draft["status"] == "draft"
+    assert draft["validation"]["status"] == "failed"
+    assert draft["validation"]["saved_with_validation_errors"] is True
+    assert draft["validation"]["quality_gate_error"].startswith("Draft generation failed validation.")
+
+
 def test_research_brief_generation_dedupes_client_request_id(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
@@ -1064,6 +1140,29 @@ def test_walnut_data_fallback_marks_low_information_density_for_review_not_failu
 
     density_warning = next(warning for warning in warnings if warning["code"] == "low_information_density")
     assert density_warning["blocking"] is False
+
+
+def test_ai_watermark_words_warn_without_blocking():
+    article = {
+        "title": "MU earnings setup",
+        "sections": [
+            {
+                "body_markdown": (
+                    "Fundamentally, MU can leverage HBM demand, but the valuation still needs source-backed support. "
+                    "This sentence is intentionally short because the style warning is tested directly."
+                )
+            }
+        ],
+    }
+    context = {"primary": {"identity": {"symbol": "MU", "company_name": "Micron"}}}
+
+    warnings = service._style_validation_warnings(article, context)
+
+    watermark_warning = next(warning for warning in warnings if warning["code"] == "ai_watermark_words")
+    assert watermark_warning["blocking"] is False
+    assert "fundamentally" in watermark_warning["message"]
+    assert "leverage" in watermark_warning["message"]
+    assert "Watched words:" in watermark_warning["message"]
 
 
 def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path, monkeypatch):
