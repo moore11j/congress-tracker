@@ -180,7 +180,42 @@ OFFICIAL_SOURCE_PROFILES: dict[str, dict[str, Any]] = {
     "GOOGL": {"company_earnings_sources": [{"label": "Alphabet Investor Relations earnings", "url": "https://abc.xyz/investor/", "source_type": "official_company_earnings"}]},
     "GOOG": {"company_earnings_sources": [{"label": "Alphabet Investor Relations earnings", "url": "https://abc.xyz/investor/", "source_type": "official_company_earnings"}]},
     "AMZN": {"company_earnings_sources": [{"label": "Amazon Investor Relations quarterly results", "url": "https://ir.aboutamazon.com/quarterly-results/default.aspx", "source_type": "official_company_earnings"}]},
-    "NVDA": {"company_earnings_sources": [{"label": "NVIDIA Investor Relations financial reports", "url": "https://investor.nvidia.com/financial-info/financial-reports/default.aspx", "source_type": "official_company_earnings"}]},
+    "NVDA": {
+        "company_earnings_sources": [
+            {
+                "label": "NVIDIA Q2 FY2027 financial results event",
+                "url": "https://investor.nvidia.com/events-and-presentations/events-and-presentations/event-details/2026/NVIDIA-2nd-Quarter-FY27-Financial-Results/default.aspx",
+                "source_type": "official_company_earnings",
+            },
+            {
+                "label": "NVIDIA Q1 FY2027 financial results",
+                "url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-First-Quarter-Fiscal-2027/default.aspx",
+                "source_type": "official_company_earnings",
+            },
+            {
+                "label": "NVIDIA Investor Relations financial reports",
+                "url": "https://investor.nvidia.com/financial-info/financial-reports/default.aspx",
+                "source_type": "official_company_ir",
+            },
+        ],
+        "source_notes": [
+            "For NVDA earnings setup, use NVIDIA's official Q2 FY2027 event page and Q1 FY2027 reported results before generic market sources.",
+        ],
+        "official_facts": {
+            "upcoming_earnings_date": {"value": "2026-08-26", "period": "Q2 FY2027", "source": "NVIDIA Q2 FY2027 financial results event"},
+            "latest_official_quarter": "Q1 FY2027",
+            "quarter_end": "2026-04-26",
+            "previous_quarter_revenue": {"value": 81.615, "unit": "USD billions", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "previous_quarter_eps": {"value": 2.39, "unit": "USD GAAP diluted EPS", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "previous_quarter_non_gaap_eps": {"value": 1.87, "unit": "USD non-GAAP diluted EPS", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "previous_quarter_result": {"value": "reported", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "revenue": {"value": 81.615, "unit": "USD billions", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "revenue_growth": {"value": 85, "unit": "% YoY", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "gross_margin": {"value": 74.9, "unit": "% GAAP", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "diluted_eps": {"value": 2.39, "unit": "USD GAAP diluted EPS", "period": "Q1 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+            "guidance": {"value": "Q2 FY2027 revenue expected to be $91.0 billion, plus or minus 2%; GAAP and non-GAAP gross margins expected to be 74.9% and 75.0%, plus or minus 50 basis points.", "period": "Q2 FY2027", "source": "NVIDIA Q1 FY2027 financial results release"},
+        },
+    },
     "MU": {"company_earnings_sources": [{"label": "Micron Investor Relations financial releases", "url": "https://investors.micron.com/news-releases", "source_type": "official_company_earnings"}]},
     "JPM": {"company_earnings_sources": [{"label": "JPMorgan Chase Investor Relations earnings", "url": "https://www.jpmorganchase.com/ir/quarterly-earnings", "source_type": "official_company_earnings"}]},
     "NBIS": {
@@ -4193,15 +4228,20 @@ def research_readiness(context: dict[str, Any]) -> dict[str, Any]:
 
     official = discovery.get("official_earnings_release") if isinstance(discovery.get("official_earnings_release"), dict) else {}
     sec = discovery.get("sec_filing") if isinstance(discovery.get("sec_filing"), dict) else {}
+    source_prior = discovery.get("prior_quarter_results") if isinstance(discovery.get("prior_quarter_results"), dict) else {}
+    has_prior_revenue = bool(availability.get("previous quarter revenue") or official_facts.get("previous_quarter_revenue") or official_facts.get("revenue"))
+    has_prior_eps = bool(availability.get("previous quarter eps") or official_facts.get("previous_quarter_eps") or official_facts.get("diluted_eps"))
+    has_prior_results = bool((has_prior_revenue and has_prior_eps) or source_prior.get("status") == "found")
+    has_prior_result = bool(availability.get("previous quarter result") or official_facts.get("previous_quarter_result") or (has_prior_results and official_facts.get("latest_official_quarter")))
     rows = [
         _readiness_row("Primary company", bool(identity.get("symbol") and identity.get("company_name")), detail=identity.get("company_name") or identity.get("symbol")),
         _readiness_row("Upcoming earnings date", bool(official_facts.get("upcoming_earnings_date") or availability.get("upcoming earnings date")), required=is_earnings),
         _readiness_row("Official earnings release", official.get("status") == "found", required=is_earnings, detail=official.get("url")),
         _readiness_row("SEC filing", sec.get("status") == "found", required=is_earnings, detail=sec.get("url")),
         _readiness_row("Consensus estimates", bool(availability.get("revenue consensus") and availability.get("eps consensus")), required=is_earnings),
-        _readiness_row("Prior quarter results", bool(availability.get("previous quarter revenue") and availability.get("previous quarter eps")), required=is_earnings),
+        _readiness_row("Prior quarter results", has_prior_results, required=is_earnings),
         _readiness_row("Prior quarter consensus", bool(availability.get("previous quarter consensus")), required=False),
-        _readiness_row("Prior earnings result", bool(availability.get("previous quarter result")), required=is_earnings),
+        _readiness_row("Prior earnings result", has_prior_result, required=is_earnings),
         _readiness_row("Company guidance", bool(availability.get("guidance")), required=False),
         _readiness_row("Walnut ticker data", bool(primary.get("quote") or primary.get("fundamentals") or primary.get("confirmation"))),
         _readiness_row("Comparison context", bool(comparisons), required=False, detail=", ".join(str(((item.get("identity") or {}).get("symbol") or "")) for item in comparisons if isinstance(item, dict))),

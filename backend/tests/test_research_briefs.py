@@ -1552,6 +1552,38 @@ def test_aapl_context_uses_primary_ticker_confirmation_and_sources(monkeypatch):
     assert context["external_research"]["official_facts"]["diluted_eps"]["value"] == 2.01
 
 
+def test_nvda_earnings_setup_profile_fills_required_readiness(monkeypatch):
+    monkeypatch.setattr(service, "_sec_company_record", lambda symbol: {"ticker": symbol, "cik_str": 1045810, "title": "NVIDIA CORP"})
+    monkeypatch.setattr(service, "_sec_company_facts", lambda _cik: {})
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"NVDA": {**_confirmation_bundle(82), "symbol": "NVDA"}})
+    db = _session()
+    _seed_ticker(db, "NVDA")
+    _seed_financials_cache(db, "NVDA")
+
+    context = service.assemble_research_context(
+        db,
+        _payload(
+            ticker="NVDA",
+            desired_angle="Earnings setup",
+            research_question="Create an NVDA earnings research brief.",
+            external_research_mode="Standard",
+        ).model_dump(),
+    )
+
+    readiness = context["research_readiness"]
+    rows = {row["label"]: row["status"] for row in readiness["rows"]}
+
+    assert readiness["status"] == "ready"
+    assert rows["Upcoming earnings date"] == "found"
+    assert rows["Official earnings release"] == "found"
+    assert rows["SEC filing"] == "found"
+    assert rows["Consensus estimates"] == "found"
+    assert rows["Prior quarter results"] == "found"
+    assert rows["Prior earnings result"] == "found"
+    assert context["external_research"]["official_facts"]["upcoming_earnings_date"]["value"] == "2026-08-26"
+    assert context["external_research"]["official_facts"]["previous_quarter_revenue"]["value"] == 81.615
+
+
 def test_earnings_setup_stops_before_openai_when_research_not_ready(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setattr(service, "_sec_company_record", lambda _symbol: None)
