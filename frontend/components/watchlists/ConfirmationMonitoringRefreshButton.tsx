@@ -11,6 +11,8 @@ type Props = {
   initialEvents: ConfirmationMonitoringEvent[];
 };
 
+const confirmationEventLimit = 12;
+
 function eventScoreDelta(event: ConfirmationMonitoringEvent) {
   if (typeof event.score_before !== "number" || typeof event.score_after !== "number") return null;
   const delta = event.score_after - event.score_before;
@@ -42,7 +44,7 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   useEffect(() => {
     if (initialEvents.length > 0) return;
     let cancelled = false;
-    getWatchlistConfirmationEvents(watchlistId, { limit: 5 })
+    getWatchlistConfirmationEvents(watchlistId, { limit: confirmationEventLimit })
       .then((result) => {
         if (!cancelled) setEvents(result.items ?? []);
       })
@@ -61,7 +63,8 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
       const result = await refreshWatchlistConfirmationMonitoring(watchlistId);
       const generated = Math.max(result.generated ?? 0, 0);
       const initialized = Math.max(result.initialized ?? 0, 0);
-      if (result.items?.length) setEvents(result.items);
+      const latestEvents = await getWatchlistConfirmationEvents(watchlistId, { limit: confirmationEventLimit });
+      setEvents(latestEvents.items ?? result.items ?? []);
       setStatus(
         generated > 0
           ? `${generated} change${generated === 1 ? "" : "s"} found`
@@ -111,7 +114,7 @@ export function ConfirmationMonitoringPanel({ watchlistId, initialEvents }: Prop
   const confirmEvent = confirmTarget && confirmTarget !== "all" ? confirmTarget : null;
 
   return (
-    <div className="relative isolate border-y border-white/10 py-4">
+    <div className="relative isolate h-full border-y border-white/10 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Confirmation monitor</h2>

@@ -146,7 +146,7 @@ export function WatchlistDetailClient({
         const [entitlements, confirmationEventsResponse, activity] = await Promise.all([
           getEntitlements(undefined, { source: "WatchlistDetailClient" }).catch(() => defaultEntitlements),
           getWatchlistConfirmationEvents(watchlistId, {
-            limit: 5,
+            limit: 12,
             signal: controller.signal,
             source: "WatchlistEvents",
           }),

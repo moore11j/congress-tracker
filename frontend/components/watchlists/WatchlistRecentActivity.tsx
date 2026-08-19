@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type EventItem,
   getWatchlistEvents,
@@ -36,6 +36,14 @@ const modeOptions: { value: ActivityMode; label: string }[] = [
   { value: "government_contracts", label: "Contracts" },
   { value: "news", label: "News" },
   { value: "press", label: "Press" },
+];
+
+type ActivitySort = "newest" | "type" | "ticker";
+
+const activitySortOptions: { value: ActivitySort; label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "type", label: "Activity type" },
+  { value: "ticker", label: "Ticker A–Z" },
 ];
 
 function buildActivityUrl(watchlistId: number, state: WatchlistActivityState, cursor?: string | null, offset?: number) {
@@ -88,6 +96,12 @@ function activityCopy(item: FeedItem) {
   if (kind.includes("press")) return { category: "Press releases", detail: item.transaction_type || item.security?.name || "New company release" };
   if (kind.includes("news")) return { category: "News", detail: item.transaction_type || item.security?.name || "New market news" };
   return { category: "Watchlist activity", detail: item.transaction_type || item.security?.name || "New monitoring activity" };
+}
+
+function activityTimestamp(item: FeedItem) {
+  const value = item.report_date || item.trade_date;
+  const timestamp = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function activityIcon(category: string) {
@@ -154,7 +168,21 @@ export function WatchlistRecentActivity({
   const [error, setError] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
+  const [sort, setSort] = useState<ActivitySort>("newest");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const hasRequestedInitialData = useRef(initialData.items.length > 0 || initialState.onlyNew);
+
+  const sortedItems = useMemo(() => [...data.items].sort((left, right) => {
+    if (sort === "type") {
+      const category = activityCopy(left).category.localeCompare(activityCopy(right).category);
+      return category || activityTimestamp(right) - activityTimestamp(left);
+    }
+    if (sort === "ticker") {
+      const ticker = displaySymbol(left.security?.symbol).localeCompare(displaySymbol(right.security?.symbol));
+      return ticker || activityTimestamp(right) - activityTimestamp(left);
+    }
+    return activityTimestamp(right) - activityTimestamp(left);
+  }), [data.items, sort]);
 
   async function fetchActivity(nextState: WatchlistActivityState, cursor: string | null = null, nextPageIndex = 0) {
     setIsLoading(true);
@@ -236,9 +264,36 @@ export function WatchlistRecentActivity({
           <h2 className="text-lg font-semibold text-white">Recent activity</h2>
           <p className="text-sm text-slate-400">{data.items.length} events across {tickerCount} saved tickers</p>
         </div>
-        <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-slate-300" aria-label="Activity filters" title="Activity filters">
-          ≡
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setSortMenuOpen((open) => !open)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-slate-300 transition hover:border-emerald-300/40 hover:text-emerald-100"
+            aria-label="Sort recent activity"
+            aria-haspopup="menu"
+            aria-expanded={sortMenuOpen}
+            title="Sort recent activity"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current stroke-2" aria-hidden="true"><path d="M4 7h16M7 12h10m-7 5h4" strokeLinecap="round" /></svg>
+          </button>
+          {sortMenuOpen ? (
+            <div role="menu" aria-label="Sort recent activity" className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-40 rounded-lg border border-white/10 bg-slate-950 p-1 shadow-xl">
+              {activitySortOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={sort === option.value}
+                  onClick={() => { setSort(option.value); setSortMenuOpen(false); }}
+                  className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs font-semibold transition ${sort === option.value ? "bg-emerald-300/15 text-emerald-100" : "text-slate-300 hover:bg-white/[0.06] hover:text-white"}`}
+                >
+                  {option.label}
+                  {sort === option.value ? <span aria-hidden="true">✓</span> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -252,11 +307,11 @@ export function WatchlistRecentActivity({
 
       <div className="mt-3" aria-busy={isLoading}>
         {error ? <div className="rounded-lg border border-rose-300/20 bg-rose-500/10 p-3 text-sm text-rose-100">{error}</div> : null}
-        {isLoading && data.items.length === 0 ? <RecentActivitySkeleton /> : data.items.length === 0 ? (
+        {isLoading && data.items.length === 0 ? <RecentActivitySkeleton /> : sortedItems.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/15 px-3 py-5 text-sm text-slate-400">No recent activity for this view.</div>
         ) : (
           <div className="divide-y divide-white/10 overflow-hidden rounded-xl border border-white/10">
-            {data.items.map((item) => {
+            {sortedItems.map((item) => {
               const activity = activityCopy(item);
               const symbol = displaySymbol(item.security?.symbol);
               const symbolHref = tickerHref(symbol);
