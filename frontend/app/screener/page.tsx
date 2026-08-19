@@ -952,7 +952,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
           formId="screener-filters-form"
           dense={true}
           clearSelectionWhenPristine={true}
-          allowNotifications={false}
+          allowNotifications={true}
           allowDefaultView={false}
           defaultParams={{
             sort: "relevance",
