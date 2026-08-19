@@ -226,14 +226,18 @@ function plannedArticleKey(article: CampaignPlannedArticle) {
   return `${article.content_type}:${article.ticker || article.topic || ""}:${article.target_keyword || ""}`.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function plannedArticleFromOpportunity(opportunity: AdminResearchKeywordOpportunity): CampaignPlannedArticle {
-  const contentType = opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker";
+function plannedArticleFromOpportunity(
+  opportunity: AdminResearchKeywordOpportunity,
+  fallback?: { contentType?: "ticker" | "non_ticker"; ticker?: string | null; topic?: string | null },
+): CampaignPlannedArticle {
+  const contentType = fallback?.contentType || (opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker");
+  const ticker = contentType === "ticker" ? normalizeTickerSymbol(opportunity.ticker || fallback?.ticker || "") || null : null;
   return {
     id: opportunity.id,
     opportunity_id: opportunity.id,
     content_type: contentType,
-    ticker: contentType === "ticker" ? opportunity.ticker || null : null,
-    topic: contentType === "non_ticker" ? opportunity.topic || opportunity.target_keyword : null,
+    ticker,
+    topic: contentType === "non_ticker" ? opportunity.topic || fallback?.topic || opportunity.target_keyword : null,
     target_keyword: (opportunity.target_keyword || "").slice(0, 240),
     search_intent: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120),
     secondary_keywords: (opportunity.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
@@ -827,17 +831,24 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   }
 
   async function useKeywordOpportunity(opportunity: AdminResearchKeywordOpportunity) {
-    const contentType = opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker";
-    const plannedArticle = plannedArticleFromOpportunity(opportunity);
     setCampaignForm((current) => {
+      const opportunityContentType = opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker";
+      const hasExistingPlan = Boolean(current.tickers.length || current.topic || current.planned_articles?.length);
+      const contentType = hasExistingPlan ? current.content_type : opportunityContentType;
+      const fallbackTicker = opportunity.ticker || current.tickers[0] || "";
+      const plannedArticle = plannedArticleFromOpportunity(opportunity, {
+        contentType,
+        ticker: fallbackTicker,
+        topic: current.topic || opportunity.topic || opportunity.target_keyword,
+      });
       const currentPlan = plannedArticlesFromForm(current);
       const hasArticle = currentPlan.some((item) => item.opportunity_id === opportunity.id || plannedArticleKey(item) === plannedArticleKey(plannedArticle));
       const nextPlan = hasArticle ? currentPlan : [...currentPlan, plannedArticle];
-      const nextTickers = contentType === "ticker" && opportunity.ticker ? Array.from(new Set([...current.tickers, opportunity.ticker])) : [];
+      const nextTickers = contentType === "ticker" && plannedArticle.ticker ? Array.from(new Set([...current.tickers, plannedArticle.ticker])) : [];
       return {
         ...current,
         name: current.name || opportunity.target_keyword,
-        theme: options.campaign_themes.some((theme) => theme.key === opportunity.recommended_theme) ? opportunity.recommended_theme : current.theme,
+        theme: current.theme || (options.campaign_themes.some((theme) => theme.key === opportunity.recommended_theme) ? opportunity.recommended_theme : current.theme),
         content_type: contentType,
         tickers: nextTickers,
         topic: contentType === "non_ticker" ? (opportunity.topic || opportunity.target_keyword) : current.topic,
@@ -845,8 +856,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         target_keyword: current.target_keyword || (opportunity.target_keyword || "").slice(0, 240),
         secondary_keywords: current.secondary_keywords?.length ? current.secondary_keywords : (opportunity.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
         search_intent: current.search_intent || (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120),
-        target_keywords: contentType === "ticker" && opportunity.ticker ? { ...current.target_keywords, [opportunity.ticker]: (opportunity.target_keyword || "").slice(0, 240) } : {},
-        target_search_intents: contentType === "ticker" && opportunity.ticker ? { ...current.target_search_intents, [opportunity.ticker]: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120) } : {},
+        target_keywords: contentType === "ticker" && plannedArticle.ticker ? { ...current.target_keywords, [plannedArticle.ticker]: (opportunity.target_keyword || "").slice(0, 240) } : {},
+        target_search_intents: contentType === "ticker" && plannedArticle.ticker ? { ...current.target_search_intents, [plannedArticle.ticker]: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120) } : {},
         source_opportunity_ids: current.source_opportunity_ids?.includes(opportunity.id) ? current.source_opportunity_ids : [...(current.source_opportunity_ids || []), opportunity.id],
         planned_articles: nextPlan,
       };
@@ -2273,7 +2284,7 @@ function CampaignsPanel({
   };
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(22rem,0.7fr)_minmax(0,1.3fr)]">
-      <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+      <div className="min-w-0 rounded-lg border border-white/10 bg-slate-950/55 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-base font-semibold text-white">{editingCampaign ? "Edit Campaign" : "Create Campaign"}</h3>
@@ -2400,10 +2411,12 @@ function CampaignsPanel({
             </label>
           </div>
           <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities and set Over days to 3. Added opportunities remain in the article plan until you save, cancel, or dismiss them. Then use Run Now to preview drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
-          <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? (editingCampaign ? "Saving..." : "Creating...") : (editingCampaign ? "Save Changes" : "Create Campaign")}</Button>
+          <div className="flex min-w-0">
+            <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? (editingCampaign ? "Saving..." : "Creating...") : (editingCampaign ? "Save Changes" : "Create Campaign")}</Button>
+          </div>
         </div>
       </div>
-      <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+      <div className="min-w-0 rounded-lg border border-white/10 bg-slate-950/55 p-4">
         <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.03] p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

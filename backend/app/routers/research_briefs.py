@@ -122,6 +122,7 @@ class ResearchCampaignPayload(BaseModel):
     target_keywords: dict[str, str] = Field(default_factory=dict)
     target_search_intents: dict[str, str] = Field(default_factory=dict)
     source_opportunity_ids: list[str] = Field(default_factory=list, max_length=50)
+    planned_articles: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
 
 
 class ResearchKeywordDiscoveryPayload(BaseModel):

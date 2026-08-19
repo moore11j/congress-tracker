@@ -2749,6 +2749,7 @@ def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, A
     existing_source_ids = set((existing.get("config") or {}).get("source_opportunity_ids") or [])
     new_source_ids = [item for item in config.get("source_opportunity_ids") or [] if item not in existing_source_ids]
     if new_source_ids:
+        campaign_owner_id = existing.get("created_by")
         opportunity_params = {f"opportunity_{index}": opportunity_id for index, opportunity_id in enumerate(new_source_ids)}
         placeholders = ", ".join(f":{key}" for key in opportunity_params)
         selected_rows = db.execute(
@@ -2756,7 +2757,7 @@ def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, A
                 f"SELECT id FROM research_keyword_opportunities "
                 f"WHERE id IN ({placeholders}) AND status = 'new' AND created_by = :created_by"
             ),
-            {**opportunity_params, "created_by": admin.id},
+            {**opportunity_params, "created_by": campaign_owner_id},
         ).mappings().all()
         if {str(row["id"]) for row in selected_rows} != set(new_source_ids):
             raise HTTPException(status_code=409, detail="One or more newly selected keyword opportunities are no longer available. Refresh the campaign plan and try again.")
