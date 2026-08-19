@@ -107,7 +107,8 @@ def test_advanced_intelligence_features_are_pro_only_even_if_gates_drift():
     assert ENTITLEMENTS["premium"].limit("institutional_filters") == 0
     assert ENTITLEMENTS["premium"].limit("macro_positioning") == 0
     assert ENTITLEMENTS["premium"].limit("market_pressure") == 0
-    for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure"):
+    assert ENTITLEMENTS["premium"].limit("walnut_strategies") == 0
+    for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure", "walnut_strategies"):
         assert feature not in ENTITLEMENTS["premium"].features
         assert feature in ENTITLEMENTS["pro"].features
         assert DEFAULT_FEATURE_GATES[feature]["required_tier"] == "pro"
@@ -122,6 +123,7 @@ def test_advanced_intelligence_features_are_pro_only_even_if_gates_drift():
                 FeatureGate(feature_key="institutional_filters", required_tier="premium", description="stale"),
                 FeatureGate(feature_key="macro_positioning", required_tier="premium", description="stale"),
                 FeatureGate(feature_key="market_pressure", required_tier="premium", description="stale"),
+                FeatureGate(feature_key="walnut_strategies", required_tier="premium", description="stale"),
             ]
         )
         db.commit()
@@ -130,13 +132,13 @@ def test_advanced_intelligence_features_are_pro_only_even_if_gates_drift():
 
         premium = entitlements_for_user(db, premium_user)
         pro = entitlements_for_user(db, pro_user)
-        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure"):
+        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure", "walnut_strategies"):
             assert premium.has_feature(feature) is False
             assert pro.has_feature(feature) is True
 
         gates = {row["feature_key"]: row["required_tier"] for row in feature_gate_payloads(db)}
         config = {row["feature_key"]: row["required_tier"] for row in plan_config_payload(db)["features"]}
-        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure"):
+        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure", "walnut_strategies"):
             assert gates[feature] == "pro"
             assert config[feature] == "pro"
     finally:

@@ -100,12 +100,12 @@ const confirmationEvidence = [
 const confirmationPrinciples = [
   ["Higher confirmation", "More of the available evidence is reinforcing the same directional view."],
   ["Lower confirmation", "The evidence is weaker, mixed, or conflicting."],
-  ["Explainable", "Every score is accompanied by the underlying evidence so investors can see what is driving the judgment."],
+  ["Explainable", "Every confirmation score is accompanied by the underlying evidence so you can see what is data behind the judgment."],
 ] as const;
 
 const workflowStages = [
   ["01", "What does the evidence say?", "Walnut interprets multiple data sources together rather than leaving each one isolated."],
-  ["02", "What changed?", "See which parts of the research picture strengthened, weakened, or reversed."],
+  ["02", "What changed?", "See which parts of the underlying data have strengthened, weakened, or reversed the investment thesis."],
   ["03", "Does that change the thesis?", "Understand whether new evidence reinforces or challenges the current directional view."],
   ["04", "What should I watch next?", "Track the catalysts, risks, and developments most likely to matter."],
 ] as const;
@@ -719,7 +719,7 @@ export default async function LandingPage() {
               Before You Buy Your Next Stock, Run It Through Walnut.
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
-              Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis.
+              Research fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;see whether the evidence confirms or challenges your investment thesis.
             </p>
             <LandingSearch appUrl={appUrl} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
             <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
@@ -826,7 +826,7 @@ export default async function LandingPage() {
             <SectionEyebrow>What Walnut Actually Does</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One research workflow. Multiple sources of evidence.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings together fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and other market data - then helps you understand whether those sources reinforce or contradict the same investment thesis.
+              Walnut brings together fundamental analysis, technical analysis, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and other market data so you can clearly see which sources reinforce or contradict the your investment thesis.
             </p>
           </div>
           <div className="mt-10 grid gap-4 lg:grid-cols-[1fr_auto_1.2fr_auto_1fr] lg:items-center">
@@ -844,7 +844,7 @@ export default async function LandingPage() {
             <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-6 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Interpretation</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Walnut interprets the evidence together</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-300">The product surfaces alignment, conflict, and change across the sources rather than leaving each one isolated.</p>
+              <p className="mt-3 text-sm leading-6 text-slate-300">Walnut reveals alignment, conflict, and change across different investment data sets rather than leaving each one isolated.</p>
             </div>
             <div className="hidden text-2xl font-semibold text-emerald-300 lg:block">-&gt;</div>
             <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
@@ -907,7 +907,7 @@ export default async function LandingPage() {
           <SectionEyebrow>The Walnut Research Workflow</SectionEyebrow>
           <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <h2 className="max-w-3xl text-3xl font-semibold text-white sm:text-4xl">From evidence to ongoing research.</h2>
-            <p className="max-w-2xl text-sm leading-6 text-slate-400">Walnut is built around the research process investors repeat before, during, and after a thesis changes.</p>
+            <p className="max-w-2xl text-sm leading-6 text-slate-400">Walnut is built around the research process every serious investor repeats before, during, and after an investment thesis changes.</p>
           </div>
           <div className="mt-9 grid gap-3 lg:grid-cols-4">
             {workflowStages.map(([number, title, body], index) => (
@@ -928,7 +928,7 @@ export default async function LandingPage() {
             <SectionEyebrow>Why Walnut</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Data is easy to find. Context is harder.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Most research platforms specialize in one part of the market or leave you to connect the dots yourself. Walnut evaluates multiple sources together so you can see where the evidence agrees, where it conflicts, and what changed.
+              Most stock research platforms only specialize in one part of the market data and leave you to connect the dots yourself. Walnut evaluates multiple data sources together so you can see where the evidence agrees, where it conflicts, and what has changed.
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5">
@@ -1035,7 +1035,7 @@ export default async function LandingPage() {
             <SectionEyebrow>Research Memory - Coming Soon</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Your thesis shouldn't disappear when you close the tab.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Capture why you're interested in a stock, the catalysts you expect, the risks you're watching, and what would invalidate your thesis. As the evidence changes, Walnut will help you return to the original reasoning behind the decision.
+              Capture why you're interested in a particular stock, the catalysts you expect, the risks you're watching, and what would invalidate your investment thesis. As the evidence changes, Walnut helps you recall the original reasoning behind the investment decision.
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
@@ -1097,7 +1097,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Feature Depth</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">The broader Walnut research surface.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Once the core research workflow is clear, Walnut gives investors access to the individual utilities and datasets that support it.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Walnut gives the everyday investors access to the tools and data sets they need to make better, more informed, investment decisions.</p>
           </div>
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {featureDepthItems.map(([title, body]) => (
@@ -1132,7 +1132,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={premiumPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Support stock research by evaluating fundamentals, price and volume, Congress activity, insider activity, catalysts, risks, and Walnut&apos;s proprietary confirmation score.
+                Elevate your stock research with Walnut premium and start evaluating the fundamentals, technicals, Congress trades, insider trades, catalysts, risks, and Walnut&apos;s proprietary confirmation score all in one place.
               </p>
             </article>
             <article className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.035] p-6">
