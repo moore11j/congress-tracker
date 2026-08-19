@@ -188,6 +188,8 @@ const DEFAULT_CAMPAIGN_FORM: AdminResearchCampaignPayload = {
   active: true,
   target_keywords: {},
   target_search_intents: {},
+  source_opportunity_ids: [],
+  planned_articles: [],
   secondary_keywords: [],
   search_intent: "Is [TICKER] a good stock to buy right now?",
 };
@@ -213,8 +215,61 @@ function campaignToForm(campaign: AdminResearchCampaign): AdminResearchCampaignP
     search_intent: typeof config.search_intent === "string" ? config.search_intent : "",
     target_keywords: typeof config.target_keywords === "object" && config.target_keywords ? config.target_keywords as Record<string, string> : {},
     target_search_intents: typeof config.target_search_intents === "object" && config.target_search_intents ? config.target_search_intents as Record<string, string> : {},
-    source_opportunity_ids: [],
+    source_opportunity_ids: Array.isArray(config.source_opportunity_ids) ? config.source_opportunity_ids.map(String) : [],
+    planned_articles: Array.isArray(config.planned_articles) ? config.planned_articles.map((item) => ({ ...(item as Record<string, unknown>) })) as AdminResearchCampaignPayload["planned_articles"] : [],
   };
+}
+
+type CampaignPlannedArticle = NonNullable<AdminResearchCampaignPayload["planned_articles"]>[number];
+
+function plannedArticleKey(article: CampaignPlannedArticle) {
+  return `${article.content_type}:${article.ticker || article.topic || ""}:${article.target_keyword || ""}`.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function plannedArticleFromOpportunity(opportunity: AdminResearchKeywordOpportunity): CampaignPlannedArticle {
+  const contentType = opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker";
+  return {
+    id: opportunity.id,
+    opportunity_id: opportunity.id,
+    content_type: contentType,
+    ticker: contentType === "ticker" ? opportunity.ticker || null : null,
+    topic: contentType === "non_ticker" ? opportunity.topic || opportunity.target_keyword : null,
+    target_keyword: (opportunity.target_keyword || "").slice(0, 240),
+    search_intent: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120),
+    secondary_keywords: (opportunity.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
+  };
+}
+
+function plannedArticlesFromForm(form: AdminResearchCampaignPayload): CampaignPlannedArticle[] {
+  const explicitPlan = (form.planned_articles || []).filter((article) => article && String(article.target_keyword || "").trim());
+  if (explicitPlan.length) return explicitPlan;
+  if (form.content_type === "ticker") {
+    return (form.tickers || []).map((ticker) => {
+      const symbol = normalizeTickerSymbol(ticker) || String(ticker || "").toUpperCase();
+      const targetKeyword = form.target_keywords?.[symbol] || form.target_keyword || `${symbol} stock buy now`;
+      return {
+        id: symbol,
+        opportunity_id: null,
+        content_type: "ticker",
+        ticker: symbol,
+        topic: null,
+        target_keyword: targetKeyword,
+        search_intent: form.target_search_intents?.[symbol] || form.search_intent || targetKeyword,
+        secondary_keywords: form.secondary_keywords || [],
+      };
+    });
+  }
+  const topic = form.topic || form.target_keyword || "Walnut research topic";
+  return [{
+    id: "topic",
+    opportunity_id: null,
+    content_type: "non_ticker",
+    ticker: null,
+    topic,
+    target_keyword: form.target_keyword || topic,
+    search_intent: form.search_intent || form.target_keyword || topic,
+    secondary_keywords: form.secondary_keywords || [],
+  }];
 }
 
 function fieldClassName(extra = "") {
@@ -773,20 +828,29 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
 
   async function useKeywordOpportunity(opportunity: AdminResearchKeywordOpportunity) {
     const contentType = opportunity.content_type === "ticker" && opportunity.ticker ? "ticker" : "non_ticker";
-    setCampaignForm((current) => ({
-      ...current,
-      name: current.name || opportunity.target_keyword,
-      theme: options.campaign_themes.some((theme) => theme.key === opportunity.recommended_theme) ? opportunity.recommended_theme : current.theme,
-      content_type: contentType,
-      tickers: contentType === "ticker" && opportunity.ticker ? Array.from(new Set([...current.tickers, opportunity.ticker])) : [],
-      topic: contentType === "non_ticker" ? (opportunity.topic || opportunity.target_keyword) : current.topic,
-      article_count: contentType === "ticker" && opportunity.ticker ? Array.from(new Set([...current.tickers, opportunity.ticker])).length : 1,
-      target_keyword: (opportunity.target_keyword || "").slice(0, 240),
-      secondary_keywords: (opportunity.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
-      search_intent: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120),
-      target_keywords: contentType === "ticker" && opportunity.ticker ? { ...current.target_keywords, [opportunity.ticker]: (opportunity.target_keyword || "").slice(0, 240) } : {},
-      target_search_intents: contentType === "ticker" && opportunity.ticker ? { ...current.target_search_intents, [opportunity.ticker]: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120) } : {},
-    }));
+    const plannedArticle = plannedArticleFromOpportunity(opportunity);
+    setCampaignForm((current) => {
+      const currentPlan = plannedArticlesFromForm(current);
+      const hasArticle = currentPlan.some((item) => item.opportunity_id === opportunity.id || plannedArticleKey(item) === plannedArticleKey(plannedArticle));
+      const nextPlan = hasArticle ? currentPlan : [...currentPlan, plannedArticle];
+      const nextTickers = contentType === "ticker" && opportunity.ticker ? Array.from(new Set([...current.tickers, opportunity.ticker])) : [];
+      return {
+        ...current,
+        name: current.name || opportunity.target_keyword,
+        theme: options.campaign_themes.some((theme) => theme.key === opportunity.recommended_theme) ? opportunity.recommended_theme : current.theme,
+        content_type: contentType,
+        tickers: nextTickers,
+        topic: contentType === "non_ticker" ? (opportunity.topic || opportunity.target_keyword) : current.topic,
+        article_count: nextPlan.length,
+        target_keyword: current.target_keyword || (opportunity.target_keyword || "").slice(0, 240),
+        secondary_keywords: current.secondary_keywords?.length ? current.secondary_keywords : (opportunity.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
+        search_intent: current.search_intent || (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120),
+        target_keywords: contentType === "ticker" && opportunity.ticker ? { ...current.target_keywords, [opportunity.ticker]: (opportunity.target_keyword || "").slice(0, 240) } : {},
+        target_search_intents: contentType === "ticker" && opportunity.ticker ? { ...current.target_search_intents, [opportunity.ticker]: (opportunity.search_intent || opportunity.target_keyword || "").slice(0, 120) } : {},
+        source_opportunity_ids: current.source_opportunity_ids?.includes(opportunity.id) ? current.source_opportunity_ids : [...(current.source_opportunity_ids || []), opportunity.id],
+        planned_articles: nextPlan,
+      };
+    });
     setSelectedKeywordOpportunityIds((current) => current.includes(opportunity.id) ? current : [...current, opportunity.id]);
     showToast?.("Opportunity added to the campaign plan. It will remain saved until you dismiss it or create the campaign.", "success");
   }
@@ -812,7 +876,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       setKeywordOpportunities((current) => current.map((item) => (item.id === revised.id ? revised : item)));
       setKeywordOpportunityInstructions((current) => ({ ...current, [opportunity.id]: "" }));
       if (selectedKeywordOpportunityIds.includes(revised.id)) {
+        const revisedPlanArticle = plannedArticleFromOpportunity(revised);
         setCampaignForm((current) => {
+          const nextPlan = plannedArticlesFromForm(current).map((item) => item.opportunity_id === revised.id ? revisedPlanArticle : item);
           if (revised.content_type === "ticker" && revised.ticker) {
             return {
               ...current,
@@ -821,6 +887,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
               secondary_keywords: revised.secondary_keywords.slice(0, 12),
               target_keywords: { ...current.target_keywords, [revised.ticker]: revised.target_keyword.slice(0, 240) },
               target_search_intents: { ...current.target_search_intents, [revised.ticker]: revised.search_intent.slice(0, 120) },
+              planned_articles: nextPlan,
+              article_count: nextPlan.length,
             };
           }
           return {
@@ -829,6 +897,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             target_keyword: revised.target_keyword.slice(0, 240),
             search_intent: revised.search_intent.slice(0, 120),
             secondary_keywords: revised.secondary_keywords.slice(0, 12),
+            planned_articles: nextPlan,
+            article_count: nextPlan.length,
           };
         });
       }
@@ -1073,16 +1143,19 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setBusy("campaign");
     setError("");
     try {
+      const plannedArticles = plannedArticlesFromForm(campaignForm);
+      const plannedTickers = Array.from(new Set(plannedArticles.map((article) => normalizeTickerSymbol(article.ticker || "")).filter((ticker): ticker is string => Boolean(ticker))));
       const payload: AdminResearchCampaignPayload = {
         ...campaignForm,
-        tickers: campaignForm.content_type === "ticker" ? campaignForm.tickers.map((ticker) => normalizeTickerSymbol(ticker)).filter((ticker): ticker is string => Boolean(ticker)) : [],
-        article_count: campaignForm.content_type === "ticker" ? Math.max(1, campaignForm.tickers.length) : 1,
+        tickers: campaignForm.content_type === "ticker" ? plannedTickers : [],
+        article_count: Math.max(1, plannedArticles.length),
         target_keyword: (campaignForm.target_keyword || "").slice(0, 240),
         secondary_keywords: (campaignForm.secondary_keywords || []).map((keyword) => keyword.slice(0, 120)).slice(0, 12),
         search_intent: (campaignForm.search_intent || "").slice(0, 120),
         target_keywords: Object.fromEntries(Object.entries(campaignForm.target_keywords || {}).map(([ticker, keyword]) => [ticker, keyword.slice(0, 240)])),
         target_search_intents: Object.fromEntries(Object.entries(campaignForm.target_search_intents || {}).map(([ticker, intent]) => [ticker, intent.slice(0, 120)])),
-        source_opportunity_ids: selectedKeywordOpportunityIds,
+        source_opportunity_ids: Array.from(new Set([...(campaignForm.source_opportunity_ids || []), ...selectedKeywordOpportunityIds])),
+        planned_articles: plannedArticles,
       };
       const campaign = editingCampaign
         ? await updateAdminResearchCampaign(editingCampaign.id, payload)
@@ -1108,8 +1181,13 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   }
 
   function editCampaign(campaign: AdminResearchCampaign) {
+    const nextForm = campaignToForm(campaign);
     setEditingCampaign(campaign);
-    setCampaignForm(campaignToForm(campaign));
+    setCampaignForm(nextForm);
+    setSelectedKeywordOpportunityIds(Array.from(new Set([
+      ...(nextForm.source_opportunity_ids || []),
+      ...(nextForm.planned_articles || []).map((article) => article.opportunity_id || "").filter(Boolean),
+    ])));
     setActivePane("campaigns");
   }
 
@@ -1569,6 +1647,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           onCancelEdit={() => {
             setEditingCampaign(null);
             setCampaignForm(DEFAULT_CAMPAIGN_FORM);
+            setSelectedKeywordOpportunityIds([]);
           }}
           onEdit={editCampaign}
           onToggle={toggleCampaign}
@@ -2059,10 +2138,13 @@ function ScheduledBriefsPanel({
                         className={fieldClassName("min-w-52 text-xs")}
                       />
                     </td>
-                    <td className="px-3 py-3 font-semibold text-slate-100">{item.ticker || item.topic || "Topic"}</td>
+                    <td className="px-3 py-3">
+                      <p className="font-semibold text-slate-100">{item.ticker || item.topic || "Topic"}</p>
+                      {item.target_keyword ? <p className="mt-1 max-w-xs truncate text-xs text-slate-500">{item.target_keyword}</p> : null}
+                    </td>
                     <td className="px-3 py-3">
                       <button type="button" onClick={() => onEditCampaign(item.campaign)} className="text-left font-medium text-emerald-200 hover:text-emerald-100 hover:underline">{item.campaignName}</button>
-                      <p className="mt-1 text-xs text-slate-500">Article {campaignArticleNumber(item.campaign, item.id)} of {item.campaign.items?.length || 1} · Campaign ends {formatDateTime(campaignEnd(item.campaign))}</p>
+                      <p className="mt-1 text-xs text-slate-500">Article {campaignArticleNumber(item.campaign, item.id)} of {item.campaign.items?.length || 1} - Campaign ends {formatDateTime(campaignEnd(item.campaign))}</p>
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap text-xs text-slate-400">{formatDateTime(item.generate_at)}</td>
                     <td className="px-3 py-3"><span className="rounded-md border border-cyan-300/25 px-2 py-1 text-xs font-semibold uppercase text-cyan-100">{item.status}</span></td>
@@ -2178,16 +2260,16 @@ function CampaignsPanel({
 }) {
   const selectedTheme = themes.find((theme) => theme.key === form.theme) || themes[0];
   const [opportunityCount, setOpportunityCount] = useState(5);
+  const plannedArticles = plannedArticlesFromForm(form);
+  const planOpportunityIds = plannedArticles.map((article) => article.opportunity_id || "").filter(Boolean);
+  const loadedOpportunityIds = new Set([...selectedOpportunityIds, ...(form.source_opportunity_ids || []), ...planOpportunityIds]);
   const newOpportunities = opportunities
     .filter((opportunity) => opportunity.status === "new")
     .sort((left, right) => Number(right.opportunity_score || 0) - Number(left.opportunity_score || 0));
   const isOpportunityLoaded = (opportunity: AdminResearchKeywordOpportunity) => {
-    if (selectedOpportunityIds.includes(opportunity.id)) return true;
-    if (opportunity.content_type === "ticker" && opportunity.ticker && form.tickers.includes(opportunity.ticker)) {
-      const configuredQuery = form.target_keywords?.[opportunity.ticker]?.trim().toLowerCase();
-      return configuredQuery === opportunity.target_keyword.trim().toLowerCase();
-    }
-    return opportunity.content_type === "non_ticker" && Boolean(form.topic && opportunity.topic && form.topic.trim().toLowerCase() === opportunity.topic.trim().toLowerCase());
+    if (loadedOpportunityIds.has(opportunity.id)) return true;
+    const opportunityPlan = plannedArticleFromOpportunity(opportunity);
+    return plannedArticles.some((article) => plannedArticleKey(article) === plannedArticleKey(opportunityPlan));
   };
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(22rem,0.7fr)_minmax(0,1.3fr)]">
@@ -2215,6 +2297,10 @@ function CampaignsPanel({
               onFormChange({ ...form, theme, content_type: nextTheme?.content_type === "non_ticker" ? "non_ticker" : "ticker" });
             }}
           />
+          <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3 text-xs leading-5 text-slate-400">
+            <p><span className="font-semibold text-slate-200">Theme template:</span> {selectedTheme?.label || form.theme}</p>
+            <p className="mt-1">The theme guides discovery prompts, default article framing, and the generation template. Keyword opportunities remain specific article ideas; adding one loads its own ticker, query, and search intent into the campaign plan.</p>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-300">
               <input type="radio" checked={form.content_type === "ticker"} onChange={() => onFormChange({ ...form, content_type: "ticker" })} className="mr-2" />
@@ -2233,18 +2319,26 @@ function CampaignsPanel({
                 value={form.tickers.join(", ")}
                 onChange={(event) => {
                   const tickers = parseComparisonTickers(event.target.value);
-                  onFormChange({ ...form, tickers, article_count: Math.max(1, tickers.length) });
+                  const nextPlan = tickers.map((ticker) => {
+                    const existing = plannedArticles.find((article) => article.ticker === ticker);
+                    const targetKeyword = form.target_keywords?.[ticker] || existing?.target_keyword || form.target_keyword || `${ticker} stock buy now`;
+                    return existing || {
+                      id: ticker,
+                      opportunity_id: null,
+                      content_type: "ticker",
+                      ticker,
+                      topic: null,
+                      target_keyword: targetKeyword,
+                      search_intent: form.target_search_intents?.[ticker] || form.search_intent || targetKeyword,
+                      secondary_keywords: form.secondary_keywords || [],
+                    };
+                  });
+                  onFormChange({ ...form, tickers, article_count: Math.max(1, nextPlan.length), planned_articles: nextPlan });
                 }}
                 className={fieldClassName("mt-2")}
                 placeholder="NBIS, CRWV, COHR"
               />
             </label>
-              {form.tickers.length ? (
-                <div className="mt-2 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.03] p-2 text-xs text-slate-300">
-                  <p className="font-semibold text-emerald-100">Ticker plan: {form.tickers.length} distinct draft{form.tickers.length === 1 ? "" : "s"}</p>
-                  {form.tickers.map((ticker) => <p key={ticker} className="mt-1 truncate">{ticker}: {form.target_keywords?.[ticker] || "No opportunity query selected yet"}</p>)}
-                </div>
-              ) : null}
             </div>
           ) : (
             <label>
@@ -2256,15 +2350,30 @@ function CampaignsPanel({
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Primary query</span>
             <input value={form.target_keyword || ""} onChange={(event) => onFormChange({ ...form, target_keyword: event.target.value })} className={fieldClassName("mt-2")} placeholder="NBIS stock buy now" />
             <span className="mt-1 block text-xs text-slate-500">A question is valid here. Each loaded opportunity keeps its own ticker/query pair.</span>
-            <span className="mt-1 block text-xs text-slate-500">For Good Buy Now, Walnut defaults each ticker to “[ticker] stock buy now” when empty.</span>
+            <span className="mt-1 block text-xs text-slate-500">For Good Buy Now, Walnut defaults each ticker to "[ticker] stock buy now" when empty.</span>
           </label>
+          <div className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.03] p-3 text-xs text-slate-300">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-emerald-100">Campaign article plan</p>
+              <span className="rounded-md border border-emerald-300/25 px-2 py-1 font-semibold text-emerald-100">
+                {plannedArticles.length} article{plannedArticles.length === 1 ? "" : "s"} queued
+              </span>
+            </div>
+            <div className="mt-2 space-y-1">
+              {plannedArticles.map((article, index) => (
+                <p key={`${plannedArticleKey(article)}-${index}`} className="truncate">
+                  {index + 1}. {article.ticker || article.topic || "Topic"}: {article.target_keyword || "No query selected yet"}
+                </p>
+              ))}
+            </div>
+          </div>
           <label>
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Secondary keywords</span>
             <input value={(form.secondary_keywords || []).join(", ")} onChange={(event) => onFormChange({ ...form, secondary_keywords: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} className={fieldClassName("mt-2")} placeholder="earnings analysis, institutional ownership" />
           </label>
           <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.03] p-3 text-xs text-slate-300">
             <p className="font-semibold text-cyan-100">Live keyword discovery</p>
-            <p className="mt-1 leading-5 text-slate-400">Searches current web signals—including Google Trends pages and relevant Reddit discussions where available—then ranks only questions Walnut can answer with original data. It never creates or publishes a campaign automatically.</p>
+            <p className="mt-1 leading-5 text-slate-400">Searches current web signals, including Google Trends pages and relevant Reddit discussions where available, then ranks only questions Walnut can answer with original data. It never creates or publishes a campaign automatically.</p>
             <p className="mt-2 leading-5 text-slate-400">The selected theme, tickers, and topic are included in every discovery request; results are ranked highest score first.</p>
             <label className="mt-3 block">
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Ideas to rank</span>
@@ -2281,15 +2390,16 @@ function CampaignsPanel({
               <input type="datetime-local" value={form.publish_start_at || ""} onChange={(event) => onFormChange({ ...form, publish_start_at: event.target.value })} className={fieldClassName("mt-2")} />
             </label>
             <label>
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Articles</span>
-              <input type="number" min={1} max={50} value={form.article_count} onChange={(event) => onFormChange({ ...form, article_count: Math.max(1, Number(event.target.value) || 1) })} className={fieldClassName("mt-2")} />
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Articles queued</span>
+              <input type="number" min={1} max={50} value={plannedArticles.length} readOnly className={fieldClassName("mt-2")} />
+              <span className="mt-1 block text-xs text-slate-500">Add tickers or keyword opportunities to change this count.</span>
             </label>
             <label>
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Over days</span>
               <input type="number" min={1} max={30} value={form.window_days} onChange={(event) => onFormChange({ ...form, window_days: Math.max(1, Number(event.target.value) || 1) })} className={fieldClassName("mt-2")} />
             </label>
           </div>
-          <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities, set Articles to 3 and Over days to 3. Added opportunities stay saved through refreshes until you dismiss them or create the campaign. Then use Run Now to preview its drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
+          <p className="text-xs leading-5 text-slate-500">For three different briefs, add three ticker opportunities and set Over days to 3. Added opportunities remain in the article plan until you save, cancel, or dismiss them. Then use Run Now to preview drafts immediately. Each generated draft appears in Drafts/Scheduled and emails the campaign owner for review; publication still requires approval.</p>
           <Button tone="primary" disabled={busy === "campaign"} onClick={onSubmit}>{busy === "campaign" ? (editingCampaign ? "Saving..." : "Creating...") : (editingCampaign ? "Save Changes" : "Create Campaign")}</Button>
         </div>
       </div>
@@ -2347,7 +2457,7 @@ function CampaignsPanel({
               <Metric label="Index rate" value={health.indexation_rate == null ? "-" : `${health.indexation_rate}%`} />
               <Metric label="Daily cap" value={String(health.daily_automated_publish_cap)} />
             </div>
-            <p className="mt-3 text-slate-500">Campaign scheduler: {health.campaign_schedule_enabled ? "enabled — drafts will be generated ahead of their publish times." : "off — create campaigns freely, then use Run Now to preview drafts. Automatic draft emails and scheduled publishing will not run until it is enabled."}</p>
+            <p className="mt-3 text-slate-500">Campaign scheduler: {health.campaign_schedule_enabled ? "enabled - drafts will be generated ahead of their publish times." : "off - create campaigns freely, then use Run Now to preview drafts. Automatic draft emails and scheduled publishing will not run until it is enabled."}</p>
             {health.cadence_warning ? <p className="mt-3 text-amber-100">{health.cadence_warning}</p> : null}
           </div>
         ) : null}
@@ -2364,12 +2474,24 @@ function CampaignsPanel({
                   {campaign.active ? "Active" : "Paused"}
                 </span>
               </div>
-              <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-4">
+              <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-5">
+                <Metric label="Articles" value={String(campaign.item_count || campaign.items?.length || 0)} />
                 <Metric label="Generated" value={String(campaign.generated_count || 0)} />
                 <Metric label="Approved" value={String(campaign.approved_count || 0)} />
                 <Metric label="Published" value={String(campaign.published_count || 0)} />
                 <Metric label="Pending" value={String(campaign.pending_count || 0)} />
               </div>
+              {Array.isArray(campaign.config?.planned_articles) && campaign.config.planned_articles.length ? (
+                <div className="mt-3 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.03] p-2 text-xs text-slate-300">
+                  <p className="font-semibold text-emerald-100">Loaded article plan: {campaign.config.planned_articles.length} article{campaign.config.planned_articles.length === 1 ? "" : "s"}</p>
+                  {campaign.config.planned_articles.slice(0, 4).map((article, index) => (
+                    <p key={`${String(article.id || article.opportunity_id || index)}-${index}`} className="mt-1 truncate">
+                      {index + 1}. {article.ticker || article.topic || "Topic"}: {article.target_keyword}
+                    </p>
+                  ))}
+                  {campaign.config.planned_articles.length > 4 ? <p className="mt-1 text-slate-500">+{campaign.config.planned_articles.length - 4} more</p> : null}
+                </div>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button disabled={Boolean(busy)} onClick={() => onToggle(campaign)}>{campaign.active ? "Pause" : "Resume"}</Button>
                 <Button disabled={Boolean(busy)} onClick={() => onEdit(campaign)}>Edit Campaign</Button>

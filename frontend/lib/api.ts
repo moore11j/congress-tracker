@@ -6718,6 +6718,7 @@ export type AdminResearchCampaignItem = {
   status: string;
   research_article_id?: string | null;
   generated_at?: string | null;
+  target_keyword?: string | null;
   last_error?: string | null;
 };
 
@@ -6741,6 +6742,8 @@ export type AdminResearchCampaign = {
     search_intent?: string;
     target_keywords?: Record<string, string>;
     target_search_intents?: Record<string, string>;
+    source_opportunity_ids?: string[];
+    planned_articles?: AdminResearchCampaignPlannedArticle[];
   };
   created_by?: number | null;
   created_by_email?: string | null;
@@ -6753,6 +6756,17 @@ export type AdminResearchCampaign = {
   created_at?: string | null;
   updated_at?: string | null;
   items?: AdminResearchCampaignItem[];
+};
+
+export type AdminResearchCampaignPlannedArticle = {
+  id?: string;
+  opportunity_id?: string | null;
+  content_type: "ticker" | "non_ticker" | string;
+  ticker?: string | null;
+  topic?: string | null;
+  target_keyword: string;
+  search_intent?: string | null;
+  secondary_keywords?: string[];
 };
 
 export type AdminResearchCampaignPayload = {
@@ -6773,6 +6787,7 @@ export type AdminResearchCampaignPayload = {
   target_keywords?: Record<string, string>;
   target_search_intents?: Record<string, string>;
   source_opportunity_ids?: string[];
+  planned_articles?: AdminResearchCampaignPlannedArticle[];
 };
 
 export type AdminResearchKeywordOpportunity = {

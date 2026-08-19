@@ -94,6 +94,12 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /Scheduled publish time/);
   assert.match(component, /Post scheduled for publication\./);
   assert.doesNotMatch(component, /Schedule Review/);
+  assert.match(component, /Theme template/);
+  assert.match(component, /Campaign article plan/);
+  assert.match(component, /Articles queued/);
+  assert.match(component, /plannedArticleFromOpportunity/);
+  assert.match(component, /plannedArticlesFromForm/);
+  assert.match(component, /planned_articles: plannedArticles/);
   assert.match(component, /Publish Now/);
   assert.match(component, /Resolve blocking validation warnings before publishing\./);
   assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article, config: currentEditedConfig\(\) \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);
@@ -124,6 +130,8 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(api, /required_plan\?: "premium" \| "pro" \| null/);
   assert.match(api, /cta_label\?: string/);
   assert.match(api, /manual_source_url\?: string \| null/);
+  assert.match(api, /AdminResearchCampaignPlannedArticle/);
+  assert.match(api, /planned_articles\?: AdminResearchCampaignPlannedArticle\[\]/);
   assert.match(api, /source_discovery\?: Record<string, unknown>/);
   assert.match(api, /walnut_call\?: string/);
   assert.match(api, /confirmation_score_included\?: boolean/);

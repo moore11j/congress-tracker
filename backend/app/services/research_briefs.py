@@ -2477,6 +2477,20 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
     source_opportunity_ids = _dedupe_strings(
         [str(opportunity_id).strip()[:100] for opportunity_id in (payload.get("source_opportunity_ids") or []) if str(opportunity_id).strip()]
     )[:50]
+    planned_articles = _normalize_campaign_article_plan(
+        payload,
+        theme=theme,
+        content_type=content_type,
+        tickers=tickers,
+        topic=topic,
+        target_keyword=target_keyword,
+        secondary_keywords=secondary_keywords,
+        search_intent=str(payload.get("search_intent") or theme.get("intent") or "").strip()[:120],
+        target_keywords=target_keywords,
+        target_search_intents=target_search_intents,
+    )
+    if isinstance(payload.get("planned_articles"), list) and planned_articles:
+        article_count = len(planned_articles)
     return {
         "name": str(payload.get("name") or theme["label"]).strip()[:180],
         "theme": theme["key"],
@@ -2496,7 +2510,91 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "target_keywords": target_keywords,
         "target_search_intents": target_search_intents,
         "source_opportunity_ids": source_opportunity_ids,
+        "planned_articles": planned_articles,
     }
+
+
+def _normalize_campaign_article_plan(
+    payload: dict[str, Any],
+    *,
+    theme: dict[str, Any],
+    content_type: str,
+    tickers: list[str],
+    topic: str,
+    target_keyword: str,
+    secondary_keywords: list[str],
+    search_intent: str,
+    target_keywords: dict[str, str],
+    target_search_intents: dict[str, str],
+) -> list[dict[str, Any]]:
+    raw_items = payload.get("planned_articles") if isinstance(payload.get("planned_articles"), list) else []
+    planned: list[dict[str, Any]] = []
+    if raw_items:
+        for index, raw in enumerate(raw_items[:50]):
+            if not isinstance(raw, dict):
+                continue
+            raw_content_type = str(raw.get("content_type") or content_type).strip().lower()
+            item_content_type = "non_ticker" if raw_content_type == "non_ticker" else "ticker"
+            ticker = normalize_symbol(raw.get("ticker"))
+            item_topic = str(raw.get("topic") or "").strip()[:300]
+            if item_content_type == "ticker" and not ticker:
+                continue
+            if item_content_type == "non_ticker" and not item_topic:
+                item_topic = str(raw.get("target_keyword") or topic or theme.get("intent") or theme.get("label") or "").strip()[:300]
+            keyword = str(raw.get("target_keyword") or "").strip()[:240]
+            if not keyword:
+                if item_content_type == "ticker":
+                    keyword = target_keywords.get(ticker) or target_keyword or (f"{ticker} stock buy now" if theme["key"] == "good_buy_now" else ticker)
+                else:
+                    keyword = target_keyword or item_topic
+            intent = str(raw.get("search_intent") or "").strip()[:120] or (
+                target_search_intents.get(ticker) if item_content_type == "ticker" else search_intent
+            ) or keyword
+            secondaries = raw.get("secondary_keywords") if isinstance(raw.get("secondary_keywords"), list) else secondary_keywords
+            planned.append(
+                {
+                    "id": str(raw.get("id") or raw.get("opportunity_id") or f"manual-{index}").strip()[:160],
+                    "opportunity_id": str(raw.get("opportunity_id") or "").strip()[:100] or None,
+                    "content_type": item_content_type,
+                    "ticker": ticker if item_content_type == "ticker" else None,
+                    "topic": item_topic if item_content_type == "non_ticker" else None,
+                    "target_keyword": keyword,
+                    "search_intent": intent,
+                    "secondary_keywords": _dedupe_strings([str(item).strip()[:120] for item in secondaries if str(item).strip()])[:12],
+                }
+            )
+        return planned
+
+    if content_type == "ticker":
+        for ticker in tickers:
+            keyword = target_keywords.get(ticker) or target_keyword or (f"{ticker} stock buy now" if theme["key"] == "good_buy_now" else ticker)
+            planned.append(
+                {
+                    "id": ticker,
+                    "opportunity_id": None,
+                    "content_type": "ticker",
+                    "ticker": ticker,
+                    "topic": None,
+                    "target_keyword": keyword,
+                    "search_intent": target_search_intents.get(ticker) or search_intent or keyword,
+                    "secondary_keywords": secondary_keywords,
+                }
+            )
+        return planned
+
+    item_topic = topic or target_keyword or str(theme.get("intent") or theme.get("label") or "Walnut research topic")
+    return [
+        {
+            "id": "topic",
+            "opportunity_id": None,
+            "content_type": "non_ticker",
+            "ticker": None,
+            "topic": item_topic,
+            "target_keyword": target_keyword or item_topic,
+            "search_intent": search_intent or target_keyword or item_topic,
+            "secondary_keywords": secondary_keywords,
+        }
+    ]
 
 
 def _parse_schedule_datetime(value: Any) -> datetime | None:
@@ -2522,6 +2620,18 @@ def _distributed_publish_times(start: datetime, count: int, window_days: int) ->
         return [start]
     day_span = max(1, window_days - 1)
     return [start + timedelta(days=round(index * day_span / max(1, count - 1))) for index in range(count)]
+
+
+def _campaign_plan_article_key(item: dict[str, Any]) -> str:
+    subject = normalize_symbol(item.get("ticker")) or str(item.get("topic") or "").strip().lower()
+    keyword = re.sub(r"\s+", " ", str(item.get("target_keyword") or "").strip().lower())
+    return f"{subject}|{keyword}"
+
+
+def _campaign_item_article_key(item: dict[str, Any]) -> str:
+    subject = normalize_symbol(item.get("ticker")) or str(item.get("topic") or "").strip().lower()
+    keyword = re.sub(r"\s+", " ", str(item.get("target_keyword") or "").strip().lower())
+    return f"{subject}|{keyword}"
 
 
 def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2568,20 +2678,15 @@ def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str,
             "updated_at": now,
         },
     )
-    targets = config["tickers"] if config["content_type"] == "ticker" else [config["topic"]]
-    targets = targets[: config["article_count"]]
-    publish_times = _distributed_publish_times(_parse_schedule_datetime(config["publish_start_at"]) or datetime.now(timezone.utc), len(targets), config["window_days"])
-    for index, target in enumerate(targets):
+    article_plan = (config.get("planned_articles") or [])[: config["article_count"]]
+    publish_times = _distributed_publish_times(_parse_schedule_datetime(config["publish_start_at"]) or datetime.now(timezone.utc), len(article_plan), config["window_days"])
+    for index, planned_article in enumerate(article_plan):
         publish_at = publish_times[index]
         generate_at = min(datetime.now(timezone.utc), publish_at - timedelta(hours=18))
         item_id = f"rci_{uuid.uuid4().hex}"
-        ticker = target if config["content_type"] == "ticker" else None
-        topic = None if config["content_type"] == "ticker" else target
-        target_keyword = (
-            config["target_keywords"].get(ticker)
-            if ticker
-            else config["target_keyword"]
-        ) or (f"{ticker} stock buy now" if ticker and config["theme"] == "good_buy_now" else config["target_keyword"])
+        ticker = normalize_symbol(planned_article.get("ticker")) if planned_article.get("content_type") == "ticker" else None
+        topic = None if ticker else str(planned_article.get("topic") or config["topic"] or "").strip()
+        target_keyword = str(planned_article.get("target_keyword") or config["target_keyword"] or "").strip()
         db.execute(
             text(
                 """
@@ -2601,7 +2706,7 @@ def create_research_campaign(db: Session, admin: UserAccount, payload: dict[str,
                 "topic": topic,
                 "generate_at": generate_at.isoformat(),
                 "publish_at": publish_at.isoformat(),
-                "idempotency_key": f"{campaign_id}:{ticker or topic}:{publish_at.isoformat()}",
+                "idempotency_key": f"{campaign_id}:{ticker or topic}:{target_keyword}:{publish_at.isoformat()}",
                 "target_keyword": target_keyword,
                 "created_at": now,
                 "updated_at": now,
@@ -2640,37 +2745,45 @@ def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, A
         raise HTTPException(status_code=404, detail="Research campaign not found.")
     existing = _campaign_from_row(row)
     merged = {**(existing.get("config") or {}), **payload}
-    # Opportunity selection is a create-time action. Retain its history when
-    # the editor saves ordinary campaign changes.
-    merged["source_opportunity_ids"] = list((existing.get("config") or {}).get("source_opportunity_ids") or [])
     config = _normalize_campaign_payload(merged)
-    targets = (config["tickers"] if config["content_type"] == "ticker" else [config["topic"]])[: config["article_count"]]
-    publish_times = _distributed_publish_times(_parse_schedule_datetime(config["publish_start_at"]) or datetime.now(timezone.utc), len(targets), config["window_days"])
-    schedule_by_target = {str(target): publish_times[index] for index, target in enumerate(targets)}
+    existing_source_ids = set((existing.get("config") or {}).get("source_opportunity_ids") or [])
+    new_source_ids = [item for item in config.get("source_opportunity_ids") or [] if item not in existing_source_ids]
+    if new_source_ids:
+        opportunity_params = {f"opportunity_{index}": opportunity_id for index, opportunity_id in enumerate(new_source_ids)}
+        placeholders = ", ".join(f":{key}" for key in opportunity_params)
+        selected_rows = db.execute(
+            text(
+                f"SELECT id FROM research_keyword_opportunities "
+                f"WHERE id IN ({placeholders}) AND status = 'new' AND created_by = :created_by"
+            ),
+            {**opportunity_params, "created_by": admin.id},
+        ).mappings().all()
+        if {str(row["id"]) for row in selected_rows} != set(new_source_ids):
+            raise HTTPException(status_code=409, detail="One or more newly selected keyword opportunities are no longer available. Refresh the campaign plan and try again.")
+    article_plan = (config.get("planned_articles") or [])[: config["article_count"]]
+    publish_times = _distributed_publish_times(_parse_schedule_datetime(config["publish_start_at"]) or datetime.now(timezone.utc), len(article_plan), config["window_days"])
     item_rows = db.execute(
         text("SELECT * FROM research_campaign_items WHERE campaign_id = :id ORDER BY publish_at, created_at"),
         {"id": campaign_id},
     ).mappings().all()
-    locked_targets = {
-        str(item.get("ticker") or item.get("topic") or "")
+    locked_article_keys = {
+        _campaign_item_article_key(item)
         for item in item_rows
         if str(item.get("status") or "") != "pending"
     }
     pending_rows = [item for item in item_rows if str(item.get("status") or "") == "pending"]
-    pending_targets = [target for target in targets if str(target) not in locked_targets]
+    pending_articles = [item for item in article_plan if _campaign_plan_article_key(item) not in locked_article_keys]
     now = datetime.now(timezone.utc)
 
-    def target_keyword(target: str) -> str:
-        if config["content_type"] == "ticker":
-            return str(config["target_keywords"].get(target) or config["target_keyword"] or (f"{target} stock buy now" if config["theme"] == "good_buy_now" else "")).strip()
-        return str(config["target_keyword"] or "").strip()
-
     for index, item in enumerate(pending_rows):
-        if index >= len(pending_targets):
+        if index >= len(pending_articles):
             db.execute(text("DELETE FROM research_campaign_items WHERE id = :id"), {"id": item["id"]})
             continue
-        target = pending_targets[index]
-        publish_at = schedule_by_target[str(target)]
+        planned_article = pending_articles[index]
+        publish_at = publish_times[article_plan.index(planned_article)]
+        ticker = normalize_symbol(planned_article.get("ticker")) if planned_article.get("content_type") == "ticker" else None
+        topic = None if ticker else str(planned_article.get("topic") or config["topic"] or "").strip()
+        target_keyword = str(planned_article.get("target_keyword") or config["target_keyword"] or "").strip()
         db.execute(
             text(
                 """
@@ -2682,17 +2795,20 @@ def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, A
             ),
             {
                 "id": item["id"],
-                "ticker": target if config["content_type"] == "ticker" else None,
-                "topic": None if config["content_type"] == "ticker" else target,
+                "ticker": ticker,
+                "topic": topic,
                 "publish_at": publish_at.isoformat(),
                 "generate_at": min(now, publish_at - timedelta(hours=18)).isoformat(),
-                "target_keyword": target_keyword(str(target)),
-                "idempotency_key": f"{campaign_id}:{target}:{publish_at.isoformat()}",
+                "target_keyword": target_keyword,
+                "idempotency_key": f"{campaign_id}:{ticker or topic}:{target_keyword}:{publish_at.isoformat()}",
                 "updated_at": _now(),
             },
         )
-    for target in pending_targets[len(pending_rows) :]:
-        publish_at = schedule_by_target[str(target)]
+    for planned_article in pending_articles[len(pending_rows) :]:
+        publish_at = publish_times[article_plan.index(planned_article)]
+        ticker = normalize_symbol(planned_article.get("ticker")) if planned_article.get("content_type") == "ticker" else None
+        topic = None if ticker else str(planned_article.get("topic") or config["topic"] or "").strip()
+        target_keyword = str(planned_article.get("target_keyword") or config["target_keyword"] or "").strip()
         db.execute(
             text(
                 """
@@ -2708,12 +2824,12 @@ def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, A
             {
                 "id": f"rci_{uuid.uuid4().hex}",
                 "campaign_id": campaign_id,
-                "ticker": target if config["content_type"] == "ticker" else None,
-                "topic": None if config["content_type"] == "ticker" else target,
+                "ticker": ticker,
+                "topic": topic,
                 "generate_at": min(now, publish_at - timedelta(hours=18)).isoformat(),
                 "publish_at": publish_at.isoformat(),
-                "idempotency_key": f"{campaign_id}:{target}:{publish_at.isoformat()}",
-                "target_keyword": target_keyword(str(target)),
+                "idempotency_key": f"{campaign_id}:{ticker or topic}:{target_keyword}:{publish_at.isoformat()}",
+                "target_keyword": target_keyword,
                 "created_at": _now(),
                 "updated_at": _now(),
             },
@@ -2729,6 +2845,13 @@ def update_research_campaign(db: Session, campaign_id: str, payload: dict[str, A
         ),
         {**config, "id": campaign_id, "config_json": _json_dump(config), "updated_at": _now()},
     )
+    if new_source_ids:
+        opportunity_params = {f"opportunity_{index}": opportunity_id for index, opportunity_id in enumerate(new_source_ids)}
+        placeholders = ", ".join(f":{key}" for key in opportunity_params)
+        db.execute(
+            text(f"UPDATE research_keyword_opportunities SET status = 'used', updated_at = :updated_at WHERE id IN ({placeholders})"),
+            {**opportunity_params, "updated_at": _now()},
+        )
     db.commit()
     return get_research_campaign(db, campaign_id)
 
@@ -3103,13 +3226,22 @@ def _generate_campaign_brief_with_corrections(
 def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
     ticker = normalize_symbol(item.get("ticker"))
     theme = _campaign_theme(campaign_config.get("theme"))
+    planned_article = None
+    for candidate in campaign_config.get("planned_articles") or []:
+        if not isinstance(candidate, dict):
+            continue
+        if _campaign_plan_article_key(candidate) == _campaign_item_article_key(item):
+            planned_article = candidate
+            break
     title_intent = str(theme.get("intent") or "").replace("[TICKER]", ticker)
     if theme["key"] == "good_buy_now":
         question = str(item.get("target_keyword") or "").strip() or f"Is {ticker} a good stock to buy right now after the latest earnings and current company data?"
         angle = "Post-earnings review"
     else:
-        question = title_intent or f"What does current Walnut data say about {ticker}?"
+        question = str(item.get("target_keyword") or "").strip() or title_intent or f"What does current Walnut data say about {ticker}?"
         angle = "Full company DD"
+    planned_secondary_keywords = planned_article.get("secondary_keywords") if isinstance(planned_article, dict) else None
+    secondary_keywords = planned_secondary_keywords if isinstance(planned_secondary_keywords, list) else campaign_config.get("secondary_keywords") or []
     return {
         "ticker": ticker,
         "research_question": question,
@@ -3147,8 +3279,8 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         "selected_model": "",
         "manual_source_url": "",
         "target_keyword": item.get("target_keyword") or campaign_config.get("target_keyword") or f"{ticker} stock buy now",
-        "secondary_keywords": _secondary_keywords_for_ticker(campaign_config.get("secondary_keywords") or [], ticker),
-        "search_intent": campaign_config.get("target_search_intents", {}).get(ticker) or campaign_config.get("search_intent") or title_intent,
+        "secondary_keywords": _secondary_keywords_for_ticker(secondary_keywords, ticker),
+        "search_intent": (planned_article or {}).get("search_intent") or campaign_config.get("target_search_intents", {}).get(ticker) or campaign_config.get("search_intent") or title_intent,
         "content_type": "ticker",
     }
 

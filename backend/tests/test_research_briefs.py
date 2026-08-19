@@ -827,6 +827,81 @@ def test_research_campaign_normalizes_long_search_intent_without_rejecting_paylo
     assert len(normalized["target_search_intents"]["NBIS"]) == 120
 
 
+def test_research_campaign_edit_can_add_second_article_for_same_ticker(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+
+    campaign = service.create_research_campaign(
+        db,
+        admin,
+        {
+            "name": "Coherent Campaign",
+            "theme": "good_buy_now",
+            "content_type": "ticker",
+            "tickers": ["COHR"],
+            "publish_start_at": "2026-08-18T18:00:00+00:00",
+            "planned_articles": [
+                {
+                    "id": "cohr-ai-optics",
+                    "content_type": "ticker",
+                    "ticker": "COHR",
+                    "target_keyword": "How much of Coherent revenue comes from AI datacenter optics?",
+                    "search_intent": "How much of Coherent revenue comes from AI datacenter optics?",
+                }
+            ],
+        },
+    )
+
+    db.execute(
+        text(
+            """
+            INSERT INTO research_keyword_opportunities (
+                id, status, created_by, target_keyword, opportunity_score, discovered_at, updated_at, payload_json
+            ) VALUES (
+                'rko_cohr_margin', 'new', :created_by, 'Can Coherent AI optics margins expand after datacenter demand?', 75, :now, :now, :payload_json
+            )
+            """
+        ),
+        {
+            "created_by": admin.id,
+            "now": "2026-08-18T00:00:00+00:00",
+            "payload_json": json.dumps({"target_keyword": "Can Coherent AI optics margins expand after datacenter demand?"}),
+        },
+    )
+    db.commit()
+
+    updated = service.update_research_campaign(
+        db,
+        campaign["id"],
+        {
+            **campaign["config"],
+            "planned_articles": [
+                *campaign["config"]["planned_articles"],
+                {
+                    "id": "cohr-margin-risk",
+                    "opportunity_id": "rko_cohr_margin",
+                    "content_type": "ticker",
+                    "ticker": "COHR",
+                    "target_keyword": "Can Coherent AI optics margins expand after datacenter demand?",
+                    "search_intent": "Can Coherent AI optics margins expand after datacenter demand?",
+                },
+            ],
+            "source_opportunity_ids": ["rko_cohr_margin"],
+        },
+    )
+
+    assert updated["config"]["article_count"] == 2
+    assert len(updated["items"]) == 2
+    assert [item["ticker"] for item in updated["items"]] == ["COHR", "COHR"]
+    assert {item["target_keyword"] for item in updated["items"]} == {
+        "How much of Coherent revenue comes from AI datacenter optics?",
+        "Can Coherent AI optics margins expand after datacenter demand?",
+    }
+    opportunity_status = db.execute(text("SELECT status FROM research_keyword_opportunities WHERE id = 'rko_cohr_margin'")).scalar()
+    assert opportunity_status == "used"
+
+
 def test_pending_campaign_item_can_be_rescheduled_or_run_individually(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()
