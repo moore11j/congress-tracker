@@ -36,19 +36,40 @@ type DeliveryCategory =
   | "news"
   | "press_releases";
 
-const deliveryCategories: { value: DeliveryCategory; label: string; trigger: AlertTriggerType }[] = [
-  { value: "bullish_bearish_monitor", label: "Bullish/bearish monitor", trigger: "monitor_state" },
-  { value: "congress", label: "Congress", trigger: "congress_activity" },
-  { value: "conviction_threshold", label: "Conviction threshold", trigger: "smart_score_threshold" },
-  { value: "cross_source", label: "Cross-source", trigger: "cross_source_confirmation" },
-  { value: "fundamentals", label: "Fundamentals", trigger: "fundamentals" },
-  { value: "government_contracts", label: "Government contracts", trigger: "government_contract" },
-  { value: "insiders", label: "Insiders", trigger: "insider_activity" },
-  { value: "institutional_activity", label: "Institutional activity", trigger: "institutional_activity" },
-  { value: "large_trade_contract", label: "Large trade / contract", trigger: "large_trade_threshold" },
-  { value: "news", label: "News", trigger: "news" },
-  { value: "press_releases", label: "Press releases", trigger: "press_releases" },
+const deliveryCategories: { value: DeliveryCategory; label: string; description: string; trigger: AlertTriggerType }[] = [
+  { value: "bullish_bearish_monitor", label: "Bullish/bearish monitor", description: "Alerts when a ticker's overall signal shifts more positive or more negative.", trigger: "monitor_state" },
+  { value: "congress", label: "Congress", description: "Alerts when a member of Congress reports buying or selling a ticker.", trigger: "congress_activity" },
+  { value: "conviction_threshold", label: "Conviction threshold", description: "Alerts when the signal strength crosses an important threshold, such as moving into strong-conviction territory.", trigger: "smart_score_threshold" },
+  { value: "cross_source", label: "Cross-source", description: "Alerts when multiple independent data sources point in the same direction.", trigger: "cross_source_confirmation" },
+  { value: "fundamentals", label: "Fundamentals", description: "Alerts about the company's business health, including earnings, revenue, margins, valuation, or guidance.", trigger: "fundamentals" },
+  { value: "government_contracts", label: "Government contracts", description: "Alerts about meaningful government awards, renewals, or contract activity tied to a company.", trigger: "government_contract" },
+  { value: "insiders", label: "Insiders", description: "Alerts when company executives, directors, or other insiders report buying or selling shares.", trigger: "insider_activity" },
+  { value: "institutional_activity", label: "Institutional activity", description: "Alerts about reported fund and institutional position changes in a ticker.", trigger: "institutional_activity" },
+  { value: "large_trade_contract", label: "Large trade / contract", description: "Alerts about unusually large market trades or meaningful business contracts.", trigger: "large_trade_threshold" },
+  { value: "news", label: "News", description: "Alerts when new relevant news coverage is available for a ticker.", trigger: "news" },
+  { value: "press_releases", label: "Press releases", description: "Alerts when a company publishes an official announcement or filing-related release.", trigger: "press_releases" },
 ];
+
+function AlertTypeHelp({ description }: { description: string }) {
+  return (
+    <span className="group relative inline-flex shrink-0">
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={`About this alert: ${description}`}
+        className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-slate-500/80 text-[10px] font-bold leading-none text-slate-300 outline-none transition hover:border-emerald-300 hover:text-emerald-200 focus-visible:border-emerald-300 focus-visible:text-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-300/30"
+      >
+        i
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-64 rounded-lg border border-emerald-300/20 bg-slate-950 px-3 py-2 text-xs font-normal leading-5 text-slate-200 opacity-0 shadow-xl transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {description}
+      </span>
+    </span>
+  );
+}
 
 const defaultDeliveryModes = (): Record<DeliveryCategory, DeliveryMode> =>
   Object.fromEntries(deliveryCategories.map((category) => [category.value, "both"])) as Record<DeliveryCategory, DeliveryMode>;
@@ -334,7 +355,10 @@ export function NotificationPreferences({
               </div>
               {deliveryCategories.map((category) => (
                 <div key={category.value} className="grid grid-cols-[minmax(230px,1.8fr)_repeat(4,minmax(82px,0.62fr))] border-b border-white/10 last:border-b-0">
-                  <div className="px-3 py-2 text-sm font-medium text-slate-100">{category.label}</div>
+                  <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-100">
+                    <span>{category.label}</span>
+                    <AlertTypeHelp description={category.description} />
+                  </div>
                   {(["off", "daily", "intraday", "both"] as DeliveryMode[]).map((mode) => {
                     const selected = deliveryModes[category.value] === mode;
                     return (
