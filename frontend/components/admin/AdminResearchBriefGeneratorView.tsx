@@ -157,15 +157,13 @@ const fallbackOptions: ResearchBriefOptions = {
     "X Thread",
     "Internal Analyst Note",
   ],
-  model_options: ["gpt-5.6-luna", "gpt-5.6-terra"],
-  model_default: "gpt-5.6-luna",
+  model_options: ["gpt-5.4-mini"],
+  model_default: "gpt-5.4-mini",
   model_descriptions: {
-    "gpt-5.6-luna": "Fast / cheaper",
-    "gpt-5.6-terra": "Balanced",
+    "gpt-5.4-mini": "Cost-efficient grounded research",
   },
   model_labels: {
-    "gpt-5.6-luna": "GPT-5.6 Luna",
-    "gpt-5.6-terra": "GPT-5.6 Terra",
+    "gpt-5.4-mini": "GPT-5.4 mini",
   },
   sections: DEFAULT_SECTIONS,
   campaign_themes: [
@@ -984,9 +982,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       const draft = await publishNowAdminResearchBriefDraft(savedDraft.id);
       applySavedDraft(draft);
       setActivePane("published");
-      showToast?.("Scheduled brief saved and published.", "success");
+      showToast?.("Draft saved and published.", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to publish scheduled brief.";
+      const message = err instanceof Error ? err.message : "Unable to publish brief.";
       setError(message);
       showToast?.(message, "error");
     } finally {
@@ -1039,6 +1037,30 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       showToast?.("Scheduled time updated.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to reschedule brief.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function scheduleSelected(scheduledAt: string) {
+    if (!selectedDraft || !articleDraft) return;
+    setBusy("schedule");
+    try {
+      const article = currentEditedArticle();
+      if (!article) return;
+      const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, {
+        status: "scheduled_review",
+        article,
+        config: currentEditedConfig(),
+      });
+      const draft = await rescheduleAdminResearchBriefDraft(savedDraft.id, scheduledAt);
+      applySavedDraft(draft);
+      setActivePane("scheduled");
+      showToast?.("Draft scheduled for review.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to schedule draft.";
       setError(message);
       showToast?.(message, "error");
     } finally {
@@ -1496,6 +1518,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onSuggestedCardChange={updateSuggestedCard}
             onBodyChange={setBodyMarkdown}
             onSave={() => saveDraft()}
+            onRefreshSources={refreshSources}
             onDiscard={() => {
               if (!selectedDraft) return;
               setArticleDraft(selectedDraft.article);
@@ -1503,6 +1526,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
               setConfig({ ...DEFAULT_CONFIG, ...(selectedDraft.config || {}) });
               showToast?.("Unsaved changes discarded.", "info");
             }}
+            onMarkReady={() => saveDraft("ready_for_review")}
+            onSchedule={scheduleSelected}
             onPublishNow={publishNowSelected}
             onApproveScheduled={approveScheduledSelected}
             onReject={rejectSelected}
@@ -2368,7 +2393,10 @@ function EditorPanel({
   onSuggestedCardChange,
   onBodyChange,
   onSave,
+  onRefreshSources,
   onDiscard,
+  onMarkReady,
+  onSchedule,
   onPublishNow,
   onApproveScheduled,
   onReject,
@@ -2386,7 +2414,10 @@ function EditorPanel({
   onSuggestedCardChange: (updates: Partial<AdminResearchBriefArticle["suggested_card"]>) => void;
   onBodyChange: (value: string) => void;
   onSave: () => void;
+  onRefreshSources: () => void;
   onDiscard: () => void;
+  onMarkReady: () => void;
+  onSchedule: (scheduledAt: string) => void;
   onPublishNow: () => void;
   onApproveScheduled: () => void;
   onReject: (correctionInstructions: string) => void;
@@ -2414,6 +2445,16 @@ function EditorPanel({
   const activeDraft = draft;
   const activeArticle = article;
   const isScheduledDraft = ["scheduled_review", "approved_scheduled"].includes(draft.status);
+  const isPublishedDraft = draft.status === "published";
+  const sourceLinkCount = draft.validation?.source_link_count || 0;
+  const publishDisabled = Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || sourceLinkCount === 0;
+  const publishBlockerText = sourceLinkCount === 0
+    ? "Add at least one source link before publishing."
+    : walnutCallInvalid
+      ? "Choose an approved Walnut call before publishing."
+      : blockingWarnings > 0
+        ? "Resolve blocking validation warnings before publishing."
+        : "";
   function copyRedditPost() {
     const redditPost = String(activeArticle.reddit_post || "");
     if (!redditPost.trim()) return;
@@ -2622,33 +2663,52 @@ function EditorPanel({
           </div>
         ) : null}
         <div className="grid gap-2">
-          <Button disabled={Boolean(busy)} onClick={onSave}>Save Draft</Button>
+          <Button disabled={Boolean(busy)} onClick={onSave}>{isPublishedDraft ? "Save Published Changes" : "Save Draft"}</Button>
+          <Button disabled={Boolean(busy)} onClick={onRefreshSources}>{busy === "refresh-sources" ? "Refreshing..." : "Find Sources / Refresh Research"}</Button>
+          {!isPublishedDraft ? <Button disabled={Boolean(busy)} onClick={onMarkReady}>Ready for Review</Button> : null}
           <Button disabled={Boolean(busy)} onClick={onDiscard}>Discard Changes</Button>
-          {isScheduledDraft ? (
+          {!isPublishedDraft ? (
             <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Scheduled time</span>
                 <input type="datetime-local" value={scheduledAtValue} onChange={(event) => setScheduledAtValue(event.target.value)} className={fieldClassName("mt-2")} />
               </label>
               <div className="mt-3 grid gap-2">
-                <Button disabled={Boolean(busy) || !scheduledAtValue} onClick={() => onReschedule(new Date(scheduledAtValue).toISOString())}>Reschedule</Button>
-                <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button>
-                <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Correction instructions</span>
-                  <textarea
-                    value={rejectionInstructions}
-                    onChange={(event) => setRejectionInstructions(event.target.value)}
-                    className={fieldClassName("mt-2 min-h-20")}
-                    placeholder="Optional: explain what to change in the replacement draft."
-                    maxLength={2000}
-                  />
-                </label>
-                <Button disabled={Boolean(busy)} onClick={() => onReject(rejectionInstructions)}>Apply Corrections</Button>
-                <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || (draft.validation?.source_link_count || 0) === 0} onClick={onPublishNow}>Publish Now</Button>
+                <Button disabled={Boolean(busy) || !scheduledAtValue} onClick={() => {
+                  const scheduledAt = new Date(scheduledAtValue).toISOString();
+                  if (isScheduledDraft) {
+                    onReschedule(scheduledAt);
+                  } else {
+                    onSchedule(scheduledAt);
+                  }
+                }}>{isScheduledDraft ? "Reschedule" : "Schedule Review"}</Button>
+                {isScheduledDraft ? (
+                  <>
+                    <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button>
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Correction instructions</span>
+                      <textarea
+                        value={rejectionInstructions}
+                        onChange={(event) => setRejectionInstructions(event.target.value)}
+                        className={fieldClassName("mt-2 min-h-20")}
+                        placeholder="Optional: explain what to change in the replacement draft."
+                        maxLength={2000}
+                      />
+                    </label>
+                    <Button disabled={Boolean(busy)} onClick={() => onReject(rejectionInstructions)}>Apply Corrections</Button>
+                  </>
+                ) : null}
               </div>
             </div>
           ) : null}
-          {draft.status === "published" ? <Button disabled={Boolean(busy)} onClick={onUnpublish}>Unpublish</Button> : null}
+          {!isPublishedDraft ? (
+            <>
+              <Button tone="primary" disabled={publishDisabled} onClick={onPublishNow}>Publish Now</Button>
+              {publishBlockerText ? <p className="text-xs leading-5 text-amber-200">{publishBlockerText}</p> : null}
+            </>
+          ) : (
+            <Button disabled={Boolean(busy)} onClick={onUnpublish}>Unpublish</Button>
+          )}
           <Button tone="danger" disabled={Boolean(busy)} onClick={onDelete}>Delete Draft</Button>
         </div>
       </aside>

@@ -37,9 +37,7 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /paywall_copy: parsed\.paywallCopy \|\| articleDraft\.paywall_copy/);
   assert.match(component, /Advanced metadata/);
   assert.match(component, /Model/);
-  assert.match(component, /GPT-5\.6 Luna/);
-  assert.match(component, /GPT-5\.6 Terra/);
-  assert.match(component, /GPT-5\.6 Sol/);
+  assert.match(component, /GPT-5\.4 mini/);
   assert.match(component, /External research mode/);
   assert.match(component, /Generate thumbnail \/ hero image/);
   assert.match(component, /Section format/);
@@ -89,8 +87,12 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /function applySavedDraft\(draft: AdminResearchBriefDraft\)/);
   assert.match(component, /applySavedDraft\(draft\);[\s\S]*Draft saved\./);
   assert.doesNotMatch(component, /const draft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ status, article \}\);[\s\S]{0,120}await refreshDrafts\(draft\)/);
-  assert.match(component, /saveDraft\(selectedDraft\?\.status === "published" \? "published" : "draft"\)/);
+  assert.match(component, /onMarkReady=\{\(\) => saveDraft\("ready_for_review"\)\}/);
+  assert.match(component, /async function scheduleSelected\(scheduledAt: string\)/);
   assert.match(component, /Save Published Changes/);
+  assert.match(component, /Schedule Review/);
+  assert.match(component, /Publish Now/);
+  assert.match(component, /Resolve blocking validation warnings before publishing\./);
   assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article, config: currentEditedConfig\(\) \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);
   assert.match(component, /Draft saved and published\./);
   assert.match(component, /Generating research brief/);
