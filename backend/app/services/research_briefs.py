@@ -57,6 +57,7 @@ RESEARCH_BRIEF_JOB_STALE_ERROR = "Research brief generation timed out. Please st
 RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS = "RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS"
 RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS = "RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS"
 RESEARCH_BRIEF_JOB_STALE_SECONDS = "RESEARCH_BRIEF_JOB_STALE_SECONDS"
+RESEARCH_BRIEF_QUALITY_REPAIR_ATTEMPTS = "RESEARCH_BRIEF_QUALITY_REPAIR_ATTEMPTS"
 RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
     "gpt-5.4-mini": "Cost-efficient grounded research",
 }
@@ -4604,6 +4605,24 @@ def _validation_failure_message(validation: dict[str, Any]) -> str:
     return message[:300]
 
 
+def _quality_repair_attempts() -> int:
+    try:
+        return max(0, min(3, int(os.getenv(RESEARCH_BRIEF_QUALITY_REPAIR_ATTEMPTS, "2") or 2)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def _quality_gate_repair_note(validation: dict[str, Any]) -> str:
+    details = [
+        f"{warning.get('code')}: {warning.get('message')}"
+        for warning in validation.get("warnings") or []
+        if isinstance(warning, dict) and warning.get("blocking")
+    ]
+    if not details:
+        details = [_validation_failure_message(validation)]
+    return _quality_gate_correction_note("; ".join(str(detail) for detail in details[:6]))
+
+
 def _attach_research_thumbnail(
     db: Session,
     config: dict[str, Any],
@@ -4697,6 +4716,27 @@ def generate_research_brief(
         if progress_callback:
             progress_callback("validating_claims", "Validating generated draft.")
         validation = validate_article(article, context)
+        repair_notes: list[str] = []
+        if validation.get("status") == "failed" and not use_deterministic_draft and os.getenv(MOCK_ENV) != "1":
+            max_repairs = _quality_repair_attempts()
+            for attempt in range(max_repairs):
+                repair_note = _quality_gate_repair_note(validation)
+                repair_notes.append(repair_note)
+                if progress_callback:
+                    progress_callback(
+                        "repairing_validation",
+                        f"Repairing validation issue with OpenAI ({attempt + 1}/{max_repairs}).",
+                    )
+                article = _call_openai_revision(db, normalized_config, article, repair_note, context)
+                article = _prepare_generated_research_article(article, normalized_config, context)
+                if progress_callback:
+                    progress_callback("validating_claims", f"Validating repaired draft ({attempt + 1}/{max_repairs}).")
+                validation = validate_article(article, context)
+                if validation.get("status") != "failed":
+                    validation["auto_repair_attempts"] = attempt + 1
+                    validation["auto_repair_notes"] = repair_notes
+                    article["_quality_gate_repair_attempts"] = attempt + 1
+                    break
         if validation.get("status") == "failed":
             message = _validation_failure_message(validation)
             if return_quality_gate_candidate:
@@ -4707,6 +4747,8 @@ def generate_research_brief(
                     "research_context": context,
                     "validation": validation,
                     "quality_gate_error": message,
+                    "quality_gate_repair_attempts": len(repair_notes),
+                    "quality_gate_repair_notes": repair_notes,
                     "elapsed_ms": int((time.perf_counter() - started) * 1000),
                 }
             raise HTTPException(status_code=422, detail=message)

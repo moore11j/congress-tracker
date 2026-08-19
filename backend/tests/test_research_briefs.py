@@ -602,6 +602,81 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert saved[0]["id"] == draft["id"]
 
 
+def test_manual_generation_repairs_validation_failure_before_saving(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "repair-admin@example.com", role="admin")
+    calls: list[str] = []
+
+    def article(title: str) -> dict[str, object]:
+        body = (
+            "This MU earnings research brief reviews Micron's setup using only source-backed evidence. "
+            "MU Corp remains the subject throughout the analysis, and the article keeps reported facts separate from Walnut's judgment. "
+            "Research only. Not investment advice. Sources: https://www.sec.gov/edgar/search/#/q=MU and https://www.nasdaq.com/market-activity/stocks/mu. "
+            + "Evidence remains specific and useful for investors. " * 30
+        )
+        return {
+            "title": title,
+            "slug": "mu-validation-repair-test",
+            "subtitle": "A Walnut research brief on MU.",
+            "summary": "MU earnings research brief for review. Research only. Not investment advice.",
+            "preview_body": "MU earnings research brief for review. Research only. Not investment advice.",
+            "judgment": "bullish",
+            "walnut_call": "Bullish",
+            "confidence": "medium",
+            "primary_ticker": "MU",
+            "comparison_tickers": [],
+            "category": "Semiconductors",
+            "reading_minutes": 5,
+            "sections": [{"key": "thesis", "heading": "Executive thesis", "body_markdown": body}],
+            "key_points": ["MU remains the subject."],
+            "catalysts": ["Next earnings update"],
+            "risks": ["Cycle risk"],
+            "watch_items": ["Revenue growth", "Gross margin"],
+            "data_freshness": ["2026-07-20"],
+            "missing_data_notes": [],
+            "source_links": [
+                {"label": "SEC EDGAR company search", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+                {"label": "MU Nasdaq market activity", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+            ],
+            "suggested_card": {"title": title, "description": "A Walnut research brief on MU.", "judgment": "Bullish", "tickers": ["MU"]},
+            "seo": {"title": title, "description": "Walnut MU earnings research brief. Not investment advice."},
+        }
+
+    def fake_post(*_args, **kwargs):
+        prompt = kwargs["json"]["input"]
+        calls.append(prompt)
+
+        class Response:
+            status_code = 200
+
+            def json(self):
+                title = "MU Preview" if len(calls) == 1 else "MU Earnings Research Brief: What Matters Now"
+                return {"output_text": json.dumps(article(title)), "usage": {"input_tokens": 100, "output_tokens": 200}}
+
+        return Response()
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+
+    draft = service.generate_research_brief(
+        db,
+        admin,
+        _payload(
+            target_keyword="MU earnings research brief",
+            research_question="Create an MU earnings research brief for investors.",
+            generate_thumbnail=False,
+        ).model_dump(),
+    )
+
+    assert len(calls) == 2
+    assert "failed a pre-publication quality gate" in calls[1]
+    assert draft["validation"]["status"] == "passed"
+    assert draft["validation"]["auto_repair_attempts"] == 1
+    assert draft["article"]["title"] == "MU Earnings Research Brief: What Matters Now"
+
+
 def test_research_brief_generation_dedupes_client_request_id(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
