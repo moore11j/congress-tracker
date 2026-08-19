@@ -176,8 +176,8 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
         >
           Create watchlist
         </button>
-        <Link href="/?mode=all" className={ghostButtonClassName}>
-          Back to feed
+        <Link href="/monitoring" className={ghostButtonClassName}>
+          Back to inbox & monitoring
         </Link>
       </div>
       <WatchlistCreateForm
