@@ -14,6 +14,7 @@ const researchIndexPage = read("app/research/page.tsx");
 const insightsPage = read("app/insights/page.tsx");
 const researchSection = read("components/insights/ResearchBriefsSection.tsx");
 const generatedBriefPage = read("components/research/GeneratedResearchBriefPage.tsx");
+const middleware = read("middleware.ts");
 
 function registryEntry(slug) {
   const slugIndex = registry.indexOf(`slug: "${slug}"`);
@@ -134,6 +135,12 @@ test("research index opens the full research briefs archive", () => {
   assert.match(researchIndexPage, /Back to Insights/);
   assert.match(researchIndexPage, /All published Walnut research briefs/);
   assert.match(researchIndexPage, /<ResearchBriefsSection mode="archive" \/>/);
+});
+
+test("the research archive uses the Walnut Market Terminal navigation shell", () => {
+  assert.match(middleware, /const isResearchArticle = isPublicResearchRoute\(pathname\) && pathname !== "\/research"/);
+  assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isResearchArticle \|\| isPublicComparisonRoute\(pathname\)\) && isMarketingHost/);
+  assert.match(middleware, /!isPublicResearchRoute\(pathname\)/);
 });
 
 test("generated research briefs render pipe-delimited data as production tables", () => {

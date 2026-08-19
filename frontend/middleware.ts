@@ -368,7 +368,11 @@ export async function middleware(request: NextRequest) {
   }
 
   const isMarketingHost = publicLandingHosts.has(host) || localDevHosts.has(host);
-  const isMarketingStaticPage = (publicStaticPaths.has(pathname) || isPublicResearchRoute(pathname) || isPublicComparisonRoute(pathname)) && isMarketingHost;
+  // The research archive stays public on walnutmarkets.com, but uses the
+  // Market Terminal shell so its navigation matches Insights. Individual
+  // articles retain their article-specific public header.
+  const isResearchArticle = isPublicResearchRoute(pathname) && pathname !== "/research";
+  const isMarketingStaticPage = (publicStaticPaths.has(pathname) || isResearchArticle || isPublicComparisonRoute(pathname)) && isMarketingHost;
   if (isMarketingStaticPage || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
     const response = NextResponse.next({

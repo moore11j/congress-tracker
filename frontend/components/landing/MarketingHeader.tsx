@@ -170,58 +170,60 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
           >
             Launch Terminal
           </a>
-          <details className="group relative isolate z-[9000] lg:hidden" style={{ zIndex: 9000 }}>
-            <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/35 hover:text-white [&::-webkit-details-marker]:hidden">
-              <span>Menu</span>
-              <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
-                &#9662;
-              </span>
-            </summary>
-            <div className="absolute right-0 top-full z-[10000] mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/15 bg-[#030712] p-3 shadow-2xl shadow-black ring-1 ring-black" style={{ zIndex: 10000 }}>
-              <nav aria-label="Mobile primary navigation" className="grid gap-1 text-sm">
-                <LandingNavLink href={navLinks[0].href} label={navLinks[0].label} className="rounded-lg px-3 py-2.5 text-slate-200" />
-                <LandingNavLink href={navLinks[1].href} label={navLinks[1].label} className="rounded-lg px-3 py-2.5 text-slate-200" />
-                <details className="group/profiles">
-                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
-                    <span>Profiles</span>
-                    <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/profiles:rotate-180">
-                      &#9662;
-                    </span>
-                  </summary>
-                  <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
-                    <NavMenuItems items={profilesNavLinks} mobile />
-                  </div>
-                </details>
-                {navLinks.slice(2).map((link) => (
-                  <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
-                ))}
-                <details className="group/tools">
-                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
-                    <span>Tools</span>
-                    <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/tools:rotate-180">
-                      &#9662;
-                    </span>
-                  </summary>
-                  <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
-                    <NavMenuItems items={toolsNavLinks} mobile />
-                  </div>
-                </details>
-                <LandingNavLink href={pricingHref} label="Pricing" className="rounded-lg px-3 py-2.5 text-slate-200" />
-                <details className="group/company">
-                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
-                    <span>Company</span>
-                    <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/company:rotate-180">
-                      &#9662;
-                    </span>
-                  </summary>
-                  <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
-                    <NavMenuItems items={companyNavLinks} mobile />
-                  </div>
-                </details>
-              </nav>
-            </div>
-          </details>
         </div>
+      </div>
+      <div className="mx-auto flex max-w-7xl justify-end px-4 pb-4 sm:px-6 lg:hidden lg:px-8">
+        <details className="group relative z-[9000] isolate" style={{ zIndex: 9000 }}>
+          <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/35 hover:text-white [&::-webkit-details-marker]:hidden">
+            <span>Menu</span>
+            <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open:rotate-180">
+              &#9662;
+            </span>
+          </summary>
+          <div className="absolute right-0 top-full z-[10000] mt-3 w-[min(calc(100vw-2rem),22rem)] rounded-lg border border-white/15 bg-[#030712] p-3 shadow-2xl shadow-black ring-1 ring-black" style={{ zIndex: 10000 }}>
+            <nav aria-label="Mobile primary navigation" className="grid gap-1 text-sm">
+              <LandingNavLink href={navLinks[0].href} label={navLinks[0].label} className="rounded-lg px-3 py-2.5 text-slate-200" />
+              <LandingNavLink href={navLinks[1].href} label={navLinks[1].label} className="rounded-lg px-3 py-2.5 text-slate-200" />
+              <details className="group/profiles">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
+                  <span>Profiles</span>
+                  <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/profiles:rotate-180">
+                    &#9662;
+                  </span>
+                </summary>
+                <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
+                  <NavMenuItems items={profilesNavLinks} mobile />
+                </div>
+              </details>
+              {navLinks.slice(2).map((link) => (
+                <LandingNavLink key={link.label} href={link.href} label={link.label} className="rounded-lg px-3 py-2.5 text-slate-200" />
+              ))}
+              <details className="group/tools">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
+                  <span>Tools</span>
+                  <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/tools:rotate-180">
+                    &#9662;
+                  </span>
+                </summary>
+                <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
+                  <NavMenuItems items={toolsNavLinks} mobile />
+                </div>
+              </details>
+              <LandingNavLink href={pricingHref} label="Pricing" className="rounded-lg px-3 py-2.5 text-slate-200" />
+              <details className="group/company">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">
+                  <span>Company</span>
+                  <span aria-hidden="true" className="text-[10px] text-emerald-200 transition group-open/company:rotate-180">
+                    &#9662;
+                  </span>
+                </summary>
+                <div className="mt-1 grid gap-2 border-l border-white/10 pl-3">
+                  <NavMenuItems items={companyNavLinks} mobile />
+                </div>
+              </details>
+            </nav>
+          </div>
+        </details>
       </div>
     </header>
   );
