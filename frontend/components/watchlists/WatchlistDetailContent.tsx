@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { WatchlistRecentActivity } from "@/components/watchlists/WatchlistRecentActivity";
 import { WatchlistTickerManager } from "@/components/watchlists/WatchlistTickerManager";
+import { CustomAlertRules } from "@/components/watchlists/CustomAlertRules";
 import { ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { ConfirmationMonitoringEvent, FeedItem, WatchlistDetail } from "@/lib/types";
 import type { WatchlistActivityState } from "@/lib/watchlistActivity";
@@ -22,6 +23,7 @@ type Props = {
   initialState: WatchlistActivityState;
   initialData: RecentActivityData;
   canViewPremiumMetrics: boolean;
+  canUseCustomAlerts: boolean;
 };
 
 const pendingWatchlistToastKey = "watchlist:create-toast";
@@ -46,7 +48,7 @@ const ConfirmationMonitoringPanel = dynamic(
   { ssr: false, loading: () => <DeferredWatchlistPanel label="confirmation monitor" /> },
 );
 
-export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData, canViewPremiumMetrics }: Props) {
+export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData, canViewPremiumMetrics, canUseCustomAlerts }: Props) {
   const unseenCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
   const [createToast, setCreateToast] = useState<string | null>(null);
 
@@ -121,6 +123,12 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
               unseen_since: watchlist.unseen_since,
               last_seen_at: watchlist.last_seen_at,
             }}
+          />
+
+          <CustomAlertRules
+            watchlistId={watchlist.watchlist_id}
+            tickers={watchlist.tickers.map((ticker) => ticker.symbol).filter((symbol): symbol is string => Boolean(symbol))}
+            canUseCustomAlerts={canUseCustomAlerts}
           />
 
           <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

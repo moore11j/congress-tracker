@@ -278,6 +278,7 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
                     or_(
                         MonitoringAlert.source_type == "saved_screen",
                         (MonitoringAlert.source_type != "watchlist") & MonitoringAlert.alert_type.in_(SIGNAL_ALERT_TYPES),
+                        MonitoringAlert.alert_type == "custom_alert",
                     )
                 )
                 .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
@@ -292,6 +293,16 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
         watchlist_subscription_by_id = {row.source_id: row for row in subscriptions if row.source_type == "watchlist"}
         for alert in alert_rows:
             if _is_institutional_alert_type(alert.alert_type) and not can_view_institutional:
+                continue
+            if alert.alert_type == "custom_alert":
+                if not entitlements_for_user(db, user).has_feature("custom_alert_rules"):
+                    continue
+                if _loads_dict(alert.payload_json).get("delivery") not in {"immediate", "both"}:
+                    continue
+                subscription = subscription_by_source.get((alert.source_type, alert.source_id))
+                if subscription is None or not _subscription_intraday_alerts_enabled(subscription):
+                    continue
+                candidates.append(_signal_alert_candidate(user, alert, watchlist_symbols))
                 continue
             candidate = _signal_alert_candidate(user, alert, watchlist_symbols)
             candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription_by_source.get((alert.source_type, alert.source_id))))
@@ -382,27 +393,30 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
     after = saved_screen_event.get("after") if isinstance(saved_screen_event.get("after"), dict) else {}
     score = _numeric_score(payload.get("score") or after.get("confirmation_score") or after.get("smart_score"))
     ticker = (alert.symbol or saved_screen_event.get("ticker") or "UNKNOWN").upper()
-    trigger = _signal_trigger(alert.alert_type, payload, score, ticker in watchlist_symbols, source_type=alert.source_type)
+    is_custom_alert = alert.alert_type == "custom_alert"
+    trigger = "custom_alert" if is_custom_alert else _signal_trigger(alert.alert_type, payload, score, ticker in watchlist_symbols, source_type=alert.source_type)
+    rule_name = str(payload.get("rule_name") or "Custom alert").strip()
+    watchlist_url = f"{_frontend_base_url()}/watchlists/{alert.source_id}" if alert.source_id else f"{_frontend_base_url()}/monitoring"
     context = {
         "first_name": _first_name(user),
         "ticker": ticker,
-        "alert_title": f"High-conviction signal: {ticker}",
-        "alert_intro": f"A saved Walnut signal matched high-conviction intraday criteria for {ticker}.",
+        "alert_title": f"Custom alert triggered: {rule_name}" if is_custom_alert else f"High-conviction signal: {ticker}",
+        "alert_intro": (alert.body or f"{ticker} matched the conditions for {rule_name}.") if is_custom_alert else f"A saved Walnut signal matched high-conviction intraday criteria for {ticker}.",
         "event_type": alert.alert_type.replace("_", " "),
         "signal_score": _score_display(score),
         "direction": str(payload.get("direction") or after.get("direction") or "mixed"),
         "trigger": _trigger_label(trigger),
-        "monitored_through": alert.source_name or alert.source_type.replace("_", " ").title(),
-        "monitoring_source_type": "Saved screen" if alert.source_type == "saved_screen" else alert.source_type.replace("_", " ").title(),
+        "monitored_through": rule_name if is_custom_alert else alert.source_name or alert.source_type.replace("_", " ").title(),
+        "monitoring_source_type": "Custom Alert Rule" if is_custom_alert else "Saved screen" if alert.source_type == "saved_screen" else alert.source_type.replace("_", " ").title(),
         "alert_type": _trigger_label(trigger),
-        "why_notable": alert.title or alert.alert_type.replace("_", " "),
-        "source_stack": alert.source_name or alert.source_type.replace("_", " "),
+        "why_notable": alert.body or alert.title or alert.alert_type.replace("_", " "),
+        "source_stack": rule_name if is_custom_alert else alert.source_name or alert.source_type.replace("_", " "),
         "event_date": _format_datetime(alert.event_created_at),
-        "alert_url": f"{_frontend_base_url()}/ticker/{ticker}" if ticker != "UNKNOWN" else f"{_frontend_base_url()}/signals",
+        "alert_url": watchlist_url if is_custom_alert else f"{_frontend_base_url()}/ticker/{ticker}" if ticker != "UNKNOWN" else f"{_frontend_base_url()}/signals",
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat(),
     }
     return IntradayAlertCandidate(
-        source="signal",
+        source="custom_alert" if is_custom_alert else "signal",
         user=user,
         template_key=INTRADAY_SIGNAL_TEMPLATE,
         event_key=f"monitoring-alert:{alert.id}",
@@ -412,6 +426,7 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         amount=None,
         trigger=trigger,
         skip_reason=None if trigger else "low_conviction",
+        watchlist_id=int(alert.source_id) if is_custom_alert and str(alert.source_id or "").isdigit() else None,
         context=context,
     )
 

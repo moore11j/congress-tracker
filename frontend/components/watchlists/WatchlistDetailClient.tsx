@@ -40,6 +40,7 @@ type LoadState =
       initialState: WatchlistActivityState;
       initialData: RecentActivityData;
       canViewPremiumMetrics: boolean;
+      canUseCustomAlerts: boolean;
     }
   | { status: "error"; code: number | null; message: string };
 
@@ -188,6 +189,7 @@ export function WatchlistDetailClient({
               hasMore: hydratedState.mode === "signals" ? items.length === hydratedState.limit : Boolean("next_cursor" in activity && activity.next_cursor),
             },
             canViewPremiumMetrics: hasEntitlement(entitlements, "premium_feed_metrics"),
+            canUseCustomAlerts: hasEntitlement(entitlements, "custom_alert_rules"),
           });
         }
       } catch (error) {
@@ -215,6 +217,7 @@ export function WatchlistDetailClient({
       initialState={state.initialState}
       initialData={state.initialData}
       canViewPremiumMetrics={state.canViewPremiumMetrics}
+      canUseCustomAlerts={state.canUseCustomAlerts}
     />
   );
 }

@@ -18,6 +18,7 @@ from app.services.confirmation_score import (
     confirmation_band_for_score,
     get_confirmation_score_bundles_for_tickers,
 )
+from app.services.custom_alert_rules import evaluate_watchlist_custom_alerts
 
 MATERIAL_SCORE_DELTA = 15
 DEDUPE_WINDOW = timedelta(hours=24)
@@ -382,6 +383,7 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
     started = perf_counter()
     logger.info("scheduled_monitor_refresh_started")
 
+    work: list[tuple[int, int, bool]] = []
     with session_factory() as db:
         users = (
             db.execute(
@@ -392,11 +394,11 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
             .scalars()
             .all()
         )
-        work: list[tuple[int, int]] = []
         for user in users:
             entitlements = entitlements_for_user(db, user)
             allowed_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["watchlist_ids"]
-            work.extend((user.id, watchlist_id) for watchlist_id in sorted(allowed_ids))
+            can_use_custom_rules = entitlements.has_feature("custom_alert_rules")
+            work.extend((user.id, watchlist_id, can_use_custom_rules) for watchlist_id in sorted(allowed_ids))
 
     watchlists_checked = 0
     changes_created = 0
@@ -404,7 +406,9 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
     deduped = 0
     observed_at = now or datetime.now(timezone.utc)
 
-    for user_id, watchlist_id in work:
+    custom_rules_evaluated = 0
+    custom_rules_triggered = 0
+    for user_id, watchlist_id, can_use_custom_rules in work:
         with session_factory() as db:
             try:
                 symbols = (
@@ -425,6 +429,15 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                     lookback_days=lookback_days,
                     now=observed_at,
                 )
+                if can_use_custom_rules:
+                    custom_result = evaluate_watchlist_custom_alerts(
+                        db,
+                        user_id=user_id,
+                        watchlist_id=watchlist_id,
+                        now=observed_at,
+                    )
+                    custom_rules_evaluated += int(custom_result.get("evaluated") or 0)
+                    custom_rules_triggered += int(custom_result.get("triggered") or 0)
                 db.commit()
             except Exception:
                 db.rollback()
@@ -446,6 +459,8 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
         "changes_created": changes_created,
         "initialized": initialized,
         "deduped": deduped,
+        "custom_rules_evaluated": custom_rules_evaluated,
+        "custom_rules_triggered": custom_rules_triggered,
         "duration_ms": duration_ms,
     }
     logger.info(

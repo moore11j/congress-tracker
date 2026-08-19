@@ -22,6 +22,7 @@ type FeatureKey =
   | "watchlist_institutions"
   | "saved_views"
   | "notification_digests"
+  | "custom_alert_rules"
   | "monitoring_sources"
   | "event_calendar"
   | "inbox_alerts"
@@ -66,6 +67,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     watchlist_institutions: 0,
     saved_views: 1,
     notification_digests: 0,
+    custom_alert_rules: 0,
     monitoring_sources: 3,
     event_calendar: 0,
     inbox_alerts: 1,
@@ -102,6 +104,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     watchlist_institutions: 0,
     saved_views: 10,
     notification_digests: 25,
+    custom_alert_rules: 0,
     monitoring_sources: 10,
     event_calendar: 1,
     inbox_alerts: 1,
@@ -138,6 +141,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     watchlist_institutions: 25,
     saved_views: 25,
     notification_digests: 100,
+    custom_alert_rules: 1,
     monitoring_sources: 25,
     event_calendar: 1,
     inbox_alerts: 1,
@@ -346,6 +350,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 60,
+  },
+  {
+    feature_key: "custom_alert_rules",
+    label: "Custom Alert Rules",
+    kind: "feature",
+    description: "Build your own multi-condition alerts across market, technical, and activity data.",
+    required_tier: "pro",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 61,
   },
   {
     feature_key: "saved_views",

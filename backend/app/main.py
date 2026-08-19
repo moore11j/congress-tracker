@@ -153,6 +153,7 @@ from app.routers.accounts import router as accounts_router
 from app.routers.analyst_consensus import router as analyst_consensus_router
 from app.routers.backtests import router as backtests_router
 from app.routers.contact import router as contact_router
+from app.routers.custom_alert_rules import router as custom_alert_rules_router
 from app.routers.debug import router as debug_router
 from app.routers.event_calendar import router as event_calendar_router
 from app.routers.institutional import router as institutional_router
@@ -14597,6 +14598,7 @@ app.include_router(market_pressure_router, prefix="/api")
 app.include_router(screener_router, prefix="/api")
 app.include_router(backtests_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
+app.include_router(custom_alert_rules_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
 app.include_router(event_calendar_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")

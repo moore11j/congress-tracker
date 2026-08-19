@@ -516,6 +516,73 @@ class WatchlistViewState(Base):
     )
 
 
+class WatchlistAlertRule(Base):
+    """Structured, user-owned custom monitoring rule; never executable user code."""
+
+    __tablename__ = "watchlist_alert_rules"
+    __table_args__ = (
+        Index("ix_watchlist_alert_rules_owner_watchlist", "user_id", "watchlist_id", "updated_at"),
+        Index("ix_watchlist_alert_rules_active", "enabled", "watchlist_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    watchlist_id: Mapped[int] = mapped_column(nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    scope_type: Mapped[str] = mapped_column(Text, default="any_watchlist_ticker", server_default="any_watchlist_ticker", nullable=False)
+    scope_ticker: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    match_type: Mapped[str] = mapped_column(Text, default="all", server_default="all", nullable=False)
+    conditions_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    delivery: Mapped[str] = mapped_column(Text, default="immediate", server_default="immediate", nullable=False)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_triggered_ticker: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WatchlistAlertRuleState(Base):
+    """Per-rule, per-ticker evaluation state used for transition triggering and dedupe."""
+
+    __tablename__ = "watchlist_alert_rule_states"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "ticker", name="uq_watchlist_alert_rule_state_scope"),
+        Index("ix_watchlist_alert_rule_states_rule", "rule_id", "last_evaluated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rule_id: Mapped[int] = mapped_column(nullable=False)
+    ticker: Mapped[str] = mapped_column(Text, nullable=False)
+    previous_result: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    current_result: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    last_evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dedupe_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    values_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+
+
+class WatchlistAlertRuleTrigger(Base):
+    """Durable trigger evidence for inbox, digest, and email delivery."""
+
+    __tablename__ = "watchlist_alert_rule_triggers"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "ticker", "dedupe_key", name="uq_watchlist_alert_rule_trigger_dedupe"),
+        Index("ix_watchlist_alert_rule_triggers_user_created", "user_id", "created_at"),
+        Index("ix_watchlist_alert_rule_triggers_rule_created", "rule_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    rule_id: Mapped[int] = mapped_column(nullable=False)
+    watchlist_id: Mapped[int] = mapped_column(nullable=False)
+    ticker: Mapped[str] = mapped_column(Text, nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    conditions_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MonitoringSourcePreference(Base):
     """Per-user opt-out state for a monitored source.
 

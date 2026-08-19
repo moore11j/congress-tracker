@@ -1,7 +1,8 @@
 import nextDynamic from "next/dynamic";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
-import { getWatchlist } from "@/lib/api";
+import { getEntitlements, getWatchlist } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement } from "@/lib/entitlements";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import { getParam, parseMode, type WatchlistActivityState } from "@/lib/watchlistActivity";
 
@@ -56,6 +57,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const hydratedState = initialState.onlyNew
     ? { ...initialState, newSince: initialState.newSince || watchlist.unseen_since || "" }
     : initialState;
+  const entitlements = await getEntitlements(authToken, { source: "WatchlistDetailPage" }).catch(() => defaultEntitlements);
   return (
     <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <WatchlistDetailContent
@@ -63,6 +65,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
         confirmationEvents={[]}
         initialState={hydratedState}
         canViewPremiumMetrics={false}
+        canUseCustomAlerts={hasEntitlement(entitlements, "custom_alert_rules")}
         initialData={{
           // Activity is hydrated in the client so a temporarily saturated API pool
           // never holds the entire watchlist page hostage.

@@ -1583,6 +1583,7 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     if score is None and isinstance(event_payload, dict):
         score = event_payload.get("smart_score") or event_payload.get("confirmation_score") or event_payload.get("signal_score")
     ticker = _normalize_ticker(alert.symbol or saved_screen_event.get("ticker") or event_payload.get("symbol"))
+    is_custom_alert = alert.alert_type == "custom_alert"
     direction = _normalize_direction(
         (after.get("direction") if isinstance(after, dict) else None)
         or payload.get("direction")
@@ -1595,22 +1596,25 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         direction=direction,
         fallback=_clean_text(payload.get("source_stack")),
     )
+    if is_custom_alert:
+        source_stack = str(payload.get("rule_name") or "Custom Alert Rule")
     return {
         "ticker": ticker,
         "company_name": _clean_text(payload.get("company_name")) or _clean_text(event_payload.get("company_name")) or _clean_text(after.get("company_name")),
         "signal_score": _numeric_score(score),
-        "direction": direction,
+        "direction": direction if not is_custom_alert else "neutral",
         "why_notable": why_notable,
         "source_stack": source_stack,
         "cautions": "Review source context before acting.",
         "date": _format_date(alert.event_created_at),
         "latest_event_date": _format_date(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
-        "href": _signal_url(ticker),
+        "href": f"{_frontend_base_url()}/watchlists/{alert.source_id}" if is_custom_alert and alert.source_id else _signal_url(ticker),
         "source_type": alert.source_type,
         "source_id": alert.source_id,
         "alert_type": alert.alert_type,
         "trigger": _daily_signal_trigger(alert.alert_type, payload, score, source_type=alert.source_type),
+        "custom_delivery": payload.get("delivery"),
         "watchlist_boost": alert.source_type == "watchlist",
     }
 
@@ -1682,6 +1686,7 @@ def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime
         *SOURCE_MONITORING_ALERT_TYPES,
         "smart_score_threshold",
         "cross_source_confirmation",
+        "custom_alert",
     )
     query = (
         select(MonitoringAlert)
@@ -1749,6 +1754,7 @@ def _is_signal_monitoring_alert(alert: MonitoringAlert, payload: dict[str, Any])
         *SOURCE_MONITORING_ALERT_TYPES,
         "smart_score_threshold",
         "cross_source_confirmation",
+        "custom_alert",
     }:
         return True
     return bool(payload.get("saved_screen_event"))
@@ -1775,6 +1781,10 @@ def _apply_daily_signal_subscription_preferences(db: Session, user: UserAccount,
             continue
         if not subscription.active or not _subscription_daily_digest_enabled(subscription):
             continue
+        if item.get("alert_type") == "custom_alert":
+            if item.get("custom_delivery") in {"daily", "both"}:
+                filtered.append(item)
+            continue
         trigger = str(item.get("trigger") or "").strip()
         if _subscription_allows_any_trigger(subscription, {trigger} if trigger else set()):
             filtered.append(item)
@@ -1796,6 +1806,8 @@ def _apply_monitoring_subscription_preferences(items: list[dict[str, Any]], subs
 
 def _daily_signal_trigger(alert_type: str, payload: dict[str, Any], score: Any, *, source_type: str | None = None) -> str | None:
     normalized = (alert_type or "").strip().lower()
+    if normalized == "custom_alert":
+        return "custom_alert"
     if source_type == "saved_screen" and normalized == "entered_screen":
         return "saved_screen_entry"
     if normalized in {"entered_bullish_monitor", "entered_bearish_monitor", "exited_bullish_monitor", "exited_bearish_monitor"}:
@@ -1879,9 +1891,10 @@ def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:
         return "missing_ticker"
     if _is_internal_refresh_signal(item):
         return "internal_refresh_event"
-    if _numeric_score(item.get("signal_score")) is None and not _is_source_monitoring_item(item):
+    is_custom_alert = str(item.get("alert_type") or "").strip().lower() == "custom_alert"
+    if _numeric_score(item.get("signal_score")) is None and not _is_source_monitoring_item(item) and not is_custom_alert:
         return "missing_score"
-    if str(item.get("direction") or "").lower() not in SIGNAL_ALLOWED_DIRECTIONS:
+    if str(item.get("direction") or "").lower() not in SIGNAL_ALLOWED_DIRECTIONS and not is_custom_alert:
         return "missing_direction"
     if not _clean_text(item.get("why_notable")):
         return "missing_reason"

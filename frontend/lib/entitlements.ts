@@ -20,6 +20,7 @@ export type EntitlementFeature =
   | "watchlist_institutions"
   | "saved_views"
   | "notification_digests"
+  | "custom_alert_rules"
   | "monitoring_sources"
   | "event_calendar"
   | "inbox_alerts"
@@ -81,6 +82,7 @@ export const defaultEntitlements: Entitlements = {
     watchlist_institutions: 0,
     saved_views: 1,
     notification_digests: 0,
+    custom_alert_rules: 0,
     monitoring_sources: 3,
     event_calendar: 0,
     inbox_alerts: 1,
@@ -123,6 +125,7 @@ export const premiumEntitlements: Entitlements = {
     watchlist_institutions: 0,
     saved_views: 10,
     notification_digests: 25,
+    custom_alert_rules: 0,
     monitoring_sources: 10,
     event_calendar: 1,
     inbox_alerts: 1,
@@ -190,6 +193,7 @@ export const proEntitlements: Entitlements = {
     watchlist_institutions: 25,
     saved_views: 25,
     notification_digests: 100,
+    custom_alert_rules: 1,
     monitoring_sources: 25,
     event_calendar: 1,
     inbox_alerts: 1,
@@ -226,6 +230,7 @@ export const proEntitlements: Entitlements = {
     "watchlist_institutions",
     "saved_views",
     "notification_digests",
+    "custom_alert_rules",
     "monitoring_sources",
     "event_calendar",
     "inbox_alerts",

@@ -38,6 +38,7 @@ FeatureKey = Literal[
     "watchlist_institutions",
     "saved_views",
     "notification_digests",
+    "custom_alert_rules",
     "monitoring_sources",
     "event_calendar",
     "inbox_alerts",
@@ -69,6 +70,7 @@ HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
     "institutional_filters": "pro",
     "macro_positioning": "pro",
     "market_pressure": "pro",
+    "custom_alert_rules": "pro",
 }
 
 
@@ -110,6 +112,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "watchlist_institutions": 0,
             "saved_views": 1,
             "notification_digests": 0,
+            "custom_alert_rules": 0,
             "monitoring_sources": 3,
             "event_calendar": 0,
             "inbox_alerts": 1,
@@ -168,6 +171,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "watchlist_institutions": 0,
             "saved_views": 10,
             "notification_digests": 25,
+            "custom_alert_rules": 0,
             "monitoring_sources": 10,
             "event_calendar": 1,
             "inbox_alerts": 1,
@@ -239,6 +243,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "watchlist_institutions": 25,
             "saved_views": 25,
             "notification_digests": 100,
+            "custom_alert_rules": 1,
             "monitoring_sources": 25,
             "event_calendar": 1,
             "inbox_alerts": 1,
@@ -278,6 +283,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "watchlist_institutions",
                 "saved_views",
                 "notification_digests",
+                "custom_alert_rules",
                 "monitoring_sources",
                 "event_calendar",
                 "inbox_alerts",
@@ -375,6 +381,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "notification_digests": {
         "required_tier": "premium",
         "description": "Email digests and alert-trigger subscriptions.",
+    },
+    "custom_alert_rules": {
+        "required_tier": "pro",
+        "description": "Build multi-condition watchlist monitoring rules from Walnut data.",
     },
     "monitoring_sources": {
         "required_tier": "free",

@@ -8120,6 +8120,55 @@ export async function getWatchlist(id: number, authToken?: string, options?: { s
   });
 }
 
+export type CustomAlertCondition = {
+  metric: string;
+  metric_params?: Record<string, number>;
+  operator: string;
+  comparison_type: "value" | "metric";
+  comparison_value?: number | null;
+  comparison_metric?: string | null;
+  comparison_metric_params?: Record<string, number>;
+  time_window?: { value: number; unit: "hour" | "day" | "month" } | null;
+};
+
+export type CustomAlertRule = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  scope: { type: "any_watchlist_ticker" | "specific_ticker" | "watchlist_aggregate"; ticker: string | null };
+  match_type: "all" | "any";
+  conditions: CustomAlertCondition[];
+  delivery: "immediate" | "daily" | "both";
+  summary: string;
+  last_triggered_at: string | null;
+  last_triggered_ticker: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CustomAlertMetric = { key: string; label: string; category: string; kind: string; operators: string[]; metric_comparison?: boolean; requires_window?: boolean; params?: Record<string, { default: number; min: number; max: number }> };
+export type CustomAlertRulePayload = Omit<CustomAlertRule, "id" | "summary" | "last_triggered_at" | "last_triggered_ticker" | "created_at" | "updated_at">;
+
+export async function listCustomAlertRules(watchlistId: number): Promise<{ items: CustomAlertRule[]; metrics: CustomAlertMetric[] }> {
+  return fetchJson<{ items: CustomAlertRule[]; metrics: CustomAlertMetric[] }>(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules`), { cache: "no-store", next: { revalidate: 0 }, source: "CustomAlertRules" });
+}
+
+export async function createCustomAlertRule(watchlistId: number, payload: Omit<CustomAlertRulePayload, "id">): Promise<CustomAlertRule> {
+  return fetchJson<CustomAlertRule>(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export async function updateCustomAlertRule(watchlistId: number, ruleId: number, payload: Partial<CustomAlertRulePayload>): Promise<CustomAlertRule> {
+  return fetchJson<CustomAlertRule>(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules/${ruleId}`), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export async function duplicateCustomAlertRule(watchlistId: number, ruleId: number): Promise<CustomAlertRule> {
+  return fetchJson<CustomAlertRule>(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules/${ruleId}/duplicate`), { method: "POST" });
+}
+
+export async function deleteCustomAlertRule(watchlistId: number, ruleId: number): Promise<void> {
+  return fetchNoContent(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules/${ruleId}`), { method: "DELETE" });
+}
+
 export async function getWatchlistConfirmationEvents(
   id: number,
   params: QueryParamsWithRequestOptions = {},
