@@ -364,7 +364,7 @@ export function NotificationPreferences({
 
   if (sourceType === "watchlist") {
     return (
-      <section className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/45 p-4 shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]">
+      <section id="monitoring-alerts" className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/45 p-4 shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-white">Monitoring alerts</h2>

@@ -4582,8 +4582,11 @@ def update_account_notifications(
     db: Session = Depends(get_db),
 ):
     user = current_user(db, request, required=True)
-    user.alerts_enabled = payload.alerts_enabled
-    user.email_notifications_enabled = payload.email_notifications_enabled
+    # The two delivery preferences below replace the legacy master switches.
+    # Restore those switches on save so existing opt-outs migrate safely when a
+    # user next confirms their delivery choices.
+    user.alerts_enabled = True
+    user.email_notifications_enabled = True
     user.watchlist_activity_notifications = payload.watchlist_activity_notifications
     user.signals_notifications = payload.signals_notifications
     user.updated_at = datetime.now(timezone.utc)

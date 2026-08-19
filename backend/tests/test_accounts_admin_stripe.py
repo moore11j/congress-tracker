@@ -1390,7 +1390,8 @@ def test_account_profile_password_and_notification_settings_update():
             request,
             db,
         )
-        assert notifications["alerts_enabled"] is False
+        assert notifications["alerts_enabled"] is True
+        assert notifications["email_notifications_enabled"] is True
         assert account_settings(request, db)["notifications"]["watchlist_activity_notifications"] is False
 
         try:

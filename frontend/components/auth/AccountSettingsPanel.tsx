@@ -226,17 +226,6 @@ export function AccountSettingsPanel() {
     setNotifications((current) => ({ ...current, [key]: !current[key] }));
   };
 
-  const toggleMonitoringEmails = () => {
-    setNotifications((current) => {
-      const next = !(current.email_notifications_enabled && current.alerts_enabled);
-      return {
-        ...current,
-        alerts_enabled: next,
-        email_notifications_enabled: next,
-      };
-    });
-  };
-
   if (loadStatus && !user) {
     return (
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -413,17 +402,12 @@ export function AccountSettingsPanel() {
         </div>
       </form>
 
-      <form onSubmit={saveNotifications} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-        <h2 className="text-xl font-semibold text-white">Monitoring emails</h2>
+      <form id="monitoring-email-preferences" onSubmit={saveNotifications} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <h2 className="text-xl font-semibold text-white">Monitoring email delivery</h2>
         <p className="mt-2 text-sm text-slate-400">
-          Transactional account and billing emails stay separate. These settings control the Daily Monitoring Digest and Intraday Monitoring Alerts.
+          Choose the delivery cadence available across your monitored sources. Transactional account and billing emails stay separate.
         </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <ToggleRow
-            label="Monitoring emails"
-            checked={notifications.email_notifications_enabled && notifications.alerts_enabled}
-            onClick={toggleMonitoringEmails}
-          />
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
           <ToggleRow
             label="Daily monitoring digest"
             checked={notifications.watchlist_activity_notifications}

@@ -367,6 +367,14 @@ export function SavedViewsBar({
   }, [pathname, searchParamsString]);
 
   useEffect(() => {
+    if (!allowNotifications || surface !== "screener") return;
+    const manageAlertsId = new URLSearchParams(searchParamsString).get("manage_alerts");
+    if (!manageAlertsId) return;
+    const target = views.find((view) => view.id === manageAlertsId);
+    if (target) setNotifyTarget(target);
+  }, [allowNotifications, searchParamsString, surface, views]);
+
+  useEffect(() => {
     setFormParams(urlParams);
   }, [urlParams]);
 
@@ -965,7 +973,7 @@ export function SavedViewsBar({
                             className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-900"
                             role="menuitem"
                           >
-                            Notify
+                            Manage alerts
                           </button>
                         ) : null}
                         {allowDefaultView ? (
@@ -1103,10 +1111,10 @@ export function SavedViewsBar({
 
       <WalnutModal
         open={Boolean(notifyTarget)}
-        title="Notify me"
+        title="Manage alerts"
         description={notifyTarget ? <span className="text-slate-400">{notifyTarget.name}</span> : undefined}
         onClose={() => setNotifyTarget(null)}
-        closeLabel="Close notification settings"
+        closeLabel="Close alert settings"
         panelClassName="max-w-md"
       >
         {notifyTarget ? (

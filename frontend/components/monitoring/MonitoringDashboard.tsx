@@ -102,6 +102,7 @@ type MonitoredSourceRow = {
   title: string;
   subtitle: string;
   href: string;
+  alertHref?: string;
   count: number;
   countLabel: string;
   countClassName: string;
@@ -171,6 +172,18 @@ function hrefForInboxSource(source: MonitoringInboxSource) {
     return "/monitoring";
   }
   return "/monitoring";
+}
+
+function manageAlertsHrefForSource(sourceType: string, sourceId: string, fallbackHref: string) {
+  if (sourceType === "watchlist") return `/watchlists/${encodeURIComponent(sourceId)}#monitoring-alerts`;
+  if (isSavedScreenSourceType(sourceType)) return `/screener?manage_alerts=${encodeURIComponent(`saved-screen:${sourceId}`)}`;
+  if (sourceType === "strategy") return `${fallbackHref}#strategy-monitoring`;
+  return "/account/settings#monitoring-email-preferences";
+}
+
+function manageAlertsHrefForSavedView(view: SavedView) {
+  const href = savedViewHref(view);
+  return `${href}${href.includes("?") ? "&" : "?"}manage_alerts=${encodeURIComponent(view.id)}`;
 }
 
 function sourceCountClassName(sourceType: string, count: number) {
@@ -396,7 +409,7 @@ function MonitoringPanelSkeleton() {
   );
 }
 
-const monitoredSourceCardClassName = `${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40 sm:grid-cols-[1fr_auto_auto] sm:items-center`;
+const monitoredSourceCardClassName = `${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center`;
 
 function MonitoredSourceCard({
   href,
@@ -404,6 +417,7 @@ function MonitoredSourceCard({
   subtitle,
   countLabel,
   countClassName,
+  alertHref,
   onClick,
   onRemove,
   removeDisabled = false,
@@ -413,6 +427,7 @@ function MonitoredSourceCard({
   subtitle: string;
   countLabel: string;
   countClassName: string;
+  alertHref?: string;
   onClick?: () => void;
   onRemove?: () => void;
   removeDisabled?: boolean;
@@ -430,6 +445,11 @@ function MonitoredSourceCard({
         <Link href={href} prefetch={false} onClick={onClick} className="text-sm font-semibold text-slate-300 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40">
           Open
         </Link>
+        {alertHref ? (
+          <Link href={alertHref} prefetch={false} className="text-sm font-semibold text-emerald-200 transition hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40">
+            Manage alerts
+          </Link>
+        ) : null}
         {onRemove ? (
           <button
             type="button"
@@ -570,6 +590,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         title: watchlist.name,
         subtitle: `Watchlist #${watchlist.id}`,
         href: sourceHrefForWatchlist(watchlist),
+        alertHref: `/watchlists/${watchlist.id}#monitoring-alerts`,
         count,
         countLabel: count > 0 ? `${count} new` : "0 new",
         countClassName: count > 0 ? "border-red-300/35 bg-red-500/15 text-red-100" : "border-white/10 text-slate-400",
@@ -592,6 +613,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         title: status.view.name,
         subtitle: `Saved screen${status.error ? " - refresh failed" : ""}`,
         href: savedViewHref(status.view),
+        alertHref: manageAlertsHrefForSavedView(status.view),
         count,
         countLabel: status.status === "loading" && inboxCount === undefined ? "checking" : `${count} new`,
         countClassName: count > 0 ? "border-sky-300/30 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-400",
@@ -602,6 +624,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
     for (const source of additionalInboxSources) {
       const count = Math.max(Number(source.unread_count) || 0, 0);
+      const href = hrefForInboxSource(source);
       rows.push({
         key: `inbox-source-${source.type}-${source.id}`,
         sourceType: normalizedMonitoringSourceType(source.type),
@@ -609,7 +632,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         subscriptionId: source.subscription_id,
         title: source.name,
         subtitle: sourceTypeLabel(source.type),
-        href: hrefForInboxSource(source),
+        href,
+        alertHref: manageAlertsHrefForSource(source.type, source.id, href),
         count,
         countLabel: count > 0 ? `${count} new` : "0 new",
         countClassName: sourceCountClassName(source.type, count),
@@ -983,6 +1007,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       subtitle={source.subtitle}
                       countLabel={source.countLabel}
                       countClassName={source.countClassName}
+                      alertHref={source.alertHref}
                       onRemove={() => setPendingRemoveSource(source)}
                       removeDisabled={Boolean(pendingRemoveKey)}
                     />
