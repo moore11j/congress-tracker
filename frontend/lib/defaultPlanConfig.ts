@@ -36,6 +36,7 @@ type FeatureKey =
   | "institutional_filters"
   | "macro_positioning"
   | "market_pressure"
+  | "walnut_strategies"
   | "api_webhooks";
 
 type FeatureDefinition = Omit<PlanConfigFeature, "limits"> & {
@@ -80,6 +81,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     institutional_filters: 0,
     macro_positioning: 0,
     market_pressure: 0,
+    walnut_strategies: 0,
     api_webhooks: 0,
   },
   premium: {
@@ -116,6 +118,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     institutional_filters: 0,
     macro_positioning: 0,
     market_pressure: 0,
+    walnut_strategies: 0,
     api_webhooks: 0,
   },
   pro: {
@@ -152,6 +155,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     institutional_filters: 1,
     macro_positioning: 1,
     market_pressure: 1,
+    walnut_strategies: 1,
     api_webhooks: 1,
   },
 };
@@ -486,6 +490,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 116,
+  },
+  {
+    feature_key: "walnut_strategies",
+    label: "Walnut Strategies",
+    kind: "feature",
+    description: "Walnut strategies with reproducible performance records.",
+    required_tier: "pro",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 117,
   },
   {
     feature_key: "api_webhooks",

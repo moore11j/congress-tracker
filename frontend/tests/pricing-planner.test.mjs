@@ -102,7 +102,7 @@ test("advanced workflow rows mark future options flow without hiding active inst
   const advancedOrderStart = source.indexOf('"Advanced workflows": {');
   const advancedOrderEnd = source.indexOf("},", advancedOrderStart);
   const advancedOrderSource = source.slice(advancedOrderStart, advancedOrderEnd);
-  const advancedMarkers = ["institutional_feed:", "institutional_filters:", "macro_positioning:", "market_pressure:", "options_flow_feed:", "options_flow_filters:", "api_webhooks:"];
+  const advancedMarkers = ["institutional_feed:", "institutional_filters:", "macro_positioning:", "market_pressure:", "walnut_strategies:", "options_flow_feed:", "options_flow_filters:", "api_webhooks:"];
   const advancedPositions = advancedMarkers.map((marker) => advancedOrderSource.indexOf(marker));
   advancedPositions.forEach((position, index) => assert.notEqual(position, -1, `missing advanced marker ${advancedMarkers[index]}`));
   for (let index = 1; index < advancedPositions.length; index += 1) {
@@ -132,6 +132,7 @@ test("advanced intelligence rows are Pro-only in frontend fallback config", () =
   assert.match(defaultPlanConfig, /feature_key:\s*"institutional_filters"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"macro_positioning"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"market_pressure"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"walnut_strategies"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"peer_compare"[\s\S]*?required_tier:\s*"premium"/);
   assert.match(defaultPlanConfig, /label:\s*"Compare"/);
   assert.match(defaultPlanConfig, /Compare two stocks, see which setup has stronger evidence/);

@@ -113,7 +113,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
 test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Before You Buy Your Next Stock, Run It Through Walnut\./);
   assert.match(landingPage, /Stock Research &amp; Market Intelligence/);
-  assert.match(landingPage, /Research fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;then see whether the evidence confirms or challenges your thesis\./);
+  assert.match(landingPage, /Research fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;see whether the evidence confirms or challenges your investment thesis\./);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
   assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
@@ -126,7 +126,7 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /&middot;/);
   assert.match(landingPage, /Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"/);
   assert.match(landingPage, /One research workflow\. Multiple sources of evidence\./);
-  assert.match(landingPage, /Walnut brings together fundamentals, technicals, insider activity, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning/);
+  assert.match(landingPage, /Walnut brings together fundamental analysis, technical analysis, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning/);
   assert.match(landingPage, /const interpretedOutputs = \["Confirmation Score", "What Changed", "Catalysts", "Risks", "What to Watch Next"\]/);
   assert.match(landingPage, /Data is easy to find\. Context is harder\./);
   assert.match(landingPage, /<section id="how-it-works"/);

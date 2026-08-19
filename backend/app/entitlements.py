@@ -52,6 +52,7 @@ FeatureKey = Literal[
     "institutional_filters",
     "macro_positioning",
     "market_pressure",
+    "walnut_strategies",
     "analyst_consensus",
     "analyst_consensus_history",
     "api_webhooks",
@@ -69,6 +70,7 @@ HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
     "institutional_filters": "pro",
     "macro_positioning": "pro",
     "market_pressure": "pro",
+    "walnut_strategies": "pro",
 }
 
 
@@ -124,6 +126,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_filters": 0,
             "macro_positioning": 0,
             "market_pressure": 0,
+            "walnut_strategies": 0,
             "analyst_consensus": 1,
             "analyst_consensus_history": 0,
             "api_webhooks": 0,
@@ -182,6 +185,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_filters": 0,
             "macro_positioning": 0,
             "market_pressure": 0,
+            "walnut_strategies": 0,
             "analyst_consensus": 1,
             "analyst_consensus_history": 1,
             "api_webhooks": 0,
@@ -253,6 +257,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_filters": 1,
             "macro_positioning": 1,
             "market_pressure": 1,
+            "walnut_strategies": 1,
             "analyst_consensus": 1,
             "analyst_consensus_history": 1,
             "api_webhooks": 1,
@@ -291,6 +296,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "institutional_filters",
                 "macro_positioning",
                 "market_pressure",
+                "walnut_strategies",
                 "analyst_consensus",
                 "analyst_consensus_history",
                 "api_webhooks",
@@ -431,6 +437,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "market_pressure": {
         "required_tier": "pro",
         "description": "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
+    },
+    "walnut_strategies": {
+        "required_tier": "pro",
+        "description": "Walnut strategies with reproducible performance records.",
     },
     "analyst_consensus": {
         "required_tier": "free",
@@ -718,12 +728,20 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "sort_order": 116,
         "pricing_description": "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
     },
+    "walnut_strategies": {
+        "label": "Walnut Strategies",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 117,
+        "pricing_description": "Walnut strategies with reproducible performance records.",
+    },
     "analyst_consensus": {
         "label": "Analyst Consensus",
         "kind": "feature",
         "unit_singular": "",
         "unit_plural": "",
-        "sort_order": 117,
+        "sort_order": 118,
         "pricing_description": "Current analyst consensus snapshots on ticker research pages.",
     },
     "analyst_consensus_history": {
@@ -731,7 +749,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "kind": "feature",
         "unit_singular": "",
         "unit_plural": "",
-        "sort_order": 118,
+        "sort_order": 119,
         "pricing_description": "Analyst consensus history and detailed grade-event data.",
     },
     "api_webhooks": {

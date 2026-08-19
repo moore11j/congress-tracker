@@ -34,6 +34,7 @@ export type EntitlementFeature =
   | "institutional_filters"
   | "macro_positioning"
   | "market_pressure"
+  | "walnut_strategies"
   | "api_webhooks";
 
 export type Entitlements = {
@@ -95,6 +96,7 @@ export const defaultEntitlements: Entitlements = {
     institutional_filters: 0,
     macro_positioning: 0,
     market_pressure: 0,
+    walnut_strategies: 0,
     api_webhooks: 0,
   },
   features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed"],
@@ -137,6 +139,7 @@ export const premiumEntitlements: Entitlements = {
     institutional_filters: 0,
     macro_positioning: 0,
     market_pressure: 0,
+    walnut_strategies: 0,
     api_webhooks: 0,
   },
   features: [
@@ -204,6 +207,7 @@ export const proEntitlements: Entitlements = {
     institutional_filters: 1,
     macro_positioning: 1,
     market_pressure: 1,
+    walnut_strategies: 1,
     api_webhooks: 1,
   },
   features: [
@@ -239,6 +243,7 @@ export const proEntitlements: Entitlements = {
     "institutional_filters",
     "macro_positioning",
     "market_pressure",
+    "walnut_strategies",
     "api_webhooks",
   ],
   upgrade_url: "/pricing",

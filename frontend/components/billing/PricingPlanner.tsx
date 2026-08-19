@@ -61,6 +61,7 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     institutional_filters: 20,
     macro_positioning: 25,
     market_pressure: 28,
+    walnut_strategies: 29,
     options_flow_feed: 30,
     options_flow_filters: 35,
     api_webhooks: 40,
