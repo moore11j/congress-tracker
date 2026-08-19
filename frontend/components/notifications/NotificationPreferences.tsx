@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import {
   deleteNotificationSubscription,
@@ -51,22 +52,51 @@ const deliveryCategories: { value: DeliveryCategory; label: string; description:
 ];
 
 function AlertTypeHelp({ description }: { description: string }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const tooltipId = useId();
+  const [position, setPosition] = useState<{ left: number; top: number }>({ left: 12, top: 12 });
+
+  const show = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setPosition({
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - 272)),
+        top: Math.max(12, rect.top - 8),
+      });
+    }
+    setOpen(true);
+  };
+
   return (
-    <span className="group relative inline-flex shrink-0">
+    <span className="inline-flex shrink-0">
       <span
+        ref={triggerRef}
         tabIndex={0}
         role="img"
         aria-label={`About this alert: ${description}`}
+        aria-describedby={open ? tooltipId : undefined}
+        onMouseEnter={show}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={show}
+        onBlur={() => setOpen(false)}
         className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-slate-500/80 text-[10px] font-bold leading-none text-slate-300 outline-none transition hover:border-emerald-300 hover:text-emerald-200 focus-visible:border-emerald-300 focus-visible:text-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-300/30"
       >
         i
       </span>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-64 rounded-lg border border-emerald-300/20 bg-slate-950 px-3 py-2 text-xs font-normal leading-5 text-slate-200 opacity-0 shadow-xl transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-      >
-        {description}
-      </span>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <span
+              id={tooltipId}
+              role="tooltip"
+              style={{ left: position.left, top: position.top, transform: "translateY(-100%)" }}
+              className="pointer-events-none fixed z-[100] w-64 rounded-lg border border-emerald-300/20 bg-slate-950 px-3 py-2 text-xs font-normal leading-5 text-slate-200 shadow-xl"
+            >
+              {description}
+            </span>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }
