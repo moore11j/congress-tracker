@@ -90,7 +90,10 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /onMarkReady=\{\(\) => saveDraft\("ready_for_review"\)\}/);
   assert.match(component, /async function scheduleSelected\(scheduledAt: string\)/);
   assert.match(component, /Save Published Changes/);
-  assert.match(component, /Schedule Review/);
+  assert.match(component, /Schedule Post/);
+  assert.match(component, /Scheduled publish time/);
+  assert.match(component, /Post scheduled for publication\./);
+  assert.doesNotMatch(component, /Schedule Review/);
   assert.match(component, /Publish Now/);
   assert.match(component, /Resolve blocking validation warnings before publishing\./);
   assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article, config: currentEditedConfig\(\) \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);

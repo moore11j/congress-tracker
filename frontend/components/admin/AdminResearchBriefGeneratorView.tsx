@@ -1046,7 +1046,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
 
   async function scheduleSelected(scheduledAt: string) {
     if (!selectedDraft || !articleDraft) return;
-    setBusy("schedule");
+    setBusy("schedule-post");
     try {
       const article = currentEditedArticle();
       if (!article) return;
@@ -1055,12 +1055,13 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         article,
         config: currentEditedConfig(),
       });
-      const draft = await rescheduleAdminResearchBriefDraft(savedDraft.id, scheduledAt);
+      const rescheduledDraft = await rescheduleAdminResearchBriefDraft(savedDraft.id, scheduledAt);
+      const draft = await approveScheduledAdminResearchBriefDraft(rescheduledDraft.id);
       applySavedDraft(draft);
       setActivePane("scheduled");
-      showToast?.("Draft scheduled for review.", "success");
+      showToast?.("Post scheduled for publication.", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to schedule draft.";
+      const message = err instanceof Error ? err.message : "Unable to schedule post.";
       setError(message);
       showToast?.(message, "error");
     } finally {
@@ -2444,7 +2445,8 @@ function EditorPanel({
   }
   const activeDraft = draft;
   const activeArticle = article;
-  const isScheduledDraft = ["scheduled_review", "approved_scheduled"].includes(draft.status);
+  const isApprovedScheduledDraft = draft.status === "approved_scheduled";
+  const isScheduledForReviewDraft = draft.status === "scheduled_review";
   const isPublishedDraft = draft.status === "published";
   const sourceLinkCount = draft.validation?.source_link_count || 0;
   const publishDisabled = Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || sourceLinkCount === 0;
@@ -2628,7 +2630,7 @@ function EditorPanel({
         <Metric label="Access" value={accessLabel(articleRequiredPlan(article))} />
         <Metric label="Generated at" value={(draft.updated_at || draft.created_at || "").slice(0, 16)} />
         {draft.campaign_id ? <Metric label="Campaign" value={draft.campaign_name || draft.campaign_id} /> : null}
-        {draft.scheduled_at ? <Metric label="Scheduled" value={formatDateTime(draft.scheduled_at)} /> : null}
+        {draft.scheduled_at ? <Metric label="Scheduled publish" value={formatDateTime(draft.scheduled_at)} /> : null}
         {draft.data_as_of ? <Metric label="Data as of" value={formatDateTime(draft.data_as_of)} /> : null}
         {draft.earnings_period_used ? <Metric label="Earnings period" value={draft.earnings_period_used} /> : null}
         <ResearchReadinessPanel draft={draft} />
@@ -2670,19 +2672,19 @@ function EditorPanel({
           {!isPublishedDraft ? (
             <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Scheduled time</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Scheduled publish time</span>
                 <input type="datetime-local" value={scheduledAtValue} onChange={(event) => setScheduledAtValue(event.target.value)} className={fieldClassName("mt-2")} />
               </label>
               <div className="mt-3 grid gap-2">
                 <Button disabled={Boolean(busy) || !scheduledAtValue} onClick={() => {
                   const scheduledAt = new Date(scheduledAtValue).toISOString();
-                  if (isScheduledDraft) {
+                  if (isApprovedScheduledDraft) {
                     onReschedule(scheduledAt);
                   } else {
                     onSchedule(scheduledAt);
                   }
-                }}>{isScheduledDraft ? "Reschedule" : "Schedule Review"}</Button>
-                {isScheduledDraft ? (
+                }}>{isApprovedScheduledDraft ? "Reschedule Post" : "Schedule Post"}</Button>
+                {isScheduledForReviewDraft ? (
                   <>
                     <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button>
                     <label className="block">
