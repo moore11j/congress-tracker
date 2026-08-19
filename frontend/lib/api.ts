@@ -8124,7 +8124,7 @@ export type CustomAlertCondition = {
   metric: string;
   metric_params?: Record<string, number>;
   operator: string;
-  comparison_type: "value" | "metric";
+  comparison_type: "value" | "metric" | "none";
   comparison_value?: number | null;
   comparison_metric?: string | null;
   comparison_metric_params?: Record<string, number>;

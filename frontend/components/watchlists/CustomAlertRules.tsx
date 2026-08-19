@@ -35,6 +35,8 @@ const operatorLabels: Record<string, string> = {
   crosses_below: "crosses below",
   increases_by: "increases by",
   decreases_by: "decreases by",
+  is_true: "is active",
+  is_false: "is inactive",
 };
 
 const baseCondition: CustomAlertCondition = {
@@ -57,8 +59,8 @@ function defaultCondition(metric: CustomAlertMetric): CustomAlertCondition {
     metric: metric.key,
     metric_params: paramsWithDefaults(metric),
     operator,
-    comparison_type: "value",
-    comparison_value: metric.key === "rsi" ? 35 : metric.key.includes("count") || metric.key.includes("buyers") ? 2 : 0,
+    comparison_type: metric.kind === "boolean" ? "none" : "value",
+    comparison_value: metric.kind === "boolean" ? null : metric.key === "rsi" ? 35 : metric.key.includes("count") || metric.key.includes("buyers") ? 2 : 0,
     time_window: metric.requires_window ? { value: metric.key.includes("price") ? 1 : 7, unit: "day" } : null,
   };
 }
@@ -260,7 +262,7 @@ function ConditionRow({ index, condition, matchType, conditionCount, metrics, me
         {metricParam ? <PeriodSelect value={condition.metric_params?.period ?? metricParam.default} spec={metricParam} onChange={(period) => onChange({ ...condition, metric_params: { ...condition.metric_params, period } })} /> : null}
         <select value={condition.operator} onChange={(event) => onChange({ ...condition, operator: event.target.value })} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100">{(metric?.operators ?? []).map((operator) => <option key={operator} value={operator}>{operatorLabels[operator] ?? operator}</option>)}</select>
         {supportsMetricComparison ? <select value={condition.comparison_type} onChange={(event) => onChange({ ...condition, comparison_type: event.target.value as "value" | "metric", comparison_metric: event.target.value === "metric" ? (condition.comparison_metric ?? "sma") : null })} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100"><option value="value">Value</option><option value="metric">Metric</option></select> : null}
-        {condition.comparison_type === "metric" ? <><select value={condition.comparison_metric ?? "sma"} onChange={(event) => { const nextMetric = metricMap.get(event.target.value); onChange({ ...condition, comparison_metric: event.target.value, comparison_metric_params: paramsWithDefaults(nextMetric) }); }} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100">{metrics.filter((item) => item.kind === "numeric").map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select>{targetParam ? <PeriodSelect value={condition.comparison_metric_params?.period ?? targetParam.default} spec={targetParam} onChange={(period) => onChange({ ...condition, comparison_metric_params: { ...condition.comparison_metric_params, period } })} /> : null}</> : <input type="number" value={condition.comparison_value ?? 0} onChange={(event) => onChange({ ...condition, comparison_value: Number(event.target.value) })} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100" />}
+        {condition.comparison_type === "none" ? <span className="self-center text-sm text-slate-400">{condition.operator === "is_true" ? "is active" : "is inactive"}</span> : condition.comparison_type === "metric" ? <><select value={condition.comparison_metric ?? "sma"} onChange={(event) => { const nextMetric = metricMap.get(event.target.value); onChange({ ...condition, comparison_metric: event.target.value, comparison_metric_params: paramsWithDefaults(nextMetric) }); }} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100">{metrics.filter((item) => item.kind === "numeric").map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select>{targetParam ? <PeriodSelect value={condition.comparison_metric_params?.period ?? targetParam.default} spec={targetParam} onChange={(period) => onChange({ ...condition, comparison_metric_params: { ...condition.comparison_metric_params, period } })} /> : null}</> : <input type="number" value={condition.comparison_value ?? 0} onChange={(event) => onChange({ ...condition, comparison_value: Number(event.target.value) })} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100" />}
         {showWindow ? <div className="flex gap-1"><input type="number" min="1" max="365" value={condition.time_window?.value ?? 1} onChange={(event) => onChange({ ...condition, time_window: { value: Math.max(1, Number(event.target.value)), unit: condition.time_window?.unit ?? "day" } })} className="w-16 rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100" /><select value={condition.time_window?.unit ?? "day"} onChange={(event) => onChange({ ...condition, time_window: { value: condition.time_window?.value ?? 1, unit: event.target.value as "hour" | "day" | "month" } })} className="rounded-md border border-white/10 bg-slate-900 px-2 py-2 text-sm text-slate-100"><option value="hour">hours</option><option value="day">days</option><option value="month">months</option></select></div> : null}
         {conditionCount > 1 ? <button type="button" onClick={onRemove} className="text-sm text-rose-200 hover:text-rose-100">Remove</button> : null}
       </div>

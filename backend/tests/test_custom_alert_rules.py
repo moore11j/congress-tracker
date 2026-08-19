@@ -52,6 +52,11 @@ def test_event_rules_require_a_time_window() -> None:
         raise AssertionError("event aggregate without a window was accepted")
 
 
+def test_bullish_and_bearish_states_use_boolean_conditions() -> None:
+    conditions = validate_conditions([{"metric": "bullish_state", "operator": "is_true", "comparison_type": "none"}])
+    assert conditions[0]["comparison_value"] is None
+
+
 def test_worker_triggers_once_then_rearms_after_the_condition_resets() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

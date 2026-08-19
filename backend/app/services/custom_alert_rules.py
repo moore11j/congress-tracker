@@ -72,6 +72,8 @@ METRIC_REGISTRY: dict[str, dict[str, Any]] = {
     "debt_to_equity": {"label": "Debt-to-equity", "category": "Fundamentals", "kind": "numeric", "operators": ["gt", "gte", "lt", "lte"]},
     "current_ratio": {"label": "Current ratio", "category": "Fundamentals", "kind": "numeric", "operators": ["gt", "gte", "lt", "lte"]},
     "confirmation_score": {"label": "Confirmation Score", "category": "Walnut", "kind": "numeric", "operators": ["gt", "gte", "lt", "lte", "crosses_above", "crosses_below"]},
+    "bullish_state": {"label": "Bullish state", "category": "Walnut", "kind": "boolean", "operators": ["is_true", "is_false"]},
+    "bearish_state": {"label": "Bearish state", "category": "Walnut", "kind": "boolean", "operators": ["is_true", "is_false"]},
     "cross_source_count": {"label": "Cross-source confirmation count", "category": "Walnut", "kind": "numeric", "operators": ["gt", "gte", "lt", "lte", "crosses_above", "crosses_below"]},
     "congress_purchase_count": {"label": "Congress purchase count", "category": "Congress", "kind": "event", "operators": ["gte", "gt"], "requires_window": True},
     "congress_sale_count": {"label": "Congress sale count", "category": "Congress", "kind": "event", "operators": ["gte", "gt"], "requires_window": True},
@@ -124,9 +126,16 @@ def validate_conditions(conditions: Any) -> list[dict[str, Any]]:
         if operator not in registry["operators"]:
             raise ValueError(f"{registry['label']} does not support that operator.")
         comparison_type = str(raw.get("comparison_type") or "value").strip().lower()
-        if comparison_type not in {"value", "metric"}:
-            raise ValueError("Comparison type must be value or metric.")
-        if comparison_type == "metric":
+        if comparison_type not in {"value", "metric", "none"}:
+            raise ValueError("Comparison type must be value, metric, or none.")
+        if registry["kind"] == "boolean":
+            if comparison_type != "none":
+                raise ValueError(f"{registry['label']} does not take a comparison value.")
+            comparison_metric = None
+            value = None
+        elif comparison_type == "none":
+            raise ValueError("Only state metrics may omit a comparison value.")
+        elif comparison_type == "metric":
             if not registry.get("metric_comparison"):
                 raise ValueError(f"{registry['label']} cannot be compared with another metric.")
             comparison_metric = _condition_metric_key(raw, "comparison_metric")
@@ -157,7 +166,7 @@ def validate_conditions(conditions: Any) -> list[dict[str, Any]]:
             "metric_params": clean_params,
             "operator": operator,
             "comparison_type": comparison_type,
-            "comparison_value": None if comparison_type == "metric" else float(raw["comparison_value"]),
+            "comparison_value": None if comparison_type in {"metric", "none"} else float(raw["comparison_value"]),
             "comparison_metric": comparison_metric,
             "comparison_metric_params": raw.get("comparison_metric_params") if isinstance(raw.get("comparison_metric_params"), dict) else {},
             "time_window": window if window is not None else None,
@@ -173,7 +182,9 @@ def format_condition(condition: dict[str, Any]) -> str:
         label = f"{label} ({params['period']})"
     operators = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤", "crosses_above": "crosses above", "crosses_below": "crosses below", "increases_by": "increases by", "decreases_by": "decreases by"}
     operator = operators.get(str(condition.get("operator") or ""), str(condition.get("operator") or "").replace("_", " "))
-    if condition.get("comparison_type") == "metric":
+    if condition.get("comparison_type") == "none":
+        target = "true" if condition.get("operator") == "is_true" else "false"
+    elif condition.get("comparison_type") == "metric":
         other = str(condition.get("comparison_metric") or "").lower()
         target = METRIC_REGISTRY.get(other, {}).get("label", other.replace("_", " ").title())
         other_params = condition.get("comparison_metric_params") if isinstance(condition.get("comparison_metric_params"), dict) else {}
@@ -273,9 +284,15 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
         fundamentals = db.execute(select(FundamentalsCache).where(func.upper(FundamentalsCache.symbol) == ticker, FundamentalsCache.status == "ok").order_by(FundamentalsCache.fetched_at.desc()).limit(1)).scalar_one_or_none()
         raw = getattr(fundamentals, metric, None) if fundamentals is not None else None
         return (float(raw) if raw is not None else None, [])
-    if metric in {"confirmation_score", "cross_source_count"}:
+    if metric in {"confirmation_score", "cross_source_count", "bullish_state", "bearish_state"}:
         snapshot = db.execute(select(ConfirmationMonitoringSnapshot).where(ConfirmationMonitoringSnapshot.ticker == ticker).order_by(ConfirmationMonitoringSnapshot.observed_at.desc()).limit(1)).scalar_one_or_none()
-        return ((float(snapshot.score) if metric == "confirmation_score" else float(snapshot.source_count)) if snapshot else None, [])
+        if snapshot is None:
+            return None, []
+        if metric == "confirmation_score":
+            return float(snapshot.score), []
+        if metric == "cross_source_count":
+            return float(snapshot.source_count), []
+        return float(str(snapshot.direction).lower() == ("bullish" if metric == "bullish_state" else "bearish")), []
     return _event_metric_value(db, ticker, condition, now)
 
 
@@ -305,7 +322,10 @@ def _event_metric_value(db: Session, ticker: str, condition: dict[str, Any], now
 
 
 def _compare(value: float | None, target: float | None, operator: str, previous_value: float | None) -> bool:
-    if value is None or target is None: return False
+    if value is None: return False
+    if operator == "is_true": return bool(value)
+    if operator == "is_false": return not bool(value)
+    if target is None: return False
     if operator == "gt": return value > target
     if operator == "gte": return value >= target
     if operator == "lt": return value < target
@@ -336,6 +356,8 @@ def evaluate_rule(db: Session, rule: WatchlistAlertRule, ticker: str, state: Wat
         target: float | None
         if condition["comparison_type"] == "metric":
             target, _ = _metric_value(db, ticker, {"metric": condition["comparison_metric"], "metric_params": condition.get("comparison_metric_params") or {}, "time_window": condition.get("time_window")}, now)
+        elif condition["comparison_type"] == "none":
+            target = None
         else:
             target = condition.get("comparison_value")
         previous = old_values.get(str(index)) if isinstance(old_values.get(str(index)), (int, float)) else None
