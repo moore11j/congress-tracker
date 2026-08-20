@@ -63,11 +63,14 @@ def normalize_congress_owner(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     if not normalized:
         return "unknown"
-    if "spouse" in normalized:
+    # House PTR forms use the compact SP/DC/JT owner codes. Keep support for
+    # descriptive provider values as well, because both representations occur
+    # in the historical data sources.
+    if normalized == "sp" or "spouse" in normalized:
         return "spouse"
-    if "dependent" in normalized or "child" in normalized:
+    if normalized == "dc" or "dependent" in normalized or "child" in normalized:
         return "dependent"
-    if "joint" in normalized:
+    if normalized == "jt" or "joint" in normalized:
         return "joint"
     if normalized in {"self", "member", "owner"}:
         return "self"

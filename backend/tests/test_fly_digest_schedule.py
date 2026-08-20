@@ -66,6 +66,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "*/5 6-10 * * * cd /app && python -m app.jobs.run_ai_growth_campaigns" not in crontab
     assert "5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "2,17,32,47 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "22 6-18 * * 1-5 cd /app && python -m app.ingest_run --job recent-congress" in crontab
     assert "3,18,33,48 6-12 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh" in crontab
     assert "4,19,34,49 6-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab

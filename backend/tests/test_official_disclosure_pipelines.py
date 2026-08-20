@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base, ensure_provider_control_schema
 from app.models import Event
 from app.services.official_congress import (
+    normalize_congress_owner,
     congress_transaction_hash,
     normalize_congress_transaction,
     parse_house_disclosure,
@@ -18,6 +19,12 @@ from app.services.sec_form4 import (
     promote_form4_shadow_events,
     stage_form4_shadow,
 )
+
+
+def test_normalize_congress_owner_recognizes_house_ptr_owner_codes():
+    assert normalize_congress_owner("SP") == "spouse"
+    assert normalize_congress_owner("DC") == "dependent"
+    assert normalize_congress_owner("JT") == "joint"
 
 
 def _session():
