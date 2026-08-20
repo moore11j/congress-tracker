@@ -826,7 +826,7 @@ export default async function LandingPage() {
             <SectionEyebrow>What Walnut Actually Does</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One research workflow. Multiple sources of evidence.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings together fundamental analysis, technical analysis, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and other market data so you can clearly see which sources reinforce or contradict the your investment thesis.
+              Walnut brings together fundamental analysis, technical analysis, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and other market data so you can clearly see which sources reinforce or contradict your investment thesis.
             </p>
           </div>
           <div className="mt-10 grid gap-4 lg:grid-cols-[1fr_auto_1.2fr_auto_1fr] lg:items-center">
@@ -869,7 +869,7 @@ export default async function LandingPage() {
             <p className="mt-4 text-base leading-7 text-slate-400">
               The Walnut Confirmation Score is a proprietary 0-100 measure of how strongly the available evidence supports a directional view at a specific point in time.
             </p>
-            <p className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.055] p-4 text-sm leading-6 text-amber-100">
+            <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
               It is not a probability of future returns and not a prediction score. Its purpose is to summarize the strength and alignment of available evidence.
             </p>
           </div>
