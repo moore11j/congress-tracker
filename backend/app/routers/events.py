@@ -150,7 +150,8 @@ INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
 )
 INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
 # Editorial content belongs in its dedicated surfaces, not the unified activity feed.
-FEED_EXCLUDED_EVENT_TYPES = ("news_article",)
+# Keep both FMP content event types out of the activity tape.
+FEED_EXCLUDED_EVENT_TYPES = ("news_article", "press_release")
 COMPACT_COMMON_PAYLOAD_KEYS = {
     "symbol",
     "ticker",

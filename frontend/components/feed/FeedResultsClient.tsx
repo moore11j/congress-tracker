@@ -47,7 +47,8 @@ type FeedState = {
   errorMessage: string | null;
 };
 
-const FEED_EXCLUDED_EVENT_TYPES = new Set(["news_article"]);
+// Editorial content has dedicated ticker/news surfaces; it is never activity-feed content.
+const FEED_EXCLUDED_EVENT_TYPES = new Set(["news_article", "press_release"]);
 
 function FeedResultsSectionSkeleton() {
   return (

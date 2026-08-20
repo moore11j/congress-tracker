@@ -136,6 +136,7 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   assert.match(mapper, /pnlValue < 0 \? -0\.1/);
   assert.match(mapper, /smart_score: signalValue === null \? null : undefined/);
   assert.match(client, /include_net_flows: 0/);
+  assert.match(client, /FEED_EXCLUDED_EVENT_TYPES = new Set\(\["news_article", "press_release"\]\)/);
 });
 
 test("insider feed mapper keeps top-level transaction side payloads", () => {
