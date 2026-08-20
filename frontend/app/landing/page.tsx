@@ -716,10 +716,10 @@ export default async function LandingPage() {
           <div className="max-w-4xl">
             <SectionEyebrow>Stock Research &amp; Market Intelligence</SectionEyebrow>
             <h1 className="mt-4 max-w-5xl text-[2.35rem] font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Before You Buy Your Next Stock, Run It Through Walnut.
+              Everything You Need to Research a Stock—Then Keep Following It.
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
-              Research fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;see whether the evidence confirms or challenges your investment thesis.
+              Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes.
             </p>
             <LandingSearch appUrl={appUrl} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
             <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
@@ -1170,7 +1170,7 @@ export default async function LandingPage() {
           <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
             <div>
               <SectionEyebrow>Start Research</SectionEyebrow>
-              <h2 className="mt-3 max-w-3xl text-3xl font-semibold text-white sm:text-4xl">Before the next trade, check whether the evidence agrees.</h2>
+              <h2 className="mt-3 max-w-3xl text-3xl font-semibold text-white sm:text-4xl">Research the evidence. Then keep following it.</h2>
             </div>
             <a
               href={researchStartUrl}
