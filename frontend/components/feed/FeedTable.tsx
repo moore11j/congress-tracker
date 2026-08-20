@@ -125,7 +125,7 @@ function entityLabel(item: FeedItem): string {
     );
   }
   if (isInstitutional(item)) {
-    return item.member?.name?.trim() || displayName(payload.institution_name) || displayName(payload.holder_name) || "Institution unavailable";
+    return item.member?.name?.trim() || displayName(payload.institution_name) || displayName(payload.holder_name) || "Multiple Institutions";
   }
   if (isGovernmentContract(item)) {
     return item.member?.name?.trim() || displayName(payload.department) || displayName(payload.agency) || "Agency unavailable";

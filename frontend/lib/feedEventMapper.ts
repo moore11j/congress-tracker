@@ -414,7 +414,7 @@ export function mapEventToFeedItem(event: EventItem, companyNames: CompanyNameMa
           institutionalDisplayName(event.member_name) ??
           institutionalDisplayName(payload?.raw?.holder) ??
           institutionalDisplayName(payload?.raw?.institutionName) ??
-          "Institution unavailable",
+          "Multiple Institutions",
         chamber: "institutional",
       },
       security: {

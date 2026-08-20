@@ -954,11 +954,11 @@ export function FeedCard({
                     prefetch={false}
                     className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
                   >
-                    {item.member?.name ?? "Institution unavailable"}
+                    {item.member?.name ?? "Multiple Institutions"}
                   </Link>
                 ) : (
                   <span className="min-w-0 truncate text-lg font-semibold text-white">
-                    {item.member?.name ?? "Institution unavailable"}
+                    {item.member?.name ?? "Multiple Institutions"}
                   </span>
                 )
               ) : (

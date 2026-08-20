@@ -268,7 +268,7 @@ test("institutional feed cards use compact values and text activity labels", () 
   assert.match(mapper, /normalized === "institutional activity"/);
   assert.match(mapper, /function institutionalTransactionLabel/);
   assert.match(mapper, /institutionalTransactionLabel\(event\.event_type, payload, event\.trade_type\)/);
-  assert.doesNotMatch(mapper, /Multiple institutions/);
+  assert.match(mapper, /Multiple Institutions/);
   assert.doesNotMatch(mapper, /`CIK \$\{event\.member_bioguide_id\}`/);
   assert.match(mapper, /feedProfileSymbols/);
 });
