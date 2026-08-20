@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
 export const WALNUT_APP_URL = "https://app.walnutmarkets.com";
-export const WALNUT_MARKETING_TITLE = "Stock Research & Analysis Platform | Walnut Markets";
+export const WALNUT_MARKETING_TITLE = "Walnut Markets | Stock Research & Market Intelligence";
 export const WALNUT_MARKETING_DESCRIPTION =
-  "Research stocks using technicals, fundamentals, Congress trades, insider activity, government contracts, institutional filings and Walnut's confirmation score.";
+  "Research stocks across fundamentals, technicals, Congress, insiders, institutions and more. Follow your stocks and get alerts when the evidence changes.";
 export const WALNUT_OG_DESCRIPTION =
-  "Analyze stocks across fundamentals, technicals, public disclosures, alternative data, and Walnut's confirmation score.";
+  "Research stocks across fundamentals, technicals, Congress, insiders, institutions and more. Follow your stocks and get alerts when the evidence changes.";
 export const WALNUT_TWITTER_DESCRIPTION =
-  "We help investors understand what the data says, what changed, and what could weaken the thesis. Built for research. Not investment advice.";
+  "Research stocks across multiple data sources, follow the evidence, and get alerted when it changes. Built for research. Not investment advice.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v1.png`;
 export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets stock research and analysis platform.";
 export const WALNUT_X_HANDLE = "@Walnutmarkets";

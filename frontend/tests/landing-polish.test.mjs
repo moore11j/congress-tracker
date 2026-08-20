@@ -6,6 +6,7 @@ import test from "node:test";
 const root = process.cwd();
 const landingPage = fs.readFileSync(path.join(root, "app/landing/page.tsx"), "utf8");
 const landingSearch = fs.readFileSync(path.join(root, "components/landing/LandingSearch.tsx"), "utf8");
+const marketingMetadata = fs.readFileSync(path.join(root, "lib/marketingMetadata.ts"), "utf8");
 const marketingHeader = fs.readFileSync(path.join(root, "components/landing/MarketingHeader.tsx"), "utf8");
 const faqPage = fs.readFileSync(path.join(root, "app/faq/page.tsx"), "utf8");
 const contactPage = fs.readFileSync(path.join(root, "app/contact/page.tsx"), "utf8");
@@ -111,9 +112,9 @@ test("landing SEO labels use insights and stock screener copy", () => {
 });
 
 test("landing page explains Walnut differentiation and free tier", () => {
-  assert.match(landingPage, /Before You Buy Your Next Stock, Run It Through Walnut\./);
+  assert.match(landingPage, /Everything You Need to Research a Stock—Then Keep Following It\./);
   assert.match(landingPage, /Stock Research &amp; Market Intelligence/);
-  assert.match(landingPage, /Research fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and more&mdash;see whether the evidence confirms or challenges your investment thesis\./);
+  assert.match(landingPage, /Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more\. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes\./);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
   assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
@@ -122,6 +123,7 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingSearch, /Search tickers, companies, Congress members, insiders, institutions, departments\.\.\./);
   assert.match(landingPage, /See How It Works/);
   assert.match(landingPage, /href="#how-it-works"/);
+  assert.match(landingPage, /Research the evidence\. Then keep following it\./);
   assert.match(landingPage, /heroEvidenceSources\.map/);
   assert.match(landingPage, /&middot;/);
   assert.match(landingPage, /Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"/);
@@ -143,6 +145,14 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
   assert.doesNotMatch(landingPage, /Evaluate all the data|Evaluate the full setup before putting capital at risk\./);
   assert.doesNotMatch(landingPage, /Explore Walnut's stock research app/);
+});
+
+test("landing metadata reflects research and monitoring positioning", () => {
+  assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = "Walnut Markets \| Stock Research & Market Intelligence"/);
+  assert.match(marketingMetadata, /Research stocks across fundamentals, technicals, Congress, insiders, institutions and more\. Follow your stocks and get alerts when the evidence changes\./);
+  assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
+  assert.match(marketingMetadata, /openGraph:/);
+  assert.match(marketingMetadata, /twitter:/);
 });
 
 test("landing page adds real product proof and future product sections", () => {
