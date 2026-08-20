@@ -409,7 +409,7 @@ function MonitoringPanelSkeleton() {
   );
 }
 
-const monitoredSourceCardClassName = `${compactInteractiveSurfaceClassName} grid gap-2 rounded-2xl px-4 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center`;
+const monitoredSourceCardClassName = `${compactInteractiveSurfaceClassName} relative grid gap-2 rounded-2xl px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center`;
 
 function MonitoredSourceCard({
   href,
@@ -434,14 +434,21 @@ function MonitoredSourceCard({
 }) {
   return (
     <div className={monitoredSourceCardClassName}>
-      <div className="min-w-0">
+      <Link
+        href={href}
+        prefetch={false}
+        onClick={onClick}
+        aria-label={`Open ${title}`}
+        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40"
+      />
+      <div className="pointer-events-none relative z-10 min-w-0">
         <div className={`truncate font-medium ${compactInteractiveTitleClassName}`}>{title}</div>
         <div className="text-xs text-slate-500">{subtitle}</div>
       </div>
-      <span className={`w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${countClassName}`}>
+      <span className={`pointer-events-none relative z-10 w-fit rounded-lg border px-2.5 py-1 text-xs font-semibold ${countClassName}`}>
         {countLabel}
       </span>
-      <span className="flex items-center gap-2">
+      <span className="relative z-10 flex items-center gap-2">
         <Link href={href} prefetch={false} onClick={onClick} className="text-sm font-semibold text-slate-300 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40">
           Open
         </Link>
