@@ -7,7 +7,15 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import { WalnutModal } from "@/components/ui/WalnutModal";
-import { createSavedScreen, deleteSavedScreen, getEntitlements, listSavedScreens, updateSavedScreen } from "@/lib/api";
+import {
+  createSavedScreen,
+  deleteSavedScreen,
+  getEntitlements,
+  listNotificationSubscriptions,
+  listSavedScreens,
+  saveNotificationSubscription,
+  updateSavedScreen,
+} from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { requestScreenerResultsScroll } from "@/lib/screenerResultsScroll";
@@ -240,6 +248,118 @@ function mergeServerSavedScreens(store: SavedViewsStore, screens: SavedScreen[])
   };
 }
 
+type SavedScreenAlertDelivery = "off" | "daily" | "intraday";
+
+function deliveryFromSavedScreenSubscription(subscription: { active: boolean; source_payload?: Record<string, unknown> | null } | undefined): SavedScreenAlertDelivery {
+  if (!subscription?.active) return "off";
+  const payload = subscription.source_payload ?? {};
+  // Existing subscriptions could have both switches on. Surface that legacy state as
+  // intraday, the more immediate cadence, without changing it until the user chooses.
+  if (payload.intraday_alerts_enabled === true) return "intraday";
+  if (payload.daily_digest_enabled === true) return "daily";
+  return "daily";
+}
+
+function SavedScreenAlertDeliveryControl({
+  view,
+  canUseMonitoring,
+}: {
+  view: SavedView;
+  canUseMonitoring: boolean;
+}) {
+  const [delivery, setDelivery] = useState<SavedScreenAlertDelivery>("off");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listNotificationSubscriptions({ source_type: "saved_view", source_id: view.id })
+      .then(({ items }) => {
+        if (!cancelled) setDelivery(deliveryFromSavedScreenSubscription(items[0]));
+      })
+      .catch(() => {
+        if (!cancelled) setError("Unable to load alert delivery.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view.id]);
+
+  const setDeliveryAndSave = async (nextDelivery: SavedScreenAlertDelivery) => {
+    if (saving || nextDelivery === delivery) return;
+    const previousDelivery = delivery;
+    setDelivery(nextDelivery);
+    setSaving(true);
+    setError(null);
+    try {
+      await saveNotificationSubscription({
+        source_type: "saved_view",
+        source_id: view.id,
+        source_name: view.name,
+        source_payload: {
+          id: view.id,
+          surface: view.surface,
+          scopeKey: view.scopeKey,
+          params: view.params,
+          lastSeenAt: view.lastSeenAt ?? null,
+          daily_digest_enabled: nextDelivery === "daily",
+          intraday_alerts_enabled: nextDelivery === "intraday",
+        },
+        only_if_new: true,
+        active: nextDelivery !== "off",
+        alert_triggers: [],
+      });
+    } catch {
+      setDelivery(previousDelivery);
+      setError("Unable to save alert delivery. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!canUseMonitoring) {
+    return (
+      <Link
+        href="/pricing"
+        className="inline-flex h-8 items-center rounded-lg border border-emerald-300/30 bg-emerald-400/10 px-3 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/15"
+      >
+        Alerts · Premium
+      </Link>
+    );
+  }
+
+  return (
+    <div className="relative inline-flex h-8 items-center rounded-lg border border-white/10 bg-slate-950/50 p-0.5" role="group" aria-label={`Alert delivery for ${view.name}`}>
+      {(["off", "daily", "intraday"] as const).map((option) => {
+        const selected = delivery === option;
+        return (
+          <button
+            key={option}
+            type="button"
+            onClick={() => void setDeliveryAndSave(option)}
+            disabled={loading || saving}
+            aria-pressed={selected}
+            className={`h-full rounded-md px-2 text-[11px] font-semibold capitalize transition disabled:cursor-wait disabled:opacity-60 ${
+              selected
+                ? "bg-emerald-400/15 text-emerald-100 shadow-sm shadow-emerald-950/30"
+                : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+            }`}
+          >
+            {option}
+          </button>
+        );
+      })}
+      {error ? <span className="sr-only" role="status">{error}</span> : null}
+    </div>
+  );
+}
+
 export function SavedViewsBar({
   surface,
   scopeKey,
@@ -365,14 +485,6 @@ export function SavedViewsBar({
     setSwitcherOpen(false);
     setActionsOpen(false);
   }, [pathname, searchParamsString]);
-
-  useEffect(() => {
-    if (!allowNotifications || surface !== "screener") return;
-    const manageAlertsId = new URLSearchParams(searchParamsString).get("manage_alerts");
-    if (!manageAlertsId) return;
-    const target = views.find((view) => view.id === manageAlertsId);
-    if (target) setNotifyTarget(target);
-  }, [allowNotifications, searchParamsString, surface, views]);
 
   useEffect(() => {
     setFormParams(urlParams);
@@ -928,6 +1040,12 @@ export function SavedViewsBar({
                   >
                     Update
                   </button>
+                  {surface === "screener" && allowNotifications && authResolved ? (
+                    <SavedScreenAlertDeliveryControl
+                      view={activeView}
+                      canUseMonitoring={hasEntitlement(entitlements, "screener_monitoring")}
+                    />
+                  ) : null}
                   <span className="relative inline-flex">
                     <button
                       type="button"
@@ -963,7 +1081,7 @@ export function SavedViewsBar({
                         >
                           Rename
                         </button>
-                        {allowNotifications ? (
+                        {allowNotifications && surface !== "screener" ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -1110,7 +1228,7 @@ export function SavedViewsBar({
       />
 
       <WalnutModal
-        open={Boolean(notifyTarget)}
+        open={surface !== "screener" && Boolean(notifyTarget)}
         title="Manage alerts"
         description={notifyTarget ? <span className="text-slate-400">{notifyTarget.name}</span> : undefined}
         onClose={() => setNotifyTarget(null)}
