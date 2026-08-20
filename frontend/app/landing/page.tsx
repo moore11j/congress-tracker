@@ -100,7 +100,7 @@ const confirmationEvidence = [
 const confirmationPrinciples = [
   ["Higher confirmation", "More of the available evidence is reinforcing the same directional view."],
   ["Lower confirmation", "The evidence is weaker, mixed, or conflicting."],
-  ["Explainable", "Every confirmation score is accompanied by the underlying evidence so you can see what is data behind the judgment."],
+  ["Explainable", "Every confirmation score is accompanied by the underlying evidence so you can see the data behind the score."],
 ] as const;
 
 const workflowStages = [
@@ -1097,7 +1097,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Feature Depth</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">The broader Walnut research surface.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Walnut gives the everyday investors access to the tools and data sets they need to make better, more informed, investment decisions.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Walnut gives everyday investors access to professional grade tools and data sets they need to make better, more informed, investment decisions.</p>
           </div>
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {featureDepthItems.map(([title, body]) => (
@@ -1144,7 +1144,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                See the data most retail investors miss, including institutional activity, options flow, and deeper positioning that can show whether buying interest is building or fading.
+                See the data most investors miss with Walnut Pro, including institutional activity, options flow, and macro positioning that can show whether buying interest is building or fading.
               </p>
             </article>
           </div>
