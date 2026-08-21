@@ -111,16 +111,15 @@ test("profiles overview activity mix uses aggregate summary data", () => {
   assert.doesNotMatch(source, /const counts = categories\.map\(\(type\) => activity\.filter/);
 });
 
-test("profiles overview renders full-width quarterly stacked activity chart", () => {
+test("profiles overview renders a 12-month line chart by profile type", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
-  assert.match(source, /<Panel title="Activity over time \(Quarterly\)" action="8 quarters">/);
-  assert.match(source, /function profileActivityQuarters/);
-  assert.match(source, /profileActivityQuarters\(series\)\.slice\(-8\)/);
-  assert.match(source, /const yTicks = \[axisMax, axisMax \* \.8, axisMax \* \.6, axisMax \* \.4, axisMax \* \.2, 0\]/);
-  assert.match(source, /const stackCategories = \["Department", "Congress", "Insider", "Institution"\] as const/);
-  assert.match(source, /aria-label="Quarterly profile activity by type"/);
-  assert.match(source, /Q\$\{quarter\} '\$\{String\(year\)\.slice\(-2\)\}/);
+  assert.match(source, /<Panel title="Activity by profile type" action="12M">/);
+  assert.match(source, /const periods = series\.slice\(-12\)/);
+  assert.match(source, /const yTicks = \[axisMax, axisMax \* \.75, axisMax \* \.5, axisMax \* \.25, 0\]/);
+  assert.match(source, /const diamondPoints/);
+  assert.match(source, /aria-label="Monthly profile activity by type"/);
+  assert.doesNotMatch(source, /profileActivityQuarters/);
 });
 
 test("latest profile activity keeps value visible on mobile", () => {

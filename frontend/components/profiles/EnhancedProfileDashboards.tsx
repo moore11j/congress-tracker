@@ -42,7 +42,10 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
       <section className="relative z-10 grid gap-3 xl:grid-cols-4">
         {data.cards.map((card) => <OverviewCard key={card.kind} card={card} />)}
       </section>
-      <section className="relative z-10 grid gap-3 xl:grid-cols-[.8fr_1.1fr]">
+      <section className="relative z-10 grid items-stretch gap-3 xl:grid-cols-[1.45fr_.8fr_1.1fr]">
+        <Panel title="Activity by profile type" action="12M">
+          <ActivityLineChart series={data.activity_by_profile_type ?? []} />
+        </Panel>
         <Panel title="Where the activity is">
           <Donut values={counts} colors={categories.map((category) => PROFILE_COLORS[category])} label="Records" value={formatNumber(total)} />
           <div className="mt-4 space-y-2.5">
@@ -59,11 +62,6 @@ export function EnhancedProfilesOverview({ data }: { data: ProfilesSummaryRespon
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {directoryLeaders.map((directory) => <DirectoryLeaders key={directory.kind} title={directory.primary_title || directory.title} href={directory.href} rows={directory.primary_items ?? []} locked={directory.locked} message={directory.message} />)}
           </div>
-        </Panel>
-      </section>
-      <section className="relative z-10">
-        <Panel title="Activity over time (Quarterly)" action="8 quarters">
-          <ActivityLineChart series={data.activity_by_profile_type ?? []} />
         </Panel>
       </section>
     </main>
@@ -423,77 +421,31 @@ function TrendChart({ series }: { series: Array<{ label: string; value: number }
 function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }) {
   if (!series.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No historical database activity is available.</p>;
 
-  const legendCategories = ["Congress", "Insider", "Institution", "Department"] as const;
-  const stackCategories = ["Department", "Congress", "Insider", "Institution"] as const;
-  const periods = profileActivityQuarters(series).slice(-8);
-  if (!periods.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No quarterly database activity is available.</p>;
-
-  const axisMax = roundAxisMax(Math.max(...periods.map((point) => legendCategories.reduce((sum, category) => sum + point[category], 0)), 1));
-  const yTicks = [axisMax, axisMax * .8, axisMax * .6, axisMax * .4, axisMax * .2, 0];
+  const categories = ["Congress", "Insider", "Institution", "Department"] as const;
+  const periods = series.slice(-12);
+  const axisMax = roundAxisMax(Math.max(...periods.flatMap((point) => categories.map((category) => Number(point[category] ?? 0))), 1));
+  const yTicks = [axisMax, axisMax * .75, axisMax * .5, axisMax * .25, 0];
   const plotTop = 8;
   const plotBottom = 92;
-  const minChartWidth = Math.max(44, periods.length * 5.5);
-  const xFor = (index: number) => 2 + (index / Math.max(periods.length - 1, 1)) * 96;
+  const xFor = (index: number) => 3 + (index / Math.max(periods.length - 1, 1)) * 94;
   const yFor = (value: number) => plotBottom - (Math.max(value, 0) / axisMax) * (plotBottom - plotTop);
-  const cumulativeValue = (point: ProfileActivityQuarter, categoryIndex: number) => stackCategories.slice(0, categoryIndex + 1).reduce((sum, category) => sum + point[category], 0);
-  const previousValue = (point: ProfileActivityQuarter, categoryIndex: number) => stackCategories.slice(0, categoryIndex).reduce((sum, category) => sum + point[category], 0);
-  const areaPath = (categoryIndex: number) => {
-    const top = periods.map((point, index) => `${xFor(index)},${yFor(cumulativeValue(point, categoryIndex))}`);
-    const bottom = periods.map((point, index) => `${xFor(index)},${yFor(previousValue(point, categoryIndex))}`).reverse();
-    return `M${top.join(" L ")} L ${bottom.join(" L ")} Z`;
-  };
-  const boundaryLine = (categoryIndex: number) => periods.map((point, index) => `${xFor(index)},${yFor(cumulativeValue(point, categoryIndex))}`).join(" ");
+  const linePoints = (category: typeof categories[number]) => periods.map((point, index) => `${xFor(index)},${yFor(Number(point[category] ?? 0))}`).join(" ");
+  const diamondPoints = (x: number, y: number) => `${x},${y - 1.8} ${x + 1.8},${y} ${x},${y + 1.8} ${x - 1.8},${y}`;
 
   return <div>
-    <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-slate-300">{legendCategories.map((category) => <span key={category} className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category === "Insider" ? "Insiders" : category === "Institution" ? "Institutions" : category === "Department" ? "Departments" : category}</span>)}</div>
-    <div className="mt-4 grid grid-cols-[3.6rem_minmax(0,1fr)] gap-3">
-      <div className="flex h-56 flex-col justify-between py-1 text-right text-[10px] font-semibold tabular-nums text-slate-500">{yTicks.map((tick) => <span key={tick}>{formatCompactNumber(tick)}</span>)}</div>
-      <div className="min-w-0 overflow-x-auto pb-1">
-        <div style={{ minWidth: `${minChartWidth}rem` }}>
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-56 w-full overflow-hidden border-b border-white/10" aria-label="Quarterly profile activity by type">
-            {yTicks.map((tick) => <line key={tick} x1="0" x2="100" y1={yFor(tick)} y2={yFor(tick)} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}
-            {stackCategories.map((category, index) => <path key={category} d={areaPath(index)} fill={PROFILE_COLORS[category]} opacity=".72" />)}
-            {stackCategories.map((category, index) => <polyline key={`${category}-line`} points={boundaryLine(index)} fill="none" stroke={PROFILE_COLORS[category]} strokeWidth="1.2" opacity=".9" vectorEffect="non-scaling-stroke" />)}
-          </svg>
-          <div className="mt-3 grid gap-1 text-[11px] font-semibold text-slate-500" style={{ gridTemplateColumns: `repeat(${periods.length}, minmax(0, 1fr))` }}>{periods.map((point) => <span key={point.period} className="truncate text-center">{point.period}</span>)}</div>
-        </div>
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-semibold text-slate-300">{categories.map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category === "Insider" ? "Insiders" : category === "Institution" ? "Institutions" : category === "Department" ? "Departments" : category}</span>)}</div>
+    <div className="mt-4 grid grid-cols-[2.8rem_minmax(0,1fr)] gap-2">
+      <div className="flex h-44 flex-col justify-between py-1 text-right text-[9px] font-semibold tabular-nums text-slate-500">{yTicks.map((tick) => <span key={tick}>{formatCompactNumber(tick)}</span>)}</div>
+      <div className="min-w-0">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-44 w-full overflow-hidden border-b border-white/10" aria-label="Monthly profile activity by type">
+          {yTicks.map((tick) => <line key={tick} x1="0" x2="100" y1={yFor(tick)} y2={yFor(tick)} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}
+          {categories.map((category) => <polyline key={`${category}-line`} points={linePoints(category)} fill="none" stroke={PROFILE_COLORS[category]} strokeWidth="1.55" vectorEffect="non-scaling-stroke" />)}
+          {categories.flatMap((category) => periods.map((point, index) => <polygon key={`${category}-${point.period}`} points={diamondPoints(xFor(index), yFor(Number(point[category] ?? 0)))} fill={PROFILE_COLORS[category]} stroke="#07101f" strokeWidth=".45" vectorEffect="non-scaling-stroke" />))}
+        </svg>
+        <div className="mt-2 grid gap-0.5 text-[9px] font-semibold text-slate-500" style={{ gridTemplateColumns: `repeat(${periods.length}, minmax(0, 1fr))` }}>{periods.map((point) => <span key={point.period} className="truncate text-center">{point.period}</span>)}</div>
       </div>
     </div>
   </div>;
-}
-
-type ProfileActivityQuarter = {
-  period: string;
-  Congress: number;
-  Insider: number;
-  Institution: number;
-  Department: number;
-};
-
-function profileActivityQuarters(series: ProfileActivityByTypePeriod[]): ProfileActivityQuarter[] {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const quarters = new Map<string, ProfileActivityQuarter & { sort: number }>();
-
-  for (const point of series) {
-    const [monthLabel, yearLabel] = point.period.split(/\s+/);
-    const monthIndex = months.indexOf(monthLabel);
-    const shortYear = Number(yearLabel);
-    if (monthIndex < 0 || !Number.isFinite(shortYear)) continue;
-    const year = shortYear >= 70 ? 1900 + shortYear : 2000 + shortYear;
-    const quarter = Math.floor(monthIndex / 3) + 1;
-    const key = `${year}-Q${quarter}`;
-    const bucket = quarters.get(key) ?? { period: `Q${quarter} '${String(year).slice(-2)}`, Congress: 0, Insider: 0, Institution: 0, Department: 0, sort: year * 10 + quarter };
-
-    bucket.Congress += Number(point.Congress ?? 0);
-    bucket.Insider += Number(point.Insider ?? 0);
-    bucket.Institution += Number(point.Institution ?? 0);
-    bucket.Department += Number(point.Department ?? 0);
-    quarters.set(key, bucket);
-  }
-
-  return Array.from(quarters.values())
-    .sort((left, right) => left.sort - right.sort)
-    .map((quarter) => ({ period: quarter.period, Congress: quarter.Congress, Insider: quarter.Insider, Institution: quarter.Institution, Department: quarter.Department }));
 }
 
 function TopMovingSectors({ rows }: { rows: ProfileSectorMover[] }) { if (!rows.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No sector-mapped activity is available.</p>; const max = Math.max(...rows.map((row) => row.current_value), 1); return <div><div className="space-y-2.5">{rows.map((row) => <div key={row.sector} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_3.5rem] items-center gap-2 text-xs"><span className="truncate text-slate-300">{row.sector}</span><div className="flex h-2.5 overflow-hidden rounded-sm bg-slate-800" title={`${row.current_value.toLocaleString()} recent activities vs ${row.previous_value.toLocaleString()} prior activities`}>{row.segments.map((segment) => segment.value ? <span key={segment.type} style={{ width: `${(segment.value / max) * 100}%`, backgroundColor: PROFILE_COLORS[segment.type] }} /> : null)}</div><span className={`text-right font-semibold tabular-nums ${row.change >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{row.change >= 0 ? "+" : ""}{formatNumber(row.change)}</span></div>)}</div><div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{["Congress", "Insider", "Institution", "Department"].map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div></div>; }

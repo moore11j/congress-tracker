@@ -140,6 +140,8 @@ def test_profiles_summary_uses_real_aggregate_counts():
     assert payload["directories"][0]["primary_title"] == "Top Congress by Trading Value"
     assert payload["activity"][0]["profile_href"] == "/member/nancy-pelosi"
     assert activity_mix == {"Congress": 1, "Insider": 1, "Institution": 2, "Department": 1}
+    assert len(payload["activity_by_profile_type"]) == 12
+    assert payload["activity_by_profile_type"][-1]["period"] == date.today().strftime("%b %y")
 
 
 def test_profile_activity_per_type_limit_preserves_each_activity_tab():

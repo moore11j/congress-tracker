@@ -750,7 +750,7 @@ def _institutional_profile_period_metrics(db: Session) -> tuple[dict[str, int | 
 
 def _profile_activity_by_month(db: Session, *, include_institutions: bool) -> list[dict[str, Any]]:
     current_month = date.today().replace(day=1)
-    start_month = _add_months(current_month, -23)
+    start_month = _add_months(current_month, -11)
     start = datetime.combine(start_month, datetime.min.time(), tzinfo=timezone.utc)
     end = _add_months(current_month, 1)
     event_types = ["congress_trade", "insider_trade", "government_contract"]
@@ -769,7 +769,7 @@ def _profile_activity_by_month(db: Session, *, include_institutions: bool) -> li
     ).all()
     counts = {(int(year), int(month), str(profile_type)): int(total or 0) for year, month, profile_type, total in rows}
     result: list[dict[str, Any]] = []
-    for offset in range(24):
+    for offset in range(12):
         month = _add_months(start_month, offset)
         result.append({
             "period": month.strftime("%b %y"),
