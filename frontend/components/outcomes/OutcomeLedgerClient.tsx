@@ -30,7 +30,7 @@ const cohortFilterOptions = [
   { value: "live", label: "Live Tracked" },
   { value: "matured", label: "Matured" },
 ] as const;
-const directionFilterOptions = ["All", "Bullish", "Bearish", "Mixed", "Neutral"];
+const directionFilterOptions = ["All", "Bullish", "Bearish"];
 const scoreBandFilterOptions = ["All Scores", ...scoreBands];
 const dateRangeFilterOptions = [
   { value: "all", label: "All Available" },
@@ -121,7 +121,17 @@ function maturedOutcome(snapshot: OutcomeSnapshot, horizon = "30D") {
 
 function outcomeLifecycleStatusLabel(snapshot?: OutcomeSnapshot, isClosed = false) {
   if (!snapshot) return "-";
-  return isClosed ? "Closed" : "Open";
+  return snapshot.lifecycle_status === "closed" || isClosed ? "Closed" : "Open";
+}
+
+function isClosedOutcomeEvent(snapshot: OutcomeSnapshot, horizon?: string, replacedSnapshotIds?: Set<number>) {
+  const selectedOutcome = horizon ? outcomeFor(snapshot, horizon) : undefined;
+  return (
+    snapshot.lifecycle_status === "closed" ||
+    selectedOutcome?.status === "closed" ||
+    selectedOutcome?.status === "replaced" ||
+    replacedSnapshotIds?.has(snapshot.id) === true
+  );
 }
 
 function openedDate(snapshot: OutcomeSnapshot) {
@@ -161,14 +171,15 @@ function replacedOutcomeSnapshotIds(snapshots: OutcomeSnapshot[]) {
   });
   byTicker.forEach((rows) => {
     const sorted = [...rows].sort((a, b) => openedTime(a) - openedTime(b) || calculatedTime(a) - calculatedTime(b) || a.id - b.id);
-    const laterDirections = new Set<string>();
+    const laterDirectionalSides = new Set<string>();
     for (let index = sorted.length - 1; index >= 0; index -= 1) {
       const snapshot = sorted[index];
       if (!snapshot) continue;
       const direction = snapshot.direction?.toLowerCase() ?? "";
-      const scoreDirection = `${snapshot.score}:${direction}`;
-      if ([...laterDirections].some((laterDirection) => laterDirection !== scoreDirection)) ids.add(snapshot.id);
-      laterDirections.add(scoreDirection);
+      const side = direction.includes("bull") ? "bullish" : direction.includes("bear") ? "bearish" : null;
+      if (!side) continue;
+      if ([...laterDirectionalSides].some((laterSide) => laterSide !== side)) ids.add(snapshot.id);
+      laterDirectionalSides.add(side);
     }
   });
   return ids;
@@ -822,9 +833,8 @@ function EventsTable({
   const tableSnapshots = useMemo(
     () =>
       snapshots.filter((snapshot) => {
-        const selectedOutcome = outcomeFor(snapshot, horizon);
         const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
-        const isClosed = selectedOutcome?.status === "replaced" || replacedSnapshotIds.has(snapshot.id);
+        const isClosed = isClosedOutcomeEvent(snapshot, horizon, replacedSnapshotIds);
         if (tableFilter === "Bullish" || tableFilter === "Bearish") return formatDirection(snapshot.direction) === tableFilter;
         if (tableFilter === "Matured") return hasMaturedOutcome;
         if (tableFilter === "Open") return !isClosed;
@@ -931,7 +941,7 @@ function EventsTable({
           <tbody className="divide-y divide-white/[0.06]">
             {visibleSnapshots.length ? (
               visibleSnapshots.map((snapshot) => {
-                const isClosed = outcomeFor(snapshot, horizon)?.status === "replaced" || replacedSnapshotIds.has(snapshot.id);
+                const isClosed = isClosedOutcomeEvent(snapshot, horizon, replacedSnapshotIds);
                 const isSelected = selectedSnapshotId === snapshot.id;
                 return (
                   <tr
@@ -1157,7 +1167,7 @@ function DetailPanel({
           <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm leading-5 text-slate-300">
             {selected
               ? `${selected.methodology ?? "confirmation-v1"} preserved ${selected.ticker} at ${openedDate(selected)} with an opened ${selected.score}/100 ${formatDirection(selected.direction)} score. The live ticker page can move after this snapshot.`
-              : "Events are created from live confirmation-score snapshots. Outcome windows mature independently while the event remains open until the thesis is replaced."}
+              : "Events are created from live confirmation-score snapshots. Outcome windows mature independently while the event remains open until the thesis closes."}
           </p>
         </div>
       </div>
@@ -1388,8 +1398,7 @@ export function OutcomeLedgerClient({
     }
     const header = ["Ticker", "Opened", "Opened Score", "Opened Direction", "Entry Price", "7D", "30D", "90D", "180D", "365D", "Status"];
     const rows = publicPreviewSnapshots.map((snapshot) => {
-      const selectedOutcome = outcomeFor(snapshot, horizonFilter);
-      const isClosed = selectedOutcome?.status === "replaced" || replacedSnapshotIds.has(snapshot.id);
+      const isClosed = isClosedOutcomeEvent(snapshot, horizonFilter, replacedSnapshotIds);
       return [
         snapshot.ticker,
         openedDate(snapshot),
@@ -1522,7 +1531,7 @@ export function OutcomeLedgerClient({
         {eventDetailOpen ? (
           <DetailPanel
             selected={selectedSnapshot}
-            isSelectedReplaced={selectedSnapshot ? replacedSnapshotIds.has(selectedSnapshot.id) || outcomeFor(selectedSnapshot, horizonFilter)?.status === "replaced" : false}
+            isSelectedReplaced={selectedSnapshot ? isClosedOutcomeEvent(selectedSnapshot, horizonFilter, replacedSnapshotIds) : false}
             entitlementTier={entitlementTier}
             horizon={horizonFilter}
             onClose={() => setEventDetailOpen(false)}

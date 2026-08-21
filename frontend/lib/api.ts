@@ -8014,6 +8014,8 @@ export type OutcomeSnapshot = {
   active_sources: string[];
   methodology?: string | null;
   outcomes?: Record<string, OutcomeHorizonResult>;
+  lifecycle_status?: "open" | "closed" | string;
+  closed_at?: string | null;
   calculation_type: string;
   created_at?: string | null;
   security_id?: number;

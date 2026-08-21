@@ -164,7 +164,7 @@ def test_live_capture_opens_new_event_when_direction_changes():
         assert response["items"][0]["score"] == 64
 
 
-def test_replaced_snapshot_horizons_do_not_mature():
+def test_mixed_snapshot_is_not_a_scored_directional_event():
     engine = _engine()
     with Session(engine) as db:
         observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=60)).date()
@@ -197,12 +197,56 @@ def test_replaced_snapshot_horizons_do_not_mature():
 
         assert mixed is not None
         assert bullish is not None
-        replacement_date = outcome_ledger_module._replacement_date(mixed, [mixed, bullish])
-        row = outcome_ledger_module._snapshot_row(db, mixed, replaced_at=replacement_date)
+        mixed_row = outcome_ledger_module._snapshot_row(db, mixed)
+        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
 
-        assert row["outcomes"]["7D"]["status"] == "replaced"
-        assert row["outcomes"]["30D"]["status"] == "replaced"
-        assert "return_pct" not in row["outcomes"]["7D"]
+        assert mixed_row["outcomes"]["7D"]["status"] == "not_directional"
+        assert response["total"] == 1
+        assert response["items"][0]["ticker"] == "CRM"
+        assert response["items"][0]["direction"] == "bullish"
+        assert response["items"][0]["outcomes"]["7D"]["status"] == "matured"
+
+
+def test_opposite_direction_closes_previous_directional_event():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=60)).date()
+        closed_day = observed_day + outcome_ledger_module.timedelta(days=3)
+        seven_day = observed_day + outcome_ledger_module.timedelta(days=7)
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=observed_day.isoformat(), close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=closed_day.isoformat(), close=104.0, price_source="test"),
+                PriceCache(symbol="CRM", date=seven_day.isoformat(), close=110.0, price_source="test"),
+                PriceCache(symbol="SPY", date=observed_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=seven_day.isoformat(), close=505.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        bullish = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(64, "bullish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=15),
+        )
+        bearish = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(67, "bearish"),
+            calculated_at=datetime.combine(closed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=15),
+        )
+
+        assert bullish is not None
+        assert bearish is not None
+        response = list_outcome_snapshots(db, limit=10, calculation_type="live")
+        crm_bullish = next(item for item in response["items"] if item["direction"] == "bullish")
+
+        assert response["total"] == 2
+        assert crm_bullish["lifecycle_status"] == "closed"
+        assert crm_bullish["closed_at"] == closed_day.isoformat()
+        assert crm_bullish["outcomes"]["7D"]["status"] == "closed"
+        assert "return_pct" not in crm_bullish["outcomes"]["7D"]
 
 
 def test_live_capture_dedupes_same_visible_daily_event_when_hash_changes():

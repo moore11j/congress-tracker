@@ -6468,11 +6468,12 @@ def outcomes_snapshots(
     if not outcome_ledger_enabled(db):
         _outcomes_disabled_response()
     response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
+    public_limit = max(1, min(int(limit or 25), int(os.getenv("OUTCOME_LEDGER_PUBLIC_SNAPSHOT_LIMIT_MAX", "500") or 500)))
     cache_key = json.dumps(
         {
             "end_date": end_date,
             "calculation_type": calculation_type,
-            "limit": limit,
+            "limit": public_limit,
             "methodology": methodology,
             "page": page,
             "start_date": start_date,
@@ -6487,7 +6488,7 @@ def outcomes_snapshots(
     payload = list_outcome_snapshots(
         db,
         page=page,
-        limit=limit,
+        limit=public_limit,
         ticker=ticker,
         methodology=methodology,
         calculation_type=calculation_type,

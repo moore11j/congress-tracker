@@ -4,10 +4,11 @@ import hashlib
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import date, datetime, time, timezone, timedelta
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,6 +28,13 @@ CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v1"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
+DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
+
+
+@dataclass(frozen=True)
+class DirectionalOutcomeEvent:
+    snapshot: ConfirmationScoreSnapshot
+    closed_at: date | None = None
 
 
 def outcome_ledger_enabled(db: Session | None = None) -> bool:
@@ -217,14 +225,12 @@ def _resolve_security(db: Session, symbol: str) -> Security | None:
     return security
 
 
-def _latest_reference_price(db: Session, symbol: str) -> tuple[float | None, datetime | None, str | None, date]:
+def _latest_reference_price(db: Session, symbol: str, *, as_of_date: date | None = None) -> tuple[float | None, datetime | None, str | None, date]:
     normalized_symbol = symbol.strip().upper()
-    row = db.execute(
-        select(PriceCache)
-        .where(PriceCache.symbol == normalized_symbol)
-        .order_by(PriceCache.date.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    query = select(PriceCache).where(PriceCache.symbol == normalized_symbol)
+    if as_of_date is not None:
+        query = query.where(PriceCache.date <= as_of_date.isoformat())
+    row = db.execute(query.order_by(PriceCache.date.desc()).limit(1)).scalar_one_or_none()
     if row is None:
         return None, None, None, datetime.now(timezone.utc).date()
     try:
@@ -284,7 +290,7 @@ def capture_live_confirmation_score_snapshot(
         calculated = calculated_at or datetime.now(timezone.utc)
         if calculated.tzinfo is None:
             calculated = calculated.replace(tzinfo=timezone.utc)
-        reference_price, reference_price_at, reference_price_source, market_date = _latest_reference_price(db, normalized_symbol)
+        reference_price, reference_price_at, reference_price_source, market_date = _latest_reference_price(db, normalized_symbol, as_of_date=calculated.date())
         if reference_price is None:
             _increment_counter(db, OUTCOMES_LEDGER_MISSING_PRICE_KEY)
         max_stale_days = int(os.getenv("OUTCOME_LEDGER_LIVE_REFERENCE_MAX_STALE_DAYS", "5") or 5)
@@ -461,6 +467,19 @@ def _directional_return_pct(direction: str, raw_return_pct: float | None) -> flo
     return None
 
 
+def _directional_side(direction: str | None) -> str | None:
+    normalized_direction = (direction or "").strip().lower()
+    if "bull" in normalized_direction:
+        return "bullish"
+    if "bear" in normalized_direction:
+        return "bearish"
+    return None
+
+
+def _is_directional_snapshot(snapshot: ConfirmationScoreSnapshot) -> bool:
+    return _directional_side(snapshot.direction) in DIRECTIONAL_OUTCOME_SIDES
+
+
 def _directionally_correct(direction: str, raw_return_pct: float | None) -> bool | None:
     directional_return = _directional_return_pct(direction, raw_return_pct)
     if directional_return is None:
@@ -516,9 +535,15 @@ def _snapshot_outcomes(
     snapshot: ConfirmationScoreSnapshot,
     *,
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
-    replaced_at: date | None = None,
+    closed_at: date | None = None,
 ) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
+    if not _is_directional_snapshot(snapshot):
+        return {
+            f"{days}D": {"status": "not_directional", "horizon_days": days}
+            for days in OUTCOME_HORIZONS
+        }
+
     if snapshot.reference_price is None or snapshot.market_date is None:
         return {
             f"{days}D": {"status": "missing_reference_price", "horizon_days": days}
@@ -546,12 +571,12 @@ def _snapshot_outcomes(
     for days in OUTCOME_HORIZONS:
         label = f"{days}D"
         target_date = snapshot.market_date + timedelta(days=days)
-        if replaced_at is not None and replaced_at <= target_date:
+        if closed_at is not None and closed_at <= target_date:
             outcomes[label] = {
-                "status": "replaced",
+                "status": "closed",
                 "horizon_days": days,
                 "target_date": target_date.isoformat(),
-                "replaced_at": replaced_at.isoformat(),
+                "closed_at": closed_at.isoformat(),
             }
             continue
         if target_date > today:
@@ -605,7 +630,7 @@ def _snapshot_row(
     *,
     include_internal: bool = False,
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
-    replaced_at: date | None = None,
+    closed_at: date | None = None,
 ) -> dict[str, Any]:
     row = {
         "id": snapshot.id,
@@ -621,7 +646,9 @@ def _snapshot_row(
         "active_source_count": snapshot.active_source_count,
         "active_sources": _json_loads(snapshot.active_sources_json, []),
         "methodology": None,
-        "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol, replaced_at=replaced_at),
+        "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol, closed_at=closed_at),
+        "lifecycle_status": "closed" if closed_at is not None else "open",
+        "closed_at": closed_at.isoformat() if closed_at is not None else None,
         "calculation_type": snapshot.calculation_type,
         "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
     }
@@ -693,6 +720,57 @@ def _replacement_date(snapshot: ConfirmationScoreSnapshot, rows: list[Confirmati
     return None
 
 
+def _snapshot_event_time(snapshot: ConfirmationScoreSnapshot) -> tuple[datetime, int]:
+    snapshot_time = snapshot.calculated_at or datetime.combine(snapshot.market_date, time.min, tzinfo=timezone.utc)
+    if snapshot_time.tzinfo is None:
+        snapshot_time = snapshot_time.replace(tzinfo=timezone.utc)
+    return snapshot_time, int(snapshot.id or 0)
+
+
+def _directional_event_group_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int]:
+    return (
+        snapshot.calculation_type,
+        snapshot.security_id,
+        snapshot.methodology_version_id,
+    )
+
+
+def _project_directional_outcome_events(rows: list[ConfirmationScoreSnapshot]) -> list[DirectionalOutcomeEvent]:
+    grouped: dict[tuple[str, int, int], list[ConfirmationScoreSnapshot]] = {}
+    for row in rows:
+        grouped.setdefault(_directional_event_group_key(row), []).append(row)
+
+    events: list[DirectionalOutcomeEvent] = []
+    for group_rows in grouped.values():
+        latest_directional_by_day: dict[date, ConfirmationScoreSnapshot] = {}
+        for row in group_rows:
+            if not _is_directional_snapshot(row):
+                # Mixed/neutral are watch states. They do not open, grade, or close a directional event.
+                continue
+            current = latest_directional_by_day.get(row.market_date)
+            if current is None or _snapshot_event_time(row) > _snapshot_event_time(current):
+                latest_directional_by_day[row.market_date] = row
+
+        daily_rows = sorted(latest_directional_by_day.values(), key=_snapshot_event_time)
+        for index, row in enumerate(daily_rows):
+            side = _directional_side(row.direction)
+            closed_at = None
+            for later in daily_rows[index + 1 :]:
+                later_side = _directional_side(later.direction)
+                if later_side is not None and later_side != side:
+                    closed_at = later.market_date
+                    break
+            events.append(DirectionalOutcomeEvent(snapshot=row, closed_at=closed_at))
+    return events
+
+
+def _event_display_sort_key(event: DirectionalOutcomeEvent) -> tuple[int, datetime, int]:
+    thirty_day_matured_cutoff = datetime.now(timezone.utc).date() - timedelta(days=30)
+    is_30d_matured = int(event.snapshot.market_date <= thirty_day_matured_cutoff)
+    event_time, event_id = _snapshot_event_time(event.snapshot)
+    return is_30d_matured, event_time, event_id
+
+
 def list_outcome_snapshots(
     db: Session,
     *,
@@ -715,33 +793,30 @@ def list_outcome_snapshots(
         start_date=start_date,
         end_date=end_date,
     )
-    thirty_day_matured_cutoff = datetime.now(timezone.utc).date() - timedelta(days=30)
     ordered_rows = db.execute(
         base.order_by(
-            case((ConfirmationScoreSnapshot.market_date <= thirty_day_matured_cutoff, 1), else_=0).desc(),
             ConfirmationScoreSnapshot.calculated_at.desc(),
             ConfirmationScoreSnapshot.id.desc(),
         )
     ).scalars().all()
-    canonical_by_visible_event: dict[tuple[str, int, int, date], ConfirmationScoreSnapshot] = {}
-    for row in ordered_rows:
-        canonical_by_visible_event.setdefault(_visible_snapshot_key(row), row)
-    canonical_rows = list(canonical_by_visible_event.values())
-    total = len(canonical_rows)
-    rows = canonical_rows[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
+    events = sorted(_project_directional_outcome_events(ordered_rows), key=_event_display_sort_key, reverse=True)
+    total = len(events)
+    paged_events = events[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
+    rows = [event.snapshot for event in paged_events]
     methodology_by_id = {
         row.id: row.version
         for row in db.execute(select(ConfirmationMethodologyVersion)).scalars().all()
     }
     price_rows_by_symbol = _prefetch_outcome_price_rows(db, rows)
     items = []
-    for snapshot in rows:
+    for event in paged_events:
+        snapshot = event.snapshot
         item = _snapshot_row(
             db,
             snapshot,
             include_internal=include_internal,
             price_rows_by_symbol=price_rows_by_symbol,
-            replaced_at=_replacement_date(snapshot, ordered_rows),
+            closed_at=event.closed_at,
         )
         item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
         items.append(item)
@@ -779,20 +854,19 @@ def outcome_ledger_summary(
             ConfirmationScoreSnapshot.id.desc(),
         )
     ).scalars().all()
-    canonical_by_visible_event: dict[tuple[str, int, int, date], ConfirmationScoreSnapshot] = {}
-    for row in ordered_rows:
-        canonical_by_visible_event.setdefault(_visible_snapshot_key(row), row)
-    canonical_rows = list(canonical_by_visible_event.values())
+    events = _project_directional_outcome_events(ordered_rows)
+    canonical_rows = [event.snapshot for event in events]
     price_rows_by_symbol = _prefetch_outcome_price_rows(db, canonical_rows)
 
     rows: list[dict[str, Any]] = []
-    for snapshot in canonical_rows:
+    for event in events:
+        snapshot = event.snapshot
         row = _snapshot_row(
             db,
             snapshot,
             include_internal=False,
             price_rows_by_symbol=price_rows_by_symbol,
-            replaced_at=_replacement_date(snapshot, ordered_rows),
+            closed_at=event.closed_at,
         )
         if not _matches_summary_direction(row, direction):
             continue
