@@ -108,8 +108,32 @@ def test_methodology_seed_and_single_current_version():
         current_rows = db.execute(
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.is_current.is_(True))
         ).scalars().all()
-        assert current.version == "confirmation-v1"
-        assert [row.version for row in current_rows] == ["confirmation-v1"]
+        assert current.version == "confirmation-v2"
+        assert [row.version for row in current_rows] == ["confirmation-v2"]
+
+
+def test_current_methodology_promotes_deployed_version_over_existing_current():
+    engine = _engine()
+    with Session(engine) as db:
+        legacy = db.execute(
+            select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.version == "confirmation-v1")
+        ).scalar_one()
+        legacy.is_current = True
+        legacy.retired_at = None
+        db.commit()
+
+        current = current_confirmation_methodology(db)
+        current_rows = db.execute(
+            select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.is_current.is_(True))
+        ).scalars().all()
+        retired_v1 = db.execute(
+            select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.version == "confirmation-v1")
+        ).scalar_one()
+
+        assert current.version == "confirmation-v2"
+        assert [row.version for row in current_rows] == ["confirmation-v2"]
+        assert retired_v1.is_current is False
+        assert retired_v1.retired_at is not None
 
 
 def test_live_capture_shows_latest_visible_daily_event_when_score_changes():

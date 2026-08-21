@@ -73,12 +73,19 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v3"
-MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 55.0
-DEFENSIBLE_DIRECTIONAL_MARGIN = 35.0
-CONFLICT_DIRECTIONAL_MARGIN = 25.0
-CONFLICT_DIRECTIONAL_EDGE_RATIO = 0.20
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v4_30d_calibrated"
+MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
+DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
+CONFLICT_DIRECTIONAL_MARGIN = 32.0
+CONFLICT_DIRECTIONAL_EDGE_RATIO = 0.25
 MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
+THIRTY_DAY_DURABLE_SOURCES: set[ConfirmationSourceKey] = {
+    "analysts",
+    "fundamentals",
+    "institutional_activity",
+    "macro_positioning",
+}
+SHORT_HORIZON_SOURCES: set[ConfirmationSourceKey] = {"price_volume", "options_flow", "signals"}
 
 BUY_TRADE_TYPES = {"purchase", "buy", "p-purchase"}
 SELL_TRADE_TYPES = {"sale", "sell", "s-sale"}
@@ -1976,7 +1983,7 @@ def classify_confirmation_direction(
         source = sources[key]
         if not source.present or key in SUPPORT_ONLY_SOURCE_KEYS:
             continue
-        evidence = _directional_evidence_weight(source)
+        evidence = _directional_evidence_weight(key, source)
         if source.direction in {"bullish", "bearish"}:
             side_scores[source.direction] += evidence
             side_layers[source.direction] += 1
@@ -2028,9 +2035,15 @@ def classify_confirmation_direction(
     )
 
 
-def _directional_evidence_weight(source: ConfirmationSourceSummary) -> float:
+def _directional_evidence_weight(key: ConfirmationSourceKey, source: ConfirmationSourceSummary) -> float:
     freshness = _freshness_score(source.freshness_days)
     weight = source.strength * 0.50 + source.quality * 0.35 + freshness * 0.15 + source.score_contribution * 2.0
+    if key in THIRTY_DAY_DURABLE_SOURCES:
+        weight *= 1.20 if source.direction == "bullish" else 1.08 if source.direction == "bearish" else 1.0
+    elif key in SHORT_HORIZON_SOURCES:
+        weight *= 0.88 if source.direction == "bullish" else 0.76 if source.direction == "bearish" else 0.80
+    elif source.direction == "bearish":
+        weight *= 0.92
     if source.freshness_days is not None and source.freshness_days > MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS:
         weight *= 0.45
     return max(0.0, weight)

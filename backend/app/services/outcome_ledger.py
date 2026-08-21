@@ -24,7 +24,7 @@ OUTCOMES_LEDGER_MISSING_PRICE_KEY = "outcome_ledger_missing_reference_prices"
 OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_prices"
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
-CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v1"
+CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v2"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
@@ -74,7 +74,14 @@ def current_methodology_configuration() -> dict[str, Any]:
             "strong": [60, 79],
             "exceptional": [80, 100],
         },
-        "notes": "Outcome Ledger Phase 1 records the existing canonical Walnut confirmation score without changing scoring rules.",
+        "notes": "Confirmation v2 keeps the ticker-page score shape but calibrates direction for 30D outcomes: durable sources carry more weight, short-horizon tape carries less weight, and bearish calls require stronger confirmation.",
+        "outcome_target": {
+            "primary_horizon": "30D",
+            "primary_metric": "directional accuracy and excess return versus SPY",
+            "secondary_horizon": "7D",
+            "long_horizons": ["90D", "180D", "365D"],
+            "long_horizon_policy": "report only after larger 30D-calibrated samples mature",
+        },
     }
 
 
@@ -123,7 +130,7 @@ def current_confirmation_methodology(db: Session) -> ConfirmationMethodologyVers
     methodology = db.execute(
         select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.is_current.is_(True))
     ).scalar_one_or_none()
-    if methodology is not None:
+    if methodology is not None and methodology.version == CURRENT_CONFIRMATION_METHODOLOGY_VERSION:
         return methodology
     methodology = register_confirmation_methodology_version(db)
     db.commit()

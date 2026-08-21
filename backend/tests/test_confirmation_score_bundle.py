@@ -347,7 +347,7 @@ def test_confirmation_bundle_can_include_government_contracts_without_breaking_w
     assert slim["why_now"]["state"] != "inactive"
 
 
-def test_government_contracts_do_not_flip_bearish_bundle_direction():
+def test_v2_single_source_insider_selling_with_contract_support_stays_neutral():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -386,13 +386,13 @@ def test_government_contracts_do_not_flip_bearish_bundle_direction():
 
         bundle = get_confirmation_score_bundle_for_ticker(db, "CLSH", lookback_days=30)
 
-    assert bundle["direction"] == "bearish"
+    assert bundle["direction"] == "neutral"
     assert bundle["sources"]["insiders"]["direction"] == "bearish"
     assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
     assert bundle["sources"]["government_contracts"]["score_contribution"] == 15
 
 
-def test_conflicting_government_contract_support_caps_bearish_bundle_below_exceptional():
+def test_v2_confirmed_selloff_with_insider_selling_can_stay_bearish_despite_contract_support():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -585,7 +585,7 @@ def test_bullish_fundamentals_get_more_confirmation_lift_than_bearish_fundamenta
     assert bullish["score"] > bearish["score"]
 
 
-def test_insider_selling_is_dampened_while_insider_buying_stays_constructive():
+def test_v2_single_source_insider_selling_is_watch_state_while_buying_stays_constructive():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -603,7 +603,7 @@ def test_insider_selling_is_dampened_while_insider_buying_stays_constructive():
 
     assert insider_buy["sources"]["insiders"]["strength"] > insider_sell["sources"]["insiders"]["strength"]
     assert insider_sell["sources"]["insiders"]["strength"] < congress_sell["sources"]["congress"]["strength"]
-    assert insider_sell["direction"] == "bearish"
+    assert insider_sell["direction"] == "neutral"
 
 
 def _payload_source(direction: str, *, strength: int = 92, quality: int = 92, freshness_days: int | None = 3) -> dict:
