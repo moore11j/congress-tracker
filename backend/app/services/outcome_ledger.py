@@ -491,7 +491,12 @@ def _price_on_or_after_from_rows(rows_by_symbol: PriceRowsBySymbol, symbol: str,
     return None
 
 
-def _prefetch_outcome_price_rows(db: Session, snapshots: list[ConfirmationScoreSnapshot]) -> PriceRowsBySymbol:
+def _prefetch_outcome_price_rows(
+    db: Session,
+    snapshots: list[ConfirmationScoreSnapshot],
+    *,
+    horizons: tuple[int, ...] = OUTCOME_HORIZONS,
+) -> PriceRowsBySymbol:
     if not snapshots:
         return {}
 
@@ -504,7 +509,7 @@ def _prefetch_outcome_price_rows(db: Session, snapshots: list[ConfirmationScoreS
             continue
         matured_targets = [
             snapshot.market_date + timedelta(days=days)
-            for days in OUTCOME_HORIZONS
+            for days in horizons
             if snapshot.market_date + timedelta(days=days) <= today
         ]
         if not matured_targets:
@@ -926,6 +931,7 @@ def outcome_ledger_summary(
     end_date: date | None = None,
 ) -> dict[str, Any]:
     selected_horizon = horizon if horizon in {f"{days}D" for days in OUTCOME_HORIZONS} else "7D"
+    selected_horizon_days = int(selected_horizon[:-1])
     base = _apply_snapshot_filters(
         select(ConfirmationScoreSnapshot),
         methodology=methodology,
@@ -941,7 +947,7 @@ def outcome_ledger_summary(
     ).scalars().all()
     events = _project_directional_outcome_events(ordered_rows)
     canonical_rows = [event.snapshot for event in events]
-    price_rows_by_symbol = _prefetch_outcome_price_rows(db, canonical_rows)
+    price_rows_by_symbol = _prefetch_outcome_price_rows(db, canonical_rows, horizons=(selected_horizon_days,))
 
     rows: list[dict[str, Any]] = []
     for event in events:
@@ -1040,23 +1046,32 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) 
         return {"status": "skipped", "reason": "outcome_ledger_disabled", "warmed": 0}
 
     started_at = datetime.now(timezone.utc)
-    warmed = 0
-    payloads: list[tuple[str, dict[str, Any]]] = []
-
     status_key = public_outcome_ledger_cache_key("status")
-    payloads.append((status_key, outcome_ledger_status(db)))
+    store_public_outcome_ledger_payload(db, status_key, outcome_ledger_status(db))
+    warmed = 1
 
-    for days in OUTCOME_HORIZONS:
+    raw_horizons = os.getenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "7D,30D")
+    warm_horizons = [
+        item.strip().upper()
+        for item in raw_horizons.split(",")
+        if item.strip().upper() in {f"{days}D" for days in OUTCOME_HORIZONS}
+    ] or ["7D", "30D"]
+    for horizon in warm_horizons:
         params = {
             "calculation_type": None,
             "direction": None,
             "end_date": None,
-            "horizon": f"{days}D",
+            "horizon": horizon,
             "methodology": None,
             "score_band": None,
             "start_date": None,
         }
-        payloads.append((public_outcome_ledger_cache_key("summary", params), outcome_ledger_summary(db, horizon=f"{days}D")))
+        store_public_outcome_ledger_payload(
+            db,
+            public_outcome_ledger_cache_key("summary", params),
+            outcome_ledger_summary(db, horizon=horizon),
+        )
+        warmed += 1
 
     snapshot_params = {
         "end_date": None,
@@ -1067,20 +1082,17 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) 
         "start_date": None,
         "ticker": None,
     }
-    payloads.append(
-        (
-            public_outcome_ledger_cache_key("snapshots", snapshot_params),
-            list_outcome_snapshots(db, page=0, limit=snapshot_limit, include_internal=False),
-        )
+    store_public_outcome_ledger_payload(
+        db,
+        public_outcome_ledger_cache_key("snapshots", snapshot_params),
+        list_outcome_snapshots(db, page=0, limit=snapshot_limit, include_internal=False),
     )
-
-    for cache_key, payload in payloads:
-        store_public_outcome_ledger_payload(db, cache_key, payload)
-        warmed += 1
+    warmed += 1
 
     return {
         "status": "ok",
         "warmed": warmed,
+        "horizons": warm_horizons,
         "snapshot_limit": snapshot_limit,
         "duration_ms": round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 1),
     }
