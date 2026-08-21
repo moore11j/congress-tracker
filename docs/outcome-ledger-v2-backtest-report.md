@@ -1,81 +1,122 @@
 # Outcome Ledger V2 Backtest Report
 
-Generated after testing SPY-relative public grading on August 21, 2026.
+Generated from production after the raw-or-SPY public grading correction on August 21, 2026.
 
-Superseded grading note: the live public `directionally_correct` rule was later revised to count a directional call as correct when the raw direction is right or the SPY-relative direction is right. The SPY-only numbers below are still useful as a benchmark-quality diagnostic, but they are no longer the headline public accuracy definition.
+## Current Public Grading
 
-## Current Grading
+- Bullish is correct when the ticker return is positive, or when it outperforms SPY over the horizon.
+- Bearish is correct when the ticker return is negative, or when it underperforms SPY over the horizon.
+- Raw up/down correctness and SPY-relative correctness are both preserved as diagnostics.
+- Mixed and neutral are watch states. They do not open, close, or grade directional outcome events.
+- Direct bullish-to-bearish or bearish-to-bullish flips close the old event.
+- Missing entry or target prices are excluded from scored accuracy.
 
-The tested SPY-only rule was:
+## Clean 30D Training Set
 
-- Bullish is correct when ticker return minus SPY return is positive.
-- Bearish is correct when ticker return minus SPY return is negative.
-- Raw up/down correctness remains available as `raw_directionally_correct`.
-- Mixed and neutral are excluded from directional scoring.
-- Missing ticker or SPY prices are excluded from scored accuracy in this diagnostic.
+The new read-only report builder projects a clean 30D training set before measuring anything:
 
-## Production Baseline
+- Keeps only directional bullish/bearish events.
+- Keeps the latest same-day directional event per ticker, methodology, and calculation type.
+- Excludes rows closed before the 30D horizon.
+- Excludes mixed/neutral rows from scoring.
+- Excludes missing reference price and missing horizon price rows.
+- Separates real source payloads from placeholder backfill payloads.
 
-### 7D
+Production run:
 
-- Sample: 2,982 benchmarked directional events
-- Accuracy versus SPY: 51.5%
-- Average directional return: +0.46%
-- Average directional excess vs SPY: +0.45%
-- Bearish accuracy: 53.9%
-- Bullish accuracy: 50.6%
+- Clean matured 30D events: 36
+- Data correction rows: 7
+- Historical reconstruction rows: 29
+- Real component/source payload rows: 7
+- Placeholder backfill payload rows: 29
 
-7D is useful as an early diagnostic, but current v1-era rows do not show enough predictive separation for public trust claims.
+Excluded rows:
 
-### 30D
+- Pending 30D horizon: 8,235
+- Closed before 30D horizon: 636
+- Missing horizon price: 13
+- Missing reference price: 2
 
-- Sample: 36 benchmarked directional events
-- Accuracy versus SPY: 58.3%
+## Baseline 30D Results
+
+- Accuracy: 72.2%
+- Raw accuracy: 72.2%
+- SPY-relative accuracy: 58.3%
 - Average directional return: +7.59%
-- Average directional excess vs SPY: +6.35%
+- Average excess vs SPY: +6.35%
+- Bullish accuracy: 73.9% on 23 calls
 - Bearish accuracy: 69.2% on 13 calls
-- Bullish accuracy: 52.2% on 23 calls
 
-This sample is too small for public claims or reliable model selection.
+Score bands:
 
-## 30D Low-Sample Signals
+| Band | Sample | Accuracy | Avg directional return | Avg excess vs SPY |
+| --- | ---: | ---: | ---: | ---: |
+| 0-39 | 14 | 71.4% | +12.75% | +11.68% |
+| 40-59 | 8 | 50.0% | -6.41% | -7.47% |
+| 60-64 | 3 | 100.0% | +11.67% | +9.64% |
+| 65-69 | 4 | 75.0% | +7.53% | +4.51% |
+| 70-74 | 6 | 100.0% | +14.10% | +13.08% |
+| 75-79 | 1 | 0.0% | -3.50% | -0.65% |
+| 80+ | 0 | n/a | n/a | n/a |
 
-These are directional hints only, not production tuning proof:
+This is directionally encouraging, but it is not enough for a public accuracy claim. The sample is only 36, and most component details are not real point-in-time payloads.
 
-- Congress present: 66.7% on 27 events.
-- Insider activity present: 64.7% on 17 events.
-- Signals present: 70.0% on 10 events.
-- Price/volume present: 50.0% on 12 events.
-- Fundamentals present: 25.0% on 8 events.
-- `congress+insiders+price_volume+signals`: 83.3% on 6 events.
-- `congress`: 70.0% on 10 events.
+## Component Measurement
 
-No 30D component cohort currently clears the minimum 100-event standard.
+Only 7 cleaned 30D events currently have real source payloads, so component-level weight changes are not statistically defensible.
 
-## 7D Component Diagnostics
+Real-payload component samples:
 
-The larger 7D sample shows broad v1 score bands and most component-presence rules clustering near coin-flip accuracy:
+| Component | Sample | Accuracy | Avg excess vs SPY | Action |
+| --- | ---: | ---: | ---: | --- |
+| Fundamentals | 7 | 42.9% | -6.74% | Observe more |
+| Price / Volume | 5 | 40.0% | -10.84% | Observe more |
+| Macro Positioning | 4 | 25.0% | -5.20% | Observe more |
+| Congress | 1 | 0.0% | -1.12% | Observe more |
+| Insiders | 1 | 0.0% | -21.12% | Observe more |
+| Signals | 1 | 0.0% | -21.12% | Observe more |
+| Analysts | 0 | n/a | n/a | Insufficient data |
+| Government Contracts | 0 | n/a | n/a | Insufficient data |
+| Institutional Activity | 0 | n/a | n/a | Insufficient data |
+| Options Flow | 0 | n/a | n/a | Insufficient data |
 
-- Government contracts present: 58.0% on 69 events.
-- Fundamentals present: 53.1% on 1,289 events.
-- Signals present: 52.4% on 955 events.
-- Insiders present: 52.1% on 1,661 events.
-- Congress present: 51.7% on 1,230 events.
-- Price/volume present: 51.4% on 2,399 events.
-- Analysts present: 51.5% on 1,099 events.
-- Institutional activity present: 50.6% on 2,036 events.
-- Macro positioning present: 49.9% on 1,383 events.
+Source combination examples from real payload rows are also too small to tune from. The largest real-payload source combination is `price_volume+fundamentals` with only 3 events.
 
-High score alone does not currently create a high-confidence public call at 7D.
+Score change over time and sector/SPY regime are not yet available as point-in-time training features on the outcome row. They need to be captured before they can be used for v2 calibration.
 
-## Current Conclusion
+## Candidate V2 Threshold Tests
 
-We have not yet proven a confirmation-v2 model capable of 70-75% 30D SPY-relative accuracy at credible sample size. The right move is:
+These candidate rules use the 36 clean matured 30D events. None reaches the 100-event minimum.
 
-- Keep v2 more conservative than v1.
-- Keep ticker pages simple with the existing 30D Confirmation Score surface.
-- Continue capturing live v2 events.
-- Treat 7D as a fast diagnostic, not the optimization target.
-- Re-run component analysis once there are at least 100 matured 30D v2 events.
+| Rule | Kept | Rejected | Coverage | Accuracy | Avg excess vs SPY |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| score >= 60 | 14 | 22 | 38.9% | 85.7% | +8.91% |
+| score >= 65 | 11 | 25 | 30.6% | 81.8% | +8.72% |
+| score >= 70 | 7 | 29 | 19.4% | 85.7% | +11.12% |
+| score >= 60 and sources >= 3 | 8 | 28 | 22.2% | 87.5% | +8.95% |
+| score >= 70 and sources >= 3 | 3 | 33 | 8.3% | 100.0% | +16.73% |
+| bullish >= 70, bearish >= 80 | 3 | 33 | 8.3% | 100.0% | +6.55% |
+| sources >= 2 | 23 | 13 | 63.9% | 73.9% | +3.37% |
+| short-horizon source absent | 22 | 14 | 61.1% | 72.7% | +9.46% |
 
-Do not market a 75% public accuracy claim from the current dataset.
+Top failure modes among higher-coverage candidates:
+
+- `score >= 60`: bullish 65-69 and bearish 75-79 failures.
+- `score >= 65`: bullish 65-69 and bearish 75-79 failures.
+- `sources >= 2`: bullish 40-59, bullish 65-69, bearish 40-59, bearish 75-79 failures.
+
+## Decision
+
+Status: do not ship calibrated v2 weights yet.
+
+Reason: no candidate rule reached 70%+ 30D accuracy at the required 100-event minimum. Some threshold rules are promising, but they keep only 3 to 14 calls. That is not enough coverage to trust, and it would be easy to fool ourselves.
+
+## Next Required Work
+
+- Continue live capture until there are at least 100 clean matured 30D events with real source payloads.
+- Stop using placeholder backfill rows for component-weight tuning.
+- Persist point-in-time score deltas so score-change-over-time can be tested.
+- Persist sector/regime features at event open so SPY/sector regime can be tested.
+- Re-run this report after every daily cache/horizon update.
+- Only promote v2 weights after they improve 30D accuracy and excess return at credible coverage.
+
