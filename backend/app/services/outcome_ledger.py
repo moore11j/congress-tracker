@@ -587,6 +587,16 @@ def _benchmark_directionally_correct(direction: str, raw_return_pct: float | Non
     return directional_excess > 0
 
 
+def _headline_directionally_correct(direction: str, raw_return_pct: float | None, benchmark_return_pct: float | None) -> bool | None:
+    raw_correct = _directionally_correct(direction, raw_return_pct)
+    benchmark_correct = _benchmark_directionally_correct(direction, raw_return_pct, benchmark_return_pct)
+    if raw_correct is None:
+        return None
+    if raw_correct is True:
+        return True
+    return benchmark_correct if benchmark_correct is not None else False
+
+
 def _score_band_for_score(score: int | None) -> str:
     value = int(score or 0)
     if value >= 80:
@@ -718,8 +728,9 @@ def _snapshot_outcomes(
             "spy_return_pct": spy_return_pct,
             "excess_return_pct": excess_return_pct,
             "directional_excess_return_pct": _directional_return_pct(snapshot.direction, excess_return_pct),
-            "directionally_correct": _benchmark_directionally_correct(snapshot.direction, raw_return_pct, spy_return_pct),
-            "grading_basis": "vs_spy" if spy_return_pct is not None else "missing_benchmark",
+            "benchmark_directionally_correct": _benchmark_directionally_correct(snapshot.direction, raw_return_pct, spy_return_pct),
+            "directionally_correct": _headline_directionally_correct(snapshot.direction, raw_return_pct, spy_return_pct),
+            "grading_basis": "raw_or_vs_spy" if spy_return_pct is not None else "raw_only",
         }
     return outcomes
 

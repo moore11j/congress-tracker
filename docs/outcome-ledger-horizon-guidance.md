@@ -34,14 +34,14 @@ This lets Walnut discover where the current score actually works best. The worki
 
 ## Public Grading Rule
 
-The main public accuracy statistic should grade directional calls against SPY, not just against zero return:
+The main public accuracy statistic should grade directional calls by raw direction, with SPY-relative performance preserved as the preferred quality benchmark:
 
-- Bullish is correct when the ticker outperforms SPY over the horizon.
-- Bearish is correct when the ticker underperforms SPY over the horizon.
-- Raw up/down correctness remains a diagnostic field, but it is not the headline public score.
+- Bullish is correct when the ticker return is positive, or when it outperforms SPY over the horizon.
+- Bearish is correct when the ticker return is negative, or when it underperforms SPY over the horizon.
+- Raw up/down correctness and benchmark-relative correctness should both remain visible as diagnostic fields.
 - Mixed and neutral are watch states. They do not open, close, or grade directional outcome events.
 - A direct bullish-to-bearish or bearish-to-bullish flip closes the old directional event.
-- Missing entry, target, or benchmark prices are excluded from scored accuracy.
+- Missing entry or target prices are excluded from scored accuracy. Missing benchmark prices fall back to raw directional grading.
 
 ## Future Horizon Models
 

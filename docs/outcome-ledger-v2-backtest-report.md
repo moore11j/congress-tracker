@@ -1,16 +1,18 @@
 # Outcome Ledger V2 Backtest Report
 
-Generated after deploying SPY-relative public grading on August 21, 2026.
+Generated after testing SPY-relative public grading on August 21, 2026.
+
+Superseded grading note: the live public `directionally_correct` rule was later revised to count a directional call as correct when the raw direction is right or the SPY-relative direction is right. The SPY-only numbers below are still useful as a benchmark-quality diagnostic, but they are no longer the headline public accuracy definition.
 
 ## Current Grading
 
-Public directional accuracy now uses directional excess return versus SPY:
+The tested SPY-only rule was:
 
 - Bullish is correct when ticker return minus SPY return is positive.
 - Bearish is correct when ticker return minus SPY return is negative.
 - Raw up/down correctness remains available as `raw_directionally_correct`.
 - Mixed and neutral are excluded from directional scoring.
-- Missing ticker or SPY prices are excluded from scored accuracy.
+- Missing ticker or SPY prices are excluded from scored accuracy in this diagnostic.
 
 ## Production Baseline
 
