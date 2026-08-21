@@ -498,6 +498,18 @@ export const INSTITUTIONAL_ACTIVITY_EVENT_TYPES = [
   "contrarian_accumulation",
 ] as const;
 
+// The main feed renders market-activity records only. Keep this separate from
+// broader event queries so news and press releases remain available to ticker
+// pages and any other surface that intentionally requests them.
+export const FEED_ALL_EVENT_TYPES = [
+  "congress_trade",
+  "congress_treasury_trade",
+  "congress_crypto_trade",
+  "insider_trade",
+  "government_contract",
+  ...INSTITUTIONAL_ACTIVITY_EVENT_TYPES,
+] as const;
+
 export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
   const normalized = (uiValue ?? "").trim().toLowerCase();
   if (!normalized || normalized === "all") return undefined;
@@ -5600,6 +5612,8 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
     nextParams.event_type = "government_contract";
   } else if (tape === "institutional" || tape === "institutional_activity" || tape === "institutional_13f") {
     nextParams.event_type = INSTITUTIONAL_ACTIVITY_EVENT_TYPES.join(",");
+  } else if (tape === "all" && routeFamily === "feed") {
+    nextParams.event_type = FEED_ALL_EVENT_TYPES.join(",");
   } else {
     delete nextParams.event_type;
   }
