@@ -44,7 +44,7 @@ from app.services.saved_screen_monitoring import refresh_due_saved_screen_monito
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 from app.services.confirmation_score import confirmation_active_source_count, get_confirmation_score_bundles_for_tickers
 from app.services.institutional_ingest_job import run_scheduled_latest_once
-from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled
+from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled, warm_public_outcome_ledger_cache
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
@@ -91,6 +91,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "priority-ticker-prewarm",
             "outcome-ledger-hydrator",
             "outcome-ledger-price-hydrator",
+            "outcome-ledger-cache-warm",
             "outcome-ledger-history-backfill",
             "portfolio-simulation-refresh",
             "portfolio-methodology-guard",
@@ -1369,6 +1370,25 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
     return result
 
 
+def _run_outcome_ledger_cache_warm_job() -> dict[str, object]:
+    if os.getenv("OUTCOME_LEDGER_CACHE_WARM_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
+        logger.info("outcome_ledger_cache_warm_skipped reason=cache_warm_disabled")
+        return {"job": "outcome-ledger-cache-warm", "status": "skipped", "reason": "cache_warm_disabled"}
+    guard = check_background_job_guard("outcome-ledger-cache-warm")
+    if not guard.proceed:
+        logger.info("outcome_ledger_cache_warm_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {**background_job_skip_payload("outcome-ledger-cache-warm", guard), "warmed": 0}
+
+    ensure_price_cache_volume_columns(engine)
+    ensure_outcome_ledger_schema(engine)
+    snapshot_limit = int(os.getenv("OUTCOME_LEDGER_CACHE_WARM_SNAPSHOT_LIMIT", "250") or 250)
+    with SessionLocal() as db:
+        payload = warm_public_outcome_ledger_cache(db, snapshot_limit=max(1, min(snapshot_limit, 500)))
+    result = {"job": "outcome-ledger-cache-warm", **payload}
+    logger.info("outcome_ledger_cache_warm_finished result=%s", result)
+    return result
+
+
 def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
     if os.getenv("OUTCOME_LEDGER_HISTORY_BACKFILL_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
         logger.info("outcome_ledger_history_backfill_skipped reason=history_backfill_disabled")
@@ -1486,6 +1506,8 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return _run_outcome_ledger_hydrator_job()
     if job == "outcome-ledger-price-hydrator":
         return _run_outcome_ledger_price_hydrator_job()
+    if job == "outcome-ledger-cache-warm":
+        return _run_outcome_ledger_cache_warm_job()
     if job == "outcome-ledger-history-backfill":
         return _run_outcome_ledger_history_backfill_job()
     if job == "portfolio-simulation-refresh":

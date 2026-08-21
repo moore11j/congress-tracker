@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, PriceCache, Security, TickerMeta
+from app.models import AppSetting, ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, PriceCache, Security, TickerContextBundleCache, TickerMeta
 from app.services.confirmation_score import CONFIRMATION_CLASSIFICATION_VERSION, SOURCE_ORDER, confirmation_active_source_count
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,8 @@ OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
 DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
+OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v2"
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,82 @@ def outcome_ledger_enabled(db: Session | None = None) -> bool:
             db.rollback()
             logger.info("outcome_ledger_flag_lookup_failed", exc_info=True)
     return True
+
+
+def outcome_ledger_cache_ttl_seconds() -> int:
+    try:
+        return max(60, min(86400, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_TTL_SECONDS", "43200") or 43200)))
+    except ValueError:
+        return 43200
+
+
+def outcome_ledger_cache_expiry_seconds() -> int:
+    try:
+        return max(300, min(604800, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_EXPIRY_SECONDS", "172800") or 172800)))
+    except ValueError:
+        return 172800
+
+
+def public_outcome_ledger_cache_key(kind: str, params: dict[str, Any] | None = None) -> str:
+    serialized = json.dumps(params or {}, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:24]
+    return f"{OUTCOME_LEDGER_CACHE_PREFIX}:{kind}:{digest}"
+
+
+def cached_public_outcome_ledger_payload(db: Session, cache_key: str) -> dict[str, Any] | None:
+    now = datetime.now(timezone.utc)
+    try:
+        row = db.get(TickerContextBundleCache, cache_key)
+    except Exception:
+        db.rollback()
+        logger.info("outcome_ledger_persistent_cache_read_failed key=%s", cache_key, exc_info=True)
+        return None
+    if row is None:
+        return None
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        return None
+    try:
+        payload = json.loads(row.payload_json or "{}")
+    except Exception:
+        logger.info("outcome_ledger_persistent_cache_decode_failed key=%s", cache_key, exc_info=True)
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def store_public_outcome_ledger_payload(db: Session, cache_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    stale_after = now + timedelta(seconds=outcome_ledger_cache_ttl_seconds())
+    expires_at = now + timedelta(seconds=outcome_ledger_cache_expiry_seconds())
+    payload_json = json.dumps(payload, default=str, separators=(",", ":"))
+    try:
+        row = db.get(TickerContextBundleCache, cache_key)
+        if row is None:
+            db.add(
+                TickerContextBundleCache(
+                    cache_key=cache_key,
+                    symbol=OUTCOME_LEDGER_CACHE_SYMBOL,
+                    user_segment="public",
+                    payload_json=payload_json,
+                    generated_at=now,
+                    stale_after=stale_after,
+                    expires_at=expires_at,
+                )
+            )
+        else:
+            row.symbol = OUTCOME_LEDGER_CACHE_SYMBOL
+            row.user_segment = "public"
+            row.payload_json = payload_json
+            row.generated_at = now
+            row.stale_after = stale_after
+            row.expires_at = expires_at
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.info("outcome_ledger_persistent_cache_write_failed key=%s", cache_key, exc_info=True)
+    return payload
 
 
 def current_code_commit_sha() -> str:
@@ -954,6 +1032,57 @@ def outcome_ledger_summary(
         "benchmarked_events": len(benchmarked),
         "matured_horizon_count": matured_horizon_count,
         "score_bands": score_band_rows,
+    }
+
+
+def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) -> dict[str, Any]:
+    if not outcome_ledger_enabled(db):
+        return {"status": "skipped", "reason": "outcome_ledger_disabled", "warmed": 0}
+
+    started_at = datetime.now(timezone.utc)
+    warmed = 0
+    payloads: list[tuple[str, dict[str, Any]]] = []
+
+    status_key = public_outcome_ledger_cache_key("status")
+    payloads.append((status_key, outcome_ledger_status(db)))
+
+    for days in OUTCOME_HORIZONS:
+        params = {
+            "calculation_type": None,
+            "direction": None,
+            "end_date": None,
+            "horizon": f"{days}D",
+            "methodology": None,
+            "score_band": None,
+            "start_date": None,
+        }
+        payloads.append((public_outcome_ledger_cache_key("summary", params), outcome_ledger_summary(db, horizon=f"{days}D")))
+
+    snapshot_params = {
+        "end_date": None,
+        "calculation_type": None,
+        "limit": snapshot_limit,
+        "methodology": None,
+        "page": 0,
+        "start_date": None,
+        "ticker": None,
+    }
+    payloads.append(
+        (
+            public_outcome_ledger_cache_key("snapshots", snapshot_params),
+            list_outcome_snapshots(db, page=0, limit=snapshot_limit, include_internal=False),
+        )
+    )
+
+    for cache_key, payload in payloads:
+        store_public_outcome_ledger_payload(db, cache_key, payload)
+        warmed += 1
+
+    return {
+        "status": "ok",
+        "warmed": warmed,
+        "snapshot_limit": snapshot_limit,
+        "duration_ms": round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 1),
     }
 
 

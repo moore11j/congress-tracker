@@ -271,11 +271,14 @@ from app.services.confirmation_monitoring import (
 )
 from app.services.outcome_ledger import (
     capture_live_confirmation_score_snapshot,
+    cached_public_outcome_ledger_payload,
     get_outcome_snapshot_detail,
     list_outcome_snapshots,
     outcome_ledger_enabled,
     outcome_ledger_summary,
     outcome_ledger_status,
+    public_outcome_ledger_cache_key,
+    store_public_outcome_ledger_payload,
 )
 from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
@@ -6402,11 +6405,18 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
     if not outcome_ledger_enabled(db):
         _outcomes_disabled_response()
     response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
-    cache_key = "status"
+    persistent_key = public_outcome_ledger_cache_key("status")
+    cache_key = f"status:{persistent_key}"
     cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
         return cached
-    return _public_outcome_ledger_cache_set(cache_key, outcome_ledger_status(db))
+    persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
+    if persistent_cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "persistent"
+        return _public_outcome_ledger_cache_set(cache_key, persistent_cached)
+    payload = outcome_ledger_status(db)
+    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
 @app.get("/api/outcomes/summary")
@@ -6424,22 +6434,24 @@ def outcomes_summary(
     if not outcome_ledger_enabled(db):
         _outcomes_disabled_response()
     response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
-    cache_key = json.dumps(
-        {
-            "calculation_type": calculation_type,
-            "direction": direction,
-            "end_date": end_date,
-            "horizon": horizon,
-            "methodology": methodology,
-            "score_band": score_band,
-            "start_date": start_date,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    cached = _public_outcome_ledger_cache_get(f"summary:{cache_key}")
+    cache_params = {
+        "calculation_type": calculation_type,
+        "direction": direction,
+        "end_date": end_date,
+        "horizon": horizon,
+        "methodology": methodology,
+        "score_band": score_band,
+        "start_date": start_date,
+    }
+    persistent_key = public_outcome_ledger_cache_key("summary", cache_params)
+    cache_key = f"summary:{persistent_key}"
+    cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
         return cached
+    persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
+    if persistent_cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "persistent"
+        return _public_outcome_ledger_cache_set(cache_key, persistent_cached)
     payload = outcome_ledger_summary(
         db,
         horizon=horizon,
@@ -6450,7 +6462,8 @@ def outcomes_summary(
         start_date=_parse_outcome_date(start_date),
         end_date=_parse_outcome_date(end_date),
     )
-    return _public_outcome_ledger_cache_set(f"summary:{cache_key}", payload)
+    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
 @app.get("/api/outcomes/snapshots")
@@ -6469,22 +6482,24 @@ def outcomes_snapshots(
         _outcomes_disabled_response()
     response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
     public_limit = max(1, min(int(limit or 25), int(os.getenv("OUTCOME_LEDGER_PUBLIC_SNAPSHOT_LIMIT_MAX", "500") or 500)))
-    cache_key = json.dumps(
-        {
-            "end_date": end_date,
-            "calculation_type": calculation_type,
-            "limit": public_limit,
-            "methodology": methodology,
-            "page": page,
-            "start_date": start_date,
-            "ticker": ticker,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    cache_params = {
+        "end_date": end_date,
+        "calculation_type": calculation_type,
+        "limit": public_limit,
+        "methodology": methodology,
+        "page": page,
+        "start_date": start_date,
+        "ticker": ticker,
+    }
+    persistent_key = public_outcome_ledger_cache_key("snapshots", cache_params)
+    cache_key = f"snapshots:{persistent_key}"
     cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
         return cached
+    persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
+    if persistent_cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "persistent"
+        return _public_outcome_ledger_cache_set(cache_key, persistent_cached)
     payload = list_outcome_snapshots(
         db,
         page=page,
@@ -6496,6 +6511,7 @@ def outcomes_snapshots(
         end_date=_parse_outcome_date(end_date),
         include_internal=False,
     )
+    store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
