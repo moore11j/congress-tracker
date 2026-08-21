@@ -82,7 +82,7 @@ Real-payload component samples:
 
 Source combination examples from real payload rows are also too small to tune from. The largest real-payload source combination is `price_volume+fundamentals` with only 3 events.
 
-Score change over time and sector/SPY regime are not yet available as point-in-time training features on the outcome row. They need to be captured before they can be used for v2 calibration.
+New live Outcome snapshots now persist a `__v2_features` block with source agreement, source freshness, score-change, SPY regime, ticker-relative regime, and sector-proxy regime context. Older rows still show these buckets as unavailable, so v2 calibration should only trust them after enough newly captured 30D events mature.
 
 ## Candidate V2 Threshold Tests
 
@@ -115,8 +115,7 @@ Reason: no candidate rule reached 70%+ 30D accuracy at the required 100-event mi
 
 - Continue live capture until there are at least 100 clean matured 30D events with real source payloads.
 - Stop using placeholder backfill rows for component-weight tuning.
-- Persist point-in-time score deltas so score-change-over-time can be tested.
-- Persist sector/regime features at event open so SPY/sector regime can be tested.
+- Continue capturing point-in-time score deltas so score-change-over-time can be tested once enough new rows mature.
+- Continue capturing SPY and sector-regime features at event open so regime-conditioned performance can be tested once enough new rows mature.
 - Re-run this report after every daily cache/horizon update.
 - Only promote v2 weights after they improve 30D accuracy and excess return at credible coverage.
-

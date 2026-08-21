@@ -14,6 +14,7 @@ from app.models import ConfirmationScoreSnapshot
 from app.services.confirmation_score import SHORT_HORIZON_SOURCES, SOURCE_ORDER, THIRTY_DAY_DURABLE_SOURCES
 from app.services.outcome_ledger import (
     OUTCOME_SCORE_BANDS,
+    V2_FEATURES_KEY,
     _apply_snapshot_filters,
     _directional_side,
     _prefetch_outcome_price_rows,
@@ -51,6 +52,7 @@ class CleanTrainingEvent:
     raw_directionally_correct: bool | None
     benchmark_directionally_correct: bool | None
     source_payload_quality: str
+    v2_features: dict[str, Any]
 
 
 def _json_dict(raw: Any) -> dict[str, Any]:
@@ -108,6 +110,7 @@ def _event_from_row(row: dict[str, Any]) -> CleanTrainingEvent | None:
     active_sources = tuple(str(source) for source in row.get("active_sources") or [] if str(source) in SOURCE_ORDER)
     score = int(row.get("score") or 0)
     source_contributions = _json_dict(row.get("source_contributions"))
+    v2_features = _json_dict(source_contributions.get(V2_FEATURES_KEY))
     return CleanTrainingEvent(
         snapshot_id=int(row.get("id") or 0),
         ticker=str(row.get("ticker") or "").upper(),
@@ -141,6 +144,7 @@ def _event_from_row(row: dict[str, Any]) -> CleanTrainingEvent | None:
             else None
         ),
         source_payload_quality=_source_payload_quality(row),
+        v2_features=v2_features,
     )
 
 
@@ -317,13 +321,27 @@ def _freshness_bucket(event: CleanTrainingEvent) -> str:
 
 
 def _score_change_bucket(_event: CleanTrainingEvent) -> str:
-    # The current immutable snapshot table does not yet persist prior score deltas.
-    return "unavailable"
+    score_change = _json_dict(_event.v2_features.get("score_change"))
+    bucket = score_change.get("score_delta_bucket")
+    return str(bucket) if bucket else "unavailable"
+
+
+def _spy_regime_bucket(_event: CleanTrainingEvent) -> str:
+    regime = _json_dict(_event.v2_features.get("regime_context"))
+    bucket = regime.get("spy_regime_30d")
+    return f"spy_{bucket}" if bucket else "unavailable"
+
+
+def _relative_regime_bucket(_event: CleanTrainingEvent) -> str:
+    regime = _json_dict(_event.v2_features.get("regime_context"))
+    bucket = regime.get("relative_regime_30d")
+    return f"relative_{bucket}" if bucket else "unavailable"
 
 
 def _sector_regime_bucket(_event: CleanTrainingEvent) -> str:
-    # Sector-relative regime data is not currently captured point-in-time on the outcome row.
-    return "unavailable"
+    regime = _json_dict(_event.v2_features.get("regime_context"))
+    bucket = regime.get("sector_regime_30d")
+    return f"sector_{bucket}" if bucket else "unavailable"
 
 
 def group_metrics(
@@ -365,7 +383,9 @@ def component_metrics(events: list[CleanTrainingEvent]) -> dict[str, Any]:
         "source_agreement": group_metrics(component_eligible, _agreement_bucket),
         "source_freshness": group_metrics(component_eligible, _freshness_bucket),
         "score_change_over_time": group_metrics(component_eligible, _score_change_bucket),
-        "spy_sector_regime": group_metrics(component_eligible, _sector_regime_bucket),
+        "spy_regime": group_metrics(component_eligible, _spy_regime_bucket),
+        "relative_regime": group_metrics(component_eligible, _relative_regime_bucket),
+        "sector_regime": group_metrics(component_eligible, _sector_regime_bucket),
     }
     for source in SOURCE_ORDER:
         present = [event for event in component_eligible if _source_is_present(event, source)]
@@ -557,4 +577,3 @@ def _decision(candidates: list[dict[str, Any]], events: list[CleanTrainingEvent]
         "calls_kept": best["calls_kept"],
         "coverage_pct": best["coverage_pct"],
     }
-

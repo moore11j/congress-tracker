@@ -13,7 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import AppSetting, ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, PriceCache, Security, TickerContextBundleCache, TickerMeta
-from app.services.confirmation_score import CONFIRMATION_CLASSIFICATION_VERSION, SOURCE_ORDER, confirmation_active_source_count
+from app.services.confirmation_score import (
+    CONFIRMATION_CLASSIFICATION_VERSION,
+    SHORT_HORIZON_SOURCES,
+    SOURCE_ORDER,
+    THIRTY_DAY_DURABLE_SOURCES,
+    confirmation_active_source_count,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,28 @@ OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+
 DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
 OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v2"
+V2_FEATURES_KEY = "__v2_features"
+SECTOR_PROXY_BY_NAME = {
+    "communication services": "XLC",
+    "communications": "XLC",
+    "consumer cyclical": "XLY",
+    "consumer discretionary": "XLY",
+    "consumer defensive": "XLP",
+    "consumer staples": "XLP",
+    "energy": "XLE",
+    "financial services": "XLF",
+    "financial": "XLF",
+    "financials": "XLF",
+    "healthcare": "XLV",
+    "health care": "XLV",
+    "industrials": "XLI",
+    "industrial": "XLI",
+    "basic materials": "XLB",
+    "materials": "XLB",
+    "real estate": "XLRE",
+    "technology": "XLK",
+    "utilities": "XLU",
+}
 
 
 @dataclass(frozen=True)
@@ -278,6 +306,334 @@ def source_freshness_from_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     return freshness
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == parsed else None
+
+
+def _safe_int(value: Any) -> int | None:
+    numeric = _safe_float(value)
+    if numeric is None:
+        return None
+    return int(round(numeric))
+
+
+def _normalized_direction(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if "bull" in text:
+        return "bullish"
+    if "bear" in text:
+        return "bearish"
+    if text in {"mixed", "conflicted", "conflict"}:
+        return "mixed"
+    return "neutral"
+
+
+def _source_direction_counts(source_contributions: dict[str, Any]) -> dict[str, int]:
+    counts = {"bullish": 0, "bearish": 0, "mixed": 0, "neutral": 0}
+    for key in SOURCE_ORDER:
+        source = source_contributions.get(key)
+        if not isinstance(source, dict) or source.get("present") is not True:
+            continue
+        counts[_normalized_direction(source.get("direction"))] += 1
+    return counts
+
+
+def _agreement_state(source_contributions: dict[str, Any]) -> str:
+    counts = _source_direction_counts(source_contributions)
+    directional_sides = sum(1 for side in ("bullish", "bearish") if counts[side] > 0)
+    if counts["mixed"] > 0 or directional_sides > 1:
+        return "conflicted"
+    if directional_sides == 1:
+        return "aligned"
+    if counts["neutral"] > 0:
+        return "neutral_only"
+    return "no_active_sources"
+
+
+def _source_metric_summary(source_contributions: dict[str, Any], source_freshness: dict[str, Any]) -> dict[str, Any]:
+    active_sources: list[str] = []
+    strengths: list[float] = []
+    qualities: list[float] = []
+    freshness_days: list[int] = []
+    stale_sources: list[str] = []
+    durable_sources = 0
+    short_horizon_sources = 0
+    for key in SOURCE_ORDER:
+        source = source_contributions.get(key)
+        if not isinstance(source, dict) or source.get("present") is not True:
+            continue
+        active_sources.append(key)
+        if key in THIRTY_DAY_DURABLE_SOURCES:
+            durable_sources += 1
+        if key in SHORT_HORIZON_SOURCES:
+            short_horizon_sources += 1
+        if (strength := _safe_float(source.get("strength"))) is not None:
+            strengths.append(strength)
+        if (quality := _safe_float(source.get("quality"))) is not None:
+            qualities.append(quality)
+        freshness_payload = source_freshness.get(key)
+        freshness_value = None
+        if isinstance(freshness_payload, dict):
+            freshness_value = _safe_int(freshness_payload.get("freshness_days"))
+        if freshness_value is None:
+            freshness_value = _safe_int(source.get("freshness_days"))
+        if freshness_value is not None:
+            freshness_days.append(freshness_value)
+            if freshness_value > 90:
+                stale_sources.append(key)
+
+    counts = _source_direction_counts(source_contributions)
+    return {
+        "active_sources": active_sources,
+        "direction_counts": counts,
+        "agreement_state": _agreement_state(source_contributions),
+        "directional_source_count": counts["bullish"] + counts["bearish"],
+        "durable_source_count": durable_sources,
+        "short_horizon_source_count": short_horizon_sources,
+        "average_strength": round(sum(strengths) / len(strengths), 2) if strengths else None,
+        "average_quality": round(sum(qualities) / len(qualities), 2) if qualities else None,
+        "freshest_source_days": min(freshness_days) if freshness_days else None,
+        "oldest_source_days": max(freshness_days) if freshness_days else None,
+        "stale_source_count": len(stale_sources),
+        "stale_sources": stale_sources,
+    }
+
+
+def _previous_outcome_snapshot(
+    db: Session,
+    *,
+    security_id: int,
+    methodology_version_id: int,
+    calculation_type: str,
+    before: datetime,
+) -> ConfirmationScoreSnapshot | None:
+    return db.execute(
+        select(ConfirmationScoreSnapshot)
+        .where(
+            ConfirmationScoreSnapshot.security_id == security_id,
+            ConfirmationScoreSnapshot.methodology_version_id == methodology_version_id,
+            ConfirmationScoreSnapshot.calculation_type == calculation_type,
+            ConfirmationScoreSnapshot.calculated_at < before,
+        )
+        .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _score_delta_from_history(bundle: dict[str, Any], current_score: int, *, market_date: date) -> dict[str, Any] | None:
+    history = bundle.get("history") if isinstance(bundle.get("history"), list) else []
+    parsed: list[tuple[date, int]] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        try:
+            day = date.fromisoformat(str(item.get("date"))[:10])
+        except (TypeError, ValueError):
+            continue
+        score = _safe_int(item.get("score"))
+        if score is None or day >= market_date:
+            continue
+        parsed.append((day, score))
+    if not parsed:
+        return None
+    previous_day, previous_score = sorted(parsed, key=lambda item: item[0])[-1]
+    return {
+        "source": "bundle_history",
+        "previous_score": previous_score,
+        "previous_market_date": previous_day.isoformat(),
+        "score_delta": current_score - previous_score,
+        "days_since_previous": max((market_date - previous_day).days, 0),
+    }
+
+
+def _score_delta_features(
+    db: Session,
+    bundle: dict[str, Any],
+    *,
+    current_score: int,
+    current_direction: str,
+    current_source_count: int,
+    security_id: int,
+    methodology_version_id: int,
+    calculation_type: str,
+    calculated_at: datetime,
+    market_date: date,
+) -> dict[str, Any]:
+    history_delta = _score_delta_from_history(bundle, current_score, market_date=market_date)
+    previous = _previous_outcome_snapshot(
+        db,
+        security_id=security_id,
+        methodology_version_id=methodology_version_id,
+        calculation_type=calculation_type,
+        before=calculated_at,
+    )
+    if previous is None and history_delta is None:
+        return {
+            "source": "unavailable",
+            "previous_score": None,
+            "score_delta": None,
+            "days_since_previous": None,
+            "previous_direction": None,
+            "direction_changed": None,
+            "direction_flip_type": None,
+            "source_count_delta": None,
+        }
+
+    previous_score = previous.score if previous is not None else history_delta["previous_score"] if history_delta else None
+    previous_direction = previous.direction if previous is not None else None
+    previous_source_count = previous.active_source_count if previous is not None else None
+    previous_date = previous.market_date if previous is not None else date.fromisoformat(history_delta["previous_market_date"]) if history_delta else None
+    previous_time = previous.calculated_at if previous is not None else None
+    score_delta = current_score - previous_score if previous_score is not None else None
+    prev_side = _directional_side(previous_direction) if previous_direction is not None else None
+    curr_side = _directional_side(current_direction)
+    direction_changed = previous_direction is not None and _normalized_direction(previous_direction) != _normalized_direction(current_direction)
+    direct_flip = prev_side is not None and curr_side is not None and prev_side != curr_side
+    return {
+        "source": "outcome_snapshot" if previous is not None else "bundle_history",
+        "previous_snapshot_id": previous.id if previous is not None else None,
+        "previous_score": previous_score,
+        "previous_market_date": previous_date.isoformat() if previous_date else None,
+        "previous_calculated_at": previous_time.isoformat() if previous_time else None,
+        "score_delta": score_delta,
+        "score_delta_abs": abs(score_delta) if score_delta is not None else None,
+        "score_delta_bucket": (
+            "up_10_plus"
+            if score_delta is not None and score_delta >= 10
+            else "up_1_9"
+            if score_delta is not None and score_delta > 0
+            else "flat"
+            if score_delta == 0
+            else "down_1_9"
+            if score_delta is not None and score_delta > -10
+            else "down_10_plus"
+            if score_delta is not None
+            else None
+        ),
+        "days_since_previous": max((market_date - previous_date).days, 0) if previous_date else None,
+        "previous_direction": previous_direction,
+        "direction_changed": direction_changed,
+        "direction_flip_type": "direct_bull_bear_flip" if direct_flip else "changed_through_watch_state" if direction_changed else "unchanged",
+        "source_count_delta": current_source_count - previous_source_count if previous_source_count is not None else None,
+    }
+
+
+def _price_on_or_before(db: Session, symbol: str, target_date: date) -> PriceCache | None:
+    normalized_symbol = symbol.strip().upper()
+    return db.execute(
+        select(PriceCache)
+        .where(
+            PriceCache.symbol == normalized_symbol,
+            PriceCache.date <= target_date.isoformat(),
+        )
+        .order_by(PriceCache.date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _return_between(db: Session, symbol: str, *, end_date: date, days: int) -> float | None:
+    end_row = _price_on_or_before(db, symbol, end_date)
+    start_row = _price_on_or_before(db, symbol, end_date - timedelta(days=days))
+    if end_row is None or start_row is None:
+        return None
+    return _price_return_pct(start_row.close, end_row.close)
+
+
+def _sector_proxy(sector: str | None) -> str | None:
+    normalized = str(sector or "").strip().lower()
+    return SECTOR_PROXY_BY_NAME.get(normalized)
+
+
+def _regime_bucket(value: float | None, *, threshold: float = 2.0) -> str:
+    if value is None:
+        return "unknown"
+    if value >= threshold:
+        return "positive"
+    if value <= -threshold:
+        return "negative"
+    return "flat"
+
+
+def _regime_context(
+    db: Session,
+    *,
+    symbol: str,
+    security: Security,
+    market_date: date,
+) -> dict[str, Any]:
+    sector = security.sector
+    if not sector:
+        ticker_meta = db.get(TickerMeta, symbol)
+        sector = ticker_meta.sector if ticker_meta is not None else None
+    sector_proxy = _sector_proxy(sector)
+    ticker_7d = _return_between(db, symbol, end_date=market_date, days=7)
+    ticker_30d = _return_between(db, symbol, end_date=market_date, days=30)
+    spy_7d = _return_between(db, "SPY", end_date=market_date, days=7)
+    spy_30d = _return_between(db, "SPY", end_date=market_date, days=30)
+    sector_30d = _return_between(db, sector_proxy, end_date=market_date, days=30) if sector_proxy else None
+    relative_7d = round(ticker_7d - spy_7d, 2) if ticker_7d is not None and spy_7d is not None else None
+    relative_30d = round(ticker_30d - spy_30d, 2) if ticker_30d is not None and spy_30d is not None else None
+    sector_relative_30d = round(ticker_30d - sector_30d, 2) if ticker_30d is not None and sector_30d is not None else None
+    return {
+        "market_date": market_date.isoformat(),
+        "sector": sector,
+        "sector_proxy": sector_proxy,
+        "ticker_return_7d": ticker_7d,
+        "ticker_return_30d": ticker_30d,
+        "spy_return_7d": spy_7d,
+        "spy_return_30d": spy_30d,
+        "sector_return_30d": sector_30d,
+        "ticker_minus_spy_7d": relative_7d,
+        "ticker_minus_spy_30d": relative_30d,
+        "ticker_minus_sector_30d": sector_relative_30d,
+        "spy_regime_30d": _regime_bucket(spy_30d),
+        "sector_regime_30d": _regime_bucket(sector_30d),
+        "relative_regime_30d": _regime_bucket(relative_30d),
+    }
+
+
+def v2_feature_payload(
+    db: Session,
+    *,
+    symbol: str,
+    security: Security,
+    bundle: dict[str, Any],
+    source_contributions: dict[str, Any],
+    source_freshness: dict[str, Any],
+    methodology: ConfirmationMethodologyVersion,
+    calculated_at: datetime,
+    market_date: date,
+    calculation_type: str,
+    score: int,
+    direction: str,
+    active_source_count: int,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "captured_at": calculated_at.isoformat(),
+        "source_metrics": _source_metric_summary(source_contributions, source_freshness),
+        "score_change": _score_delta_features(
+            db,
+            bundle,
+            current_score=score,
+            current_direction=direction,
+            current_source_count=active_source_count,
+            security_id=security.id,
+            methodology_version_id=methodology.id,
+            calculation_type=calculation_type,
+            calculated_at=calculated_at,
+            market_date=market_date,
+        ),
+        "regime_context": _regime_context(db, symbol=symbol, security=security, market_date=market_date),
+    }
+
+
 def input_hash_for_confirmation_bundle(bundle: dict[str, Any], methodology: ConfirmationMethodologyVersion) -> str:
     payload = {
         "methodology_version": methodology.version,
@@ -388,6 +744,25 @@ def capture_live_confirmation_score_snapshot(
         source_freshness = source_freshness_from_bundle(bundle)
         if not source_contributions:
             _increment_counter(db, OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY)
+        normalized_direction = str(bundle.get("direction") or "neutral")
+        normalized_score = int(bundle.get("score") or 0)
+        active_source_count = confirmation_active_source_count(bundle)
+        v2_features = v2_feature_payload(
+            db,
+            symbol=normalized_symbol,
+            security=security,
+            bundle=bundle,
+            source_contributions=source_contributions,
+            source_freshness=source_freshness,
+            methodology=methodology,
+            calculated_at=calculated,
+            market_date=market_date,
+            calculation_type=calculation_type,
+            score=normalized_score,
+            direction=normalized_direction,
+            active_source_count=active_source_count,
+        )
+        source_contributions[V2_FEATURES_KEY] = v2_features
         input_hash = input_hash_for_confirmation_bundle(bundle, methodology)
 
         existing = db.execute(
@@ -412,8 +787,6 @@ def capture_live_confirmation_score_snapshot(
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             ).order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc()).limit(1)
         ).scalar_one_or_none()
-        normalized_direction = str(bundle.get("direction") or "neutral")
-        normalized_score = int(bundle.get("score") or 0)
         if visible_duplicate is not None and visible_duplicate.direction == normalized_direction and visible_duplicate.score == normalized_score:
             _increment_counter(db, OUTCOMES_LEDGER_DUPLICATES_KEY)
             db.commit()
@@ -430,7 +803,7 @@ def capture_live_confirmation_score_snapshot(
             reference_price=reference_price,
             reference_price_at=reference_price_at,
             reference_price_source=reference_price_source,
-            active_source_count=confirmation_active_source_count(bundle),
+            active_source_count=active_source_count,
             active_sources_json=json.dumps(_normalized_json(active_sources), sort_keys=True, separators=(",", ":")),
             source_contributions_json=json.dumps(_normalized_json(source_contributions), sort_keys=True, separators=(",", ":")),
             source_freshness_json=json.dumps(_normalized_json(source_freshness), sort_keys=True, separators=(",", ":")),

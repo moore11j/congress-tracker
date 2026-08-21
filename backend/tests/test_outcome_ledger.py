@@ -189,6 +189,41 @@ def test_live_capture_opens_new_event_when_direction_changes():
         assert response["items"][0]["score"] == 64
 
 
+def test_live_capture_persists_v2_training_features():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date="2026-07-05", close=90.0, price_source="test"),
+                PriceCache(symbol="CRM", date="2026-07-28", close=96.0, price_source="test"),
+                PriceCache(symbol="CRM", date="2026-08-03", close=98.0, price_source="test"),
+                PriceCache(symbol="CRM", date="2026-08-04", close=101.25, price_source="test"),
+                PriceCache(symbol="SPY", date="2026-07-05", close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date="2026-07-28", close=510.0, price_source="test"),
+                PriceCache(symbol="SPY", date="2026-08-03", close=520.0, price_source="test"),
+                PriceCache(symbol="SPY", date="2026-08-04", close=525.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        first = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(58, "neutral"), calculated_at=datetime(2026, 8, 3, 15, tzinfo=timezone.utc))
+        second = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(67, "bearish"), calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc))
+        rows = db.execute(select(ConfirmationScoreSnapshot).order_by(ConfirmationScoreSnapshot.id)).scalars().all()
+        payload = json.loads(rows[-1].source_contributions_json)
+        features = payload["__v2_features"]
+
+        assert first is not None
+        assert second is not None
+        assert features["source_metrics"]["active_sources"] == ["insiders", "price_volume"]
+        assert features["source_metrics"]["agreement_state"] == "aligned"
+        assert features["source_metrics"]["short_horizon_source_count"] == 1
+        assert features["score_change"]["previous_score"] == 58
+        assert features["score_change"]["score_delta"] == 9
+        assert features["score_change"]["direction_changed"] is True
+        assert features["regime_context"]["spy_return_30d"] == 5.0
+        assert features["regime_context"]["ticker_minus_spy_30d"] == 7.5
+
+
 def test_mixed_snapshot_is_not_a_scored_directional_event():
     engine = _engine()
     with Session(engine) as db:
@@ -720,13 +755,17 @@ def test_v2_backtest_report_measures_components_and_candidate_coverage():
     engine = _engine()
     with Session(engine) as db:
         observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=45)).date()
+        previous_day = observed_day - outcome_ledger_module.timedelta(days=30)
         thirty_day = observed_day + outcome_ledger_module.timedelta(days=30)
         db.add_all(
             [
+                PriceCache(symbol="CRM", date=previous_day.isoformat(), close=90.0, price_source="test"),
                 PriceCache(symbol="CRM", date=observed_day.isoformat(), close=100.0, price_source="test"),
                 PriceCache(symbol="CRM", date=thirty_day.isoformat(), close=112.0, price_source="test"),
+                PriceCache(symbol="MSFT", date=previous_day.isoformat(), close=180.0, price_source="test"),
                 PriceCache(symbol="MSFT", date=observed_day.isoformat(), close=200.0, price_source="test"),
                 PriceCache(symbol="MSFT", date=thirty_day.isoformat(), close=190.0, price_source="test"),
+                PriceCache(symbol="SPY", date=previous_day.isoformat(), close=480.0, price_source="test"),
                 PriceCache(symbol="SPY", date=observed_day.isoformat(), close=500.0, price_source="test"),
                 PriceCache(symbol="SPY", date=thirty_day.isoformat(), close=505.0, price_source="test"),
             ]
@@ -753,6 +792,9 @@ def test_v2_backtest_report_measures_components_and_candidate_coverage():
         assert report["baseline"]["accuracy"] == 100.0
         assert report["component_analysis"]["component_eligible_sample"] == 2
         assert report["component_analysis"]["components"]["price_volume"]["present"]["sample_size"] == 2
+        assert report["component_analysis"]["score_change_over_time"][0]["key"] == "unavailable"
+        assert report["component_analysis"]["spy_regime"][0]["key"] == "spy_positive"
+        assert report["component_analysis"]["relative_regime"][0]["key"] in {"relative_positive", "relative_negative"}
         score_rule = next(rule for rule in report["candidate_v2_rules"] if rule["rule"] == "score>=70")
         assert score_rule["calls_kept"] == 2
         assert score_rule["calls_rejected"] == 0
