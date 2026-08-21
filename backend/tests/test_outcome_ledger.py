@@ -18,6 +18,7 @@ from app.services.outcome_ledger import (
     list_outcome_snapshots,
     outcome_ledger_summary,
 )
+from app.services.outcome_ledger_backtest import build_outcome_ledger_v2_backtest_report, load_clean_training_events
 from app.main import (
     _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE,
     _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK,
@@ -627,3 +628,132 @@ def test_backfill_history_uses_market_pressure_score_snapshots():
         assert pltr["active_source_count"] == 4
         assert pltr["outcomes"]["30D"]["return_pct"] == 20.0
         assert pltr["outcomes"]["30D"]["spy_return_pct"] == 5.0
+
+
+def test_clean_training_set_keeps_latest_same_day_directional_event_only():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=45)).date()
+        thirty_day = observed_day + outcome_ledger_module.timedelta(days=30)
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=observed_day.isoformat(), close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=thirty_day.isoformat(), close=120.0, price_source="test"),
+                PriceCache(symbol="SPY", date=observed_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=thirty_day.isoformat(), close=510.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        older = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(61, "bullish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=14),
+        )
+        latest = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(72, "bullish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=15),
+        )
+        mixed = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(55, "mixed"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=16),
+        )
+
+        events, _exclusions = load_clean_training_events(db)
+
+        assert older is not None
+        assert latest is not None
+        assert mixed is not None
+        assert [event.snapshot_id for event in events] == [latest.id]
+        assert events[0].score == 72
+        assert events[0].directionally_correct is True
+        assert events[0].source_payload_quality == "real_source_payload"
+
+
+def test_clean_training_set_excludes_directional_event_closed_before_30d():
+    engine = _engine()
+    with Session(engine) as db:
+        opened_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=50)).date()
+        closed_day = opened_day + outcome_ledger_module.timedelta(days=5)
+        bearish_target = closed_day + outcome_ledger_module.timedelta(days=30)
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=opened_day.isoformat(), close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=closed_day.isoformat(), close=95.0, price_source="test"),
+                PriceCache(symbol="CRM", date=bearish_target.isoformat(), close=80.0, price_source="test"),
+                PriceCache(symbol="SPY", date=opened_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=closed_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=bearish_target.isoformat(), close=505.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        bullish = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(70, "bullish"),
+            calculated_at=datetime.combine(opened_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=12),
+        )
+        bearish = capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(76, "bearish"),
+            calculated_at=datetime.combine(closed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=12),
+        )
+
+        events, exclusions = load_clean_training_events(db)
+
+        assert bullish is not None
+        assert bearish is not None
+        assert [event.snapshot_id for event in events] == [bearish.id]
+        assert events[0].side == "bearish"
+        assert events[0].directionally_correct is True
+        assert exclusions["not_matured:closed"] == 1
+
+
+def test_v2_backtest_report_measures_components_and_candidate_coverage():
+    engine = _engine()
+    with Session(engine) as db:
+        observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=45)).date()
+        thirty_day = observed_day + outcome_ledger_module.timedelta(days=30)
+        db.add_all(
+            [
+                PriceCache(symbol="CRM", date=observed_day.isoformat(), close=100.0, price_source="test"),
+                PriceCache(symbol="CRM", date=thirty_day.isoformat(), close=112.0, price_source="test"),
+                PriceCache(symbol="MSFT", date=observed_day.isoformat(), close=200.0, price_source="test"),
+                PriceCache(symbol="MSFT", date=thirty_day.isoformat(), close=190.0, price_source="test"),
+                PriceCache(symbol="SPY", date=observed_day.isoformat(), close=500.0, price_source="test"),
+                PriceCache(symbol="SPY", date=thirty_day.isoformat(), close=505.0, price_source="test"),
+            ]
+        )
+        db.commit()
+
+        capture_live_confirmation_score_snapshot(
+            db,
+            "CRM",
+            _bundle(72, "bullish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=12),
+        )
+        capture_live_confirmation_score_snapshot(
+            db,
+            "MSFT",
+            _bundle(76, "bearish"),
+            calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=12),
+        )
+
+        report = build_outcome_ledger_v2_backtest_report(db, min_sample=1)
+
+        assert report["clean_training_set"]["events"] == 2
+        assert report["baseline"]["sample_size"] == 2
+        assert report["baseline"]["accuracy"] == 100.0
+        assert report["component_analysis"]["component_eligible_sample"] == 2
+        assert report["component_analysis"]["components"]["price_volume"]["present"]["sample_size"] == 2
+        score_rule = next(rule for rule in report["candidate_v2_rules"] if rule["rule"] == "score>=70")
+        assert score_rule["calls_kept"] == 2
+        assert score_rule["calls_rejected"] == 0
+        assert score_rule["meets_min_sample"] is True
