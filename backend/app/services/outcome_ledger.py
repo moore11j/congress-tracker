@@ -1434,7 +1434,7 @@ def outcome_ledger_summary(
     }
 
 
-def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) -> dict[str, Any]:
+def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) -> dict[str, Any]:
     if not outcome_ledger_enabled(db):
         return {"status": "skipped", "reason": "outcome_ledger_disabled", "warmed": 0}
 

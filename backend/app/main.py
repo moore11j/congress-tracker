@@ -6434,14 +6434,14 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
 @app.get("/api/outcomes/overview")
 def outcomes_overview(
     response: Response,
-    limit: int = Query(250, ge=1, le=5000),
+    limit: int = Query(100, ge=1, le=5000),
     horizons: str | None = Query("7D,30D"),
     db: Session = Depends(get_db),
 ):
     if not outcome_ledger_enabled(db):
         _outcomes_disabled_response()
     response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
-    public_limit = max(1, min(int(limit or 250), int(os.getenv("OUTCOME_LEDGER_PUBLIC_SNAPSHOT_LIMIT_MAX", "500") or 500)))
+    public_limit = max(1, min(int(limit or 100), int(os.getenv("OUTCOME_LEDGER_PUBLIC_SNAPSHOT_LIMIT_MAX", "500") or 500)))
     selected_horizons = _parse_public_outcome_overview_horizons(horizons)
     persistent_key = public_outcome_ledger_cache_key("overview", {"horizons": selected_horizons, "snapshot_limit": public_limit})
     cache_key = f"overview:{persistent_key}"

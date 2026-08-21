@@ -1219,7 +1219,7 @@ export function OutcomeLedgerClient({
     if (initialStatus && initialSummary && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    getOutcomeLedgerOverview({ limit: 250, horizons: "7D,30D" })
+    getOutcomeLedgerOverview({ limit: 100, horizons: "7D,30D" })
       .then((overview) => {
         if (!alive) return;
         setStatus(overview.status);

@@ -1381,7 +1381,7 @@ def _run_outcome_ledger_cache_warm_job() -> dict[str, object]:
 
     ensure_price_cache_volume_columns(engine)
     ensure_outcome_ledger_schema(engine)
-    snapshot_limit = int(os.getenv("OUTCOME_LEDGER_CACHE_WARM_SNAPSHOT_LIMIT", "250") or 250)
+    snapshot_limit = int(os.getenv("OUTCOME_LEDGER_CACHE_WARM_SNAPSHOT_LIMIT", "100") or 100)
     with SessionLocal() as db:
         payload = warm_public_outcome_ledger_cache(db, snapshot_limit=max(1, min(snapshot_limit, 500)))
     result = {"job": "outcome-ledger-cache-warm", **payload}
