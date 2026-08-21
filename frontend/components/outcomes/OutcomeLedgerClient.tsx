@@ -5,9 +5,8 @@ import {
   ApiError,
   getEntitlements,
   getTickerChartBundle,
-  getOutcomeLedgerStatus,
+  getOutcomeLedgerOverview,
   getOutcomeLedgerSummary,
-  getOutcomeSnapshots,
   type OutcomeHorizonResult,
   type OutcomeLedgerStatus,
   type OutcomeLedgerSummary,
@@ -1220,12 +1219,12 @@ export function OutcomeLedgerClient({
     if (initialStatus && initialSummary && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    Promise.all([getOutcomeLedgerStatus(), getOutcomeLedgerSummary({ horizon: horizonFilter }), getOutcomeSnapshots({ limit: 250 })])
-      .then(([nextStatus, nextSummary, nextSnapshots]) => {
+    getOutcomeLedgerOverview({ limit: 250, horizons: "7D,30D" })
+      .then((overview) => {
         if (!alive) return;
-        setStatus(nextStatus);
-        setSummary(nextSummary);
-        setSnapshots(nextSnapshots);
+        setStatus(overview.status);
+        setSummary(overview.summaries[horizonFilter] ?? overview.summaries[overview.default_horizon] ?? null);
+        setSnapshots(overview.snapshots);
         setError(null);
       })
       .catch((nextError) => {

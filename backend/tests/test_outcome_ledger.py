@@ -12,11 +12,14 @@ from app.models import ConfirmationMethodologyVersion, ConfirmationMonitoringEve
 from app.backfill_outcome_ledger_history import backfill_outcome_ledger_history
 from app.services import outcome_ledger as outcome_ledger_module
 from app.services.outcome_ledger import (
+    cached_public_outcome_ledger_payload,
     capture_live_confirmation_score_snapshot,
     current_confirmation_methodology,
     input_hash_for_confirmation_bundle,
     list_outcome_snapshots,
     outcome_ledger_summary,
+    public_outcome_ledger_cache_key,
+    warm_public_outcome_ledger_cache,
 )
 from app.services.outcome_ledger_backtest import build_outcome_ledger_v2_backtest_report, load_clean_training_events
 from app.main import (
@@ -88,6 +91,24 @@ def test_public_outcome_ledger_cache_returns_deep_copies(monkeypatch):
     cached["items"][0]["ticker"] = "AAPL"
 
     assert _public_outcome_ledger_cache_get("snapshots:test") == {"items": [{"ticker": "NVDA"}], "total": 1}
+
+
+def test_warm_public_outcome_ledger_cache_persists_overview_payload(monkeypatch):
+    monkeypatch.setenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "7D,30D")
+    engine = _engine()
+    with Session(engine) as db:
+        report = warm_public_outcome_ledger_cache(db, snapshot_limit=25)
+        overview = cached_public_outcome_ledger_payload(
+            db,
+            public_outcome_ledger_cache_key("overview", {"horizons": ["7D", "30D"], "snapshot_limit": 25}),
+        )
+
+        assert report["status"] == "ok"
+        assert overview is not None
+        assert overview["default_horizon"] == "7D"
+        assert set(overview["summaries"]) == {"7D", "30D"}
+        assert overview["status"]["enabled"] is True
+        assert overview["snapshots"]["limit"] == 25
 
 
 def test_methodology_seed_and_single_current_version():

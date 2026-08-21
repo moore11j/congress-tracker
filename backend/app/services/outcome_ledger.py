@@ -1439,8 +1439,9 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) 
         return {"status": "skipped", "reason": "outcome_ledger_disabled", "warmed": 0}
 
     started_at = datetime.now(timezone.utc)
+    status_payload = outcome_ledger_status(db)
     status_key = public_outcome_ledger_cache_key("status")
-    store_public_outcome_ledger_payload(db, status_key, outcome_ledger_status(db))
+    store_public_outcome_ledger_payload(db, status_key, status_payload)
     warmed = 1
 
     raw_horizons = os.getenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "7D,30D")
@@ -1449,6 +1450,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) 
         for item in raw_horizons.split(",")
         if item.strip().upper() in {f"{days}D" for days in OUTCOME_HORIZONS}
     ] or ["7D", "30D"]
+    summary_payloads: dict[str, dict[str, Any]] = {}
     for horizon in warm_horizons:
         params = {
             "calculation_type": None,
@@ -1459,10 +1461,12 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) 
             "score_band": None,
             "start_date": None,
         }
+        summary_payload = outcome_ledger_summary(db, horizon=horizon)
+        summary_payloads[horizon] = summary_payload
         store_public_outcome_ledger_payload(
             db,
             public_outcome_ledger_cache_key("summary", params),
-            outcome_ledger_summary(db, horizon=horizon),
+            summary_payload,
         )
         warmed += 1
 
@@ -1475,10 +1479,25 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 250) 
         "start_date": None,
         "ticker": None,
     }
+    snapshot_payload = list_outcome_snapshots(db, page=0, limit=snapshot_limit, include_internal=False)
     store_public_outcome_ledger_payload(
         db,
         public_outcome_ledger_cache_key("snapshots", snapshot_params),
-        list_outcome_snapshots(db, page=0, limit=snapshot_limit, include_internal=False),
+        snapshot_payload,
+    )
+    warmed += 1
+
+    overview_params = {"horizons": warm_horizons, "snapshot_limit": snapshot_limit}
+    overview_payload = {
+        "status": status_payload,
+        "summaries": summary_payloads,
+        "snapshots": snapshot_payload,
+        "default_horizon": warm_horizons[0] if warm_horizons else "7D",
+    }
+    store_public_outcome_ledger_payload(
+        db,
+        public_outcome_ledger_cache_key("overview", overview_params),
+        overview_payload,
     )
     warmed += 1
 

@@ -8047,6 +8047,27 @@ export type OutcomeSnapshotsResponse = {
   has_next: boolean;
 };
 
+export type OutcomeLedgerOverview = {
+  status: OutcomeLedgerStatus;
+  summaries: Record<string, OutcomeLedgerSummary>;
+  snapshots: OutcomeSnapshotsResponse;
+  default_horizon: string;
+};
+
+export async function getOutcomeLedgerOverview(params: QueryParams = {}): Promise<OutcomeLedgerOverview> {
+  const url = buildApiUrl("/api/outcomes/overview", params);
+  return serverCachedJson(
+    `outcome-ledger-overview:${url}`,
+    () =>
+      fetchPublicJson<OutcomeLedgerOverview>(url, {
+        cache: "force-cache",
+        next: { revalidate: 60 * 60 * 12 },
+        source: "OutcomeLedgerPage",
+      }),
+    OUTCOME_LEDGER_CACHE_TTL_MS,
+  );
+}
+
 export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
   const url = buildApiUrl("/api/outcomes/status");
   return serverCachedJson(

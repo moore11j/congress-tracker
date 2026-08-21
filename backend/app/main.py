@@ -270,6 +270,7 @@ from app.services.confirmation_monitoring import (
     refresh_watchlist_confirmation_monitoring,
 )
 from app.services.outcome_ledger import (
+    OUTCOME_HORIZONS,
     capture_live_confirmation_score_snapshot,
     cached_public_outcome_ledger_payload,
     get_outcome_snapshot_detail,
@@ -6400,6 +6401,17 @@ def _public_outcome_ledger_cache_set(cache_key: str, payload: dict[str, Any]) ->
     return payload
 
 
+def _parse_public_outcome_overview_horizons(value: str | None) -> list[str]:
+    allowed = {f"{days}D" for days in OUTCOME_HORIZONS}
+    raw_items = (value or "7D,30D").split(",")
+    horizons: list[str] = []
+    for raw_item in raw_items:
+        horizon = raw_item.strip().upper()
+        if horizon in allowed and horizon not in horizons:
+            horizons.append(horizon)
+    return horizons or ["7D", "30D"]
+
+
 @app.get("/api/outcomes/status")
 def outcomes_status(response: Response, db: Session = Depends(get_db)):
     if not outcome_ledger_enabled(db):
@@ -6415,6 +6427,38 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
         response.headers["X-Walnut-Outcome-Cache"] = "persistent"
         return _public_outcome_ledger_cache_set(cache_key, persistent_cached)
     payload = outcome_ledger_status(db)
+    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    return _public_outcome_ledger_cache_set(cache_key, payload)
+
+
+@app.get("/api/outcomes/overview")
+def outcomes_overview(
+    response: Response,
+    limit: int = Query(250, ge=1, le=5000),
+    horizons: str | None = Query("7D,30D"),
+    db: Session = Depends(get_db),
+):
+    if not outcome_ledger_enabled(db):
+        _outcomes_disabled_response()
+    response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
+    public_limit = max(1, min(int(limit or 250), int(os.getenv("OUTCOME_LEDGER_PUBLIC_SNAPSHOT_LIMIT_MAX", "500") or 500)))
+    selected_horizons = _parse_public_outcome_overview_horizons(horizons)
+    persistent_key = public_outcome_ledger_cache_key("overview", {"horizons": selected_horizons, "snapshot_limit": public_limit})
+    cache_key = f"overview:{persistent_key}"
+    cached = _public_outcome_ledger_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
+    if persistent_cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "persistent"
+        return _public_outcome_ledger_cache_set(cache_key, persistent_cached)
+
+    payload = {
+        "status": outcome_ledger_status(db),
+        "summaries": {horizon: outcome_ledger_summary(db, horizon=horizon) for horizon in selected_horizons},
+        "snapshots": list_outcome_snapshots(db, page=0, limit=public_limit, include_internal=False),
+        "default_horizon": selected_horizons[0],
+    }
     store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
