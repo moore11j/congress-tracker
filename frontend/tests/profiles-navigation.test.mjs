@@ -131,6 +131,19 @@ test("latest profile activity keeps value visible on mobile", () => {
   assert.match(source, /formatValue\(item\.value\)/);
 });
 
+test("latest profile activity shows profile-level actions and relative dates", () => {
+  const source = read("components/profiles/LatestProfileActivity.tsx");
+
+  assert.match(source, /formatRelativeTime\(item\.time\)/);
+  assert.match(source, /daysAgo <= 0 \? "Today" : `\$\{daysAgo\}D ago`/);
+  assert.match(source, /function activityLabel\(item: ProfileActivityItem\)/);
+  assert.match(source, /return "Contract Award"/);
+  assert.match(source, /return "New Position"/);
+  assert.match(source, /return "Decreased"/);
+  assert.match(source, /return "Increased"/);
+  assert.match(source, /prefetch=\{false\} className="text-emerald-200 hover:text-emerald-100"/);
+});
+
 test("congress top moving sectors uses bounded sparklines", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
@@ -149,6 +162,8 @@ test("congress trading snapshot chart renders area fill and full axes", () => {
   assert.match(source, /function CongressSnapshotTrend/);
   assert.match(source, /const ticks = \[axisMax, axisMax \* \.75, axisMax \* \.5, axisMax \* \.25, 0\]/);
   assert.match(source, /fill="url\(#congress-trades-area\)"/);
+  assert.match(source, /const diamondPoints = \(x: number, y: number\)/);
+  assert.match(source, /key=\{`\$\{point\.label\}-diamond`\}/);
   assert.match(source, /gridTemplateColumns: `repeat\(\$\{points\.length\}, minmax\(0, 1fr\)\)`/);
   assert.match(source, /points\.map\(\(point\) => <span key=\{point\.label\}/);
 });
@@ -273,6 +288,8 @@ test("profile snapshot trend chart renders usable axes", () => {
 
   assert.match(source, /grid-cols-\[3\.8rem_minmax\(0,1fr\)\]/);
   assert.match(source, /formatAxisValue\(tick\)/);
+  assert.match(source, /key=\{`\$\{point\.label\}-snapshot-diamond`\}/);
+  assert.match(source, /fill="#55e3b0" stroke="#07101f"/);
   assert.match(source, /gridTemplateColumns: `repeat\(\$\{series\.length\}, minmax\(0, 1fr\)\)`/);
   assert.match(source, /series\.map\(\(point\) => <span key=\{point\.label\}/);
 });
@@ -322,6 +339,16 @@ test("institutional dashboard uses mockup-style net change charts", () => {
   assert.match(source, /Net position change by sector/);
   assert.match(source, /function NetPositionChangeBySector/);
   assert.match(source, /function InstitutionalActivityOverTime/);
+  assert.match(source, /institutionalActivity=\{institutionalActivity\}/);
+  assert.match(source, /function institutionalMetricSeries\(label: string, rows: InstitutionalActivityPeriod\[\]\)/);
+  assert.match(source, /position_increase_count/);
+  assert.match(source, /position_decrease_count/);
+  assert.match(source, /net_value_change/);
+  assert.match(source, /\["qoq_change", "QoQ change", "signed_percent"\]/);
+  assert.match(source, /\["increase_value", "Increase", "positive_currency"\]/);
+  assert.match(source, /format === "signed_percent"/);
+  assert.match(source, /format === "signed_currency" \|\| format === "positive_currency"/);
+  assert.match(source, /\(sell\|decrease\)\/\.test\(metric\.label\.toLowerCase\(\)\) \? "red" : "green"/);
   assert.match(source, /const valueLimit = 2_000_000_000_000/);
   assert.match(source, /Position increases/);
   assert.match(source, /Position decreases/);

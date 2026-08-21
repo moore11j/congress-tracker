@@ -199,6 +199,34 @@ def test_profile_activity_labels_unnamed_insider_filings_and_keeps_them_visible(
     assert all(item["profile_href"] is None for item in activity)
 
 
+def test_profile_activity_uses_transaction_level_labels():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    db.add_all(
+        [
+            Event(id=1, event_type="congress_trade", ts=now, source="test", payload_json="{}", member_name="Nancy Pelosi", trade_type="purchase"),
+            Event(id=2, event_type="insider_trade", ts=now, source="test", payload_json=json.dumps({"insider_name": "Jane Insider", "reporting_cik": "1234567890"}), trade_type="sale"),
+            Event(id=3, event_type="institutional_accumulation", ts=now, source="test", payload_json=json.dumps({"institution_name": "Long View", "cik": "9999999999"})),
+            Event(id=4, event_type="major_holder_reduction", ts=now, source="test", payload_json=json.dumps({"institution_name": "Long View", "cik": "9999999999"})),
+            Event(id=5, event_type="new_institutional_position", ts=now, source="test", payload_json=json.dumps({"institution_name": "Long View", "cik": "9999999999"})),
+            Event(id=6, event_type="government_contract", ts=now, source="test", payload_json=json.dumps({"department": "Department of Defense"})),
+        ]
+    )
+    db.commit()
+
+    activity = {item["id"]: item for item in profile_activity(db, include_institutions=True)}
+
+    assert activity[1]["activity"] == "Purchase"
+    assert activity[1]["profile_href"] == "/member/nancy-pelosi"
+    assert activity[2]["activity"] == "Sale"
+    assert activity[2]["profile_href"] == "/insider/jane-insider-1234567890"
+    assert activity[3]["activity"] == "Increased"
+    assert activity[4]["activity"] == "Decreased"
+    assert activity[5]["activity"] == "New Position"
+    assert activity[6]["activity"] == "Contract Award"
+    assert activity[6]["profile_href"] == "/departments/department-of-defense"
+
+
 def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     db = _db()
     now = datetime.now(timezone.utc)
@@ -216,7 +244,7 @@ def test_profiles_summary_cache_ignores_payload_without_activity_mix():
     )
     db.commit()
 
-    assert _profile_overview_persistent_key(key).startswith("profile-overview:v19:")
+    assert _profile_overview_persistent_key(key).startswith("profile-overview:v20:")
     assert _profile_overview_database_cache_get(db, key, now=now) is None
 
 
@@ -701,10 +729,20 @@ def test_institutions_overview_compares_previous_quarter_and_classifies_mega_cap
     activity_by_period = {row["period"]: row for row in payload["institutional_activity_over_time"]}
     assert activity_by_period["Q1 2026"]["position_increase_value"] == 25_000
     assert activity_by_period["Q1 2026"]["position_decrease_value"] == 0
+    assert activity_by_period["Q1 2026"]["position_increase_count"] == 1
+    assert activity_by_period["Q1 2026"]["position_decrease_count"] == 0
+    assert activity_by_period["Q1 2026"]["net_value_change"] == 25_000
     assert activity_by_period["Q1 2026"]["total_positions"] == 6
+    assert activity_by_period["Q1 2026"]["tracked_institutions"] == 6
+    assert activity_by_period["Q1 2026"]["portfolio_value"] == 3_000_000
     assert activity_by_period["Q2 2026"]["position_increase_value"] == 100_000
     assert activity_by_period["Q2 2026"]["position_decrease_value"] == -50_000
+    assert activity_by_period["Q2 2026"]["position_increase_count"] == 1
+    assert activity_by_period["Q2 2026"]["position_decrease_count"] == 1
+    assert activity_by_period["Q2 2026"]["net_value_change"] == 50_000
     assert activity_by_period["Q2 2026"]["total_positions"] == 7
+    assert activity_by_period["Q2 2026"]["tracked_institutions"] == 7
+    assert activity_by_period["Q2 2026"]["portfolio_value"] == 6_500_000
 
 
 def test_institutions_overview_skips_sparse_newer_period():
@@ -752,6 +790,38 @@ def test_institutions_overview_skips_sparse_newer_period():
     assert payload["summary"][0]["value"] == 30
     assert payload["summary"][0]["previous_value"] is None
     assert all(row["period"] != "Q2 2026" for row in payload["sector_exposure"])
+
+
+def test_institutions_overview_uses_available_prior_value_for_each_institution_table_row():
+    db = _db()
+    for filing_id, cik, quarter, value in [
+        (1, "1001", 1, 1_000_000),
+        (2, "1001", 2, 2_000_000),
+        (3, "1002", 2, 1_500_000),
+        (4, "1003", 2, 1_250_000),
+    ]:
+        db.add(
+            InstitutionalPosition(
+                filing_id=filing_id,
+                cik=cik,
+                symbol="NVDA",
+                normalized_symbol="NVDA",
+                issuer_name="NVIDIA Corp.",
+                shares=100,
+                value_usd=value,
+                report_year=2026,
+                report_quarter=quarter,
+                filing_date=date(2026, 5 if quarter == 1 else 8, 1),
+            )
+        )
+    db.commit()
+
+    payload = institutions_overview(db, year=2026, quarter=2, include_details=True)
+    top_institution = next(row for row in payload["top_institutions"] if row["cik"] == "0000001001")
+
+    assert payload["previous_report_year"] is None
+    assert top_institution["previous_value"] == 1_000_000
+    assert top_institution["qoq_change"] == 100.0
 
 
 def test_departments_overview_uses_contract_language():

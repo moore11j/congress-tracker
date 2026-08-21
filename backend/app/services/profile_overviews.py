@@ -291,6 +291,7 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
         return {"status": "no_data", "summary": [], "top_institutions": [], "position_changes": [], "sector_exposure": [], "institutional_activity_over_time": [], "recent_filings": []}
     report_year, report_quarter = period
     previous_period = _previous_comparable_institutional_period(db, report_year, report_quarter)
+    table_previous_period = previous_period or _previous_institutional_period_with_data(db, report_year, report_quarter)
     prev_year, prev_quarter = previous_period if previous_period is not None else (None, None)
     period_filter = [InstitutionalPosition.report_year == report_year, InstitutionalPosition.report_quarter == report_quarter]
     change_filter = [InstitutionalPositionChange.report_year == report_year, InstitutionalPositionChange.report_quarter == report_quarter]
@@ -321,7 +322,7 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
             _metric("Total Position Decreases", decreases, previous_decreases),
             _metric("Net Reported Value Change", net_change, previous_net_change, "currency"),
         ],
-        "top_institutions": _top_institutions(db, report_year, report_quarter, previous_period=previous_period),
+        "top_institutions": _top_institutions(db, report_year, report_quarter, previous_period=table_previous_period),
         "position_changes": _institutional_position_changes(db, report_year, report_quarter),
         "sector_exposure": _institution_sector_exposure(db),
         "institutional_activity_over_time": _institutional_activity_over_time(db),
@@ -1529,6 +1530,18 @@ def _previous_comparable_institutional_period(db: Session, year: int, quarter: i
     return previous
 
 
+def _previous_institutional_period_with_data(db: Session, year: int, quarter: int) -> tuple[int, int] | None:
+    """Use an available prior filing period for per-institution table comparisons."""
+    previous = _previous_quarter(year, quarter)
+    count = db.execute(
+        select(func.count(InstitutionalPosition.id)).where(
+            InstitutionalPosition.report_year == previous[0],
+            InstitutionalPosition.report_quarter == previous[1],
+        )
+    ).scalar_one()
+    return previous if count else None
+
+
 def _previous_quarter(year: int, quarter: int) -> tuple[int, int]:
     return (year - 1, 4) if quarter == 1 else (year, quarter - 1)
 
@@ -1747,23 +1760,49 @@ def _institutional_activity_over_time(db: Session) -> list[dict[str, Any]]:
             InstitutionalPositionChange.report_quarter,
             func.sum(case((InstitutionalPositionChange.value_delta_usd > 0, InstitutionalPositionChange.value_delta_usd), else_=0)),
             func.sum(case((InstitutionalPositionChange.value_delta_usd < 0, InstitutionalPositionChange.value_delta_usd), else_=0)),
+            func.count(case((InstitutionalPositionChange.shares_delta > 0, 1))),
+            func.count(case((InstitutionalPositionChange.shares_delta < 0, 1))),
+            func.sum(InstitutionalPositionChange.value_delta_usd),
         )
         .where(tuple_(InstitutionalPositionChange.report_year, InstitutionalPositionChange.report_quarter).in_(periods))  # type: ignore[name-defined]
         .group_by(InstitutionalPositionChange.report_year, InstitutionalPositionChange.report_quarter)
     ).all()
     position_rows = db.execute(
-        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter, func.count(InstitutionalPosition.id))
+        select(
+            InstitutionalPosition.report_year,
+            InstitutionalPosition.report_quarter,
+            func.count(InstitutionalPosition.id),
+            func.count(func.distinct(InstitutionalPosition.cik)),
+            func.sum(InstitutionalPosition.value_usd),
+        )
         .where(tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods))  # type: ignore[name-defined]
         .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
     ).all()
-    changes = {(int(year), int(quarter)): (float(increases or 0), float(decreases or 0)) for year, quarter, increases, decreases in change_rows}
-    positions = {(int(year), int(quarter)): int(total or 0) for year, quarter, total in position_rows}
+    changes = {
+        (int(year), int(quarter)): (
+            float(increases or 0),
+            float(decreases or 0),
+            int(increase_count or 0),
+            int(decrease_count or 0),
+            float(net_change or 0),
+        )
+        for year, quarter, increases, decreases, increase_count, decrease_count, net_change in change_rows
+    }
+    positions = {
+        (int(year), int(quarter)): (int(total_positions or 0), int(tracked_institutions or 0), float(portfolio_value or 0))
+        for year, quarter, total_positions, tracked_institutions, portfolio_value in position_rows
+    }
     return [
         {
             "period": f"Q{quarter} {year}",
             "position_increase_value": _float_or_int(changes.get((year, quarter), (0.0, 0.0))[0]) or 0,
             "position_decrease_value": _float_or_int(changes.get((year, quarter), (0.0, 0.0))[1]) or 0,
-            "total_positions": positions.get((year, quarter), 0),
+            "position_increase_count": changes.get((year, quarter), (0.0, 0.0, 0, 0, 0.0))[2],
+            "position_decrease_count": changes.get((year, quarter), (0.0, 0.0, 0, 0, 0.0))[3],
+            "net_value_change": _float_or_int(changes.get((year, quarter), (0.0, 0.0, 0, 0, 0.0))[4]) or 0,
+            "total_positions": positions.get((year, quarter), (0, 0, 0.0))[0],
+            "tracked_institutions": positions.get((year, quarter), (0, 0, 0.0))[1],
+            "portfolio_value": _float_or_int(positions.get((year, quarter), (0, 0, 0.0))[2]) or 0,
         }
         for year, quarter in periods
     ]
@@ -2165,18 +2204,32 @@ def _profile_href(kind: str, name: str, identifier: str | None, payload: dict[st
 
 
 def _activity_label(event_type: str, trade_type: str | None) -> str:
-    label = (trade_type or "").replace("_", " ").strip()
-    if label:
-        return label.title()
-    labels = {
-        "government_contract": "New contract",
-        "institutional_accumulation": "Position increased",
-        "institutional_distribution": "Position decreased",
-        "new_institutional_position": "New position",
-        "major_holder_exit": "Exited position",
-        "major_holder_reduction": "Position reduced",
-    }
-    return labels.get(event_type, event_type.replace("_", " ").title())
+    """Return the underlying action, not the broad source of the activity."""
+    normalized_type = (event_type or "").strip().lower()
+    normalized_trade = (trade_type or "").replace("_", " ").strip().lower()
+
+    if normalized_type == "government_contract":
+        return "Contract Award"
+    if normalized_type == "new_institutional_position":
+        return "New Position"
+    if normalized_type in {
+        "institutional_distribution",
+        "major_holder_reduction",
+        "major_holder_exit",
+        "cluster_distribution",
+    }:
+        return "Decreased"
+    if normalized_type in {
+        "institutional_accumulation",
+        "cluster_accumulation",
+        "smart_money_confirmation",
+    }:
+        return "Increased"
+    if normalized_type in {"congress_trade", "insider_trade"}:
+        if any(token in normalized_trade for token in ("sale", "sell", "dispose", "disposition")):
+            return "Sale"
+        return "Purchase"
+    return normalized_trade.title() if normalized_trade else normalized_type.replace("_", " ").title()
 
 
 def _member_href(name: str | None) -> str | None:

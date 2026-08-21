@@ -280,7 +280,12 @@ export type InstitutionalActivityPeriod = {
   period: string;
   position_increase_value: number;
   position_decrease_value: number;
+  position_increase_count?: number;
+  position_decrease_count?: number;
+  net_value_change?: number;
   total_positions: number;
+  tracked_institutions?: number;
+  portfolio_value?: number;
 };
 
 export type CongressOverviewResponse = {
