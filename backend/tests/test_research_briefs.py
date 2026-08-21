@@ -1256,7 +1256,8 @@ def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path,
     assert "free-cash-flow" not in fallback_text
     assert "watch-and-verify" not in fallback_text
     headings = {section["heading"] for section in draft["article"]["sections"]}
-    assert {"Q2 2026 earnings and guidance", "Current price, valuation, and technical context", "Upcoming catalysts", "Risks that could break the thesis", "Final Walnut judgment"} <= headings
+    assert {"Current price, valuation, and technical context", "Upcoming catalysts", "Risks that could break the thesis", "Final Walnut judgment"} <= headings
+    assert any(heading.endswith("earnings and guidance") for heading in headings)
 
     updated = service.update_draft(admin, draft["id"], {"title": "MU Stock: Research Review"}, db=db)
 
@@ -1280,6 +1281,32 @@ def test_walnut_data_fallback_matches_bullish_confirmation_score_direction():
     assert article["walnut_call"] == "Bullish but expensive"
     assert article["judgment"] == "bullish"
     assert "Neutral but expensive" not in service._article_full_text(article)
+
+
+def test_walnut_data_fallback_uses_the_latest_fiscal_earnings_period_in_all_public_copy():
+    article = service._walnut_data_fallback_article(
+        {"ticker": "COHR", "research_question": "Is Coherent stock an AI optics play after fiscal 2026 earnings?"},
+        {
+            "primary": {
+                "identity": {"symbol": "COHR", "company_name": "Coherent"},
+                "financials": {
+                    "income": {"quarterly": [{"period": "Q4 2026", "revenue": 2_050_000_000}]},
+                    "valuation": {},
+                    "health": {},
+                },
+                "confirmation": {"score": 72, "direction": "bullish"},
+            },
+            "external_research": {"official_facts": {}, "reviewed_sources": []},
+        },
+    )
+
+    public_copy = " ".join(
+        [article["slug"], article["subtitle"], article["summary"], article["seo"]["title"], article["seo"]["description"], *article["key_points"]]
+    )
+    assert article["slug"] == "cohr-stock-overvalued-after-q4-2026-earnings"
+    assert article["sections"][1]["heading"] == "Q4 2026 earnings and guidance"
+    assert "Q4 2026" in public_copy
+    assert "Q2 2026" not in public_copy
 
 
 def test_final_confirmation_guard_runs_after_enrichment(tmp_path, monkeypatch):

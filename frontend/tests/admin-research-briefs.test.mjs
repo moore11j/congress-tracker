@@ -154,3 +154,11 @@ test("public research brief integration preserves existing MU brief", () => {
   assert.match(section, /item\.premium/);
   assert.match(generatedPage, /GeneratedResearchBriefPage/);
 });
+
+test("corrected generated research URLs redirect to the current canonical brief", () => {
+  const generatedPage = read("app/research/[slug]/page.tsx");
+
+  assert.match(generatedPage, /cohr-stock-overvalued-after-q2-2026-earnings/);
+  assert.match(generatedPage, /cohr-stock-overvalued-after-q4-2026-earnings/);
+  assert.match(generatedPage, /if \(canonicalSlug\) redirect\(`/);
+});

@@ -6440,6 +6440,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
         volume_text = "not available"
     revenue = latest.get("revenue")
     previous_revenue = previous.get("revenue")
+    earnings_period = str(latest.get("period") or _earnings_period_from_context(context) or "the latest reported quarter").strip()
+    earnings_period_slug = _slugify(earnings_period, fallback="latest-quarter")
     sequential_growth = None
     try:
         if revenue is not None and previous_revenue not in (None, 0):
@@ -6459,7 +6461,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
     score_direction = _confirmation_score_direction(context)
     if score_direction == "bullish":
         walnut_call, article_judgment = "Bullish but expensive", "bullish"
-        call_basis = f"The Q2 operating trend and the {score_text} bullish confirmation score support a bullish view."
+        call_basis = f"The {earnings_period} operating trend and the {score_text} bullish confirmation score support a bullish view."
         final_stand = "We take the bullish side. The stock is not cheap, and the thesis fails if growth, funding, or guidance slips. Watch and verify the next results."
     elif score_direction == "bearish":
         walnut_call, article_judgment = "Bearish", "bearish"
@@ -6497,8 +6499,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             ),
         },
         {
-            "key": "q2-earnings-and-guidance",
-            "heading": "Q2 2026 earnings and guidance",
+            "key": f"{earnings_period_slug}-earnings-and-guidance",
+            "heading": f"{earnings_period} earnings and guidance",
             "body_markdown": (
                 f"{revenue_sentence} The same quarter shows gross margin of {_format_brief_percent(latest.get('grossMargin'))}, operating margin of {_format_brief_percent(latest.get('operatingMargin'))}, "
                 f"and net income of {_format_brief_money(latest.get('netIncome'))}. GAAP EPS was {_format_brief_money(latest.get('eps'))} per share.\n\n"
@@ -6550,9 +6552,9 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
     ]
     return {
         "title": title[:180],
-        "slug": _slugify(f"{symbol} stock overvalued after q2 2026 earnings", fallback=f"{symbol.lower()}-research-brief"),
-        "subtitle": f"A data grounded review of {symbol} after Q2 2026 earnings, valuation, and capital intensity.",
-        "summary": f"{symbol} has bullish Q2 momentum and a bullish confirmation score. {price_text} and roughly {forward_pe_text} forward earnings make the stock expensive, not bearish.",
+        "slug": _slugify(f"{symbol} stock overvalued after {earnings_period} earnings", fallback=f"{symbol.lower()}-research-brief"),
+        "subtitle": f"A data grounded review of {symbol} after {earnings_period} earnings, valuation, and capital intensity.",
+        "summary": f"{symbol} has bullish {earnings_period} momentum and a bullish confirmation score. {price_text} and roughly {forward_pe_text} forward earnings make the stock expensive, not bearish.",
         "preview_body": f"{symbol} has improving revenue and bullish price confirmation. Heavy capex and negative free cash flow make the valuation demanding.",
         "judgment": article_judgment,
         "walnut_call": walnut_call,
@@ -6564,7 +6566,7 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
         "reading_minutes": 6,
         "sections": sections,
         "key_points": [
-            f"Q2 revenue was {_format_brief_money(revenue)} and grew {_format_brief_percent(sequential_growth)} sequentially.",
+            f"{earnings_period} revenue was {_format_brief_money(revenue)} and grew {_format_brief_percent(sequential_growth)} sequentially.",
             f"Current price was {price_text}; the forward P/E field was approximately {forward_pe_text}.",
             f"Capex of {_format_brief_money(latest.get('capex'))} left free cash flow at {_format_brief_money(latest.get('freeCashFlow'))}.",
         ],
@@ -6574,8 +6576,8 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
         "data_freshness": [str(context.get("generated_at") or ""), f"Price snapshot: {price_as_of}" if price_as_of else ""],
         "missing_data_notes": list(context.get("missing_data_notes") or []),
         "source_links": [item for item in sources if isinstance(item, dict)][:8],
-        "suggested_card": {"title": f"{symbol}: expensive or justified after Q2?", "description": f"A Walnut review of {symbol}'s Q2 2026 earnings, current price, valuation, capex, and catalysts.", "judgment": article_judgment, "tickers": [symbol]},
-        "seo": {"title": f"Is {symbol} Stock Overvalued After Q2 2026 Earnings?", "description": f"Review {symbol}'s Q2 2026 earnings, {price_text} price snapshot, valuation, capex, catalysts, risks, and Walnut judgment."},
+        "suggested_card": {"title": f"{symbol}: expensive or justified after {earnings_period}?", "description": f"A Walnut review of {symbol}'s {earnings_period} earnings, current price, valuation, capex, and catalysts.", "judgment": article_judgment, "tickers": [symbol]},
+        "seo": {"title": f"Is {symbol} Stock Overvalued After {earnings_period} Earnings?", "description": f"Review {symbol}'s {earnings_period} earnings, {price_text} price snapshot, valuation, capex, catalysts, risks, and Walnut judgment."},
     }
 
 

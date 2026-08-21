@@ -3,9 +3,15 @@ import { getGeneratedResearchBrief } from "@/lib/api";
 import { marketingCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMetadata";
 import { buildReturnTo, optionalPageAuthToken } from "@/lib/serverAuth";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
+
+// Keep previously shared generated-brief URLs working when an editorial
+// correction changes a published slug.
+const RESEARCH_BRIEF_REDIRECTS: Record<string, string> = {
+  "cohr-stock-overvalued-after-q2-2026-earnings": "cohr-stock-overvalued-after-q4-2026-earnings",
+};
 
 async function loadGeneratedResearchBrief(slug: string, authToken?: string | null) {
   try {
@@ -17,9 +23,10 @@ async function loadGeneratedResearchBrief(slug: string, authToken?: string | nul
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const draft = await loadGeneratedResearchBrief(slug);
+  const canonicalSlug = RESEARCH_BRIEF_REDIRECTS[slug] || slug;
+  const draft = await loadGeneratedResearchBrief(canonicalSlug);
   if (!draft) {
-    return marketingPageMetadata(`/research/${slug}`, {
+    return marketingPageMetadata(`/research/${canonicalSlug}`, {
       title: "Research brief unavailable | Walnut Markets",
       description: "This Walnut Markets research brief is not published or could not be loaded.",
       robots: {
@@ -59,6 +66,8 @@ export default async function GeneratedResearchPage({
 }) {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
+  const canonicalSlug = RESEARCH_BRIEF_REDIRECTS[slug];
+  if (canonicalSlug) redirect(`/research/${canonicalSlug}`);
   const authToken = await optionalPageAuthToken();
   const draft = await loadGeneratedResearchBrief(slug, authToken);
   if (!draft) notFound();
