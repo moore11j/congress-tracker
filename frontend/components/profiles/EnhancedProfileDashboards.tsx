@@ -319,13 +319,16 @@ function OverviewCard({ card }: { card: ProfilesSummaryResponse["cards"][number]
   const chartValues = overviewChartValues(chartMetric, card.kind);
 
   return <Link href={card.href} prefetch={false} className="group min-w-0 overflow-hidden rounded-lg border border-slate-700/70 bg-slate-950/65 p-4 transition hover:border-emerald-300/45 hover:bg-slate-900/80">
-    <div className="flex items-start justify-between gap-3">
+    <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(6.5rem,8.5rem)] items-start gap-3">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 text-lg text-emerald-200">{profileIcon(card.kind)}</span>
-      <div className="min-w-[7rem] flex-1 sm:max-w-[9rem]">
+      <div className="min-w-0 pt-0.5">
+        <h2 className="text-base font-semibold text-white">{card.title}</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-300">{card.description}</p>
+      </div>
+      <div className="min-w-0 pt-1">
         <OverviewMiniChart id={`profile-card-${card.kind}`} values={chartValues} />
       </div>
     </div>
-    <h2 className="mt-3 text-base font-semibold text-white">{card.title}</h2><p className="mt-1 min-h-10 text-xs leading-5 text-slate-300">{card.description}</p>
     <div className="mt-3 grid grid-cols-2 gap-2">{card.metrics.slice(0, 2).map((metric) => <div key={metric.label} className="rounded-md border border-slate-700/80 bg-slate-950/80 p-3"><p className="text-lg font-semibold tabular-nums text-white">{formatMetric(metric)}</p><p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500">{metric.label}</p><p className={`mt-1 truncate text-[10px] font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}%` : "No prior comparable"}</p></div>)}</div>
     <p className="mt-2 truncate text-[10px] text-slate-500">{card.comparison_label ?? "Latest available period"}</p>
     <span className="mt-3 inline-flex text-sm font-semibold text-emerald-200">View {card.title} -&gt;</span>
@@ -337,8 +340,7 @@ function OverviewMiniChart({ id, values }: { id: string; values: number[] }) {
   const min = Math.min(...values, max);
   const range = Math.max(max - min, max * 0.18, 1);
   const plotTop = 6;
-  const plotBottom = 54;
-  const barWidth = 120 / Math.max(values.length * 1.55, 1);
+  const plotBottom = 56;
   const points = values.map((value, index) => {
     const x = (index / Math.max(values.length - 1, 1)) * 118 + 1;
     const y = plotBottom - ((value - min) / range) * (plotBottom - plotTop);
