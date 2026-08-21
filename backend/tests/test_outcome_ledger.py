@@ -356,7 +356,9 @@ def test_hydrated_demo_seeder_populates_matured_outcomes_and_skips_reruns():
         assert nvda["outcomes"]["30D"]["status"] == "matured"
         assert nvda["outcomes"]["30D"]["return_pct"] == 8.6
         assert nvda["outcomes"]["30D"]["directionally_correct"] is True
+        assert nvda["outcomes"]["30D"]["raw_directionally_correct"] is True
         assert nvda["outcomes"]["30D"]["spy_return_pct"] == 3.4
+        assert nvda["outcomes"]["30D"]["grading_basis"] == "vs_spy"
 
 
 def test_outcome_ledger_summary_calculates_cached_headline_metrics():
@@ -397,7 +399,7 @@ def test_outcome_ledger_summary_calculates_cached_headline_metrics():
         assert summary["accuracy"] == 50
         assert summary["average_directional_return"] == 0.0
         assert summary["average_spy_return"] == 1.0
-        assert summary["average_directional_excess_return"] == -1.0
+        assert summary["average_directional_excess_return"] == 0.0
         assert summary["benchmarked_events"] == 2
         assert summary["matured_horizon_count"] == 2
         assert bands["70-74"] == {"band": "70-74", "accuracy": 100, "count": 1}

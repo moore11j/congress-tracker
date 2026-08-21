@@ -32,6 +32,17 @@ The Outcome Ledger should measure every directional event at:
 
 This lets Walnut discover where the current score actually works best. The working hypothesis is that cross-source confirmation should have predictive value around 30D to 90D, but the ledger should prove or disprove that.
 
+## Public Grading Rule
+
+The main public accuracy statistic should grade directional calls against SPY, not just against zero return:
+
+- Bullish is correct when the ticker outperforms SPY over the horizon.
+- Bearish is correct when the ticker underperforms SPY over the horizon.
+- Raw up/down correctness remains a diagnostic field, but it is not the headline public score.
+- Mixed and neutral are watch states. They do not open, close, or grade directional outcome events.
+- A direct bullish-to-bearish or bearish-to-bullish flip closes the old directional event.
+- Missing entry, target, or benchmark prices are excluded from scored accuracy.
+
 ## Future Horizon Models
 
 Once enough events mature, Walnut can build empirically derived horizon models:

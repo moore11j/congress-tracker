@@ -577,6 +577,16 @@ def _directionally_correct(direction: str, raw_return_pct: float | None) -> bool
     return directional_return > 0
 
 
+def _benchmark_directionally_correct(direction: str, raw_return_pct: float | None, benchmark_return_pct: float | None) -> bool | None:
+    if raw_return_pct is None or benchmark_return_pct is None:
+        return None
+    excess_return = round(raw_return_pct - benchmark_return_pct, 2)
+    directional_excess = _directional_return_pct(direction, excess_return)
+    if directional_excess is None:
+        return None
+    return directional_excess > 0
+
+
 def _score_band_for_score(score: int | None) -> str:
     value = int(score or 0)
     if value >= 80:
@@ -691,6 +701,11 @@ def _snapshot_outcomes(
         spy_target = price_lookup("SPY", target_date)
         if spy_entry is not None and spy_target is not None:
             spy_return_pct = _price_return_pct(spy_entry.close, spy_target.close)
+        excess_return_pct = (
+            round(raw_return_pct - spy_return_pct, 2)
+            if raw_return_pct is not None and spy_return_pct is not None
+            else None
+        )
         outcomes[label] = {
             "status": "matured",
             "horizon_days": days,
@@ -699,17 +714,12 @@ def _snapshot_outcomes(
             "price_date": str(price_row.date)[:10],
             "return_pct": raw_return_pct,
             "directional_return_pct": _directional_return_pct(snapshot.direction, raw_return_pct),
-            "directionally_correct": _directionally_correct(snapshot.direction, raw_return_pct),
+            "raw_directionally_correct": _directionally_correct(snapshot.direction, raw_return_pct),
             "spy_return_pct": spy_return_pct,
-            "excess_return_pct": round(raw_return_pct - spy_return_pct, 2)
-            if raw_return_pct is not None and spy_return_pct is not None
-            else None,
-            "directional_excess_return_pct": _directional_return_pct(
-                snapshot.direction,
-                round(raw_return_pct - spy_return_pct, 2)
-                if raw_return_pct is not None and spy_return_pct is not None
-                else None,
-            ),
+            "excess_return_pct": excess_return_pct,
+            "directional_excess_return_pct": _directional_return_pct(snapshot.direction, excess_return_pct),
+            "directionally_correct": _benchmark_directionally_correct(snapshot.direction, raw_return_pct, spy_return_pct),
+            "grading_basis": "vs_spy" if spy_return_pct is not None else "missing_benchmark",
         }
     return outcomes
 
@@ -985,10 +995,11 @@ def outcome_ledger_summary(
         for outcome in matured_for_horizon
         if isinstance(outcome.get("directional_return_pct"), (int, float))
         and isinstance(outcome.get("spy_return_pct"), (int, float))
+        and isinstance(outcome.get("directional_excess_return_pct"), (int, float))
     ]
     average_directional_return = _average(directional_returns)
-    average_benchmarked_directional_return = _average([float(outcome["directional_return_pct"]) for outcome in benchmarked])
     average_spy_return = _average([float(outcome["spy_return_pct"]) for outcome in benchmarked])
+    average_directional_excess_return = _average([float(outcome["directional_excess_return_pct"]) for outcome in benchmarked])
     accuracy = (
         round((sum(1 for outcome in directional_for_horizon if outcome.get("directionally_correct") is True) / len(directional_for_horizon)) * 100)
         if directional_for_horizon
@@ -1032,9 +1043,7 @@ def outcome_ledger_summary(
         "accuracy": accuracy,
         "average_directional_return": round(average_directional_return, 2) if average_directional_return is not None else None,
         "average_spy_return": round(average_spy_return, 2) if average_spy_return is not None else None,
-        "average_directional_excess_return": round(average_benchmarked_directional_return - average_spy_return, 2)
-        if average_benchmarked_directional_return is not None and average_spy_return is not None
-        else None,
+        "average_directional_excess_return": round(average_directional_excess_return, 2) if average_directional_excess_return is not None else None,
         "benchmarked_events": len(benchmarked),
         "matured_horizon_count": matured_horizon_count,
         "score_bands": score_band_rows,
