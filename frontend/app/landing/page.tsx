@@ -1113,7 +1113,7 @@ export default async function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to trade like a pro. Cancel anytime.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to invest like a pro. Cancel anytime.</h2>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
