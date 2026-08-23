@@ -8,6 +8,8 @@ const lineChart = read("components/charts/WalnutLineChart.tsx");
 const container = read("components/charts/WalnutChartContainer.tsx");
 const performance = read("components/charts/chartPerformanceUtils.ts");
 const backtest = read("components/backtesting/BacktestChart.tsx");
+const performanceChart = read("components/member/PerformanceChart.tsx");
+const allocationChart = read("components/institution/HoldingsAllocationChart.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -28,4 +30,14 @@ test("nearest lookup is logarithmic and backtesting adopts the shared chart laye
   assert.match(backtest, /WalnutLineChart/);
   assert.match(backtest, /WalnutChartContainer/);
   assert.match(backtest, /Active tickers/);
+});
+
+test("profile charts use the shared interaction performance rules without dropping profile-specific data", () => {
+  assert.match(performanceChart, /nearestChartIndex/);
+  assert.match(performanceChart, /requestAnimationFrame/);
+  assert.match(performanceChart, /touchAction: "pan-y"/);
+  assert.match(performanceChart, /chart\.eventMarkers/);
+  assert.match(allocationChart, /onPointerDown/);
+  assert.match(allocationChart, /touchAction: "manipulation"/);
+  assert.match(allocationChart, /walnut-chart-entry/);
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type PointerEvent } from "react";
 import type { InstitutionHoldingItem } from "@/lib/api";
 import { cardClassName } from "@/lib/styles";
 import { formatDateShort } from "@/lib/format";
@@ -54,8 +54,19 @@ export function HoldingsAllocationChart({
     [holdings, holdingsCount, totalReportedValue],
   );
   const [activeKey, setActiveKey] = useState<string | null>(chartSlices[0]?.key ?? null);
+  const [revealed, setRevealed] = useState(false);
   const activeSlice = chartSlices.find((slice) => slice.key === activeKey) ?? chartSlices[0] ?? null;
   const hasChart = chartSlices.length >= 2;
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setRevealed(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const activateSliceFromPointer = (event: PointerEvent<SVGPathElement>, key: string) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setActiveKey(key);
+  };
 
   return (
     <section className={`${cardClassName} min-w-0 overflow-hidden`} data-testid="institution-holdings-allocation">
@@ -90,8 +101,10 @@ export function HoldingsAllocationChart({
               role="img"
               aria-label="Reported holdings allocation by reported value"
               className="aspect-square w-full max-w-[280px] drop-shadow-[0_18px_35px_rgba(15,23,42,0.35)]"
+              style={{ touchAction: "manipulation" }}
             >
               <circle cx="50" cy="50" r="41" fill="rgba(15, 23, 42, 0.45)" />
+              <g className="walnut-chart-entry" style={{ opacity: revealed ? 1 : 0, transformOrigin: "50% 50%", transform: revealed ? "scale(1)" : "scale(.96)", transition: "opacity 260ms ease-out, transform 360ms cubic-bezier(.22,1,.36,1)" }}>
               {chartSlices.map((slice) => (
                 <path
                   key={slice.key}
@@ -104,10 +117,13 @@ export function HoldingsAllocationChart({
                   opacity={activeSlice?.key === slice.key ? 1 : 0.78}
                   onMouseEnter={() => setActiveKey(slice.key)}
                   onFocus={() => setActiveKey(slice.key)}
+                  onPointerDown={(event) => activateSliceFromPointer(event, slice.key)}
+                  onClick={() => setActiveKey(slice.key)}
                 >
                   <title>{sliceTooltip(slice)}</title>
                 </path>
               ))}
+              </g>
               <circle cx="50" cy="50" r="25" fill="rgba(2, 6, 23, 0.92)" />
               <text x="50" y="47" textAnchor="middle" className="fill-slate-200 text-[6px] font-semibold">
                 Top {Math.min(TOP_HOLDINGS_LIMIT, holdingsCount ?? TOP_HOLDINGS_LIMIT)}
@@ -141,6 +157,7 @@ export function HoldingsAllocationChart({
                 className="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-left transition hover:border-white/20 hover:bg-slate-900/55 focus:outline-none focus:ring-2 focus:ring-sky-300/40"
                 onMouseEnter={() => setActiveKey(slice.key)}
                 onFocus={() => setActiveKey(slice.key)}
+                onClick={() => setActiveKey(slice.key)}
               >
                 <span className="h-3 w-3 flex-none rounded-full" style={{ backgroundColor: slice.color }} aria-hidden="true" />
                 <span className="min-w-0 flex-1">

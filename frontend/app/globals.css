@@ -153,6 +153,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .walnut-chart-entry {
+    transition: none !important;
+    transform: none !important;
+  }
+
   .terminal-loading-progress-fill {
     animation: none;
     width: 72%;

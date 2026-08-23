@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type { BenchmarkPerformancePoint, MemberPerformancePoint } from "@/lib/api";
+import { nearestChartIndex } from "@/components/charts/chartPerformanceUtils";
 import { getSvgLocalPoint } from "@/lib/chartPointer";
 
 type Metric = "return" | "alpha";
@@ -182,6 +183,29 @@ export function PerformanceChart({
   events = [],
 }: Props) {
   const [activeReadout, setActiveReadout] = useState<ActiveReadout | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const frameRef = useRef<number | null>(null);
+  const pendingReadout = useRef<ActiveReadout | null>(null);
+  const ignoreClickRef = useRef(false);
+  const revealClipId = useId().replace(/:/g, "");
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setRevealed(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
 
   const chart = useMemo(() => {
     const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
@@ -284,7 +308,7 @@ export function PerformanceChart({
       events: MemberPortfolioEventMarker[];
     }>;
 
-    return { innerWidth, xFor, points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
+    return { innerWidth, xFor, xValues: points.map((point) => point.x), points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
   }, [memberSeries, benchmarkSeries, metric, events]);
 
   if (!chart) return null;
@@ -299,49 +323,61 @@ export function PerformanceChart({
   const activeDate = dateKey(activePoint?.point.asof_date);
   const activeEvents = activeDate ? chart.eventGroups.get(activeDate) ?? [] : [];
 
-  const handleMove = (event: MouseEvent<SVGSVGElement>) => {
-    if (activeReadout?.pinned) return;
+  type ChartPointerEvent = MouseEvent<SVGSVGElement> | PointerEvent<SVGSVGElement>;
+  const readoutForEvent = (event: ChartPointerEvent, pinned: boolean): ActiveReadout | null => {
     const local = getSvgLocalPoint(event.currentTarget, event.clientX, event.clientY);
-    if (!local) {
-      setActiveReadout(null);
-      return;
-    }
+    if (!local) return null;
     const cursorX = clamp(local.x, 0, WIDTH);
     const cursorY = clamp(local.y, 0, HEIGHT);
     const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, cursorX));
-    let nearestIndex = 0;
-    let nearestDistance = Math.abs(chart.points[0].x - clampedX);
-    for (let index = 1; index < chart.points.length; index += 1) {
-      const distance = Math.abs(chart.points[index].x - clampedX);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestIndex = index;
-      }
-    }
-    setActiveReadout({ index: nearestIndex, pinned: false, cursorX, cursorY });
+    return { index: nearestChartIndex(chart.xValues, clampedX), pinned, cursorX, cursorY };
   };
 
-  const handleClick = (event: MouseEvent<SVGSVGElement>) => {
-    const local = getSvgLocalPoint(event.currentTarget, event.clientX, event.clientY);
-    if (!local) {
-      setActiveReadout(null);
+  const handleMove = (event: ChartPointerEvent) => {
+    const next = readoutForEvent(event, false);
+    if (!next) {
+      setActiveReadout((current) => current?.pinned ? current : null);
       return;
     }
-    const cursorX = clamp(local.x, 0, WIDTH);
-    const cursorY = clamp(local.y, 0, HEIGHT);
-    const clampedX = Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, cursorX));
-    let nearestIndex = 0;
-    let nearestDistance = Math.abs(chart.points[0].x - clampedX);
-    for (let index = 1; index < chart.points.length; index += 1) {
-      const distance = Math.abs(chart.points[index].x - clampedX);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestIndex = index;
-      }
+    pendingReadout.current = next;
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const pending = pendingReadout.current;
+      if (!pending) return;
+      setActiveReadout((current) => current?.pinned || current?.index === pending.index ? current : pending);
+    });
+  };
+
+  const handleClick = (event: ChartPointerEvent) => {
+    if (ignoreClickRef.current) {
+      ignoreClickRef.current = false;
+      return;
     }
+    const next = readoutForEvent(event, true);
+    if (!next) return setActiveReadout(null);
     setActiveReadout((current) =>
-      current?.pinned && current.index === nearestIndex ? null : { index: nearestIndex, pinned: true, cursorX, cursorY },
+      current?.pinned && current.index === next.index ? null : next,
     );
+  };
+
+  const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    if (event.pointerType === "mouse") return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    ignoreClickRef.current = true;
+    const next = readoutForEvent(event, true);
+    if (next) setActiveReadout(next);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
+    if (event.key === "Escape") return setActiveReadout(null);
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setActiveReadout((current) => {
+      const index = Math.max(0, Math.min(chart.points.length - 1, (current?.index ?? 0) + (event.key === "ArrowLeft" ? -1 : 1)));
+      const point = chart.points[index];
+      return { index, pinned: true, cursorX: point.x, cursorY: point.y };
+    });
   };
 
   const handleReadoutClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -377,11 +413,18 @@ export function PerformanceChart({
       <div className="relative">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="h-[320px] w-full"
-          onMouseMove={handleMove}
-          onMouseLeave={() => setActiveReadout((current) => (current?.pinned ? current : null))}
+          className="h-[320px] w-full outline-none"
+          style={{ touchAction: "pan-y" }}
+          role="img"
+          aria-label={`${label} performance chart`}
+          tabIndex={0}
+          onPointerMove={handleMove}
+          onPointerDown={handlePointerDown}
+          onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveReadout((current) => (current?.pinned ? current : null)); }}
           onClick={handleClick}
+          onKeyDown={handleKeyDown}
         >
+          <defs><clipPath id={revealClipId}><rect x={MARGIN.left} y={MARGIN.top} height={HEIGHT - MARGIN.top - MARGIN.bottom} width={revealed || reducedMotion ? chart.innerWidth : 0} style={{ transition: reducedMotion ? "none" : "width 560ms cubic-bezier(.22,1,.36,1)" }} /></clipPath></defs>
           {chart.yTicks.map((tick) => (
             <g key={`y-${tick.y}`}>
               <line x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
@@ -403,12 +446,13 @@ export function PerformanceChart({
             );
           })}
 
-          {metric === "return" && chart.benchmarkPath ? (
-            <polyline fill="none" stroke="rgba(226,232,240,0.78)" strokeDasharray="6 4" strokeWidth="2" points={chart.benchmarkPath} />
-          ) : null}
-          <polyline fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" points={chart.profilePath} />
+          <g clipPath={`url(#${revealClipId})`}>
+            {metric === "return" && chart.benchmarkPath ? (
+              <polyline fill="none" stroke="rgba(226,232,240,0.78)" strokeDasharray="6 4" strokeWidth="2" points={chart.benchmarkPath} />
+            ) : null}
+            <polyline fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" points={chart.profilePath} />
 
-          {chart.eventMarkers.map((marker) => (
+            {chart.eventMarkers.map((marker) => (
             <g key={`event-${marker.date}`}>
               <line x1={marker.x} x2={marker.x} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke="rgba(226,232,240,0.13)" strokeWidth="1" />
               <path
@@ -428,7 +472,8 @@ export function PerformanceChart({
                 </text>
               ) : null}
             </g>
-          ))}
+            ))}
+          </g>
 
           {activePoint ? (
             <>
@@ -440,6 +485,7 @@ export function PerformanceChart({
             </>
           ) : null}
         </svg>
+        <span className="sr-only">Use left and right arrow keys to inspect values. Touch and drag across the chart to scrub.</span>
 
         {activePoint && activeReadout ? (
           <div
