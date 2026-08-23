@@ -5,6 +5,8 @@ import { LatestProfileActivity } from "@/components/profiles/LatestProfileActivi
 import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
 import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { WalnutActivityBarChart } from "@/components/charts/WalnutActivityBarChart";
+import { WalnutProfileSparkline } from "@/components/charts/WalnutProfileSparkline";
+import { WalnutSectorMovementBars } from "@/components/profiles/WalnutSectorMovementBars";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
@@ -329,7 +331,7 @@ function OverviewCard({ card }: { card: ProfilesSummaryResponse["cards"][number]
         <p className="mt-1 text-xs leading-5 text-slate-300">{card.description}</p>
       </div>
       <div className="min-w-0 pt-1">
-        <OverviewMiniChart id={`profile-card-${card.kind}`} values={chartValues} />
+        <WalnutProfileSparkline id={`profile-card-${card.kind}`} values={chartValues} />
       </div>
     </div>
     <div className="mt-3 grid grid-cols-2 gap-2">{card.metrics.slice(0, 2).map((metric) => <div key={metric.label} className="rounded-md border border-slate-700/80 bg-slate-950/80 p-3"><p className="text-lg font-semibold tabular-nums text-white">{formatMetric(metric)}</p><p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500">{metric.label}</p><p className={`mt-1 truncate text-[10px] font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}%` : "No prior comparable"}</p></div>)}</div>
@@ -338,25 +340,6 @@ function OverviewCard({ card }: { card: ProfilesSummaryResponse["cards"][number]
   </Link>;
 }
 
-function OverviewMiniChart({ id, values }: { id: string; values: number[] }) {
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, max);
-  const range = Math.max(max - min, max * 0.18, 1);
-  const plotTop = 6;
-  const plotBottom = 56;
-  const points = values.map((value, index) => {
-    const x = (index / Math.max(values.length - 1, 1)) * 118 + 1;
-    const y = plotBottom - ((value - min) / range) * (plotBottom - plotTop);
-    return `${x},${Math.max(plotTop, Math.min(plotBottom, y))}`;
-  });
-  const area = `M 1 ${plotBottom} L ${points.join(" L ")} L 119 ${plotBottom} Z`;
-
-  return <svg viewBox="0 0 120 60" preserveAspectRatio="none" className="h-14 w-full overflow-visible" aria-hidden="true">
-    <defs><linearGradient id={`${id}-area`} x1="0" x2="0" y1="0" y2="1"><stop stopColor="#42d3a7" stopOpacity=".42" /><stop offset="1" stopColor="#42d3a7" stopOpacity=".04" /></linearGradient></defs>
-    <path d={area} fill={`url(#${id}-area)`} />
-    <polyline points={points.join(" ")} fill="none" stroke="#78f3c3" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-  </svg>;
-}
 
 function Panel({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: ReactNode; children: ReactNode }) {
   return <section className="min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/65 p-4 shadow-[0_18px_50px_rgba(0,0,0,.18)]"><div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-sm font-semibold uppercase tracking-[.15em] text-white">{title}</h2>{subtitle ? <p className="mt-1 text-xs text-slate-400">{subtitle}</p> : null}</div>{action ? <span className="text-[10px] font-semibold uppercase tracking-[.12em] text-slate-400">{action}</span> : null}</div><div className="mt-4">{children}</div></section>;
@@ -444,7 +427,7 @@ function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }
   </div>;
 }
 
-function TopMovingSectors({ rows }: { rows: ProfileSectorMover[] }) { if (!rows.length) return <p className="flex h-44 items-center justify-center text-sm text-slate-400">No sector-mapped activity is available.</p>; const max = Math.max(...rows.map((row) => row.current_value), 1); return <div><div className="space-y-2.5">{rows.map((row) => <div key={row.sector} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_3.5rem] items-center gap-2 text-xs"><span className="truncate text-slate-300">{row.sector}</span><div className="flex h-2.5 overflow-hidden rounded-sm bg-slate-800" title={`${row.current_value.toLocaleString()} recent activities vs ${row.previous_value.toLocaleString()} prior activities`}>{row.segments.map((segment) => segment.value ? <span key={segment.type} style={{ width: `${(segment.value / max) * 100}%`, backgroundColor: PROFILE_COLORS[segment.type] }} /> : null)}</div><span className={`text-right font-semibold tabular-nums ${row.change >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{row.change >= 0 ? "+" : ""}{formatNumber(row.change)}</span></div>)}</div><div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{["Congress", "Insider", "Institution", "Department"].map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category}</span>)}</div></div>; }
+function TopMovingSectors({ rows }: { rows: ProfileSectorMover[] }) { return <WalnutSectorMovementBars rows={rows} />; }
 
 function Donut({ values, colors, label, value, labels = [] }: { values: number[]; colors: string[]; label: string; value: string; labels?: string[] }) { return <WalnutDonutChart segments={values.map((item, index) => ({ label: labels[index] ?? `Segment ${index + 1}`, value: item, color: colors[index] ?? "#94a3b8" }))} value={value} label={label} ariaLabel={label} />; }
 

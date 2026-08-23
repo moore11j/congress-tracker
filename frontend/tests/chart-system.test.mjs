@@ -17,6 +17,8 @@ const activityBarChart = read("components/charts/WalnutActivityBarChart.tsx");
 const memberAnalytics = read("components/member/MemberAnalyticsClient.tsx");
 const insiderAnalytics = read("components/insider/InsiderAnalyticsClient.tsx");
 const outcomes = read("components/outcomes/OutcomeLedgerClient.tsx");
+const profileSparkline = read("components/charts/WalnutProfileSparkline.tsx");
+const sectorMovementBars = read("components/profiles/WalnutSectorMovementBars.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -88,4 +90,15 @@ test("outcome charts support keyboard, touch, and focus inspection", () => {
   assert.match(outcomes, /touchAction: "pan-y"/);
   assert.match(outcomes, /ArrowLeft/);
   assert.match(outcomes, /Event outcomes by date and return/);
+});
+
+test("profile-card sparklines and moving-sector bars reveal and inspect on demand", () => {
+  assert.match(profileSparkline, /requestAnimationFrame/);
+  assert.match(profileSparkline, /onPointerMove/);
+  assert.match(profileSparkline, /Illustrative recent trend/);
+  assert.match(sectorMovementBars, /requestAnimationFrame/);
+  assert.match(sectorMovementBars, /aria-pressed/);
+  assert.match(sectorMovementBars, /onPointerEnter/);
+  assert.match(dashboard, /WalnutProfileSparkline/);
+  assert.match(dashboard, /WalnutSectorMovementBars/);
 });
