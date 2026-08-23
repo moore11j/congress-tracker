@@ -309,14 +309,15 @@ function MetricCards({ metrics, comparison, flavor, insiderMonthlyActivity = [],
   return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{metrics.map((metric) => {
     const chartPoints = flavor === "insiders" ? insiderMetricSeries(metric.label, insiderMonthlyActivity) : flavor === "institutions" ? institutionalMetricSeries(metric.label, institutionalActivity) : [];
     const tone = /(sell|decrease)/.test(metric.label.toLowerCase()) ? "red" : "green";
+    const expandedChart = flavor === "institutions";
     return <div key={metric.label} className="min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/65 p-4">
       <p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">{metric.label}</p>
-      <div className={chartPoints.length ? "mt-3 grid grid-cols-[minmax(0,.72fr)_minmax(5rem,.88fr)] items-end gap-3" : "mt-3"}>
+      <div className={chartPoints.length && !expandedChart ? "mt-3 grid grid-cols-[minmax(0,.72fr)_minmax(5rem,.88fr)] items-end gap-3" : "mt-3"}>
         <div className="min-w-0">
           <p className="truncate text-2xl font-semibold tabular-nums text-white">{formatMetric(metric)}</p>
           <p className={`mt-2 text-xs font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}% vs ${comparison}` : "Latest available period"}</p>
         </div>
-        {chartPoints.length ? <MetricSparkline id={`${flavor ?? "profile"}-metric-${metric.label}`} points={chartPoints} tone={tone} /> : null}
+        {chartPoints.length ? <div className={expandedChart ? "mt-4" : undefined}><MetricSparkline id={`${flavor ?? "profile"}-metric-${metric.label}`} points={chartPoints} tone={tone} expanded={expandedChart} /></div> : null}
       </div>
     </div>;
   })}</section>;
@@ -342,7 +343,7 @@ function institutionalMetricSeries(label: string, rows: InstitutionalActivityPer
   })).filter((point) => Number.isFinite(point.value));
 }
 
-function MetricSparkline({ points, tone }: { id: string; points: Array<{ label: string; value: number }>; tone: "green" | "red" }) { return points.length < 2 ? null : <CongressMetricTrend points={points} tone={tone} />; }
+function MetricSparkline({ points, tone, expanded = false }: { id: string; points: Array<{ label: string; value: number }>; tone: "green" | "red"; expanded?: boolean }) { return points.length < 2 ? null : <CongressMetricTrend points={points} tone={tone} expanded={expanded} />; }
 
 function DataTable({ title, rows, columns }: TableSpec) { return <Panel title={title}>{!rows.length ? <p className="py-8 text-sm text-slate-400">No database records are available for this selection.</p> : <div className="overflow-x-auto"><table className="min-w-[38rem] w-full text-left text-xs"><thead className="border-b border-white/10 text-[10px] uppercase tracking-[.13em] text-slate-500"><tr>{columns.map(([, label]) => <th key={label} className="px-2 py-2.5 font-semibold">{label}</th>)}</tr></thead><tbody className="divide-y divide-white/5">{rows.slice(0, 10).map((row, index) => <tr key={index}>{columns.map(([key, , format]) => <td key={key} className="max-w-44 truncate px-2 py-2.5 text-slate-300">{renderCell(row, key, format)}</td>)}</tr>)}</tbody></table></div>}</Panel>; }
 

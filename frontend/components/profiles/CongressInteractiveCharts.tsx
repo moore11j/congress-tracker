@@ -13,9 +13,9 @@ export function CongressSnapshotChart({ points }: { points: Array<{ label: strin
   return <WalnutLineChart data={points.map((point) => ({ label: point.label }))} series={[{ key: "congress-trades", label: "Trades", color: "#55e3b0", areaColor: "rgba(66,211,167,.22)", values: points.map((point) => point.value) }]} ariaLabel="Monthly Congress trade count trend" height={192} minValue={0} valueFormat="number" />;
 }
 
-export function CongressMetricTrend({ points, tone }: { points: Array<{ label: string; value: number }>; tone: "green" | "red" | "blue" }) {
+export function CongressMetricTrend({ points, tone, expanded = false }: { points: Array<{ label: string; value: number }>; tone: "green" | "red" | "blue"; expanded?: boolean }) {
   const color = tone === "red" ? "#fb7185" : tone === "blue" ? "#60a5fa" : "#55e3b0";
-  return <WalnutLineChart data={points.map((point) => ({ label: point.label }))} series={[{ key: "metric", label: "Reported value", color, areaColor: `${color}33`, values: points.map((point) => point.value) }]} ariaLabel="Congress metric trend" height={190} width={360} axisFontSize={12} valueFormat="number" />;
+  return <WalnutLineChart data={points.map((point) => ({ label: point.label }))} series={[{ key: "metric", label: "Reported value", color, areaColor: `${color}33`, values: points.map((point) => point.value) }]} ariaLabel="Reported metric trend" height={expanded ? 220 : 190} width={expanded ? 420 : 360} axisFontSize={expanded ? 16 : 12} valueFormat="number" />;
 }
 
 export function InsiderSnapshotTrend({ points }: { points: Array<{ label: string; netValue: number; trades: number }> }) {

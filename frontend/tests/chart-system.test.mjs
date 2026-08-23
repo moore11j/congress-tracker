@@ -117,7 +117,7 @@ test("profile-card sparklines and moving-sector bars reveal and inspect on deman
 test("Congress dashboard snapshot, metric, exposure, and sector charts are interactive", () => {
   assert.match(congressInteractiveCharts, /WalnutLineChart/);
   assert.match(congressInteractiveCharts, /minValue=\{0\}/);
-  assert.match(congressInteractiveCharts, /height=\{190\} width=\{360\} axisFontSize=\{12\}/);
+  assert.match(congressInteractiveCharts, /height=\{expanded \? 220 : 190\} width=\{expanded \? 420 : 360\} axisFontSize=\{expanded \? 16 : 12\}/);
   assert.match(congressInteractiveCharts, /requestAnimationFrame/);
   assert.match(congressInteractiveCharts, /aria-pressed/);
   assert.match(congressInteractiveCharts, /onPointerEnter/);
@@ -140,7 +140,8 @@ test("insider dashboard reuses the interactive snapshot, metric, and sector char
 
 test("institutional dashboard reuses animated metric, exposure, and net-position primitives", () => {
   assert.match(dashboard, /institutionalMetricSeries/);
-  assert.match(dashboard, /CongressMetricTrend points={points}/);
+  assert.match(dashboard, /expandedChart = flavor === "institutions"/);
+  assert.match(dashboard, /expanded=\{expandedChart\}/);
   assert.match(dashboard, /CongressSectorExposure rows={rows}/);
   assert.match(dashboard, /CongressNetSectorBars rows={movements.map/);
 });
