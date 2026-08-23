@@ -72,6 +72,7 @@ test("dashboard pie charts share an accessible interactive donut primitive", () 
   assert.match(donutChart, /touchAction: "manipulation"/);
   assert.match(donutChart, /ArrowLeft/);
   assert.match(donutChart, /setPointerCapture/);
+  assert.match(donutChart, /size = 144/);
   assert.match(dashboard, /WalnutDonutChart/);
   assert.match(governmentDashboard, /WalnutDonutChart/);
 });
@@ -124,6 +125,9 @@ test("Congress dashboard snapshot, metric, exposure, and sector charts are inter
   assert.match(dashboard, /CongressMetricTrend/);
   assert.match(dashboard, /CongressSectorExposure/);
   assert.match(dashboard, /CongressNetSectorBars/);
+  assert.doesNotMatch(congressInteractiveCharts, /Net activity \{money\(active\.current_value\)\}/);
+  assert.match(dashboard, /size=\{176\}/);
+  assert.match(dashboard, /size=\{160\}/);
 });
 
 test("insider dashboard reuses the interactive snapshot, metric, and sector chart primitives", () => {

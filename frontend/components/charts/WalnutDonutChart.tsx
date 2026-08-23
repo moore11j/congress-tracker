@@ -4,7 +4,7 @@ import { useEffect, useState, type KeyboardEvent, type PointerEvent } from "reac
 
 type Segment = { label: string; value: number; color: string };
 
-export function WalnutDonutChart({ segments, value, label, ariaLabel }: { segments: Segment[]; value: string; label: string; ariaLabel: string }) {
+export function WalnutDonutChart({ segments, value, label, ariaLabel, size = 144 }: { segments: Segment[]; value: string; label: string; ariaLabel: string; size?: number }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -36,7 +36,7 @@ export function WalnutDonutChart({ segments, value, label, ariaLabel }: { segmen
   };
 
   return (
-    <div className="relative mx-auto h-36 w-36">
+    <div className="relative mx-auto shrink-0" style={{ height: size, width: size }}>
       <svg viewBox="0 0 42 42" className="h-full w-full -rotate-90 outline-none" role="img" aria-label={ariaLabel} tabIndex={0} style={{ touchAction: "manipulation" }} onKeyDown={selectWithKeyboard} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
         {segments.map((segment, index) => {
           const dash = total ? (Math.max(0, segment.value) / total) * 100 : 0;
