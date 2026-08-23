@@ -87,5 +87,6 @@ def test_similar_setups_uses_only_live_point_in_time_source_snapshots():
     assert payload["horizons"]["30D"]["sample_size"] == 5
     assert payload["horizons"]["7D"]["sample_size"] == 5
     guest = public_similar_historical_setups(payload, include_details=False)
+    assert set(guest["horizons"]) == {"7D", "30D"}
     assert guest["top_matches"] == []
     assert guest["access"]["locked"] is True

@@ -386,13 +386,13 @@ def public_similar_historical_setups(payload: dict[str, Any], *, include_details
     if include_details:
         return result
     horizons = result.get("horizons") if isinstance(result.get("horizons"), dict) else {}
-    preview = horizons.get("30D") if isinstance(horizons.get("30D"), dict) else {}
     result["horizons"] = {
-        "30D": {
-            "status": preview.get("status", "building"),
+        horizon: {
+            "status": (preview := horizons.get(horizon) if isinstance(horizons.get(horizon), dict) else {}).get("status", "building"),
             "sample_size": preview.get("sample_size", 0),
             "directional_accuracy_pct": preview.get("directional_accuracy_pct"),
         }
+        for horizon in DEFAULT_HORIZONS
     }
     result["top_matches"] = []
     result["access"] = {"locked": True, "required_plan": "premium"}
