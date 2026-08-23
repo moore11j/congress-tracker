@@ -101,6 +101,8 @@ test("profile-card sparklines and moving-sector bars reveal and inspect on deman
   assert.match(sectorMovementBars, /requestAnimationFrame/);
   assert.match(sectorMovementBars, /aria-pressed/);
   assert.match(sectorMovementBars, /onPointerEnter/);
+  assert.match(sectorMovementBars, /Top mover:/);
+  assert.match(sectorMovementBars, /min-h-9/);
   assert.match(dashboard, /WalnutProfileSparkline/);
   assert.match(dashboard, /WalnutSectorMovementBars/);
 });
