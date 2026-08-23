@@ -2775,9 +2775,9 @@ function EditorPanel({
         {draft.scheduled_at ? <Metric label="Scheduled publish" value={formatDateTime(draft.scheduled_at)} /> : null}
         {draft.data_as_of ? <Metric label="Data as of" value={formatDateTime(draft.data_as_of)} /> : null}
         {draft.earnings_period_used ? <Metric label="Earnings period" value={draft.earnings_period_used} /> : null}
-        {false ? <ResearchReadinessPanel draft={draft} /> : null}
-        {false ? <PublicationReadinessPanel draft={draft} /> : null}
-        {false ? <SourceDiscoveryDiagnostics draft={draft} /> : null}
+        {false ? <ResearchReadinessPanel draft={activeDraft} /> : null}
+        {false ? <PublicationReadinessPanel draft={activeDraft} /> : null}
+        {false ? <SourceDiscoveryDiagnostics draft={activeDraft} /> : null}
         {draft.validation?.source_link_count === 0 ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
             This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.
