@@ -1065,7 +1065,7 @@ def _most_traded_event_stocks(db: Session, clauses: list[Any], *, limit: int = 1
         )
         .where(*clauses, Event.symbol.is_not(None))
         .group_by(func.upper(Event.symbol))
-        .order_by(func.sum(side_value).desc().nullslast())
+        .order_by(func.count(Event.id).desc(), func.sum(side_value).desc().nullslast())
         .limit(limit)
     ).all()
     company_names = _company_names(db, [row.symbol for row in rows])
