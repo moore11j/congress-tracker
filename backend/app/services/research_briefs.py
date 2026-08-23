@@ -6684,7 +6684,7 @@ def _institutional_activity_fallback_article(
     top_reducers = [item for item in ownership.get("top_reducers") or [] if isinstance(item, dict) and holder_name(item)][:4]
     top_holders = [item for item in ownership.get("top_holders_in_walnut_set") or [] if isinstance(item, dict) and holder_name(item)][:4]
     activity_count = increased + new_positions
-    quick_answer = f"Yes. {reporting_period} filings point to net accumulation in {symbol}: {activity_count} institutions increased or opened positions, while {reduced + exits} reduced or exited."
+    quick_answer = f"Yes. The latest filings show institutions are accumulating {reader_company} stock right now in the reported {reporting_period} snapshot: {activity_count} institutions increased or opened positions, while {reduced + exits} reduced or exited."
     if net_value != "not available":
         quick_answer += f" The reported net value change was {net_value}."
     if filing_date:
@@ -6720,7 +6720,9 @@ def _institutional_activity_fallback_article(
         if business_facts
         else f"The ownership case rests on the reported position changes, not a generic market verdict on {reader_company}."
     )
-    preview = quick_answer
+    preview = f"{reporting_period} filings show {activity_count} institutions increased or opened {symbol} positions, while {reduced + exits} reduced or exited."
+    if net_value != "not available":
+        preview += f" The reported net value change was {net_value}."
     if top_accumulators:
         preview += f" {holder_name(top_accumulators[0])} was the largest named addition in the tracked filings."
     sections = [
