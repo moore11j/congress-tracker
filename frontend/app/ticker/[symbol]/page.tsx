@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type CrossSourceDivergenceSource, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -1295,35 +1295,74 @@ function divergenceToneClass(state: CrossSourceDivergence["state"]): string {
   return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
 }
 
+function divergenceSurfaceClass(state: CrossSourceDivergence["state"]): string {
+  if (state === "strong_divergence") return "border-rose-300/35 bg-rose-300/[0.035]";
+  if (state === "moderate_divergence") return "border-amber-300/35 bg-amber-300/[0.035]";
+  if (state === "mild_divergence") return "border-sky-300/35 bg-sky-300/[0.035]";
+  return "border-emerald-300/40 bg-emerald-300/[0.035]";
+}
+
+function divergenceSourceIcon(key: string): IntelligenceIconKind {
+  if (key === "fundamentals") return "fundamentals";
+  if (key === "price_volume") return "price-volume";
+  if (key === "institutional_activity") return "people";
+  if (key === "government_contracts") return "government-contract";
+  if (key === "congress") return "congress";
+  if (key === "insiders") return "insider-buy";
+  if (key === "options_flow") return "flow";
+  return "signals";
+}
+
+function DivergenceSourceChips({ sources, tone }: { sources: CrossSourceDivergenceSource[]; tone: "bullish" | "bearish" }) {
+  if (!sources.length) return <p className="mt-2 text-sm text-slate-300">No material {tone} evidence</p>;
+  const chipClass = tone === "bullish"
+    ? "border-emerald-300/25 bg-emerald-300/[0.07] text-emerald-50"
+    : "border-rose-300/25 bg-rose-300/[0.07] text-rose-50";
+  const iconClass = tone === "bullish" ? "text-emerald-300" : "text-rose-300";
+  return <div className="mt-2 flex flex-wrap gap-2">{sources.map((source) => (
+    <span key={source.key} className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs font-semibold ${chipClass}`}>
+      <IntelligenceIcon kind={divergenceSourceIcon(source.key)} className={`h-4 w-4 ${iconClass}`} />
+      {source.label}
+    </span>
+  ))}</div>;
+}
+
 function CrossSourceDivergenceCard({ divergence }: { divergence?: CrossSourceDivergence | null }) {
   if (!divergence) return null;
   const showBreakdown = divergence.source_breakdown_available && (
     (divergence.bullish_sources?.length ?? 0) > 0 || (divergence.bearish_sources?.length ?? 0) > 0
   );
+  const bullishSources = divergence.bullish_sources ?? [];
+  const bearishSources = divergence.bearish_sources ?? [];
+  const totalDirectionalSources = Math.max(divergence.bullish_source_count + divergence.bearish_source_count, 1);
+  const bullishShare = Math.round((divergence.bullish_source_count / totalDirectionalSources) * 100);
   return (
-    <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
+    <section className={`mt-5 rounded-lg border px-5 py-4 ${divergenceSurfaceClass(divergence.state)}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Cross-Source Divergence</p>
           <p className="mt-2 text-sm leading-6 text-slate-300">{divergence.explanation ?? divergence.public_explanation}</p>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${divergenceToneClass(divergence.state)}`}>{divergence.label}</span>
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${divergenceToneClass(divergence.state)}`}>{divergence.state === "aligned" ? "✓" : null}{divergence.label}</span>
       </div>
       {showBreakdown ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.04] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">Bullish</p>
-            <p className="mt-2 text-sm text-slate-200">{(divergence.bullish_sources ?? []).map((source) => source.label).join(" · ") || "No material bullish evidence"}</p>
+          <div className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.045] p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">Bullish evidence</p>
+            <DivergenceSourceChips sources={bullishSources} tone="bullish" />
           </div>
-          <div className="rounded-lg border border-rose-300/15 bg-rose-300/[0.04] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-200">Bearish</p>
-            <p className="mt-2 text-sm text-slate-200">{(divergence.bearish_sources ?? []).map((source) => source.label).join(" · ") || "No material bearish evidence"}</p>
+          <div className="rounded-lg border border-rose-300/30 bg-rose-300/[0.035] p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-200">Bearish evidence</p>
+            <DivergenceSourceChips sources={bearishSources} tone="bearish" />
           </div>
         </div>
       ) : null}
-      <p className="mt-4 text-xs text-slate-500">
-        {divergence.active_source_count} active source{divergence.active_source_count === 1 ? "" : "s"} evaluated · {divergence.methodology_version}
-      </p>
+      <div className="mt-4 grid grid-cols-[auto_minmax(4rem,1fr)_auto] items-center gap-3 text-[11px] font-medium">
+        <span className="text-slate-400">Evidence balance</span>
+        <div className="flex h-1 overflow-hidden rounded-full bg-slate-800"><span className="bg-emerald-400" style={{ width: `${bullishShare}%` }} /><span className="bg-rose-400" style={{ width: `${100 - bullishShare}%` }} /></div>
+        <span className="tabular-nums text-slate-400"><span className="text-emerald-300">{divergence.bullish_source_count} bullish</span> <span className="px-1 text-slate-600">|</span> <span className="text-rose-300">{divergence.bearish_source_count} bearish</span></span>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">{divergence.active_source_count} active sources evaluated · {divergence.methodology_version}</p>
     </section>
   );
 }
@@ -1335,15 +1374,15 @@ function historicalPercent(value: number | null | undefined): string {
 
 function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSetups | null }) {
   if (!setups) return null;
+  const sevenDay = setups.horizons?.["7D"];
   const thirtyDay = setups.horizons?.["30D"];
-  const ninetyDay = setups.horizons?.["90D"];
   const building = setups.status === "building" || setups.status === "unavailable";
   const locked = Boolean(setups.access?.locked);
   return (
-    <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
+    <section className="mt-5 rounded-lg border border-violet-300/25 bg-violet-300/[0.025] px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Similar Historical Setups</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">Similar Historical Setups</p>
           <p className="mt-2 text-sm leading-6 text-slate-300">
             {setups.status === "unavailable"
               ? "Similar setups need at least two active directional sources in the current evidence profile."
@@ -1352,19 +1391,25 @@ function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSet
               : `Walnut found ${setups.match_count} prior confirmation event${setups.match_count === 1 ? "" : "s"} with a similar evidence profile.`}
           </p>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${building ? "border-sky-300/30 bg-sky-300/10 text-sky-100" : setups.status === "limited" ? "border-amber-300/30 bg-amber-300/10 text-amber-100" : "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"}`}>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${building ? "border-violet-300/30 bg-violet-300/10 text-violet-100" : setups.status === "limited" ? "border-amber-300/30 bg-amber-300/10 text-amber-100" : "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"}`}>
           {building ? "Building" : setups.status === "limited" ? "Early sample" : "Historical evidence"}
         </span>
       </div>
       {setups.current_setup ? (
-        <p className="mt-3 text-xs text-slate-500">Current profile: score {setups.current_setup.score} · {setups.current_setup.direction} · {setups.current_setup.divergence ?? "Divergence unavailable"} · {setups.current_setup.active_source_count} active sources</p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-xs text-slate-400">
+          <span className="font-semibold uppercase tracking-[0.12em] text-slate-500">Current profile</span>
+          <span>Score <strong className="text-slate-100">{setups.current_setup.score}</strong></span>
+          <span className="text-emerald-300">● {setups.current_setup.direction}</span>
+          <span className="text-emerald-300">● {setups.current_setup.divergence ?? "Divergence unavailable"}</span>
+          <span>{setups.current_setup.active_source_count} active sources</span>
+        </div>
       ) : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {(["30D", "90D"] as const).map((horizon) => {
-          const metrics = horizon === "30D" ? thirtyDay : ninetyDay;
+        {(["7D", "30D"] as const).map((horizon) => {
+          const metrics = horizon === "30D" ? thirtyDay : sevenDay;
           return (
-            <div key={horizon} className="rounded-lg border border-white/10 bg-slate-950/50 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon}</p>
+            <div key={horizon} className="rounded-lg border border-white/10 bg-slate-950/55 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon} outcome</p>
               {metrics?.status === "building" ? (
                 <p className="mt-2 text-sm text-slate-400">{metrics.sample_size} matured comparable outcome{metrics.sample_size === 1 ? "" : "s"} so far.</p>
               ) : (
@@ -1386,19 +1431,19 @@ function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSet
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most similar events</p>
           <div className="mt-3 grid gap-2">
             {(setups.top_matches ?? []).slice(0, 3).map((match) => {
-              const outcome = match.outcomes?.["90D"] ?? match.outcomes?.["30D"];
-              return <div key={`${match.ticker}-${match.market_date}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-sm">
-                <div>
+              const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
+              return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-1 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
+                <div className="min-w-0">
                   <p className="font-semibold text-slate-100">{match.ticker} <span className="font-normal text-slate-500">· {formatDateShort(match.market_date)}</span></p>
-                  {match.reasons?.length ? <p className="mt-1 text-xs text-slate-500">Similar: {match.reasons.join(" · ")}</p> : null}
+                  {match.reasons?.length ? <p className="mt-1 truncate text-xs text-slate-500">Similar: {match.reasons.join(" · ")}</p> : null}
                 </div>
-                <p className="text-slate-300">Score {match.score} · {match.direction} · {outcome?.status === "matured" ? `Directional ${historicalPercent(outcome.directional_return_pct)}` : "Outcome pending"}</p>
+                <p className="text-xs font-medium text-slate-300 sm:text-right">Score {match.score} · {match.direction} · {outcome?.status === "matured" ? `Directional ${historicalPercent(outcome.directional_return_pct)}` : "Outcome pending"}</p>
               </div>;
             })}
           </div>
         </div>
       ) : null}
-      <p className="mt-4 text-xs text-slate-500">{setups.methodology_version} · Live prospective snapshots only</p>
+      <p className="mt-4 text-xs text-slate-500">{setups.methodology_version} · Live prospective snapshots only · 7D and 30D outcomes</p>
     </section>
   );
 }

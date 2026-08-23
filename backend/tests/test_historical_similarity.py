@@ -36,8 +36,8 @@ def test_similar_setups_uses_only_live_point_in_time_source_snapshots():
         db.add_all(
             [
                 PriceCache(symbol="SPY", date=market_day.isoformat(), close=100.0),
+                PriceCache(symbol="SPY", date=(market_day + timedelta(days=7)).isoformat(), close=100.5),
                 PriceCache(symbol="SPY", date=(market_day + timedelta(days=30)).isoformat(), close=101.0),
-                PriceCache(symbol="SPY", date=(market_day + timedelta(days=90)).isoformat(), close=102.0),
             ]
         )
         for index in range(6):
@@ -47,6 +47,7 @@ def test_similar_setups_uses_only_live_point_in_time_source_snapshots():
             db.flush()
             db.add_all(
                 [
+                    PriceCache(symbol=symbol, date=(market_day + timedelta(days=7)).isoformat(), close=102.0),
                     PriceCache(symbol=symbol, date=(market_day + timedelta(days=30)).isoformat(), close=106.0),
                     PriceCache(symbol=symbol, date=(market_day + timedelta(days=90)).isoformat(), close=112.0),
                 ]
@@ -84,7 +85,7 @@ def test_similar_setups_uses_only_live_point_in_time_source_snapshots():
     assert payload["match_count"] == 5
     assert payload["horizons"]["30D"]["status"] == "limited"
     assert payload["horizons"]["30D"]["sample_size"] == 5
-    assert payload["horizons"]["90D"]["sample_size"] == 5
+    assert payload["horizons"]["7D"]["sample_size"] == 5
     guest = public_similar_historical_setups(payload, include_details=False)
     assert guest["top_matches"] == []
     assert guest["access"]["locked"] is True

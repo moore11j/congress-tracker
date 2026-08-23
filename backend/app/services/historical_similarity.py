@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ConfirmationScoreSnapshot
 from app.services.confirmation_score import SOURCE_LABELS, SOURCE_ORDER
-from app.services.cross_source_divergence import build_cross_source_divergence
+from app.services.cross_source_divergence import CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION, build_cross_source_divergence
 from app.services.outcome_ledger import (
     _directional_side,
     _prefetch_outcome_price_rows,
@@ -26,7 +26,8 @@ from app.services.outcome_ledger import (
 )
 
 
-HISTORICAL_SIMILARITY_METHODOLOGY_VERSION = "similarity-v1"
+HISTORICAL_SIMILARITY_METHODOLOGY_VERSION = "similarity-v2"
+DEFAULT_HORIZONS = ("7D", "30D")
 MIN_PREVIEW_SAMPLE = 5
 STANDARD_SAMPLE = 20
 MAX_CANDIDATES = 5000
@@ -62,7 +63,7 @@ def historical_similarity_methodology() -> dict[str, Any]:
         "minimum_similarity": MIN_SIMILARITY,
         "minimum_preview_sample": MIN_PREVIEW_SAMPLE,
         "standard_sample": STANDARD_SAMPLE,
-        "horizons": ["30D", "90D"],
+        "horizons": list(DEFAULT_HORIZONS),
     }
 
 
@@ -151,7 +152,7 @@ def _source_vector(sources: dict[str, dict[str, Any]]) -> tuple[dict[str, float]
 def _snapshot_divergence(snapshot: ConfirmationScoreSnapshot, sources: dict[str, dict[str, Any]]) -> dict[str, Any]:
     contributions = _loads(snapshot.source_contributions_json, {})
     persisted = contributions.get("__cross_source_divergence") if isinstance(contributions, dict) else None
-    if isinstance(persisted, dict) and persisted.get("methodology_version"):
+    if isinstance(persisted, dict) and persisted.get("methodology_version") == CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION:
         return persisted
     # Safe fallback for older *live* source snapshots: it only reads fields
     # captured in that snapshot, never today’s ticker state.
@@ -294,7 +295,7 @@ def _empty_payload(current: dict[str, Any] | None, *, status: str = "building") 
         "methodology_version": HISTORICAL_SIMILARITY_METHODOLOGY_VERSION,
         "current_setup": current,
         "match_count": 0,
-        "horizons": {horizon: _horizon_metrics([], horizon) for horizon in ("30D", "90D")},
+        "horizons": {horizon: _horizon_metrics([], horizon) for horizon in DEFAULT_HORIZONS},
         "top_matches": [],
         "sample_warning": "Historical coverage is building from live point-in-time confirmation snapshots.",
         "cohort_type": "live_prospective_only",
@@ -346,7 +347,7 @@ def build_similar_historical_setups(
     price_rows = _prefetch_outcome_price_rows(db, [item["snapshot"] for item in matches])
     for match in matches:
         match["outcomes"] = _snapshot_outcomes(db, match["snapshot"], price_rows_by_symbol=price_rows)
-    horizons = {horizon: _horizon_metrics(matches, horizon) for horizon in ("30D", "90D")}
+    horizons = {horizon: _horizon_metrics(matches, horizon) for horizon in DEFAULT_HORIZONS}
     thirty_day_state = horizons["30D"]["status"]
     top_matches = []
     for match in matches[:5]:
@@ -359,7 +360,7 @@ def build_similar_historical_setups(
                 "direction": _directional_side(snapshot.direction),
                 "similarity": match["similarity"],
                 "reasons": match["reasons"],
-                "outcomes": {key: match["outcomes"].get(key) for key in ("30D", "90D")},
+                "outcomes": {key: match["outcomes"].get(key) for key in DEFAULT_HORIZONS},
             }
         )
     return {

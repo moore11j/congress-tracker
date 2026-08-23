@@ -39,6 +39,15 @@ def test_aligned_sources_are_not_reported_as_divergent():
     assert result["methodology_version"] == CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION
 
 
+def test_capped_directional_analyst_evidence_is_included():
+    result = build_cross_source_divergence(
+        _bundle(fundamentals=_source("bullish", 14), analysts=_source("bullish", 2), price_volume=_source("bullish", 11))
+    )
+    assert result["state"] == "aligned"
+    assert result["bullish_source_count"] == 3
+    assert {source["key"] for source in result["bullish_sources"]} == {"fundamentals", "analysts", "price_volume"}
+
+
 def test_fast_slow_conflict_is_classified_deterministically():
     result = build_cross_source_divergence(
         _bundle(

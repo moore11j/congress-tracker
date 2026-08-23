@@ -12,8 +12,11 @@ from typing import Any
 from app.services.confirmation_score import MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS, SOURCE_LABELS, SOURCE_ORDER
 
 
-CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION = "divergence-v1"
-MIN_MATERIAL_CONTRIBUTION = 5.0
+CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION = "divergence-v2"
+# Analysts and other capped-but-directional sources can contribute two points
+# to confirmation. They remain real, current evidence and belong in the
+# agreement view; this floor excludes only de minimis one-point noise.
+MIN_MATERIAL_CONTRIBUTION = 2.0
 MILD_CONFLICT_RATIO = 0.12
 MODERATE_CONFLICT_RATIO = 0.25
 STRONG_CONFLICT_RATIO = 0.42
