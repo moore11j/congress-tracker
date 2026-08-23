@@ -7536,6 +7536,8 @@ def _build_ticker_context_bundle(
             "top_members": profile_payload.get("top_members") if isinstance(profile_payload.get("top_members"), list) else [],
             "trades": profile_payload.get("trades") if isinstance(profile_payload.get("trades"), list) else [],
             "confirmation_score_bundle": confirmation_score_bundle,
+            "cross_source_divergence": divergence,
+            "similar_historical_setups": similar_historical_setups,
             "options_flow_summary": confirmation_context.get("options_flow_summary"),
             "why_now": profile_payload.get("why_now"),
             "signal_freshness": signal_freshness,

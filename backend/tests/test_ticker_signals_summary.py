@@ -1836,6 +1836,8 @@ def test_ticker_context_bundle_uses_segment_entitlements_and_canonical_context(m
         assert premium["source_entitlements"]["signals"]["locked"] is False
     assert premium["source_entitlements"]["institutional_activity"]["locked"] is True
     assert premium["confirmation_score_bundle"]["sources"]["institutional_activity"]["locked"] is True
+    assert premium["cross_source_divergence"] is not None
+    assert premium["similar_historical_setups"] is not None
     assert premium["signals_summary"]["items"][0]["smart_score"] == 88
     serialized = json.dumps(premium).lower()
     assert '"provider"' not in serialized
