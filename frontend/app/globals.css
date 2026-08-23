@@ -147,6 +147,11 @@ body {
   }
 }
 
+@keyframes walnut-chart-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .terminal-loading-progress-fill {
     animation: none;
