@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionalActivityPeriod, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileDirectory, ProfileMetric, ProfileSectorMover, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
 import { LatestProfileActivity } from "@/components/profiles/LatestProfileActivity";
+import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
+import { formatChartCompact } from "@/components/charts/chartFormatters";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
@@ -427,21 +429,7 @@ function SectorBreakdown({ rows }: { rows: ProfileSectorPeriod[] }) { const labe
 
 function TrendChart({ series }: { series: Array<{ label: string; value: number }> }) {
   if (!series.length) return <p className="flex h-40 items-center justify-center text-sm text-slate-400">No time-series records are available.</p>;
-  const max = Math.max(...series.map((point) => point.value), 1);
-  const ticks = [max, max / 2, 0];
-  const plotTop = 8;
-  const plotBottom = 92;
-  const chartPoints = series.map((point, index) => ({
-    ...point,
-    x: (index / Math.max(series.length - 1, 1)) * 100,
-    y: plotBottom - (Math.max(point.value, 0) / max) * (plotBottom - plotTop),
-  }));
-  const points = chartPoints.map((point) => `${point.x},${point.y}`).join(" ");
-  // This SVG is intentionally wide, so use a narrow x offset to keep the
-  // on-screen markers compact and diamond-shaped rather than stretched.
-  const diamondPoints = (x: number, y: number) => `${x},${y - 2.3} ${x + .44},${y} ${x},${y + 2.3} ${x - .44},${y}`;
-
-  return <div className="min-w-0"><div className="grid grid-cols-[3.8rem_minmax(0,1fr)] gap-3"><div className="flex h-40 flex-col justify-between py-1 text-right text-[10px] font-semibold tabular-nums text-slate-500">{ticks.map((tick) => <span key={tick}>{formatAxisValue(tick)}</span>)}</div><div className="min-w-0"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full overflow-hidden"><defs><linearGradient id="profile-trend" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#42d3a7" stopOpacity=".35" /><stop offset="1" stopColor="#42d3a7" stopOpacity="0" /></linearGradient></defs>{[plotTop, (plotTop + plotBottom) / 2, plotBottom].map((y) => <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}<polyline points={`0,${plotBottom} ${points} 100,${plotBottom}`} fill="url(#profile-trend)" stroke="none" /><polyline points={points} fill="none" stroke="#55e3b0" strokeWidth="1.7" vectorEffect="non-scaling-stroke" />{chartPoints.map((point) => <polygon key={`${point.label}-snapshot-diamond`} points={diamondPoints(point.x, point.y)} fill="#55e3b0" stroke="#07101f" strokeWidth=".35" vectorEffect="non-scaling-stroke" />)}</svg><div className="mt-2 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}>{series.map((point) => <span key={point.label} className="truncate text-center">{point.label}</span>)}</div></div></div></div>;
+  return <WalnutLineChart data={series.map((point) => ({ label: point.label }))} series={[{ key: "profile-trend", label: "Reported value", color: "#55e3b0", areaColor: "rgba(66,211,167,.18)", values: series.map((point) => point.value) }]} ariaLabel="Profile reported value trend" height={160} formatValue={formatChartCompact} />;
 }
 
 function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }) {

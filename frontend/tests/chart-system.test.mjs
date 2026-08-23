@@ -10,6 +10,8 @@ const performance = read("components/charts/chartPerformanceUtils.ts");
 const backtest = read("components/backtesting/BacktestChart.tsx");
 const performanceChart = read("components/member/PerformanceChart.tsx");
 const allocationChart = read("components/institution/HoldingsAllocationChart.tsx");
+const dashboard = read("components/profiles/EnhancedProfileDashboards.tsx");
+const governmentDashboard = read("components/profiles/EnhancedGovernmentDashboard.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -42,4 +44,11 @@ test("profile charts use the shared interaction performance rules without droppi
   assert.match(allocationChart, /onPointerDown/);
   assert.match(allocationChart, /touchAction: "manipulation"/);
   assert.match(allocationChart, /walnut-chart-entry/);
+});
+
+test("profile and government snapshot trends use the shared interactive area chart", () => {
+  assert.match(lineChart, /areaColor/);
+  assert.match(dashboard, /WalnutLineChart/);
+  assert.match(governmentDashboard, /WalnutLineChart/);
+  assert.match(governmentDashboard, /if \(!bars\)/);
 });

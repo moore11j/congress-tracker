@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { chartBounds, nearestChartIndex } from "@/components/charts/chartPerformanceUtils";
 
-export type WalnutLineSeries = { key: string; label: string; color: string; dashed?: boolean; values: readonly number[] };
+export type WalnutLineSeries = { key: string; label: string; color: string; dashed?: boolean; areaColor?: string; values: readonly number[] };
 export type WalnutLinePoint = { label: string };
 
 type Props = {
@@ -52,6 +52,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
     const paths = series.map((item) => ({
       ...item,
       path: data.map((_, index) => `${xValues[index]},${yFor(item.values[index] ?? bounds.min)}`).join(" "),
+      area: item.areaColor ? `${data.map((_, index) => `${xValues[index]},${yFor(item.values[index] ?? bounds.min)}`).join(" ")} ${xValues[xValues.length - 1]},${height - MARGIN.bottom} ${xValues[0]},${height - MARGIN.bottom}` : null,
       yFor,
     }));
     const yTicks = Array.from({ length: 5 }, (_, index) => ({
@@ -98,6 +99,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
         {chart.yTicks.map((tick) => <g key={tick.y}><line x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" /><text x={WIDTH - MARGIN.right + 8} y={tick.y + 4} className="fill-slate-300/55 text-[11px] tabular-nums">{formatValue(tick.value)}</text></g>)}
         {chart.tickIndexes.map((index) => <g key={index}><line x1={chart.xValues[index]} x2={chart.xValues[index]} y1={MARGIN.top} y2={height - MARGIN.bottom} stroke="rgba(148,163,184,0.08)" /><text x={chart.xValues[index]} y={height - 10} textAnchor="middle" className="fill-slate-400 text-[11px]">{data[index].label}</text></g>)}
         <g clipPath={`url(#${clipId})`} style={{ clipPath: reducedMotion || revealed ? "inset(0 0 0 0)" : "inset(0 100% 0 0)", transition: reducedMotion ? "none" : "clip-path 560ms cubic-bezier(.22,1,.36,1)" }}>
+          {chart.paths.map((item) => item.area ? <polygon key={`${item.key}-area`} points={item.area} fill={item.areaColor} /> : null)}
           {chart.paths.map((item) => <polyline key={item.key} fill="none" stroke={item.color} strokeDasharray={item.dashed ? "6 4" : undefined} strokeWidth={item.dashed ? 2 : 2.8} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" points={item.path} />)}
         </g>
         {active ? <><line x1={active.x} x2={active.x} y1={MARGIN.top} y2={height - MARGIN.bottom} stroke="rgba(167,243,208,0.3)" strokeWidth="1.2" />{chart.paths.map((item) => <circle key={item.key} cx={active.x} cy={item.yFor(item.values[active.index] ?? 0)} r={item.dashed ? 3.2 : 4} fill={item.color} stroke="rgba(2,6,23,.8)" strokeWidth="1.2" />)}</> : null}
