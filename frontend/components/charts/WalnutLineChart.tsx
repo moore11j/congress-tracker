@@ -12,6 +12,9 @@ type Props = {
   series: readonly WalnutLineSeries[];
   ariaLabel: string;
   height?: number;
+  width?: number;
+  minValue?: number;
+  axisFontSize?: number;
   formatValue?: (value: number) => string;
   valueFormat?: "number" | "currencyCompact";
   renderTooltip?: (index: number) => ReactNode;
@@ -20,7 +23,7 @@ type Props = {
 const WIDTH = 1000;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
 
-export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatValue, valueFormat, renderTooltip }: Props) {
+export function WalnutLineChart({ data, series, ariaLabel, height = 320, width = WIDTH, minValue, axisFontSize = 11, formatValue, valueFormat, renderTooltip }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const frame = useRef<number | null>(null);
   const latestIndex = useRef<number | null>(null);
@@ -28,8 +31,9 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
   const [revealed, setRevealed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const clipId = useId().replace(/:/g, "");
-  const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
-  const innerHeight = height - MARGIN.top - MARGIN.bottom;
+  const margin = width === WIDTH ? MARGIN : { top: 14, right: 92, bottom: 34, left: 12 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
   const displayedValue = formatValue ?? (valueFormat === "currencyCompact" ? formatChartCompact : valueFormat === "number" ? (value: number) => new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value) : (value: number) => String(value));
 
   useEffect(() => {
@@ -49,9 +53,11 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
     if (data.length < 2 || series.length === 0) return null;
     const values = series.flatMap((item) => item.values).filter(Number.isFinite);
     if (values.length === 0) return null;
-    const bounds = chartBounds(values);
-    const xValues = data.map((_, index) => MARGIN.left + (index / Math.max(data.length - 1, 1)) * innerWidth);
-    const yFor = (value: number) => MARGIN.top + innerHeight - ((value - bounds.min) / bounds.range) * innerHeight;
+    const padded = chartBounds(values);
+    const valueMax = Math.max(...values);
+    const bounds = minValue === undefined ? padded : (() => { const minimum = minValue; const maximum = Math.max(valueMax, minimum + 1); const padding = Math.max((maximum - minimum) * 0.08, 1); const max = maximum + padding; return { min: minimum, max, range: max - minimum }; })();
+    const xValues = data.map((_, index) => margin.left + (index / Math.max(data.length - 1, 1)) * innerWidth);
+    const yFor = (value: number) => margin.top + innerHeight - ((value - bounds.min) / bounds.range) * innerHeight;
     const paths = series.map((item) => ({
       ...item,
       path: data.map((_, index) => `${xValues[index]},${yFor(item.values[index] ?? bounds.min)}`).join(" "),
@@ -59,19 +65,19 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
       yFor,
     }));
     const yTicks = Array.from({ length: 5 }, (_, index) => ({
-      y: MARGIN.top + (index / 4) * innerHeight,
+      y: margin.top + (index / 4) * innerHeight,
       value: bounds.max - (index / 4) * bounds.range,
     }));
     const tickIndexes = [...new Set([0, Math.floor((data.length - 1) / 3), Math.floor(((data.length - 1) * 2) / 3), data.length - 1])];
     return { xValues, yFor, paths, yTicks, tickIndexes };
-  }, [data, innerHeight, innerWidth, series]);
+  }, [data, innerHeight, innerWidth, margin.left, margin.top, minValue, series]);
 
   const scheduleIndex = useCallback((clientX: number) => {
     const svg = svgRef.current;
     if (!svg || !chart) return;
     const rect = svg.getBoundingClientRect();
-    const localX = MARGIN.left + ((clientX - rect.left) / Math.max(rect.width, 1)) * innerWidth;
-    const index = nearestChartIndex(chart.xValues, Math.max(MARGIN.left, Math.min(WIDTH - MARGIN.right, localX)));
+    const localX = ((clientX - rect.left) / Math.max(rect.width, 1)) * width;
+    const index = nearestChartIndex(chart.xValues, Math.max(margin.left, Math.min(width - margin.right, localX)));
     if (index < 0 || index === latestIndex.current) return;
     latestIndex.current = index;
     if (frame.current !== null) return;
@@ -79,7 +85,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
       frame.current = null;
       setActiveIndex(latestIndex.current);
     });
-  }, [chart, innerWidth]);
+  }, [chart, margin.left, margin.right, width]);
 
   const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
     if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId);
@@ -96,18 +102,18 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, formatV
         setActiveIndex((current) => Math.max(0, Math.min(data.length - 1, (current ?? 0) + (event.key === "ArrowLeft" ? -1 : 1))));
       }
     }}>
-      <svg ref={svgRef} viewBox={`0 0 ${WIDTH} ${height}`} className="w-full outline-none" style={{ height, touchAction: "pan-y" }} role="img" aria-label={ariaLabel} tabIndex={0}
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} className="w-full outline-none" style={{ height, touchAction: "pan-y" }} role="img" aria-label={ariaLabel} tabIndex={0}
         onPointerDown={handlePointerDown} onPointerMove={(event) => scheduleIndex(event.clientX)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
-        <defs><clipPath id={clipId}><rect x={MARGIN.left} y={MARGIN.top} width={innerWidth} height={innerHeight} /></clipPath></defs>
-        {chart.yTicks.map((tick) => <g key={tick.y}><line x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" /><text x={WIDTH - MARGIN.right + 8} y={tick.y + 4} className="fill-slate-300/55 text-[11px] tabular-nums">{displayedValue(tick.value)}</text></g>)}
-        {chart.tickIndexes.map((index) => <g key={index}><line x1={chart.xValues[index]} x2={chart.xValues[index]} y1={MARGIN.top} y2={height - MARGIN.bottom} stroke="rgba(148,163,184,0.08)" /><text x={chart.xValues[index]} y={height - 10} textAnchor="middle" className="fill-slate-400 text-[11px]">{data[index].label}</text></g>)}
+        <defs><clipPath id={clipId}><rect x={margin.left} y={margin.top} width={innerWidth} height={innerHeight} /></clipPath></defs>
+        {chart.yTicks.map((tick) => <g key={tick.y}><line x1={margin.left} x2={width - margin.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" /><text x={width - margin.right + 8} y={tick.y + 4} className="fill-slate-300/65 tabular-nums" fontSize={axisFontSize}>{displayedValue(tick.value)}</text></g>)}
+        {chart.tickIndexes.map((index) => <g key={index}><line x1={chart.xValues[index]} x2={chart.xValues[index]} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.08)" /><text x={chart.xValues[index]} y={height - 10} textAnchor="middle" className="fill-slate-400" fontSize={axisFontSize}>{data[index].label}</text></g>)}
         <g clipPath={`url(#${clipId})`} style={{ clipPath: reducedMotion || revealed ? "inset(0 0 0 0)" : "inset(0 100% 0 0)", transition: reducedMotion ? "none" : "clip-path 560ms cubic-bezier(.22,1,.36,1)" }}>
           {chart.paths.map((item) => item.area ? <polygon key={`${item.key}-area`} points={item.area} fill={item.areaColor} /> : null)}
           {chart.paths.map((item) => <polyline key={item.key} fill="none" stroke={item.color} strokeDasharray={item.dashed ? "6 4" : undefined} strokeWidth={item.dashed ? 2 : 2.8} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" points={item.path} />)}
         </g>
-        {active ? <><line x1={active.x} x2={active.x} y1={MARGIN.top} y2={height - MARGIN.bottom} stroke="rgba(167,243,208,0.3)" strokeWidth="1.2" />{chart.paths.map((item) => <circle key={item.key} cx={active.x} cy={item.yFor(item.values[active.index] ?? 0)} r={item.dashed ? 3.2 : 4} fill={item.color} stroke="rgba(2,6,23,.8)" strokeWidth="1.2" />)}</> : null}
+        {active ? <><line x1={active.x} x2={active.x} y1={margin.top} y2={height - margin.bottom} stroke="rgba(167,243,208,0.3)" strokeWidth="1.2" />{chart.paths.map((item) => <circle key={item.key} cx={active.x} cy={item.yFor(item.values[active.index] ?? 0)} r={item.dashed ? 3.2 : 4} fill={item.color} stroke="rgba(2,6,23,.8)" strokeWidth="1.2" />)}</> : null}
       </svg>
-      {active ? <div className="pointer-events-none absolute top-4 z-10 w-56 rounded-2xl border border-white/10 bg-slate-950/95 px-3 py-3 text-sm shadow-xl" style={{ left: `clamp(12px, calc(${((active.x / WIDTH) * 100).toFixed(2)}% + 12px), calc(100% - 15rem))` }}>{renderTooltip ? renderTooltip(active.index) : <DefaultTooltip label={data[active.index].label} series={series} index={active.index} formatValue={displayedValue} />}</div> : null}
+      {active ? <div className="pointer-events-none absolute top-4 z-10 w-56 rounded-2xl border border-white/10 bg-slate-950/95 px-3 py-3 text-sm shadow-xl" style={{ left: `clamp(12px, calc(${((active.x / width) * 100).toFixed(2)}% + 12px), calc(100% - 15rem))` }}>{renderTooltip ? renderTooltip(active.index) : <DefaultTooltip label={data[active.index].label} series={series} index={active.index} formatValue={displayedValue} />}</div> : null}
       <span className="sr-only">Use left and right arrow keys to inspect chart values. Touch and drag across the chart to scrub values.</span>
     </div>
   );

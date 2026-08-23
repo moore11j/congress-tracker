@@ -28,6 +28,8 @@ test("shared line chart batches pointer work and supports touch, keyboard, and r
   assert.match(lineChart, /prefers-reduced-motion/);
   assert.match(lineChart, /ArrowLeft/);
   assert.match(lineChart, /clip-path 560ms/);
+  assert.match(lineChart, /minValue/);
+  assert.match(lineChart, /\* width/);
 });
 
 test("shared chart container reserves space and lazy-renders near the viewport", () => {
@@ -113,6 +115,8 @@ test("profile-card sparklines and moving-sector bars reveal and inspect on deman
 
 test("Congress dashboard snapshot, metric, exposure, and sector charts are interactive", () => {
   assert.match(congressInteractiveCharts, /WalnutLineChart/);
+  assert.match(congressInteractiveCharts, /minValue=\{0\}/);
+  assert.match(congressInteractiveCharts, /height=\{190\} width=\{360\} axisFontSize=\{12\}/);
   assert.match(congressInteractiveCharts, /requestAnimationFrame/);
   assert.match(congressInteractiveCharts, /aria-pressed/);
   assert.match(congressInteractiveCharts, /onPointerEnter/);
