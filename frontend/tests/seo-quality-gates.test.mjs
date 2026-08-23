@@ -43,12 +43,27 @@ test("segmented app sitemaps consume controlled whitelist sources", () => {
     assert.match(source, /sitemapUrlset/);
     assert.doesNotMatch(source, /const PATHS|const TICKERS/);
   }
-  for (const routePath of sitemapRoutes.slice(3)) {
+  for (const routePath of [
+    "app/sitemap-institutions.xml/route.ts",
+    "app/sitemap-research.xml/route.ts",
+  ]) {
     const source = read(routePath);
     assert.match(source, /seoPilotPages/);
     assert.match(source, /sitemapUrlset/);
     assert.doesNotMatch(source, /const PATHS|const TICKERS/);
   }
+  const departments = read("app/sitemap-departments.xml/route.ts");
+  assert.match(departments, /getDepartments/);
+  assert.match(departments, /contractCount > 0/);
+  assert.match(departments, /linkedTickerCount > 0/);
+  assert.match(departments, /sitemapUrlset/);
+  assert.doesNotMatch(departments, /const PATHS|const TICKERS/);
+
+  const comparisons = read("app/sitemap-comparisons.xml/route.ts");
+  assert.match(comparisons, /comparisonPageList/);
+  assert.match(comparisons, /comparisonPath/);
+  assert.match(comparisons, /https:\/\/walnutmarkets\.com/);
+  assert.doesNotMatch(comparisons, /https:\/\/app\.walnutmarkets\.com/);
 });
 
 test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pages", () => {

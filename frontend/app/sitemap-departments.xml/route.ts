@@ -1,15 +1,36 @@
 import { NextResponse } from "next/server";
+import { getDepartments } from "@/lib/api";
 import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
 
 const APP_URL = "https://app.walnutmarkets.com";
+const DEFAULT_LASTMOD = "2026-08-01";
 
-export const dynamic = "force-static";
+export const dynamic = "force-dynamic";
+export const revalidate = 1800;
 
-export function GET() {
-  return new NextResponse(sitemapUrlset(APP_URL, seoPilotPages.departments), {
+export async function GET() {
+  const pages = await getDepartments()
+    .then((response) => response.items
+      .filter((item) => item.slug && item.contractCount > 0 && item.linkedTickerCount > 0)
+      .map((item) => ({
+        type: "department" as const,
+        path: `/departments/${encodeURIComponent(item.slug)}`,
+        lastmod: safeDepartmentLastmod(item.latestAwardDate),
+        rationale: "Public department profile with mapped government-contract exposure.",
+      })))
+    .catch(() => seoPilotPages.departments);
+
+  return new NextResponse(sitemapUrlset(APP_URL, pages), {
     headers: {
       "content-type": "application/xml; charset=utf-8",
       "cache-control": "public, max-age=3600, s-maxage=86400",
     },
   });
+}
+
+function safeDepartmentLastmod(value: string | null | undefined) {
+  const candidate = String(value ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return DEFAULT_LASTMOD;
+  const today = new Date().toISOString().slice(0, 10);
+  return candidate <= today ? candidate : DEFAULT_LASTMOD;
 }
