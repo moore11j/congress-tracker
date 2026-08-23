@@ -119,7 +119,7 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
 export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectionProps) {
   const [generatedBriefs, setGeneratedBriefs] = useState<ResearchBriefCard[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
-  const showAll = mode === "archive";
+  const isArchive = mode === "archive";
   const briefs = useMemo(() => {
     const staticBriefs = getPublishedResearchBriefs().filter((brief) => brief.route.startsWith("/research/"));
     const seen = new Set(staticBriefs.map((brief) => brief.slug));
@@ -128,8 +128,8 @@ export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectio
   }, [generatedBriefs]);
   const totalPages = Math.max(1, Math.ceil(briefs.length / BRIEFS_PER_PAGE));
   const visibleBriefs = useMemo(
-    () => (showAll ? briefs : briefs.slice(pageIndex * BRIEFS_PER_PAGE, pageIndex * BRIEFS_PER_PAGE + BRIEFS_PER_PAGE)),
-    [briefs, pageIndex, showAll],
+    () => briefs.slice(pageIndex * BRIEFS_PER_PAGE, pageIndex * BRIEFS_PER_PAGE + BRIEFS_PER_PAGE),
+    [briefs, pageIndex],
   );
   const canShowMore = pageIndex + 1 < totalPages;
 
@@ -171,7 +171,7 @@ export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectio
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Research Briefs</h2>
           <p className="text-sm text-slate-400">In-depth Walnut research and campaign analysis.</p>
         </div>
-        {!showAll ? (
+        {!isArchive ? (
           <Link
             href="/research"
             className="inline-flex min-h-9 items-center rounded-md border border-white/10 px-3 py-1.5 text-sm font-semibold text-emerald-200 transition hover:border-emerald-300/35 hover:bg-emerald-300/10 hover:text-emerald-100"
@@ -183,12 +183,17 @@ export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectio
 
       {briefs.length > 0 ? (
         <>
+          {isArchive ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Showing {pageIndex * BRIEFS_PER_PAGE + 1}-{Math.min((pageIndex + 1) * BRIEFS_PER_PAGE, briefs.length)} of {briefs.length} published briefs
+            </p>
+          ) : null}
           <div className={`mt-4 grid gap-4 ${visibleBriefs.length === 1 ? "max-w-[30rem]" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
             {visibleBriefs.map((brief) => (
               <BriefCard key={brief.slug} brief={brief} />
             ))}
           </div>
-          {!showAll && briefs.length > BRIEFS_PER_PAGE ? (
+          {briefs.length > BRIEFS_PER_PAGE ? (
             <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
               {pageIndex > 0 ? (
                 <button

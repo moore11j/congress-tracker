@@ -121,10 +121,11 @@ test("insights renders research briefs from the registry", () => {
   assert.match(researchSection, /href="\/research"/);
   assert.match(researchSection, /Open Research Briefs/);
   assert.match(researchSection, /sortBriefsNewestFirst\(\[\.\.\.staticBriefs, \.\.\.generated\]\)/);
-  assert.match(researchSection, /showAll \? briefs : briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);
+  assert.match(researchSection, /const isArchive = mode === "archive"/);
   assert.match(researchSection, /briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);
   assert.match(researchSection, /xl:grid-cols-3/);
   assert.match(researchSection, /Show more/);
+  assert.match(researchSection, /of \{briefs\.length\} published briefs/);
   assert.match(researchSection, /setPageIndex\(\(current\) => Math\.min\(totalPages - 1, current \+ 1\)\)/);
   assert.doesNotMatch(researchSection, /NVDA vs MU: Quality vs Cycle Torque/);
   assert.doesNotMatch(researchSection, /View all briefs/);
