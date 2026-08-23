@@ -9,6 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 const page = read("app/ticker/[symbol]/page.tsx");
 const card = read("components/ticker/TickerContextCard.tsx");
 const api = read("lib/api.ts");
+const decisionTrend = read("components/ticker/DecisionTrendChart.tsx");
 
 test("ticker overview renders the approved decision layer structure", () => {
   assert.match(api, /export type TickerDecisionLayer/);
@@ -19,7 +20,17 @@ test("ticker overview renders the approved decision layer structure", () => {
   assert.match(page, /CATALYSTS/);
   assert.match(page, /RISKS/);
   assert.match(page, /WHAT TO WATCH NEXT/);
-  assert.match(page, /Score history unavailable/);
+  assert.match(decisionTrend, /Score history unavailable/);
+  assert.match(page, /Confirmation score trend/);
+});
+
+test("ticker confirmation trend is animated and supports direct inspection", () => {
+  assert.match(decisionTrend, /linearGradient/);
+  assert.match(decisionTrend, /requestAnimationFrame/);
+  assert.match(decisionTrend, /onPointerMove/);
+  assert.match(decisionTrend, /onPointerDown/);
+  assert.match(decisionTrend, /ArrowLeft/);
+  assert.match(decisionTrend, /touchAction: "pan-y"/);
 });
 
 test("ticker overview keeps one confirmation score and removes old watch sentence", () => {

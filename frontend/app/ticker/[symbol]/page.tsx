@@ -1310,21 +1310,22 @@ function TickerOverviewPanel({
   return (
     <div className="relative">
       <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
-        <section className="grid gap-5 rounded-lg border border-white/10 bg-slate-950/30 px-6 py-5 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,0.9fr)_minmax(14rem,1.05fr)_minmax(16rem,1fr)] lg:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">30-DAY CONFIRMATION</p>
-            <p className="mt-3 text-xs text-slate-500">{updated}</p>
-          </div>
-          <div>
-            <p className={`text-5xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>
-              {score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span>
-            </p>
-            <p className={`mt-2 text-2xl font-semibold ${decisionToneClass(direction)}`}>{label}</p>
-          </div>
-          <div>
+        <section className="rounded-lg border border-white/10 bg-slate-950/30 px-6 py-5">
+          <div className="grid gap-5 lg:grid-cols-[minmax(10rem,.7fr)_minmax(15rem,1fr)_minmax(20rem,1.5fr)] lg:items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">30-DAY CONFIRMATION</p>
+              <p className="mt-3 text-xs text-slate-500">{updated}</p>
+            </div>
+            <div>
+              <p className={`text-5xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>
+                {score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span>
+              </p>
+              <p className={`mt-2 text-2xl font-semibold ${decisionToneClass(direction)}`}>{label}</p>
+            </div>
             <p className="text-base leading-7 text-slate-100">{layer.summary ?? displayBundle.explanation}</p>
           </div>
-          <div>
+          <div className="mt-6 rounded-lg border border-emerald-300/15 bg-slate-950/55 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.03)]">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-[.16em] text-emerald-200">Confirmation score trend</p><p className="text-[11px] text-slate-500">Hover, touch, or use arrow keys to inspect</p></div>
             <DecisionTrendChart history={confirmation.history} direction={direction} />
           </div>
         </section>
