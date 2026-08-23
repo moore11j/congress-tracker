@@ -37,6 +37,8 @@ test("profile charts use the shared interaction performance rules without droppi
   assert.match(performanceChart, /requestAnimationFrame/);
   assert.match(performanceChart, /touchAction: "pan-y"/);
   assert.match(performanceChart, /chart\.eventMarkers/);
+  assert.match(performanceChart, /profileArea/);
+  assert.match(performanceChart, /linearGradient/);
   assert.match(allocationChart, /onPointerDown/);
   assert.match(allocationChart, /touchAction: "manipulation"/);
   assert.match(allocationChart, /walnut-chart-entry/);

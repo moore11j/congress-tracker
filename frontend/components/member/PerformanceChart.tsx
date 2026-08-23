@@ -308,7 +308,8 @@ export function PerformanceChart({
       events: MemberPortfolioEventMarker[];
     }>;
 
-    return { innerWidth, xFor, xValues: points.map((point) => point.x), points, benchmarkRenderPoints, profilePath, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
+    const profileArea = `${profilePath} ${points[points.length - 1].x},${HEIGHT - MARGIN.bottom} ${points[0].x},${HEIGHT - MARGIN.bottom}`;
+    return { innerWidth, xFor, xValues: points.map((point) => point.x), points, benchmarkRenderPoints, profilePath, profileArea, benchmarkPath, yTicks, tickIndexes, eventGroups, eventMarkers };
   }, [memberSeries, benchmarkSeries, metric, events]);
 
   if (!chart) return null;
@@ -424,7 +425,13 @@ export function PerformanceChart({
           onClick={handleClick}
           onKeyDown={handleKeyDown}
         >
-          <defs><clipPath id={revealClipId}><rect x={MARGIN.left} y={MARGIN.top} height={HEIGHT - MARGIN.top - MARGIN.bottom} width={revealed || reducedMotion ? chart.innerWidth : 0} style={{ transition: reducedMotion ? "none" : "width 560ms cubic-bezier(.22,1,.36,1)" }} /></clipPath></defs>
+          <defs>
+            <clipPath id={revealClipId}><rect x={MARGIN.left} y={MARGIN.top} height={HEIGHT - MARGIN.top - MARGIN.bottom} width={revealed || reducedMotion ? chart.innerWidth : 0} style={{ transition: reducedMotion ? "none" : "width 560ms cubic-bezier(.22,1,.36,1)" }} /></clipPath>
+            <linearGradient id={`${revealClipId}-area`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#6ee7b7" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#6ee7b7" stopOpacity="0" />
+            </linearGradient>
+          </defs>
           {chart.yTicks.map((tick) => (
             <g key={`y-${tick.y}`}>
               <line x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
@@ -447,6 +454,7 @@ export function PerformanceChart({
           })}
 
           <g clipPath={`url(#${revealClipId})`}>
+            <polygon points={chart.profileArea} fill={`url(#${revealClipId}-area)`} />
             {metric === "return" && chart.benchmarkPath ? (
               <polyline fill="none" stroke="rgba(226,232,240,0.78)" strokeDasharray="6 4" strokeWidth="2" points={chart.benchmarkPath} />
             ) : null}
