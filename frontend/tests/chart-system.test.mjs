@@ -20,6 +20,7 @@ const outcomes = read("components/outcomes/OutcomeLedgerClient.tsx");
 const profileSparkline = read("components/charts/WalnutProfileSparkline.tsx");
 const sectorMovementBars = read("components/profiles/WalnutSectorMovementBars.tsx");
 const congressInteractiveCharts = read("components/profiles/CongressInteractiveCharts.tsx");
+const departmentSpendingMix = read("components/profiles/WalnutDepartmentSpendingMix.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -128,4 +129,12 @@ test("institutional dashboard reuses animated metric, exposure, and net-position
   assert.match(dashboard, /CongressMetricTrend points={points}/);
   assert.match(dashboard, /CongressSectorExposure rows={rows}/);
   assert.match(dashboard, /CongressNetSectorBars rows={movements.map/);
+});
+
+test("department spending mix reveals and supports period inspection", () => {
+  assert.match(departmentSpendingMix, /requestAnimationFrame/);
+  assert.match(departmentSpendingMix, /prefers-reduced-motion/);
+  assert.match(departmentSpendingMix, /onPointerEnter/);
+  assert.match(departmentSpendingMix, /aria-pressed/);
+  assert.match(governmentDashboard, /WalnutDepartmentSpendingMix rows={rows}/);
 });
