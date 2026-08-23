@@ -83,7 +83,7 @@ type ApiRequestInit = RequestInit & {
 export const PUBLIC_STALE_PAGE_REVALIDATE_SECONDS = 60 * 60 * 24;
 // Keep Vercel's long-lived anonymous ticker-page fetch cache aligned with the
 // backend Context payload contract. Bump this alongside bundle fields.
-const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 5;
+const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 6;
 
 function publicStalePageFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cache" | "next"> {
   return enabled
