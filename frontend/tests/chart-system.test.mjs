@@ -136,6 +136,8 @@ test("insider dashboard reuses the interactive snapshot, metric, and sector char
   assert.match(dashboard, /CongressMetricTrend/);
   assert.match(dashboard, /CongressSectorExposure/);
   assert.match(dashboard, /CongressNetSectorBars rows={rows}/);
+  assert.match(dashboard, /flavor === "institutions" \|\| flavor === "insiders"/);
+  assert.match(dashboard, /expandedChart \? "text-\[11px\]" : "text-xs"/);
 });
 
 test("institutional dashboard reuses animated metric, exposure, and net-position primitives", () => {

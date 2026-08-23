@@ -309,13 +309,13 @@ function MetricCards({ metrics, comparison, flavor, insiderMonthlyActivity = [],
   return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{metrics.map((metric) => {
     const chartPoints = flavor === "insiders" ? insiderMetricSeries(metric.label, insiderMonthlyActivity) : flavor === "institutions" ? institutionalMetricSeries(metric.label, institutionalActivity) : [];
     const tone = /(sell|decrease)/.test(metric.label.toLowerCase()) ? "red" : "green";
-    const expandedChart = flavor === "institutions";
+    const expandedChart = flavor === "institutions" || flavor === "insiders";
     return <div key={metric.label} className="min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/65 p-4">
       <p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">{metric.label}</p>
       <div className={chartPoints.length && !expandedChart ? "mt-3 grid grid-cols-[minmax(0,.72fr)_minmax(5rem,.88fr)] items-end gap-3" : "mt-3"}>
         <div className="min-w-0">
           <p className="truncate text-2xl font-semibold tabular-nums text-white">{formatMetric(metric)}</p>
-          <p className={`mt-2 text-xs font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}% vs ${comparison}` : "Latest available period"}</p>
+          <p className={`mt-2 font-semibold tabular-nums ${expandedChart ? "text-[11px]" : "text-xs"} ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}% vs ${comparison}` : "Latest available period"}</p>
         </div>
         {chartPoints.length ? <div className={expandedChart ? "mt-4" : undefined}><MetricSparkline id={`${flavor ?? "profile"}-metric-${metric.label}`} points={chartPoints} tone={tone} expanded={expandedChart} /></div> : null}
       </div>
