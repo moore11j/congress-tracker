@@ -22,7 +22,9 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
 
   assert.match(component, /Generate Draft/);
   assert.match(component, /Save Draft/);
-  assert.match(component, /Ready for Review/);
+  assert.match(component, /Ask Walnut Research/);
+  assert.match(component, /Simple brief mode\./);
+  assert.doesNotMatch(component, />Ready for Review</);
   assert.match(component, /Title/);
   assert.match(component, /Insights card title/);
   assert.match(component, /Short title for Insights cards/);
@@ -89,7 +91,7 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.doesNotMatch(component, /const draft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ status, article \}\);[\s\S]{0,120}await refreshDrafts\(draft\)/);
   assert.match(component, /onMarkReady=\{\(\) => saveDraft\("ready_for_review"\)\}/);
   assert.match(component, /async function scheduleSelected\(scheduledAt: string\)/);
-  assert.match(component, /Save Published Changes/);
+  assert.doesNotMatch(component, /Save Published Changes/);
   assert.match(component, /Schedule Post/);
   assert.match(component, /Scheduled publish time/);
   assert.match(component, /Post scheduled for publication\./);
@@ -114,7 +116,7 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(api, /AdminResearchBriefJob/);
   assert.match(api, /\/api\/admin\/research-briefs\/jobs\/\$\{encodeURIComponent\(jobId\)\}/);
   assert.match(component, /Reddit DD - Issue \/ Risk \/ Data \/ Conclusion/);
-  assert.match(component, /Find Sources \/ Refresh Research/);
+  assert.doesNotMatch(component, />Find Sources \/ Refresh Research</);
   assert.match(component, /This draft has no source links/);
   assert.doesNotMatch(component, /window\.confirm\("Publish this research brief/);
   assert.match(component, /PublishDraftDialog/);

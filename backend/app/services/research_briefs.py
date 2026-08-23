@@ -1150,6 +1150,18 @@ def _is_earnings_setup_config(config: dict[str, Any]) -> bool:
     return "earnings setup" in text or ("earnings" in text and "setup" in text)
 
 
+def _is_institutional_activity_config(config: dict[str, Any]) -> bool:
+    """Identify ownership/13F questions before generic stock-analysis rules take over."""
+    text = " ".join(
+        str(config.get(key) or "")
+        for key in ("desired_angle", "research_question", "target_keyword", "search_intent", "additional_context")
+    ).lower()
+    return "institutional activity" in text or bool(
+        re.search(r"\b(?:institution(?:al|s)?|13f|ownership|holders?)\b", text)
+        and re.search(r"\b(?:accumulat|buying|selling|ownership|holdings?|position|increas|decreas|distribut)\w*", text)
+    )
+
+
 def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     if not _is_earnings_setup_config(config):
         return article
@@ -3240,7 +3252,12 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         angle = "Post-earnings review"
     else:
         question = str(item.get("target_keyword") or "").strip() or title_intent or f"What does current Walnut data say about {ticker}?"
-        angle = "Full company DD"
+        angle = {
+            "institutional_ownership": "Institutional activity",
+            "insider_activity": "Insider activity",
+            "congress_activity": "Congress activity",
+            "government_contracts": "Government contracts",
+        }.get(str(theme.get("key") or ""), "Full company DD")
     planned_secondary_keywords = planned_article.get("secondary_keywords") if isinstance(planned_article, dict) else None
     secondary_keywords = planned_secondary_keywords if isinstance(planned_secondary_keywords, list) else campaign_config.get("secondary_keywords") or []
     return {
@@ -3252,8 +3269,12 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         "judgment_preference": "Let the data decide",
         "additional_context": (
             f"Campaign theme: {theme['label']}. Write a concise SEO/AEO research brief. "
-            "Use the latest earnings/company data available at generation time, current Walnut-native data, the current confirmation score, fundamentals, technical context, and only relevant optional datasets. "
-            "Do not force sections for unavailable or irrelevant data."
+            + (
+                "This is an institutional ownership brief. Answer the ownership question from reported institutional activity and filings; do not convert it into a valuation, earnings, or confirmation-score verdict. "
+                if angle == "Institutional activity"
+                else "Use the latest earnings/company data available at generation time, current Walnut-native data, and only relevant datasets. "
+            )
+            + "Do not force sections for unavailable or irrelevant data."
         ),
         "include_sections": [
             "Executive thesis",
@@ -3272,11 +3293,11 @@ def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict
         "section_format": "Walnut Research Brief",
         "include_charts": False,
         "include_source_links": True,
-        "include_confirmation_score": True,
-        "include_cross_source_confirmations": True,
+        "include_confirmation_score": angle != "Institutional activity",
+        "include_cross_source_confirmations": angle != "Institutional activity",
         "premium_required": False,
         "required_plan": None,
-        "generate_thumbnail": True,
+        "generate_thumbnail": False,
         "selected_model": "",
         "manual_source_url": "",
         "target_keyword": item.get("target_keyword") or campaign_config.get("target_keyword") or f"{ticker} stock buy now",
@@ -4587,6 +4608,11 @@ def validate_config(config: dict[str, Any], *, strict_selected_model: bool = Tru
         "use_deterministic_draft": bool(config.get("use_deterministic_draft")),
     }
     normalized["selected_model"] = _selected_research_model(normalized, strict=strict_selected_model)
+    # A plain-language ownership question should never silently become a
+    # valuation/earnings brief because the old form happened to retain its
+    # default angle.
+    if _is_institutional_activity_config(normalized):
+        normalized["desired_angle"] = "Institutional activity"
     if not normalized["target_keyword"]:
         normalized["target_keyword"] = normalized["research_question"][:240]
     if not normalized["search_intent"]:
@@ -4710,10 +4736,9 @@ def _choice_from_list(value: Any, choices: list[str], fallback: str) -> str:
 
 
 def _default_generate_thumbnail(config: dict[str, Any]) -> bool:
-    text = " ".join(str(config.get(key) or "") for key in ("section_format", "intended_audience", "tone"))
-    if "Internal Analyst Note" in text:
-        return False
-    return True
+    # A research draft should be fast and inexpensive by default. Editorials
+    # can add a hero image later without turning every retry into an image call.
+    return False
 
 
 def _sections(value: Any) -> list[str]:
@@ -5454,6 +5479,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     section_format = _section_format_instructions(config.get("section_format") or "Walnut Research Brief")
     prompt_config = dict(config)
     prompt_config.pop("comparison_ticker", None)
+    institutional_brief = _is_institutional_activity_config(config)
     primary_identity = ((context.get("primary") or {}).get("identity") or {}) if isinstance(context.get("primary"), dict) else {}
     primary_symbol = str(primary_identity.get("symbol") or config.get("ticker") or "").upper()
     primary_company = str(primary_identity.get("company_name") or primary_symbol or "").strip()
@@ -5472,6 +5498,16 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Use a company's full legal name only in the title or first reference. In the body, use the common company name or ticker: write 'Nebius' or 'NBIS,' never 'Nebius Group N.V.' after the opening. Drop legal suffixes such as Inc., Corp., Ltd., N.V., plc, and S.A. from ordinary prose.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             "The target search query is the organizing question, not a phrase to repeat. Answer it immediately, then earn the conclusion with Walnut-native evidence.",
+            *(
+                [
+                    "This is an institutional-activity brief. Answer the ownership or accumulation question directly in the opening sentence.",
+                    "Use reported institutional events, filing dates, quarter-end holdings, position changes, and the filing lag when present. Do not treat a 13F filing as real-time buying.",
+                    "Do not turn this into an earnings, valuation, price-target, or confirmation-score brief. Do not use 'bullish but expensive' unless the request explicitly asks for valuation.",
+                    "End by stating whether the reported institutional activity indicates accumulation, distribution, mixed activity, or no verified directional change. Use sections that fit this question: Quick answer; What reported filings show; What the filing lag means; What to watch; Sources.",
+                ]
+                if institutional_brief
+                else []
+            ),
             "SEO requirement: put the primary target keyword or its grammatically natural question form in the title and in the opening section. Cover every meaningful term from that query in the body without keyword stuffing. Use secondary keywords only when they are relevant to PRIMARY_TICKER; never insert a different company's keyword into a single-ticker brief.",
             "Walnut site context contains only approved first-party pages. Use 2-4 relevant internal links where they genuinely help a reader navigate; do not create random keyword links or link every sentence.",
             "If core earnings research is unavailable, do not write around it. The backend should stop generation before this prompt. Never write paragraphs saying Walnut needs to go find the data.",
@@ -5492,6 +5528,14 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "For earnings setup briefs, use this plain-text call format in the final call section: 'Our call: [allowed call]'. Do not wrap it in markdown bold markers. Mixed should be rare; use a more specific call such as Bullish but expensive, Neutral but expensive, Neutral with capex risk, or Mixed with capex risk when that is what the evidence says.",
             "For earnings setup briefs, if the business is strong but valuation or expectations are high, use Bullish but expensive or Neutral but expensive. If the business is strong but capex/free cash flow is the main market risk, use Neutral with capex risk or Mixed with capex risk. Use Insufficient data to make a call only when required primary data is unavailable.",
             "The final call must agree with the confirmation-score direction when that direction is available. A bullish score requires a bullish call such as Bullish, Bullish but expensive, or Bullish with capex risk. A bearish score requires a bearish call. Name the risk inside the call; do not use Neutral or Mixed to contradict the score direction.",
+            *(
+                [
+                    "Institutional-activity override: the preceding confirmation-score and earnings-call rules do not apply. The conclusion must answer reported ownership activity, not rate the stock.",
+                    "Set walnut_call to Bullish only for supported net accumulation, Bearish only for supported net distribution, and Neutral when filings are mixed or do not establish a directional change.",
+                ]
+                if institutional_brief
+                else []
+            ),
             "For earnings previews, lead with numbers: consensus revenue/EPS, prior quarter revenue/EPS versus consensus, prior reaction if available, and the main setup. Avoid broad industry throat-clearing.",
             "For earnings previews, prefer this structure: Opening setup; What changed since last earnings; The numbers that matter; Business and fundamentals; Price / positioning; Bull case; Bear case; What we're watching; The call.",
             "Selected sections are conditional: include a selected section only when meaningful supported data exists. If a selected data area is empty, use one short factual line instead of filler.",
@@ -6404,6 +6448,78 @@ def _reader_company_name(company: str, symbol: str) -> str:
     return concise or str(symbol or "").strip()
 
 
+def _institutional_activity_fallback_article(
+    config: dict[str, Any],
+    context: dict[str, Any],
+    *,
+    symbol: str,
+    company: str,
+    reader_company: str,
+    sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Keep a failed model response from becoming a generic valuation brief."""
+    events = ((context.get("primary") or {}).get("institutional_activity") or []) if isinstance(context.get("primary"), dict) else []
+    events = [item for item in events if isinstance(item, dict)]
+    accumulation_events = [item for item in events if str(item.get("event_type") or "").lower() in {"institutional_accumulation", "new_institutional_position", "cluster_accumulation", "contrarian_accumulation", "smart_money_confirmation"}]
+    distribution_events = [item for item in events if str(item.get("event_type") or "").lower() in {"institutional_distribution", "major_holder_reduction", "major_holder_exit", "cluster_distribution", "crowded_long"}]
+    if len(accumulation_events) > len(distribution_events):
+        activity_call, judgment, conclusion = "Bullish", "bullish", "reported accumulation"
+    elif len(distribution_events) > len(accumulation_events):
+        activity_call, judgment, conclusion = "Bearish", "bearish", "reported distribution"
+    else:
+        activity_call, judgment, conclusion = "Neutral", "neutral", "mixed or inconclusive reported activity"
+    question = str(config.get("research_question") or f"Are institutions accumulating {symbol}?").strip().rstrip("?")
+    event_lines = []
+    for event in events[:5]:
+        event_type = str(event.get("event_type") or "reported institutional event").replace("_", " ")
+        date_text = str(event.get("date") or "").split("T", 1)[0]
+        detail = str(event.get("summary") or event.get("title") or "").strip()
+        event_lines.append(" ".join(part for part in [date_text, event_type.capitalize() + (f": {detail}" if detail else "")] if part))
+    filings_detail = "\n".join(f"- {line}" for line in event_lines) or "- The current reported-activity feed does not establish a net accumulation or distribution trend."
+    body = (
+        f"Our answer to “{question}?” is {conclusion}. The available reported institutional activity leans {activity_call.lower()} only in the narrow sense of ownership-flow evidence. It is not a valuation call on {reader_company} shares.\n\n"
+        f"The reported-event record contains {len(accumulation_events)} accumulation or new-position signal{'s' if len(accumulation_events) != 1 else ''} and {len(distribution_events)} distribution or reduction signal{'s' if len(distribution_events) != 1 else ''}. That comparison sets the direction of this brief. It does not establish live buying, because institutional filings arrive after the relevant quarter ends.\n\n"
+        "## What reported filings show\n\n"
+        f"{filings_detail}\n\n"
+        "Each item reflects disclosed or reported activity, not a prediction of the next trade. A new position, accumulation event, reduction, or exit can have different portfolio and timing explanations. The signal matters most when several filings point in the same direction and the quarter-end ownership change is clear.\n\n"
+        "## What the filing lag means\n\n"
+        "Institutional ownership data is useful because it shows how professional holders were positioned at a reported point in time. It is not a real-time tape. Readers should treat the filing date, the quarter-end date, and the direction of the position change as separate facts. That prevents a stale filing from being mistaken for a current market order.\n\n"
+        "## Bottom line\n\n"
+        f"Our call: {activity_call}. The reported ownership evidence currently points to {conclusion} for {symbol}. Recheck the next filing cycle before treating that conclusion as current positioning."
+    )
+    title_question = question[:1].upper() + question[1:] if question else f"Are institutions accumulating {symbol}"
+    return {
+        "title": f"{reader_company} Stock: {title_question}?"[:180],
+        "slug": _slugify(f"{symbol} institutional ownership activity", fallback=f"{symbol.lower()}-institutional-activity"),
+        "subtitle": f"A review of reported institutional activity and filing-lag limits for {symbol}.",
+        "summary": f"Reported institutional activity for {symbol} points to {conclusion}; filing dates and quarter-end holdings matter.",
+        "preview_body": f"Reported institutional activity for {symbol} points to {conclusion}. The filing record is lagged, so it does not show live buying or selling.",
+        "judgment": judgment,
+        "walnut_call": activity_call,
+        "confidence": "medium" if events else "low",
+        "confirmation_score_included": False,
+        "primary_ticker": symbol,
+        "comparison_tickers": list(config.get("comparison_tickers") or []),
+        "category": "Institutional activity",
+        "reading_minutes": 3,
+        "sections": [
+            {"key": "quick-answer", "heading": "Quick answer", "body_markdown": body.split("## What reported filings show", 1)[0].strip()},
+            {"key": "reported-filings", "heading": "What reported filings show", "body_markdown": body.split("## What reported filings show", 1)[1].split("## What the filing lag means", 1)[0].strip()},
+            {"key": "filing-lag", "heading": "What the filing lag means", "body_markdown": body.split("## What the filing lag means", 1)[1].split("## Bottom line", 1)[0].strip()},
+            {"key": "bottom-line", "heading": "Bottom line", "body_markdown": body.split("## Bottom line", 1)[1].strip()},
+        ],
+        "key_points": [f"Reported activity points to {conclusion}.", "Institutional filings are delayed disclosures, not live buying or selling."],
+        "catalysts": ["Next institutional filing cycle"],
+        "risks": ["Reported holdings can be stale by the time they become public."],
+        "watch_items": ["Quarter-end holdings changes", "New institutional filings", "Large reductions or exits"],
+        "data_freshness": [str(context.get("generated_at") or "")],
+        "missing_data_notes": list(context.get("missing_data_notes") or []),
+        "source_links": [item for item in sources if isinstance(item, dict)][:8],
+        "suggested_card": {"title": f"{symbol}: are institutions accumulating?", "description": f"Reported ownership activity points to {conclusion}.", "judgment": judgment, "tickers": [symbol]},
+        "seo": {"title": f"Are Institutions Accumulating {symbol} Stock?", "description": f"Reported institutional ownership activity for {symbol}, including filing-lag limits and the current direction of disclosed positions."},
+    }
+
+
 def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """Create a complete review draft from the assembled Walnut context, without invented facts."""
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
@@ -6430,6 +6546,16 @@ def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any
             {"label": "SEC EDGAR company search", "url": f"https://www.sec.gov/edgar/search/#/q={symbol}&dateRange=all", "source_type": "filing_search"},
             {"label": f"{symbol} Nasdaq market activity", "url": f"https://www.nasdaq.com/market-activity/stocks/{symbol.lower()}", "source_type": "reputable_market_source"},
         ]
+
+    if _is_institutional_activity_config(config):
+        return _institutional_activity_fallback_article(
+            config,
+            context,
+            symbol=symbol,
+            company=company,
+            reader_company=reader_company,
+            sources=sources,
+        )
 
     price = market.get("price")
     price_text = _format_brief_money(price) if price is not None else "not available"

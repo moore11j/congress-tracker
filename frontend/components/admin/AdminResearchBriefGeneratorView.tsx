@@ -103,7 +103,7 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   include_cross_source_confirmations: false,
   premium_required: false,
   required_plan: null,
-  generate_thumbnail: true,
+  generate_thumbnail: false,
   hero_image: "",
   manual_source_url: "",
 };
@@ -1403,15 +1403,22 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
               </label>
 
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">What should this brief investigate?</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Ask Walnut Research</span>
                 <textarea
                   value={config.research_question}
                   onChange={(event) => updateConfig("research_question", event.target.value)}
                   className={fieldClassName("mt-2 min-h-32")}
-                  placeholder="Is MU's momentum trade breaking down, or do the fundamentals still support the cycle?"
+                  placeholder="Ask a clear investor question. Example: Are institutions accumulating NVIDIA stock right now?"
                 />
+                <span className="mt-1 block text-xs leading-5 text-slate-500">Write this as you would ask ChatGPT. Walnut will infer the research angle, use the appropriate data, and generate an editable preview.</span>
               </label>
 
+              <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 p-3 text-sm leading-6 text-slate-300">
+                <span className="font-semibold text-emerald-100">Simple brief mode.</span> The editor opens with only the title, Insights card title, Insights preview, and full post. You can type directly into any of them before saving, scheduling, or publishing.
+              </div>
+
+              {false ? (
+              <>
               <div className="grid gap-4 md:grid-cols-2">
                 <Select label="Desired angle" value={config.desired_angle} options={options.angles} onChange={(value) => updateConfig("desired_angle", value)} />
                 <Select label="Time horizon" value={config.time_horizon} options={options.time_horizons} onChange={(value) => updateConfig("time_horizon", value)} />
@@ -1570,6 +1577,9 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                     <input value={config.hero_image || ""} onChange={(event) => updateConfig("hero_image", event.target.value)} className={fieldClassName("mt-2")} placeholder="Existing asset URL/path, or leave blank for fallback" />
                   </label>
                 </div>
+              ) : null}
+
+              </>
               ) : null}
 
               {activeJob ? (
@@ -2673,13 +2683,10 @@ function EditorPanel({
           />
         </label>
         <label className="block">
-          <span className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
-            <Button type="button" onClick={insertPaywallMarker}>Insert Paywall Marker</Button>
-          </span>
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
           <textarea ref={bodyTextareaRef} value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
         </label>
-        {article.reddit_post ? (
+        {false && article.reddit_post ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Reddit output</p>
@@ -2688,7 +2695,7 @@ function EditorPanel({
             <textarea readOnly value={article.reddit_post} className={fieldClassName("mt-3 min-h-48 font-mono text-xs leading-6")} />
           </div>
         ) : null}
-        <details className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+        <details hidden className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
           <summary className="cursor-pointer text-sm font-semibold text-emerald-200">Advanced metadata</summary>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <input value={article.slug} onChange={(event) => onArticleChange("slug", event.target.value)} className={fieldClassName()} placeholder="Slug" />
@@ -2719,7 +2726,7 @@ function EditorPanel({
             </div>
           ) : null}
         </details>
-        <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+        <div hidden className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Access</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <label className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-sm text-slate-200">
@@ -2768,9 +2775,9 @@ function EditorPanel({
         {draft.scheduled_at ? <Metric label="Scheduled publish" value={formatDateTime(draft.scheduled_at)} /> : null}
         {draft.data_as_of ? <Metric label="Data as of" value={formatDateTime(draft.data_as_of)} /> : null}
         {draft.earnings_period_used ? <Metric label="Earnings period" value={draft.earnings_period_used} /> : null}
-        <ResearchReadinessPanel draft={draft} />
-        <PublicationReadinessPanel draft={draft} />
-        <SourceDiscoveryDiagnostics draft={draft} />
+        {false ? <ResearchReadinessPanel draft={draft} /> : null}
+        {false ? <PublicationReadinessPanel draft={draft} /> : null}
+        {false ? <SourceDiscoveryDiagnostics draft={draft} /> : null}
         {draft.validation?.source_link_count === 0 ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
             This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.
@@ -2800,9 +2807,7 @@ function EditorPanel({
           </div>
         ) : null}
         <div className="grid gap-2">
-          <Button disabled={Boolean(busy)} onClick={onSave}>{isPublishedDraft ? "Save Published Changes" : "Save Draft"}</Button>
-          <Button disabled={Boolean(busy)} onClick={onRefreshSources}>{busy === "refresh-sources" ? "Refreshing..." : "Find Sources / Refresh Research"}</Button>
-          {!isPublishedDraft ? <Button disabled={Boolean(busy)} onClick={onMarkReady}>Ready for Review</Button> : null}
+          <Button disabled={Boolean(busy)} onClick={onSave}>Save Draft</Button>
           <Button disabled={Boolean(busy)} onClick={onDiscard}>Discard Changes</Button>
           {!isPublishedDraft ? (
             <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
@@ -2819,22 +2824,7 @@ function EditorPanel({
                     onSchedule(scheduledAt);
                   }
                 }}>{isApprovedScheduledDraft ? "Reschedule Post" : "Schedule Post"}</Button>
-                {isScheduledForReviewDraft ? (
-                  <>
-                    <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button>
-                    <label className="block">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Correction instructions</span>
-                      <textarea
-                        value={rejectionInstructions}
-                        onChange={(event) => setRejectionInstructions(event.target.value)}
-                        className={fieldClassName("mt-2 min-h-20")}
-                        placeholder="Optional: explain what to change in the replacement draft."
-                        maxLength={2000}
-                      />
-                    </label>
-                    <Button disabled={Boolean(busy)} onClick={() => onReject(rejectionInstructions)}>Apply Corrections</Button>
-                  </>
-                ) : null}
+                {isScheduledForReviewDraft ? <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button> : null}
               </div>
             </div>
           ) : null}
