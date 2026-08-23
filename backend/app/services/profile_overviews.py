@@ -83,6 +83,7 @@ def profiles_summary(
     department_count = department_current["departments"]
     latest_institutional_value = institutional_current["portfolio_value"]
     institutional_count = institutional_current["institutions"]
+    card_trends = _profile_card_trends(db, institutional_period=institutional_period)
     return {
         "status": "ok",
         "cards": [
@@ -96,6 +97,7 @@ def profiles_summary(
                     _metric("Active Members", active_members, congress_previous["active_members"]),
                 ],
                 comparison_label=period_label,
+                trend=card_trends["congress"],
             ),
             _profile_card(
                 "insiders",
@@ -107,6 +109,7 @@ def profiles_summary(
                     _metric("Active Insiders", active_insiders, insider_previous["active_insiders"]),
                 ],
                 comparison_label=period_label,
+                trend=card_trends["insiders"],
             ),
             _profile_card(
                 "institutions",
@@ -120,6 +123,7 @@ def profiles_summary(
                 locked=not include_institutions,
                 required_plan="pro" if not include_institutions else None,
                 comparison_label=institutional_comparison,
+                trend=card_trends["institutions"],
             ),
             _profile_card(
                 "departments",
@@ -131,6 +135,7 @@ def profiles_summary(
                     _metric("Contract Value", contract_value, department_previous["total_value"], "currency"),
                 ],
                 comparison_label=period_label,
+                trend=card_trends["departments"],
             ),
         ],
         "directories": profile_directories(
@@ -634,8 +639,29 @@ def profile_directories(
     return directories
 
 
-def _profile_card(kind: str, title: str, description: str, href: str, metrics: list[dict[str, Any]], *, locked: bool = False, required_plan: str | None = None, comparison_label: str | None = None) -> dict[str, Any]:
-    return {"kind": kind, "title": title, "description": description, "href": href, "metrics": metrics, "locked": locked, "required_plan": required_plan, "comparison_label": comparison_label}
+def _profile_card(
+    kind: str,
+    title: str,
+    description: str,
+    href: str,
+    metrics: list[dict[str, Any]],
+    *,
+    locked: bool = False,
+    required_plan: str | None = None,
+    comparison_label: str | None = None,
+    trend: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "title": title,
+        "description": description,
+        "href": href,
+        "metrics": metrics,
+        "locked": locked,
+        "required_plan": required_plan,
+        "comparison_label": comparison_label,
+        "trend": trend,
+    }
 
 
 def _profile_directory(
@@ -687,6 +713,141 @@ def _metric(label: str, value: Any, previous: Any = None, format_type: str = "nu
     except (TypeError, ValueError, ZeroDivisionError):
         change_pct = None
     return {"label": label, "value": _float_or_int(value), "previous_value": _float_or_int(previous), "change_pct": _float_or_int(change_pct), "format": format_type}
+
+
+def _profile_card_trends(db: Session, *, institutional_period: tuple[int, int] | None) -> dict[str, dict[str, Any]]:
+    """Return the compact-card series at the cadence provided by each source.
+
+    Congressional disclosures, Form 4s, and contract awards can be grouped by
+    month. Institutional portfolio values are reported through quarterly 13F
+    filings, so their card deliberately exposes filing quarters instead of
+    interpolating values into made-up monthly observations.
+    """
+    return {
+        "congress": {
+            "metric_label": "Trades",
+            "value_format": "number",
+            "cadence": "monthly",
+            "points": _monthly_congress_trade_trend(db),
+        },
+        "insiders": {
+            "metric_label": "Trades",
+            "value_format": "number",
+            "cadence": "monthly",
+            "points": _monthly_insider_trade_trend(db),
+        },
+        "institutions": {
+            "metric_label": "Portfolio Value",
+            "value_format": "currency",
+            "cadence": "quarterly filings",
+            "points": _quarterly_institutional_value_trend(db, latest_period=institutional_period),
+        },
+        "departments": {
+            "metric_label": "Contract Value",
+            "value_format": "currency",
+            "cadence": "monthly",
+            "points": _monthly_department_contract_trend(db),
+        },
+    }
+
+
+def _monthly_trend_months() -> list[date]:
+    current_month = date.today().replace(day=1)
+    return [_add_months(current_month, offset) for offset in range(-11, 1)]
+
+
+def _monthly_congress_trade_trend(db: Session) -> list[dict[str, Any]]:
+    months = _monthly_trend_months()
+    start = datetime.combine(months[0], datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(_add_months(months[-1], 1), datetime.min.time(), tzinfo=timezone.utc)
+    rows = db.execute(
+        select(func.extract("year", Event.ts), func.extract("month", Event.ts), func.count(Event.id))
+        .where(Event.event_type == "congress_trade", Event.ts >= start, Event.ts < end)
+        .group_by(func.extract("year", Event.ts), func.extract("month", Event.ts))
+    ).all()
+    values = {(int(year), int(month)): int(total or 0) for year, month, total in rows}
+    return [{"label": month.strftime("%b %y"), "value": values.get((month.year, month.month), 0)} for month in months]
+
+
+def _monthly_insider_trade_trend(db: Session) -> list[dict[str, Any]]:
+    months = _monthly_trend_months()
+    rows = db.execute(
+        select(
+            func.extract("year", InsiderTransactionNormalized.transaction_date),
+            func.extract("month", InsiderTransactionNormalized.transaction_date),
+            func.count(InsiderTransactionNormalized.id),
+        )
+        .where(
+            *_insider_transaction_filters(since=months[0], before=_add_months(months[-1], 1)),
+        )
+        .group_by(
+            func.extract("year", InsiderTransactionNormalized.transaction_date),
+            func.extract("month", InsiderTransactionNormalized.transaction_date),
+        )
+    ).all()
+    values = {(int(year), int(month)): int(total or 0) for year, month, total in rows}
+    return [{"label": month.strftime("%b %y"), "value": values.get((month.year, month.month), 0)} for month in months]
+
+
+def _monthly_department_contract_trend(db: Session) -> list[dict[str, Any]]:
+    months = _monthly_trend_months()
+    end = _add_months(months[-1], 1)
+    contract_rows = db.execute(
+        select(
+            func.extract("year", GovernmentContract.award_date),
+            func.extract("month", GovernmentContract.award_date),
+            func.sum(GovernmentContract.award_amount),
+        )
+        .where(GovernmentContract.award_date >= months[0], GovernmentContract.award_date < end)
+        .group_by(func.extract("year", GovernmentContract.award_date), func.extract("month", GovernmentContract.award_date))
+    ).all()
+    action_rows = db.execute(
+        select(
+            func.extract("year", GovernmentContractAction.action_date),
+            func.extract("month", GovernmentContractAction.action_date),
+            func.sum(GovernmentContractAction.obligated_amount),
+        )
+        .where(GovernmentContractAction.action_date >= months[0], GovernmentContractAction.action_date < end)
+        .group_by(func.extract("year", GovernmentContractAction.action_date), func.extract("month", GovernmentContractAction.action_date))
+    ).all()
+    values: dict[tuple[int, int], float] = defaultdict(float)
+    for year, month, value in [*contract_rows, *action_rows]:
+        values[(int(year), int(month))] += float(value or 0)
+    return [{"label": month.strftime("%b %y"), "value": _float_or_int(values[(month.year, month.month)]) or 0} for month in months]
+
+
+def _quarterly_institutional_value_trend(db: Session, *, latest_period: tuple[int, int] | None) -> list[dict[str, Any]]:
+    periods = [
+        (int(year), int(quarter))
+        for year, quarter in db.execute(
+            select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+            .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+            .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
+            .limit(16)
+        ).all()
+    ]
+    if latest_period is not None:
+        periods = [period for period in periods if period <= latest_period]
+    complete_periods = _complete_institutional_periods(db, periods)
+    selected = complete_periods[:4]
+    if latest_period is not None and latest_period not in selected:
+        selected = [latest_period, *[period for period in selected if period != latest_period]][:4]
+    if not selected:
+        return []
+    rows = db.execute(
+        select(
+            InstitutionalPosition.report_year,
+            InstitutionalPosition.report_quarter,
+            func.sum(InstitutionalPosition.value_usd),
+        )
+        .where(tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(selected))  # type: ignore[name-defined]
+        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+    ).all()
+    values = {(int(year), int(quarter)): _float_or_int(value) or 0 for year, quarter, value in rows}
+    return [
+        {"label": f"Q{quarter} {year}", "value": values.get((year, quarter), 0)}
+        for year, quarter in reversed(selected)
+    ]
 
 
 def _congress_profile_period_metrics(db: Session, *, since: date, before: date) -> dict[str, int]:

@@ -209,6 +209,12 @@ export type ProfileSummaryCard = {
   required_plan?: string | null;
   comparison_label?: string | null;
   metrics: ProfileMetric[];
+  trend?: {
+    metric_label: string;
+    value_format?: "number" | "currency" | string;
+    cadence?: string;
+    points: Array<{ label: string; value: number }>;
+  } | null;
 };
 
 export type ProfileActivityByTypePeriod = {

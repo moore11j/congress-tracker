@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 type Point = { label: string; value: number };
 
-export function WalnutProfileSparkline({ id, metricLabel, valueFormat, points }: { id: string; metricLabel: string; valueFormat?: string; points: Point[] }) {
+export function WalnutProfileSparkline({ id, metricLabel, valueFormat, xAxisLabel = "Reporting period", points }: { id: string; metricLabel: string; valueFormat?: string; xAxisLabel?: string; points: Point[] }) {
   const [revealed, setRevealed] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const frame = useRef<number | null>(null);
@@ -37,7 +37,7 @@ export function WalnutProfileSparkline({ id, metricLabel, valueFormat, points }:
     frame.current = requestAnimationFrame(() => { setActiveIndex(index); frame.current = null; });
   };
 
-  return <div className="relative z-30 min-w-0" aria-label={`${metricLabel}: prior period compared with latest period`}>
+  return <div className="relative z-30 min-w-0" aria-label={`${metricLabel} by ${xAxisLabel.toLowerCase()}`}>
     <p className="mb-1 truncate text-[9px] font-semibold uppercase tracking-[.1em] text-slate-500">Y · {metricLabel}</p>
     <div className="grid grid-cols-[2.35rem_minmax(0,1fr)] gap-1">
       <div aria-hidden className="flex h-14 flex-col justify-between pb-0.5 text-right text-[8px] leading-none tabular-nums text-slate-500"><span>{formatValue(max, valueFormat)}</span><span>{formatValue(min, valueFormat)}</span></div>
@@ -49,7 +49,7 @@ export function WalnutProfileSparkline({ id, metricLabel, valueFormat, points }:
       </svg>
     </div>
     <div className="mt-1 grid grid-cols-[2.35rem_minmax(0,1fr)] gap-1 text-[8px] uppercase tracking-[.08em] text-slate-500"><span>Y</span><span className="flex justify-between"><span>{points[0]?.label ?? "Latest"}</span><span>{points.at(-1)?.label ?? "Latest"}</span></span></div>
-    <p className="mt-1 text-right text-[8px] font-semibold uppercase tracking-[.08em] text-slate-500">X · reporting period</p>
+    <p className="mt-1 text-right text-[8px] font-semibold uppercase tracking-[.08em] text-slate-500">X · {xAxisLabel}</p>
     {activePoint ? <div role="status" className="pointer-events-none absolute bottom-full left-1/2 z-[60] mb-2 w-max max-w-52 -translate-x-1/2 rounded-md border border-emerald-300/30 bg-slate-950/95 px-3 py-2 text-left text-xs shadow-[0_18px_45px_rgba(0,0,0,.55)] backdrop-blur"><p className="font-semibold text-white">{activePoint.label}</p><p className="mt-0.5 text-slate-300">{metricLabel}: <span className="font-semibold tabular-nums text-emerald-200">{formatValue(activePoint.value, valueFormat)}</span></p></div> : null}
   </div>;
 }

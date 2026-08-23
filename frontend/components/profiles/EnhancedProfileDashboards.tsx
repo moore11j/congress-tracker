@@ -278,7 +278,10 @@ function ProfileDashboard({ flavor, eyebrow, title, subtitle, filter, comparison
 
 function OverviewCard({ card }: { card: ProfilesSummaryResponse["cards"][number] }) {
   const chartMetric = overviewChartMetric(card);
-  const chartPoints = overviewChartPoints(chartMetric);
+  const chartPoints = card.trend?.points?.length ? card.trend.points : overviewChartPoints(chartMetric);
+  const chartLabel = card.trend?.metric_label ?? chartMetric?.label ?? "Reported value";
+  const chartFormat = card.trend?.value_format ?? chartMetric?.format;
+  const xAxisLabel = card.trend?.cadence === "quarterly filings" ? "Filing quarter" : "Month";
 
   return <Link href={card.href} prefetch={false} className="group relative z-0 min-w-0 overflow-visible rounded-lg border border-slate-700/70 bg-slate-950/65 p-4 transition hover:z-20 hover:border-emerald-300/45 hover:bg-slate-900/80 focus-within:z-20">
     <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(8.5rem,10.5rem)] items-start gap-3">
@@ -288,7 +291,7 @@ function OverviewCard({ card }: { card: ProfilesSummaryResponse["cards"][number]
         <p className="mt-1 text-xs leading-5 text-slate-300">{card.description}</p>
       </div>
       <div className="min-w-0 pt-1">
-        <WalnutProfileSparkline id={`profile-card-${card.kind}`} metricLabel={chartMetric?.label ?? "Reported value"} valueFormat={chartMetric?.format} points={chartPoints} />
+        <WalnutProfileSparkline id={`profile-card-${card.kind}`} metricLabel={chartLabel} valueFormat={chartFormat} xAxisLabel={xAxisLabel} points={chartPoints} />
       </div>
     </div>
     <div className="mt-3 grid grid-cols-2 gap-2">{card.metrics.slice(0, 2).map((metric) => <div key={metric.label} className="rounded-md border border-slate-700/80 bg-slate-950/80 p-3"><p className="text-lg font-semibold tabular-nums text-white">{formatMetric(metric)}</p><p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500">{metric.label}</p><p className={`mt-1 truncate text-[10px] font-semibold tabular-nums ${typeof metric.change_pct === "number" ? metric.change_pct >= 0 ? "text-emerald-300" : "text-rose-300" : "text-slate-500"}`}>{typeof metric.change_pct === "number" ? `${metric.change_pct >= 0 ? "+" : ""}${metric.change_pct.toFixed(1)}%` : "No prior comparable"}</p></div>)}</div>
