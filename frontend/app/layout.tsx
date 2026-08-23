@@ -55,7 +55,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <div className="relative min-h-screen min-w-0 max-w-full">
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.08),_transparent_42%),radial-gradient(circle_at_20%_18%,_rgba(15,23,42,0.26),_transparent_36%),linear-gradient(180deg,_rgba(6,13,24,0.8),_rgba(2,6,23,1))]" />
           <header className="relative z-[1000] border-b border-white/10 bg-slate-950/80 backdrop-blur">
-            <div className="mx-auto flex w-full min-w-0 max-w-[1728px] flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-1 sm:px-6 lg:flex-nowrap lg:gap-x-6 lg:px-8 xl:gap-x-8 2xl:px-10">
+            <div className="mx-auto flex w-full min-w-0 max-w-[1728px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 sm:px-6 lg:flex-nowrap lg:gap-x-6 lg:gap-y-1 lg:px-8 lg:py-1 xl:gap-x-8 2xl:px-10">
               <Link href="https://walnutmarkets.com" prefetch={false} className="group flex min-w-0 shrink-0 items-center gap-2 rounded-xl pr-2 text-lg font-semibold">
                 <WalnutBrandMark className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-emerald-300/30 bg-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.16)]" svgClassName="h-[18px] w-[18px] overflow-visible" />
                 <span className="leading-none">

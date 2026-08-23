@@ -249,7 +249,7 @@ export function AppTopNav() {
       <nav
         ref={scrollRef}
         onScroll={updateScrollState}
-        className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap text-sm font-medium text-slate-200 [scrollbar-width:none] lg:gap-4 xl:gap-5 [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap py-0.5 text-sm font-medium text-slate-200 [scrollbar-width:none] lg:gap-4 lg:py-0 xl:gap-5 [&::-webkit-scrollbar]:hidden"
       >
         {topNavLinks.map((link) => {
           const active = isActiveNavLink(pathname, link.href);
@@ -259,7 +259,7 @@ export function AppTopNav() {
               href={link.href}
               prefetch={false}
               aria-current={active ? "page" : undefined}
-              className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+              className={`flex min-h-11 items-center rounded-full px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:min-h-0 lg:px-2.5 lg:py-1 ${
                 active
                   ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
                   : "text-slate-200 hover:text-white"
@@ -295,7 +295,7 @@ export function AppTopNav() {
                     setToolsOpen(false);
                     setCompanyOpen(false);
                   }}
-                  className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                  className={`flex min-h-11 items-center rounded-full px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:min-h-0 lg:px-2.5 lg:py-1 ${
                     profilesActive || profilesOpen
                       ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
                       : "text-slate-200 hover:text-white"
@@ -363,7 +363,7 @@ export function AppTopNav() {
               setProfilesOpen(false);
               setCompanyOpen(false);
             }}
-            className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+            className={`flex min-h-11 items-center rounded-full px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:min-h-0 lg:px-2.5 lg:py-1 ${
               toolsActive || toolsOpen
                 ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
                 : "text-slate-200 hover:text-white"
@@ -416,7 +416,7 @@ export function AppTopNav() {
               href="/pricing"
               prefetch={false}
               aria-current={active ? "page" : undefined}
-              className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+              className={`flex min-h-11 items-center rounded-full px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:min-h-0 lg:px-2.5 lg:py-1 ${
                 active
                   ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
                   : "text-slate-200 hover:text-white"
@@ -449,7 +449,7 @@ export function AppTopNav() {
               setProfilesOpen(false);
               setToolsOpen(false);
             }}
-            className={`rounded-full px-2.5 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+            className={`flex min-h-11 items-center rounded-full px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:min-h-0 lg:px-2.5 lg:py-1 ${
               companyActive || companyOpen
                 ? "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/30"
                 : "text-slate-200 hover:text-white"
