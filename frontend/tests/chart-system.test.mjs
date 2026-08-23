@@ -122,3 +122,10 @@ test("insider dashboard reuses the interactive snapshot, metric, and sector char
   assert.match(dashboard, /CongressSectorExposure/);
   assert.match(dashboard, /CongressNetSectorBars rows={rows}/);
 });
+
+test("institutional dashboard reuses animated metric, exposure, and net-position primitives", () => {
+  assert.match(dashboard, /institutionalMetricSeries/);
+  assert.match(dashboard, /CongressMetricTrend points={points}/);
+  assert.match(dashboard, /CongressSectorExposure rows={rows}/);
+  assert.match(dashboard, /CongressNetSectorBars rows={movements.map/);
+});
