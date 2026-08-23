@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type PublicResearchBriefCard, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -1288,16 +1288,135 @@ function DecisionPanel({ title, items, empty }: { title: string; items?: TickerD
   );
 }
 
+function divergenceToneClass(state: CrossSourceDivergence["state"]): string {
+  if (state === "strong_divergence") return "border-rose-300/35 bg-rose-300/10 text-rose-100";
+  if (state === "moderate_divergence") return "border-amber-300/35 bg-amber-300/10 text-amber-100";
+  if (state === "mild_divergence") return "border-sky-300/35 bg-sky-300/10 text-sky-100";
+  return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
+}
+
+function CrossSourceDivergenceCard({ divergence }: { divergence?: CrossSourceDivergence | null }) {
+  if (!divergence) return null;
+  const showBreakdown = divergence.source_breakdown_available && (
+    (divergence.bullish_sources?.length ?? 0) > 0 || (divergence.bearish_sources?.length ?? 0) > 0
+  );
+  return (
+    <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Cross-Source Divergence</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{divergence.explanation ?? divergence.public_explanation}</p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${divergenceToneClass(divergence.state)}`}>{divergence.label}</span>
+      </div>
+      {showBreakdown ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.04] p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">Bullish</p>
+            <p className="mt-2 text-sm text-slate-200">{(divergence.bullish_sources ?? []).map((source) => source.label).join(" · ") || "No material bullish evidence"}</p>
+          </div>
+          <div className="rounded-lg border border-rose-300/15 bg-rose-300/[0.04] p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-200">Bearish</p>
+            <p className="mt-2 text-sm text-slate-200">{(divergence.bearish_sources ?? []).map((source) => source.label).join(" · ") || "No material bearish evidence"}</p>
+          </div>
+        </div>
+      ) : null}
+      <p className="mt-4 text-xs text-slate-500">
+        {divergence.active_source_count} active source{divergence.active_source_count === 1 ? "" : "s"} evaluated · {divergence.methodology_version}
+      </p>
+    </section>
+  );
+}
+
+function historicalPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSetups | null }) {
+  if (!setups) return null;
+  const thirtyDay = setups.horizons?.["30D"];
+  const ninetyDay = setups.horizons?.["90D"];
+  const building = setups.status === "building" || setups.status === "unavailable";
+  const locked = Boolean(setups.access?.locked);
+  return (
+    <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Similar Historical Setups</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {setups.status === "unavailable"
+              ? "Similar setups need at least two active directional sources in the current evidence profile."
+              : building
+              ? "Building historical coverage from live, point-in-time confirmation events. Results will appear automatically once enough comparable outcomes mature."
+              : `Walnut found ${setups.match_count} prior confirmation event${setups.match_count === 1 ? "" : "s"} with a similar evidence profile.`}
+          </p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${building ? "border-sky-300/30 bg-sky-300/10 text-sky-100" : setups.status === "limited" ? "border-amber-300/30 bg-amber-300/10 text-amber-100" : "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"}`}>
+          {building ? "Building" : setups.status === "limited" ? "Early sample" : "Historical evidence"}
+        </span>
+      </div>
+      {setups.current_setup ? (
+        <p className="mt-3 text-xs text-slate-500">Current profile: score {setups.current_setup.score} · {setups.current_setup.direction} · {setups.current_setup.divergence ?? "Divergence unavailable"} · {setups.current_setup.active_source_count} active sources</p>
+      ) : null}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {(["30D", "90D"] as const).map((horizon) => {
+          const metrics = horizon === "30D" ? thirtyDay : ninetyDay;
+          return (
+            <div key={horizon} className="rounded-lg border border-white/10 bg-slate-950/50 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon}</p>
+              {metrics?.status === "building" ? (
+                <p className="mt-2 text-sm text-slate-400">{metrics.sample_size} matured comparable outcome{metrics.sample_size === 1 ? "" : "s"} so far.</p>
+              ) : (
+                <div className="mt-2 space-y-1.5 text-sm text-slate-300">
+                  <p>Directional outcome <span className="font-semibold text-white">{metrics?.directional_accuracy_pct === null || metrics?.directional_accuracy_pct === undefined ? "--" : `${metrics.directional_accuracy_pct}%`}</span></p>
+                  {!locked ? <p>Median directional return <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_return_pct)}</span></p> : null}
+                  {!locked ? <p>Median excess vs SPY <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_excess_vs_spy_pct)}</span></p> : null}
+                  <p className="text-xs text-slate-500">Sample: {metrics?.sample_size ?? 0} events</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {setups.sample_warning ? <p className="mt-3 text-xs leading-5 text-amber-200/80">{setups.sample_warning}</p> : null}
+      {locked && !building ? <Link href="/pricing" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">Unlock the full historical setup analysis</Link> : null}
+      {!locked && (setups.top_matches?.length ?? 0) > 0 ? (
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most similar events</p>
+          <div className="mt-3 grid gap-2">
+            {(setups.top_matches ?? []).slice(0, 3).map((match) => {
+              const outcome = match.outcomes?.["90D"] ?? match.outcomes?.["30D"];
+              return <div key={`${match.ticker}-${match.market_date}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-sm">
+                <div>
+                  <p className="font-semibold text-slate-100">{match.ticker} <span className="font-normal text-slate-500">· {formatDateShort(match.market_date)}</span></p>
+                  {match.reasons?.length ? <p className="mt-1 text-xs text-slate-500">Similar: {match.reasons.join(" · ")}</p> : null}
+                </div>
+                <p className="text-slate-300">Score {match.score} · {match.direction} · {outcome?.status === "matured" ? `Directional ${historicalPercent(outcome.directional_return_pct)}` : "Outcome pending"}</p>
+              </div>;
+            })}
+          </div>
+        </div>
+      ) : null}
+      <p className="mt-4 text-xs text-slate-500">{setups.methodology_version} · Live prospective snapshots only</p>
+    </section>
+  );
+}
+
 function TickerOverviewPanel({
   confirmationBundle,
   sourceDisplayBundle = confirmationBundle,
   decisionLayer,
   confirmationGate,
+  divergence,
+  similarHistoricalSetups,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
   decisionLayer?: TickerDecisionLayer | null;
   confirmationGate?: TickerConfirmationGate | null;
+  divergence?: CrossSourceDivergence | null;
+  similarHistoricalSetups?: SimilarHistoricalSetups | null;
 }) {
   const displayBundle = sourceDisplayBundle;
   const confirmationLocked = Boolean(confirmationGate?.locked);
@@ -1310,8 +1429,9 @@ function TickerOverviewPanel({
 
   return (
     <div className="relative">
-      <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
-        <section className="grid gap-5 rounded-lg border border-white/10 bg-slate-950/30 px-6 py-5 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,0.9fr)_minmax(14rem,1.05fr)_minmax(16rem,1fr)] lg:items-center">
+      <div className="relative">
+        <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
+          <section className="grid gap-5 rounded-lg border border-white/10 bg-slate-950/30 px-6 py-5 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,0.9fr)_minmax(14rem,1.05fr)_minmax(16rem,1fr)] lg:items-center">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">30-DAY CONFIRMATION</p>
             <p className="mt-3 text-xs text-slate-500">{updated}</p>
@@ -1328,7 +1448,22 @@ function TickerOverviewPanel({
           <div>
             <DecisionTrendChart history={confirmation.history} direction={direction} />
           </div>
-        </section>
+          </section>
+        </div>
+        {confirmationLocked && confirmationGate ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/35 p-4 backdrop-blur-[1px]">
+            <div className="max-w-sm rounded-lg border border-emerald-300/20 bg-slate-950/90 p-4 text-center shadow-2xl shadow-black/40">
+              <p className="text-sm font-semibold text-white">Premium confirmation</p>
+              <p className="mt-2 text-xs leading-5 text-slate-400">{confirmationGate.message}</p>
+              <Link href={confirmationGate.href} className="mt-4 inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20">{confirmationGate.label}</Link>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <CrossSourceDivergenceCard divergence={divergence} />
+
+      <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
           <DecisionPanel title="WHAT CHANGED (30D)" items={layer.what_changed} empty="No meaningful dated changes are available for this window." />
@@ -1356,21 +1491,7 @@ function TickerOverviewPanel({
           ) : null}
         </section>
       </div>
-
-      {confirmationLocked && confirmationGate ? (
-        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-slate-950/35 p-4 pt-16 backdrop-blur-[1px]">
-          <div className="max-w-sm rounded-lg border border-emerald-300/20 bg-slate-950/90 p-4 text-center shadow-2xl shadow-black/40">
-            <p className="text-sm font-semibold text-white">Premium confirmation</p>
-            <p className="mt-2 text-xs leading-5 text-slate-400">{confirmationGate.message}</p>
-            <Link
-              href={confirmationGate.href}
-              className="mt-4 inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
-            >
-              {confirmationGate.label}
-            </Link>
-          </div>
-        </div>
-      ) : null}
+      <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} />
     </div>
   );
 }
@@ -3000,6 +3121,8 @@ async function DeferredTickerContent({
   signalsAuthPending,
   topMembers,
   confirmationScoreBundle,
+  crossSourceDivergence,
+  similarHistoricalSetups,
   optionsFlowSummary,
   technicalIndicators,
   relatedResearch,
@@ -3020,6 +3143,8 @@ async function DeferredTickerContent({
   signalsAuthPending: boolean;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
+  crossSourceDivergence?: CrossSourceDivergence | null;
+  similarHistoricalSetups?: SimilarHistoricalSetups | null;
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
   relatedResearch: PublicResearchBriefCard[];
@@ -3158,6 +3283,8 @@ async function DeferredTickerContent({
                 sourceDisplayBundle={visibleConfirmationBundle}
                 decisionLayer={decisionLayer}
                 confirmationGate={tickerConfirmationGate}
+                divergence={crossSourceDivergence}
+                similarHistoricalSetups={similarHistoricalSetups}
               />
             }
           />
@@ -4282,6 +4409,8 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           signalsAuthPending={signalActivityAuthPending}
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
+          crossSourceDivergence={contextBundle?.cross_source_divergence ?? null}
+          similarHistoricalSetups={contextBundle?.similar_historical_setups ?? null}
           optionsFlowSummary={profile.options_flow_summary}
           technicalIndicators={profile.technical_indicators}
           relatedResearch={relatedResearch}

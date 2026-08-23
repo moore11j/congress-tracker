@@ -5178,8 +5178,78 @@ export type TickerContextBundleResponse = TickerProfile & {
   } | null;
   source_entitlements?: TickerSourceEntitlements | null;
   source_cards?: Record<string, unknown> | null;
+  cross_source_divergence?: CrossSourceDivergence | null;
+  similar_historical_setups?: SimilarHistoricalSetups | null;
   decision_layer?: TickerDecisionLayer | null;
   signals_summary: TickerSignalsSummaryResponse;
+};
+
+export type CrossSourceDivergenceSource = {
+  key: string;
+  label: string;
+  direction: "bullish" | "bearish" | string;
+  strength: number;
+  freshness_days?: number | null;
+  horizon?: "fast" | "slow" | string;
+};
+
+export type CrossSourceDivergence = {
+  methodology_version: string;
+  state: "unavailable" | "aligned" | "mild_divergence" | "moderate_divergence" | "strong_divergence" | string;
+  label: string;
+  directional_context?: string | null;
+  public_explanation?: string | null;
+  explanation?: string | null;
+  active_source_count: number;
+  bullish_source_count: number;
+  bearish_source_count: number;
+  fast_group_state?: string | null;
+  slow_group_state?: string | null;
+  bullish_sources?: CrossSourceDivergenceSource[];
+  bearish_sources?: CrossSourceDivergenceSource[];
+  neutral_sources?: CrossSourceDivergenceSource[];
+  source_breakdown_available?: boolean;
+};
+
+export type SimilarHistoricalHorizon = {
+  status: "building" | "limited" | "ready" | string;
+  sample_size: number;
+  directional_accuracy_pct?: number | null;
+  median_directional_return_pct?: number | null;
+  median_directional_excess_vs_spy_pct?: number | null;
+  sample_warning?: string | null;
+};
+
+export type SimilarHistoricalMatch = {
+  ticker: string;
+  market_date: string;
+  score: number;
+  direction: "bullish" | "bearish" | string | null;
+  similarity?: number | null;
+  reasons?: string[];
+  outcomes?: Record<string, {
+    status?: string;
+    return_pct?: number | null;
+    directional_return_pct?: number | null;
+    directionally_correct?: boolean | null;
+  } | null>;
+};
+
+export type SimilarHistoricalSetups = {
+  status: "building" | "limited" | "ready" | "unavailable" | string;
+  methodology_version: string;
+  current_setup?: {
+    score: number;
+    direction: string;
+    divergence?: string | null;
+    active_source_count: number;
+  } | null;
+  match_count: number;
+  horizons: Record<string, SimilarHistoricalHorizon>;
+  top_matches?: SimilarHistoricalMatch[];
+  sample_warning?: string | null;
+  cohort_type?: string | null;
+  access?: { locked?: boolean; required_plan?: string | null } | null;
 };
 
 export type PeerCompareSide = {

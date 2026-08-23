@@ -244,6 +244,16 @@ from app.services.confirmation_score import (
     with_confirmation_score_history,
 )
 from app.services.ticker_decision_layer import build_ticker_decision_layer
+from app.services.cross_source_divergence import (
+    build_cross_source_divergence,
+    cross_source_divergence_enabled,
+    public_cross_source_divergence,
+)
+from app.services.historical_similarity import (
+    build_similar_historical_setups,
+    public_similar_historical_setups,
+    similar_historical_setups_enabled,
+)
 from app.services.options_flow import unavailable_options_flow_summary
 from app.services.confirmation_context import build_confirmation_score_context
 from app.services.macro_positioning import (
@@ -6627,7 +6637,26 @@ def admin_outcome_snapshot_detail(snapshot_id: int, request: Request, response: 
     return detail
 
 
-_TICKER_CONTEXT_BUNDLE_VERSION = 2
+@app.get("/api/admin/tickers/{symbol}/cross-source-divergence")
+def admin_ticker_cross_source_divergence(symbol: str, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Diagnostic view for tuning divergence without exposing source detail publicly."""
+    require_admin_user(db, request)
+    response.headers["Cache-Control"] = "no-store"
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    confirmation = _ticker_confirmation_context(db, normalized_symbol)["confirmation_score_bundle"]
+    return {
+        "symbol": normalized_symbol,
+        "enabled": cross_source_divergence_enabled(),
+        "confirmation_score": confirmation.get("score"),
+        "confirmation_direction": confirmation.get("direction"),
+        "source_contributions": confirmation.get("sources"),
+        "divergence": build_cross_source_divergence(confirmation),
+    }
+
+
+_TICKER_CONTEXT_BUNDLE_VERSION = 4
 _TICKER_CONTEXT_BUNDLE_INFLIGHT_LOCK = threading.Lock()
 _TICKER_CONTEXT_BUNDLE_INFLIGHT: dict[str, dict[str, Any]] = {}
 _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK = threading.Lock()
@@ -7407,9 +7436,42 @@ def _build_ticker_context_bundle(
             confirmation_context.get("institutional_activity_summary"),
             source_entitlements,
         )
+        # Keep matching and divergence anchored to the canonical, unredacted
+        # evidence state. The viewer-specific bundle below is display-only.
+        canonical_evidence_bundle = copy.deepcopy(confirmation_score_bundle)
+        raw_divergence = build_cross_source_divergence(canonical_evidence_bundle) if cross_source_divergence_enabled() else None
+        raw_similar_setups = (
+            build_similar_historical_setups(
+                db,
+                symbol=normalized_symbol,
+                confirmation_bundle=canonical_evidence_bundle,
+                sector=profile_ticker.get("sector") if isinstance(profile_ticker.get("sector"), str) else None,
+            )
+            if similar_historical_setups_enabled()
+            else None
+        )
         confirmation_score_bundle = _redact_locked_ticker_confirmation_sources(
             confirmation_score_bundle,
             source_entitlements,
+        )
+        allowed_divergence_sources = (
+            {
+                source_key
+                for source_key, entitlement in source_entitlements.items()
+                if not bool((entitlement or {}).get("locked"))
+            }
+            if can_view_signal_details
+            else set()
+        )
+        divergence = (
+            public_cross_source_divergence(raw_divergence, allowed_source_keys=allowed_divergence_sources)
+            if raw_divergence is not None
+            else None
+        )
+        similar_historical_setups = (
+            public_similar_historical_setups(raw_similar_setups, include_details=can_view_signal_details)
+            if raw_similar_setups is not None
+            else None
         )
         confirmation_ms = (perf_counter() - confirmation_started_at) * 1000
         slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
@@ -7430,6 +7492,8 @@ def _build_ticker_context_bundle(
             "macro_positioning": source_contexts["macro_positioning"],
             "source_entitlements": source_entitlements,
             "confirmation_score_bundle": confirmation_score_bundle,
+            "cross_source_divergence": divergence,
+            "similar_historical_setups": similar_historical_setups,
             "signal_freshness": signal_freshness,
             "latest_signal_score": latest_score,
             "recent_count": len(rows),

@@ -20,6 +20,10 @@ from app.services.confirmation_score import (
     THIRTY_DAY_DURABLE_SOURCES,
     confirmation_active_source_count,
 )
+from app.services.cross_source_divergence import (
+    CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION,
+    build_cross_source_divergence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -645,6 +649,7 @@ def input_hash_for_confirmation_bundle(bundle: dict[str, Any], methodology: Conf
         "source_contributions": source_contributions_from_bundle(bundle),
         "source_freshness": source_freshness_from_bundle(bundle),
         "classification_version": bundle.get("classification_version"),
+        "divergence_methodology_version": CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION,
     }
     encoded = json.dumps(_normalized_json(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -763,6 +768,10 @@ def capture_live_confirmation_score_snapshot(
             active_source_count=active_source_count,
         )
         source_contributions[V2_FEATURES_KEY] = v2_features
+        # Keep the interpretation with the immutable confirmation snapshot.
+        # This prevents later historical analysis from reconstructing it from
+        # today's source state.
+        source_contributions["__cross_source_divergence"] = build_cross_source_divergence(bundle)
         input_hash = input_hash_for_confirmation_bundle(bundle, methodology)
 
         existing = db.execute(
