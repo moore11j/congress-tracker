@@ -6,9 +6,9 @@ import { formatDateShort } from "@/lib/format";
 type DecisionTrendPoint = { date: string; score: number };
 type RenderedPoint = DecisionTrendPoint & { x: number; y: number };
 
-const width = 720;
-const height = 238;
-const padding = { top: 18, right: 24, bottom: 38, left: 46 };
+const width = 260;
+const height = 96;
+const padding = { top: 9, right: 10, bottom: 22, left: 32 };
 
 function clamp(value: number, min: number, max: number): number { return Math.max(min, Math.min(max, value)); }
 function scoreBand(score: number): string { if (score <= 19) return "Inactive"; if (score <= 39) return "Weak"; if (score <= 59) return "Moderate"; if (score <= 79) return "Strong"; return "Very strong"; }
@@ -46,7 +46,7 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   useEffect(() => { const animationFrame = requestAnimationFrame(() => setRevealed(true)); return () => cancelAnimationFrame(animationFrame); }, []);
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
 
-  if (!chart) return <div className="flex h-56 items-center justify-center rounded-lg border border-white/10 bg-slate-950/35 px-3 text-sm font-medium text-slate-500">Score history unavailable</div>;
+  if (!chart) return <div className="flex h-24 items-center justify-center rounded-md border border-white/10 bg-slate-950/35 px-3 text-xs font-medium text-slate-500">Score history unavailable</div>;
 
   const active = activeIndex === null ? null : chart.rendered[activeIndex] ?? null;
   const linePoints = chart.rendered.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
@@ -66,16 +66,16 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
     setActiveIndex((current) => clamp((current ?? chart.rendered.length - 1) + (event.key === "ArrowLeft" ? -1 : 1), 0, chart.rendered.length - 1));
   };
 
-  return <div className="relative z-20 h-56 w-full overflow-visible">
+  return <div className="relative z-20 h-24 w-full overflow-visible">
     <svg className="h-full w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores." tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => { if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId); setNearestIndex(event); }} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
       <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop stopColor={theme.areaTop} /><stop offset="1" stopColor={theme.areaBottom} /></linearGradient><clipPath id={`${gradientId}-clip`}><rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} /></clipPath></defs>
       <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="stroke-white/20" />
-      {chart.yTicks.map((tick) => { const y = chart.yFor(tick); return <g key={tick}><line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="stroke-white/10" strokeDasharray="3 5" /><text x={padding.left - 9} y={y + 4} textAnchor="end" className="fill-slate-400 tabular-nums" fontSize="12">{tick}</text></g>; })}
-      {chart.xTicks.map((index) => { const point = chart.rendered[index]; const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"; return <text key={`${point.date}-${index}`} x={point.x} y={height - 12} textAnchor={anchor} className="fill-slate-400" fontSize="12">{formatAxisDate(point.date)}</text>; })}
+      {chart.yTicks.map((tick) => { const y = chart.yFor(tick); return <g key={tick}><line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="stroke-white/10" strokeDasharray="2 4" /><text x={padding.left - 6} y={y + 3} textAnchor="end" className="fill-slate-500 tabular-nums" fontSize="10">{tick}</text></g>; })}
+      {chart.xTicks.map((index) => { const point = chart.rendered[index]; const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"; return <text key={`${point.date}-${index}`} x={point.x} y={height - 5} textAnchor={anchor} className="fill-slate-500" fontSize="10">{formatAxisDate(point.date)}</text>; })}
       <g clipPath={`url(#${gradientId}-clip)`} style={{ clipPath: revealed ? "inset(0 0 0 0)" : "inset(0 100% 0 0)", transition: "clip-path 560ms cubic-bezier(.22,1,.36,1)" }}><polygon points={areaPoints} fill={`url(#${gradientId})`} /><polyline points={linePoints} fill="none" stroke={theme.stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></g>
       {active ? <><line x1={active.x} y1={padding.top} x2={active.x} y2={height - padding.bottom} className="stroke-white/35" strokeDasharray="3 4" /><circle cx={active.x} cy={active.y} r="5" fill={theme.stroke} stroke="#020617" strokeWidth="2" /></> : null}
     </svg>
-    {active ? <div role="status" className="pointer-events-none absolute z-50 min-w-44 rounded-lg border border-emerald-300/25 bg-slate-950/95 px-3 py-2.5 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: `${clamp((active.x / width) * 100, 14, 86)}%`, top: "0.4rem", transform: "translateX(-50%)" }}><p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p><p className="mt-1 tabular-nums text-emerald-200">Score {Math.round(active.score)} / 100</p><p className="mt-1 font-medium text-slate-400">{confirmationLabel(active.score, direction)}</p></div> : null}
+    {active ? <div role="status" className="pointer-events-none absolute z-50 min-w-36 rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: `${clamp((active.x / width) * 100, 18, 82)}%`, top: "-0.4rem", transform: "translate(-50%, -100%)" }}><p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p><p className="mt-1 tabular-nums text-emerald-200">Score {Math.round(active.score)} / 100</p><p className="mt-1 font-medium text-slate-400">{confirmationLabel(active.score, direction)}</p></div> : null}
     <span className="sr-only">Use left and right arrow keys to inspect each day&apos;s confirmation score.</span>
   </div>;
 }

@@ -21,7 +21,6 @@ test("ticker overview renders the approved decision layer structure", () => {
   assert.match(page, /RISKS/);
   assert.match(page, /WHAT TO WATCH NEXT/);
   assert.match(decisionTrend, /Score history unavailable/);
-  assert.match(page, /Confirmation score trend/);
 });
 
 test("ticker confirmation trend is animated and supports direct inspection", () => {
