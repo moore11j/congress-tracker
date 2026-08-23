@@ -16,7 +16,7 @@ function dateLabel(value: string) {
 export function BacktestChart({ timeline }: Props) {
   const chartData = useMemo(() => timeline.map((point) => ({ label: dateLabel(point.date) })), [timeline]);
   const series = useMemo(() => [
-    { key: "strategy", label: "Strategy value", color: "rgba(110,231,183,0.96)", areaColor: "rgba(74,222,128,0.22)", values: timeline.map((point) => point.strategy_value) },
+    { key: "strategy", label: "Strategy value", color: "rgba(110,231,183,0.96)", areaGradient: { top: "rgba(74,222,128,0.34)", bottom: "rgba(74,222,128,0)" }, values: timeline.map((point) => point.strategy_value) },
     { key: "benchmark", label: "Benchmark value", color: "rgba(226,232,240,0.78)", dashed: true, values: timeline.map((point) => point.benchmark_value) },
   ], [timeline]);
 
