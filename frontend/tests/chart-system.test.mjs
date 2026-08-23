@@ -13,6 +13,9 @@ const allocationChart = read("components/institution/HoldingsAllocationChart.tsx
 const dashboard = read("components/profiles/EnhancedProfileDashboards.tsx");
 const governmentDashboard = read("components/profiles/EnhancedGovernmentDashboard.tsx");
 const donutChart = read("components/charts/WalnutDonutChart.tsx");
+const activityBarChart = read("components/charts/WalnutActivityBarChart.tsx");
+const memberAnalytics = read("components/member/MemberAnalyticsClient.tsx");
+const insiderAnalytics = read("components/insider/InsiderAnalyticsClient.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -64,4 +67,16 @@ test("dashboard pie charts share an accessible interactive donut primitive", () 
   assert.match(donutChart, /setPointerCapture/);
   assert.match(dashboard, /WalnutDonutChart/);
   assert.match(governmentDashboard, /WalnutDonutChart/);
+});
+
+test("activity charts share pointer, keyboard, animation, and reduced-motion behavior", () => {
+  assert.match(activityBarChart, /requestAnimationFrame/);
+  assert.match(activityBarChart, /prefers-reduced-motion/);
+  assert.match(activityBarChart, /touchAction: "pan-y"/);
+  assert.match(activityBarChart, /ArrowLeft/);
+  assert.match(activityBarChart, /setPointerCapture/);
+  assert.match(dashboard, /WalnutActivityBarChart/);
+  assert.match(governmentDashboard, /WalnutActivityBarChart/);
+  assert.match(memberAnalytics, /WalnutActivityBarChart/);
+  assert.match(insiderAnalytics, /WalnutActivityBarChart/);
 });

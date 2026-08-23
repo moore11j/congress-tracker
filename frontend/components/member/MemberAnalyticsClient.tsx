@@ -18,6 +18,7 @@ import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
+import { WalnutActivityBarChart } from "@/components/charts/WalnutActivityBarChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { formatDateShort, formatTransactionLabel } from "@/lib/format";
@@ -326,43 +327,8 @@ function ActivityDonut({ rows }: { rows: Array<{ label: string; value: number; c
 }
 
 function MiniBars({ buckets }: { buckets: Array<{ label: string; buy: number; sell: number }> }) {
-  const max = Math.max(1, ...buckets.map((bucket) => Math.max(bucket.buy, bucket.sell)));
-  const dense = buckets.length > 18;
-  const width = dense ? 520 : 380;
-  const height = 168;
-  const zero = 84;
-  const gap = dense ? 3 : 8;
-  const barWidth = Math.max(dense ? 2 : 4, (width - 48 - gap * buckets.length) / Math.max(1, buckets.length * 2));
-  const labelEvery = dense ? 6 : 2;
-
-  return (
-    <div className="mt-2 h-36 w-full">
-      {buckets.length === 0 ? (
-        <div className="grid h-full place-items-center border-y border-white/8 text-xs text-slate-500">
-          Activity trend refreshes as disclosed trades load.
-        </div>
-      ) : (
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
-          <line x1="28" x2={width - 8} y1={zero} y2={zero} stroke="rgba(148,163,184,0.25)" />
-          {[0, 1, 2].map((tick) => (
-            <line key={tick} x1="28" x2={width - 8} y1={28 + tick * 52} y2={28 + tick * 52} stroke="rgba(148,163,184,0.08)" />
-          ))}
-          {buckets.map((bucket, index) => {
-            const x = 34 + index * (barWidth * 2 + gap);
-            const buyHeight = Math.max(2, (bucket.buy / max) * 64);
-            const sellHeight = Math.max(2, (bucket.sell / max) * 64);
-            return (
-              <g key={bucket.label}>
-                <rect x={x} y={zero - buyHeight} width={barWidth} height={buyHeight} rx="1.5" fill="#34d399" />
-                <rect x={x + barWidth + 2} y={zero} width={barWidth} height={sellHeight} rx="1.5" fill="#fb7185" />
-                {index % labelEvery === 0 ? <text x={x} y={height - 8} fill="#64748b" fontSize="9">{bucket.label}</text> : null}
-              </g>
-            );
-          })}
-        </svg>
-      )}
-    </div>
-  );
+  if (!buckets.length) return <div className="mt-2 grid h-36 place-items-center border-y border-white/8 text-xs text-slate-500">Activity trend refreshes as disclosed trades load.</div>;
+  return <div className="mt-2 h-40"><WalnutActivityBarChart data={buckets.map((bucket) => ({ label: bucket.label, positive: bucket.buy, negative: -bucket.sell }))} ariaLabel="Member disclosed buy and sell activity" positiveLabel="Buys" negativeLabel="Sells" height={160} valueFormat="number" /></div>;
 }
 
 function AnalyticsStatsSkeleton() {
