@@ -466,6 +466,7 @@ function PendingOverlay({ children }: { children: ReactNode }) {
 }
 
 function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnapshot[]; horizon: string; summary: OutcomeLedgerSummary | null }) {
+  const [activeBand, setActiveBand] = useState<string | null>(null);
   const bandStats = summary?.horizon === horizon && summary.score_bands.length
     ? summary.score_bands.map((stat) => ({ ...stat, reliable: stat.count >= minimumScoreBandDirectionalSamples }))
     : scoreBands.map((band) => {
@@ -499,7 +500,7 @@ function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnap
         </div>
         <div className="relative flex items-end justify-around border-b border-slate-500/60 bg-[linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[length:100%_20%] px-4">
           {bandStats.map((stat) => (
-            <div key={stat.band} className="flex w-16 flex-col items-center gap-2">
+            <button key={stat.band} type="button" className={`flex w-16 flex-col items-center gap-2 rounded-sm outline-none transition focus-visible:ring-2 focus-visible:ring-lime-300/70 ${activeBand === null || activeBand === stat.band ? "opacity-100" : "opacity-40"}`} onPointerEnter={() => setActiveBand(stat.band)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveBand(null); }} onFocus={() => setActiveBand(stat.band)} onBlur={() => setActiveBand(null)} onClick={() => setActiveBand((current) => current === stat.band ? null : stat.band)} aria-pressed={activeBand === stat.band} aria-label={`${stat.band} score band: ${stat.accuracy === null ? "no directional accuracy yet" : `${stat.accuracy}% directional accuracy`}, ${stat.count} calls`}>
               <span className="text-[11px] text-slate-200">{stat.accuracy === null ? "-" : stat.reliable ? `${stat.accuracy}%` : `n=${stat.count}`}</span>
               <div
                 className={`w-9 rounded-t-sm border border-lime-400/35 bg-gradient-to-t from-lime-500/75 to-lime-300/80 ${stat.accuracy === null ? "opacity-20" : stat.reliable ? "" : "opacity-35"}`}
@@ -507,7 +508,7 @@ function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnap
               />
               <span className="text-[10px] text-slate-500">{stat.count ? `${stat.count} calls` : "no calls"}</span>
               <span>{stat.band}</span>
-            </div>
+            </button>
           ))}
         </div>
         {!hasOutcomes ? (
@@ -522,6 +523,12 @@ function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnap
 
 function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; horizon: string }) {
   const [hoverPoint, setHoverPoint] = useState<(EventOutcomePoint & { x: number; y: number }) | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setRevealed(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const points = snapshots
     .map((snapshot) => {
       const outcome = maturedOutcome(snapshot, horizon);
@@ -573,7 +580,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
         </span>
       </div>
       <div className="relative mt-2 h-52">
-        <svg viewBox="0 0 760 235" className="h-full w-full overflow-visible">
+        <svg viewBox="0 0 760 235" className="h-full w-full overflow-visible outline-none" role="img" aria-label="Event outcomes by date and return" tabIndex={0} style={{ touchAction: "pan-y" }} onPointerLeave={(event) => { if (event.pointerType === "mouse") { setHoverPoint(null); setActiveIndex(null); } }} onKeyDown={(event) => { if (event.key === "Escape") { setHoverPoint(null); setActiveIndex(null); return; } if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" || !points.length) return; event.preventDefault(); const next = Math.max(0, Math.min(points.length - 1, (activeIndex ?? 0) + (event.key === "ArrowLeft" ? -1 : 1))); const point = points[next]; const { x, y } = pointCoordinates(point); setActiveIndex(next); setHoverPoint({ ...point, x, y }); }}>
           {[36, 72, 108, 144, 180].map((y) => (
             <line key={y} x1="40" x2="735" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
           ))}
@@ -590,21 +597,21 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           <text x="390" y="232" fill="#cbd5e1" fontSize="12" textAnchor="middle">
             Opened Date
           </text>
-          {points.map((point) => {
+          {points.map((point, index) => {
             const { x, y } = pointCoordinates(point);
             const positive = point.returnValue >= 0;
             return (
               <g
                 key={point.snapshot.id}
-                onMouseEnter={() => setHoverPoint({ ...point, x, y })}
-                onMouseLeave={() => setHoverPoint(null)}
-                onFocus={() => setHoverPoint({ ...point, x, y })}
-                onBlur={() => setHoverPoint(null)}
+                onPointerEnter={() => { setActiveIndex(index); setHoverPoint({ ...point, x, y }); }}
+                onPointerDown={() => { setActiveIndex(index); setHoverPoint({ ...point, x, y }); }}
+                onFocus={() => { setActiveIndex(index); setHoverPoint({ ...point, x, y }); }}
+                onBlur={() => { setActiveIndex(null); setHoverPoint(null); }}
                 tabIndex={0}
-                role="img"
+                role="button"
                 aria-label={`${point.snapshot.ticker} opened ${point.openedLabel}, return ${formatPercent(point.returnValue)}`}
               >
-                <circle cx={x} cy={y} r="6" fill={positive ? "#84cc16" : "#ef4444"} opacity="0.92" className="cursor-pointer" />
+                <circle cx={x} cy={y} r="6" fill={positive ? "#84cc16" : "#ef4444"} opacity={revealed ? "0.92" : "0"} className="cursor-pointer transition-opacity duration-300" />
                 <text x={x} y={y - 10} fill="#cbd5e1" fontSize="10" textAnchor="middle">
                   {point.snapshot.ticker}
                 </text>

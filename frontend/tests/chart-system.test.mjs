@@ -16,6 +16,7 @@ const donutChart = read("components/charts/WalnutDonutChart.tsx");
 const activityBarChart = read("components/charts/WalnutActivityBarChart.tsx");
 const memberAnalytics = read("components/member/MemberAnalyticsClient.tsx");
 const insiderAnalytics = read("components/insider/InsiderAnalyticsClient.tsx");
+const outcomes = read("components/outcomes/OutcomeLedgerClient.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -79,4 +80,12 @@ test("activity charts share pointer, keyboard, animation, and reduced-motion beh
   assert.match(governmentDashboard, /WalnutActivityBarChart/);
   assert.match(memberAnalytics, /WalnutActivityBarChart/);
   assert.match(insiderAnalytics, /WalnutActivityBarChart/);
+});
+
+test("outcome charts support keyboard, touch, and focus inspection", () => {
+  assert.match(outcomes, /aria-pressed/);
+  assert.match(outcomes, /requestAnimationFrame/);
+  assert.match(outcomes, /touchAction: "pan-y"/);
+  assert.match(outcomes, /ArrowLeft/);
+  assert.match(outcomes, /Event outcomes by date and return/);
 });

@@ -51,7 +51,7 @@ It already uses native series, markers, crosshair subscriptions, a skeleton, and
 
 1. Completed: inventory, shared utilities/container/line chart, Backtesting migration, regression tests.
 2. In progress: profile performance and institutional allocation. Congress performance now uses the shared binary nearest-point lookup, RAF hover scheduling, reveal clipping, keyboard support, and touch scrubbing; the allocation donut now supports touch selection and reduced-motion-safe entry. Generic profile and government line trends, dashboard mix pie charts, and Congress/insider/institution/government activity charts now use shared interactive primitives.
-3. Then: activity/outcomes/compare, including dense-data measurement and display-only downsampling if a chart exceeds its SVG budget.
+3. In progress: Outcomes score-band and event scatter charts now support focus, touch, keyboard inspection, and reveal motion. Compare has no historical chart data in its current API response, so no comparison chart is rendered until a source-backed series is available. Dense outcome datasets remain measured before any display-only downsampling.
 4. Finally: strategies, insights, and selected sparklines.
 
 No data transformations, backend calculations, cache headers, entitlements, or TradingView data flows changed in phase 1. No downsampling is currently applied.
