@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyAdminResearchBriefDraftCorrections,
   approveScheduledAdminResearchBriefDraft,
   createAdminResearchCampaign,
   discoverAdminResearchKeywordOpportunities,
@@ -21,7 +22,6 @@ import {
   recordProductEvent,
   refreshAdminResearchBriefSources,
   regenerateAdminResearchKeywordOpportunity,
-  rejectAdminResearchBriefDraft,
   rescheduleAdminResearchCampaignItem,
   rescheduleAdminResearchBriefDraft,
   runAdminResearchCampaignItemNow,
@@ -1092,18 +1092,23 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
   }
 
-  async function rejectSelected(correctionInstructions: string) {
-    if (!selectedDraft) return;
-    setBusy("reject");
+  async function applyCorrectionsSelected(correctionInstructions: string): Promise<boolean> {
+    if (!selectedDraft || !articleDraft || !correctionInstructions.trim()) return false;
+    setBusy("apply-corrections");
     try {
-      const draft = await rejectAdminResearchBriefDraft(selectedDraft.id, correctionInstructions);
+      const article = currentEditedArticle();
+      if (!article) return false;
+      const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article, config: currentEditedConfig() });
+      const draft = await applyAdminResearchBriefDraftCorrections(savedDraft.id, correctionInstructions.trim());
       applySavedDraft(draft);
       await refreshCampaigns();
-      showToast?.("Rejected draft replaced and sent for review.", "success");
+      showToast?.("AI changes applied to this draft. Review before publishing.", "success");
+      return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to reject scheduled brief.";
+      const message = err instanceof Error ? err.message : "Unable to apply AI changes to this draft.";
       setError(message);
       showToast?.(message, "error");
+      return false;
     } finally {
       setBusy(null);
     }
@@ -1630,7 +1635,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onSchedule={scheduleSelected}
             onPublishNow={publishNowSelected}
             onApproveScheduled={approveScheduledSelected}
-            onReject={rejectSelected}
+            onApplyCorrections={applyCorrectionsSelected}
             onReschedule={rescheduleSelected}
             onUnpublish={unpublishSelected}
             onDelete={requestDeleteSelected}
@@ -2545,7 +2550,7 @@ function EditorPanel({
   onSchedule,
   onPublishNow,
   onApproveScheduled,
-  onReject,
+  onApplyCorrections,
   onReschedule,
   onUnpublish,
   onDelete,
@@ -2566,7 +2571,7 @@ function EditorPanel({
   onSchedule: (scheduledAt: string) => void;
   onPublishNow: () => void;
   onApproveScheduled: () => void;
-  onReject: (correctionInstructions: string) => void;
+  onApplyCorrections: (correctionInstructions: string) => Promise<boolean>;
   onReschedule: (scheduledAt: string) => void;
   onUnpublish: () => void;
   onDelete: () => void;
@@ -2575,10 +2580,10 @@ function EditorPanel({
 }) {
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [scheduledAtValue, setScheduledAtValue] = useState("");
-  const [rejectionInstructions, setRejectionInstructions] = useState("");
+  const [correctionInstructions, setCorrectionInstructions] = useState("");
   useEffect(() => {
     setScheduledAtValue(toDateTimeLocal(draft?.scheduled_at));
-    setRejectionInstructions("");
+    setCorrectionInstructions("");
   }, [draft?.id, draft?.scheduled_at]);
   if (!draft || !article) {
     return (
@@ -2686,6 +2691,28 @@ function EditorPanel({
           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
           <textarea ref={bodyTextareaRef} value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
         </label>
+        <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-3">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100">Tell AI what to change</span>
+            <textarea
+              value={correctionInstructions}
+              onChange={(event) => setCorrectionInstructions(event.target.value)}
+              className={fieldClassName("mt-2 min-h-24")}
+              placeholder="Example: Lead with the largest institutional additions, use shorter sentences, and make the conclusion more direct."
+            />
+          </label>
+          <p className="mt-2 text-xs leading-5 text-slate-400">Walnut revises this saved draft using its verified fact packet. Your schedule and draft stay in place.</p>
+          <Button
+            tone="primary"
+            disabled={Boolean(busy) || correctionInstructions.trim().length < 3}
+            onClick={() => void (async () => {
+              const applied = await onApplyCorrections(correctionInstructions);
+              if (applied) setCorrectionInstructions("");
+            })()}
+          >
+            {busy === "apply-corrections" ? "Applying changes..." : "Apply changes with AI"}
+          </Button>
+        </div>
         {false && activeArticle.reddit_post ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">

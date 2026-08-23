@@ -7062,6 +7062,15 @@ export async function rejectAdminResearchBriefDraft(draftId: string, correctionI
   });
 }
 
+export async function applyAdminResearchBriefDraftCorrections(draftId: string, correctionInstructions: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/apply-corrections`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ correction_instructions: correctionInstructions }),
+    source: "AdminResearchBriefs",
+  });
+}
+
 export async function rescheduleAdminResearchBriefDraft(draftId: string, scheduledAt: string): Promise<AdminResearchBriefDraft> {
   return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/reschedule`), {
     method: "POST",

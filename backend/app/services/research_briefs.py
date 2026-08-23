@@ -3151,7 +3151,7 @@ def _revision_prompt(
     clean_article = {key: value for key, value in prior_article.items() if not str(key).startswith("_")}
     return "\n".join(
         [
-            "You are revising a Walnut research brief that failed a pre-publication quality gate.",
+            "You are revising a saved Walnut research brief in response to an editor request.",
             "Return a complete replacement JSON article matching the supplied schema. Do not explain the changes.",
             f"PRIMARY_TICKER: {symbol}",
             f"PRIMARY_COMPANY: {company}",
@@ -3160,7 +3160,7 @@ def _revision_prompt(
             "Use only the verified fact packet and reviewed source links below. Do not invent numbers, sources, or unavailable data.",
             "Use the natural keyword question in the title and opening. Keep the final call aligned with the confirmation-score direction.",
             "Write active, human prose. Avoid AI filler, forbidden watermark language, and unnecessary dashes. Do not describe Walnut's systems, prompts, caches, data availability, or editorial process.",
-            "QUALITY-GATE CORRECTION:",
+            "EDITOR REVISION REQUEST:",
             correction_note[:1200],
             "PRIOR DRAFT TO REVISE:",
             json.dumps(clean_article, sort_keys=True, default=str)[:18000],
@@ -3566,6 +3566,62 @@ def reject_scheduled_research_brief(
     db.commit()
     send_research_campaign_review_email(db, admin, replacement, item, campaign_config)
     return deepcopy(replacement)
+
+
+def apply_research_brief_corrections(
+    db: Session,
+    admin: UserAccount,
+    draft_id: str,
+    correction_instructions: str,
+) -> dict[str, Any]:
+    """Revise the current draft in place using a compact, verified fact packet.
+
+    This is intentionally separate from rejection: an editor can ask for a
+    rewrite without losing the draft, its schedule, or its publication state.
+    """
+    instructions = str(correction_instructions or "").strip()
+    if not instructions:
+        raise HTTPException(status_code=422, detail="Describe the changes you want Walnut to make.")
+
+    draft = _db_draft(db, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Research brief draft not found.")
+    config = validate_config(draft.get("config") or {}, strict_selected_model=False)
+    context = draft.get("research_context") if isinstance(draft.get("research_context"), dict) else {}
+    prior_article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
+    if not context or not prior_article:
+        raise HTTPException(status_code=422, detail="This draft is missing its verified research packet and cannot be revised.")
+
+    article = _call_openai_revision(db, config, prior_article, instructions, context)
+    article = _prepare_generated_research_article(article, config, context)
+    validation = validate_article(article, context, draft_id=draft_id)
+    if validation.get("status") == "failed":
+        repair_note = _quality_gate_repair_note(validation)
+        article = _call_openai_revision(
+            db,
+            config,
+            article,
+            f"Preserve the editor's request. Also correct this validation issue: {repair_note}",
+            context,
+        )
+        article = _prepare_generated_research_article(article, config, context)
+        validation = validate_article(article, context, draft_id=draft_id)
+    if validation.get("status") == "failed":
+        raise HTTPException(status_code=422, detail=_validation_failure_message(validation))
+
+    previous_article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
+    if previous_article.get("thumbnail_asset") and not article.get("thumbnail_asset"):
+        article["thumbnail_asset"] = deepcopy(previous_article["thumbnail_asset"])
+    if previous_article.get("hero_image") and not article.get("hero_image"):
+        article["hero_image"] = previous_article["hero_image"]
+
+    draft["article"] = article
+    draft["validation"] = validation
+    draft["revision_request"] = instructions
+    draft["revision_number"] = int(draft.get("revision_number") or 0) + 1
+    draft["updated_at"] = _now()
+    _upsert_db_draft(db, draft)
+    return deepcopy(draft)
 
 
 def reschedule_research_brief(db: Session, draft_id: str, scheduled_at: str) -> dict[str, Any]:

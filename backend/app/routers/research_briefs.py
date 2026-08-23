@@ -22,6 +22,7 @@ from app.services.research_briefs import (
     TONE_OPTIONS,
     assemble_research_context,
     approve_scheduled_research_brief,
+    apply_research_brief_corrections,
     create_research_campaign,
     delete_draft,
     delete_research_campaign,
@@ -150,6 +151,10 @@ class ReschedulePayload(BaseModel):
 
 class RejectResearchBriefPayload(BaseModel):
     correction_instructions: str | None = Field(default=None, max_length=2000)
+
+
+class ApplyResearchBriefCorrectionsPayload(BaseModel):
+    correction_instructions: str = Field(min_length=3, max_length=2000)
 
 
 @router.get("/admin/research-briefs/options")
@@ -376,6 +381,17 @@ def admin_research_brief_reject(
 ):
     admin = require_admin_user(db, request)
     return reject_scheduled_research_brief(db, admin, draft_id, payload.correction_instructions)
+
+
+@router.post("/admin/research-briefs/drafts/{draft_id}/apply-corrections", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_apply_corrections(
+    draft_id: str,
+    payload: ApplyResearchBriefCorrectionsPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    return apply_research_brief_corrections(db, admin, draft_id, payload.correction_instructions)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/reschedule", dependencies=[Depends(rate_limit_admin_mutation)])

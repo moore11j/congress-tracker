@@ -33,6 +33,10 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /onSuggestedCardChange\(\{ description: event\.target\.value \}\)/);
   assert.match(component, /Insights preview body/);
   assert.match(component, /Full post body/);
+  assert.match(component, /Tell AI what to change/);
+  assert.match(component, /Apply changes with AI/);
+  assert.match(component, /applyAdminResearchBriefDraftCorrections/);
+  assert.match(api, /\/apply-corrections/);
   assert.match(component, /<paywall heading=/);
   assert.match(component, /<button text=/);
   assert.match(component, /function parsePaywallBlock/);
