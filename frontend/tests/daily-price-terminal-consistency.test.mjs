@@ -51,3 +51,8 @@ test("ticker chart compare mode uses relative gain loss axis", () => {
   assert.match(chartSource, /formatter: \(value: number\) => `\$\{value >= 0 \? "\+" : ""\}\$\{value\.toFixed\(1\)\}%`/);
   assert.match(chartSource, /Relative %/);
 });
+
+test("ticker chart keeps the visible range inside the available price history", () => {
+  assert.match(chartSource, /fixLeftEdge: true/);
+  assert.match(chartSource, /fixRightEdge: true/);
+});

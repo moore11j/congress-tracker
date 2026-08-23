@@ -749,6 +749,8 @@ export function PremiumTickerChart({
         borderColor: "rgba(148,163,184,0.18)",
         timeVisible: bundle?.resolution === "1min",
         secondsVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
       handleScroll: {
         mouseWheel: true,
