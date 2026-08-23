@@ -30,6 +30,8 @@ test("ticker confirmation trend is animated and supports direct inspection", () 
   assert.match(decisionTrend, /onPointerDown/);
   assert.match(decisionTrend, /ArrowLeft/);
   assert.match(decisionTrend, /touchAction: "pan-y"/);
+  assert.match(decisionTrend, /createPortal/);
+  assert.match(decisionTrend, /z-\[9999\]/);
 });
 
 test("ticker overview keeps one confirmation score and removes old watch sentence", () => {

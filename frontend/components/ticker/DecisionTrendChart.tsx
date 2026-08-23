@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { formatDateShort } from "@/lib/format";
 
 type DecisionTrendPoint = { date: string; score: number };
 type RenderedPoint = DecisionTrendPoint & { x: number; y: number };
+type TooltipPosition = { left: number; top: number };
 
 const width = 260;
 const height = 96;
@@ -19,7 +21,9 @@ function chartTheme(direction?: string | null) { if (direction === "bearish") re
 export function DecisionTrendChart({ history, direction }: { history?: DecisionTrendPoint[]; direction?: string | null }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition | null>(null);
   const frame = useRef<number | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const gradientId = useId().replace(/:/g, "");
   const points = useMemo(() => Array.isArray(history) ? history.filter((point) => Number.isFinite(point.score)).slice(-30) : [], [history]);
   const chart = useMemo(() => {
@@ -45,6 +49,28 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
 
   useEffect(() => { const animationFrame = requestAnimationFrame(() => setRevealed(true)); return () => cancelAnimationFrame(animationFrame); }, []);
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
+  useEffect(() => {
+    if (!chart || activeIndex === null) {
+      setTooltipPosition(null);
+      return;
+    }
+    const updatePosition = () => {
+      const point = chart.rendered[activeIndex];
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!point || !rect) return;
+      setTooltipPosition({
+        left: rect.left + ((point.x / width) * rect.width),
+        top: Math.max(8, rect.top - 8),
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [activeIndex, chart]);
 
   if (!chart) return <div className="flex h-24 items-center justify-center rounded-md border border-white/10 bg-slate-950/35 px-3 text-xs font-medium text-slate-500">Score history unavailable</div>;
 
@@ -67,7 +93,7 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   };
 
   return <div className="relative z-20 h-24 w-full overflow-visible">
-    <svg className="h-full w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores." tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => { if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId); setNearestIndex(event); }} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
+    <svg ref={svgRef} className="h-full w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores." tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => { if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId); setNearestIndex(event); }} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
       <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop stopColor={theme.areaTop} /><stop offset="1" stopColor={theme.areaBottom} /></linearGradient><clipPath id={`${gradientId}-clip`}><rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} /></clipPath></defs>
       <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="stroke-white/20" />
       {chart.yTicks.map((tick) => { const y = chart.yFor(tick); return <g key={tick}><line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="stroke-white/10" strokeDasharray="2 4" /><text x={padding.left - 6} y={y + 3} textAnchor="end" className="fill-slate-500 tabular-nums" fontSize="10">{tick}</text></g>; })}
@@ -75,7 +101,14 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
       <g clipPath={`url(#${gradientId}-clip)`} style={{ clipPath: revealed ? "inset(0 0 0 0)" : "inset(0 100% 0 0)", transition: "clip-path 560ms cubic-bezier(.22,1,.36,1)" }}><polygon points={areaPoints} fill={`url(#${gradientId})`} /><polyline points={linePoints} fill="none" stroke={theme.stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></g>
       {active ? <><line x1={active.x} y1={padding.top} x2={active.x} y2={height - padding.bottom} className="stroke-white/35" strokeDasharray="3 4" /><circle cx={active.x} cy={active.y} r="5" fill={theme.stroke} stroke="#020617" strokeWidth="2" /></> : null}
     </svg>
-    {active ? <div role="status" className="pointer-events-none absolute z-50 min-w-36 rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: `${clamp((active.x / width) * 100, 18, 82)}%`, top: "-0.4rem", transform: "translate(-50%, -100%)" }}><p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p><p className="mt-1 tabular-nums text-emerald-200">Score {Math.round(active.score)} / 100</p><p className="mt-1 font-medium text-slate-400">{confirmationLabel(active.score, direction)}</p></div> : null}
+    {active && tooltipPosition && typeof document !== "undefined" ? createPortal(
+      <div role="status" className="pointer-events-none fixed z-[9999] min-w-36 rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: tooltipPosition.left, top: tooltipPosition.top, transform: "translate(-50%, -100%)" }}>
+        <p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p>
+        <p className="mt-1 tabular-nums text-emerald-200">Score {Math.round(active.score)} / 100</p>
+        <p className="mt-1 font-medium text-slate-400">{confirmationLabel(active.score, direction)}</p>
+      </div>,
+      document.body,
+    ) : null}
     <span className="sr-only">Use left and right arrow keys to inspect each day&apos;s confirmation score.</span>
   </div>;
 }
