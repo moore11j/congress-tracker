@@ -1730,6 +1730,14 @@ def _json_dump(value: Any) -> str:
 
 
 def ensure_research_brief_store_schema(db: Session) -> None:
+    # This function is reached by both the request that queues a brief and the
+    # background worker that begins it.  PostgreSQL's ``IF NOT EXISTS`` does
+    # not make concurrent index creation safe: two API machines can still
+    # race, abort one transaction, and leave the job stuck at its first
+    # progress update.  Serialise the lightweight compatibility migration
+    # across API instances before executing any DDL.
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(917863514)"))
     db.execute(
         text(
             """
@@ -5112,6 +5120,14 @@ def run_research_brief_generation_job(job_id: str, db: Session | None = None) ->
             validation.get("status"),
         )
     except Exception as exc:
+        # A schema or persistence error can leave the SQLAlchemy session in an
+        # aborted transaction.  Roll it back before recording the job failure,
+        # otherwise the recovery write fails too and the UI polls a job that
+        # appears to be running forever.
+        try:
+            session.rollback()
+        except Exception:
+            logger.exception("research_brief_job_rollback_failed job_id=%s", job_id)
         _fail_job(job_id, exc, duration_ms=int((time.perf_counter() - started) * 1000), db=session)
     finally:
         if owns_db:
