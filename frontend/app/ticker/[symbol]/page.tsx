@@ -1378,6 +1378,7 @@ function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSet
   const thirtyDay = setups.horizons?.["30D"];
   const building = setups.status === "building" || setups.status === "unavailable";
   const locked = Boolean(setups.access?.locked);
+  const hasMatches = !locked && (setups.top_matches?.length ?? 0) > 0;
   return (
     <section className="mt-5 rounded-lg border border-violet-300/25 bg-violet-300/[0.025] px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1395,55 +1396,57 @@ function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSet
           {building ? "Building" : setups.status === "limited" ? "Early sample" : "Historical evidence"}
         </span>
       </div>
-      {setups.current_setup ? (
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-xs text-slate-400">
-          <span className="font-semibold uppercase tracking-[0.12em] text-slate-500">Current profile</span>
-          <span>Score <strong className="text-slate-100">{setups.current_setup.score}</strong></span>
-          <span className="text-emerald-300">● {setups.current_setup.direction}</span>
-          <span className="text-emerald-300">● {setups.current_setup.divergence ?? "Divergence unavailable"}</span>
-          <span>{setups.current_setup.active_source_count} active sources</span>
-        </div>
-      ) : null}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {(["7D", "30D"] as const).map((horizon) => {
-          const metrics = horizon === "30D" ? thirtyDay : sevenDay;
-          return (
-            <div key={horizon} className="rounded-lg border border-white/10 bg-slate-950/55 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon} outcome</p>
-              {metrics?.status === "building" ? (
-                <p className="mt-2 text-sm text-slate-400">{metrics.sample_size} matured comparable outcome{metrics.sample_size === 1 ? "" : "s"} so far.</p>
-              ) : (
-                <div className="mt-2 space-y-1.5 text-sm text-slate-300">
-                  <p>Directional outcome <span className="font-semibold text-white">{metrics?.directional_accuracy_pct === null || metrics?.directional_accuracy_pct === undefined ? "--" : `${metrics.directional_accuracy_pct}%`}</span></p>
-                  {!locked ? <p>Median directional return <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_return_pct)}</span></p> : null}
-                  {!locked ? <p>Median excess vs SPY <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_excess_vs_spy_pct)}</span></p> : null}
-                  <p className="text-xs text-slate-500">Sample: {metrics?.sample_size ?? 0} events</p>
-                </div>
-              )}
+      <div className={`mt-3 grid gap-4 ${hasMatches ? "xl:grid-cols-[minmax(19rem,0.9fr)_minmax(0,1.35fr)] xl:items-start" : "max-w-2xl"}`}>
+        <div>
+          {setups.current_setup ? (
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-400">
+              <span className="font-semibold uppercase tracking-[0.12em] text-slate-500">Current profile</span>
+              <span>Score <strong className="text-slate-100">{setups.current_setup.score}</strong></span>
+              <span className="text-emerald-300">● {setups.current_setup.direction}</span>
+              <span className="text-emerald-300">● {setups.current_setup.divergence ?? "Divergence unavailable"}</span>
+              <span>{setups.current_setup.active_source_count} active sources</span>
             </div>
-          );
-        })}
-      </div>
-      {setups.sample_warning ? <p className="mt-3 text-xs leading-5 text-amber-200/80">{setups.sample_warning}</p> : null}
-      {locked && !building ? <Link href="/pricing" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">Unlock the full historical setup analysis</Link> : null}
-      {!locked && (setups.top_matches?.length ?? 0) > 0 ? (
-        <div className="mt-5 border-t border-white/10 pt-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most similar events</p>
-          <div className="mt-3 grid gap-2">
-            {(setups.top_matches ?? []).slice(0, 3).map((match) => {
-              const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
-              return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-1 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-slate-100">{match.ticker} <span className="font-normal text-slate-500">· {formatDateShort(match.market_date)}</span></p>
-                  {match.reasons?.length ? <p className="mt-1 truncate text-xs text-slate-500">Similar: {match.reasons.join(" · ")}</p> : null}
+          ) : null}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {(["7D", "30D"] as const).map((horizon) => {
+              const metrics = horizon === "30D" ? thirtyDay : sevenDay;
+              return (
+                <div key={horizon} className="rounded-md border border-white/10 bg-slate-950/55 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon} outcome</p>
+                  {metrics?.status === "building" ? (
+                    <p className="mt-2 text-xs leading-5 text-slate-400"><strong className="text-xl font-semibold tabular-nums text-slate-100">{metrics.sample_size}</strong> matured comparable outcome{metrics.sample_size === 1 ? "" : "s"}.</p>
+                  ) : (
+                    <div className="mt-2 space-y-1 text-xs leading-5 text-slate-300">
+                      <p>Directional <span className="font-semibold text-white">{metrics?.directional_accuracy_pct === null || metrics?.directional_accuracy_pct === undefined ? "--" : `${metrics.directional_accuracy_pct}%`}</span></p>
+                      {!locked ? <p>Median return <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_return_pct)}</span></p> : null}
+                      {!locked ? <p>Excess vs SPY <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_excess_vs_spy_pct)}</span></p> : null}
+                      <p className="text-[11px] text-slate-500">Sample: {metrics?.sample_size ?? 0} events</p>
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs font-medium text-slate-300 sm:text-right">Score {match.score} · {match.direction} · {outcome?.status === "matured" ? `Directional ${historicalPercent(outcome.directional_return_pct)}` : "Outcome pending"}</p>
-              </div>;
+              );
             })}
           </div>
+          {setups.sample_warning ? <p className="mt-2 text-xs leading-5 text-amber-200/80">{setups.sample_warning}</p> : null}
+          {locked && !building ? <Link href="/pricing" className="mt-3 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">Unlock the full historical setup analysis</Link> : null}
         </div>
-      ) : null}
-      <p className="mt-4 text-xs text-slate-500">{setups.methodology_version} · Live prospective snapshots only · 7D and 30D outcomes</p>
+        {hasMatches ? (
+          <div className="rounded-md border border-white/10 bg-slate-950/35 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most similar events</p>
+            <div className="mt-2 grid gap-1.5">
+              {(setups.top_matches ?? []).slice(0, 3).map((match) => {
+                const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
+                return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-x-3 gap-y-1 rounded-md border border-violet-300/15 bg-violet-300/[0.035] px-2.5 py-2 text-xs sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)_auto] sm:items-center">
+                  <p className="font-semibold text-slate-100"><span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-violet-400/15 text-[9px] text-violet-200">⌁</span>{match.ticker} <span className="font-normal text-slate-500">{formatDateShort(match.market_date)}</span></p>
+                  {match.reasons?.length ? <p className="min-w-0 truncate text-[11px] text-slate-500">Similar: {match.reasons.join(" · ")}</p> : <span />}
+                  <p className="font-medium text-slate-300 sm:text-right">Score <span className="text-emerald-300">{match.score}</span> · {match.direction} · {outcome?.status === "matured" ? historicalPercent(outcome.directional_return_pct) : "Pending"}</p>
+                </div>;
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">{setups.methodology_version} · Live prospective snapshots only · 7D and 30D outcomes</p>
     </section>
   );
 }
