@@ -13,6 +13,7 @@ test("ticker page uses context bundle for above-the-fold ticker context with old
   assert.match(api, /export type TickerContextBundleResponse = TickerProfile &/);
   assert.match(api, /export async function getTickerContextBundle/);
   assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/context-bundle/);
+  assert.match(api, /context_version: TICKER_CONTEXT_BUNDLE_CACHE_VERSION/);
   assert.match(api, /component: "context-bundle"/);
   assert.match(api, /requestSource: params\?\.requestSource \?\? \(typeof window === "undefined" \? "ssr" : "client"\)/);
   assert.match(api, /const tickerContextBundleServerInflight = new Map<string, Promise<TickerContextBundleResponse>>\(\)/);
@@ -20,7 +21,7 @@ test("ticker page uses context bundle for above-the-fold ticker context with old
   assert.match(tickerPage, /getTickerContextBundle\(normalizedSymbol/);
   assert.match(tickerPage, /source: "TickerContextBundle"/);
   assert.match(tickerPage, /requestSource: "ssr"/);
-  assert.match(tickerPage, /getTickerProfile\(normalizedSymbol, \{ source: "TickerProfileFallback" \}\)/);
+  assert.match(tickerPage, /getTickerProfile\(normalizedSymbol, \{[\s\S]*?source: "TickerProfileFallback"/);
   assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => \{/);
   assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return Promise\.resolve\(contextBundle\.signals_summary\)/);
   assert.ok(

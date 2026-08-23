@@ -81,6 +81,9 @@ type ApiRequestInit = RequestInit & {
 };
 
 export const PUBLIC_STALE_PAGE_REVALIDATE_SECONDS = 60 * 60 * 24;
+// Keep Vercel's long-lived anonymous ticker-page fetch cache aligned with the
+// backend Context payload contract. Bump this alongside bundle fields.
+const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 5;
 
 function publicStalePageFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cache" | "next"> {
   return enabled
@@ -5341,6 +5344,7 @@ export async function getTickerContextBundle(
     side: params?.side ?? "all",
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
+    context_version: TICKER_CONTEXT_BUNDLE_CACHE_VERSION,
   });
   const headers = authHeaders(params?.authToken);
   if (params?.activeUser) headers["X-Walnut-Active-User"] = "browser";
