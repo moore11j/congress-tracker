@@ -43,6 +43,7 @@ test("nearest lookup is logarithmic and backtesting adopts the shared chart laye
   assert.match(backtest, /WalnutLineChart/);
   assert.match(backtest, /WalnutChartContainer/);
   assert.match(backtest, /Active tickers/);
+  assert.match(backtest, /areaColor: "rgba\(74,222,128,0\.22\)"/);
 });
 
 test("profile charts use the shared interaction performance rules without dropping profile-specific data", () => {
