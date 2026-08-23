@@ -249,7 +249,7 @@ export function AppTopNav() {
       <nav
         ref={scrollRef}
         onScroll={updateScrollState}
-        className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap py-0.5 text-sm font-medium text-slate-200 [scrollbar-width:none] lg:gap-4 lg:py-0 xl:gap-5 [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap py-0.5 text-sm font-medium text-slate-200 [scrollbar-width:none] lg:gap-4 lg:py-1 xl:gap-5 [&::-webkit-scrollbar]:hidden"
       >
         {topNavLinks.map((link) => {
           const active = isActiveNavLink(pathname, link.href);
