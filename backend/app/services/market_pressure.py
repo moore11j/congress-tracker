@@ -105,6 +105,7 @@ SOURCE_LAYER_KEYS = {
     "insiders": "insiders",
     "government_contracts": "governmentContracts",
     "signals": "signals",
+    "analysts": "analysts",
     "institutional_activity": "institutions",
     "options_flow": "optionsFlow",
     "macro_positioning": "macroPositioning",

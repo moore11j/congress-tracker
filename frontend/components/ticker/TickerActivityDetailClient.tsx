@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { LockedSmartSignalPill, SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
 import { getEvents, type EventItem } from "@/lib/api";
 import { chamberBadge, formatCongressAffiliationText, formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
@@ -329,9 +330,9 @@ export function TickerActivityDetailClient({
 
   return (
     <div ref={markerRef} className="space-y-3">
-      <ActivityScrollRegion>
+      <TickerActivityTable ariaLabel={`${kind === "congress" ? "Congress" : "Insider"} activity`} headers={kind === "congress" ? ["Trader", "Date", "Price", "Trade value", "Side", "Signal"] : ["Insider", "Filed", "Price", "Trade value", "Side", "Signal"]}>
         {items.map((event) => (
-          <ActivityCard key={event.id}>
+          <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
             {(() => {
               const insiderDisplay = kind === "insider" ? resolveInsiderActivityDisplay(event as Record<string, unknown>) : null;
               const price = kind === "congress" ? resolveCongressActivityPrice(event as Record<string, unknown>) : insiderDisplay?.displayPrice ?? null;
@@ -339,25 +340,21 @@ export function TickerActivityDetailClient({
               const smartSignal = kind === "insider" ? insiderDisplay?.signal ?? resolveSmartSignalValue(event as Record<string, unknown>) : resolveSmartSignalValue(event as Record<string, unknown>);
 
               return (
-                <EventGrid
-                  identity={kind === "congress" ? congressIdentity(event) : insiderIdentity(event)}
-                  sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                  dateLabel={rowDateLabel(kind, event)}
-                  price={formatPrice(price)}
-                  tradeValue={tradeValue !== null ? formatPrice(tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                  signal={
-                    canViewPremiumMetrics ? (
-                      <SmartSignalPill score={smartSignal.score} band={smartSignal.band} size="compact" />
-                    ) : (
-                      <LockedSmartSignalPill band={smartSignal.band} size="compact" />
-                    )
-                  }
-                />
+                <>
+                  <td className={`${tickerActivityCellClassName} min-w-[14rem]`}>{kind === "congress" ? congressIdentity(event) : insiderIdentity(event)}</td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs text-slate-400`}>{rowDateLabel(kind, event)}</td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatPrice(price)}</td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{tradeValue !== null ? formatPrice(tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge></td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
+                    {canViewPremiumMetrics ? <SmartSignalPill score={smartSignal.score} band={smartSignal.band} size="compact" /> : <LockedSmartSignalPill band={smartSignal.band} size="compact" />}
+                  </td>
+                </>
               );
             })()}
-          </ActivityCard>
+          </tr>
         ))}
-      </ActivityScrollRegion>
+      </TickerActivityTable>
       <ActivityRangeFooter itemCount={items.length} />
     </div>
   );

@@ -3069,21 +3069,28 @@ def _profile_overview_database_cache_set(db: Session, key: tuple[Any, ...], payl
         logger.info("profile overview persistent cache write failed", exc_info=True)
 
 
-def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder: Any) -> Any:
+def _cached_profile_overview_response(
+    db: Session,
+    key: tuple[Any, ...],
+    builder: Any,
+    *,
+    force_refresh: bool = False,
+) -> Any:
     owns_build = False
     inflight: threading.Event | None = None
     while True:
         now = time.monotonic()
         with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
             cached = _PROFILE_OVERVIEW_RESPONSE_CACHE.get(key)
-            if cached is not None and now - cached[0] <= PROFILE_OVERVIEW_CACHE_TTL_SECONDS:
+            if not force_refresh and cached is not None and now - cached[0] <= PROFILE_OVERVIEW_CACHE_TTL_SECONDS:
                 return copy.deepcopy(cached[1])
-        database_now = datetime.now(timezone.utc)
-        database_cached = _profile_overview_database_cache_get(db, key, now=database_now)
-        if database_cached is not None:
-            with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
-                _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (now, copy.deepcopy(database_cached))
-            return database_cached
+        if not force_refresh:
+            database_now = datetime.now(timezone.utc)
+            database_cached = _profile_overview_database_cache_get(db, key, now=database_now)
+            if database_cached is not None:
+                with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
+                    _PROFILE_OVERVIEW_RESPONSE_CACHE[key] = (now, copy.deepcopy(database_cached))
+                return database_cached
         with _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK:
             inflight = _PROFILE_OVERVIEW_INFLIGHT.get(key)
             if inflight is None:
@@ -3114,19 +3121,14 @@ def _cached_profile_overview_response(db: Session, key: tuple[Any, ...], builder
                 inflight.set()
 
 
-def _run_profile_overview_prewarm() -> None:
-    """Warm Profiles and Institutions overview payloads after app startup.
-
-    The complete landing summary is intentionally cached for an hour, but a
-    newly deployed process can otherwise make the first visitor wait for its
-    aggregate queries. This runs after readiness in the existing bounded
-    background-maintenance lane and never changes the response shape.
-    """
+def _run_profile_overview_prewarm(*, force_refresh: bool = False) -> dict[str, object]:
+    """Warm the shared Profiles dashboard payloads after startup or on a schedule."""
     activity_per_type = 5
     cache_keys = (
         ("profiles_summary", "all", 25, False, True, activity_per_type),
         ("profiles_summary", "all", 25, True, True, activity_per_type),
     )
+    refreshed_keys: list[tuple[Any, ...]] = []
     db = SessionLocal()
     try:
         for key in cache_keys:
@@ -3142,28 +3144,48 @@ def _run_profile_overview_prewarm() -> None:
                     include_institutions=include_institutions,
                     include_activity=True,
                 ),
+                force_refresh=force_refresh,
             )
+            refreshed_keys.append(key)
+        congress_key = ("profiles_congress_overview", "all", 365)
+        _cached_profile_overview_response(
+            db,
+            congress_key,
+            lambda: build_congress_overview(db, chamber="all", period_days=365),
+            force_refresh=force_refresh,
+        )
+        refreshed_keys.append(congress_key)
         for include_details in (False, True):
+            institution_key = ("profiles_institutions_overview", None, None, include_details)
             _cached_profile_overview_response(
                 db,
-                ("profiles_institutions_overview", None, None, include_details),
+                institution_key,
                 lambda include_details=include_details: build_institutions_overview(
                     db,
                     include_details=include_details,
                 ),
+                force_refresh=force_refresh,
             )
+            refreshed_keys.append(institution_key)
+        insiders_key = ("profiles_insiders_overview", "", 365)
         _cached_profile_overview_response(
             db,
-            ("profiles_insiders_overview", "", 365),
+            insiders_key,
             lambda: build_insiders_overview(db, period_days=365),
+            force_refresh=force_refresh,
         )
+        refreshed_keys.append(insiders_key)
+        departments_key = ("profiles_departments_overview", None, 365)
         _cached_profile_overview_response(
             db,
-            ("profiles_departments_overview", None, 365),
+            departments_key,
             lambda: build_departments_overview(db, period_days=365),
+            force_refresh=force_refresh,
         )
+        refreshed_keys.append(departments_key)
     finally:
         db.close()
+    return {"status": "ok", "force_refresh": force_refresh, "cache_entries_refreshed": len(refreshed_keys), "cache_keys": [str(key[0]) for key in refreshed_keys]}
 
 
 def _request_route_family(path: str, header_family: str | None = None) -> str:

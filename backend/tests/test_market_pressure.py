@@ -137,6 +137,10 @@ def _minimal_market_pressure_tile(symbol: str, *, market_cap: float | None = 100
     }
 
 
+def test_market_pressure_layer_keys_cover_every_confirmation_source():
+    assert set(market_pressure.SOURCE_LAYER_KEYS) == set(market_pressure.SOURCE_ORDER)
+
+
 def test_market_pressure_uses_market_cap_and_live_quote_fallback_for_missing_one_day_prices(db, monkeypatch):
     user = _seed_watchlist(db, symbols=["MEGA", "MID", "SMALL"])
     fetched_at = datetime(2026, 7, 15, tzinfo=timezone.utc)

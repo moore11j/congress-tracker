@@ -8,6 +8,7 @@ import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, g
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
+import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
@@ -2537,7 +2538,7 @@ function ActivityHeaderStats({
   );
 }
 
-function InstitutionalActivityCard({
+function InstitutionalActivityRow({
   event,
 }: {
   event: EventsResponse["items"][number];
@@ -2555,40 +2556,28 @@ function InstitutionalActivityCard({
   const metaLine = [filingDate ? `Filed ${formatDateShort(filingDate)}` : null, reportPeriod].filter(Boolean).join(" · ");
 
   return (
-    <ActivityCard>
-      <div className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-[minmax(180px,1.5fr)_minmax(120px,.8fr)_minmax(120px,.8fr)_auto] sm:items-center">
-        <div className="min-w-0">
+    <tr className="transition-colors hover:bg-white/[0.035]">
+      <td className={`${tickerActivityCellClassName} min-w-[15rem]`}>
           {holderHref ? (
-            <Link href={holderHref} prefetch={false} className="block truncate text-sm font-semibold text-emerald-200">
+            <Link href={holderHref} prefetch={false} className="block max-w-[20rem] truncate font-semibold text-emerald-200">
               {holderName}
             </Link>
           ) : (
-            <p className="truncate text-sm font-semibold text-slate-100">{holderName}</p>
+            <p className="max-w-[20rem] truncate font-semibold text-slate-100">{holderName}</p>
           )}
           <p className="mt-1 truncate text-xs text-slate-400">{metaLine || "13F filing"}</p>
-        </div>
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Reported value</div>
-          <div className="truncate text-sm font-semibold tabular-nums text-white">{valueText}</div>
-        </div>
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Source</div>
-          <div className="truncate text-sm font-semibold text-slate-200">13F holdings</div>
-        </div>
-        <div className="flex justify-start sm:justify-end">
-          <Badge tone={institutionalTone(event)}>{action}</Badge>
-        </div>
-      </div>
-      {summary ? (
-        <p className="mt-3 max-w-full overflow-hidden break-words text-ellipsis text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-          {summary}
-        </p>
-      ) : null}
-    </ActivityCard>
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{valueText}</td>
+      <td className={`${tickerActivityCellClassName} text-slate-300`}>13F holdings</td>
+      <td className={`${tickerActivityCellClassName} max-w-[22rem] text-slate-400`}>
+        {summary ? <span className="block line-clamp-2">{summary}</span> : "—"}
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={institutionalTone(event)}>{action}</Badge></td>
+    </tr>
   );
 }
 
-function GovernmentContractActivityCard({
+function GovernmentContractActivityRow({
   contract,
 }: {
   contract: TickerGovernmentContractItem;
@@ -2605,29 +2594,22 @@ function GovernmentContractActivityCard({
   const metaLine = [dateText, recipient].filter((value) => Boolean(value) && value !== "â€”").join(" · ");
 
   return (
-    <ActivityCard>
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+    <tr className="transition-colors hover:bg-white/[0.035]">
+      <td className={`${tickerActivityCellClassName} min-w-[15rem]`}>
           {agencyHref ? (
-            <Link href={agencyHref} prefetch={false} className="block truncate text-sm font-semibold text-slate-100 hover:text-emerald-200">
+            <Link href={agencyHref} prefetch={false} className="block max-w-[20rem] truncate font-semibold text-slate-100 hover:text-emerald-200">
               {agency}
             </Link>
           ) : (
-            <p className="truncate text-sm font-semibold text-slate-100">{agency}</p>
+            <p className="max-w-[20rem] truncate font-semibold text-slate-100">{agency}</p>
           )}
           <p className="mt-1 truncate text-xs text-slate-400">{metaLine || formatDateShort(awardDate)}</p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Contract Value</p>
-          <p className="mt-1 text-sm font-semibold tabular-nums text-white">{contractValue}</p>
-        </div>
-      </div>
-      {description ? (
-        <p className="mt-3 max-w-full overflow-hidden break-words text-ellipsis text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-          {description}
-        </p>
-      ) : null}
-      <div className="mt-3 flex justify-end">
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{contractValue}</td>
+      <td className={`${tickerActivityCellClassName} max-w-[25rem] text-slate-400`}>
+        {description ? <span className="block line-clamp-2">{description}</span> : "—"}
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
         {sourceUrl ? (
           <Link
             href={sourceUrl}
@@ -2641,8 +2623,8 @@ function GovernmentContractActivityCard({
         ) : (
           <span className="text-xs text-slate-500">Link unavailable</span>
         )}
-      </div>
-    </ActivityCard>
+      </td>
+    </tr>
   );
 }
 
@@ -2877,8 +2859,6 @@ async function resolveTickerActivityData({
     ? events
     : events.filter((event) => normalizeTradeSide(event.trade_type) === side);
 
-  const metricCongressEvents = events.filter((event) => event.event_type === "congress_trade");
-  const metricInsiderEvents = events.filter((event) => event.event_type === "insider_trade");
   const congressEvents = visibleActivityItems(congressEventsRes, ACTIVITY_PAGE_SIZE);
   const insiderEvents = visibleActivityItems(insiderEventsRes, ACTIVITY_PAGE_SIZE);
   const institutionalEvents = visibleActivityItems(institutionalEventsRes, ACTIVITY_PAGE_SIZE)
@@ -2898,10 +2878,12 @@ async function resolveTickerActivityData({
   const governmentContractsLimit = typeof governmentContractsRes.limit === "number" ? governmentContractsRes.limit : GOVERNMENT_CONTRACTS_PAGE_SIZE;
   const governmentContractsHasNext = Boolean(governmentContractsRes.has_next);
   const governmentContractsStatus = governmentContractsRes.status ?? governmentContractsRes.source_status ?? "ok";
-  const congressBuys = metricCongressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
-  const congressSells = metricCongressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
-  const insiderBuys = metricInsiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
-  const insiderSells = metricInsiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  // Use the same tape-specific rows that power the rendered tables.  The generic
+  // events response can be intentionally omitted during deferred page loading.
+  const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const topSignal = [...confirmationSignals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
   const congressParticipantEvents = side === "all"
     ? congressEvents
@@ -3389,7 +3371,7 @@ async function DeferredTickerContent({
                   <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
                 ) : (
                   <>
-                    <ActivityScrollRegion>
+                    <TickerActivityTable ariaLabel="Congress activity" headers={["Trader", "Dates", "Price", "Trade value", "Side", "Signal"]}>
                       {congressEvents.map((event) => {
                         const memberName = event.member_name ?? "Unknown";
                         const memberLink = memberName.trim() && memberName !== "Unknown"
@@ -3403,10 +3385,9 @@ async function DeferredTickerContent({
                         const pnl = readNumeric(event.pnl_pct);
 
                         return (
-                          <ActivityCard key={event.id}>
-                            <ActivityCardGrid
-                              identity={
-                                <div className="flex flex-wrap items-center gap-2">
+                          <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
+                            <td className={`${tickerActivityCellClassName} min-w-[14rem]`}>
+                              <div className="flex flex-wrap items-center gap-2">
                                   {memberLink ? (
                                     <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
                                       {memberName}
@@ -3417,32 +3398,19 @@ async function DeferredTickerContent({
                                   <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
                                   {affiliation ? <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{affiliation}</span> : null}
                                   <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
-                                </div>
-                              }
-                              sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                              dateLabel={
-                                <CongressDateLabel
-                                  disclosedDate={resolveCongressReportDate(event)}
-                                  tradeDate={resolveCongressTradeDate(event)}
-                                />
-                              }
-                              price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                              tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                              pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                              pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                              showGainLoss={false}
-                              signal={
-                                canViewPremiumMetrics ? (
-                                  <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                                ) : (
-                                  <LockedSmartSignalPill band={signal.band} size="compact" />
-                                )
-                              }
-                            />
-                          </ActivityCard>
+                              </div>
+                            </td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs text-slate-400`}><CongressDateLabel disclosedDate={resolveCongressReportDate(event)} tradeDate={resolveCongressTradeDate(event)} /></td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{displayPrice !== null ? formatCurrency(displayPrice) : "-"}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge></td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
+                              {canViewPremiumMetrics ? <SmartSignalPill score={signal.score} band={signal.band} size="compact" /> : <LockedSmartSignalPill band={signal.band} size="compact" />}
+                            </td>
+                          </tr>
                         );
                       })}
-                    </ActivityScrollRegion>
+                    </TickerActivityTable>
                     <TickerActivityPaginationFooter
                       sectionId="congress-activity"
                       pageParam="congress_page"
@@ -3483,7 +3451,7 @@ async function DeferredTickerContent({
                   <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
                 ) : (
                   <>
-                    <ActivityScrollRegion>
+                    <TickerActivityTable ariaLabel="Insider activity" headers={["Insider", "Filed", "Price", "Trade value", "Side", "Signal"]}>
                       {insiderEvents.map((event) => {
                         const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
                         const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
@@ -3493,10 +3461,9 @@ async function DeferredTickerContent({
                         const strengthLabel = formatSignalStrengthText(display.signal.band);
 
                         return (
-                        <ActivityCard key={event.id}>
-                          <ActivityCardGrid
-                            identity={
-                              <div className="flex flex-wrap items-center gap-2">
+                        <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
+                          <td className={`${tickerActivityCellClassName} min-w-[14rem]`}>
+                            <div className="flex flex-wrap items-center gap-2">
                                 {insiderProfileHref ? (
                                   <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                                     {display.insiderName}
@@ -3506,27 +3473,19 @@ async function DeferredTickerContent({
                                 )}
                                 <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
                                 <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
-                              </div>
-                            }
-                            sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                            dateLabel={formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}
-                            price={formatActivityPrice(display.displayPrice)}
-                            tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                            pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
-                            pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
-                            showGainLoss={false}
-                            signal={
-                              canViewPremiumMetrics ? (
-                                <SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />
-                              ) : (
-                                <LockedSmartSignalPill band={display.signal.band} size="compact" />
-                              )
-                            }
-                          />
-                        </ActivityCard>
+                            </div>
+                          </td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-slate-400`}>{formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatActivityPrice(display.displayPrice)}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge></td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
+                            {canViewPremiumMetrics ? <SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" /> : <LockedSmartSignalPill band={display.signal.band} size="compact" />}
+                          </td>
+                        </tr>
                         );
                       })}
-                    </ActivityScrollRegion>
+                    </TickerActivityTable>
                     <TickerActivityPaginationFooter
                       sectionId="insider-activity"
                       pageParam="insider_page"
@@ -3718,11 +3677,11 @@ async function DeferredTickerContent({
                   <p className="text-sm text-slate-400">No institutional holder activity found for this ticker in the selected lookback.</p>
                 ) : (
                   <>
-                    <ActivityScrollRegion>
+                    <TickerActivityTable ariaLabel="Institutional activity" headers={["Institution", "Reported value", "Source", "Details", "Action"]} minWidthClassName="min-w-[52rem]">
                       {institutionalEvents.map((event) => (
-                        <InstitutionalActivityCard key={event.id} event={event} />
+                        <InstitutionalActivityRow key={event.id} event={event} />
                       ))}
-                    </ActivityScrollRegion>
+                    </TickerActivityTable>
                     <TickerActivityPaginationFooter
                       sectionId="institutional-activity"
                       pageParam="institutional_page"
@@ -3753,11 +3712,11 @@ async function DeferredTickerContent({
                   </p>
                 ) : (
                   <>
-                    <ActivityScrollRegion>
+                    <TickerActivityTable ariaLabel="Government contracts activity" headers={["Agency", "Contract value", "Description", "Source"]} minWidthClassName="min-w-[48rem]">
                       {governmentContracts.map((contract, index) => (
-                        <GovernmentContractActivityCard key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
+                        <GovernmentContractActivityRow key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
                       ))}
-                    </ActivityScrollRegion>
+                    </TickerActivityTable>
                     <TickerActivityPaginationFooter
                       sectionId="government-contracts-activity"
                       pageParam="contracts_page"
@@ -3935,7 +3894,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
                   source: "TickerCongressActivity",
                   requestSource: "ssr",
                   routeFamily: "ticker",
-                  stalePageCache: true,
+                  stalePageCache: false,
                   ...(tradeType ? { trade_type: tradeType } : {}),
                 }).catch((error) => {
                   console.error("[ticker-congress-activity] unavailable", {
@@ -3958,7 +3917,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
                   source: "TickerInsiderActivity",
                   requestSource: "ssr",
                   routeFamily: "ticker",
-                  stalePageCache: true,
+                  stalePageCache: false,
                   ...(tradeType ? { trade_type: tradeType } : {}),
                 }).catch((error) => {
                   console.error("[ticker-insider-activity] unavailable", {
@@ -4110,14 +4069,10 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const tickerName = tickerCompanyName(profile.ticker, contextBundle?.identity);
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited price history available" : null;
-  const deferTickerActivityDetails = publicStalePageCache
-    ? false
-    : useAnonymousTickerSsrShell || shouldDeferAnonymousTickerActivityDetails({
-        requestHeaders,
-        authToken,
-        hasAuthHint: authState.hasAuthHint,
-        activityDetailsRequested,
-      });
+  // Congress and insider rows also feed the buy/sell counts and participant
+  // rankings. Rendering them from one server response prevents the cards from
+  // appearing later while their summaries remain at zero.
+  const deferTickerActivityDetails = false;
   const activityPromise = (async () => {
     if (deferTickerActivityDetails) {
       return resolveTickerActivityData({
@@ -4144,7 +4099,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             source: "TickerCongressActivity",
             requestSource: "ssr",
             routeFamily: "ticker",
-            stalePageCache: publicStalePageCache,
+            stalePageCache: false,
             ...(tradeType ? { trade_type: tradeType } : {}),
           }).catch((error) => {
             console.error("[ticker-congress-activity] unavailable", {
@@ -4167,7 +4122,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
             source: "TickerInsiderActivity",
             requestSource: "ssr",
             routeFamily: "ticker",
-            stalePageCache: publicStalePageCache,
+            stalePageCache: false,
             ...(tradeType ? { trade_type: tradeType } : {}),
           }).catch((error) => {
             console.error("[ticker-insider-activity] unavailable", {

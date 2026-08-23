@@ -28,6 +28,7 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"
     assert fly_config["env"]["PROFILE_OVERVIEW_PREWARM_ENABLED"] == "true"
+    assert fly_config["env"]["PROFILE_OVERVIEW_PREWARM_MAX_SECONDS"] == "900"
     assert fly_config["env"]["INSIDER_ANALYTICS_PREWARM_ENABLED"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "true"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "0"
@@ -70,6 +71,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "3,18,33,48 6-12 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh" in crontab
     assert "4,19,34,49 6-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
+    assert "8,38 6-18 * * * cd /app && sh /app/scripts/run_profile_overview_prewarm.sh" in crontab
     assert "20 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_consensus --sleep-seconds 0.2" in crontab
     assert "35 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_events --limit 250 --pages 1 --sleep-seconds 0.3" in crontab
     assert "backfill_current_analyst_consensus" not in crontab
@@ -128,6 +130,19 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
     assert "worker_already_running" in script
     assert "timeout \"$hard_timeout\" python -m app.ingest_run --job enrichment-queue" in script
     assert "processed=%s succeeded=%s failed=%s skipped=%s" in script
+
+
+def test_profile_overview_prewarm_wrapper_is_gated_bounded_and_non_overlapping():
+    script = (BACKEND_ROOT / "scripts" / "run_profile_overview_prewarm.sh").read_text()
+
+    assert "PROFILE_OVERVIEW_PREWARM_ENABLED:-false" in script
+    assert "profile_overview_prewarm_disabled" in script
+    assert "PROFILE_OVERVIEW_PREWARM_MAX_SECONDS:-900" in script
+    assert "python -m app.background_job_guard --job profile-overview-prewarm" in script
+    assert "reason=db_pressure_guard" in script
+    assert "mkdir \"$lock_dir\"" in script
+    assert "worker_already_running" in script
+    assert "timeout \"$max_seconds\" python -m app.ingest_run --job profile-overview-prewarm" in script
 
 
 def test_ai_growth_campaign_wrapper_is_bounded_and_non_overlapping():

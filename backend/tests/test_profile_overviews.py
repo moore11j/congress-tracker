@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.main import _profile_overview_database_cache_get, _profile_overview_persistent_key, _run_profile_overview_prewarm
+from app.main import _cached_profile_overview_response, _profile_overview_database_cache_get, _profile_overview_persistent_key, _run_profile_overview_prewarm
 from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
 from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profile_activity, profiles_summary
 
@@ -302,6 +302,34 @@ def test_profile_subpage_overview_caches_serve_stale_payloads_before_expiry():
         assert _profile_overview_database_cache_get(db, key, now=now) == {"status": "ok", "marker": index}
 
 
+def test_profile_overview_forced_prewarm_rebuilds_a_stale_persistent_cache():
+    db = _db()
+    now = datetime.now(timezone.utc)
+    key = ("profiles_institutions_overview", 2099, 4, True)
+    db.add(
+        TickerContextBundleCache(
+            cache_key=_profile_overview_persistent_key(key),
+            symbol="PROFILE_OVERVIEW",
+            user_segment="shared",
+            payload_json=json.dumps({"status": "ok", "marker": "stale"}),
+            generated_at=now - timedelta(hours=2),
+            stale_after=now - timedelta(hours=1),
+            expires_at=now + timedelta(hours=22),
+        )
+    )
+    db.commit()
+
+    payload = _cached_profile_overview_response(
+        db,
+        key,
+        lambda: {"status": "ok", "marker": "fresh"},
+        force_refresh=True,
+    )
+
+    assert payload == {"status": "ok", "marker": "fresh"}
+    assert _profile_overview_database_cache_get(db, key, now=datetime.now(timezone.utc)) == payload
+
+
 def test_profile_overview_prewarm_warms_public_and_entitled_summaries(monkeypatch):
     from app import main
 
@@ -318,19 +346,22 @@ def test_profile_overview_prewarm_warms_public_and_entitled_summaries(monkeypatc
     monkeypatch.setattr(
         main,
         "_cached_profile_overview_response",
-        lambda db, key, builder: seen_keys.append((db, key)),
+        lambda db, key, builder, **_kwargs: seen_keys.append((db, key)),
     )
 
-    _run_profile_overview_prewarm()
+    result = _run_profile_overview_prewarm(force_refresh=True)
 
     assert [key for _, key in seen_keys] == [
         ("profiles_summary", "all", 25, False, True, 5),
         ("profiles_summary", "all", 25, True, True, 5),
+        ("profiles_congress_overview", "all", 365),
         ("profiles_institutions_overview", None, None, False),
         ("profiles_institutions_overview", None, None, True),
         ("profiles_insiders_overview", "", 365),
         ("profiles_departments_overview", None, 365),
     ]
+    assert result["force_refresh"] is True
+    assert result["cache_entries_refreshed"] == 7
     assert session.closed
 
 

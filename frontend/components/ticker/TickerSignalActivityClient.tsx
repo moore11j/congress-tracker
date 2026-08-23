@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
 import { ApiError, getSignalsAll, type SignalItem } from "@/lib/api";
 import {
   chamberBadge,
@@ -289,7 +290,7 @@ export function TickerSignalActivityClient({
           <p className="text-sm text-slate-400">No abnormal signal activity found for this ticker in the selected lookback.</p>
         ) : (
           <>
-            <ActivityScrollRegion>
+            <TickerActivityTable ariaLabel="Signal activity" headers={["Source", "Dates", "Price", "Trade value", "Side", "Signal"]}>
               {visibleItems.slice(0, 20).map((signal) => {
               const kind = signalKind(signal);
               const isInsiderSignal = kind === "insider";
@@ -304,10 +305,9 @@ export function TickerSignalActivityClient({
               const strengthLabel = formatSignalStrengthText(signal.smart_band);
 
               return (
-                <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
-                  <ActivityCardGrid
-                    identity={
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                <tr key={`${signal.kind}-${signal.event_id}-${signal.ts}`} className="transition-colors hover:bg-white/[0.035]">
+                  <td className={`${tickerActivityCellClassName} min-w-[14rem]`}>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                         {isInsiderSignal && insiderProfileHref ? (
                           <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                             {displayName}
@@ -328,27 +328,26 @@ export function TickerSignalActivityClient({
                           <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{congressAffiliation}</span>
                         ) : null}
                         <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
-                      </div>
-                    }
-                    sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
-                    dateLabel={
-                      isCongressSignal ? (
+                    </div>
+                  </td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs text-slate-400`}>
+                    {isCongressSignal ? (
                         <CongressDateLabel
                           disclosedDate={signal.report_date ?? signal.ts}
                           tradeDate={signal.trade_date ?? signal.transaction_date ?? null}
                         />
                       ) : (
                         formatDateShort(signal.ts)
-                      )
-                    }
-                    price={price !== null ? formatCurrency(price) : "-"}
-                    tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
-                    signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
-                  />
-                </ActivityCard>
+                      )}
+                  </td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{price !== null ? formatCurrency(price) : "-"}</td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}</td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge></td>
+                  <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" /></td>
+                </tr>
               );
               })}
-            </ActivityScrollRegion>
+            </TickerActivityTable>
             <ActivityRangeFooter itemCount={visibleItems.slice(0, 20).length} total={total} />
           </>
         )}

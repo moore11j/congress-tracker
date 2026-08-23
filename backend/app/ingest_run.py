@@ -49,6 +49,7 @@ from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
 from app.backfill_outcome_ledger_history import backfill_outcome_ledger_history
+from app.main import _run_profile_overview_prewarm
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "institutional-latest-daily",
             "enrichment-queue",
             "priority-ticker-prewarm",
+            "profile-overview-prewarm",
             "outcome-ledger-hydrator",
             "outcome-ledger-price-hydrator",
             "outcome-ledger-cache-warm",
@@ -1119,6 +1121,29 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
     return {"job": "priority-ticker-prewarm", **result}
 
 
+def _run_profile_overview_prewarm_job() -> dict[str, object]:
+    if os.getenv("PROFILE_OVERVIEW_PREWARM_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        logger.info("profile_overview_prewarm_skipped reason=profile_overview_prewarm_disabled")
+        return {
+            "job": "profile-overview-prewarm",
+            "status": "skipped",
+            "reason": "profile_overview_prewarm_disabled",
+            "cache_entries_refreshed": 0,
+        }
+    guard = check_background_job_guard("profile-overview-prewarm")
+    if not guard.proceed:
+        logger.info("profile_overview_prewarm_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {
+            **background_job_skip_payload("profile-overview-prewarm", guard),
+            "cache_entries_refreshed": 0,
+        }
+
+    logger.info("profile_overview_prewarm_start force_refresh=true")
+    result = _run_profile_overview_prewarm(force_refresh=True)
+    logger.info("profile_overview_prewarm_finished result=%s", result)
+    return {"job": "profile-overview-prewarm", **result}
+
+
 def _outcome_ledger_hydrator_symbols(db, *, limit: int, lookback_days: int) -> list[str]:
     expected_date = get_expected_latest_market_date()
     symbols: list[str] = []
@@ -1502,6 +1527,8 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return _run_enrichment_queue_job()
     if job == "priority-ticker-prewarm":
         return _run_priority_ticker_prewarm_job()
+    if job == "profile-overview-prewarm":
+        return _run_profile_overview_prewarm_job()
     if job == "outcome-ledger-hydrator":
         return _run_outcome_ledger_hydrator_job()
     if job == "outcome-ledger-price-hydrator":

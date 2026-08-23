@@ -70,19 +70,19 @@ test("activity footer renders showing range and show-more controls", () => {
   assert.match(detailClient, /activityStatusLabel\(\{ loading, unavailable, itemCount: items\.length \}\)/);
 });
 
-test("insider activity cards render one filed-price-first price", () => {
+test("insider activity tables render one filed-price-first price", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
   const tradeDisplay = read("lib/tradeDisplay.ts");
 
   assert.match(tradeDisplay, /const displayPrice = reported\.price \?\? price/);
-  assert.match(page, /price=\{formatActivityPrice\(display\.displayPrice\)\}/);
+  assert.match(page, />\{formatActivityPrice\(display\.displayPrice\)\}</);
   assert.match(page, /minimumFractionDigits: hasDecimals \? 2 : 0/);
   assert.match(page, /maximumFractionDigits: hasDecimals \? 2 : 0/);
   assert.doesNotMatch(page, /priceSubtext=\{display\.reportedLabel\}/);
   assert.doesNotMatch(page, /Reported: USD/);
 });
 
-test("ticker trade activity grids disclose price without gain loss and preserve participant summaries", () => {
+test("ticker trade activity tables disclose price and preserve participant summaries", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
   const signalClient = read("components/ticker/TickerSignalActivityClient.tsx");
@@ -96,18 +96,20 @@ test("ticker trade activity grids disclose price without gain loss and preserve 
   assert.match(page, /const insiderParticipantEvents = side === "all"[\s\S]*\? insiderEvents/);
   assert.match(page, /for \(const event of congressParticipantEvents\)/);
   assert.match(page, /for \(const event of insiderParticipantEvents\)/);
-  assert.match(page, /price=\{displayPrice !== null \? formatCurrency\(displayPrice\) : "-"\}/);
-  assert.match(page, /price=\{formatActivityPrice\(display\.displayPrice\)\}/);
-  assert.match(page, /showGainLoss=\{false\}/);
+  assert.match(page, /<TickerActivityTable ariaLabel="Congress activity"/);
+  assert.match(page, /<TickerActivityTable ariaLabel="Insider activity"/);
+  assert.match(page, />\{displayPrice !== null \? formatCurrency\(displayPrice\) : "-"\}</);
+  assert.match(page, />\{formatActivityPrice\(display\.displayPrice\)\}</);
   assert.match(page, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \?\? undefined \}\)/);
   assert.match(page, /const strengthLabel = formatSignalStrengthText\(signal\.band\)/);
   assert.match(page, /const strengthLabel = formatSignalStrengthText\(display\.signal\.band\)/);
   assert.match(page, /<CongressDateLabel[\s\S]*disclosedDate=\{resolveCongressReportDate\(event\)\}[\s\S]*tradeDate=\{resolveCongressTradeDate\(event\)\}/);
-  assert.match(page, /dateLabel=\{formatDateShort\(display\.filingDate \?\? resolveInsiderFilingDate\(event\)\)\}/);
+  assert.match(page, />\{formatDateShort\(display\.filingDate \?\? resolveInsiderFilingDate\(event\)\)\}</);
 
   assert.match(detailClient, /import \{ resolveCongressActivityPrice, resolveInsiderActivityDisplay \} from "@\/lib\/tradeDisplay"/);
   assert.match(detailClient, /resolveCongressActivityPrice\(event as Record<string, unknown>\)/);
-  assert.match(detailClient, /price=\{formatPrice\(price\)\}/);
+  assert.match(detailClient, /<TickerActivityTable ariaLabel=\{`\$\{kind === "congress"/);
+  assert.match(detailClient, />\{formatPrice\(price\)\}</);
   assert.match(detailClient, /SmartSignalPill score=\{smartSignal\.score\}/);
   assert.match(detailClient, /LockedSmartSignalPill band=\{smartSignal\.band\}/);
   assert.match(detailClient, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \}\)/);
@@ -116,8 +118,22 @@ test("ticker trade activity grids disclose price without gain loss and preserve 
   assert.match(tradeDisplay, /"trade_price", "tradePrice", "reported_price", "reportedPrice"/);
 
   assert.match(signalClient, /SmartSignalPill score=\{signal\.smart_score \?\? null\}/);
-  assert.match(signalClient, /sm:grid-cols-\[minmax\(170px,1\.6fr\)_minmax\(92px,\.7fr\)_minmax\(128px,\.95fr\)_minmax\(92px,auto\)\]/);
+  assert.match(signalClient, /<TickerActivityTable ariaLabel="Signal activity"/);
   assert.doesNotMatch(signalClient, /gainLossLabel/);
   assert.doesNotMatch(signalClient, /pnlClass/);
   assert.doesNotMatch(signalClient, /pnl=\{/);
+});
+
+test("ticker activity stats and participant rankings use the rendered tape rows", () => {
+  const page = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(page, /const congressBuys = congressEvents\.filter/);
+  assert.match(page, /const congressSells = congressEvents\.filter/);
+  assert.match(page, /const insiderBuys = insiderEvents\.filter/);
+  assert.match(page, /const insiderSells = insiderEvents\.filter/);
+  assert.match(page, /const deferTickerActivityDetails = false/);
+  assert.match(page, /source: "TickerCongressActivity",[\s\S]*?stalePageCache: false/);
+  assert.match(page, /source: "TickerInsiderActivity",[\s\S]*?stalePageCache: false/);
+  assert.doesNotMatch(page, /const metricCongressEvents/);
+  assert.doesNotMatch(page, /const metricInsiderEvents/);
 });

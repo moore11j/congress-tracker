@@ -19,6 +19,7 @@ from app.ingest_run import (
     _run_monitoring_alert_refresh_job,
     _run_portfolio_methodology_guard_job,
     _run_portfolio_simulation_refresh_job,
+    _run_profile_overview_prewarm_job,
     _run_priority_ticker_prewarm_job,
     _run_recent_congress_job,
 )
@@ -193,6 +194,12 @@ def test_priority_ticker_prewarm_job_is_accepted_by_parser() -> None:
     args = _build_parser().parse_args(["--job", "priority-ticker-prewarm"])
 
     assert args.job == "priority-ticker-prewarm"
+
+
+def test_profile_overview_prewarm_job_is_accepted_by_parser() -> None:
+    args = _build_parser().parse_args(["--job", "profile-overview-prewarm"])
+
+    assert args.job == "profile-overview-prewarm"
 
 
 def test_market_data_refresh_job_is_accepted_by_parser() -> None:
@@ -532,6 +539,40 @@ def test_priority_ticker_prewarm_job_defaults_to_disabled(monkeypatch) -> None:
     assert result["job"] == "priority-ticker-prewarm"
     assert result["status"] == "skipped"
     assert result["reason"] == "priority_ticker_prewarm_disabled"
+
+
+def test_profile_overview_prewarm_job_forces_a_shared_cache_refresh(monkeypatch) -> None:
+    monkeypatch.setenv("PROFILE_OVERVIEW_PREWARM_ENABLED", "true")
+    seen = {}
+
+    def fake_prewarm(*, force_refresh):
+        seen["force_refresh"] = force_refresh
+        return {"status": "ok", "cache_entries_refreshed": 7}
+
+    monkeypatch.setattr("app.ingest_run._run_profile_overview_prewarm", fake_prewarm)
+
+    result = _run_profile_overview_prewarm_job()
+
+    assert seen["force_refresh"] is True
+    assert result == {
+        "job": "profile-overview-prewarm",
+        "status": "ok",
+        "cache_entries_refreshed": 7,
+    }
+
+
+def test_profile_overview_prewarm_job_defaults_to_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("PROFILE_OVERVIEW_PREWARM_ENABLED", raising=False)
+    monkeypatch.setattr(
+        "app.ingest_run._run_profile_overview_prewarm",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("prewarm should not run")),
+    )
+
+    result = _run_profile_overview_prewarm_job()
+
+    assert result["job"] == "profile-overview-prewarm"
+    assert result["status"] == "skipped"
+    assert result["reason"] == "profile_overview_prewarm_disabled"
 
 
 def test_priority_ticker_prewarm_job_skips_when_background_guard_blocks(monkeypatch) -> None:
