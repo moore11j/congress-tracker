@@ -2990,6 +2990,7 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
 
 
 PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 900
+CONGRESS_OVERVIEW_CACHE_VERSION = "trade_count_v2"
 _PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 _PROFILE_OVERVIEW_INFLIGHT: dict[tuple[Any, ...], threading.Event] = {}
@@ -4918,7 +4919,7 @@ def profiles_congress_overview(
         return prefetch_response
     return _cached_profile_overview_response(
         db,
-        ("profiles_congress_overview", chamber, period_days),
+        ("profiles_congress_overview", chamber, period_days, CONGRESS_OVERVIEW_CACHE_VERSION),
         lambda: build_congress_overview(db, chamber=chamber, period_days=period_days),
     )
 
