@@ -19,6 +19,7 @@ const insiderAnalytics = read("components/insider/InsiderAnalyticsClient.tsx");
 const outcomes = read("components/outcomes/OutcomeLedgerClient.tsx");
 const profileSparkline = read("components/charts/WalnutProfileSparkline.tsx");
 const sectorMovementBars = read("components/profiles/WalnutSectorMovementBars.tsx");
+const congressInteractiveCharts = read("components/profiles/CongressInteractiveCharts.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -101,4 +102,15 @@ test("profile-card sparklines and moving-sector bars reveal and inspect on deman
   assert.match(sectorMovementBars, /onPointerEnter/);
   assert.match(dashboard, /WalnutProfileSparkline/);
   assert.match(dashboard, /WalnutSectorMovementBars/);
+});
+
+test("Congress dashboard snapshot, metric, exposure, and sector charts are interactive", () => {
+  assert.match(congressInteractiveCharts, /WalnutLineChart/);
+  assert.match(congressInteractiveCharts, /requestAnimationFrame/);
+  assert.match(congressInteractiveCharts, /aria-pressed/);
+  assert.match(congressInteractiveCharts, /onPointerEnter/);
+  assert.match(dashboard, /CongressSnapshotChart/);
+  assert.match(dashboard, /CongressMetricTrend/);
+  assert.match(dashboard, /CongressSectorExposure/);
+  assert.match(dashboard, /CongressNetSectorBars/);
 });
