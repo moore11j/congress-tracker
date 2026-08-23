@@ -2686,13 +2686,13 @@ function EditorPanel({
           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
           <textarea ref={bodyTextareaRef} value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
         </label>
-        {false && article.reddit_post ? (
+        {false && activeArticle.reddit_post ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Reddit output</p>
               <Button onClick={copyRedditPost}>Copy Reddit Post</Button>
             </div>
-            <textarea readOnly value={article.reddit_post} className={fieldClassName("mt-3 min-h-48 font-mono text-xs leading-6")} />
+            <textarea readOnly value={activeArticle.reddit_post} className={fieldClassName("mt-3 min-h-48 font-mono text-xs leading-6")} />
           </div>
         ) : null}
         <details hidden className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
