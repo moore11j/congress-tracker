@@ -97,7 +97,9 @@ test("outcome charts support keyboard, touch, and focus inspection", () => {
 test("profile-card sparklines and moving-sector bars reveal and inspect on demand", () => {
   assert.match(profileSparkline, /requestAnimationFrame/);
   assert.match(profileSparkline, /onPointerMove/);
-  assert.match(profileSparkline, /Illustrative recent trend/);
+  assert.match(profileSparkline, /X · reporting period/);
+  assert.match(profileSparkline, /Y · \{metricLabel\}/);
+  assert.match(profileSparkline, /z-\[60\]/);
   assert.match(sectorMovementBars, /requestAnimationFrame/);
   assert.match(sectorMovementBars, /aria-pressed/);
   assert.match(sectorMovementBars, /onPointerEnter/);
@@ -105,6 +107,8 @@ test("profile-card sparklines and moving-sector bars reveal and inspect on deman
   assert.match(sectorMovementBars, /min-h-9/);
   assert.match(dashboard, /WalnutProfileSparkline/);
   assert.match(dashboard, /WalnutSectorMovementBars/);
+  assert.match(dashboard, /overviewChartPoints/);
+  assert.match(dashboard, /overflow-visible/);
 });
 
 test("Congress dashboard snapshot, metric, exposure, and sector charts are interactive", () => {
