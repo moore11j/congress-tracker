@@ -1402,7 +1402,26 @@ def test_scheduled_research_publish_requires_approval(tmp_path, monkeypatch):
     result = service.run_due_scheduled_research_publications(db)
     assert result["published"] == 1
     assert len(calls) == 1
+    assert calls[0][1]["publication_source"] == "scheduled_campaign"
     assert service.get_draft(draft["id"], db=db)["status"] == "published"
+
+
+def test_research_daily_publish_cap_uses_pacific_day_and_ignores_manual_publishes(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    manual = _minimal_scheduled_draft(admin, status="published")
+    manual["published_at"] = "2026-08-23T03:24:34+00:00"  # 8:24 PM Pacific on Aug. 22
+    manual["publication_source"] = "manual"
+    automated = _minimal_scheduled_draft(admin, status="published")
+    automated["id"] = "rb_scheduled_today"
+    automated["published_at"] = "2026-08-23T14:00:00+00:00"
+    automated["publication_source"] = "scheduled_campaign"
+    service._upsert_db_draft(db, manual)
+    service._upsert_db_draft(db, automated)
+
+    assert service._research_publish_day_start(datetime(2026, 8, 23, 13, 10, tzinfo=timezone.utc)) == "2026-08-23T07:00:00+00:00"
+    assert service._automated_research_publishes_today(db, now=datetime(2026, 8, 23, 13, 10, tzinfo=timezone.utc)) == 1
 
 
 def test_research_brief_job_failure_returns_safe_error(tmp_path, monkeypatch):

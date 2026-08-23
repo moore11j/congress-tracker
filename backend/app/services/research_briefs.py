@@ -11,6 +11,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 from fastapi import HTTPException
@@ -113,6 +114,7 @@ RESEARCH_CAMPAIGN_REVIEW_TEMPLATE_KEY = "research_brief.scheduled_review"
 RESEARCH_CAMPAIGN_DEFAULT_GENERATOR_VERSION = "research_campaign_v1"
 RESEARCH_DAILY_PUBLISH_CAP = "RESEARCH_DAILY_PUBLISH_CAP"
 RESEARCH_DAILY_PUBLISH_CAP_DEFAULT = 1
+RESEARCH_PUBLISH_TIMEZONE = "America/Los_Angeles"
 RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED = "RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED"
 RESEARCH_KEYWORD_DISCOVERY_MODEL = "RESEARCH_KEYWORD_DISCOVERY_MODEL"
 RESEARCH_KEYWORD_DISCOVERY_MAX_CANDIDATES = 8
@@ -3638,14 +3640,37 @@ def reschedule_research_brief(db: Session, draft_id: str, scheduled_at: str) -> 
     return deepcopy(draft)
 
 
+def _research_publish_day_start(now: datetime | None = None) -> str:
+    """Return the start of Walnut's publishing day as a UTC timestamp."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    try:
+        publish_tz = ZoneInfo(RESEARCH_PUBLISH_TIMEZONE)
+    except Exception:
+        publish_tz = timezone.utc
+    local_now = current.astimezone(publish_tz)
+    return local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+
+
+def _automated_research_publishes_today(db: Session, *, now: datetime | None = None) -> int:
+    """Manual publishes must never consume the campaign scheduler's daily cap."""
+    rows = db.execute(
+        text("SELECT payload_json FROM research_brief_drafts WHERE status = 'published' AND published_at >= :today_start"),
+        {"today_start": _research_publish_day_start(now)},
+    ).mappings().all()
+    published_today = 0
+    for row in rows:
+        payload = _load_json(row.get("payload_json"))
+        if isinstance(payload, dict) and payload.get("publication_source") == "scheduled_campaign":
+            published_today += 1
+    return published_today
+
+
 def run_due_scheduled_research_publications(db: Session, *, limit: int = 20) -> dict[str, Any]:
     ensure_research_brief_store_schema(db)
     cap = _research_daily_publish_cap()
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    published_today = db.execute(
-        text("SELECT COUNT(*) FROM research_brief_drafts WHERE status = 'published' AND published_at >= :today_start"),
-        {"today_start": today_start},
-    ).scalar() or 0
+    published_today = _automated_research_publishes_today(db)
     remaining = max(0, cap - int(published_today)) if cap > 0 else max(1, min(100, limit))
     if cap > 0 and remaining == 0:
         return {"published": 0, "failed": 0, "skipped": 0, "checked": 0, "warning": f"Daily automated publishing cap ({cap}) reached."}
@@ -3671,7 +3696,13 @@ def run_due_scheduled_research_publications(db: Session, *, limit: int = 20) -> 
             skipped += 1
             continue
         try:
-            published_draft = publish_draft(system_admin, str(row["id"]), confirm=True, db=db)
+            published_draft = publish_draft(
+                system_admin,
+                str(row["id"]),
+                confirm=True,
+                db=db,
+                publication_source="scheduled_campaign",
+            )
             published += 1
             if published_draft.get("campaign_id"):
                 db.execute(text("UPDATE research_campaigns SET published_count = published_count + 1, updated_at = :now WHERE id = :id"), {"id": published_draft["campaign_id"], "now": _now()})
@@ -7337,9 +7368,17 @@ def _publish_hard_stop_warnings(validation: dict[str, Any]) -> list[dict[str, An
     ]
 
 
-def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Session | None = None) -> dict[str, Any]:
+def publish_draft(
+    admin: UserAccount,
+    draft_id: str,
+    *,
+    confirm: bool,
+    db: Session | None = None,
+    publication_source: str = "manual",
+) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=422, detail="Publish requires explicit confirmation.")
+    source = "scheduled_campaign" if publication_source == "scheduled_campaign" else "manual"
     if db is not None:
         draft = _db_draft(db, draft_id)
         if draft:
@@ -7357,6 +7396,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
                 raise HTTPException(status_code=422, detail="Resolve validation failures before publishing.")
             draft["status"] = "published"
             draft["published_at"] = draft.get("published_at") or _now()
+            draft["publication_source"] = source
             draft["updated_at"] = _now()
             draft["validation"] = validation
             _unpublish_other_db_drafts_for_slug(db, draft_id, str((draft.get("article") or {}).get("slug") or ""))
@@ -7380,6 +7420,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
                     raise HTTPException(status_code=422, detail="Resolve validation failures before publishing.")
                 draft["status"] = "published"
                 draft["published_at"] = draft.get("published_at") or _now()
+                draft["publication_source"] = source
                 draft["updated_at"] = _now()
                 draft["validation"] = validation
                 _unpublish_other_store_drafts_for_slug(store, draft_id, str((draft.get("article") or {}).get("slug") or ""))
