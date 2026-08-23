@@ -12,7 +12,6 @@ import {
   getMemberProfile,
   getMemberProfileBySlug,
   getMemberTrades,
-  getSeoSnapshot,
 } from "@/lib/api";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
@@ -26,7 +25,7 @@ import {
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
-import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, memberHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -208,16 +207,16 @@ function VerifiedBadge() {
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
-  const snapshot = await getSeoSnapshot("member", slug, { source: "MemberMetadataSnapshot" })
-    .then((response) => response.snapshot)
+  const profile = await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberMetadataProfile", stalePageCache: true })
     .catch(() => null);
-  const canonicalPath = snapshot?.canonical_path ?? `/member/${slug}`;
-  const memberName = typeof snapshot?.payload?.member_name === "string" ? snapshot.payload.member_name : profileMemberName(null, slug);
+  const memberName = profileMemberName(profile?.member?.name, slug);
+  const canonicalSlug = nameToSlug(memberName);
+  const canonicalPath = `/member/${encodeURIComponent(canonicalSlug)}`;
   const fallbackTitle = `${memberName} Stock Trades | Walnut Markets`;
   const fallbackDescription = `Research ${memberName}'s disclosed stock trades, recent activity, traded tickers and public congressional profile in Walnut Markets.`;
-  const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
-  const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
-  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
+  const title = conciseSeoTitle(fallbackTitle, "Congress Member Stock Trades | Walnut Markets");
+  const description = conciseSeoDescription(fallbackDescription, "Research disclosed congressional stock trades, recent activity, traded tickers and public member profiles in Walnut Markets.");
+  if (!memberHasIndexableContent(profile) || hasNonCanonicalSearchParams(sp)) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),

@@ -76,7 +76,9 @@ test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pag
 
   assert.match(tickerPage, /getSeoSnapshot\("ticker"/);
   assert.match(memberPage, /noindexFollowMetadata/);
-  assert.match(memberPage, /getSeoSnapshot\("member"/);
+  assert.match(memberPage, /getMemberProfileBySlug/);
+  assert.match(memberPage, /memberHasIndexableContent\(profile\)/);
+  assert.doesNotMatch(memberPage, /getSeoSnapshot\("member"/);
   assert.match(insiderPage, /getSeoSnapshot\("insider"/);
   assert.match(institutionPage, /institutionHasIndexableContent\(profile\)/);
   assert.match(departmentPage, /departmentHasIndexableContent\(department\)/);
