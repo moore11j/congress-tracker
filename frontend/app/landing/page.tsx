@@ -716,7 +716,7 @@ export default async function LandingPage() {
           <div className="max-w-4xl">
             <SectionEyebrow>Stock Research &amp; Market Intelligence</SectionEyebrow>
             <h1 className="mt-4 max-w-5xl text-[2.35rem] font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Everything You Need to Research a Stock—Then Keep Following It.
+              Everything You Need to Research a Stock—And Keep Following It.
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes.

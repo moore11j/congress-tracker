@@ -112,7 +112,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
 });
 
 test("landing page explains Walnut differentiation and free tier", () => {
-  assert.match(landingPage, /Everything You Need to Research a Stock—Then Keep Following It\./);
+  assert.match(landingPage, /Everything You Need to Research a Stock—And Keep Following It\./);
   assert.match(landingPage, /Stock Research &amp; Market Intelligence/);
   assert.match(landingPage, /Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more\. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes\./);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
