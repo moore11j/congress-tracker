@@ -43,6 +43,9 @@ test("segmented app sitemaps consume controlled whitelist sources", () => {
     assert.match(source, /sitemapUrlset/);
     assert.doesNotMatch(source, /const PATHS|const TICKERS/);
   }
+  const membersSitemap = read("app/sitemap-members.xml/route.ts");
+  assert.match(membersSitemap, /nameToSlug/);
+  assert.match(membersSitemap, /memberSitemapPath/);
   for (const routePath of [
     "app/sitemap-institutions.xml/route.ts",
     "app/sitemap-research.xml/route.ts",
