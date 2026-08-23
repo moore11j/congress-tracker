@@ -18,7 +18,20 @@ from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Event, FundamentalsCache, GovernmentContract, QuoteCache, Security, TickerFinancialsCache, TickerMeta, UserAccount
+from app.models import (
+    Event,
+    FundamentalsCache,
+    GovernmentContract,
+    InstitutionalHolder,
+    InstitutionalPosition,
+    InstitutionalPositionChange,
+    InstitutionalSymbolSummary,
+    QuoteCache,
+    Security,
+    TickerFinancialsCache,
+    TickerMeta,
+    UserAccount,
+)
 from app.services.ai_marketing import (
     AI_MARKETING_IMAGE_GENERATION_ENABLED,
     AI_MARKETING_IMAGE_MODEL,
@@ -35,7 +48,7 @@ from app.services.email_delivery import send_email
 from app.services.openai_request_audit import audited_openai_request
 from app.utils.symbols import normalize_symbol
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v5_public_copy"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v6_institutional_ownership"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -642,6 +655,36 @@ def _sanitize_copy_block(block: str) -> str:
     return _sanitize_copy_text_block(block)
 
 
+def _humanize_research_dates(value: str) -> str:
+    """Convert machine-style dates into investor-facing copy without touching URLs."""
+    def replace(match: re.Match[str]) -> str:
+        try:
+            parsed = date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        except ValueError:
+            return match.group(0)
+        return f"{parsed.strftime('%B')} {parsed.day}, {parsed.year}"
+
+    return re.sub(r"\b(20\d{2})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b", replace, str(value or ""))
+
+
+def _humanize_research_article_dates(article: dict[str, Any]) -> dict[str, Any]:
+    cleaned = deepcopy(article)
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(cleaned.get(key), str):
+            cleaned[key] = _humanize_research_dates(cleaned[key])
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness", "missing_data_notes"):
+        if isinstance(cleaned.get(key), list):
+            cleaned[key] = [_humanize_research_dates(str(item)) for item in cleaned[key]]
+    if isinstance(cleaned.get("sections"), list):
+        for section in cleaned["sections"]:
+            if isinstance(section, dict):
+                if isinstance(section.get("heading"), str):
+                    section["heading"] = _humanize_research_dates(section["heading"])
+                if isinstance(section.get("body_markdown"), str):
+                    section["body_markdown"] = _humanize_research_dates(section["body_markdown"])
+    return cleaned
+
+
 def _sanitize_copy_text_block(block: str) -> str:
     if block.lstrip().startswith("|"):
         return "" if PUBLISH_COPY_FORBIDDEN_RE.search(block) else block
@@ -904,6 +947,7 @@ def sanitize_research_brief_article(
         sanitized = _remove_available_data_missing_claims_from_article(sanitized, context or {})
     sanitized = _apply_walnut_call_metadata(sanitized)
     sanitized = _apply_research_access_metadata(sanitized, config)
+    sanitized = _humanize_research_article_dates(sanitized)
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
         sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
@@ -3859,6 +3903,115 @@ def _recent_events(db: Session, symbol: str, event_types: list[str], *, limit: i
     return items
 
 
+def _institutional_ownership_detail(db: Session, symbol: str) -> dict[str, Any]:
+    """Return the holder-level 13F facts a reader expects from an ownership brief.
+
+    The activity feed is useful for direction, but it deliberately compresses
+    individual filings into a signal.  Research briefs need the names and
+    position changes behind that signal.  Scope every result to the latest
+    report period in Walnut's stored 13F set; it must never be presented as a
+    complete ranking of every institution in the market.
+    """
+    try:
+        summary = (
+            db.execute(
+                select(InstitutionalSymbolSummary)
+                .where(func.upper(InstitutionalSymbolSummary.normalized_symbol) == symbol)
+                .order_by(desc(InstitutionalSymbolSummary.report_year), desc(InstitutionalSymbolSummary.report_quarter))
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if summary is None:
+            return {}
+        report_year = int(summary.report_year)
+        report_quarter = int(summary.report_quarter)
+
+        def compact_change(item: Any) -> dict[str, Any]:
+            return {
+                "holder_name": str(item.holder_name or "").strip(),
+                "change_type": str(item.change_type or "").strip(),
+                "shares_delta": item.shares_delta,
+                "shares_delta_pct": item.shares_delta_pct,
+                "reported_value_usd": item.curr_value_usd,
+                "value_delta_usd": item.value_delta_usd,
+                "filing_date": _iso(item.filing_date),
+            }
+
+        def decoded_summary_list(value: Any) -> list[dict[str, Any]]:
+            parsed = _load_json(value)
+            return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+
+        top_accumulators = decoded_summary_list(summary.top_accumulators_json)[:5]
+        top_reducers = decoded_summary_list(summary.top_reducers_json)[:5]
+        if not top_accumulators or not top_reducers:
+            changes = (
+                db.execute(
+                    select(InstitutionalPositionChange)
+                    .where(func.upper(InstitutionalPositionChange.normalized_symbol) == symbol)
+                    .where(InstitutionalPositionChange.report_year == report_year)
+                    .where(InstitutionalPositionChange.report_quarter == report_quarter)
+                    .order_by(desc(func.abs(func.coalesce(InstitutionalPositionChange.value_delta_usd, 0))))
+                )
+                .scalars()
+                .all()
+            )
+            if not top_accumulators:
+                top_accumulators = [
+                    compact_change(item)
+                    for item in changes
+                    if str(item.change_type or "").lower() in {"increase", "new_position"}
+                ][:5]
+            if not top_reducers:
+                top_reducers = [
+                    compact_change(item)
+                    for item in changes
+                    if str(item.change_type or "").lower() in {"decrease", "exit"}
+                ][:5]
+
+        holder_rows = (
+            db.execute(
+                select(InstitutionalPosition, InstitutionalHolder.holder_name)
+                .outerjoin(InstitutionalHolder, InstitutionalHolder.cik == InstitutionalPosition.cik)
+                .where(func.upper(InstitutionalPosition.normalized_symbol) == symbol)
+                .where(InstitutionalPosition.report_year == report_year)
+                .where(InstitutionalPosition.report_quarter == report_quarter)
+                .order_by(desc(func.coalesce(InstitutionalPosition.value_usd, 0)))
+                .limit(5)
+            )
+            .all()
+        )
+        top_holders = [
+            {
+                "holder_name": str(holder_name or position.issuer_name or "").strip(),
+                "shares": position.shares,
+                "reported_value_usd": position.value_usd,
+                "filing_date": _iso(position.filing_date),
+            }
+            for position, holder_name in holder_rows
+            if str(holder_name or position.issuer_name or "").strip()
+        ]
+        return {
+            "reporting_period": f"Q{report_quarter} {report_year}",
+            "latest_filing_date": _iso(summary.latest_filing_date),
+            "holders_increased": int(summary.holders_increased or 0),
+            "holders_reduced": int(summary.holders_reduced or 0),
+            "new_positions": int(summary.new_positions or 0),
+            "exits": int(summary.exits or 0),
+            "total_holders": int(summary.total_holders or 0),
+            "net_value_delta_usd": summary.net_value_delta_usd,
+            "net_shares_delta": summary.net_shares_delta,
+            "direction": str(summary.direction or "neutral").lower(),
+            "top_accumulators": top_accumulators,
+            "top_reducers": top_reducers,
+            "top_holders_in_walnut_set": top_holders,
+        }
+    except Exception:
+        logger.exception("research_brief_institutional_detail_unavailable symbol=%s", symbol)
+        return {}
+
+
 def _government_contracts(db: Session, symbol: str) -> dict[str, Any]:
     rows = (
         db.execute(
@@ -4003,6 +4156,7 @@ def _primary_ticker_prompt_context(primary: dict[str, Any]) -> dict[str, Any]:
             "price_volume_summary": sources.get("price_volume") or (primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}),
             "fundamentals_summary": primary.get("fundamentals"),
             "reported_institutional_summary": primary.get("institutional_activity"),
+            "institutional_ownership_detail": primary.get("institutional_ownership_detail"),
             "congress_summary": primary.get("congress_activity"),
             "insider_summary": primary.get("insider_activity"),
             "options_flow_summary": sources.get("options_flow"),
@@ -4139,6 +4293,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
                 "contrarian_accumulation",
             ],
         ),
+        "institutional_ownership_detail": _institutional_ownership_detail(db, symbol),
         "government_contracts": _government_contracts(db, symbol),
     }
     data_availability = _research_data_availability(primary_context, external_research)
@@ -5517,9 +5672,15 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             *(
                 [
                     "This is an institutional-activity brief. Answer the ownership or accumulation question directly in the opening sentence.",
-                    "Use reported institutional events, filing dates, quarter-end holdings, position changes, and the filing lag when present. Do not treat a 13F filing as real-time buying.",
+                    "INSTITUTIONAL_OWNERSHIP_DETAIL is the authoritative holder-level record for this brief. Use it whenever it is present. It includes the reporting period, the filing date, named top accumulators, named reducers, and the largest reported positions in Walnut's stored 13F set.",
+                    "When holder-level data is present, answer the reader's follow-up questions instead of padding the brief: name the institutions that added or opened positions, name the institutions that reduced or exited, and name the largest reported holders in the stored 13F set. State whether each named change was a new position, an increase, a reduction, or an exit, and use the supplied shares or dollar values where available.",
+                    "Never call a partial 13F ingest the largest holders in the entire market. Say 'the largest reported positions in Walnut's 13F set' when describing that list. Do not invent a holder, a holding, a position change, or a filing date.",
+                    "Keep the reporting-period limitation to one short factual sentence. Do not write a standalone filing-lag lecture, disclaim live buying, say 'the right reading', discuss a freshness anchor, or repeat the same limitation in multiple sections.",
+                    "Do not use phrases such as 'on the reviewed data', 'in the reviewed set', 'the key question', 'this matters because', 'mixed cross-checks', 'reported side', or 'current set'. State the actual fact instead.",
+                    "Dates must use words everywhere: write 'August 21, 2026', never '2026-08-21' or an ISO timestamp.",
+                    "The title owns the question. The Insights preview body must not repeat the title or headline question; lead with the answer, the reporting period, and one or two named holder facts.",
                     "Do not turn this into an earnings, valuation, price-target, or confirmation-score brief. Do not use 'bullish but expensive' unless the request explicitly asks for valuation.",
-                    "End by stating whether the reported institutional activity indicates accumulation, distribution, mixed activity, or no verified directional change. Use sections that fit this question: Quick answer; What reported filings show; What the filing lag means; What to watch; Sources.",
+                    "Use sections that answer what a reader actually wants to know: Quick answer; Who added or opened positions; Largest reported holders; Who reduced; Why ownership may be rising; What changes next; Sources. End by stating whether reported institutional activity indicates accumulation, distribution, mixed activity, or no verified directional change.",
                 ]
                 if institutional_brief
                 else []
@@ -6473,43 +6634,120 @@ def _institutional_activity_fallback_article(
     reader_company: str,
     sources: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Keep a failed model response from becoming a generic valuation brief."""
+    """Produce a factual ownership brief when model generation is unavailable."""
     events = ((context.get("primary") or {}).get("institutional_activity") or []) if isinstance(context.get("primary"), dict) else []
     events = [item for item in events if isinstance(item, dict)]
+    ownership = ((context.get("primary") or {}).get("institutional_ownership_detail") or {}) if isinstance(context.get("primary"), dict) else {}
     accumulation_events = [item for item in events if str(item.get("event_type") or "").lower() in {"institutional_accumulation", "new_institutional_position", "cluster_accumulation", "contrarian_accumulation", "smart_money_confirmation"}]
     distribution_events = [item for item in events if str(item.get("event_type") or "").lower() in {"institutional_distribution", "major_holder_reduction", "major_holder_exit", "cluster_distribution", "crowded_long"}]
-    if len(accumulation_events) > len(distribution_events):
+    if str(ownership.get("direction") or "").lower() == "bullish" or len(accumulation_events) > len(distribution_events):
         activity_call, judgment, conclusion = "Bullish", "bullish", "reported accumulation"
-    elif len(distribution_events) > len(accumulation_events):
+    elif str(ownership.get("direction") or "").lower() == "bearish" or len(distribution_events) > len(accumulation_events):
         activity_call, judgment, conclusion = "Bearish", "bearish", "reported distribution"
     else:
         activity_call, judgment, conclusion = "Neutral", "neutral", "mixed or inconclusive reported activity"
     question = str(config.get("research_question") or f"Are institutions accumulating {symbol}?").strip().rstrip("?")
-    event_lines = []
-    for event in events[:5]:
-        event_type = str(event.get("event_type") or "reported institutional event").replace("_", " ")
-        date_text = str(event.get("date") or "").split("T", 1)[0]
-        detail = str(event.get("summary") or event.get("title") or "").strip()
-        event_lines.append(" ".join(part for part in [date_text, event_type.capitalize() + (f": {detail}" if detail else "")] if part))
-    filings_detail = "\n".join(f"- {line}" for line in event_lines) or "- The current reported-activity feed does not establish a net accumulation or distribution trend."
-    body = (
-        f"Our answer to “{question}?” is {conclusion}. The available reported institutional activity leans {activity_call.lower()} only in the narrow sense of ownership-flow evidence. It is not a valuation call on {reader_company} shares.\n\n"
-        f"The reported-event record contains {len(accumulation_events)} accumulation or new-position signal{'s' if len(accumulation_events) != 1 else ''} and {len(distribution_events)} distribution or reduction signal{'s' if len(distribution_events) != 1 else ''}. That comparison sets the direction of this brief. It does not establish live buying, because institutional filings arrive after the relevant quarter ends.\n\n"
-        "## What reported filings show\n\n"
-        f"{filings_detail}\n\n"
-        "Each item reflects disclosed or reported activity, not a prediction of the next trade. A new position, accumulation event, reduction, or exit can have different portfolio and timing explanations. The signal matters most when several filings point in the same direction and the quarter-end ownership change is clear.\n\n"
-        "## What the filing lag means\n\n"
-        "Institutional ownership data is useful because it shows how professional holders were positioned at a reported point in time. It is not a real-time tape. Readers should treat the filing date, the quarter-end date, and the direction of the position change as separate facts. That prevents a stale filing from being mistaken for a current market order.\n\n"
-        "## Bottom line\n\n"
-        f"Our call: {activity_call}. The reported ownership evidence currently points to {conclusion} for {symbol}. Recheck the next filing cycle before treating that conclusion as current positioning."
+
+    def holder_name(item: dict[str, Any]) -> str:
+        return str(item.get("holder_name") or "").strip()
+
+    def money(item: dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            formatted = _format_brief_money(item.get(key))
+            if formatted != "not available":
+                return formatted
+        return ""
+
+    def change_line(item: dict[str, Any]) -> str:
+        name = holder_name(item)
+        change = str(item.get("change_type") or "position change").replace("_", " ")
+        value = money(item, "value_delta_usd", "reported_value_usd")
+        shares = item.get("shares_delta")
+        facts = [change]
+        if value:
+            facts.append(value)
+        if shares not in (None, 0, 0.0):
+            try:
+                facts.append(f"{abs(float(shares)):,.0f} shares")
+            except (TypeError, ValueError):
+                pass
+        return f"- **{name}**: {', '.join(facts)}." if name else ""
+
+    reporting_period = str(ownership.get("reporting_period") or "the latest reported quarter")
+    filing_date = _humanize_research_dates(str(ownership.get("latest_filing_date") or ""))
+    increased = int(ownership.get("holders_increased") or 0)
+    new_positions = int(ownership.get("new_positions") or 0)
+    reduced = int(ownership.get("holders_reduced") or 0)
+    exits = int(ownership.get("exits") or 0)
+    net_value = _format_brief_money(ownership.get("net_value_delta_usd"))
+    top_accumulators = [item for item in ownership.get("top_accumulators") or [] if isinstance(item, dict) and holder_name(item)][:4]
+    top_reducers = [item for item in ownership.get("top_reducers") or [] if isinstance(item, dict) and holder_name(item)][:4]
+    top_holders = [item for item in ownership.get("top_holders_in_walnut_set") or [] if isinstance(item, dict) and holder_name(item)][:4]
+    activity_count = increased + new_positions
+    quick_answer = f"Yes. {reporting_period} filings point to net accumulation in {symbol}: {activity_count} institutions increased or opened positions, while {reduced + exits} reduced or exited."
+    if net_value != "not available":
+        quick_answer += f" The reported net value change was {net_value}."
+    if filing_date:
+        quick_answer += f" The latest filing in this group was dated {filing_date}."
+    additions = "\n".join(change_line(item) for item in top_accumulators if change_line(item))
+    reductions = "\n".join(change_line(item) for item in top_reducers if change_line(item))
+    holder_lines = []
+    for item in top_holders:
+        value = money(item, "reported_value_usd")
+        shares = item.get("shares")
+        facts = []
+        if shares not in (None, 0, 0.0):
+            try:
+                facts.append(f"{float(shares):,.0f} shares")
+            except (TypeError, ValueError):
+                pass
+        if value:
+            facts.append(value)
+        holder_lines.append(f"- **{holder_name(item)}**: {', '.join(facts)}." if facts else f"- **{holder_name(item)}**.")
+    official = ((context.get("external_research") or {}).get("official_facts") or {}) if isinstance(context.get("external_research"), dict) else {}
+    revenue = ((official.get("revenue") or {}).get("value")) if isinstance(official.get("revenue"), dict) else None
+    growth = ((official.get("revenue_growth") or {}).get("value")) if isinstance(official.get("revenue_growth"), dict) else None
+    margin = ((official.get("gross_margin") or {}).get("value")) if isinstance(official.get("gross_margin"), dict) else None
+    business_facts = []
+    if revenue is not None:
+        business_facts.append(f"{_format_brief_money(float(revenue) * 1_000_000_000)} in quarterly revenue")
+    if growth is not None:
+        business_facts.append(f"{_format_brief_percent(growth)} year-over-year revenue growth")
+    if margin is not None:
+        business_facts.append(f"a {_format_brief_percent(margin)} GAAP gross margin")
+    rationale = (
+        f"{reader_company}'s operating momentum gives institutions a clear reason to keep adding exposure: " + ", ".join(business_facts) + "."
+        if business_facts
+        else f"The ownership case rests on the reported position changes, not a generic market verdict on {reader_company}."
     )
+    preview = quick_answer
+    if top_accumulators:
+        preview += f" {holder_name(top_accumulators[0])} was the largest named addition in the tracked filings."
+    sections = [
+        {"key": "quick-answer", "heading": "Quick answer", "body_markdown": quick_answer},
+        {
+            "key": "who-added", "heading": "Who added or opened positions", "body_markdown": additions or "The stored filing summary shows net accumulation, but it does not identify individual additions for this period.",
+        },
+        {
+            "key": "largest-holders", "heading": "Largest reported holders", "body_markdown": "These are the largest positions among the 13F filings Walnut tracks for this reporting period, not a market-wide ownership ranking.\n\n" + ("\n".join(holder_lines) or "The stored filing set does not contain a holder ranking for this period."),
+        },
+        {
+            "key": "who-reduced", "heading": "Who reduced", "body_markdown": reductions or "The filing summary does not identify a material named reduction for this reporting period.",
+        },
+        {
+            "key": "why-ownership-may-be-rising", "heading": "Why ownership may be rising", "body_markdown": rationale,
+        },
+        {
+            "key": "what-changes-next", "heading": "What changes next", "body_markdown": f"The next 13F cycle will show whether the {reporting_period} accumulation broadens or reverses. These filings describe quarter-end holdings, so the next disclosure is the cleanest test of whether the ownership trend held.",
+        },
+    ]
     title_question = question[:1].upper() + question[1:] if question else f"Are institutions accumulating {symbol}"
     return {
-        "title": f"{reader_company} Stock: {title_question}?"[:180],
+        "title": f"{title_question}?"[:180],
         "slug": _slugify(f"{symbol} institutional ownership activity", fallback=f"{symbol.lower()}-institutional-activity"),
-        "subtitle": f"A review of reported institutional activity and filing-lag limits for {symbol}.",
-        "summary": f"Reported institutional activity for {symbol} points to {conclusion}; filing dates and quarter-end holdings matter.",
-        "preview_body": f"Reported institutional activity for {symbol} points to {conclusion}. The filing record is lagged, so it does not show live buying or selling.",
+        "subtitle": f"A holder-level 13F read on who added, who reduced, and who holds {symbol}.",
+        "summary": preview,
+        "preview_body": preview,
         "judgment": judgment,
         "walnut_call": activity_call,
         "confidence": "medium" if events else "low",
@@ -6518,21 +6756,16 @@ def _institutional_activity_fallback_article(
         "comparison_tickers": list(config.get("comparison_tickers") or []),
         "category": "Institutional activity",
         "reading_minutes": 3,
-        "sections": [
-            {"key": "quick-answer", "heading": "Quick answer", "body_markdown": body.split("## What reported filings show", 1)[0].strip()},
-            {"key": "reported-filings", "heading": "What reported filings show", "body_markdown": body.split("## What reported filings show", 1)[1].split("## What the filing lag means", 1)[0].strip()},
-            {"key": "filing-lag", "heading": "What the filing lag means", "body_markdown": body.split("## What the filing lag means", 1)[1].split("## Bottom line", 1)[0].strip()},
-            {"key": "bottom-line", "heading": "Bottom line", "body_markdown": body.split("## Bottom line", 1)[1].strip()},
-        ],
-        "key_points": [f"Reported activity points to {conclusion}.", "Institutional filings are delayed disclosures, not live buying or selling."],
-        "catalysts": ["Next institutional filing cycle"],
-        "risks": ["Reported holdings can be stale by the time they become public."],
-        "watch_items": ["Quarter-end holdings changes", "New institutional filings", "Large reductions or exits"],
+        "sections": sections,
+        "key_points": [f"{activity_count} institutions increased or opened positions in {reporting_period}.", f"{reduced + exits} institutions reduced or exited."],
+        "catalysts": ["Broader institutional accumulation in the next 13F cycle"],
+        "risks": ["Large holders could reduce positions in the next filing cycle."],
+        "watch_items": ["Named accumulators", "New positions", "Large reductions or exits"],
         "data_freshness": [str(context.get("generated_at") or "")],
         "missing_data_notes": list(context.get("missing_data_notes") or []),
         "source_links": [item for item in sources if isinstance(item, dict)][:8],
-        "suggested_card": {"title": f"{symbol}: are institutions accumulating?", "description": f"Reported ownership activity points to {conclusion}.", "judgment": judgment, "tickers": [symbol]},
-        "seo": {"title": f"Are Institutions Accumulating {symbol} Stock?", "description": f"Reported institutional ownership activity for {symbol}, including filing-lag limits and the current direction of disclosed positions."},
+        "suggested_card": {"title": f"{symbol}: institutions are adding", "description": preview, "judgment": judgment, "tickers": [symbol]},
+        "seo": {"title": f"Are Institutions Accumulating {symbol} Stock?", "description": f"See the reported {symbol} holders that added, reduced, and held the largest tracked positions."},
     }
 
 
