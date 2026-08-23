@@ -27,11 +27,19 @@ test("daily price terminal exposes advanced chart controls", () => {
   assert.match(chartSource, /CandlestickSeries/);
   assert.match(chartSource, /HistogramSeries/);
   assert.match(chartSource, /volumeProfileBuckets/);
-  assert.match(chartSource, /SMA 20/);
+  assert.doesNotMatch(chartSource, /SMA 20(?!\d)/);
+  assert.match(chartSource, /SMA 50/);
+  assert.match(chartSource, /SMA 100/);
+  assert.match(chartSource, /SMA 200/);
   assert.match(chartSource, /Bollinger/);
   assert.match(chartSource, /Donchian/);
   assert.match(chartSource, /function donchianChannels/);
   assert.match(chartSource, /VWAP/);
+  assert.match(chartSource, /RSI \(14\)/);
+  assert.match(chartSource, /MACD \(12,26,9\)/);
+  assert.match(chartSource, /function rsiLine/);
+  assert.match(chartSource, /function macdLines/);
+  assert.match(chartSource, /chart\.addPane/);
   assert.match(chartSource, /TickerChartCompare/);
 });
 

@@ -49,7 +49,7 @@ type MarkerKindConfig = {
 };
 
 type ChartMode = "line" | "candles";
-type IndicatorKey = "sma20" | "sma50" | "bollinger" | "donchian" | "vwap";
+type IndicatorKey = "sma50" | "sma100" | "sma200" | "bollinger" | "donchian" | "vwap" | "rsi" | "macd";
 
 const markerConfig: Record<TickerChartMarker["kind"], MarkerKindConfig> = {
   congress: { color: "#38bdf8", label: "Congress", toggleLabel: "Congress" },
@@ -136,6 +136,63 @@ function movingAverage(points: { date: string; close: number }[], period: number
     data.push({ time: chartTime(points[index].date), value });
   }
   return data;
+}
+
+function exponentialMovingAverageValues(values: number[], period: number): Array<number | null> {
+  const averages: Array<number | null> = Array.from({ length: values.length }, () => null);
+  if (values.length < period) return averages;
+  let current = values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  averages[period - 1] = current;
+  const multiplier = 2 / (period + 1);
+  for (let index = period; index < values.length; index += 1) {
+    current = (values[index] - current) * multiplier + current;
+    averages[index] = current;
+  }
+  return averages;
+}
+
+function rsiLine(points: { date: string; close: number }[], period = 14): LineData[] {
+  if (points.length <= period) return [];
+  let gains = 0;
+  let losses = 0;
+  for (let index = 1; index <= period; index += 1) {
+    const change = points[index].close - points[index - 1].close;
+    gains += Math.max(change, 0);
+    losses += Math.max(-change, 0);
+  }
+  let averageGain = gains / period;
+  let averageLoss = losses / period;
+  const valueFor = () => averageLoss === 0 ? 100 : 100 - (100 / (1 + averageGain / averageLoss));
+  const data: LineData[] = [{ time: chartTime(points[period].date), value: valueFor() }];
+  for (let index = period + 1; index < points.length; index += 1) {
+    const change = points[index].close - points[index - 1].close;
+    averageGain = ((averageGain * (period - 1)) + Math.max(change, 0)) / period;
+    averageLoss = ((averageLoss * (period - 1)) + Math.max(-change, 0)) / period;
+    data.push({ time: chartTime(points[index].date), value: valueFor() });
+  }
+  return data;
+}
+
+function macdLines(points: { date: string; close: number }[], fastPeriod = 12, slowPeriod = 26, signalPeriod = 9): { macd: LineData[]; signal: LineData[]; histogram: HistogramData[] } {
+  const closes = points.map((point) => point.close);
+  const fast = exponentialMovingAverageValues(closes, fastPeriod);
+  const slow = exponentialMovingAverageValues(closes, slowPeriod);
+  const start = slowPeriod - 1;
+  const values = points.slice(start).flatMap((point, index) => {
+    const fastValue = fast[index + start];
+    const slowValue = slow[index + start];
+    return fastValue === null || slowValue === null ? [] : [{ point, value: fastValue - slowValue }];
+  });
+  const signalValues = exponentialMovingAverageValues(values.map((entry) => entry.value), signalPeriod);
+  const macd = values.map((entry) => ({ time: chartTime(entry.point.date), value: entry.value }));
+  const signal = values.flatMap((entry, index) => signalValues[index] === null ? [] : [{ time: chartTime(entry.point.date), value: signalValues[index] as number }]);
+  const histogram = values.flatMap((entry, index) => {
+    const signalValue = signalValues[index];
+    if (signalValue === null) return [];
+    const value = entry.value - signalValue;
+    return [{ time: chartTime(entry.point.date), value, color: value >= 0 ? "rgba(52,211,153,0.52)" : "rgba(251,113,133,0.52)" }];
+  });
+  return { macd, signal, histogram };
 }
 
 function bollingerBands(points: { date: string; close: number }[], period = 20, deviations = 2): { upper: LineData[]; lower: LineData[] } {
@@ -446,11 +503,14 @@ export function PremiumTickerChart({
   const [markerVisibility, setMarkerVisibility] = useState<Record<TickerChartMarker["kind"], boolean>>(defaultMarkerVisibility);
   const [chartMode, setChartMode] = useState<ChartMode>("line");
   const [indicatorVisibility, setIndicatorVisibility] = useState<Record<IndicatorKey, boolean>>({
-    sma20: false,
     sma50: false,
+    sma100: false,
+    sma200: false,
     bollinger: false,
     donchian: false,
     vwap: false,
+    rsi: false,
+    macd: false,
   });
   const [compareInput, setCompareInput] = useState("");
   const [compareSymbol, setCompareSymbol] = useState<string | null>(null);
@@ -553,11 +613,14 @@ export function PremiumTickerChart({
       ? relativeLineData(prices, firstClose, priceDateSet).map((point): AreaData => ({ time: point.time, value: point.value }))
       : prices.map((point): AreaData => ({ time: chartTime(point.date), value: point.close }));
     const chartValueByDate = new Map(areaData.map((point) => [timeToDateKey(point.time) ?? String(point.time), point.value]));
-    const sma20Data = movingAverage(prices, 20);
     const sma50Data = movingAverage(prices, 50);
+    const sma100Data = movingAverage(prices, 100);
+    const sma200Data = movingAverage(prices, 200);
     const bollingerData = bollingerBands(prices);
     const donchianData = donchianChannels(candleSource);
     const vwapData = vwapLine(closeVolumePoints);
+    const rsiData = rsiLine(prices);
+    const macdData = macdLines(prices);
     const analystConsensusTargets = new Map<string, number>();
     const analystMedianTargets = new Map<string, number>();
     if (!performanceMode) {
@@ -610,8 +673,9 @@ export function PremiumTickerChart({
       areaData,
       candleData,
       volumeData,
-      sma20Data: performanceMode ? relativeIndicatorData(sma20Data, firstClose) : sma20Data,
       sma50Data: performanceMode ? relativeIndicatorData(sma50Data, firstClose) : sma50Data,
+      sma100Data: performanceMode ? relativeIndicatorData(sma100Data, firstClose) : sma100Data,
+      sma200Data: performanceMode ? relativeIndicatorData(sma200Data, firstClose) : sma200Data,
       bollingerData: performanceMode
         ? {
             upper: relativeIndicatorData(bollingerData.upper, firstClose),
@@ -625,6 +689,8 @@ export function PremiumTickerChart({
           }
         : donchianData,
       vwapData: performanceMode ? relativeIndicatorData(vwapData, firstClose) : vwapData,
+      rsiData,
+      macdData,
       analystConsensusTargetData,
       analystMedianTargetData,
       compareData,
@@ -640,13 +706,16 @@ export function PremiumTickerChart({
     };
   }, [bundle, compareBundle, markerVisibility, visibleMarkerKinds]);
 
+  const oscillatorCount = Number(indicatorVisibility.rsi) + Number(indicatorVisibility.macd);
+  const chartHeight = 420 + oscillatorCount * 118;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || normalized.areaData.length === 0) return;
 
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 420,
+      height: chartHeight,
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: "#07111d" },
@@ -745,15 +814,6 @@ export function PremiumTickerChart({
       });
     }
 
-    if (indicatorVisibility.sma20 && normalized.sma20Data.length > 0) {
-      chart.addSeries(LineSeries, {
-        color: "rgba(96,165,250,0.95)",
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        priceFormat,
-      }).setData(normalized.sma20Data);
-    }
     if (indicatorVisibility.sma50 && normalized.sma50Data.length > 0) {
       chart.addSeries(LineSeries, {
         color: "rgba(168,85,247,0.9)",
@@ -762,6 +822,24 @@ export function PremiumTickerChart({
         lastValueVisible: false,
         priceFormat,
       }).setData(normalized.sma50Data);
+    }
+    if (indicatorVisibility.sma100 && normalized.sma100Data.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(251,191,36,0.92)",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.sma100Data);
+    }
+    if (indicatorVisibility.sma200 && normalized.sma200Data.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(244,114,182,0.92)",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.sma200Data);
     }
     if (indicatorVisibility.bollinger) {
       chart.addSeries(LineSeries, {
@@ -807,6 +885,47 @@ export function PremiumTickerChart({
         lastValueVisible: false,
         priceFormat,
       }).setData(normalized.vwapData);
+    }
+
+    let oscillatorPaneIndex = 1;
+    if (indicatorVisibility.rsi && normalized.rsiData.length > 0) {
+      const rsiPane = chart.addPane();
+      rsiPane.setHeight(112);
+      const rsiSeries = chart.addSeries(LineSeries, {
+        color: "rgba(167,139,250,0.96)",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        priceFormat: { type: "custom", minMove: 0.1, formatter: (value: number) => value.toFixed(0) },
+      }, oscillatorPaneIndex);
+      rsiSeries.setData(normalized.rsiData);
+      rsiSeries.createPriceLine({ price: 70, color: "rgba(251,191,36,0.58)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "RSI 70" });
+      rsiSeries.createPriceLine({ price: 30, color: "rgba(56,189,248,0.5)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "RSI 30" });
+      oscillatorPaneIndex += 1;
+    }
+    if (indicatorVisibility.macd && normalized.macdData.macd.length > 0) {
+      const macdPane = chart.addPane();
+      macdPane.setHeight(112);
+      chart.addSeries(HistogramSeries, {
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, oscillatorPaneIndex).setData(normalized.macdData.histogram);
+      const macdSeries = chart.addSeries(LineSeries, {
+        color: "rgba(34,211,238,0.96)",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+      }, oscillatorPaneIndex);
+      macdSeries.setData(normalized.macdData.macd);
+      chart.addSeries(LineSeries, {
+        color: "rgba(251,191,36,0.92)",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+      }, oscillatorPaneIndex).setData(normalized.macdData.signal);
+      macdSeries.createPriceLine({ price: 0, color: "rgba(148,163,184,0.45)", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
     }
 
     if (normalized.analystConsensusTargetData.length > 0) {
@@ -941,7 +1060,7 @@ export function PremiumTickerChart({
       chart.unsubscribeClick(handleClick);
       chart.remove();
     };
-  }, [bundle?.resolution, chartMode, compareSymbol, indicatorVisibility, normalized]);
+  }, [bundle?.resolution, chartHeight, chartMode, compareSymbol, indicatorVisibility, normalized]);
 
   const symbol = bundle?.symbol ?? "Ticker";
   const quote = bundle?.quote;
@@ -1088,11 +1207,14 @@ export function PremiumTickerChart({
             ))}
           </div>
           {([
-            ["sma20", "SMA 20"],
             ["sma50", "SMA 50"],
+            ["sma100", "SMA 100"],
+            ["sma200", "SMA 200"],
             ["bollinger", "Bollinger"],
             ["donchian", "Donchian"],
             ["vwap", "VWAP"],
+            ["rsi", "RSI (14)"],
+            ["macd", "MACD (12,26,9)"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1161,9 +1283,9 @@ export function PremiumTickerChart({
       </div>
 
       <div className="relative">
-        <div ref={containerRef} className="h-[420px] w-full" />
+        <div ref={containerRef} className="w-full" style={{ height: chartHeight }} />
         {normalized.volumeProfile.length > 0 ? (
-          <div className="pointer-events-none absolute bottom-12 right-12 top-8 z-10 w-24 opacity-65">
+          <div className="pointer-events-none absolute right-12 top-8 z-10 w-24 opacity-65" style={{ bottom: `${oscillatorCount * 118 + 48}px` }}>
             {normalized.volumeProfile.map((bucket, index) => (
               <div
                 key={`${bucket.topPct}-${index}`}
