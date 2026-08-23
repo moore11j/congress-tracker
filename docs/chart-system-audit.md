@@ -50,7 +50,7 @@ It already uses native series, markers, crosshair subscriptions, a skeleton, and
 ## Staged rollout
 
 1. Completed: inventory, shared utilities/container/line chart, Backtesting migration, regression tests.
-2. In progress: profile performance and institutional allocation. Congress performance now uses the shared binary nearest-point lookup, RAF hover scheduling, reveal clipping, keyboard support, and touch scrubbing; the allocation donut now supports touch selection and reduced-motion-safe entry. Generic profile and government line trends now use the shared interactive area-chart primitive; specialized bar and stacked activity charts remain staged for the next slice.
+2. In progress: profile performance and institutional allocation. Congress performance now uses the shared binary nearest-point lookup, RAF hover scheduling, reveal clipping, keyboard support, and touch scrubbing; the allocation donut now supports touch selection and reduced-motion-safe entry. Generic profile and government line trends and dashboard mix pie charts now use shared interactive primitives; specialized bar and stacked activity charts remain staged for the next slice.
 3. Then: activity/outcomes/compare, including dense-data measurement and display-only downsampling if a chart exceeds its SVG budget.
 4. Finally: strategies, insights, and selected sparklines.
 
