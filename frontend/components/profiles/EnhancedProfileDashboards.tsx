@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type { CongressOverviewResponse, InsidersOverviewResponse, InstitutionalActivityPeriod, InstitutionsOverviewResponse, ProfileActivityByTypePeriod, ProfileActivityItem, ProfileDirectory, ProfileMetric, ProfileSectorMover, ProfileSectorPeriod, ProfilesSummaryResponse } from "@/lib/api";
 import { LatestProfileActivity } from "@/components/profiles/LatestProfileActivity";
 import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
-import { formatChartCompact } from "@/components/charts/chartFormatters";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
@@ -429,7 +428,7 @@ function SectorBreakdown({ rows }: { rows: ProfileSectorPeriod[] }) { const labe
 
 function TrendChart({ series }: { series: Array<{ label: string; value: number }> }) {
   if (!series.length) return <p className="flex h-40 items-center justify-center text-sm text-slate-400">No time-series records are available.</p>;
-  return <WalnutLineChart data={series.map((point) => ({ label: point.label }))} series={[{ key: "profile-trend", label: "Reported value", color: "#55e3b0", areaColor: "rgba(66,211,167,.18)", values: series.map((point) => point.value) }]} ariaLabel="Profile reported value trend" height={160} formatValue={formatChartCompact} />;
+  return <WalnutLineChart data={series.map((point) => ({ label: point.label }))} series={[{ key: "profile-trend", label: "Reported value", color: "#55e3b0", areaColor: "rgba(66,211,167,.18)", values: series.map((point) => point.value) }]} ariaLabel="Profile reported value trend" height={160} valueFormat="currencyCompact" />;
 }
 
 function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }) {
@@ -437,30 +436,9 @@ function ActivityLineChart({ series }: { series: ProfileActivityByTypePeriod[] }
 
   const categories = ["Congress", "Insider", "Institution", "Department"] as const;
   const periods = series.slice(-12);
-  const axisMax = roundAxisMax(Math.max(...periods.flatMap((point) => categories.map((category) => Number(point[category] ?? 0))), 1));
-  const yTicks = [axisMax, axisMax * .75, axisMax * .5, axisMax * .25, 0];
-  const plotTop = 8;
-  const plotBottom = 92;
-  const xFor = (index: number) => 3 + (index / Math.max(periods.length - 1, 1)) * 94;
-  const yFor = (value: number) => plotBottom - (Math.max(value, 0) / axisMax) * (plotBottom - plotTop);
-  const linePoints = (category: typeof categories[number]) => periods.map((point, index) => `${xFor(index)},${yFor(Number(point[category] ?? 0))}`).join(" ");
-  // The chart stretches its 100×100 viewBox to a wide plot. Compensate on
-  // the x-axis so these remain small, true-looking diamonds on screen.
-  const diamondPoints = (x: number, y: number) => `${x},${y - 1.15} ${x + .33},${y} ${x},${y + 1.15} ${x - .33},${y}`;
-
   return <div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-semibold text-slate-300">{categories.map((category) => <span key={category} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: PROFILE_COLORS[category] }} />{category === "Insider" ? "Insiders" : category === "Institution" ? "Institutions" : category === "Department" ? "Departments" : category}</span>)}</div>
-    <div className="mt-4 grid grid-cols-[2.8rem_minmax(0,1fr)] gap-2">
-      <div className="flex h-44 flex-col justify-between py-1 text-right text-[9px] font-semibold tabular-nums text-slate-500">{yTicks.map((tick) => <span key={tick}>{formatCompactNumber(tick)}</span>)}</div>
-      <div className="min-w-0">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-44 w-full overflow-hidden border-b border-white/10" aria-label="Monthly profile activity by type">
-          {yTicks.map((tick) => <line key={tick} x1="0" x2="100" y1={yFor(tick)} y2={yFor(tick)} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}
-          {categories.map((category) => <polyline key={`${category}-line`} points={linePoints(category)} fill="none" stroke={PROFILE_COLORS[category]} strokeWidth="1.55" vectorEffect="non-scaling-stroke" />)}
-          {categories.flatMap((category) => periods.map((point, index) => <polygon key={`${category}-${point.period}`} points={diamondPoints(xFor(index), yFor(Number(point[category] ?? 0)))} fill={PROFILE_COLORS[category]} stroke="#07101f" strokeWidth=".45" vectorEffect="non-scaling-stroke" />))}
-        </svg>
-        <div className="mt-2 grid gap-0.5 text-[9px] font-semibold text-slate-500" style={{ gridTemplateColumns: `repeat(${periods.length}, minmax(0, 1fr))` }}>{periods.map((point) => <span key={point.period} className="truncate text-center">{point.period}</span>)}</div>
-      </div>
-    </div>
+    <div className="mt-4"><WalnutLineChart data={periods.map((point) => ({ label: point.period }))} series={categories.map((category) => ({ key: category, label: category === "Insider" ? "Insiders" : category === "Institution" ? "Institutions" : category === "Department" ? "Departments" : category, color: PROFILE_COLORS[category], values: periods.map((point) => Number(point[category] ?? 0)) }))} ariaLabel="Monthly activity by profile type" height={176} valueFormat="number" /></div>
   </div>;
 }
 

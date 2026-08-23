@@ -48,7 +48,9 @@ test("profile charts use the shared interaction performance rules without droppi
 
 test("profile and government snapshot trends use the shared interactive area chart", () => {
   assert.match(lineChart, /areaColor/);
+  assert.match(lineChart, /valueFormat/);
   assert.match(dashboard, /WalnutLineChart/);
+  assert.match(dashboard, /Monthly activity by profile type/);
   assert.match(governmentDashboard, /WalnutLineChart/);
   assert.match(governmentDashboard, /if \(!bars\)/);
 });
