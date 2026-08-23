@@ -114,3 +114,11 @@ test("Congress dashboard snapshot, metric, exposure, and sector charts are inter
   assert.match(dashboard, /CongressSectorExposure/);
   assert.match(dashboard, /CongressNetSectorBars/);
 });
+
+test("insider dashboard reuses the interactive snapshot, metric, and sector chart primitives", () => {
+  assert.match(congressInteractiveCharts, /InsiderSnapshotTrend/);
+  assert.match(dashboard, /InsiderSnapshotTrend/);
+  assert.match(dashboard, /CongressMetricTrend/);
+  assert.match(dashboard, /CongressSectorExposure/);
+  assert.match(dashboard, /CongressNetSectorBars rows={rows}/);
+});

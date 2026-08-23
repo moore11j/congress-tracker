@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CongressOverviewResponse, ProfileSectorPeriod } from "@/lib/api";
 import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
+import { WalnutActivityBarChart } from "@/components/charts/WalnutActivityBarChart";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8"];
 const compact = (value: number) => new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
@@ -17,6 +18,10 @@ export function CongressMetricTrend({ points, tone }: { points: Array<{ label: s
   return <WalnutLineChart data={points.map((point) => ({ label: point.label }))} series={[{ key: "metric", label: "Reported value", color, areaColor: `${color}33`, values: points.map((point) => point.value) }]} ariaLabel="Congress metric trend" height={142} valueFormat="number" />;
 }
 
+export function InsiderSnapshotTrend({ points }: { points: Array<{ label: string; netValue: number; trades: number }> }) {
+  return <WalnutActivityBarChart data={points.map((point) => ({ label: point.label, positive: Math.max(point.netValue, 0), negative: Math.min(point.netValue, 0), line: point.trades }))} ariaLabel="Monthly insider net value and total trades" positiveLabel="Net buying value" negativeLabel="Net selling value" lineLabel="Total trades" height={224} valueFormat="currencyCompact" lineValueFormat="number" />;
+}
+
 export function CongressSectorExposure({ rows }: { rows: ProfileSectorPeriod[] }) {
   const [activePeriod, setActivePeriod] = useState(0);
   const [revealed, setRevealed] = useState(false);
@@ -28,7 +33,7 @@ export function CongressSectorExposure({ rows }: { rows: ProfileSectorPeriod[] }
   return <div><div className="flex h-48 items-end gap-4 border-b border-white/10 px-2">{periods.map((row, index) => <button key={row.period} type="button" className={`flex flex-1 flex-col items-center gap-2 rounded-sm outline-none transition focus-visible:ring-2 focus-visible:ring-emerald-300/70 ${activePeriod === index ? "opacity-100" : "opacity-55 hover:opacity-100"}`} onPointerEnter={() => setActivePeriod(index)} onFocus={() => setActivePeriod(index)} onClick={() => setActivePeriod(index)} aria-pressed={activePeriod === index} aria-label={`${row.period} sector exposure`}><span className="flex h-40 w-full max-w-10 flex-col-reverse overflow-hidden rounded-sm bg-slate-900">{labels.map((label, segmentIndex) => { const segment = row.segments.find((item) => item.label === label); return segment ? <i key={label} style={{ height: revealed ? `${Math.max(segment.percent, .6)}%` : "0%", backgroundColor: COLORS[segmentIndex % COLORS.length], transition: `height 460ms cubic-bezier(.22,1,.36,1) ${index * 55 + segmentIndex * 20}ms` }} /> : null; })}</span><span className="text-[10px] text-slate-500">{row.period}</span></button>)}</div><div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">{active.segments.slice(0, 6).map((segment) => <span key={segment.label} className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[labels.indexOf(segment.label) % COLORS.length] }} />{segment.label} {segment.percent.toFixed(1)}%</span>)}</div></div>;
 }
 
-export function CongressNetSectorBars({ rows }: { rows: NonNullable<CongressOverviewResponse["sector_activity"]> }) {
+export function CongressNetSectorBars({ rows }: { rows: Array<{ sector: string; current_value: number }> }) {
   const [activeSector, setActiveSector] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
   const visible = rows.slice(0, 8);

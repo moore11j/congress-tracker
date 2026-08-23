@@ -7,7 +7,7 @@ import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { WalnutActivityBarChart } from "@/components/charts/WalnutActivityBarChart";
 import { WalnutProfileSparkline } from "@/components/charts/WalnutProfileSparkline";
 import { WalnutSectorMovementBars } from "@/components/profiles/WalnutSectorMovementBars";
-import { CongressMetricTrend, CongressNetSectorBars, CongressSectorExposure, CongressSnapshotChart } from "@/components/profiles/CongressInteractiveCharts";
+import { CongressMetricTrend, CongressNetSectorBars, CongressSectorExposure, CongressSnapshotChart, InsiderSnapshotTrend } from "@/components/profiles/CongressInteractiveCharts";
 
 const COLORS = ["#42d3a7", "#3b82f6", "#a855f7", "#f6b91a", "#fb7185", "#60a5fa", "#a3e635", "#94a3b8", "#2dd4bf", "#f97316"];
 const PROFILE_COLORS: Record<string, string> = { Congress: "#42d3a7", Insider: "#3b82f6", Institution: "#a855f7", Department: "#f6b91a" };
@@ -86,51 +86,7 @@ type CongressPoint = { period: string; trades: number; buy_value: number; sell_v
 function MetricDelta({ metric }: { metric?: ProfileMetric }) { return typeof metric?.change_pct === "number" ? <p className={metric.change_pct >= 0 ? "mt-3 text-xs font-semibold text-emerald-300" : "mt-3 text-xs font-semibold text-rose-300"}>{metric.change_pct >= 0 ? "+" : ""}{metric.change_pct.toFixed(1)}% vs prior 12 months</p> : <p className="mt-3 text-xs text-slate-500">Latest 12 months</p>; }
 function CongressSnapshotTrend({ points }: { points: Array<{ label: string; value: number }> }) { return <CongressSnapshotChart points={points} />; }
 function CongressActivityOverTime({ rows }: { rows: CongressPoint[] }) { const points = rows.slice(-12); return <WalnutActivityBarChart data={points.map((row) => ({ label: row.period, positive: Number(row.buy_value ?? 0), negative: -Number(row.sell_value ?? 0), line: Number(row.trades ?? 0) }))} ariaLabel="Monthly Congress buy value, sell value, and total trades" positiveLabel="Buy value" negativeLabel="Sell value" lineLabel="Total trades" height={256} valueFormat="currencyCompact" lineValueFormat="number" />; }
-function InsiderSnapshotChart({ rows }: { rows: NonNullable<InsidersOverviewResponse["monthly_activity"]> }) {
-  const points = rows.slice(-12).map((row) => ({ label: row.period, netValue: Number(row.net_value ?? 0), trades: Number(row.trades ?? 0) }));
-  if (!points.length) return <p className="flex h-52 items-center justify-center text-sm text-slate-400">No monthly insider activity is available.</p>;
-  const maxAbsValue = Math.max(...points.map((point) => Math.abs(point.netValue)), 1);
-  const valueLimit = roundAxisMax(maxAbsValue);
-  const hasNegativeValue = points.some((point) => point.netValue < 0);
-  const valueMin = hasNegativeValue ? -valueLimit : 0;
-  const valueMax = valueLimit;
-  const valueTicks = hasNegativeValue ? [valueLimit, valueLimit * 2 / 3, valueLimit / 3, 0, -valueLimit / 3, -valueLimit * 2 / 3, -valueLimit] : [valueLimit, valueLimit * .8, valueLimit * .6, valueLimit * .4, valueLimit * .2, 0];
-  const tradeLimit = roundAxisMax(Math.max(...points.map((point) => point.trades), 1));
-  const tradeTicks = [tradeLimit, tradeLimit * .8, tradeLimit * .6, tradeLimit * .4, tradeLimit * .2, 0];
-  const plotTop = 8;
-  const plotBottom = 92;
-  const xFor = (index: number) => 3 + (index / Math.max(points.length - 1, 1)) * 94;
-  const yValue = (value: number) => plotBottom - ((Math.max(valueMin, Math.min(valueMax, value)) - valueMin) / Math.max(valueMax - valueMin, 1)) * (plotBottom - plotTop);
-  const yTrades = (value: number) => plotBottom - (Math.max(value, 0) / tradeLimit) * (plotBottom - plotTop);
-  const netPoints = points.map((point, index) => `${xFor(index)},${yValue(point.netValue)}`);
-  const tradePoints = points.map((point, index) => `${xFor(index)},${yTrades(point.trades)}`);
-  const zeroY = yValue(0);
-  const netArea = `M${netPoints.join(" L ")} L ${xFor(points.length - 1)},${zeroY} L ${xFor(0)},${zeroY} Z`;
-  const minChartWidth = Math.max(36, points.length * 3.2);
-  return <div className="min-w-0">
-    <div className="mb-3 flex flex-wrap justify-end gap-x-4 gap-y-1 text-[10px] text-slate-400"><span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-sm bg-emerald-400" />Net Value (USD)</span><span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-blue-400" />Total Trades</span></div>
-    <div className="grid grid-cols-[3.6rem_minmax(0,1fr)_3.2rem] gap-3">
-      <div><p className="mb-1 text-[9px] font-semibold uppercase tracking-[.12em] text-slate-500">Net value</p><div className="flex h-52 flex-col justify-between text-right text-[10px] font-semibold tabular-nums text-slate-500">{valueTicks.map((tick) => <span key={tick}>{formatAxisValue(tick)}</span>)}</div></div>
-      <div className="min-w-0 overflow-x-auto pb-1">
-        <div style={{ minWidth: `${minChartWidth}rem` }}>
-          <div className="relative h-52 overflow-hidden">
-            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-hidden border-b border-white/10" aria-label="Monthly insider net value and total trades">
-              <defs><linearGradient id="insider-net-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#42d3a7" stopOpacity=".42" /><stop offset="100%" stopColor="#42d3a7" stopOpacity=".05" /></linearGradient></defs>
-              {valueTicks.map((tick) => <line key={tick} x1="0" x2="100" y1={yValue(tick)} y2={yValue(tick)} stroke="rgba(148,163,184,.16)" vectorEffect="non-scaling-stroke" />)}
-              <line x1="0" x2="100" y1={zeroY} y2={zeroY} stroke="rgba(148,163,184,.24)" vectorEffect="non-scaling-stroke" />
-              <path d={netArea} fill="url(#insider-net-area)" />
-              <polyline points={netPoints.join(" ")} fill="none" stroke="#55e3b0" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-              <polyline points={tradePoints.join(" ")} fill="none" stroke="#60a5fa" strokeWidth="1.7" vectorEffect="non-scaling-stroke" />
-            </svg>
-            {points.map((point, index) => <span key={`${point.label}-trade-dot`} className="absolute h-2 w-2 rounded-full border border-blue-100 bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,.75)]" style={{ left: `calc(${xFor(index)}% - 4px)`, top: `calc(${yTrades(point.trades)}% - 4px)` }} />)}
-          </div>
-          <div className="mt-2 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>{points.map((point) => <span key={point.label} className="truncate text-center">{point.label}</span>)}</div>
-        </div>
-      </div>
-      <div><p className="mb-1 text-[9px] font-semibold uppercase tracking-[.12em] text-slate-500">Trades</p><div className="flex h-52 flex-col justify-between text-left text-[10px] font-semibold tabular-nums text-slate-500">{tradeTicks.map((tick) => <span key={tick}>{formatCompactNumber(tick)}</span>)}</div></div>
-    </div>
-  </div>;
-}
+function InsiderSnapshotChart({ rows }: { rows: NonNullable<InsidersOverviewResponse["monthly_activity"]> }) { return <InsiderSnapshotTrend points={rows.slice(-12).map((row) => ({ label: row.period, netValue: Number(row.net_value ?? 0), trades: Number(row.trades ?? 0) }))} />; }
 function CongressTrend({ points, tone = "green" }: { points: Array<{ label: string; value: number }>; tone?: "green" | "red" | "blue" }) { return <CongressMetricTrend points={points} tone={tone} />; }
 type CongressSnapshotIconName = "member" | "ticker" | "buyer" | "sector";
 type CongressSnapshotTone = "green" | "purple" | "amber";
@@ -383,32 +339,11 @@ function institutionalMetricSeries(label: string, rows: InstitutionalActivityPer
   })).filter((point) => Number.isFinite(point.value));
 }
 
-function MetricSparkline({ id, points, tone }: { id: string; points: Array<{ label: string; value: number }>; tone: "green" | "red" }) {
-  if (points.length < 2) return null;
-  const color = tone === "red" ? "#fb7185" : "#55e3b0";
-  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "-");
-  const values = points.map((point) => point.value);
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 1);
-  const range = Math.max(max - min, 1);
-  const plotTop = 5;
-  const plotBottom = 46;
-  const xy = points.map((point, index) => {
-    const x = (index / Math.max(points.length - 1, 1)) * 100;
-    const y = plotBottom - ((point.value - min) / range) * (plotBottom - plotTop);
-    return `${x},${Math.max(plotTop, Math.min(plotBottom, y))}`;
-  });
-  const area = `M ${xy.join(" L ")} L 100 ${plotBottom} L 0 ${plotBottom} Z`;
-  return <svg viewBox="0 0 100 50" preserveAspectRatio="none" className="h-14 w-full overflow-hidden" aria-hidden="true">
-    <defs><linearGradient id={`${safeId}-fill`} x1="0" x2="0" y1="0" y2="1"><stop stopColor={color} stopOpacity=".32" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
-    <path d={area} fill={`url(#${safeId}-fill)`} />
-    <polyline points={xy.join(" ")} fill="none" stroke={color} strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-  </svg>;
-}
+function MetricSparkline({ points, tone }: { id: string; points: Array<{ label: string; value: number }>; tone: "green" | "red" }) { return points.length < 2 ? null : <CongressMetricTrend points={points} tone={tone} />; }
 
 function DataTable({ title, rows, columns }: TableSpec) { return <Panel title={title}>{!rows.length ? <p className="py-8 text-sm text-slate-400">No database records are available for this selection.</p> : <div className="overflow-x-auto"><table className="min-w-[38rem] w-full text-left text-xs"><thead className="border-b border-white/10 text-[10px] uppercase tracking-[.13em] text-slate-500"><tr>{columns.map(([, label]) => <th key={label} className="px-2 py-2.5 font-semibold">{label}</th>)}</tr></thead><tbody className="divide-y divide-white/5">{rows.slice(0, 10).map((row, index) => <tr key={index}>{columns.map(([key, , format]) => <td key={key} className="max-w-44 truncate px-2 py-2.5 text-slate-300">{renderCell(row, key, format)}</td>)}</tr>)}</tbody></table></div>}</Panel>; }
 
-function SectorPanel({ title, rows, note }: { title: string; rows: ProfileSectorPeriod[]; note?: string }) { const labels = sectorLabels(rows); return <Panel title={title} subtitle="Latest-quarter ordering is kept across every period."><div className="space-y-3">{rows.map((row) => <div key={row.period} className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-2"><span className="text-[10px] font-semibold text-slate-400">{row.period}</span><div className="flex h-8 overflow-hidden rounded-sm bg-slate-900">{orderedSegments(row, labels).map((segment) => <span key={segment.label} title={`${segment.label}: ${segment.percent.toFixed(1)}%`} style={{ width: `${Math.max(segment.percent, .8)}%`, backgroundColor: colorFor(segment.label, labels) }} />)}</div></div>)}</div><div className="mt-4 flex flex-wrap gap-x-3 gap-y-2">{labels.map((label) => <span key={label} className="inline-flex items-center gap-1.5 text-[10px] text-slate-400"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: colorFor(label, labels) }} />{label}</span>)}</div>{note ? <p className="mt-4 text-xs leading-5 text-slate-500">{note}</p> : null}</Panel>; }
+function SectorPanel({ title, rows, note }: { title: string; rows: ProfileSectorPeriod[]; note?: string }) { return <Panel title={title} subtitle="Latest-quarter ordering is kept across every period."><CongressSectorExposure rows={rows} />{note ? <p className="mt-4 text-xs leading-5 text-slate-500">{note}</p> : null}</Panel>; }
 
 function SectorBreakdown({ rows }: { rows: ProfileSectorPeriod[] }) { const labels = sectorLabels(rows); const latest = rows[rows.length - 1]; return latest ? <div className="space-y-3">{orderedSegments(latest, labels).slice(0, 8).map((segment) => <div key={segment.label} className="grid grid-cols-[minmax(0,1fr)_3rem] gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 truncate text-slate-300"><i className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorFor(segment.label, labels) }} />{segment.label}</span><span className="text-right font-semibold text-white">{segment.percent.toFixed(1)}%</span></div>)}</div> : <p className="py-8 text-sm text-slate-400">No sector records are available.</p>; }
 
@@ -448,7 +383,7 @@ function InsiderNotableTrades({ items }: { items: ProfileActivityItem[] }) { ret
 function InsiderActivityOverTime({ rows }: { rows: NonNullable<InsidersOverviewResponse["monthly_activity"]> }) { const points = rows.slice(-12); return <WalnutActivityBarChart data={points.map((row) => ({ label: row.period, positive: Number(row.buy_value ?? 0), negative: -Number(row.sell_value ?? 0), line: Number(row.trades ?? 0) }))} ariaLabel="Monthly insider buy value, sell value, and total trades" positiveLabel="Buy value" negativeLabel="Sell value" lineLabel="Total trades" height={224} valueFormat="currencyCompact" lineValueFormat="number" />; }
 function NetPositionChangeBySector({ rows }: { rows: ProfileSectorPeriod[] }) { const movements = sectorMovements(rows).slice(0, 8); if (!movements.length) return <p className="py-8 text-sm text-slate-400">No comparable sector periods are available.</p>; const max = Math.max(...movements.map((item) => Math.abs(item.value)), 1); return <div><div className="space-y-2.5">{movements.map((item) => { const width = Math.max(2, (Math.abs(item.value) / max) * 50); return <div key={item.label} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_4.75rem] items-center gap-2 text-xs"><span className="truncate text-slate-300">{item.label}</span><div className="relative h-3 overflow-hidden rounded-sm bg-slate-900"><span className="absolute inset-y-0 left-1/2 w-px bg-slate-500/35" />{item.value >= 0 ? <span className="absolute left-1/2 top-0 h-full rounded-sm bg-emerald-400/80" style={{ width: `${width}%` }} /> : <span className="absolute top-0 h-full rounded-sm bg-rose-400/80" style={{ left: `${50 - width}%`, width: `${width}%` }} />}</div><span className={item.value >= 0 ? "text-right font-semibold tabular-nums text-emerald-300" : "text-right font-semibold tabular-nums text-rose-300"}>{formatMoney(item.value)}</span></div>; })}</div><div className="mt-3 grid grid-cols-[7.5rem_minmax(0,1fr)_4.75rem] gap-2 text-[10px] text-slate-500"><span /><div className="flex justify-between"><span>{formatMoney(-max)}</span><span>0</span><span>{formatMoney(max)}</span></div><span /></div></div>; }
 function InstitutionalActivityOverTime({ rows }: { rows: InstitutionalActivityPeriod[] }) { const periods = rows.slice(-8); return <WalnutActivityBarChart data={periods.map((row) => ({ label: row.period, positive: Number(row.position_increase_value ?? 0), negative: Math.min(0, Number(row.position_decrease_value ?? 0)), line: Number(row.total_positions ?? 0) }))} ariaLabel="Quarterly institutional position increases, decreases, and total positions" positiveLabel="Position increases" negativeLabel="Position decreases" lineLabel="Total positions" height={208} valueFormat="currencyCompact" lineValueFormat="number" />; }
-function InsiderNetSectorBars({ rows }: { rows: NonNullable<InsidersOverviewResponse["sector_net_activity"]> }) { const visible = rows.slice(0, 10); if (!visible.length) return <p className="py-8 text-sm text-slate-400">No sector-mapped insider net activity is available.</p>; const max = roundAxisMax(Math.max(...visible.map((row) => Math.abs(row.current_value)), 1)); return <div className="min-w-0 overflow-hidden"><div className="space-y-2">{visible.map((row) => { const width = Math.max(2, (Math.abs(row.current_value) / max) * 50); return <div key={row.sector} className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_4.75rem] items-center gap-2 text-xs"><span className="truncate text-slate-300">{row.sector}</span><div className="relative h-3 overflow-hidden rounded-sm bg-slate-900"><span className="absolute inset-y-0 left-0 w-px bg-slate-700/45" /><span className="absolute inset-y-0 left-1/4 w-px bg-slate-700/35" /><span className="absolute inset-y-0 left-1/2 w-px bg-slate-400/45" /><span className="absolute inset-y-0 left-3/4 w-px bg-slate-700/35" /><span className="absolute inset-y-0 right-0 w-px bg-slate-700/45" />{row.current_value >= 0 ? <span className="absolute left-1/2 top-0 h-full rounded-sm bg-emerald-400/85" style={{ width: `${width}%` }} /> : <span className="absolute top-0 h-full rounded-sm bg-rose-400/85" style={{ left: `${50 - width}%`, width: `${width}%` }} />}</div><span className={row.current_value >= 0 ? "text-right font-semibold tabular-nums text-emerald-300" : "text-right font-semibold tabular-nums text-rose-300"}>{formatSignedMoney(row.current_value)}</span></div>; })}</div><div className="mt-3 grid grid-cols-[7.5rem_minmax(0,1fr)_4.75rem] gap-2 text-[10px] text-slate-500"><span /><div className="flex justify-between"><span>{formatMoney(-max)}</span><span>{formatMoney(-max / 2)}</span><span>$0</span><span>{formatMoney(max / 2)}</span><span>{formatMoney(max)}</span></div><span /></div></div>; }
+function InsiderNetSectorBars({ rows }: { rows: NonNullable<InsidersOverviewResponse["sector_net_activity"]> }) { return <CongressNetSectorBars rows={rows} />; }
 function SectorMomentum({ rows }: { rows: ProfileSectorPeriod[] }) { const movements = sectorMovements(rows); return !movements.length ? <p className="py-8 text-sm text-slate-400">No comparable sector periods are available.</p> : <div className="space-y-2.5">{movements.slice(0, 8).map((item) => <div key={item.label} className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-3 text-xs"><span className="truncate text-slate-300">{item.label}</span><span className={`text-right font-semibold tabular-nums ${item.value >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{item.value >= 0 ? "+" : ""}{formatMoney(item.value)}</span></div>)}</div>; }
 function SectorMovers({ rows }: { rows: ProfileSectorPeriod[] }) { const movements = sectorMovements(rows); return !movements.length ? <p className="py-8 text-sm text-slate-400">No comparable sector periods are available.</p> : <div className="space-y-2.5">{movements.slice(0, 6).map((item) => <div key={item.label}><div className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-slate-300">{item.label}</span><span className={item.value >= 0 ? "font-semibold text-emerald-300" : "font-semibold text-rose-300"}>{item.value >= 0 ? "+" : ""}{formatMoney(item.value)}</span></div><div className="mt-1.5 h-1 overflow-hidden rounded bg-slate-800"><div className="h-full rounded" style={{ width: `${Math.max(5, item.share * 100)}%`, backgroundColor: item.value >= 0 ? "#42d3a7" : "#fb7185" }} /></div></div>)}</div>; }
 function ActivityColumns({ series }: { series: Array<{ label: string; value: number }> }) { if (!series.length) return <p className="flex h-36 items-center justify-center text-sm text-slate-400">No time-series records are available.</p>; const max = Math.max(...series.map((point) => Math.abs(point.value)), 1); return <div><div className="flex h-36 items-end gap-2 border-b border-white/10 px-1">{series.map((point) => <div key={point.label} className="flex min-w-0 flex-1 items-end"><div title={`${point.label}: ${formatMoney(point.value)}`} className="w-full rounded-t-sm bg-emerald-400/70" style={{ height: `${Math.max(3, (Math.abs(point.value) / max) * 132)}px` }} /></div>)}</div><div className="mt-2 flex justify-between gap-3 text-[10px] text-slate-500"><span>{series[0].label}</span><span>{series[series.length - 1].label}</span></div></div>; }
