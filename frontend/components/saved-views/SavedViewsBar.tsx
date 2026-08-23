@@ -1041,10 +1041,13 @@ export function SavedViewsBar({
                     Update
                   </button>
                   {surface === "screener" && allowNotifications && authResolved ? (
-                    <SavedScreenAlertDeliveryControl
-                      view={activeView}
-                      canUseMonitoring={hasEntitlement(entitlements, "screener_monitoring")}
-                    />
+                    <>
+                      <span className={`uppercase tracking-wide ${dense ? "text-slate-400" : "text-slate-500"}`}>Alerts</span>
+                      <SavedScreenAlertDeliveryControl
+                        view={activeView}
+                        canUseMonitoring={hasEntitlement(entitlements, "screener_monitoring")}
+                      />
+                    </>
                   ) : null}
                   <span className="relative inline-flex">
                     <button

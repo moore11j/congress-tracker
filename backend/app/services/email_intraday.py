@@ -291,6 +291,7 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
         subscriptions = _active_subscriptions_for_user(db, user)
         subscription_by_source = {(row.source_type, row.source_id): row for row in subscriptions}
         watchlist_subscription_by_id = {row.source_id: row for row in subscriptions if row.source_type == "watchlist"}
+        saved_screen_subscription_by_id = _saved_screen_subscriptions_by_id(db, user)
         for alert in alert_rows:
             if _is_institutional_alert_type(alert.alert_type) and not can_view_institutional:
                 continue
@@ -305,7 +306,10 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
                 candidates.append(_signal_alert_candidate(user, alert, watchlist_symbols))
                 continue
             candidate = _signal_alert_candidate(user, alert, watchlist_symbols)
-            candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription_by_source.get((alert.source_type, alert.source_id))))
+            subscription = subscription_by_source.get((alert.source_type, alert.source_id))
+            if alert.source_type == "saved_screen":
+                subscription = saved_screen_subscription_by_id.get(_saved_screen_id(alert.source_id))
+            candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription))
         confirmation_rows = (
             db.execute(
                 select(ConfirmationMonitoringEvent)
@@ -724,6 +728,47 @@ def _active_subscriptions_for_user(db: Session, user: UserAccount) -> list[Notif
         .scalars()
         .all()
     )
+
+
+def _saved_screen_id(value: str | None) -> int | None:
+    raw = str(value or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    prefix = "saved-screen:"
+    if raw.startswith(prefix) and raw[len(prefix) :].isdigit():
+        return int(raw[len(prefix) :])
+    return None
+
+
+def _saved_screen_id_from_subscription(subscription: NotificationSubscription) -> int | None:
+    direct = _saved_screen_id(subscription.source_id)
+    if direct is not None:
+        return direct
+    payload = _loads_dict(subscription.source_payload_json)
+    for key in ("saved_screen_id", "savedScreenId", "id", "scopeKey"):
+        saved_screen_id = _saved_screen_id(str(payload.get(key) or ""))
+        if saved_screen_id is not None:
+            return saved_screen_id
+    return None
+
+
+def _saved_screen_subscriptions_by_id(db: Session, user: UserAccount) -> dict[int, NotificationSubscription]:
+    subscriptions = (
+        db.execute(
+            select(NotificationSubscription)
+            .where(func.lower(NotificationSubscription.email) == normalize_email(user.email))
+            .where(NotificationSubscription.source_type.in_(("saved_view", "saved_screen")))
+            .order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    by_id: dict[int, NotificationSubscription] = {}
+    for subscription in subscriptions:
+        saved_screen_id = _saved_screen_id_from_subscription(subscription)
+        if saved_screen_id is not None:
+            by_id.setdefault(saved_screen_id, subscription)
+    return by_id
 
 
 def _subscription_intraday_alerts_enabled(subscription: NotificationSubscription) -> bool:

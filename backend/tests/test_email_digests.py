@@ -172,6 +172,7 @@ def _monitoring_alert(
     watchlist: Watchlist,
     *,
     source_type: str = "watchlist",
+    source_id: str | None = None,
     alert_type: str = "watchlist_activity",
     event_id: int = 777,
     symbol: str = "NVDA",
@@ -184,7 +185,7 @@ def _monitoring_alert(
     alert = MonitoringAlert(
         user_id=user.id,
         source_type=source_type,
-        source_id=str(watchlist.id),
+        source_id=source_id or str(watchlist.id),
         source_name=watchlist.name,
         event_id=event_id,
         alert_type=alert_type,
@@ -1490,6 +1491,47 @@ def test_intraday_saved_screen_entry_is_eligible_below_score_threshold():
         assert results[0]["status"] == "would_send"
         assert results[0]["template_key"] == "alerts.signal_intraday"
         assert results[0]["trigger"] == "saved_screen_entry"
+    finally:
+        db.close()
+
+
+def test_intraday_saved_screen_respects_daily_delivery_setting():
+    db = _session()
+    try:
+        user = _user(db, "daily-saved-screen@example.com")
+        watchlist = _watchlist(db, user)
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        db.add(
+            NotificationSubscription(
+                email=user.email,
+                source_type="saved_view",
+                source_id="saved-screen:42",
+                source_name="Bullish confirmation",
+                frequency="daily",
+                only_if_new=True,
+                active=True,
+                source_payload_json=json.dumps({"daily_digest_enabled": True, "intraday_alerts_enabled": False}),
+                alert_triggers_json="[]",
+            )
+        )
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            source_id="42",
+            alert_type="entered_screen",
+            symbol="NVDA",
+            ts=now - timedelta(minutes=5),
+            payload={"saved_screen_event": {"ticker": "NVDA", "event_type": "entered_screen", "after": {"confirmation_score": 42}}},
+        )
+        db.commit()
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "skipped"
+        assert results[0]["error"] == "intraday_alerts_disabled"
     finally:
         db.close()
 
