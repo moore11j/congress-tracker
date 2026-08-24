@@ -1395,7 +1395,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             <h3 className="text-base font-semibold text-white">Create Brief</h3>
             <div className="mt-4 grid gap-4">
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Ticker</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Primary ticker</span>
                 <input
                   value={config.ticker}
                   onChange={(event) => updateConfig("ticker", event.target.value.toUpperCase())}
@@ -1405,6 +1405,33 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 <span className="mt-1 block text-xs text-slate-500">
                   {tickerIdentity ? String(tickerIdentity.company_name || tickerIdentity.symbol || "Supported ticker") : "Enter a supported Walnut ticker."}
                 </span>
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Additional tickers (optional)</span>
+                <input
+                  value={comparisonTickerInput}
+                  onChange={(event) => updateComparisonTickers(event.target.value)}
+                  className={fieldClassName("mt-2")}
+                  placeholder="NVDA, MSFT, AVGO"
+                />
+                <span className="mt-1 block text-xs text-slate-500">Use commas to research a basket. Walnut checks the primary ticker and up to five additional tickers, then uses its own data first where it is available.</span>
+                {comparisonTickers.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {comparisonTickers.map((symbol) => (
+                      <span key={symbol} className="inline-flex items-center gap-1 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">
+                        {symbol}
+                        <button type="button" onClick={() => removeComparisonTicker(symbol)} className="text-emerald-100/70 hover:text-white" aria-label={`Remove ${symbol}`}>
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {comparisonTickerLimitError ? <span className="mt-2 block text-xs text-rose-200">{comparisonTickerLimitError}</span> : null}
+                {Object.entries(comparisonTickerErrors).map(([symbol, message]) => (
+                  <span key={symbol} className="mt-2 block text-xs text-rose-200">{message}</span>
+                ))}
               </label>
 
               <label className="block">

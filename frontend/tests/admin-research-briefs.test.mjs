@@ -77,6 +77,9 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /Walnut call must use the approved expanded call taxonomy\./);
   assert.match(component, /walnutCallInvalid \|\| blockingWarnings/);
   assert.match(component, /articleDraft\?\.walnut_call/);
+  assert.match(component, /Primary ticker/);
+  assert.match(component, /Additional tickers \(optional\)/);
+  assert.match(component, /Use commas to research a basket\./);
   assert.match(component, /Comparison tickers/);
   assert.match(component, /placeholder="GOOGL, AMZN, MSFT"/);
   assert.match(component, /Separate multiple tickers with commas\./);

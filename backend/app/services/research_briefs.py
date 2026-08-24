@@ -1208,6 +1208,14 @@ def _is_institutional_activity_config(config: dict[str, Any]) -> bool:
     )
 
 
+def _is_congress_activity_config(config: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(config.get(key) or "")
+        for key in ("desired_angle", "research_question", "target_keyword", "search_intent", "additional_context")
+    ).lower()
+    return bool(re.search(r"\b(?:congress|congressional|senator|senators|representative|representatives|lawmakers?)\b", text))
+
+
 def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     if not _is_earnings_setup_config(config):
         return article
@@ -1775,6 +1783,53 @@ def _json_dump(value: Any) -> str:
     return json.dumps(value, sort_keys=True, default=str)
 
 
+def _research_brief_schema_is_current(db: Session) -> bool:
+    """Avoid DDL during ordinary PostgreSQL request handling.
+
+    Every brief request used to run the compatibility migration. Two requests
+    arriving together could each hold a relation lock while waiting on the
+    migration advisory lock, which is exactly the deadlock that made a normal
+    brief generation fail. The live schema is stable after migration, so use
+    inexpensive catalog reads to skip DDL completely once the required tables
+    and compatibility columns exist.
+    """
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return False
+    required_tables = (
+        "research_brief_generation_jobs",
+        "research_brief_drafts",
+        "research_campaigns",
+        "research_keyword_opportunities",
+        "research_campaign_items",
+    )
+    for table_name in required_tables:
+        if not db.execute(text("SELECT to_regclass(:table_name)"), {"table_name": table_name}).scalar():
+            return False
+    required_columns = (
+        ("research_brief_generation_jobs", "updated_at"),
+        ("research_brief_drafts", "campaign_id"),
+        ("research_brief_drafts", "target_keyword"),
+        ("research_brief_drafts", "average_position"),
+        ("research_campaign_items", "target_keyword"),
+    )
+    for table_name, column_name in required_columns:
+        exists = db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = :table_name
+                  AND column_name = :column_name
+                """
+            ),
+            {"table_name": table_name, "column_name": column_name},
+        ).scalar()
+        if not exists:
+            return False
+    return True
+
+
 def ensure_research_brief_store_schema(db: Session) -> None:
     # This function is reached by both the request that queues a brief and the
     # background worker that begins it.  PostgreSQL's ``IF NOT EXISTS`` does
@@ -1782,6 +1837,8 @@ def ensure_research_brief_store_schema(db: Session) -> None:
     # race, abort one transaction, and leave the job stuck at its first
     # progress update.  Serialise the lightweight compatibility migration
     # across API instances before executing any DDL.
+    if _research_brief_schema_is_current(db):
+        return
     if db.bind is not None and db.bind.dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(917863514)"))
     db.execute(
@@ -4444,6 +4501,18 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         context["comparisons"].append(comparison_context)
     if context["comparisons"]:
         context["comparison"] = context["comparisons"][0]
+    # A congressional question often spans a defined basket rather than just
+    # the primary ticker. Make the Walnut records for every selected symbol
+    # explicit so the writer answers who traded what, instead of drifting into
+    # a generic single-stock thesis.
+    context["congress_activity_by_ticker"] = {
+        symbol: primary_context["congress_activity"],
+        **{
+            str((item.get("identity") or {}).get("symbol") or ""): item.get("congress_activity") or []
+            for item in context["comparisons"]
+            if isinstance(item, dict) and str((item.get("identity") or {}).get("symbol") or "")
+        },
+    }
     context["walnut_site_context"] = retrieve_walnut_site_context(
         db,
         symbol=symbol,
@@ -4483,6 +4552,7 @@ def _research_packet(context: dict[str, Any]) -> dict[str, Any]:
         "technicals": primary.get("market_state"),
         "insiders": primary.get("insider_activity"),
         "congress": primary.get("congress_activity"),
+        "congress_activity_by_ticker": context.get("congress_activity_by_ticker"),
         "institutions": primary.get("institutional_activity"),
         "government_contracts": primary.get("government_contracts"),
         "analysts": (primary.get("financials") or {}).get("forecasts") if isinstance(primary.get("financials"), dict) else None,
@@ -5738,6 +5808,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     prompt_config = dict(config)
     prompt_config.pop("comparison_ticker", None)
     institutional_brief = _is_institutional_activity_config(config)
+    congress_brief = _is_congress_activity_config(config)
     primary_identity = ((context.get("primary") or {}).get("identity") or {}) if isinstance(context.get("primary"), dict) else {}
     primary_symbol = str(primary_identity.get("symbol") or config.get("ticker") or "").upper()
     primary_company = str(primary_identity.get("company_name") or primary_symbol or "").strip()
@@ -5770,6 +5841,17 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
                     "Use sections that answer what a reader actually wants to know: Quick answer; Who added or opened positions; Largest reported holders; Who reduced; Why ownership may be rising; What changes next; Sources. End by stating whether reported institutional activity indicates accumulation, distribution, mixed activity, or no verified directional change.",
                 ]
                 if institutional_brief
+                else []
+            ),
+            *(
+                [
+                    "This is a congressional-trading brief. Answer the question with the supplied Walnut Congress records before using any outside source.",
+                    "WALNUT_CONGRESS_ACTIVITY_BY_TICKER contains the selected basket's disclosed transactions. For every material trade, name the member, ticker, reported buy or sell direction, disclosure date, and reported amount range when present. Do not invent a member, trade, amount, or motive.",
+                    "If multiple tickers were selected, cover the actual activity across that basket. Do not treat comparison tickers as a generic valuation comparison and do not force an earnings or stock-rating thesis onto a question about who in Congress traded the shares.",
+                    "Use a direct structure: Quick answer; Members and trades by ticker; What the disclosed activity shows; Sources. If Walnut has no matching trades for a selected ticker, say that plainly in one sentence rather than filling space with unrelated company analysis.",
+                    "The conclusion must summarize the disclosed buying or selling pattern, not issue a bullish, bearish, or valuation call on the stocks unless the user explicitly asks for one.",
+                ]
+                if congress_brief
                 else []
             ),
             "SEO requirement: put the primary target keyword or its grammatically natural question form in the title and in the opening section. Cover every meaningful term from that query in the body without keyword stuffing. Use secondary keywords only when they are relevant to PRIMARY_TICKER; never insert a different company's keyword into a single-ticker brief.",

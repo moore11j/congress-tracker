@@ -2915,6 +2915,23 @@ def test_comparison_tickers_are_normalized_from_single_and_comma_separated_input
     assert legacy["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]
 
 
+def test_congress_basket_prompt_uses_walnut_records_before_external_sources():
+    config = service.validate_config(
+        _payload(
+            research_question="Which members of Congress are buying AI stocks?",
+            target_keyword="Which members of Congress are buying AI stocks?",
+            comparison_tickers=["NVDA, MSFT, AVGO"],
+        ).model_dump()
+    )
+
+    prompt = service._prompt(config, {"primary": {"identity": {"symbol": "AAPL"}}, "comparisons": [], "missing_data_notes": []})
+
+    assert "congressional-trading brief" in prompt
+    assert "supplied Walnut Congress records before using any outside source" in prompt
+    assert "Members and trades by ticker" in prompt
+    assert "generic valuation comparison" in prompt
+
+
 def test_comparison_tickers_reject_too_many_and_primary_duplicates():
     with pytest.raises(HTTPException) as too_many:
         service.validate_config(_payload(comparison_tickers=["A,B,C,D,E,F"]).model_dump())
