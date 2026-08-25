@@ -1,5 +1,7 @@
 "use client";
 
+import { isProductionAnalyticsHost } from "@/lib/analyticsEnvironment";
+
 export const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
 
 type WindowWithGoogleAnalytics = Window & {
@@ -28,7 +30,7 @@ function loadScript(id: string, src: string): void {
 }
 
 export function ensureGoogleAnalytics(options: GoogleAnalyticsOptions = {}): boolean {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined" || !isProductionAnalyticsHost()) return false;
   const analyticsGranted = options.analyticsGranted ?? true;
   const marketingGranted = options.marketingGranted ?? false;
   const sendInitialPageView = options.sendInitialPageView ?? analyticsGranted;

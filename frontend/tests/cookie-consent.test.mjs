@@ -16,6 +16,7 @@ const appVersion = read("lib/appVersion.ts");
 const appVersionRoute = read("app/api/app-version/route.ts");
 const appVersionRefresh = read("components/AppVersionRefresh.tsx");
 const googleAnalytics = read("lib/googleAnalytics.ts");
+const analyticsEnvironment = read("lib/analyticsEnvironment.ts");
 const privacy = read("app/privacy/page.tsx");
 const memberPage = read("app/member/[slug]/page.tsx");
 
@@ -54,7 +55,7 @@ test("cookie consent manager offers bottom-bar choices and gates optional script
   assert.match(manager, /removeGoogleLinkerParams/);
   assert.match(manager, /updateGoogleAnalyticsConsent/);
   assert.match(manager, /loadRedditPixel/);
-  assert.match(manager, /\(consent\?\.analytics \?\? true\) \? <SpeedInsights \/> : null/);
+  assert.match(manager, /productionAnalyticsHost && \(consent\?\.analytics \?\? true\) \? <SpeedInsights \/> : null/);
   assert.match(manager, /hasGlobalPrivacyControl/);
 });
 
@@ -77,8 +78,9 @@ test("google analytics defaults analytics on while keeping marketing storage den
 
 test("analytics runs by default and stops after an explicit opt out", () => {
   assert.match(api, /import \{ hasPrivacyConsent \} from "@\/lib\/privacyConsent";/);
-  assert.match(api, /export function recordPageView[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*window\.sessionStorage\.getItem\(sessionKey\)/);
-  assert.match(api, /export function recordProductEvent[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*const eventName = payload\.event_name\.trim\(\)/);
+  assert.match(api, /import \{ isProductionAnalyticsHost \} from "@\/lib\/analyticsEnvironment";/);
+  assert.match(api, /export function recordPageView[\s\S]*if \(!isProductionAnalyticsHost\(\)\) return;[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*window\.sessionStorage\.getItem\(sessionKey\)/);
+  assert.match(api, /export function recordProductEvent[\s\S]*if \(!isProductionAnalyticsHost\(\)\) return;[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*const eventName = payload\.event_name\.trim\(\)/);
   assert.match(consent, /if \(!consent\) return category === "analytics";/);
   assert.match(manager, /sendInitialPageView: analyticsGranted/);
   assert.match(manager, /updateGoogleAnalyticsConsent\(analyticsGranted, marketingGranted\)/);
@@ -88,6 +90,14 @@ test("analytics runs by default and stops after an explicit opt out", () => {
   assert.match(tracker, /initialGoogleAnalyticsPath/);
   assert.match(tracker, /initialGoogleAnalyticsPath\.current !== path && !recordGoogleAnalyticsPageView/);
   assert.match(tracker, /setConsentRefresh\(\(current\) => current \+ 1\)/);
+});
+
+test("production analytics is restricted to Walnut's two production hosts", () => {
+  assert.match(analyticsEnvironment, /new Set\(\["walnutmarkets\.com", "app\.walnutmarkets\.com"\]\)/);
+  assert.match(analyticsEnvironment, /typeof window === "undefined"\) return false/);
+  assert.match(googleAnalytics, /typeof window === "undefined" \|\| !isProductionAnalyticsHost\(\)\) return false/);
+  assert.match(manager, /setProductionAnalyticsHost\(isProductionAnalyticsHost\(\)\)/);
+  assert.match(manager, /function loadRedditPixel\(\): void \{\s*if \(!isProductionAnalyticsHost\(\)\) return;/);
 });
 
 test("privacy choices are persisted and can be reopened from the privacy page", () => {

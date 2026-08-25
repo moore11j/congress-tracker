@@ -9,6 +9,7 @@ import {
   writePrivacyConsent,
   type PrivacyConsent,
 } from "@/lib/privacyConsent";
+import { isProductionAnalyticsHost } from "@/lib/analyticsEnvironment";
 import { ensureGoogleAnalytics, removeGoogleLinkerParams, updateGoogleAnalyticsConsent } from "@/lib/googleAnalytics";
 
 const REDDIT_PIXEL_ID = process.env.NEXT_PUBLIC_REDDIT_PIXEL_ID ?? "a2_jdfg5l7gwuw1";
@@ -28,6 +29,7 @@ function loadScript(id: string, src: string): void {
 }
 
 function loadRedditPixel(): void {
+  if (!isProductionAnalyticsHost()) return;
   if (!REDDIT_PIXEL_ID) return;
   const win = window as WindowWithPixels;
   if (win.__walnutRedditPixelLoaded) return;
@@ -67,9 +69,11 @@ export function CookieConsentManager() {
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false);
   const [marketingEnabled, setMarketingEnabled] = useState(false);
+  const [productionAnalyticsHost, setProductionAnalyticsHost] = useState(false);
   const gpcEnabled = useMemo(() => hasGlobalPrivacyControl(), []);
 
   useEffect(() => {
+    setProductionAnalyticsHost(isProductionAnalyticsHost());
     const stored = readPrivacyConsent();
     setConsent(stored);
     setAnalyticsEnabled(stored?.analytics ?? true);
@@ -111,7 +115,7 @@ export function CookieConsentManager() {
 
   return (
     <>
-      {(consent?.analytics ?? true) ? <SpeedInsights /> : null}
+      {productionAnalyticsHost && (consent?.analytics ?? true) ? <SpeedInsights /> : null}
 
       {showBanner ? (
         <div className="fixed inset-x-0 bottom-0 z-[2000] border-t border-white/10 bg-slate-950/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 text-slate-100 shadow-2xl backdrop-blur">
