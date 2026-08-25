@@ -6730,6 +6730,7 @@ def _ticker_context_bundle_memory_cache_get(
     symbol: str,
     user_segment: str,
     started_at: float,
+    allow_stale: bool = False,
 ) -> dict[str, Any] | None:
     now_ts = time.time()
     with _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK:
@@ -6741,9 +6742,12 @@ def _ticker_context_bundle_memory_cache_get(
             _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
             return None
         if stale_after_ts <= now_ts:
-            _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
-            logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s source=memory reason=stale_after", symbol, user_segment)
-            return None
+            if not allow_stale:
+                logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s source=memory reason=stale_after", symbol, user_segment)
+                return None
+            cache_state = "stale_hit"
+        else:
+            cache_state = "hit"
         result = copy.deepcopy(payload)
         if not _ticker_context_bundle_cache_payload_is_complete(result):
             _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
@@ -6751,7 +6755,8 @@ def _ticker_context_bundle_memory_cache_get(
             return None
 
     logger.info(
-        "ticker_bundle_cache_hit symbol=%s user_segment=%s source=memory duration_ms=%.1f",
+        "ticker_bundle_cache_%s symbol=%s user_segment=%s source=memory duration_ms=%.1f",
+        cache_state,
         symbol,
         user_segment,
         (perf_counter() - started_at) * 1000,
@@ -6829,12 +6834,14 @@ def _ticker_context_bundle_cache_get(
     symbol: str,
     user_segment: str,
     started_at: float,
+    allow_stale: bool = False,
 ) -> dict[str, Any] | None:
     memory_cached = _ticker_context_bundle_memory_cache_get(
         cache_key,
         symbol=symbol,
         user_segment=user_segment,
         started_at=started_at,
+        allow_stale=allow_stale,
     )
     if memory_cached is not None:
         return memory_cached
@@ -6872,10 +6879,15 @@ def _ticker_context_bundle_cache_get(
     if stale_after.tzinfo is None:
         stale_after = stale_after.replace(tzinfo=timezone.utc)
     if stale_after <= now:
-        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=stale_after", symbol, user_segment)
-        return None
+        if not allow_stale:
+            logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=stale_after", symbol, user_segment)
+            return None
+        cache_state = "stale_hit"
+    else:
+        cache_state = "hit"
     logger.info(
-        "ticker_bundle_cache_hit symbol=%s user_segment=%s duration_ms=%.1f",
+        "ticker_bundle_cache_%s symbol=%s user_segment=%s duration_ms=%.1f",
+        cache_state,
         symbol,
         user_segment,
         (perf_counter() - started_at) * 1000,
@@ -6936,6 +6948,19 @@ def _ticker_context_bundle_build_inflight_wait(
     event = state.get("event")
     if not isinstance(event, threading.Event):
         return None
+    # A refresh is already running. A complete, short-lived stale bundle lets
+    # concurrent page loads render immediately without duplicating its expensive
+    # source-card queries; the in-flight leader replaces it when finished.
+    stale_cached = _ticker_context_bundle_cache_get(
+        db,
+        cache_key,
+        symbol=symbol,
+        user_segment=user_segment,
+        started_at=started_at,
+        allow_stale=True,
+    )
+    if stale_cached is not None:
+        return stale_cached
     if not event.wait(timeout=_ticker_context_bundle_coalesce_wait_seconds()):
         logger.info("ticker_bundle_build_coalesce_timeout symbol=%s user_segment=%s", symbol, user_segment)
         if not event.wait(timeout=_ticker_context_bundle_strict_coalesce_wait_seconds()):

@@ -1924,6 +1924,50 @@ def test_ticker_context_bundle_memory_cache_hit_avoids_db_lookup(monkeypatch):
     assert response["from_memory"] is True
 
 
+def test_ticker_context_bundle_memory_cache_can_serve_complete_stale_payload_for_coalesced_refresh(monkeypatch):
+    main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
+    cache_key = main_module._ticker_context_bundle_cache_key(
+        "AAPL",
+        user_segment="premium",
+        side="all",
+        limit=3,
+        lookback_days=30,
+    )
+    now = datetime.now(timezone.utc)
+    main_module._ticker_context_bundle_memory_cache_set(
+        cache_key,
+        payload=_complete_context_bundle_payload("AAPL", stale_fixture=True),
+        stale_after=now - timedelta(seconds=1),
+        expires_at=now + timedelta(minutes=5),
+    )
+
+    class NoDbLookup:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("stale memory fallback must not touch the DB cache table")
+
+        def rollback(self):
+            raise AssertionError("stale memory fallback must not roll back")
+
+    assert main_module._ticker_context_bundle_cache_get(
+        NoDbLookup(),
+        cache_key,
+        symbol="AAPL",
+        user_segment="premium",
+        started_at=time.perf_counter(),
+    ) is None
+    response = main_module._ticker_context_bundle_cache_get(
+        NoDbLookup(),
+        cache_key,
+        symbol="AAPL",
+        user_segment="premium",
+        started_at=time.perf_counter(),
+        allow_stale=True,
+    )
+
+    assert response["symbol"] == "AAPL"
+    assert response["stale_fixture"] is True
+
+
 def test_ticker_context_bundle_memory_cache_rejects_lightweight_payload(monkeypatch):
     main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
     cache_key = main_module._ticker_context_bundle_cache_key(
