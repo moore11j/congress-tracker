@@ -19,7 +19,7 @@ import {
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
-import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, insiderHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -236,16 +236,27 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     };
   }
 
-  const snapshot = await getSeoSnapshot("insider", reportingCik, { source: "InsiderMetadataSnapshot" })
-    .then((response) => response.snapshot)
-    .catch(() => null);
-  const insiderName = typeof snapshot?.payload?.insider_name === "string" ? snapshot.payload.insider_name : (getInsiderDisplayName(insiderDisplayNameFromSlug(slug)) ?? "Insider");
+  const [snapshot, summary] = await Promise.all([
+    getSeoSnapshot("insider", reportingCik, { source: "InsiderMetadataSnapshot" })
+      .then((response) => response.snapshot)
+      .catch(() => null),
+    getInsiderSummary(reportingCik, 365, undefined, { source: "InsiderMetadataSummary", stalePageCache: true })
+      .catch(() => null),
+  ]);
+  const insiderName =
+    typeof snapshot?.payload?.insider_name === "string"
+      ? snapshot.payload.insider_name
+      : (getInsiderDisplayName(summary?.insider_name, insiderDisplayNameFromSlug(slug)) ?? "Insider");
   const canonicalPath = snapshot?.canonical_path ?? cleanInsiderCanonicalPath(insiderSlug(insiderName, reportingCik) ?? slug);
-  const fallbackTitle = `${insiderName} Insider Trades | Walnut Markets`;
-  const fallbackDescription = `Research ${insiderName}'s Form 4 activity, issuer context, role, recent transactions and related ticker links in Walnut Markets.`;
+  const company = summary?.primary_company_name?.trim() || "";
+  const fallbackTitle = `${insiderName} Insider Trades & Form 4 Activity | Walnut Markets`;
+  const fallbackDescription = company
+    ? `Track ${insiderName}'s disclosed ${company} insider transactions, Form 4 filings, buy/sell activity, and trading history with Walnut Markets.`
+    : `Track ${insiderName}'s disclosed insider transactions, Form 4 filings, buy/sell activity, and trading history with Walnut Markets.`;
   const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
   const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
-  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
+  const indexable = snapshot?.indexable ?? insiderHasIndexableContent(summary);
+  if (!indexable || hasNonCanonicalSearchParams(sp)) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),

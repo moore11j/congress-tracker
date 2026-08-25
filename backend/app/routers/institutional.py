@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
-from app.models import InstitutionalHolderIndustryBreakdown
+from app.models import InstitutionalHolder, InstitutionalHolderIndustryBreakdown
 from app.rate_limit import rate_limit_provider_backed
 from app.request_guards import api_prefetch_response, is_inactive_logged_out_api_request
 from app.services.institutional_activity import (
@@ -87,14 +87,20 @@ def _locked_ownership_payload(symbol: str | None = None) -> dict[str, Any]:
     }
 
 
-def _locked_institution_payload(cik: str) -> dict[str, Any]:
+def _locked_institution_payload(cik: str, db: Session | None = None) -> dict[str, Any]:
+    normalized_cik = normalize_cik(cik)
+    holder = db.get(InstitutionalHolder, normalized_cik) if db is not None and normalized_cik else None
     return {
-        "cik": normalize_cik(cik),
+        "cik": normalized_cik,
         "source_label": "Institutional Activity",
         "availability_status": "pro_locked",
         "locked": True,
         "required_plan": "pro",
         "message": "Institutional profiles are available on Pro.",
+        # Public filing identity only. Holdings, activity, and other Pro data
+        # remain unavailable to anonymous and Free visitors.
+        "holder_name": holder.holder_name if holder else None,
+        "latest_filing_date": holder.latest_filing_date.isoformat() if holder and holder.latest_filing_date else None,
         "items": [],
     }
 
@@ -172,17 +178,42 @@ def institutions(
     return list_institutional_holders(db, q=q, sort=sort, direction=direction, page=page, limit=limit)
 
 
+@router.get("/institutions/public-index")
+def public_institution_index(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Public 13F manager identities only; never returns holdings or activity."""
+    rows = db.execute(
+        select(
+            InstitutionalHolder.cik,
+            InstitutionalHolder.holder_name,
+            InstitutionalHolder.latest_filing_date,
+        )
+        .where(InstitutionalHolder.holder_name.is_not(None))
+        .where(InstitutionalHolder.latest_filing_date.is_not(None))
+        .order_by(desc(InstitutionalHolder.latest_filing_date), InstitutionalHolder.holder_name)
+        .limit(50000)
+    ).all()
+    return {
+        "items": [
+            {
+                "cik": normalize_cik(cik),
+                "holder_name": holder_name,
+                "latest_filing_date": latest_filing_date.isoformat() if latest_filing_date else None,
+            }
+            for cik, holder_name, latest_filing_date in rows
+            if normalize_cik(cik) and holder_name
+        ]
+    }
+
+
 @router.get("/institutions/{cik}")
 def institution_profile(cik: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     prefetch_response = _prefetch_response(request, "institution_profile")
     if prefetch_response is not None:
         return prefetch_response
     if is_inactive_logged_out_api_request(request):
-        payload = _locked_institution_payload(cik)
+        payload = _locked_institution_payload(cik, db)
         payload.update(
             {
-                "holder_name": None,
-                "latest_filing_date": None,
                 "latest_report_year": None,
                 "latest_report_quarter": None,
                 "total_reported_value_usd": None,
@@ -192,11 +223,9 @@ def institution_profile(cik: str, request: Request, db: Session = Depends(get_db
         )
         return payload
     if not _has_institutional_access(request, db):
-        payload = _locked_institution_payload(cik)
+        payload = _locked_institution_payload(cik, db)
         payload.update(
             {
-                "holder_name": None,
-                "latest_filing_date": None,
                 "latest_report_year": None,
                 "latest_report_quarter": None,
                 "total_reported_value_usd": None,

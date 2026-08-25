@@ -44,7 +44,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const fallbackCanonicalPath = `/departments/${encodeURIComponent(slug)}`;
   try {
-    const department = await getDepartmentProfile(slug, { limit: 1 });
+    const department = await getDepartmentProfile(slug, { limit: 1, stalePageCache: true, source: "DepartmentMetadata" });
     const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
     const fallbackTitle = `${departmentSeoName(department.name)} Contracts | Walnut Markets`;
     const fallbackDescription = `Research ${department.name} contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.`;

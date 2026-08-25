@@ -81,6 +81,10 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "7,22,37,52 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh" in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
+    assert "15 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type member --batch --limit 250" in crontab
+    assert "25 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type insider --batch --limit 250" in crontab
+    assert "35 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type member --batch --include-existing --limit 250" in crontab
+    assert "45 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type insider --batch --include-existing --limit 250" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" not in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
     assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab

@@ -163,7 +163,12 @@ export function insiderHasIndexableContent(summary: InsiderSummary | null | unde
 }
 
 export function institutionHasIndexableContent(profile: InstitutionProfileResponse | null | undefined): boolean {
-  if (!profile?.cik || profile.locked || profile.availability_status === "pro_locked") return false;
+  if (!profile?.cik) return false;
+  // A Pro lock keeps holdings and activity private. A named 13F manager with
+  // a reported filing is still a useful, truthful canonical landing page.
+  if (profile.locked || profile.availability_status === "pro_locked") {
+    return Boolean(profile.holder_name && profile.latest_filing_date);
+  }
   return Boolean(profile.holder_name) && ((profile.holdings_count ?? 0) > 0 || (profile.top_holdings?.length ?? 0) > 0 || Boolean(profile.latest_filing_date));
 }
 

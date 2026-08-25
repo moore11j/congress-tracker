@@ -48,7 +48,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   }
   const canonicalPath = `/institution/${encodeURIComponent(cik)}`;
   try {
-    const profile = await getInstitutionProfile(cik, { source: "InstitutionMetadata" });
+    const profile = await getInstitutionProfile(cik, { source: "InstitutionMetadata", stalePageCache: true });
     const name = profile.holder_name ?? "Institution";
     const fallbackTitle = `${name} Holdings | Walnut Markets`;
     const fallbackDescription = `Research ${name} 13F holdings, portfolio changes, filing history and public-company exposure in Walnut Markets.`;
@@ -92,7 +92,7 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
     12000,
   ).catch(() => unavailableInstitutionProfile(cik));
   if (profile.locked) {
-    return <LockedInstitutionProfile cik={cik} />;
+    return <LockedInstitutionProfile cik={cik} holderName={profile.holder_name ?? null} />;
   }
 
   const [holdings, activity, filings, performance] = await Promise.all([
@@ -213,12 +213,13 @@ function unavailableInstitutionProfile(cik: string): InstitutionProfileResponse 
   };
 }
 
-function LockedInstitutionProfile({ cik }: { cik: string }) {
+function LockedInstitutionProfile({ cik, holderName }: { cik: string; holderName: string | null }) {
+  const title = holderName ? `${holderName} Institutional Profile` : "Institutional profile locked";
   return (
     <div className="min-w-0 space-y-6 overflow-x-hidden">
       <section className={`${cardClassName} min-w-0 space-y-4`}>
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200/80">Institutional Activity</p>
-        <h1 className="break-words text-3xl font-semibold text-white md:text-4xl">Institutional profile locked</h1>
+        <h1 className="break-words text-3xl font-semibold text-white md:text-4xl">{title}</h1>
         <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-5">
           <p className="text-base font-semibold text-emerald-100">Institutional profiles are available on Pro.</p>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">

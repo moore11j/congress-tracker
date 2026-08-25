@@ -397,6 +397,14 @@ export type InstitutionProfileResponse = {
   top_holdings?: InstitutionHoldingItem[];
 };
 
+export type PublicInstitutionIndexResponse = {
+  items: Array<{
+    cik: string;
+    holder_name: string;
+    latest_filing_date: string | null;
+  }>;
+};
+
 export type InstitutionHoldingItem = {
   id?: number;
   cik?: string | null;
@@ -7465,6 +7473,17 @@ export async function getInstitutionProfile(cik: string, options?: { authToken?:
       ...publicStalePageFetchInit(Boolean(options?.stalePageCache && !options?.authToken)),
       signal: options?.signal,
       source: options?.source ?? "InstitutionProfile",
+    },
+  );
+}
+
+export async function getPublicInstitutionIndex(options?: { signal?: AbortSignal; source?: string; stalePageCache?: boolean }): Promise<PublicInstitutionIndexResponse> {
+  return fetchJson<PublicInstitutionIndexResponse>(
+    buildApiUrl("/api/institutions/public-index"),
+    {
+      ...publicStalePageFetchInit(options?.stalePageCache),
+      signal: options?.signal,
+      source: options?.source ?? "PublicInstitutionIndex",
     },
   );
 }

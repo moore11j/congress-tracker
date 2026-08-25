@@ -46,15 +46,16 @@ test("segmented app sitemaps consume controlled whitelist sources", () => {
   const membersSitemap = read("app/sitemap-members.xml/route.ts");
   assert.match(membersSitemap, /nameToSlug/);
   assert.match(membersSitemap, /memberSitemapPath/);
-  for (const routePath of [
-    "app/sitemap-institutions.xml/route.ts",
-    "app/sitemap-research.xml/route.ts",
-  ]) {
+  for (const routePath of ["app/sitemap-research.xml/route.ts"]) {
     const source = read(routePath);
     assert.match(source, /seoPilotPages/);
     assert.match(source, /sitemapUrlset/);
     assert.doesNotMatch(source, /const PATHS|const TICKERS/);
   }
+  const institutions = read("app/sitemap-institutions.xml/route.ts");
+  assert.match(institutions, /getPublicInstitutionIndex/);
+  assert.match(institutions, /latest_filing_date/);
+  assert.match(institutions, /sitemapUrlset/);
   const departments = read("app/sitemap-departments.xml/route.ts");
   assert.match(departments, /getDepartments/);
   assert.match(departments, /contractCount > 0/);
@@ -83,7 +84,10 @@ test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pag
   assert.match(memberPage, /memberHasIndexableContent\(profile\)/);
   assert.doesNotMatch(memberPage, /getSeoSnapshot\("member"/);
   assert.match(insiderPage, /getSeoSnapshot\("insider"/);
+  assert.match(insiderPage, /getInsiderSummary\(reportingCik, 365/);
+  assert.match(insiderPage, /insiderHasIndexableContent\(summary\)/);
   assert.match(institutionPage, /institutionHasIndexableContent\(profile\)/);
+  assert.match(institutionPage, /stalePageCache: true/);
   assert.match(departmentPage, /departmentHasIndexableContent\(department\)/);
   assert.match(comparePage, /isApprovedSeoPilotPath\(canonicalPath\)/);
   assert.match(comparePage, /robots:\s*indexablePilot \?/);
