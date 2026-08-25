@@ -547,23 +547,7 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
             .limit(12)
         ).scalars().all()
 
-    candidate_rows: list[Any] = list(rows) or list(legacy_rows)
-    # A reporting CIK can include filings for more than one issuer. Select the
-    # dominant issuer so a one-off newer record cannot replace a profile's
-    # established identity.
-    issuer_counts: dict[str, tuple[int, date]] = {}
-    for row in candidate_rows:
-        candidate_symbol = _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None))
-        if not candidate_symbol:
-            continue
-        count, latest = issuer_counts.get(candidate_symbol, (0, date.min))
-        filing_date = getattr(row, "filing_date", None) or getattr(row, "transaction_date", None) or date.min
-        issuer_counts[candidate_symbol] = (count + 1, max(latest, filing_date))
-    dominant_symbol = max(issuer_counts, key=lambda key: issuer_counts[key]) if issuer_counts else None
-    working_rows = [
-        row for row in candidate_rows
-        if dominant_symbol is None or _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None)) == dominant_symbol
-    ]
+    working_rows: list[Any] = list(rows) or list(legacy_rows)
     insider_name = next(
         (
             _clean_text(getattr(row, "reporting_owner_name", None) or getattr(row, "insider_name", None))
@@ -572,13 +556,6 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         ),
         None,
     ) or "Insider"
-    display_insider_name = insider_name
-    if insider_name == insider_name.upper():
-        name_parts = insider_name.title().split()
-        if len(name_parts) == 3 and len(name_parts[2].replace(".", "")) == 1:
-            display_insider_name = f"{name_parts[1]} {name_parts[2].replace('.', '')} {name_parts[0]}"
-        elif len(name_parts) == 2:
-            display_insider_name = f"{name_parts[1]} {name_parts[0]}"
     symbol = next(
         (
             _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None))
@@ -624,7 +601,7 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
             "direct_or_indirect": _clean_text(getattr(row, "direct_or_indirect", None) or getattr(row, "ownership", None)),
             "role": _clean_text(getattr(row, "officer_title", None) or getattr(row, "role", None)),
             "reporting_cik": normalized_cik,
-            "insider_name": display_insider_name,
+            "insider_name": insider_name,
             "external_id": _clean_text(getattr(row, "accession_number", None) or getattr(row, "external_id", None)),
             "url": None,
         }
@@ -634,9 +611,9 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
     sell_count = sum(1 for item in recent_activity if str(item["transaction_type"] or "").lower() in {"s", "sale", "sell", "disposition"})
     latest_date = max((getattr(row, "filing_date", None) for row in working_rows if getattr(row, "filing_date", None)), default=None)
     data_as_of = datetime.combine(latest_date, datetime.min.time(), tzinfo=timezone.utc) if latest_date else None
-    slug = f"{_slugify(display_insider_name)}-{normalized_cik}"
+    slug = f"{_slugify(insider_name)}-{normalized_cik}"
     payload = {
-        "insider_name": display_insider_name,
+        "insider_name": insider_name,
         "reporting_cik": normalized_cik,
         "primary_company_name": company_name,
         "primary_symbol": symbol,
@@ -653,7 +630,7 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         "sections": [
             {
                 "heading": "Form 4 Activity",
-                "body": f"{display_insider_name} has {len(working_rows)} recent public Form 4 item(s) available for review in Walnut.",
+                "body": f"{insider_name} has {len(working_rows)} recent public Form 4 item(s) available for review in Walnut.",
             }
         ],
         "recent_activity": recent_activity,
@@ -664,9 +641,9 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         entity_type="insider",
         entity_key=normalized_cik,
         canonical_path=f"/insider/{slug}",
-        title=f"{display_insider_name} Insider Trades & Form 4 Activity | Walnut Markets",
-        meta_description=f"Track {display_insider_name}'s disclosed {company_name + ' ' if company_name else ''}insider transactions, Form 4 filings, buy/sell activity, and historical trading data with Walnut Markets.",
-        indexable=bool(working_rows and display_insider_name != "Insider"),
+        title=f"{insider_name} Insider Trades & Form 4 Activity | Walnut Markets",
+        meta_description=f"Track {insider_name}'s disclosed {company_name + ' ' if company_name else ''}insider transactions, Form 4 filings, buy/sell activity, and historical trading data with Walnut Markets.",
+        indexable=bool(working_rows and insider_name != "Insider"),
         payload=payload,
         data_as_of=data_as_of,
     )
