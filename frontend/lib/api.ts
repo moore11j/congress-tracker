@@ -7187,26 +7187,24 @@ export async function deleteAdminResearchBriefDraft(draftId: string): Promise<{ 
   });
 }
 
-const generatedResearchBriefCardsServerInflight = new Map<string, Promise<{ items: PublicResearchBriefCard[] }>>();
+const GENERATED_RESEARCH_BRIEF_CARDS_SERVER_CACHE_TTL_MS = 60_000;
 
 export async function getGeneratedResearchBriefCards(): Promise<{ items: PublicResearchBriefCard[] }> {
   const url = buildApiUrl("/api/research/briefs");
-  const requestInit = {
+  const request = () => fetchPublicJson<{ items: PublicResearchBriefCard[] }>(url, {
     cache: "no-store",
     next: { revalidate: 0 },
     source: "ResearchBriefs",
-  } satisfies ApiRequestInit;
-  // Share only concurrent server renders. Each new request still reads the live source.
-  if (typeof window !== "undefined") return fetchJson<{ items: PublicResearchBriefCard[] }>(url, requestInit);
-
-  const existing = generatedResearchBriefCardsServerInflight.get(url);
-  if (existing) return existing;
-
-  const promise = fetchJson<{ items: PublicResearchBriefCard[] }>(url, requestInit).finally(() => {
-    generatedResearchBriefCardsServerInflight.delete(url);
   });
-  generatedResearchBriefCardsServerInflight.set(url, promise);
-  return promise;
+  // Published research cards are identical for every viewer. A short server
+  // cache prevents this unrelated list from holding up a warm ticker page for
+  // signed-in users, while browser requests remain fresh on demand.
+  if (typeof window !== "undefined") return request();
+  return serverCachedJson(
+    `generated-research-brief-cards:${url}`,
+    request,
+    GENERATED_RESEARCH_BRIEF_CARDS_SERVER_CACHE_TTL_MS,
+  );
 }
 
 export async function getAdminResearchKeywordOpportunities(status?: string): Promise<{ items: AdminResearchKeywordOpportunity[] }> {
