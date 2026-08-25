@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDepartments } from "@/lib/api";
+import { getSeoSnapshotIndex } from "@/lib/api";
 import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
 
 const APP_URL = "https://app.walnutmarkets.com";
@@ -9,13 +9,13 @@ export const dynamic = "force-dynamic";
 export const revalidate = 1800;
 
 export async function GET() {
-  const pages = await getDepartments()
+  const pages = await getSeoSnapshotIndex("department")
     .then((response) => response.items
-      .filter((item) => item.slug && item.contractCount > 0 && item.linkedTickerCount > 0)
+      .filter((item) => item.indexable && item.canonical_path)
       .map((item) => ({
         type: "department" as const,
-        path: `/departments/${encodeURIComponent(item.slug)}`,
-        lastmod: safeDepartmentLastmod(item.latestAwardDate),
+        path: item.canonical_path,
+        lastmod: safeDepartmentLastmod(item.data_as_of),
         rationale: "Public department profile with mapped government-contract exposure.",
       })))
     .catch(() => seoPilotPages.departments);

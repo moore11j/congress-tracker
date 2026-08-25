@@ -56,9 +56,8 @@ test("segmented app sitemaps consume controlled whitelist sources", () => {
     assert.doesNotMatch(source, /const PATHS|const TICKERS/);
   }
   const departments = read("app/sitemap-departments.xml/route.ts");
-  assert.match(departments, /getDepartments/);
-  assert.match(departments, /contractCount > 0/);
-  assert.match(departments, /linkedTickerCount > 0/);
+  assert.match(departments, /getSeoSnapshotIndex\("department"\)/);
+  assert.match(departments, /item\.indexable/);
   assert.match(departments, /sitemapUrlset/);
   assert.doesNotMatch(departments, /const PATHS|const TICKERS/);
 
@@ -79,9 +78,9 @@ test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pag
 
   assert.match(tickerPage, /getSeoSnapshot\("ticker"/);
   assert.match(memberPage, /noindexFollowMetadata/);
-  assert.match(memberPage, /getMemberProfileBySlug/);
-  assert.match(memberPage, /memberHasIndexableContent\(profile\)/);
-  assert.doesNotMatch(memberPage, /getSeoSnapshot\("member"/);
+  assert.match(memberPage, /getSeoSnapshot\("member"/);
+  assert.match(memberPage, /snapshot\?\.indexable/);
+  assert.match(memberPage, /MemberSnapshotPage/);
   assert.match(insiderPage, /getSeoSnapshot\("insider"/);
   assert.match(institutionPage, /institutionHasIndexableContent\(profile\)/);
   assert.match(departmentPage, /departmentHasIndexableContent\(department\)/);
@@ -133,15 +132,60 @@ test("public entity pages use real app routes with delayed stale cache", () => {
   assert.match(apiClient, /publicStalePageFetchInit/);
   assert.match(tickerPage, /publicStalePageCache/);
   assert.match(memberPage, /publicStalePageCache/);
+  assert.match(memberPage, /MemberPublicSnapshot/);
+  assert.match(memberPage, /if \(publicStalePageCache\)/);
   assert.match(insiderPage, /publicStalePageCache/);
   assert.match(institutionPage, /publicStalePageCache/);
-  assert.match(departmentPage, /stalePageCache:\s*true/);
+  assert.match(departmentPage, /getSeoSnapshot\("department"/);
+  assert.match(departmentPage, /publicSnapshotRequest/);
   assert.doesNotMatch(tickerPage, /SeoSnapshotBaseline/);
   assert.doesNotMatch(memberPage, /SeoSnapshotBaseline/);
   assert.doesNotMatch(insiderPage, /SeoSnapshotBaseline/);
   assert.doesNotMatch(institutionPage, /SeoSnapshotBaseline/);
   assert.doesNotMatch(departmentPage, /SeoSnapshotBaseline/);
   assert.doesNotMatch(seoSnapshotService, /provider refresh|SEO snapshot|stored disclosure|stored market data|stored Form 4|Stored Market Data|Form 4 Activity Snapshot|Congress Trading Snapshot/);
+});
+
+test("insider and department public pages use snapshots without live anonymous refreshes", () => {
+  const insiderPage = read("app/insider/[slug]/page.tsx");
+  const departmentPage = read("app/departments/[slug]/page.tsx");
+  const analytics = read("components/insider/InsiderAnalyticsClient.tsx");
+  const header = read("components/insider/InsiderProfileHeaderClient.tsx");
+  const insiders = read("app/insiders/page.tsx");
+  const departments = read("app/departments/page.tsx");
+  assert.match(insiderPage, /getSeoSnapshot\("insider"/);
+  assert.match(insiderPage, /disableLiveRefresh=\{publicStalePageCache\}/);
+  assert.match(insiderPage, /Insider Trades/);
+  assert.match(departmentPage, /getSeoSnapshot\("department"/);
+  assert.match(departmentPage, /publicSnapshotRequest/);
+  assert.match(analytics, /if \(disableLiveRefresh\) return;/);
+  assert.match(header, /if \(disableLiveRefresh\) return;/);
+  assert.match(insiders, /QualifiedInsiderDirectory/);
+  assert.match(insiders, /getSeoSnapshotIndex\("insider"/);
+  assert.match(departments, /QualifiedDepartmentDirectory/);
+  assert.match(departments, /getSeoSnapshotIndex\("department"/);
+});
+
+test("only the two interpretation modules are locked at the response and UI layers", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const main = fs.readFileSync(path.join(root, "..", "backend", "app", "main.py"), "utf8");
+  assert.match(main, /divergence = \{"access": \{"locked": True, "required_plan": "premium"\}\}/);
+  assert.match(main, /similar_historical_setups = \{"access": \{"locked": True, "required_plan": "premium"\}\}/);
+  assert.match(tickerPage, /TickerInterpretationPremiumLock title="Cross-Source Divergence"/);
+  assert.match(tickerPage, /TickerInterpretationPremiumLock title="Similar Historical Setups"/);
+  assert.match(tickerPage, /Unlock with Premium/);
+});
+
+test("member snapshots drive crawler-safe public HTML and directory discovery", () => {
+  const memberPage = read("app/member/[slug]/page.tsx");
+  const membersPage = read("app/members/page.tsx");
+  assert.match(memberPage, /Recent Disclosed Stock Trades/);
+  assert.match(memberPage, /application\/ld\+json/);
+  assert.match(memberPage, /BreadcrumbList/);
+  assert.match(memberPage, /Related Stock Research/);
+  assert.match(membersPage, /QualifiedMemberDirectory/);
+  assert.match(membersPage, /Active Congress Profiles/);
+  assert.match(membersPage, /getSeoSnapshotIndex\("member"/);
 });
 
 test("evergreen SEO foundation requires editorial approval before indexing", () => {

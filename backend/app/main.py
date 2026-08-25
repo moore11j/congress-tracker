@@ -6341,7 +6341,7 @@ def market_quotes(request: Request, symbols: str | None = Query(None)):
 @app.get("/api/seo-snapshots/{entity_type}/{entity_key:path}")
 def seo_entity_snapshot(entity_type: str, entity_key: str, response: Response, db: Session = Depends(get_db)):
     normalized_type = (entity_type or "").strip().lower()
-    if normalized_type not in {"ticker", "member", "insider"}:
+    if normalized_type not in {"ticker", "member", "insider", "department"}:
         raise HTTPException(status_code=404, detail="SEO snapshot type not found")
     response.headers["Cache-Control"] = "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600"
     snapshot = get_seo_snapshot(db, normalized_type, entity_key)
@@ -6363,7 +6363,7 @@ def seo_entity_snapshot(entity_type: str, entity_key: str, response: Response, d
 @app.get("/api/seo-snapshots/{entity_type}")
 def seo_entity_snapshot_index(entity_type: str, response: Response, limit: int = Query(50000, ge=1, le=50000), db: Session = Depends(get_db)):
     normalized_type = (entity_type or "").strip().lower()
-    if normalized_type not in {"ticker", "member", "insider"}:
+    if normalized_type not in {"ticker", "member", "insider", "department"}:
         raise HTTPException(status_code=404, detail="SEO snapshot type not found")
     response.headers["Cache-Control"] = "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600"
     return {
@@ -7454,25 +7454,28 @@ def _build_ticker_context_bundle(
             confirmation_score_bundle,
             source_entitlements,
         )
-        allowed_divergence_sources = (
-            {
+        if can_view_signal_details:
+            allowed_divergence_sources = {
                 source_key
                 for source_key, entitlement in source_entitlements.items()
                 if not bool((entitlement or {}).get("locked"))
             }
-            if can_view_signal_details
-            else set()
-        )
-        divergence = (
-            public_cross_source_divergence(raw_divergence, allowed_source_keys=allowed_divergence_sources)
-            if raw_divergence is not None
-            else None
-        )
-        similar_historical_setups = (
-            public_similar_historical_setups(raw_similar_setups, include_details=can_view_signal_details)
-            if raw_similar_setups is not None
-            else None
-        )
+            divergence = (
+                public_cross_source_divergence(raw_divergence, allowed_source_keys=allowed_divergence_sources)
+                if raw_divergence is not None
+                else None
+            )
+            similar_historical_setups = (
+                public_similar_historical_setups(raw_similar_setups, include_details=True)
+                if raw_similar_setups is not None
+                else None
+            )
+        else:
+            # These are Confirmation/interpretation outputs. Do not return a
+            # partially redacted result: labels, counts, samples, and source
+            # names are all protected product data for free/guest sessions.
+            divergence = {"access": {"locked": True, "required_plan": "premium"}}
+            similar_historical_setups = {"access": {"locked": True, "required_plan": "premium"}}
         confirmation_ms = (perf_counter() - confirmation_started_at) * 1000
         slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
         signal_freshness = slim_confirmation["signal_freshness"]

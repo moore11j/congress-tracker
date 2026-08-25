@@ -42,6 +42,7 @@ export function InsiderProfileHeaderClient({
   initialRoleText,
   initialCompanyText,
   initialOwnershipContext,
+  disableLiveRefresh = false,
 }: {
   reportingCik: string;
   lookback: Lookback;
@@ -54,10 +55,12 @@ export function InsiderProfileHeaderClient({
   initialRoleText: string;
   initialCompanyText: string;
   initialOwnershipContext: string;
+  disableLiveRefresh?: boolean;
 }) {
   const [summary, setSummary] = useState(initialSummary);
 
   useEffect(() => {
+    if (disableLiveRefresh) return;
     const controller = new AbortController();
     getInsiderSummary(reportingCik, lookbackDays, issuer, {
       signal: controller.signal,
@@ -66,7 +69,7 @@ export function InsiderProfileHeaderClient({
       .then(setSummary)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [issuer, lookbackDays, reportingCik]);
+  }, [disableLiveRefresh, issuer, lookbackDays, reportingCik]);
 
   const roleContexts = useMemo(
     () =>

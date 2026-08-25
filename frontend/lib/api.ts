@@ -3918,7 +3918,7 @@ export type SymbolSuggestResponse = {
 
 export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency" | "institution" | "event";
 
-export type SeoSnapshotEntityType = "ticker" | "member" | "insider";
+export type SeoSnapshotEntityType = "ticker" | "member" | "insider" | "department";
 export type SeoSnapshotLink = { label: string; href: string };
 export type SeoSnapshotSection = { heading: string; body: string };
 export type SeoEntitySnapshot = {
@@ -5197,6 +5197,7 @@ export type CrossSourceDivergenceSource = {
 };
 
 export type CrossSourceDivergence = {
+  access?: { locked?: boolean; required_plan?: string | null } | null;
   methodology_version: string;
   state: "unavailable" | "aligned" | "mild_divergence" | "moderate_divergence" | "strong_divergence" | string;
   label: string;
@@ -6572,8 +6573,11 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
 
 export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKey: string, options?: { source?: string; signal?: AbortSignal }): Promise<SeoSnapshotResponse> {
   return fetchJson<SeoSnapshotResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`), {
-    cache: "no-store",
-    next: { revalidate: 0 },
+    // Public entity HTML is intentionally built from this persisted snapshot.
+    // Revalidation only re-reads the snapshot endpoint; it cannot trigger a
+    // provider refresh, AI request, or a database write.
+    cache: "force-cache",
+    next: { revalidate: 1800 },
     signal: options?.signal,
     source: options?.source ?? "SeoSnapshot",
     requestSource: "ssr",
@@ -6582,8 +6586,8 @@ export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKe
 
 export async function getSeoSnapshotIndex(entityType: SeoSnapshotEntityType, options?: { source?: string; signal?: AbortSignal; limit?: number }): Promise<SeoSnapshotIndexResponse> {
   return fetchJson<SeoSnapshotIndexResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}`, { limit: options?.limit }), {
-    cache: "no-store",
-    next: { revalidate: 0 },
+    cache: "force-cache",
+    next: { revalidate: 1800 },
     signal: options?.signal,
     source: options?.source ?? "SeoSnapshotIndex",
     requestSource: "ssr",

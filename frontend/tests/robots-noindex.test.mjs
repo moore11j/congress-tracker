@@ -138,6 +138,18 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicSeoEntityRoute\(pathname\) && !hasBackendSession/);
 });
 
+test("canonical anonymous public snapshots are CDN-cacheable without caching authenticated pages", () => {
+  assert.match(middleware, /function withPublicSnapshotCache/);
+  assert.match(middleware, /x-walnut-public-snapshot/);
+  assert.match(middleware, /s-maxage=1800/);
+  assert.match(middleware, /shouldCachePublicSnapshot/);
+  assert.match(middleware, /isPublicInsiderRoute\(pathname\)/);
+  assert.match(middleware, /isPublicDepartmentRoute\(pathname\)/);
+  assert.match(middleware, /!hasBackendSession/);
+  assert.match(middleware, /!hasAuthHint/);
+  assert.match(middleware, /!request\.headers\.get\("authorization"\)/);
+});
+
 test("app query-state variants receive noindex while analytics params are ignored", () => {
   assert.match(middleware, /function hasNonCanonicalQueryState\(search: string\): boolean/);
   assert.match(middleware, /new URLSearchParams\(search\)/);

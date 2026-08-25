@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import {
   ApiError,
   getDepartmentProfile,
+  getSeoSnapshot,
   type DepartmentBreakdownItem,
   type DepartmentContractItem,
   type DepartmentProfileResponse,
@@ -21,6 +23,7 @@ import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
 import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
 import { conciseSeoDescription, conciseSeoTitle, departmentHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
+import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -35,22 +38,20 @@ function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
-function departmentSeoName(name: string): string {
-  if (/^department of defense$/i.test(name)) return "DoD";
-  return name;
-}
-
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const fallbackCanonicalPath = `/departments/${encodeURIComponent(slug)}`;
   try {
-    const department = await getDepartmentProfile(slug, { limit: 1 });
-    const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
-    const fallbackTitle = `${departmentSeoName(department.name)} Contracts | Walnut Markets`;
-    const fallbackDescription = `Research ${department.name} contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.`;
-    const title = conciseSeoTitle(fallbackTitle, "Government Contracts | Walnut Markets");
-    const description = conciseSeoDescription(fallbackDescription, "Research government contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.");
-    if (!departmentHasIndexableContent(department)) {
+    const snapshot = await getSeoSnapshot("department", slug, { source: "DepartmentMetadataSnapshot" }).then((response) => response.snapshot);
+    const department = snapshot?.payload as DepartmentProfileResponse | undefined;
+    const canonicalPath = snapshot?.canonical_path ?? (department ? departmentHref(department.name) : null) ?? fallbackCanonicalPath;
+    const fallbackTitle = department ? `${department.name} Government Contracts | Walnut Markets` : "Government Department Contracts by Public Company | Walnut Markets";
+    const fallbackDescription = department
+      ? `Explore ${department.name} contract awards, public-company recipients, linked tickers, award trends, and recent federal contract activity.`
+      : "Research government department contract awards, linked public companies, and ticker exposure in Walnut Markets.";
+    const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
+    const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
+    if (!snapshot?.indexable || !department || !departmentHasIndexableContent(department)) {
       return {
         ...noindexFollowMetadata(title, description),
         metadataBase: new URL(WALNUT_APP_URL),
@@ -77,11 +78,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function DepartmentPage({ params }: Props) {
   const { slug } = await params;
   let department: DepartmentProfileResponse;
-  try {
-    department = await getDepartmentProfile(slug, { limit: 15, stalePageCache: true, source: "DepartmentProfilePage" });
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) notFound();
-    throw error;
+  const requestHeaders = await headers();
+  const authState = requestMayHavePageAuthState(requestHeaders)
+    ? await optionalPageAuthState()
+    : { token: null, hasAuthHint: false, entitlementHint: null };
+  const publicSnapshotRequest = !authState.token && !authState.hasAuthHint;
+  if (publicSnapshotRequest) {
+    const snapshot = await getSeoSnapshot("department", slug, { source: "DepartmentProfileSnapshot" })
+      .then((response) => response.snapshot)
+      .catch(() => null);
+    if (!snapshot?.payload || typeof snapshot.payload.name !== "string") notFound();
+    department = snapshot.payload as DepartmentProfileResponse;
+  } else {
+    try {
+      department = await getDepartmentProfile(slug, { limit: 15, stalePageCache: true, source: "DepartmentProfilePage" });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) notFound();
+      throw error;
+    }
   }
 
   const summary = department.summary;

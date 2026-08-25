@@ -16,14 +16,19 @@ from app.models import (
     InsiderTransactionNormalized,
     Member,
     PriceCache,
+    Security,
     SeoEntitySnapshot,
     TickerMeta,
     Transaction,
 )
+from app.services.government_departments import department_slug, get_department_profile, list_departments
 
-SeoEntityType = Literal["ticker", "member", "insider"]
+SeoEntityType = Literal["ticker", "member", "insider", "department"]
 SEO_SNAPSHOT_SCHEMA_VERSION = 1
-SEO_BATCH_MAX_LIMIT = 250
+# A full Congress roster fits in one bounded, persisted-data-only refresh.
+# This lets a schema/quality-gate release refresh every existing member
+# snapshot atomically at the operational level without a crawler doing work.
+SEO_BATCH_MAX_LIMIT = 1000
 
 
 def _now() -> datetime:
@@ -90,6 +95,13 @@ def _member_name(member: Member) -> str:
     return " ".join(part for part in [member.first_name, member.last_name] if _clean_text(part)).strip() or member.bioguide_id
 
 
+def _member_public_slug(member_name: str) -> str:
+    """Match the public Next.js member URL convention exactly."""
+    normalized = re.sub(r"\s+", " ", member_name.strip()).upper()
+    normalized = re.sub(r"[^A-Z0-9 ]", "", normalized)
+    return normalized.replace(" ", "_") or "UNKNOWN"
+
+
 def _clamped_batch_limit(limit: int) -> int:
     return max(1, min(int(limit or 1), SEO_BATCH_MAX_LIMIT))
 
@@ -136,6 +148,8 @@ def list_seo_snapshot_batch_candidates(
         return _member_batch_candidates(db, capped_limit, include_existing=include_existing)
     if entity_type == "insider":
         return _insider_batch_candidates(db, capped_limit, include_existing=include_existing)
+    if entity_type == "department":
+        return _department_batch_candidates(db, capped_limit, include_existing=include_existing)
     raise ValueError(f"Unsupported entity type: {entity_type}")
 
 
@@ -295,6 +309,19 @@ def _insider_batch_candidates(db: Session, limit: int, *, include_existing: bool
     return candidates
 
 
+def _department_batch_candidates(db: Session, limit: int, *, include_existing: bool) -> list[str]:
+    existing = set() if include_existing else _existing_snapshot_keys(db, "department")
+    candidates: list[str] = []
+    for item in list_departments(db).get("items", []):
+        key = _clean_text(item.get("slug"))
+        if not key or key in existing or key in candidates:
+            continue
+        candidates.append(key)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
 def _upsert_snapshot(
     db: Session,
     *,
@@ -431,17 +458,29 @@ def refresh_member_seo_snapshot(db: Session, slug_or_bioguide: str) -> dict[str,
         raise ValueError("member not found")
 
     member_name = _member_name(member)
-    slug = _slugify(member_name)
-    recent_trades = db.execute(
-        select(Transaction)
+    slug = _member_public_slug(member_name)
+    recent_trade_rows = db.execute(
+        select(Transaction, Security.symbol)
         .where(Transaction.member_id == member.id)
+        .outerjoin(Security, Transaction.security_id == Security.id)
         .order_by(desc(Transaction.report_date), desc(Transaction.trade_date), desc(Transaction.id))
         .limit(12)
-    ).scalars().all()
-    symbols = []
-    for trade in recent_trades:
-        if trade.description:
-            symbols.append(trade.description[:80])
+    ).all()
+    recent_trades = [row[0] for row in recent_trade_rows]
+    top_tickers = db.execute(
+        select(Security.symbol, func.count(Transaction.id).label("trade_count"))
+        .select_from(Transaction)
+        .join(Security, Transaction.security_id == Security.id)
+        .where(Transaction.member_id == member.id, Security.symbol.is_not(None))
+        .group_by(Security.symbol)
+        .order_by(desc("trade_count"), Security.symbol.asc())
+        .limit(8)
+    ).all()
+    ticker_links = [
+        {"label": f"{str(symbol).strip().upper()} stock research", "href": f"/ticker/{str(symbol).strip().upper()}"}
+        for symbol, _trade_count in top_tickers
+        if _clean_text(symbol)
+    ]
     data_as_of_date = max((trade.report_date for trade in recent_trades if trade.report_date), default=None)
     data_as_of = datetime.combine(data_as_of_date, datetime.min.time(), tzinfo=timezone.utc) if data_as_of_date else None
     payload = {
@@ -450,31 +489,40 @@ def refresh_member_seo_snapshot(db: Session, slug_or_bioguide: str) -> dict[str,
         "chamber": member.chamber,
         "party": member.party,
         "state": member.state,
+        "trade_count": len(recent_trades),
+        "top_tickers": [
+            {"symbol": str(symbol).strip().upper(), "trades": int(trade_count)}
+            for symbol, trade_count in top_tickers
+            if _clean_text(symbol)
+        ],
         "sections": [
             {
                 "heading": "Congress Trading Context",
-                "body": f"{member_name} has {len(recent_trades)} recent public disclosure item(s) available for review in Walnut.",
+                "body": f"{member_name} has {len(recent_trades)} recent public congressional disclosure item(s) available for review in Walnut Markets.",
             }
         ],
         "recent_activity": [
             {
                 "transaction_type": trade.transaction_type,
                 "description": trade.description,
+                "symbol": _clean_text(symbol),
                 "trade_date": _iso(trade.trade_date),
                 "report_date": _iso(trade.report_date),
+                "amount_range_min": trade.amount_range_min,
+                "amount_range_max": trade.amount_range_max,
             }
-            for trade in recent_trades[:6]
+            for trade, symbol in recent_trade_rows[:8]
         ],
-        "links": [],
+        "links": ticker_links,
     }
     return _upsert_snapshot(
         db,
         entity_type="member",
         entity_key=slug,
         canonical_path=f"/member/{slug}",
-        title=f"{member_name} Stock Trades | Walnut Markets",
-        meta_description=f"Research {member_name}'s disclosed stock trades, recent activity, traded tickers and public congressional profile in Walnut Markets.",
-        indexable=bool(member.bioguide_id and (recent_trades or member_name)),
+        title=f"{member_name} Stock Trades & Portfolio | Walnut Markets",
+        meta_description=f"Track {member_name}'s disclosed stock trades, recent filings, portfolio activity, top stocks, and historical trading data with Walnut Markets.",
+        indexable=bool(member.bioguide_id and recent_trades),
         payload=payload,
         data_as_of=data_as_of,
     )
@@ -524,29 +572,68 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         ),
         None,
     )
+    company_name = next(
+        (
+            _clean_text(getattr(row, "issuer_name", None) or getattr(row, "company_name", None) or getattr(row, "security_name", None))
+            for row in working_rows
+            if _clean_text(getattr(row, "issuer_name", None) or getattr(row, "company_name", None) or getattr(row, "security_name", None))
+        ),
+        None,
+    )
+    def numeric_value(value: Any) -> float | None:
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    recent_activity = [
+        {
+            "event_id": getattr(row, "id", 0),
+            "symbol": _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None)),
+            "company_name": _clean_text(getattr(row, "issuer_name", None) or getattr(row, "company_name", None) or getattr(row, "security_name", None)),
+            "transaction_type": _clean_text(getattr(row, "transaction_type_normalized", None) or getattr(row, "transaction_type", None) or getattr(row, "transaction_code", None)),
+            "transaction_date": _iso(getattr(row, "transaction_date", None)),
+            "filing_date": _iso(getattr(row, "filing_date", None)),
+            "shares": numeric_value(getattr(row, "shares", None)),
+            "price": numeric_value(getattr(row, "price", None)),
+            "trade_value": numeric_value(getattr(row, "value", None)),
+            "shares_owned_following": numeric_value(getattr(row, "shares_owned_following", None)),
+            "direct_or_indirect": _clean_text(getattr(row, "direct_or_indirect", None) or getattr(row, "ownership", None)),
+            "role": _clean_text(getattr(row, "officer_title", None) or getattr(row, "role", None)),
+            "reporting_cik": normalized_cik,
+            "insider_name": insider_name,
+            "external_id": _clean_text(getattr(row, "accession_number", None) or getattr(row, "external_id", None)),
+            "url": None,
+        }
+        for row in working_rows[:12]
+    ]
+    buy_count = sum(1 for item in recent_activity if str(item["transaction_type"] or "").lower() in {"p", "purchase", "buy", "acquisition"})
+    sell_count = sum(1 for item in recent_activity if str(item["transaction_type"] or "").lower() in {"s", "sale", "sell", "disposition"})
     latest_date = max((getattr(row, "filing_date", None) for row in working_rows if getattr(row, "filing_date", None)), default=None)
     data_as_of = datetime.combine(latest_date, datetime.min.time(), tzinfo=timezone.utc) if latest_date else None
     slug = f"{_slugify(insider_name)}-{normalized_cik}"
     payload = {
         "insider_name": insider_name,
         "reporting_cik": normalized_cik,
+        "primary_company_name": company_name,
         "primary_symbol": symbol,
         "primary_role": role,
+        "total_trades": len(working_rows),
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "unique_tickers": len({item["symbol"] for item in recent_activity if item["symbol"]}),
+        "gross_buy_value": sum(item["trade_value"] or 0 for item in recent_activity if str(item["transaction_type"] or "").lower() in {"p", "purchase", "buy", "acquisition"}),
+        "gross_sell_value": sum(item["trade_value"] or 0 for item in recent_activity if str(item["transaction_type"] or "").lower() in {"s", "sale", "sell", "disposition"}),
+        "latest_filing_date": _iso(latest_date),
+        "latest_transaction_date": _iso(max((getattr(row, "transaction_date", None) for row in working_rows if getattr(row, "transaction_date", None)), default=None)),
+        "role_contexts": [{"symbol": symbol, "company_name": company_name, "role": role, "filings": len(working_rows), "latest_filing_date": _iso(latest_date)}] if symbol else [],
         "sections": [
             {
                 "heading": "Form 4 Activity",
                 "body": f"{insider_name} has {len(working_rows)} recent public Form 4 item(s) available for review in Walnut.",
             }
         ],
-        "recent_activity": [
-            {
-                "symbol": _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None)),
-                "transaction_type": _clean_text(getattr(row, "transaction_type", None) or getattr(row, "transaction_code", None)),
-                "transaction_date": _iso(getattr(row, "transaction_date", None)),
-                "filing_date": _iso(getattr(row, "filing_date", None)),
-            }
-            for row in working_rows[:6]
-        ],
+        "recent_activity": recent_activity,
         "links": [{"label": f"{symbol} stock research", "href": f"/ticker/{symbol}"}] if symbol else [],
     }
     return _upsert_snapshot(
@@ -554,9 +641,55 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         entity_type="insider",
         entity_key=normalized_cik,
         canonical_path=f"/insider/{slug}",
-        title=f"{insider_name} Insider Trades | Walnut Markets",
-        meta_description=f"Research {insider_name}'s Form 4 activity, issuer context, role, recent transactions and related ticker links in Walnut Markets.",
+        title=f"{insider_name} Insider Trades & Form 4 Activity | Walnut Markets",
+        meta_description=f"Track {insider_name}'s disclosed {company_name + ' ' if company_name else ''}insider transactions, Form 4 filings, buy/sell activity, and historical trading data with Walnut Markets.",
         indexable=bool(working_rows and insider_name != "Insider"),
+        payload=payload,
+        data_as_of=data_as_of,
+    )
+
+
+def refresh_department_seo_snapshot(db: Session, slug: str) -> dict[str, Any]:
+    """Persist the complete public department profile for bounded anonymous SSR."""
+    profile = get_department_profile(db, slug, limit=15)
+    if profile is None:
+        raise ValueError(f"Unknown department: {slug}")
+
+    name = _clean_text(profile.get("name")) or "Government Department"
+    canonical_slug = department_slug(name) or _slugify(slug)
+    summary = profile.get("summary") if isinstance(profile.get("summary"), dict) else {}
+    latest_award_date = _clean_text(summary.get("latestAwardDate"))
+    data_as_of = None
+    if latest_award_date:
+        try:
+            data_as_of = datetime.combine(date.fromisoformat(latest_award_date[:10]), datetime.min.time(), tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    tickers = profile.get("tickers") if isinstance(profile.get("tickers"), list) else []
+    links = [
+        {"label": f"{symbol} stock research", "href": f"/ticker/{symbol}"}
+        for item in tickers[:12]
+        if isinstance(item, dict) and (symbol := _clean_text(item.get("symbol")))
+    ]
+    payload = {
+        **profile,
+        "sections": [
+            {
+                "heading": "Government Contract Activity",
+                "body": f"Explore {name} contract awards, linked public companies, and recent federal contract activity.",
+            }
+        ],
+        "links": links,
+    }
+    indexable = bool((summary.get("contractCount") or 0) > 0 and (summary.get("linkedTickerCount") or 0) > 0)
+    return _upsert_snapshot(
+        db,
+        entity_type="department",
+        entity_key=canonical_slug,
+        canonical_path=f"/departments/{canonical_slug}",
+        title=f"{name} Government Contracts | Walnut Markets",
+        meta_description=f"Explore {name} contract awards, public-company recipients, linked tickers, award trends, and recent federal contract activity.",
+        indexable=indexable,
         payload=payload,
         data_as_of=data_as_of,
     )
@@ -569,4 +702,6 @@ def refresh_seo_snapshot(db: Session, entity_type: SeoEntityType, entity_key: st
         return refresh_member_seo_snapshot(db, entity_key)
     if entity_type == "insider":
         return refresh_insider_seo_snapshot(db, entity_key)
+    if entity_type == "department":
+        return refresh_department_seo_snapshot(db, entity_key)
     raise ValueError(f"Unsupported entity type: {entity_type}")

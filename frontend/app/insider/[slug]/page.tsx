@@ -130,6 +130,42 @@ function fallbackInsiderTrades(reportingCik: string, lookbackDays: number): Insi
   };
 }
 
+function snapshotInsiderSummary(reportingCik: string, lookbackDays: number, payload: Record<string, unknown>, slug: string): InsiderSummaryData {
+  const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
+  const roleContexts = Array.isArray(payload.role_contexts) ? payload.role_contexts : [];
+  return {
+    ...fallbackInsiderSummary(reportingCik, lookbackDays, text(payload.primary_symbol) ?? undefined, slug),
+    insider_name: text(payload.insider_name) ?? insiderDisplayNameFromSlug(slug),
+    primary_company_name: text(payload.primary_company_name),
+    primary_role: text(payload.primary_role),
+    primary_symbol: text(payload.primary_symbol),
+    role_contexts: roleContexts as InsiderSummaryData["role_contexts"],
+    total_trades: number(payload.total_trades),
+    buy_count: number(payload.buy_count),
+    sell_count: number(payload.sell_count),
+    unique_tickers: number(payload.unique_tickers),
+    gross_buy_value: number(payload.gross_buy_value),
+    gross_sell_value: number(payload.gross_sell_value),
+    net_flow: number(payload.gross_buy_value) - number(payload.gross_sell_value),
+    latest_filing_date: text(payload.latest_filing_date),
+    latest_transaction_date: text(payload.latest_transaction_date),
+  };
+}
+
+function snapshotInsiderTrades(reportingCik: string, lookbackDays: number, payload: Record<string, unknown>, page: number): InsiderTradesData {
+  const items = Array.isArray(payload.recent_activity) ? payload.recent_activity : [];
+  return {
+    reporting_cik: reportingCik,
+    lookback_days: lookbackDays,
+    total: typeof payload.total_trades === "number" ? payload.total_trades : items.length,
+    page,
+    limit: 20,
+    has_next: false,
+    items: items as InsiderTradesData["items"],
+  };
+}
+
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
   return typeof value === "string" ? value : "";
@@ -287,11 +323,17 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
   const lookbackDays = Number(lookback);
   const normalizedIssuer = issuer || undefined;
-  const summaryResult = await loadInsiderSection(
-    { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "summary" },
-    () => getInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, { source: "InsiderSummary", stalePageCache: publicStalePageCache }),
-    fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
-  );
+  const snapshot = publicStalePageCache
+    ? await getSeoSnapshot("insider", reportingCik, { source: "InsiderProfileSnapshot" }).then((response) => response.snapshot).catch(() => null)
+    : null;
+  if (publicStalePageCache && !snapshot?.payload) notFound();
+  const summaryResult = publicStalePageCache
+    ? { data: snapshotInsiderSummary(reportingCik, lookbackDays, snapshot!.payload, slug), unavailable: false }
+    : await loadInsiderSection(
+        { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "summary" },
+        () => getInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, { source: "InsiderSummary", stalePageCache: false }),
+        fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
+      );
   const summary = summaryResult.data;
   const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
@@ -312,7 +354,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   }
 
   const stockSymbol = chartSymbol || issuer || summary.primary_symbol || undefined;
-  const needsHeaderFallback = !summary.primary_company_name || !summary.primary_role;
+  const needsHeaderFallback = !publicStalePageCache && (!summary.primary_company_name || !summary.primary_role);
   const headerTradesResult = needsHeaderFallback
     ? await loadInsiderSection(
         { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "header-trades" },
@@ -327,29 +369,29 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const companyText =
     firstText(summary.primary_company_name, headerTrade?.company_name, headerTrade?.companyName, headerTrade?.security_name, headerTrade?.securityName) ??
     "Company unavailable";
-  const headshotPromise = resolveWikipediaHeadshot(insiderName, {
-    kind: "insider",
-    company: companyText,
-    role: roleText,
-    symbol: stockSymbol,
-  });
-  const [initialAlphaSummaryResult, initialTradesResult] = await Promise.allSettled([
-    getInsiderAlphaSummary(reportingCik, {
-      lookback_days: lookbackDays,
-      issuer: normalizedIssuer,
-      source: "InsiderProfileInitialAlpha",
-      stalePageCache: publicStalePageCache,
-    }),
-    getInsiderTrades(reportingCik, lookbackDays, 20, normalizedIssuer, {
-      page: recentTradesPage,
-      source: "InsiderProfileInitialTrades",
-      stalePageCache: publicStalePageCache,
-    }),
-  ]);
-  const initialAlphaSummary =
-    initialAlphaSummaryResult.status === "fulfilled" ? initialAlphaSummaryResult.value : undefined;
-  const initialTrades =
-    initialTradesResult.status === "fulfilled" ? initialTradesResult.value : undefined;
+  const headshotPromise = publicStalePageCache
+    ? Promise.resolve(null)
+    : resolveWikipediaHeadshot(insiderName, {
+        kind: "insider",
+        company: companyText,
+        role: roleText,
+        symbol: stockSymbol,
+      });
+  const initialTrades = publicStalePageCache
+    ? snapshotInsiderTrades(reportingCik, lookbackDays, snapshot!.payload, recentTradesPage)
+    : await getInsiderTrades(reportingCik, lookbackDays, 20, normalizedIssuer, {
+        page: recentTradesPage,
+        source: "InsiderProfileInitialTrades",
+        stalePageCache: false,
+      }).catch(() => undefined);
+  const initialAlphaSummary = publicStalePageCache
+    ? undefined
+    : await getInsiderAlphaSummary(reportingCik, {
+        lookback_days: lookbackDays,
+        issuer: normalizedIssuer,
+        source: "InsiderProfileInitialAlpha",
+        stalePageCache: false,
+      }).catch(() => undefined);
   const initialBuyCount = initialTrades?.items.filter((trade) => {
     const value = (trade.trade_type ?? trade.tradeType ?? "").toLowerCase();
     return value === "p" || value.includes("buy") || value.includes("purchase") || value.includes("acquire");
@@ -396,7 +438,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             </Suspense>
             <div className="min-w-0 pt-0.5">
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName} Insider Activity</h1>
+                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName} Insider Trades</h1>
                 <VerifiedBadge />
               </div>
               <InsiderProfileHeaderClient
@@ -411,6 +453,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 initialRoleText={roleText}
                 initialCompanyText={companyText}
                 initialOwnershipContext={ownershipContext}
+                disableLiveRefresh={publicStalePageCache}
               />
             </div>
         </div>
@@ -443,6 +486,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           summary={summary}
           initialAlphaSummary={initialAlphaSummary}
           initialTrades={initialTrades}
+          disableLiveRefresh={publicStalePageCache}
         />
       </div>
     </div>
