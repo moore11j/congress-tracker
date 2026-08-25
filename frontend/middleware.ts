@@ -6,6 +6,7 @@ const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
 const anonymousPublicRenderHeaderName = "x-walnut-anonymous-public-render";
+const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidate=300";
 const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
   "/landing",
@@ -198,6 +199,16 @@ function isInteractiveBrowserUserAgent(userAgent: string): boolean {
   if (!ua) return false;
   if (/googlebot|google-inspectiontool|adsbot-google|bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
   return /mozilla|chrome|safari|firefox|edg\//.test(ua);
+}
+
+function publicTickerEdgeCacheResponse(): NextResponse {
+  const response = NextResponse.next();
+  // This branch is only reached after the caller verified that no Walnut auth
+  // cookie is present. It is therefore safe to share the full public ticker
+  // shell at the edge without caching account, entitlement, or watchlist data.
+  response.headers.set("cache-control", publicTickerEdgeCacheControl);
+  response.headers.set("x-walnut-ticker-edge-cache", "public");
+  return response;
 }
 
 function hasWalnutAuthCookie(request: NextRequest): boolean {
@@ -433,6 +444,17 @@ export async function middleware(request: NextRequest) {
     appUrl.protocol = "https:";
     appUrl.host = appHost;
     return NextResponse.redirect(appUrl, 307);
+  }
+
+  if (
+    host === appHost &&
+    isPublicTickerRoute(pathname) &&
+    !hasBackendSession &&
+    !hasAuthHint &&
+    !prefetch &&
+    isInteractiveBrowserUserAgent(userAgent)
+  ) {
+    return publicTickerEdgeCacheResponse();
   }
 
   if (isTerminalRoute(pathname) && !isPublicSeoEntityRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot || !isInteractiveBrowserUserAgent(userAgent))) {
