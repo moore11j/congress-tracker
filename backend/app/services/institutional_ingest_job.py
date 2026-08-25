@@ -21,7 +21,10 @@ HISTORICAL_13F_JOB_NAME = "historical_13f"
 DEFAULT_STALE_RUNNING_MINUTES = 90
 DEFAULT_FEED_EVENTS_WARNING_THRESHOLD = 100
 SCHEDULED_PAGES_PER_RUN = 1
-SCHEDULED_LIMIT = 25
+# Keep the provider page size aligned with the work budget.  When the page
+# contains more rows than max_filings_per_run, the cursor advances before the
+# unprocessed rows are reached and they can be starved by newer filings.
+SCHEDULED_LIMIT = 5
 SCHEDULED_MAX_FILINGS = 5
 SCHEDULED_ENABLED_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"
 SCHEDULED_START_PAGE_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"

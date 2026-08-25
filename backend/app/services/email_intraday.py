@@ -39,6 +39,7 @@ from app.services.email_digests import (
     _score_display,
 )
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
+from app.services.monitoring_alerts import watchlist_candidate_events
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
 from app.services.watchlist_content_events import sync_watchlist_content_events
@@ -91,7 +92,12 @@ INTRADAY_EVENT_TYPES = (
     "news_article",
     "press_release",
 )
-INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
+INSTITUTIONAL_ALERT_TYPES = (
+    *INSTITUTIONAL_EVENT_TYPES,
+    "institutional_buy",
+    "institutional_activity",
+    "institutional_activity_change",
+)
 SIGNAL_ALERT_TYPES = (
     "signal",
     "score_change",
@@ -231,26 +237,19 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
         if not user or not watchlist:
             continue
         sync_watchlist_content_events(db, watchlist.id)
-        symbols = _watchlist_symbols(db, watchlist.id)
-        if not symbols:
-            continue
         event_types = _intraday_event_types_for_user(db, user)
-        activity_ts = func.coalesce(Event.event_date, Event.ts)
-        rows = (
-            db.execute(
-                select(Event)
-                .where(Event.symbol.is_not(None))
-                .where(func.upper(Event.symbol).in_(symbols))
-                .where(Event.event_type.in_(event_types))
-                .where(activity_ts >= since)
-                .order_by(activity_ts.desc(), Event.id.desc())
-                .limit(limit)
-            )
-            .scalars()
-            .all()
+        rows = watchlist_candidate_events(
+            db,
+            watchlist_id=watchlist.id,
+            event_types=event_types,
+            since=since,
+            strict_since=False,
+            descending=True,
+            limit=limit,
+            use_effective_activity=False,
         )
         for event in rows:
-            candidates.append(_with_subscription_trigger_skip(_watchlist_candidate(user, watchlist, event), subscription))
+            candidates.append(_with_subscription_trigger_skip(_watchlist_candidate(db, user, watchlist, event), subscription))
     return candidates[:limit]
 
 
@@ -337,29 +336,38 @@ def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> boo
 def _intraday_event_types_for_user(db: Session, user: UserAccount) -> tuple[str, ...]:
     if _user_can_view_institutional_activity(db, user):
         return INTRADAY_EVENT_TYPES
-    return tuple(event_type for event_type in INTRADAY_EVENT_TYPES if event_type not in INSTITUTIONAL_EVENT_TYPES)
+    return tuple(event_type for event_type in INTRADAY_EVENT_TYPES if event_type not in INSTITUTIONAL_ALERT_TYPES)
 
 
 def _is_institutional_alert_type(value: str | None) -> bool:
     return (value or "").strip().lower() in INSTITUTIONAL_ALERT_TYPES
 
 
-def _watchlist_candidate(user: UserAccount, watchlist: Watchlist, event: Event) -> IntradayAlertCandidate:
+def _watchlist_candidate(db: Session, user: UserAccount, watchlist: Watchlist, event: Event) -> IntradayAlertCandidate:
     payload = _loads_dict(event.payload_json)
     score = _event_score(event, payload)
     amount = event.amount_max if event.amount_max is not None else event.amount_min
     trigger = _watchlist_trigger(event, payload, score, amount)
     ticker = (event.symbol or "UNKNOWN").upper()
+    matched_target, matched_target_type = _watchlist_matched_target(db, watchlist.id, event, ticker)
     actor = _event_actor(event, payload)
     is_content = event.event_type in {"news_article", "press_release"}
     content_label = "News" if event.event_type == "news_article" else "Press release"
     headline = str(payload.get("title") or "").strip()
+    is_member_alert = matched_target_type == "member"
+    alert_title = f"{ticker} — {content_label}" if is_content else f"Watchlist activity: {matched_target}"
+    if is_content and headline:
+        alert_intro = headline
+    elif is_member_alert and event.event_type.startswith("congress_trade"):
+        alert_intro = f"Walnut found new congressional activity for {matched_target} involving {ticker} on {watchlist.name}."
+    else:
+        alert_intro = f"Walnut found monitoring activity for {matched_target} on {watchlist.name}."
     context = {
         "first_name": _first_name(user),
         "ticker": ticker,
         "watchlist_name": watchlist.name,
-        "alert_title": f"{ticker} — {content_label}" if is_content else f"Watchlist activity: {ticker}",
-        "alert_intro": headline if is_content and headline else f"Walnut found monitoring activity for {ticker} on {watchlist.name}.",
+        "alert_title": alert_title,
+        "alert_intro": alert_intro,
         "event_type": content_label if is_content else event.event_type.replace("_", " "),
         "actor": actor,
         "amount": _amount(event.amount_min, event.amount_max),
@@ -389,6 +397,34 @@ def _watchlist_candidate(user: UserAccount, watchlist: Watchlist, event: Event) 
         context=context,
         watchlist_id=watchlist.id,
     )
+
+
+def _watchlist_matched_target(db: Session, watchlist_id: int, event: Event, ticker: str) -> tuple[str, str]:
+    """Return the user-facing target that caused this event to be selected.
+
+    A Congress member watch can surface a trade in any ticker.  Showing that
+    ticker as the watchlist activity title implies the ticker was watched, so
+    member labels take precedence for Congress events.
+    """
+    rows = db.execute(
+        select(WatchlistItem.target_type, WatchlistItem.target_value, WatchlistItem.target_label, Security.symbol)
+        .outerjoin(Security, Security.id == WatchlistItem.security_id)
+        .where(WatchlistItem.watchlist_id == watchlist_id)
+        .order_by(WatchlistItem.id.asc())
+    ).all()
+    event_member_id = (event.member_bioguide_id or "").strip().upper()
+    event_member_name = _member_name_key(event.member_name)
+    for target_type, target_value, target_label, _symbol in rows:
+        if (target_type or "").strip().lower() != "member":
+            continue
+        label = (target_label or target_value or "Congress member").strip()
+        if not label:
+            continue
+        if event_member_id and event_member_id == (target_value or "").strip().upper():
+            return label, "member"
+        if event.event_type.startswith("congress_trade") and event_member_name and event_member_name == _member_name_key(label):
+            return label, "member"
+    return ticker, "ticker"
 
 
 def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist_symbols: set[str]) -> IntradayAlertCandidate:
@@ -882,8 +918,21 @@ def _direction_from_payload(payload: dict[str, Any]) -> str:
 def _source_stack(payload: dict[str, Any], fallback: str | None) -> str:
     value = payload.get("source_stack") or payload.get("sources") or fallback
     if isinstance(value, list):
-        return ", ".join(str(item) for item in value if item)
-    return str(value or "Walnut activity feed")
+        return ", ".join(_source_label(item) for item in value if item)
+    return _source_label(value)
+
+
+def _source_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    labels = {
+        "house_fmp": "Congress Disclosures",
+        "senate_fmp": "Congress Disclosures",
+    }
+    return labels.get(raw.casefold(), raw or "Walnut activity feed")
+
+
+def _member_name_key(value: str | None) -> str:
+    return " ".join("".join(char if char.isalnum() else " " for char in (value or "").casefold()).split())
 
 
 def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:

@@ -146,7 +146,7 @@ def test_job_state_initialization_defaults_disabled(job_env):
         assert state.enabled is False
         assert state.cursor_page == 9
         assert state.pages_per_run == 1
-        assert state.limit == 25
+    assert state.limit == 5
         assert state.max_filings_per_run == 5
     finally:
         db.close()
@@ -183,7 +183,7 @@ def test_scheduled_latest_once_processes_fixed_window_and_advances_cursor(job_en
     result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert calls == [{"start_page": 9, "pages": 1, "limit": 25, "max_filings": 5}]
+    assert calls == [{"start_page": 9, "pages": 1, "limit": 5, "max_filings": 5}]
     state = _state(job_env)
     assert state.cursor_page == 10
     assert state.pages_per_run == 1
@@ -211,10 +211,31 @@ def test_scheduled_latest_once_can_reset_cursor_to_start_page_each_run(job_env, 
     result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert calls == [{"start_page": 0, "pages": 1, "limit": 25, "max_filings": 5}]
+    assert calls == [{"start_page": 0, "pages": 1, "limit": 5, "max_filings": 5}]
     state = _state(job_env)
     assert state.cursor_page == 1
     assert state.first_empty_page is None
+
+
+def test_scheduled_latest_once_retains_cursor_when_reset_is_not_enabled(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=42, first_empty_page=99, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE", "0")
+    calls = []
+
+    def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        return _fake_result(start_page=42)
+
+    monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", fake_ingest)
+
+    result = job_module.run_scheduled_latest_once()
+
+    assert result["status"] == "success"
+    assert calls == [{"start_page": 42, "pages": 1, "limit": 5, "max_filings": 5}]
+    state = _state(job_env)
+    assert state.cursor_page == 43
+    assert state.first_empty_page == 99
 
 
 def test_job_cursor_advances_after_successful_all_skipped_window(job_env, monkeypatch):

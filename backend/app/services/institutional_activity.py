@@ -1798,6 +1798,21 @@ def holder_profile(db: Session, cik: str) -> dict[str, Any] | None:
             latest_report_year = latest_position.report_year
             latest_report_quarter = latest_position.report_quarter
             latest_filing_date = latest_position.filing_date
+    # Provider holder summaries can carry the report-period end here. The
+    # profile labels this value as a filing date, so resolve it from the
+    # canonical filing for the selected period whenever possible.
+    if latest_report_year and latest_report_quarter:
+        canonical_filing_date = db.execute(
+            select(func.max(InstitutionalFiling.filing_date)).where(
+                InstitutionalFiling.cik == normalized,
+                InstitutionalFiling.report_year == latest_report_year,
+                InstitutionalFiling.report_quarter == latest_report_quarter,
+                InstitutionalFiling.superseded_by.is_(None),
+            )
+        ).scalar_one_or_none()
+        if canonical_filing_date is not None:
+            latest_filing_date = canonical_filing_date
+
     latest_positions = []
     total_reported_value = 0.0
     holdings_count = 0

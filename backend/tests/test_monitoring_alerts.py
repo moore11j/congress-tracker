@@ -26,6 +26,7 @@ from app.main import (
 )
 from app.models import (
     AppSetting,
+    CongressMemberAlias,
     Event,
     FeatureGate,
     MonitoringAlert,
@@ -73,6 +74,7 @@ def _session():
             PlanPrice.__table__,
             StrategyDefinition.__table__,
             StrategySubscription.__table__,
+            CongressMemberAlias.__table__,
         ],
     )
     return Session()
@@ -163,6 +165,121 @@ def test_watchlist_member_target_and_ticker_match_same_event_once():
         assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 0
         db.commit()
         assert db.query(MonitoringAlert).count() == 1
+    finally:
+        db.close()
+
+
+def test_all_non_ticker_targets_materialize_monitoring_alerts_and_member_name_fallback():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        user.entitlement_tier = "pro"
+        db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist.id).delete()
+        db.add_all(
+            [
+                WatchlistItem(watchlist_id=watchlist.id, target_type="member", target_value="P000197", target_label="Nancy Pelosi"),
+                WatchlistItem(watchlist_id=watchlist.id, target_type="insider", target_value="0000320193", target_label="Example Insider"),
+                WatchlistItem(watchlist_id=watchlist.id, target_type="institution", target_value="0001067983", target_label="Example Institution"),
+                WatchlistItem(watchlist_id=watchlist.id, target_type="department", target_value="Department of Defense", target_label="Department of Defense"),
+            ]
+        )
+        db.add_all(
+            [
+                Event(
+                    event_type="congress_trade",
+                    ts=now - timedelta(minutes=5),
+                    event_date=now - timedelta(minutes=5),
+                    created_at=now - timedelta(minutes=5),
+                    symbol="BE",
+                    source="congress",
+                    member_name="Nancy Pelosi",
+                    member_bioguide_id="FMP_HOUSE_CA11",
+                    trade_type="purchase",
+                    payload_json=json.dumps({"member": "Nancy Pelosi"}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="insider_trade",
+                    ts=now - timedelta(minutes=4),
+                    event_date=now - timedelta(minutes=4),
+                    created_at=now - timedelta(minutes=4),
+                    symbol="AAPL",
+                    source="insider",
+                    payload_json=json.dumps({"reporting_cik": "320193"}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="institutional_buy",
+                    ts=now - timedelta(minutes=3),
+                    event_date=now - timedelta(minutes=3),
+                    created_at=now - timedelta(minutes=3),
+                    symbol="BRK.B",
+                    source="institutional",
+                    payload_json=json.dumps({"institution_cik": "1067983"}),
+                    impact_score=0,
+                ),
+                Event(
+                    event_type="government_contract",
+                    ts=now - timedelta(minutes=2),
+                    event_date=now - timedelta(minutes=2),
+                    created_at=now - timedelta(minutes=2),
+                    symbol="NOC",
+                    source="usaspending",
+                    payload_json=json.dumps({"awarding_agency": "Department of Defense"}),
+                    impact_score=0,
+                ),
+            ]
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 4
+        db.commit()
+
+        alerts = db.query(MonitoringAlert).order_by(MonitoringAlert.symbol).all()
+        assert {alert.symbol for alert in alerts} == {"AAPL", "BE", "BRK.B", "NOC"}
+        assert {alert.alert_type for alert in alerts} == {
+            "congress_trade",
+            "insider_trade",
+            "institutional_buy",
+            "government_contract",
+        }
+    finally:
+        db.close()
+
+
+def test_member_watchlist_uses_authoritative_alias_when_legacy_event_has_no_name():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist.id).delete()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, target_type="member", target_value="P000197", target_label="Nancy Pelosi"))
+        db.add(
+            CongressMemberAlias(
+                alias_member_id="FMP_HOUSE_CA11",
+                group_key="P000197",
+                authoritative_member_id="P000197",
+                member_name="Nancy Pelosi",
+                chamber="house",
+                state="CA",
+            )
+        )
+        db.add(
+            Event(
+                event_type="congress_trade",
+                ts=now - timedelta(minutes=5),
+                event_date=now - timedelta(minutes=5),
+                created_at=now - timedelta(minutes=5),
+                symbol="BE",
+                source="house_fmp",
+                member_bioguide_id="FMP_HOUSE_CA11",
+                trade_type="purchase",
+                payload_json="{}",
+                impact_score=0,
+            )
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 1
     finally:
         db.close()
 
@@ -393,11 +510,11 @@ def test_get_watchlist_does_not_refresh_alerts_inline():
         )
         db.commit()
 
-        response = get_watchlist(watchlist.id, _request_for_user(user), None, db)
+        response = get_watchlist(watchlist.id, _request_for_user(user), db)
 
         assert response["watchlist_id"] == watchlist.id
         assert response["tickers"] == [{"symbol": "AAPL", "name": "Apple"}]
-        assert response["unseen_count"] == 1
+        assert response["unseen_count"] == 0
         assert db.query(MonitoringAlert).count() == 0
     finally:
         db.close()

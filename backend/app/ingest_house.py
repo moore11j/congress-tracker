@@ -311,19 +311,22 @@ def upsert_house_transaction_from_row(
     district = _safe_str(row.get("district"))
     full_name = f"{first_name or ''} {last_name or ''}".strip() or None
     party = _guess_party(_safe_str(row.get("party")))
-    if not party:
-        fallback = metadata.resolve(
-            bioguide_id=member_key,
-            first_name=first_name,
-            last_name=last_name,
-            full_name=full_name,
-            chamber=chamber,
-            state=state,
-            house_district=district,
-        )
-        if fallback:
-            party = fallback.party
-            state = state or fallback.state
+    fallback = metadata.resolve(
+        bioguide_id=member_key,
+        first_name=first_name,
+        last_name=last_name,
+        full_name=full_name,
+        chamber=chamber,
+        state=state,
+        house_district=district,
+    )
+    if fallback:
+        # Preserve the canonical Bioguide identity whenever metadata resolves
+        # it. This keeps FMP's district-shaped IDs from breaking member
+        # watchlists, profiles, and downstream alerts.
+        member_key = fallback.bioguide_id or member_key
+        party = party or fallback.party
+        state = state or fallback.state
 
     member = db.execute(select(Member).where(Member.bioguide_id == member_key)).scalar_one_or_none()
     if member is None:
@@ -400,6 +403,7 @@ def upsert_house_transaction_from_row(
         db.flush()
         filing_created = True
     else:
+        filing.member_id = member.id
         filing.filing_date = filing.filing_date or filing_date
         filing.document_url = filing.document_url or doc_url
 
@@ -440,6 +444,7 @@ def upsert_house_transaction_from_row(
     duplicate_in_batch = identity in seen_transaction_keys
     if existing_tx is not None or duplicate_in_batch:
         if not duplicate_in_batch:
+            existing_tx.member_id = member.id
             seen_transaction_keys.add(identity)
         return {
             "filing": filing,

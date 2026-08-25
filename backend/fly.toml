@@ -59,7 +59,10 @@ destination = "/data"
   INSIDER_ANALYTICS_PREWARM_ENABLED = "false"
   INSTITUTIONAL_SCHEDULED_INGEST_ENABLED = "true"
   INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE = "0"
-  INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN = "true"
+  # Retain the durable cursor so each scheduled run progresses through the
+  # provider's latest-filings pages. Resetting this to true permanently
+  # rescans page zero and starves filings on every subsequent page.
+  INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN = "false"
   INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS = "900"
   INSTITUTIONAL_HISTORICAL_BACKFILL_ENABLED = "true"
   INSTITUTIONAL_HISTORICAL_BACKFILL_MAX_SECONDS = "900"

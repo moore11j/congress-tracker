@@ -310,7 +310,10 @@ def upsert_senate_transaction_from_row(
         chamber = canonical.chamber or chamber
 
     base_name = full_name or f"{first_name or ''} {last_name or ''}".strip() or "UNKNOWN"
-    member_key = source_member_key or (canonical.bioguide_id if canonical else None)
+    # FMP can supply a provider-specific member ID even when the metadata
+    # resolver knows the canonical Bioguide ID. Prefer the canonical identity
+    # so member watchlists and alert routing remain stable across providers.
+    member_key = (canonical.bioguide_id if canonical and canonical.bioguide_id else None) or source_member_key
     if not member_key:
         member_key = f"FMP_{chamber.upper()}_{(state or 'XX')}_{base_name.upper().replace(' ', '_')}"
 
@@ -385,6 +388,7 @@ def upsert_senate_transaction_from_row(
         db.flush()
         filing_created = True
     else:
+        filing.member_id = member.id
         filing.filing_date = filing.filing_date or filing_date
         filing.document_url = filing.document_url or doc_url
 
@@ -425,6 +429,7 @@ def upsert_senate_transaction_from_row(
     duplicate_in_batch = identity in seen_transaction_keys
     if existing_tx is not None or duplicate_in_batch:
         if not duplicate_in_batch:
+            existing_tx.member_id = member.id
             seen_transaction_keys.add(identity)
         return {
             "filing": filing,
