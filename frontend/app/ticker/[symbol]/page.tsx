@@ -1367,6 +1367,18 @@ function CrossSourceDivergenceCard({ divergence }: { divergence?: CrossSourceDiv
   );
 }
 
+function TickerInterpretationPremiumLock({ title, description }: { title: string; description: string }) {
+  return (
+    <section className="mt-5 rounded-lg border border-emerald-300/20 bg-slate-950/40 px-5 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p>
+      <Link href="/pricing" className="mt-3 inline-flex items-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20">
+        Unlock with Premium
+      </Link>
+    </section>
+  );
+}
+
 function historicalPercent(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
@@ -1468,6 +1480,8 @@ function TickerOverviewPanel({
 }) {
   const displayBundle = sourceDisplayBundle;
   const confirmationLocked = Boolean(confirmationGate?.locked);
+  const divergenceLocked = Boolean(divergence?.access?.locked);
+  const similarHistoricalSetupsLocked = Boolean(similarHistoricalSetups?.access?.locked);
   const layer = decisionLayer ?? fallbackDecisionLayer(displayBundle);
   const confirmation = layer.confirmation ?? {};
   const score = typeof confirmation.score === "number" ? Math.round(confirmation.score) : null;
@@ -1509,7 +1523,11 @@ function TickerOverviewPanel({
         ) : null}
       </div>
 
-      <CrossSourceDivergenceCard divergence={divergence} />
+      {divergenceLocked ? (
+        <TickerInterpretationPremiumLock title="Cross-Source Divergence" description="Compare how Walnut’s confirmation sources align or diverge with Premium." />
+      ) : (
+        <CrossSourceDivergenceCard divergence={divergence} />
+      )}
 
       <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
 
@@ -1539,7 +1557,11 @@ function TickerOverviewPanel({
           ) : null}
         </section>
       </div>
-      <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} />
+      {similarHistoricalSetupsLocked ? (
+        <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
+      ) : (
+        <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} />
+      )}
     </div>
   );
 }

@@ -5197,6 +5197,7 @@ export type CrossSourceDivergenceSource = {
 };
 
 export type CrossSourceDivergence = {
+  access?: { locked?: boolean; required_plan?: string | null } | null;
   methodology_version: string;
   state: "unavailable" | "aligned" | "mild_divergence" | "moderate_divergence" | "strong_divergence" | string;
   label: string;

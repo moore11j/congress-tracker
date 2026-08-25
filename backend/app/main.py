@@ -7479,25 +7479,27 @@ def _build_ticker_context_bundle(
             confirmation_score_bundle,
             source_entitlements,
         )
-        allowed_divergence_sources = (
-            {
+        if can_view_signal_details:
+            allowed_divergence_sources = {
                 source_key
                 for source_key, entitlement in source_entitlements.items()
                 if not bool((entitlement or {}).get("locked"))
             }
-            if can_view_signal_details
-            else set()
-        )
-        divergence = (
-            public_cross_source_divergence(raw_divergence, allowed_source_keys=allowed_divergence_sources)
-            if raw_divergence is not None
-            else None
-        )
-        similar_historical_setups = (
-            public_similar_historical_setups(raw_similar_setups, include_details=can_view_signal_details)
-            if raw_similar_setups is not None
-            else None
-        )
+            divergence = (
+                public_cross_source_divergence(raw_divergence, allowed_source_keys=allowed_divergence_sources)
+                if raw_divergence is not None
+                else None
+            )
+            similar_historical_setups = (
+                public_similar_historical_setups(raw_similar_setups, include_details=True)
+                if raw_similar_setups is not None
+                else None
+            )
+        else:
+            # Confirmation/interpretation data is Premium-only. Returning a
+            # partial payload would still leak protected labels and metrics.
+            divergence = {"access": {"locked": True, "required_plan": "premium"}}
+            similar_historical_setups = {"access": {"locked": True, "required_plan": "premium"}}
         confirmation_ms = (perf_counter() - confirmation_started_at) * 1000
         slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
         signal_freshness = slim_confirmation["signal_freshness"]
