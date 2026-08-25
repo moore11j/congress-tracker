@@ -72,6 +72,7 @@ from app.db import (
 from app.ingest.government_contracts import ensure_government_contracts_schema
 from app.auth import SESSION_COOKIE_NAME, current_user, require_admin_user
 from app.entitlements import (
+    ENTITLEMENTS,
     current_entitlements,
     enforce_limit,
     entitlements_for_user,
@@ -7272,13 +7273,18 @@ def _ticker_context_bundle_cached_or_live_response(
     cached = _ticker_context_bundle_cached_for_segment(
         db,
         symbol=symbol,
-        user_segment="logged_out",
+        user_segment="canonical",
         side=side,
         limit=limit,
         lookback_days=lookback_days,
         started_at=started_at,
     )
     if cached is not None:
+        projected = _project_ticker_context_bundle_for_entitlements(
+            cached,
+            symbol=normalized_symbol,
+            source_entitlements=_ticker_context_source_entitlements(None, authenticated=False),
+        )
         logger.info(
             "api_cached_only_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
             normalized_symbol,
@@ -7286,7 +7292,7 @@ def _ticker_context_bundle_cached_or_live_response(
             _request_source(request, _classify_user_agent(request)),
             (perf_counter() - started_at) * 1000,
         )
-        return cached
+        return projected
     logger.info(
         "api_live_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
         normalized_symbol,
@@ -7304,6 +7310,125 @@ def _ticker_context_bundle_cached_or_live_response(
     )
 
 
+def _project_ticker_context_bundle_for_entitlements(
+    canonical_payload: dict[str, Any],
+    *,
+    symbol: str,
+    source_entitlements: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Create a tier-safe response from the private canonical ticker cache.
+
+    The canonical cache is never returned directly. Each response is copied and
+    redacted before it leaves the API, so an expensive Pro-level build can warm
+    the shared computation without exposing Pro data to lower tiers.
+    """
+    payload = copy.deepcopy(canonical_payload)
+    canonical_bundle = payload.get("confirmation_score_bundle")
+    confirmation_bundle = _redact_locked_ticker_confirmation_sources(
+        canonical_bundle if isinstance(canonical_bundle, dict) else {},
+        source_entitlements,
+    )
+    payload["confirmation_score_bundle"] = confirmation_bundle
+    payload["source_entitlements"] = source_entitlements
+
+    signals_summary = payload.get("signals_summary")
+    if not isinstance(signals_summary, dict):
+        signals_summary = {}
+    signals_summary["source_entitlements"] = source_entitlements
+    signals_locked = bool((source_entitlements.get("signals") or {}).get("locked"))
+    if signals_locked:
+        signals_summary["signals"] = {
+            "status": "premium_locked",
+            "direction": "neutral",
+            "title": "Premium feature",
+            "subtitle": "Signal stack unlocks with Premium.",
+            "recent_count": 0,
+            "latest_score": None,
+        }
+        signals_summary["rows"] = []
+        signals_summary["items"] = []
+        signals_summary["recent_count"] = 0
+        signals_summary["recent_signal_count"] = 0
+        signals_summary["latest_signal_score"] = None
+
+    source_cards = payload.get("source_cards")
+    if not isinstance(source_cards, dict):
+        source_cards = {}
+    source_cards["signals"] = signals_summary.get("signals")
+    sources = confirmation_bundle.get("sources") if isinstance(confirmation_bundle.get("sources"), dict) else {}
+    source_cards["institutional_activity"] = sources.get("institutional_activity")
+    pro_context_locked = bool((source_entitlements.get("options_flow") or {}).get("locked"))
+    if pro_context_locked:
+        # These cards live alongside public evidence in the canonical cache.
+        # Replace them here instead of relying on a client-side gate so their
+        # underlying Pro data never reaches a lower-tier response.
+        lookback_days = max(
+            1,
+            min(int(confirmation_bundle.get("lookback_days") or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365),
+        )
+        locked_options_flow = unavailable_options_flow_summary(
+            symbol,
+            lookback_days,
+            provider="access",
+            reason="pro_locked",
+        )
+        locked_options_flow.update(
+            {
+                "locked": True,
+                "required_plan": "pro",
+                "title": "Options Flow",
+                "subtitle": "Included with Walnut Pro.",
+            }
+        )
+        source_cards["options_flow"] = locked_options_flow
+        source_cards["macro_positioning"] = locked_macro_positioning_summary(symbol)
+        payload["options_flow_summary"] = locked_options_flow
+        signals_summary["macro_positioning"] = source_cards["macro_positioning"]
+    payload["source_cards"] = source_cards
+    payload["signals_summary"] = signals_summary
+
+    if signals_locked:
+        payload["cross_source_divergence"] = {"access": {"locked": True, "required_plan": "premium"}}
+        payload["similar_historical_setups"] = {"access": {"locked": True, "required_plan": "premium"}}
+    else:
+        allowed_divergence_sources = {
+            source_key
+            for source_key, entitlement in source_entitlements.items()
+            if not bool((entitlement or {}).get("locked"))
+        }
+        raw_divergence = build_cross_source_divergence(canonical_bundle) if isinstance(canonical_bundle, dict) and cross_source_divergence_enabled() else None
+        payload["cross_source_divergence"] = (
+            public_cross_source_divergence(raw_divergence, allowed_source_keys=allowed_divergence_sources)
+            if raw_divergence is not None
+            else None
+        )
+
+    slim_confirmation = slim_confirmation_score_bundle(confirmation_bundle)
+    payload["signal_freshness"] = slim_confirmation["signal_freshness"]
+    signals_summary["confirmation_score_bundle"] = confirmation_bundle
+    signals_summary["signal_freshness"] = slim_confirmation["signal_freshness"]
+    decision_source_contexts = {
+        key: source_cards.get(key)
+        for key in (
+            "price_volume",
+            "fundamentals",
+            "insiders",
+            "congress",
+            "signals",
+            "government_contracts",
+            "macro_positioning",
+        )
+    }
+    payload["decision_layer"] = build_ticker_decision_layer(
+        symbol,
+        confirmation_bundle=confirmation_bundle,
+        source_contexts=decision_source_contexts,
+        generated_at=str(payload.get("generated_at") or _dt_iso(datetime.now(timezone.utc))),
+        freshness_window=f"{max(1, min(int(confirmation_bundle.get('lookback_days') or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))}d",
+    )
+    return _ticker_context_bundle_public_payload(payload)
+
+
 def _build_ticker_context_bundle(
     *,
     request: Request,
@@ -7316,14 +7441,20 @@ def _build_ticker_context_bundle(
     started_at = perf_counter()
     user = current_user(db, request, required=False)
     is_authenticated = user is not None
-    entitlements = current_entitlements(request, db) if is_authenticated else None
-    source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=is_authenticated)
-    user_segment = _ticker_context_bundle_segment(
-        entitlements=entitlements,
+    viewer_entitlements = current_entitlements(request, db) if is_authenticated else None
+    viewer_source_entitlements = _ticker_context_source_entitlements(viewer_entitlements, authenticated=is_authenticated)
+    # Build and store the most complete internal evidence once. The response is
+    # projected back to the actual viewer tier immediately before returning.
+    entitlements = ENTITLEMENTS["admin"]
+    source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=True)
+    user_segment = "canonical"
+    viewer_segment = _ticker_context_bundle_segment(
+        entitlements=viewer_entitlements,
         authenticated=is_authenticated,
         user=user,
     )
     can_view_signal_details = not bool(source_entitlements["signals"]["locked"])
+    viewer_can_view_signal_details = not bool(viewer_source_entitlements["signals"]["locked"])
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
@@ -7331,7 +7462,9 @@ def _build_ticker_context_bundle(
     bounded_limit = max(1, min(int(limit or 3), 3))
     requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
     effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
-    cache_side = side if can_view_signal_details else "all"
+    # Signal details are the only side-sensitive source. Locked viewers share
+    # the canonical all-side build because their projection never exposes it.
+    cache_side = side if viewer_can_view_signal_details else "all"
     cache_key = _ticker_context_bundle_cache_key(
         normalized_symbol,
         user_segment=user_segment,
@@ -7347,7 +7480,11 @@ def _build_ticker_context_bundle(
         started_at=started_at,
     )
     if cached is not None:
-        return cached
+        return _project_ticker_context_bundle_for_entitlements(
+            cached,
+            symbol=normalized_symbol,
+            source_entitlements=viewer_source_entitlements,
+        )
 
     inflight_state, inflight_leader = _ticker_context_bundle_build_inflight_start(
         cache_key,
@@ -7364,7 +7501,11 @@ def _build_ticker_context_bundle(
             started_at=started_at,
         )
         if coalesced is not None:
-            return coalesced
+            return _project_ticker_context_bundle_for_entitlements(
+                coalesced,
+                symbol=normalized_symbol,
+                source_entitlements=viewer_source_entitlements,
+            )
 
     build_started_at = perf_counter()
     payload: dict[str, Any] | None = None
@@ -7414,7 +7555,7 @@ def _build_ticker_context_bundle(
                 congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
                 insider_min_amount=INSIDER_DEFAULTS["min_amount"],
                 min_smart_score=None,
-                side=side,
+                side=cache_side,
                 symbol=normalized_symbol,
             )
             rows = [_public_signal_row(item) for item in items[:bounded_limit]]
@@ -7595,9 +7736,10 @@ def _build_ticker_context_bundle(
             payload=payload,
         )
         logger.info(
-            "ticker_bundle_build_duration_ms symbol=%s user_segment=%s duration_ms=%.1f total_duration_ms=%.1f profile_ms=%.1f quote_ms=%.1f signals_ms=%.1f source_context_ms=%.1f confirmation_ms=%.1f build_slot_wait_ms=%.1f",
+            "ticker_bundle_build_duration_ms symbol=%s cache_segment=%s viewer_segment=%s duration_ms=%.1f total_duration_ms=%.1f profile_ms=%.1f quote_ms=%.1f signals_ms=%.1f source_context_ms=%.1f confirmation_ms=%.1f build_slot_wait_ms=%.1f",
             normalized_symbol,
             user_segment,
+            viewer_segment,
             (perf_counter() - build_started_at) * 1000,
             (perf_counter() - started_at) * 1000,
             profile_ms,
@@ -7607,7 +7749,11 @@ def _build_ticker_context_bundle(
             confirmation_ms,
             build_slot_wait_ms,
         )
-        return payload
+        return _project_ticker_context_bundle_for_entitlements(
+            payload,
+            symbol=normalized_symbol,
+            source_entitlements=viewer_source_entitlements,
+        )
     finally:
         if build_slot_acquired:
             _TICKER_CONTEXT_BUNDLE_BUILD_SEMAPHORE.release()

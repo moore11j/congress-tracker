@@ -2212,15 +2212,10 @@ def test_ticker_context_bundle_build_coalescing_returns_leader_payload(monkeypat
     assert "bundle-key" not in main_module._TICKER_CONTEXT_BUNDLE_INFLIGHT
 
 
-def test_ticker_context_bundle_free_does_not_query_premium_signals(monkeypatch):
+def test_ticker_context_bundle_free_projects_canonical_signals_without_returning_them(monkeypatch):
     engine = _engine()
     with Session(engine) as db:
-        _mock_ticker_context_bundle_dependencies(monkeypatch, tier="free")
-        monkeypatch.setattr(
-            main_module,
-            "_query_unified_signals",
-            lambda **kwargs: (_ for _ in ()).throw(AssertionError("free bundle must not query premium signal rows")),
-        )
+        counters = _mock_ticker_context_bundle_dependencies(monkeypatch, tier="free")
         response = main_module._build_ticker_context_bundle(
             request=object(),
             symbol="AAPL",
@@ -2234,6 +2229,7 @@ def test_ticker_context_bundle_free_does_not_query_premium_signals(monkeypatch):
     assert response["source_entitlements"]["signals"]["locked"] is True
     assert response["source_entitlements"]["institutional_activity"]["locked"] is True
     assert response["confirmation_score_bundle"]["sources"]["signals"]["locked"] is True
+    assert counters["signals"] == 1
 
 
 def test_ticker_context_bundle_locked_segments_share_canonical_side_and_lookback_cache(monkeypatch):
@@ -2260,7 +2256,7 @@ def test_ticker_context_bundle_locked_segments_share_canonical_side_and_lookback
     assert first["symbol"] == "AAPL"
     assert second["symbol"] == "AAPL"
     assert counters["profile"] == 1
-    assert counters["signals"] == 0
+    assert counters["signals"] == 1
 
 
 def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):
