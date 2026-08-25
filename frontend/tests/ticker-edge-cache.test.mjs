@@ -8,6 +8,7 @@ test("anonymous interactive ticker pages opt into a short edge cache without cha
 
   assert.match(middleware, /const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidate=300"/);
   assert.match(middleware, /function publicTickerEdgeCacheResponse\(\): NextResponse/);
+  assert.match(middleware, /response\.headers\.append\("vary", "Cookie"\)/);
   assert.match(middleware, /response\.headers\.set\("x-walnut-ticker-edge-cache", "public"\)/);
   assert.match(middleware, /isPublicTickerRoute\(pathname\)[\s\S]*!hasBackendSession[\s\S]*!hasAuthHint[\s\S]*!prefetch[\s\S]*isInteractiveBrowserUserAgent\(userAgent\)/);
 });

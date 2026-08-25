@@ -207,6 +207,10 @@ function publicTickerEdgeCacheResponse(): NextResponse {
   // cookie is present. It is therefore safe to share the full public ticker
   // shell at the edge without caching account, entitlement, or watchlist data.
   response.headers.set("cache-control", publicTickerEdgeCacheControl);
+  // Keep the eventual Vercel cache entry distinct from any signed-in request.
+  // `append` preserves Next's existing RSC router variants rather than replacing
+  // them.
+  response.headers.append("vary", "Cookie");
   response.headers.set("x-walnut-ticker-edge-cache", "public");
   return response;
 }
