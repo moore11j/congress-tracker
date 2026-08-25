@@ -51,6 +51,19 @@ const nextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
+      {
+        // This is deliberately configured at the final route-header layer.
+        // Middleware headers are superseded by Next's App Router response.
+        // The actual CDN TTL remains disabled until production confirms this
+        // partition survives alongside Next's router variants.
+        source: "/ticker/:symbol*",
+        headers: [
+          {
+            key: "Vary",
+            value: "Cookie",
+          },
+        ],
+      },
     ];
   },
   async rewrites() {
