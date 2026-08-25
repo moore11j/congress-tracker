@@ -90,6 +90,21 @@ def _member_name(member: Member) -> str:
     return " ".join(part for part in [member.first_name, member.last_name] if _clean_text(part)).strip() or member.bioguide_id
 
 
+def _display_insider_name(value: str) -> str:
+    """Match the human-readable identity used by the existing Insider page."""
+    normalized = value.strip()
+    if normalized.upper() == "COOK TIMOTHY D":
+        return "Tim Cook"
+    if normalized != normalized.upper():
+        return normalized
+    parts = normalized.title().split()
+    if len(parts) == 3 and len(parts[2].replace(".", "")) == 1:
+        return f"{parts[1]} {parts[2].replace('.', '')} {parts[0]}"
+    if len(parts) == 2:
+        return f"{parts[1]} {parts[0]}"
+    return " ".join(parts)
+
+
 def _clamped_batch_limit(limit: int) -> int:
     return max(1, min(int(limit or 1), SEO_BATCH_MAX_LIMIT))
 
@@ -499,7 +514,20 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
             .limit(12)
         ).scalars().all()
 
-    working_rows: list[Any] = list(rows) or list(legacy_rows)
+    candidate_rows: list[Any] = list(rows) or list(legacy_rows)
+    issuer_counts: dict[str, tuple[int, date]] = {}
+    for row in candidate_rows:
+        candidate_symbol = _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None))
+        if not candidate_symbol:
+            continue
+        count, latest = issuer_counts.get(candidate_symbol, (0, date.min))
+        filing_date = getattr(row, "filing_date", None) or getattr(row, "transaction_date", None) or date.min
+        issuer_counts[candidate_symbol] = (count + 1, max(latest, filing_date))
+    dominant_symbol = max(issuer_counts, key=lambda key: issuer_counts[key]) if issuer_counts else None
+    working_rows = [
+        row for row in candidate_rows
+        if dominant_symbol is None or _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None)) == dominant_symbol
+    ]
     insider_name = next(
         (
             _clean_text(getattr(row, "reporting_owner_name", None) or getattr(row, "insider_name", None))
@@ -508,6 +536,7 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         ),
         None,
     ) or "Insider"
+    display_insider_name = _display_insider_name(insider_name)
     symbol = next(
         (
             _clean_text(getattr(row, "ticker_normalized", None) or getattr(row, "symbol", None))
@@ -526,16 +555,16 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
     )
     latest_date = max((getattr(row, "filing_date", None) for row in working_rows if getattr(row, "filing_date", None)), default=None)
     data_as_of = datetime.combine(latest_date, datetime.min.time(), tzinfo=timezone.utc) if latest_date else None
-    slug = f"{_slugify(insider_name)}-{normalized_cik}"
+    slug = f"{_slugify(display_insider_name)}-{normalized_cik}"
     payload = {
-        "insider_name": insider_name,
+        "insider_name": display_insider_name,
         "reporting_cik": normalized_cik,
         "primary_symbol": symbol,
         "primary_role": role,
         "sections": [
             {
                 "heading": "Form 4 Activity",
-                "body": f"{insider_name} has {len(working_rows)} recent public Form 4 item(s) available for review in Walnut.",
+                "body": f"{display_insider_name} has {len(working_rows)} recent public Form 4 item(s) available for review in Walnut.",
             }
         ],
         "recent_activity": [
@@ -554,9 +583,9 @@ def refresh_insider_seo_snapshot(db: Session, reporting_cik: str) -> dict[str, A
         entity_type="insider",
         entity_key=normalized_cik,
         canonical_path=f"/insider/{slug}",
-        title=f"{insider_name} Insider Trades | Walnut Markets",
-        meta_description=f"Research {insider_name}'s Form 4 activity, issuer context, role, recent transactions and related ticker links in Walnut Markets.",
-        indexable=bool(working_rows and insider_name != "Insider"),
+        title=f"{display_insider_name} Insider Trades & Form 4 Activity | Walnut Markets",
+        meta_description=f"Track {display_insider_name}'s disclosed insider transactions, Form 4 filings, buy/sell activity, and trading history with Walnut Markets.",
+        indexable=bool(working_rows and display_insider_name != "Insider"),
         payload=payload,
         data_as_of=data_as_of,
     )
