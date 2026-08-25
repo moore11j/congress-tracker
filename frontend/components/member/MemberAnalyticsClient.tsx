@@ -19,6 +19,7 @@ import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { WalnutActivityBarChart } from "@/components/charts/WalnutActivityBarChart";
+import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { formatDateShort, formatTransactionLabel } from "@/lib/format";
@@ -293,26 +294,22 @@ function MetricGrid({ metrics }: { metrics: Array<{ label: string; value: string
 }
 
 function ActivityDonut({ rows }: { rows: Array<{ label: string; value: number; color: string }> }) {
-  const total = rows.reduce((sum, row) => sum + row.value, 0);
-  let cursor = 0;
-  const gradient = total > 0
-    ? rows.map((row) => {
-        const start = cursor;
-        const end = cursor + (row.value / total) * 100;
-        cursor = end;
-        return `${row.color} ${start}% ${end}%`;
-      }).join(", ")
-    : "#1f2937 0% 100%";
+  const segments = rows.filter((row) => row.value > 0);
+  const total = segments.reduce((sum, row) => sum + row.value, 0);
 
   return (
     <div className="mt-3 flex items-center gap-4">
-      <div className="relative h-24 w-24 shrink-0 rounded-full" style={{ background: `conic-gradient(${gradient})` }}>
-        <div className="absolute inset-6 rounded-full border border-white/10 bg-[#081321]" />
-      </div>
+      <WalnutDonutChart
+        segments={segments}
+        value={total.toLocaleString("en-US")}
+        label="Activity"
+        ariaLabel="Member activity by sector. Hover, touch, or use arrow keys to inspect each sector."
+        size={96}
+      />
       <div className="min-w-0 flex-1 space-y-1.5">
-        {rows.length === 0 ? (
+        {segments.length === 0 ? (
           <p className="text-xs text-slate-500">No sector activity yet.</p>
-        ) : rows.map((row) => (
+        ) : segments.map((row) => (
           <div key={row.label} className="grid grid-cols-[1fr_auto] items-center gap-2 text-[11px] leading-none">
             <div className="flex min-w-0 items-center gap-2">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />

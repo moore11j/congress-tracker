@@ -78,6 +78,8 @@ test("dashboard pie charts share an accessible interactive donut primitive", () 
   assert.match(donutChart, /size = 144/);
   assert.match(dashboard, /WalnutDonutChart/);
   assert.match(governmentDashboard, /WalnutDonutChart/);
+  assert.match(memberAnalytics, /WalnutDonutChart/);
+  assert.match(memberAnalytics, /Member activity by sector/);
 });
 
 test("activity charts share pointer, keyboard, animation, and reduced-motion behavior", () => {
