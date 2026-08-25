@@ -17,6 +17,8 @@ import { tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
+import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
+import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
 import { conciseSeoDescription, conciseSeoTitle, departmentHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
@@ -24,7 +26,7 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
-const panelClassName = "min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/55 shadow-[0_18px_60px_-42px_rgba(20,184,166,0.9)] ring-1 ring-white/[0.025]";
+const panelClassName = "min-w-0 rounded-lg border border-slate-700/70 bg-slate-950/55 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.8)] ring-1 ring-white/[0.025]";
 const departmentButtonClassName =
   "inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-700/80 bg-slate-950/45 px-4 text-sm font-semibold text-slate-100 transition hover:border-slate-500 hover:bg-slate-900/70 hover:text-white";
 const palette = ["#5ee0a5", "#38bdf8", "#818cf8", "#f8b84e", "#f08a8a", "#c4b5fd", "#94a3b8"];
@@ -96,9 +98,6 @@ export default async function DepartmentPage({ params }: Props) {
 
   return (
     <div className="relative -mx-4 min-w-0 overflow-hidden px-4 pb-6 text-slate-100 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_0%,rgba(20,184,166,0.15),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.97),rgba(2,6,23,1)_42%,rgba(3,7,18,1))]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 bg-[linear-gradient(180deg,rgba(14,165,233,0.08),transparent)]" />
-
       <section className="min-w-0 pt-2">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex min-w-0 gap-4">
@@ -238,46 +237,24 @@ function TrendPanel({ points, totalAwarded, departmentName }: { points: Departme
 
 function TrendChart({ points }: { points: DepartmentTrendPoint[] }) {
   if (points.length < 2) return <EmptyState>No awarded trend available yet.</EmptyState>;
-  const width = 520;
-  const height = 150;
-  const padX = 22;
-  const padY = 14;
-  const max = Math.max(...points.map((point) => point.totalAwarded), 1);
-  const coordinates = points.map((point, index) => {
-    const x = padX + (index / Math.max(points.length - 1, 1)) * (width - padX * 2);
-    const y = height - padY - (point.totalAwarded / max) * (height - padY * 2);
-    return { x, y, point };
-  });
-  const line = coordinates.map(({ x, y }) => `${x},${y}`).join(" ");
-  const area = `${padX},${height - padY} ${line} ${width - padX},${height - padY}`;
-  const ticks = [1, 0.75, 0.5, 0.25, 0];
-
   return (
-    <div className="mt-5 min-w-0 overflow-hidden">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Awarded value trend" className="h-40 w-full">
-        <defs>
-          <linearGradient id="department-trend-fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#34d399" stopOpacity="0.42" />
-            <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {ticks.map((tick) => {
-          const y = padY + tick * (height - padY * 2);
-          return <line key={tick} x1={padX} x2={width - padX} y1={y} y2={y} stroke="rgba(148,163,184,0.14)" strokeWidth="1" />;
-        })}
-        <polygon points={area} fill="url(#department-trend-fill)" />
-        <polyline points={line} fill="none" stroke="#5ee0a5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        {coordinates.map(({ x, y, point }) => (
-          <circle key={point.period} cx={x} cy={y} r="5" fill="#5ee0a5">
-            <title>{`${formatTrendPeriod(point.period)}: ${formatCurrencyCompact(point.totalAwarded)}`}</title>
-          </circle>
-        ))}
-      </svg>
-      <div className="grid grid-cols-4 text-xs text-slate-400">
-        {labelPeriods(points).map((period) => (
-          <span key={period}>{formatTrendPeriod(period)}</span>
-        ))}
-      </div>
+    <div className="mt-5 min-w-0">
+      <WalnutLineChart
+        data={points.map((point) => ({ label: formatTrendPeriod(point.period) }))}
+        series={[{
+          key: "awarded",
+          label: "Awarded",
+          color: "#5ee0a5",
+          areaGradient: { top: "rgba(94,224,165,0.42)", bottom: "rgba(94,224,165,0)" },
+          values: points.map((point) => point.totalAwarded),
+        }]}
+        ariaLabel="Awarded value over time. Hover, touch, or use arrow keys to inspect each reporting period."
+        height={160}
+        width={520}
+        minValue={0}
+        axisFontSize={10}
+        valueFormat="currencyCompact"
+      />
     </div>
   );
 }
@@ -309,37 +286,14 @@ function DonutPanel({ title, items, total, cta }: { title: string; items: Depart
 
 function DonutChart({ items, total }: { items: DepartmentBreakdownItem[]; total: number }) {
   const safeTotal = total > 0 ? total : items.reduce((sum, item) => sum + item.value, 0);
-  let offset = 0;
   return (
-    <div className="relative mx-auto h-36 w-36">
-      <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-        <circle cx="60" cy="60" r="42" fill="none" stroke="rgba(30,41,59,0.9)" strokeWidth="18" />
-        {items.map((item, index) => {
-          const percent = safeTotal > 0 ? Math.max(0, (item.value / safeTotal) * 100) : 0;
-          const dashOffset = offset;
-          offset += percent;
-          return (
-            <circle
-              key={item.label}
-              cx="60"
-              cy="60"
-              r="42"
-              fill="none"
-              pathLength="100"
-              stroke={palette[index % palette.length]}
-              strokeDasharray={`${percent} ${100 - percent}`}
-              strokeDashoffset={-dashOffset}
-              strokeLinecap="butt"
-              strokeWidth="18"
-            />
-          );
-        })}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <p className="text-lg font-semibold tabular-nums text-white">{formatCurrencyCompact(total)}</p>
-        <p className="text-xs text-slate-400">Total</p>
-      </div>
-    </div>
+    <WalnutDonutChart
+      segments={items.map((item, index) => ({ label: item.label, value: Math.max(0, item.value), color: palette[index % palette.length] }))}
+      value={formatCurrencyCompact(safeTotal)}
+      label="Total"
+      ariaLabel="Department award breakdown. Hover, touch, or use arrow keys to inspect each segment."
+      size={144}
+    />
   );
 }
 

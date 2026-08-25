@@ -21,6 +21,7 @@ const profileSparkline = read("components/charts/WalnutProfileSparkline.tsx");
 const sectorMovementBars = read("components/profiles/WalnutSectorMovementBars.tsx");
 const congressInteractiveCharts = read("components/profiles/CongressInteractiveCharts.tsx");
 const departmentSpendingMix = read("components/profiles/WalnutDepartmentSpendingMix.tsx");
+const departmentDetail = read("app/departments/[slug]/page.tsx");
 
 test("shared line chart batches pointer work and supports touch, keyboard, and reduced motion", () => {
   assert.match(lineChart, /requestAnimationFrame/);
@@ -80,6 +81,8 @@ test("dashboard pie charts share an accessible interactive donut primitive", () 
   assert.match(governmentDashboard, /WalnutDonutChart/);
   assert.match(memberAnalytics, /WalnutDonutChart/);
   assert.match(memberAnalytics, /Member activity by sector/);
+  assert.match(departmentDetail, /WalnutDonutChart/);
+  assert.match(departmentDetail, /Department award breakdown/);
 });
 
 test("activity charts share pointer, keyboard, animation, and reduced-motion behavior", () => {
@@ -159,4 +162,11 @@ test("department spending mix reveals and supports period inspection", () => {
   assert.match(departmentSpendingMix, /onPointerEnter/);
   assert.match(departmentSpendingMix, /aria-pressed/);
   assert.match(governmentDashboard, /WalnutDepartmentSpendingMix rows={rows}/);
+});
+
+test("department detail charts use shared animated interactive primitives and the app background", () => {
+  assert.match(departmentDetail, /WalnutLineChart/);
+  assert.match(departmentDetail, /Awarded value over time/);
+  assert.match(departmentDetail, /areaGradient/);
+  assert.doesNotMatch(departmentDetail, /circle_at_20%_0%/);
 });
