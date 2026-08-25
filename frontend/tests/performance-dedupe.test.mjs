@@ -64,8 +64,10 @@ test("ticker reuses server signals summary for source cards and defers chart bun
   assert.match(signalActivity, /if \(hasInitialItems\) \{/);
   assert.match(signalCard, /fallbackSource\.present \|\| initialResolved/);
   assert.match(institutionalCard, /initialResolved \|\| sourceLocked/);
-  assert.match(chart, /const CHART_VISIBILITY_FALLBACK_MS = 2200/);
+  assert.match(chart, /const CHART_INITIAL_LOAD_DELAY_MS = 7500/);
+  assert.match(chart, /const CHART_VISIBILITY_FALLBACK_MS = 12_000/);
   assert.match(chart, /IntersectionObserver/);
+  assert.match(chart, /const scheduleLoad = \(\) =>/);
   assert.match(chart, /if \(!shouldLoad\) return/);
-  assert.match(chart, /return runHeavyTickerRequest/);
+  assert.match(chart, /await runHeavyTickerRequest/);
 });

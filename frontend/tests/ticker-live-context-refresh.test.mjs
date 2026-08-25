@@ -13,5 +13,7 @@ test("ticker page uses a bounded server budget and background live refresh", () 
   assert.match(refresh, /activeUser: true/);
   assert.match(refresh, /requestTickerHydration/);
   assert.match(refresh, /live: true/);
+  assert.doesNotMatch(refresh, /Promise\.allSettled/);
+  assert.match(refresh, /getTickerContextBundle\(symbol/);
   assert.match(refresh, /router\.refresh\(\)/);
 });

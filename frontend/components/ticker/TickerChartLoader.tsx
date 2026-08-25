@@ -20,7 +20,8 @@ import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/tic
 import { cardClassName } from "@/lib/styles";
 
 const CHART_HYDRATION_DELAY_MS = 1200;
-const CHART_VISIBILITY_FALLBACK_MS = 2200;
+const CHART_INITIAL_LOAD_DELAY_MS = 7500;
+const CHART_VISIBILITY_FALLBACK_MS = 12_000;
 const requestedHydrationSymbols = new Set<string>();
 
 function isAbortError(error: unknown): boolean {
@@ -147,17 +148,25 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
   useEffect(() => {
     if (shouldLoad) return;
     const node = rootRef.current;
+    let initialLoadTimer: number | undefined;
+    const scheduleLoad = () => {
+      if (initialLoadTimer !== undefined) return;
+      initialLoadTimer = window.setTimeout(() => setShouldLoad(true), CHART_INITIAL_LOAD_DELAY_MS);
+    };
     const fallbackTimer = window.setTimeout(() => setShouldLoad(true), CHART_VISIBILITY_FALLBACK_MS);
 
     if (!node || typeof IntersectionObserver === "undefined") {
-      return () => window.clearTimeout(fallbackTimer);
+      return () => {
+        window.clearTimeout(fallbackTimer);
+        if (initialLoadTimer !== undefined) window.clearTimeout(initialLoadTimer);
+      };
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         window.clearTimeout(fallbackTimer);
-        setShouldLoad(true);
+        scheduleLoad();
         observer.disconnect();
       },
       { rootMargin: "420px 0px" },
@@ -165,6 +174,7 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
     observer.observe(node);
     return () => {
       window.clearTimeout(fallbackTimer);
+      if (initialLoadTimer !== undefined) window.clearTimeout(initialLoadTimer);
       observer.disconnect();
     };
   }, [shouldLoad]);
