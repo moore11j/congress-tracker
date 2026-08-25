@@ -103,13 +103,8 @@ function isPublicInstitutionRoute(pathname: string): boolean {
   return /^\/institution\/[^/]+$/.test(normalized);
 }
 
-function isPublicDepartmentRoute(pathname: string): boolean {
-  const normalized = (pathname || "/").toLowerCase().replace(/\/+$/, "");
-  return /^\/departments\/[^/]+$/.test(normalized);
-}
-
 function isPublicSeoEntityRoute(pathname: string): boolean {
-  return isPublicTickerRoute(pathname) || isPublicMemberRoute(pathname) || isPublicInsiderRoute(pathname) || isPublicInstitutionRoute(pathname) || isPublicDepartmentRoute(pathname);
+  return isPublicTickerRoute(pathname) || isPublicMemberRoute(pathname) || isPublicInsiderRoute(pathname) || isPublicInstitutionRoute(pathname);
 }
 
 function isApprovedTickerPilotPath(pathname: string): boolean {
@@ -164,14 +159,6 @@ function hasNonCanonicalQueryState(search: string): boolean {
 
 function withNoindex(response: NextResponse): NextResponse {
   response.headers.set("x-robots-tag", "noindex, follow");
-  return response;
-}
-
-function withPublicSnapshotCache(response: NextResponse): NextResponse {
-  // Anonymous entity HTML contains only a persisted public snapshot. It is
-  // safe for the CDN to serve and revalidate without invoking live APIs.
-  response.headers.set("cache-control", "public, max-age=0, s-maxage=1800, stale-while-revalidate=86400");
-  response.headers.set("x-walnut-public-snapshot", "1");
   return response;
 }
 
@@ -324,15 +311,6 @@ export async function middleware(request: NextRequest) {
   const hasAuthHint = request.cookies.get(authHintCookieName)?.value === "1";
   const prefetch = isPrefetchRequest(request);
   const bot = isBotUserAgent(userAgent);
-  const shouldCachePublicSnapshot =
-    host === appHost &&
-    request.method === "GET" &&
-    (isPublicMemberRoute(pathname) || isPublicInsiderRoute(pathname) || isPublicDepartmentRoute(pathname)) &&
-    !search &&
-    !hasBackendSession &&
-    !hasAuthHint &&
-    !request.headers.get("authorization") &&
-    !prefetch;
   const family = routeFamily(pathname);
   const shouldNoindex = host === appHost && (isNoindexAppRoute(pathname) || hasNonCanonicalQueryState(search));
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
@@ -476,8 +454,7 @@ export async function middleware(request: NextRequest) {
   const protectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (!protectedRoute || hasBackendSession || hasAuthHint) {
     const response = NextResponse.next();
-    if (shouldNoindex) return withNoindex(response);
-    return shouldCachePublicSnapshot ? withPublicSnapshotCache(response) : response;
+    return shouldNoindex ? withNoindex(response) : response;
   }
 
   const loginUrl = request.nextUrl.clone();

@@ -319,7 +319,6 @@ export function InsiderAnalyticsClient({
   summary,
   initialAlphaSummary,
   initialTrades,
-  disableLiveRefresh = false,
 }: {
   reportingCik: string;
   lookback: Lookback;
@@ -330,7 +329,6 @@ export function InsiderAnalyticsClient({
   summary: InsiderSummary;
   initialAlphaSummary?: InsiderAlphaSummary;
   initialTrades?: InsiderTradesData;
-  disableLiveRefresh?: boolean;
 }) {
   const [performanceLookback, setPerformanceLookback] = useState<PerformanceLookback>(DEFAULT_PERFORMANCE_LOOKBACK);
   const performanceLookbackDays = Number(performanceLookback);
@@ -358,7 +356,6 @@ export function InsiderAnalyticsClient({
   const [stockChartUnavailable, setStockChartUnavailable] = useState(false);
 
   useEffect(() => {
-    if (disableLiveRefresh) return;
     const controller = new AbortController();
     let cancelled = false;
     setLiveSummary(summary);
@@ -374,10 +371,9 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [disableLiveRefresh, issuer, lookbackDays, reportingCik, summary]);
+  }, [issuer, lookbackDays, reportingCik, summary]);
 
   useEffect(() => {
-    if (disableLiveRefresh) return;
     const controller = new AbortController();
     let cancelled = false;
     setLoading(!initialTrades || initialTrades.lookback_days !== lookbackDays || initialTrades.page !== recentTradesPage);
@@ -402,10 +398,9 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [disableLiveRefresh, initialTrades, issuer, lookbackDays, recentTradesPage, reportingCik]);
+  }, [initialTrades, issuer, lookbackDays, recentTradesPage, reportingCik]);
 
   useEffect(() => {
-    if (disableLiveRefresh) return;
     const controller = new AbortController();
     let cancelled = false;
     setPerformanceLoading(!initialAlphaSummary || initialAlphaSummary.lookback_days !== performanceLookbackDays);
@@ -431,10 +426,9 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [disableLiveRefresh, initialAlphaSummary, issuer, performanceLookbackDays, reportingCik]);
+  }, [initialAlphaSummary, issuer, performanceLookbackDays, reportingCik]);
 
   useEffect(() => {
-    if (disableLiveRefresh) return;
     const controller = new AbortController();
     let cancelled = false;
     getInsiderTrades(reportingCik, ACTIVITY_TREND_LOOKBACK_DAYS, TREND_TRADES_LIMIT, issuer, {
@@ -451,10 +445,9 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [disableLiveRefresh, issuer, reportingCik]);
+  }, [issuer, reportingCik]);
 
   useEffect(() => {
-    if (disableLiveRefresh) return;
     const controller = new AbortController();
     let cancelled = false;
     setStockChartLoading(true);
@@ -478,7 +471,7 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [disableLiveRefresh, reportingCik, stockSymbol]);
+  }, [reportingCik, stockSymbol]);
 
   const recentTradesLimit = typeof trades.limit === "number" && trades.limit > 0 ? trades.limit : RECENT_TRADES_PAGE_SIZE;
   const recentTradesPageValue = typeof trades.page === "number" && trades.page >= 0 ? trades.page : recentTradesPage;

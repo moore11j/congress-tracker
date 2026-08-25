@@ -7,13 +7,13 @@ from app.db import SessionLocal
 from app.services.seo_snapshots import list_seo_snapshot_batch_candidates, refresh_seo_snapshot
 
 logger = logging.getLogger(__name__)
-ENTITY_TYPES = ("ticker", "member", "insider", "department")
+ENTITY_TYPES = ("ticker", "member", "insider")
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh precomputed SEO snapshots from persisted Walnut data.")
     parser.add_argument("--entity-type", choices=[*ENTITY_TYPES, "all"], required=True)
-    parser.add_argument("--entity-key", action="append", default=[], help="Symbol, member slug/Bioguide ID, insider reporting CIK, or department slug. Repeatable.")
+    parser.add_argument("--entity-key", action="append", default=[], help="Symbol, member slug/Bioguide ID, or insider reporting CIK. Repeatable.")
     parser.add_argument("--batch", action="store_true", help="Select stored-data candidates automatically for the requested entity type.")
     parser.add_argument("--limit", type=int, default=25, help="Maximum candidates per entity type in batch mode. Capped by the service.")
     parser.add_argument("--include-existing", action="store_true", help="Allow batch mode to refresh snapshots that already exist.")

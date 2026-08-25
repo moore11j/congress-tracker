@@ -12,8 +12,6 @@ import {
   getMemberProfile,
   getMemberProfileBySlug,
   getMemberTrades,
-  getSeoSnapshot,
-  type SeoEntitySnapshot,
 } from "@/lib/api";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { nameToSlug } from "@/lib/memberSlug";
@@ -27,7 +25,7 @@ import {
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
-import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
+import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, memberHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -162,101 +160,6 @@ function profileMemberName(name: string | null | undefined, slug: string) {
   return (name ?? "").trim() || memberNameFallback(slug);
 }
 
-function snapshotText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function snapshotNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function snapshotMemberName(snapshot: SeoEntitySnapshot | null, slug: string): string {
-  return snapshotText(snapshot?.payload.member_name) || memberNameFallback(slug);
-}
-
-function snapshotMemberPath(snapshot: SeoEntitySnapshot | null, slug: string): string {
-  return `/member/${encodeURIComponent(nameToSlug(snapshotMemberName(snapshot, slug)))}`;
-}
-
-function snapshotActivity(snapshot: SeoEntitySnapshot | null) {
-  const activity = snapshot?.payload.recent_activity;
-  return Array.isArray(activity) ? activity : [];
-}
-
-function snapshotLinks(snapshot: SeoEntitySnapshot | null) {
-  const links = snapshot?.payload.links;
-  return Array.isArray(links)
-    ? links.filter((link): link is { label: string; href: string } => Boolean(link && typeof link.label === "string" && typeof link.href === "string"))
-    : [];
-}
-
-function formatSnapshotAmount(min: unknown, max: unknown) {
-  const lower = snapshotNumber(min);
-  const upper = snapshotNumber(max);
-  const format = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0, notation: "compact" }).format(value);
-  if (lower === null && upper === null) return "Range unavailable";
-  if (lower !== null && upper !== null && lower !== upper) return `${format(lower)} – ${format(upper)}`;
-  return format(upper ?? lower ?? 0);
-}
-
-function MemberSnapshotPage({ snapshot, slug }: { snapshot: SeoEntitySnapshot | null; slug: string }) {
-  const memberName = snapshotMemberName(snapshot, slug);
-  const canonicalPath = snapshotMemberPath(snapshot, slug);
-  const canonicalUrl = appCanonicalUrl(canonicalPath);
-  const activity = snapshotActivity(snapshot);
-  const links = snapshotLinks(snapshot);
-  const chamber = snapshotText(snapshot?.payload.chamber);
-  const party = snapshotText(snapshot?.payload.party);
-  const state = snapshotText(snapshot?.payload.state);
-  const tradeCount = snapshotNumber(snapshot?.payload.trade_count);
-  const structuredData = {
-    "@context": "https://schema.org",
-    "@graph": [
-      { "@type": "WebPage", "@id": canonicalUrl, url: canonicalUrl, name: `${memberName} Stock Trades` },
-      { "@type": "Person", name: memberName, url: canonicalUrl },
-      {
-        "@type": "BreadcrumbList",
-        itemListElement: [
-          { "@type": "ListItem", position: 1, name: "Home", item: appCanonicalUrl("/") },
-          { "@type": "ListItem", position: 2, name: "Congress", item: appCanonicalUrl("/members") },
-          { "@type": "ListItem", position: 3, name: memberName, item: canonicalUrl },
-        ],
-      },
-    ],
-  };
-
-  return (
-    <main className="space-y-3">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
-      <section className="rounded-lg border border-white/10 bg-[#0a1726]/95 p-4 shadow-[0_14px_34px_rgba(0,0,0,0.22)] sm:p-5">
-        <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-          <Link href="/" className="hover:text-white">Home</Link><span>/</span><Link href="/members" className="text-emerald-200 hover:text-emerald-100">Congress</Link><span>/</span><span>{memberName}</span>
-        </nav>
-        <h1 className="mt-4 text-3xl font-semibold text-white">{memberName} Stock Trades</h1>
-        <p className="mt-2 text-sm text-slate-300">
-          {[chamber ? `U.S. ${chamber}` : "U.S. Congress", state, party].filter(Boolean).join(" · ")}
-        </p>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-          {tradeCount !== null ? `${tradeCount} recent public congressional disclosure item${tradeCount === 1 ? "" : "s"} are available below.` : "Public congressional trading disclosures are available when Walnut has a verified snapshot."}
-        </p>
-      </section>
-
-      <section className="rounded-lg border border-white/10 bg-[#0a1726]/95 p-4 shadow-[0_14px_34px_rgba(0,0,0,0.22)]">
-        <h2 className="text-lg font-semibold text-white">Recent Disclosed Stock Trades</h2>
-        {activity.length ? (
-          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="text-xs uppercase tracking-wide text-slate-500"><tr><th className="pb-2">Date disclosed</th><th className="pb-2">Trade date</th><th className="pb-2">Type</th><th className="pb-2">Ticker</th><th className="pb-2">Amount range</th></tr></thead><tbody className="divide-y divide-white/10">{activity.map((item, index) => {
-            const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
-            const symbol = snapshotText(row.symbol);
-            return <tr key={`${snapshotText(row.report_date)}-${symbol}-${index}`}><td className="py-2 text-slate-300">{snapshotText(row.report_date) || "—"}</td><td className="py-2 text-slate-300">{snapshotText(row.trade_date) || "—"}</td><td className="py-2 text-slate-300">{snapshotText(row.transaction_type) || "—"}</td><td className="py-2">{symbol ? <Link href={`/ticker/${encodeURIComponent(symbol)}`} className="font-mono font-semibold text-emerald-200 hover:text-emerald-100">{symbol}</Link> : <span className="text-slate-400">{snapshotText(row.description) || "—"}</span>}</td><td className="py-2 text-slate-300">{formatSnapshotAmount(row.amount_range_min, row.amount_range_max)}</td></tr>;
-          })}</tbody></table></div>
-        ) : <p className="mt-3 text-sm text-slate-400">This profile does not yet meet Walnut’s public disclosure indexability threshold.</p>}
-      </section>
-
-      {links.length ? <section className="rounded-lg border border-white/10 bg-[#0a1726]/95 p-4 shadow-[0_14px_34px_rgba(0,0,0,0.22)]"><h2 className="text-lg font-semibold text-white">Related Stock Research</h2><div className="mt-3 flex flex-wrap gap-2">{links.map((link) => <Link key={link.href} href={link.href} className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-400/20">{link.label}</Link>)}</div></section> : null}
-    </main>
-  );
-}
-
 function initialsForName(name: string) {
   const parts = name.split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "M";
@@ -304,16 +207,16 @@ function VerifiedBadge() {
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
-  const snapshot = await getSeoSnapshot("member", slug, { source: "MemberMetadataSnapshot" })
-    .then((response) => response.snapshot)
+  const profile = await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberMetadataProfile", stalePageCache: true })
     .catch(() => null);
-  const memberName = snapshotMemberName(snapshot, slug);
-  const canonicalPath = snapshotMemberPath(snapshot, slug);
-  const fallbackTitle = `${memberName} Stock Trades & Portfolio | Walnut Markets`;
-  const fallbackDescription = `Track ${memberName}'s disclosed stock trades, recent filings, portfolio activity, top stocks, and historical trading data with Walnut Markets.`;
+  const memberName = profileMemberName(profile?.member?.name, slug);
+  const canonicalSlug = nameToSlug(memberName);
+  const canonicalPath = `/member/${encodeURIComponent(canonicalSlug)}`;
+  const fallbackTitle = `${memberName} Stock Trades | Walnut Markets`;
+  const fallbackDescription = `Research ${memberName}'s disclosed stock trades, recent activity, traded tickers and public congressional profile in Walnut Markets.`;
   const title = conciseSeoTitle(fallbackTitle, "Congress Member Stock Trades | Walnut Markets");
   const description = conciseSeoDescription(fallbackDescription, "Research disclosed congressional stock trades, recent activity, traded tickers and public member profiles in Walnut Markets.");
-  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
+  if (!memberHasIndexableContent(profile) || hasNonCanonicalSearchParams(sp)) {
     return {
       ...noindexFollowMetadata(title, description),
       metadataBase: new URL(WALNUT_APP_URL),
@@ -342,17 +245,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
     ? await optionalPageAuthState()
     : { token: null, hasAuthHint: false, entitlementHint: null };
   const publicStalePageCache = !authState.token && !authState.hasAuthHint;
-  const snapshot = publicStalePageCache
-    ? await getSeoSnapshot("member", slug, { source: "MemberPublicSnapshot" }).then((response) => response.snapshot).catch(() => null)
-    : null;
-
-  if (publicStalePageCache) {
-    const canonicalPath = snapshotMemberPath(snapshot, slug);
-    if (snapshot && `/member/${slug}` !== canonicalPath) {
-      redirect(canonicalPath);
-    }
-    return <MemberSnapshotPage snapshot={snapshot} slug={slug} />;
-  }
 
   const upperSlug = slug.toUpperCase();
   if (upperSlug.startsWith("FMP_")) {
