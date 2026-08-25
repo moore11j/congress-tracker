@@ -39,6 +39,7 @@ from app.services.event_calendar import upcoming_event_calendar_items
 from app.services.fmp_news import get_press_releases, get_stock_news
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
+from app.services.monitoring_alerts import watchlist_candidate_events
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
 from app.services.watchlist_content_events import sync_watchlist_content_events
@@ -73,7 +74,12 @@ ALERT_EVENT_TYPES = (
     "news_article",
     "press_release",
 )
-INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
+INSTITUTIONAL_ALERT_TYPES = (
+    *INSTITUTIONAL_EVENT_TYPES,
+    "institutional_buy",
+    "institutional_activity",
+    "institutional_activity_change",
+)
 GOVERNMENT_CONTRACT_ALERT_TYPES = (
     "government_contract",
     "government_contract_new",
@@ -1052,24 +1058,17 @@ def _watchlist_events(
     subscription: NotificationSubscription | None,
 ) -> list[Event]:
     sync_watchlist_content_events(db, watchlist_id)
-    symbols = _watchlist_symbols(db, watchlist_id)
-    if not symbols:
-        return []
-    activity_ts = func.coalesce(Event.event_date, Event.ts)
     event_types = _alert_event_types_for_user(db, user)
     query_limit = max(limit * 4, 100) if _subscription_has_trigger_filters(subscription) else limit
-    rows = (
-        db.execute(
-            select(Event)
-            .where(Event.symbol.is_not(None))
-            .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(event_types))
-            .where(activity_ts >= since)
-            .order_by(activity_ts.desc(), Event.id.desc())
-            .limit(query_limit)
-        )
-        .scalars()
-        .all()
+    rows = watchlist_candidate_events(
+        db,
+        watchlist_id=watchlist_id,
+        event_types=event_types,
+        since=since,
+        strict_since=False,
+        descending=True,
+        limit=query_limit,
+        use_effective_activity=False,
     )
     return [row for row in rows if _watchlist_event_allowed(subscription, row)][:limit]
 
@@ -1082,35 +1081,16 @@ def _watchlist_events_count(
     user: UserAccount,
     subscription: NotificationSubscription | None,
 ) -> int:
-    symbols = _watchlist_symbols(db, watchlist_id)
-    if not symbols:
-        return 0
-    activity_ts = func.coalesce(Event.event_date, Event.ts)
     event_types = _alert_event_types_for_user(db, user)
-    if _subscription_has_trigger_filters(subscription):
-        rows = (
-            db.execute(
-                select(Event)
-                .where(Event.symbol.is_not(None))
-                .where(func.upper(Event.symbol).in_(symbols))
-                .where(Event.event_type.in_(event_types))
-                .where(activity_ts >= since)
-            )
-            .scalars()
-            .all()
-        )
-        return sum(1 for row in rows if _watchlist_event_allowed(subscription, row))
-    return int(
-        db.execute(
-            select(func.count())
-            .select_from(Event)
-            .where(Event.symbol.is_not(None))
-            .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(event_types))
-            .where(activity_ts >= since)
-        ).scalar_one()
-        or 0
+    rows = watchlist_candidate_events(
+        db,
+        watchlist_id=watchlist_id,
+        event_types=event_types,
+        since=since,
+        strict_since=False,
+        use_effective_activity=False,
     )
+    return sum(1 for row in rows if _watchlist_event_allowed(subscription, row))
 
 
 def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
@@ -1120,6 +1100,7 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
             select(Security.symbol)
             .join(WatchlistItem, WatchlistItem.security_id == Security.id)
             .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(WatchlistItem.target_type == "ticker")
             .where(Security.symbol.is_not(None))
         ).scalars()
         if symbol and symbol.strip()
@@ -1711,7 +1692,7 @@ def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> boo
 def _alert_event_types_for_user(db: Session, user: UserAccount) -> tuple[str, ...]:
     if _user_can_view_institutional_activity(db, user):
         return ALERT_EVENT_TYPES
-    return tuple(event_type for event_type in ALERT_EVENT_TYPES if event_type not in INSTITUTIONAL_EVENT_TYPES)
+    return tuple(event_type for event_type in ALERT_EVENT_TYPES if event_type not in INSTITUTIONAL_ALERT_TYPES)
 
 
 def _exclude_institutional_alerts_for_user(db: Session, user: UserAccount, query):

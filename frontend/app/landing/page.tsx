@@ -15,6 +15,7 @@ import {
   walnutMarketingMetadata,
 } from "@/lib/marketingMetadata";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
+import { homepageContent } from "@/lib/homepageContent";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -714,12 +715,12 @@ export default async function LandingPage() {
       <section className="relative border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-4xl">
-            <SectionEyebrow>Stock Research &amp; Market Intelligence</SectionEyebrow>
-            <h1 className="mt-4 max-w-5xl text-[2.35rem] font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Everything You Need to Research a Stock—And Keep Following It.
+            <SectionEyebrow>{homepageContent.hero.eyebrow}</SectionEyebrow>
+            <h1 className="mt-4 max-w-5xl text-balance text-[2.35rem] font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
+              {homepageContent.hero.title}
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
-              Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes.
+              {homepageContent.hero.description}
             </p>
             <LandingSearch appUrl={appUrl} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
             <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
@@ -866,11 +867,9 @@ export default async function LandingPage() {
           <div>
             <SectionEyebrow>Confirmation Score</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See whether the evidence agrees.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              The Walnut Confirmation Score is a proprietary 0-100 measure of how strongly the available evidence supports a directional view at a specific point in time.
-            </p>
+            <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.confirmationScore.description}</p>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
-              It is not a probability of future returns and not a prediction score. Its purpose is to summarize the strength and alignment of available evidence.
+              {homepageContent.confirmationScore.disclaimer}
             </p>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
@@ -919,6 +918,17 @@ export default async function LandingPage() {
               </article>
             ))}
           </div>
+          <div className="mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-5 sm:flex sm:items-start sm:justify-between sm:gap-8">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Watchlists + Alerts</p>
+              <h3 className="mt-2 text-lg font-semibold text-white">{homepageContent.monitoring.title}</h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{homepageContent.monitoring.description}</p>
+            </div>
+            <a href={`${appUrl}/watchlists`} className="mt-4 inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100 sm:mt-1">
+              <span>Explore watchlists</span>
+              <span aria-hidden="true">&rarr;</span>
+            </a>
+          </div>
         </div>
       </section>
 
@@ -927,9 +937,7 @@ export default async function LandingPage() {
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Data is easy to find. Context is harder.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              Most stock research platforms only specialize in one part of the market data and leave you to connect the dots yourself. Walnut evaluates multiple data sources together so you can see where the evidence agrees, where it conflicts, and what has changed.
-            </p>
+            <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.differentiation.description}</p>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5">
             <div className="mb-5 flex flex-wrap gap-2">
@@ -1070,11 +1078,9 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
           <div>
             <SectionEyebrow>Walnut Strategies - Live Beta</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Why settle for average market returns?</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              Explore published Walnut strategies with transparent methodology, stored performance records, and the data behind each approach.
-            </p>
-            <p className="mt-4 text-sm leading-6 text-slate-500">Live beta: strategy research built from Walnut data and historical outcomes, not generic AI-generated picks.</p>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{homepageContent.strategies.title}</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.strategies.description}</p>
+            <p className="mt-4 text-sm leading-6 text-slate-500">Live beta: transparent methodology and stored performance records for repeatable strategy research.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             {strategyConcepts.map(([title, type, value, status]) => (
@@ -1113,7 +1119,7 @@ export default async function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to invest like a pro. Cancel anytime.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{homepageContent.pricing.title}</h2>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>

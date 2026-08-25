@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -9,7 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import entitlements_for_user
-from app.models import Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
+from app.models import CongressMemberAlias, Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
 from app.routers.events import _event_effective_activity_ts, _event_effective_activity_ts_expr
 from app.services.government_departments import canonical_department_name
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
@@ -30,10 +31,16 @@ ALERTABLE_EVENT_TYPES = (
     "analyst_consensus_change",
     "news_article",
     "press_release",
+    "institutional_buy",
     "institutional_activity_change",
     *INSTITUTIONAL_EVENT_TYPES,
 )
-INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
+INSTITUTIONAL_ALERT_TYPES = (
+    *INSTITUTIONAL_EVENT_TYPES,
+    "institutional_buy",
+    "institutional_activity",
+    "institutional_activity_change",
+)
 SIGNAL_ALERT_TYPES = ("signal",)
 PREMIUM_SIGNAL_PAYLOAD_KEYS = {
     "confirmation",
@@ -75,14 +82,20 @@ def watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
 def watchlist_targets(db: Session, watchlist_id: int) -> dict[str, set[str]]:
     rows = (
         db.execute(
-            select(WatchlistItem.target_type, WatchlistItem.target_value)
+            select(WatchlistItem.target_type, WatchlistItem.target_value, WatchlistItem.target_label)
             .where(WatchlistItem.watchlist_id == watchlist_id)
             .where(WatchlistItem.target_type != "ticker")
         )
         .all()
     )
-    targets: dict[str, set[str]] = {"member": set(), "insider": set(), "department": set(), "institution": set()}
-    for target_type, target_value in rows:
+    targets: dict[str, set[str]] = {
+        "member": set(),
+        "member_name": set(),
+        "insider": set(),
+        "department": set(),
+        "institution": set(),
+    }
+    for target_type, target_value, target_label in rows:
         key = (target_type or "").strip().lower()
         value = (target_value or "").strip()
         if key not in targets or not value:
@@ -95,11 +108,60 @@ def watchlist_targets(db: Session, watchlist_id: int) -> dict[str, set[str]]:
             targets[key].add(_department_key(value))
         else:
             targets[key].add(value.upper())
+            member_name = _member_name_key(target_label or value)
+            if member_name:
+                targets["member_name"].add(member_name)
+    targets["member"] = _member_aliases(db, targets["member"])
     return targets
+
+
+def _member_aliases(db: Session, member_ids: set[str]) -> set[str]:
+    """Expand canonical and provider member IDs through the identity registry.
+
+    Historical House data can carry an FMP-generated member identifier while a
+    watchlist stores the canonical Bioguide ID.  Aliases are authoritative,
+    unlike the name fallback retained below for unmapped legacy records.
+    """
+    resolved = {value.strip().upper() for value in member_ids if value and value.strip()}
+    if not resolved:
+        return resolved
+    frontier = set(resolved)
+    for _ in range(4):
+        if not frontier:
+            break
+        rows = db.execute(
+            select(CongressMemberAlias.alias_member_id, CongressMemberAlias.authoritative_member_id)
+            .where(
+                or_(
+                    CongressMemberAlias.alias_member_id.in_(frontier),
+                    CongressMemberAlias.authoritative_member_id.in_(frontier),
+                )
+            )
+        ).all()
+        additions = {
+            str(value).strip().upper()
+            for row in rows
+            for value in row
+            if value and str(value).strip()
+        } - resolved
+        resolved.update(additions)
+        frontier = additions
+    return resolved
 
 
 def _department_key(value: str | None) -> str:
     return (canonical_department_name(value) or value or "").strip().lower()
+
+
+def _member_name_key(value: str | None) -> str:
+    """Stable fallback for legacy provider member IDs.
+
+    Congress provider rows have historically used synthetic FMP IDs while
+    watchlists store canonical Bioguide IDs.  A normalized display-name match
+    is intentionally limited to Congress events and supplements, never
+    replaces, the canonical identifier check.
+    """
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").casefold()).strip()
 
 
 def _payload_values(payload: Any, keys: set[str]) -> list[str]:
@@ -157,10 +219,15 @@ def _event_matches_watchlist(
     member_id = (event.member_bioguide_id or "").strip().upper()
     if member_id and member_id in targets.get("member", set()):
         return True
+    if (
+        event.event_type.startswith("congress_trade")
+        and _member_name_key(event.member_name) in targets.get("member_name", set())
+    ):
+        return True
     event_ciks = _event_ciks(event, payload)
     if event.event_type.startswith("insider") and event_ciks.intersection(targets.get("insider", set())):
         return True
-    if (event.event_type in INSTITUTIONAL_EVENT_TYPES or event.event_type == "institutional_activity") and event_ciks.intersection(targets.get("institution", set())):
+    if event.event_type in INSTITUTIONAL_ALERT_TYPES and event_ciks.intersection(targets.get("institution", set())):
         return True
     if event.event_type.startswith("government_contract") and _event_department_keys(event, payload).intersection(targets.get("department", set())):
         return True
@@ -171,13 +238,16 @@ def event_matches_watchlist(db: Session, watchlist_id: int, event: Event) -> boo
     return _event_matches_watchlist(event, symbols=set(watchlist_symbols(db, watchlist_id)), targets=watchlist_targets(db, watchlist_id))
 
 
-def _watchlist_candidate_events(
+def watchlist_candidate_events(
     db: Session,
     *,
     watchlist_id: int,
     event_types: tuple[str, ...],
     since: datetime,
     strict_since: bool,
+    descending: bool = False,
+    limit: int | None = None,
+    use_effective_activity: bool = True,
 ) -> list[Event]:
     symbols = set(watchlist_symbols(db, watchlist_id))
     targets = watchlist_targets(db, watchlist_id)
@@ -185,7 +255,11 @@ def _watchlist_candidate_events(
     if not symbols and not target_values:
         return []
 
-    freshness_ts = _event_effective_activity_ts_expr(db)
+    freshness_ts = (
+        _event_effective_activity_ts_expr(db)
+        if use_effective_activity
+        else func.coalesce(Event.event_date, Event.ts)
+    )
     predicates = []
     if symbols:
         predicates.append(Event.symbol.is_not(None) & func.upper(Event.symbol).in_(symbols))
@@ -193,29 +267,33 @@ def _watchlist_candidate_events(
     ciks = targets.get("insider", set()).union(targets.get("institution", set()))
     if member_ids:
         predicates.append(Event.member_bioguide_id.in_(member_ids))
+    member_names = targets.get("member_name", set())
+    if member_names:
+        predicates.append(func.lower(Event.member_name).in_(member_names))
     if ciks:
         predicates.append(Event.member_bioguide_id.in_(ciks))
         cik_needles = sorted(ciks.union({cik.lstrip("0") for cik in ciks if cik.lstrip("0")}))
         predicates.extend(Event.payload_json.like(f"%{cik}%") for cik in cik_needles)
     department_values = targets.get("department", set())
     if department_values:
-        predicates.append(Event.event_type.in_(("government_contract", "government_contract_new")))
         predicates.extend(Event.payload_json.like(f"%{department}%") for department in department_values)
 
     if not predicates:
         return []
     since_clause = freshness_ts > since if strict_since else freshness_ts >= since
-    rows = (
-        db.execute(
-            select(Event)
-            .where(Event.event_type.in_(event_types))
-            .where(or_(*predicates))
-            .where(since_clause)
-            .order_by(freshness_ts.asc(), Event.id.asc())
+    query = (
+        select(Event)
+        .where(Event.event_type.in_(event_types))
+        .where(or_(*predicates))
+        .where(since_clause)
+        .order_by(
+            freshness_ts.desc() if descending else freshness_ts.asc(),
+            Event.id.desc() if descending else Event.id.asc(),
         )
-        .scalars()
-        .all()
     )
+    if limit is not None:
+        query = query.limit(max(int(limit), 1))
+    rows = db.execute(query).scalars().all()
     seen: set[int] = set()
     matched: list[Event] = []
     for event in rows:
@@ -226,6 +304,25 @@ def _watchlist_candidate_events(
             if event.id is not None:
                 seen.add(event.id)
     return matched
+
+
+# Private compatibility alias for internal callers while delivery services use
+# the public target-aware matcher above.
+def _watchlist_candidate_events(
+    db: Session,
+    *,
+    watchlist_id: int,
+    event_types: tuple[str, ...],
+    since: datetime,
+    strict_since: bool,
+) -> list[Event]:
+    return watchlist_candidate_events(
+        db,
+        watchlist_id=watchlist_id,
+        event_types=event_types,
+        since=since,
+        strict_since=strict_since,
+    )
 
 
 def watchlist_matching_event_ids_for_target(db: Session, target_type: str, target_value: str) -> list[int]:
@@ -294,7 +391,7 @@ def _user_can_view_signal_context(db: Session, user_id: int | None) -> bool:
 def _event_types_from_visibility(*, can_view_institutional: bool, can_view_signal_context: bool) -> tuple[str, ...]:
     event_types = ALERTABLE_EVENT_TYPES
     if not can_view_institutional:
-        event_types = tuple(event_type for event_type in event_types if event_type not in INSTITUTIONAL_EVENT_TYPES)
+        event_types = tuple(event_type for event_type in event_types if event_type not in INSTITUTIONAL_ALERT_TYPES)
     if not can_view_signal_context:
         event_types = tuple(event_type for event_type in event_types if event_type not in SIGNAL_ALERT_TYPES)
     return event_types

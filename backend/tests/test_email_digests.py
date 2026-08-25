@@ -23,7 +23,7 @@ from app.models import (
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
 from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, monitoring_email_send_day, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
-from app.services.email_intraday import is_market_hours, run_intraday_alert_sweep, summarize_intraday_alert_results
+from app.services.email_intraday import _watchlist_candidate, is_market_hours, run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
 from app.services.event_calendar import CalendarFetchResult
 
@@ -143,6 +143,7 @@ def _bare_event(
     ts: datetime | None = None,
     payload: dict | None = None,
     member_name: str | None = None,
+    member_bioguide_id: str | None = None,
     impact_score: float | None = None,
     amount_max: float | None = None,
 ) -> Event:
@@ -156,6 +157,7 @@ def _bare_event(
         impact_score=impact_score,
         payload_json=json.dumps(payload or {}),
         member_name=member_name,
+        member_bioguide_id=member_bioguide_id,
         trade_type="purchase",
         amount_min=None,
         amount_max=amount_max,
@@ -1328,6 +1330,165 @@ def test_intraday_watchlist_congress_trigger_catches_high_score_congress_trade()
         assert results[0]["status"] == "would_send"
         assert results[0]["event_type"] == "congress_trade"
         assert results[0]["trigger"] == "congress_activity"
+    finally:
+        db.close()
+
+
+def test_intraday_member_watch_uses_member_label_and_public_congress_source():
+    db = _session()
+    try:
+        user = _user(db, "intraday-member-label@example.com")
+        watchlist = _watchlist(db, user)
+        db.add(
+            WatchlistItem(
+                watchlist_id=watchlist.id,
+                target_type="member",
+                target_value="P000197",
+                target_label="Nancy Pelosi",
+            )
+        )
+        db.commit()
+        event = _bare_event(
+            db,
+            symbol="BE",
+            member_name="Nancy Pelosi",
+            member_bioguide_id="FMP_HOUSE_CA11",
+            impact_score=91,
+            payload={"smart_score": 91, "source_stack": "house_fmp"},
+        )
+
+        candidate = _watchlist_candidate(db, user, watchlist, event)
+
+        assert candidate.context["alert_title"] == "Watchlist activity: Nancy Pelosi"
+        assert "Nancy Pelosi involving BE" in candidate.context["alert_intro"]
+        assert candidate.context["ticker"] == "BE"
+        assert candidate.context["source_stack"] == "Congress Disclosures"
+    finally:
+        db.close()
+
+
+def test_member_watchlist_congress_trade_uses_name_fallback_for_legacy_provider_id():
+    db = _session()
+    try:
+        user = _user(db, "intraday-member-target@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["congress_activity"])
+        db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist.id).delete()
+        db.add(
+            WatchlistItem(
+                watchlist_id=watchlist.id,
+                target_type="member",
+                target_value="P000197",
+                target_label="Nancy Pelosi",
+            )
+        )
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(
+            db,
+            symbol="BE",
+            event_type="congress_trade",
+            ts=now - timedelta(minutes=5),
+            member_name="Nancy Pelosi",
+            member_bioguide_id="FMP_HOUSE_CA11",
+        )
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "would_send"
+        assert results[0]["source_type"] == "watchlist"
+        assert results[0]["source_id"] == str(watchlist.id)
+        assert results[0]["ticker"] == "BE"
+        assert results[0]["trigger"] == "congress_activity"
+    finally:
+        db.close()
+
+
+def test_all_non_ticker_watchlist_target_types_are_included_in_intraday_delivery():
+    db = _session()
+    try:
+        user = _user(db, "intraday-all-targets@example.com", tier="pro")
+        watchlist = _watchlist(
+            db,
+            user,
+            alert_triggers=["congress_activity", "insider_activity", "institutional_activity", "government_contract"],
+        )
+        db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist.id).delete()
+        db.add_all(
+            [
+                WatchlistItem(watchlist_id=watchlist.id, target_type="member", target_value="P000197", target_label="Nancy Pelosi"),
+                WatchlistItem(watchlist_id=watchlist.id, target_type="insider", target_value="0000320193", target_label="Example Insider"),
+                WatchlistItem(watchlist_id=watchlist.id, target_type="institution", target_value="0001067983", target_label="Example Institution"),
+                WatchlistItem(watchlist_id=watchlist.id, target_type="department", target_value="Department of Defense", target_label="Department of Defense"),
+            ]
+        )
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(
+            db,
+            symbol="BE",
+            event_type="congress_trade",
+            ts=now - timedelta(minutes=5),
+            member_name="Nancy Pelosi",
+            member_bioguide_id="FMP_HOUSE_CA11",
+        )
+        _bare_event(
+            db,
+            symbol="AAPL",
+            event_type="insider_trade",
+            ts=now - timedelta(minutes=4),
+            payload={"reporting_cik": "320193"},
+        )
+        _bare_event(
+            db,
+            symbol="BRK.B",
+            event_type="institutional_buy",
+            ts=now - timedelta(minutes=3),
+            payload={"institution_cik": "1067983"},
+        )
+        _bare_event(
+            db,
+            symbol="NOC",
+            event_type="government_contract",
+            ts=now - timedelta(minutes=2),
+            payload={"awarding_agency": "Department of Defense"},
+            amount_max=500_000,
+        )
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert {item["event_type"] for item in results} == {
+            "congress_trade",
+            "insider_trade",
+            "institutional_buy",
+            "government_contract",
+        }
+        assert all(item["status"] == "would_send" for item in results)
+        assert {item["source_id"] for item in results} == {str(watchlist.id)}
+    finally:
+        db.close()
+
+
+def test_member_watchlist_activity_digest_includes_legacy_provider_identity_event():
+    db = _session()
+    try:
+        user = _user(db, "daily-member-target@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["congress_activity"])
+        db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist.id).delete()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, target_type="member", target_value="P000197", target_label="Nancy Pelosi"))
+        now = datetime.now(timezone.utc)
+        _bare_event(
+            db,
+            symbol="BE",
+            event_type="congress_trade",
+            ts=now - timedelta(minutes=5),
+            member_name="Nancy Pelosi",
+            member_bioguide_id="FMP_HOUSE_CA11",
+        )
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, now - timedelta(hours=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["ticker"] == "BE"
+        assert digest.items[0]["event_type"] == "congress trade"
     finally:
         db.close()
 

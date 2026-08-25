@@ -5,6 +5,7 @@ import test from "node:test";
 
 const root = process.cwd();
 const landingPage = fs.readFileSync(path.join(root, "app/landing/page.tsx"), "utf8");
+const homepageContent = fs.readFileSync(path.join(root, "lib/homepageContent.ts"), "utf8");
 const landingSearch = fs.readFileSync(path.join(root, "components/landing/LandingSearch.tsx"), "utf8");
 const marketingMetadata = fs.readFileSync(path.join(root, "lib/marketingMetadata.ts"), "utf8");
 const marketingHeader = fs.readFileSync(path.join(root, "components/landing/MarketingHeader.tsx"), "utf8");
@@ -111,10 +112,14 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.match(landingPage, /<SectionEyebrow>Feature Depth<\/SectionEyebrow>/);
 });
 
-test("landing page explains Walnut differentiation and free tier", () => {
-  assert.match(landingPage, /Everything You Need to Research a Stock—And Keep Following It\./);
-  assert.match(landingPage, /Stock Research &amp; Market Intelligence/);
-  assert.match(landingPage, /Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more\. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes\./);
+test("landing page uses canonical homepage positioning and free-tier messaging", () => {
+  assert.match(landingPage, /import \{ homepageContent \} from "@\/lib\/homepageContent"/);
+  assert.match(landingPage, /<SectionEyebrow>\{homepageContent\.hero\.eyebrow\}<\/SectionEyebrow>/);
+  assert.match(landingPage, /\{homepageContent\.hero\.title\}/);
+  assert.match(landingPage, /\{homepageContent\.hero\.description\}/);
+  assert.match(homepageContent, /Everything You Need to Research a Stock, in One Place\./);
+  assert.match(homepageContent, /Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more\. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes\./);
+  assert.doesNotMatch(homepageContent, /Before You Buy Your Next Stock|Keep Following It/);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
   assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
@@ -131,6 +136,8 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Walnut brings together fundamental analysis, technical analysis, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning/);
   assert.match(landingPage, /const interpretedOutputs = \["Confirmation Score", "What Changed", "Catalysts", "Risks", "What to Watch Next"\]/);
   assert.match(landingPage, /Data is easy to find\. Context is harder\./);
+  assert.match(landingPage, /\{homepageContent\.differentiation\.description\}/);
+  assert.match(homepageContent, /Other research tools often specialize in individual data categories or leave investors to connect everything manually\./);
   assert.match(landingPage, /<section id="how-it-works"/);
   assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
   assert.doesNotMatch(landingPage, /See Outcomes|Research your thesis using multiple data sources/);
@@ -148,8 +155,11 @@ test("landing page explains Walnut differentiation and free tier", () => {
 });
 
 test("landing metadata reflects research and monitoring positioning", () => {
-  assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = "Walnut Markets \| Stock Research & Market Intelligence"/);
-  assert.match(marketingMetadata, /Research stocks across fundamentals, technicals, Congress, insiders, institutions and more\. Follow your stocks and get alerts when the evidence changes\./);
+  assert.match(marketingMetadata, /import \{ homepageContent \} from "@\/lib\/homepageContent"/);
+  assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = homepageContent\.metadata\.title/);
+  assert.match(marketingMetadata, /WALNUT_MARKETING_DESCRIPTION = homepageContent\.metadata\.description/);
+  assert.match(homepageContent, /title: "Walnut Markets \| Stock Research & Market Intelligence"/);
+  assert.match(homepageContent, /Research stocks across fundamentals, technicals, Congress, insiders, institutions and more\. Follow your stocks and get alerts when the evidence changes\./);
   assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
   assert.match(marketingMetadata, /openGraph:/);
   assert.match(marketingMetadata, /twitter:/);
@@ -160,20 +170,33 @@ test("landing page adds real product proof and future product sections", () => {
   assert.match(landingPage, /const outcomesProductScreenshot = "\/landing\/outcomes-confirmation-events\.png"/);
   assert.match(landingPage, /65 out of 100 Strong Bullish confirmation score/);
   assert.match(landingPage, /<SectionEyebrow>Confirmation Score<\/SectionEyebrow>/);
-  assert.match(landingPage, /The Walnut Confirmation Score is a proprietary 0-100 measure/);
-  assert.match(landingPage, /It is not a probability of future returns and not a prediction score/);
+  assert.match(landingPage, /\{homepageContent\.confirmationScore\.description\}/);
+  assert.match(landingPage, /\{homepageContent\.confirmationScore\.disclaimer\}/);
+  assert.match(homepageContent, /proprietary, evidence-based, and explainable 0-100 measure/);
+  assert.match(homepageContent, /not a probability of future returns, a guaranteed prediction, or a recommendation/);
   assert.match(landingPage, /data-outcomes-screenshot="confirmation-events"/);
   assert.match(landingPage, /Scores are research context, not predictions of future performance/);
   assert.match(landingPage, /<SectionEyebrow>Research Memory - Coming Soon<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Walnut Strategies - Live Beta<\/SectionEyebrow>/);
-  assert.match(landingPage, /Why settle for average market returns\?/);
-  assert.match(landingPage, /Explore published Walnut strategies with transparent methodology, stored performance records, and the data behind each approach\./);
+  assert.match(landingPage, /\{homepageContent\.strategies\.title\}/);
+  assert.match(landingPage, /\{homepageContent\.strategies\.description\}/);
+  assert.match(homepageContent, /See how data-driven strategies performed historically\./);
+  assert.match(homepageContent, /Congress activity, insider activity, fundamentals, technical conditions, and multi-source confirmation/);
+  assert.doesNotMatch(homepageContent, /Why settle for average market returns/);
   assert.match(landingPage, /\["Cleo Fields Portfolio", "Congress Strategies", "58\.9%", "CAGR"\][\s\S]*\["Insider Open-Market Buys", "Insider Strategies", "37\.7%", "CAGR"\][\s\S]*\["Insider \+ Institutional Accumulation", "Hybrid Strategies", "52\.1%", "CAGR"\]/);
   assert.doesNotMatch(landingPage, /Awaiting validated backtest|Historical outcome|Historical CAGR[\s\S]*[0-9]+\%|Win rate[\s\S]*[0-9]+\%/);
   assert.ok(fs.existsSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")));
   assert.ok(fs.statSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")).size > 10000);
   assert.ok(fs.existsSync(path.join(root, "public/landing/outcomes-confirmation-events.png")));
   assert.ok(fs.statSync(path.join(root, "public/landing/outcomes-confirmation-events.png")).size > 10000);
+});
+
+test("landing includes real watchlist and alert proof", () => {
+  assert.match(landingPage, /Watchlists \+ Alerts/);
+  assert.match(landingPage, /\{homepageContent\.monitoring\.title\}/);
+  assert.match(landingPage, /\{homepageContent\.monitoring\.description\}/);
+  assert.match(landingPage, /href=\{`\$\{appUrl\}\/watchlists`\}/);
+  assert.match(homepageContent, /Save tickers to watchlists and get alerted when meaningful disclosures, news, press releases, institutional activity/);
 });
 
 test("landing adds follow activity showcase before outcomes", () => {

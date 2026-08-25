@@ -7,17 +7,33 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 import app.ingest_house as house_module
+import app.ingest_senate as senate_module
 from app.backfill_events_from_trades import insert_missing_congress_events_from_transactions
 from app.db import Base
 from app.models import Event, Filing, GovernmentContractAction, Member, Security, SymbolResolutionOverride, TradeOutcome, Transaction
 from app.routers.events import list_events, list_ticker_events
 from app.services.congress_assets import parse_treasury_details
+from app.services.congress_metadata import MemberMetadata
 from scripts.ops import reprocess_recent_non_equity_disclosures as reprocess_non_equity
 
 
 class _NoopCongressMetadata:
     def resolve(self, **_kwargs):
         return None
+
+
+class _CanonicalCongressMetadata:
+    def __init__(self, bioguide_id: str, chamber: str):
+        self.bioguide_id = bioguide_id
+        self.chamber = chamber
+
+    def resolve(self, **_kwargs):
+        return MemberMetadata(
+            party="DEMOCRAT",
+            chamber=self.chamber,
+            state="CA",
+            bioguide_id=self.bioguide_id,
+        )
 
 
 def _session_factory():
@@ -81,6 +97,7 @@ def test_house_ingest_recovers_every_transaction_row_from_existing_multi_trade_f
     finally:
         db.close()
 
+
     _patch_house_source(monkeypatch, Session, rows)
     dry_run = house_module.ingest_house(pages=1, limit=100, sleep_s=0, dry_run=True)
     assert dry_run["inserted"] == 4
@@ -104,6 +121,53 @@ def test_house_ingest_recovers_every_transaction_row_from_existing_multi_trade_f
         assert {security.symbol for _tx, security in transactions} == {"AMT", "CVS", "INTC", "PWR", "TMO"}
         assert {tx.report_date for tx, _security in transactions} == {date(2026, 5, 15)}
         assert {tx.trade_date for tx, security in transactions if security.symbol == "CVS"} == {date(2025, 11, 21)}
+    finally:
+        db.close()
+
+
+def test_fmp_ingest_prefers_canonical_bioguide_member_identity_for_house_and_senate():
+    Session = _session_factory()
+    db = Session()
+    try:
+        house = house_module.upsert_house_transaction_from_row(
+            db,
+            {
+                "firstName": "Nancy",
+                "lastName": "Pelosi",
+                "district": "CA11",
+                "disclosureDate": "2026-08-24",
+                "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035143.pdf",
+                "type": "purchase",
+                "owner": "spouse",
+                "amount": "$1,001 - $15,000",
+                "symbol": "BE",
+                "assetDescription": "Bloom Energy Corp",
+                "transactionDate": "2026-07-24",
+            },
+            metadata=_CanonicalCongressMetadata("P000197", "house"),
+        )
+        senate = senate_module.upsert_senate_transaction_from_row(
+            db,
+            {
+                "firstName": "Jane",
+                "lastName": "Example",
+                "memberId": "FMP_SENATE_CA_JANE_EXAMPLE",
+                "state": "CA",
+                "disclosureDate": "2026-08-24",
+                "link": "https://efdsearch.senate.gov/search/view/ptr/example",
+                "type": "purchase",
+                "owner": "self",
+                "amount": "$1,001 - $15,000",
+                "symbol": "MSFT",
+                "assetDescription": "Microsoft Corp",
+                "transactionDate": "2026-07-24",
+            },
+            metadata=_CanonicalCongressMetadata("E000001", "senate"),
+        )
+        db.commit()
+
+        assert house["member"].bioguide_id == "P000197"
+        assert senate["member"].bioguide_id == "E000001"
     finally:
         db.close()
 

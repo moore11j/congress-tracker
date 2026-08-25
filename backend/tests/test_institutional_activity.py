@@ -2485,3 +2485,35 @@ def test_superseded_original_does_not_generate_activity_or_feed_events():
         assert db.query(InstitutionalPositionChange).count() == 0
         assert db.query(InstitutionalActivityEvent).count() == 0
         assert db.query(Event).count() == 0
+
+
+def test_holder_profile_uses_canonical_filing_date_not_holder_period_end():
+    engine = _engine()
+
+    with _session(engine) as db:
+        db.add_all(
+            [
+                InstitutionalHolder(
+                    cik="0001067983",
+                    holder_name="Berkshire Hathaway Inc.",
+                    latest_report_year=2026,
+                    latest_report_quarter=1,
+                    latest_filing_date=date(2026, 3, 31),
+                ),
+                InstitutionalFiling(
+                    cik="0001067983",
+                    accession_number="0001193125-26-226661",
+                    filing_date=date(2026, 5, 15),
+                    report_year=2026,
+                    report_quarter=1,
+                    form_type="13F-HR",
+                    is_amendment=False,
+                ),
+            ]
+        )
+        db.commit()
+
+        profile = holder_profile(db, "0001067983")
+
+        assert profile is not None
+        assert profile["latest_filing_date"] == "2026-05-15"
