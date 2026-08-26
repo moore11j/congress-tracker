@@ -358,6 +358,14 @@ export async function middleware(request: NextRequest) {
     return robotsTxtResponse(host);
   }
 
+  // Public pages load live data through the shared API rewrite. Do not send
+  // those background requests to the terminal host first: a cross-origin
+  // redirect turns the response into a failed browser fetch and leaves public
+  // views such as /research showing only their static fallback cards.
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
   if (isAnonymousPublicPageRenderCandidate(request, host, pathname)) {
     return rewriteAnonymousPublicRender(request, pathname);
   }

@@ -141,6 +141,7 @@ test("research index opens the full research briefs archive", () => {
 test("the research archive uses the Walnut Market Terminal navigation shell", () => {
   assert.match(middleware, /const isResearchArticle = isPublicResearchRoute\(pathname\) && pathname !== "\/research"/);
   assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isResearchArticle \|\| isPublicComparisonRoute\(pathname\)\) && isMarketingHost/);
+  assert.match(middleware, /if \(pathname\.startsWith\("\/api\/"\)\) \{\s+return NextResponse\.next\(\);/);
   assert.match(middleware, /!isPublicResearchRoute\(pathname\)/);
 });
 
