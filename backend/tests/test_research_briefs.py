@@ -2357,6 +2357,7 @@ def test_prompt_restricts_missing_limitations_to_filtered_notes():
 def test_reader_company_name_removes_legal_entity_suffixes_from_prose():
     assert service._reader_company_name("Nebius Group N.V.", "NBIS") == "Nebius"
     assert service._reader_company_name("NVIDIA Corporation", "NVDA") == "NVIDIA"
+    assert service._reader_company_name("CoreCivic, Inc.", "CXW") == "CoreCivic"
 
 
 def test_validation_fails_when_draft_marks_available_data_missing():

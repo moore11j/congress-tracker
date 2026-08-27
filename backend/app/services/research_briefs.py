@@ -7083,11 +7083,11 @@ def _format_brief_ratio(value: Any) -> str:
 def _reader_company_name(company: str, symbol: str) -> str:
     """Use a company's reader-facing name in prose, not its legal entity name."""
     concise = re.sub(
-        r"\s+(?:(?:group\s+)?(?:n\.v\.|n\.a\.|s\.a\.|s\.p\.a\.|plc|ltd\.?|limited|inc\.?|corp\.?|corporation))$",
+        r"[\s,]+(?:(?:group\s+)?(?:n\.v\.|n\.a\.|s\.a\.|s\.p\.a\.|plc|ltd\.?|limited|inc\.?|corp\.?|corporation))$",
         "",
         str(company or "").strip(),
         flags=re.IGNORECASE,
-    ).strip()
+    ).strip(" ,")
     return concise or str(symbol or "").strip()
 
 
