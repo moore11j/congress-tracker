@@ -1238,6 +1238,28 @@ def test_ai_watermark_words_warn_without_blocking():
     assert "Watched words:" in watermark_warning["message"]
 
 
+def test_prepare_generated_article_removes_published_placeholder_sentences():
+    article = {
+        "title": "CXW: is CoreCivic a good stock to buy now?",
+        "summary": "CoreCivic has a clear operating question. Its forward P/E is not reported.",
+        "preview_body": "The current share price is $33.26. Free cash flow is not available.",
+        "sections": [
+            {
+                "heading": "Executive thesis",
+                "body_markdown": "CoreCivic needs durable earnings execution. Gross margin was not available.",
+            }
+        ],
+    }
+
+    cleaned = service._remove_published_placeholder_language_from_article(article)
+    text = service._article_public_text(cleaned).lower()
+
+    assert "not reported" not in text
+    assert "not available" not in text
+    assert "corecivic has a clear operating question" in cleaned["summary"].lower()
+    assert "current share price is $33.26" in cleaned["preview_body"].lower()
+
+
 def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv(service.DETERMINISTIC_DRAFTS_ENV, "1")

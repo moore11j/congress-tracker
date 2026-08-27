@@ -957,6 +957,11 @@ def sanitize_research_brief_article(
         # is available. Remove only those contradictory sentences; validation
         # remains the backstop for every other unsupported claim.
         sanitized = _remove_available_data_missing_claims_from_article(sanitized, context or {})
+        # Models occasionally turn an absent optional metric into publishable
+        # filler such as "forward P/E is not reported."  The prompt forbids
+        # this, but removing the entire unsupported sentence is safer than
+        # retrying the same article with visible placeholders.
+        sanitized = _remove_published_placeholder_language_from_article(sanitized)
     sanitized = _apply_walnut_call_metadata(sanitized)
     sanitized = _apply_research_access_metadata(sanitized, config)
     sanitized = _humanize_research_article_dates(sanitized)
@@ -1160,6 +1165,48 @@ def _remove_available_data_missing_claims_from_article(article: dict[str, Any], 
     for section in sanitized.get("sections") or []:
         if isinstance(section, dict) and isinstance(section.get("body_markdown"), str):
             section["body_markdown"] = clean(section["body_markdown"])
+    return sanitized
+
+
+def _remove_published_placeholder_language_from_article(article: dict[str, Any]) -> dict[str, Any]:
+    """Remove unsupported placeholder sentences from reader-facing copy.
+
+    Missing-data notes remain available to editors in their dedicated metadata
+    field.  They should never leak into a headline, card summary, or article
+    body as fabricated prose.
+    """
+    placeholder_pattern = r"\b(?:not available|not reported|data unavailable|n/?a|not verified)\b"
+
+    def clean(value: str) -> str:
+        return _remove_sentences_matching(str(value or ""), placeholder_pattern).strip()
+
+    sanitized = deepcopy(article)
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(sanitized.get(key), str):
+            sanitized[key] = clean(sanitized[key])
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness"):
+        if isinstance(sanitized.get(key), list):
+            sanitized[key] = [value for value in (clean(str(item)) for item in sanitized[key]) if value]
+    suggested = sanitized.get("suggested_card") if isinstance(sanitized.get("suggested_card"), dict) else None
+    if suggested:
+        for key in ("title", "description"):
+            if isinstance(suggested.get(key), str):
+                suggested[key] = clean(suggested[key])
+    seo = sanitized.get("seo") if isinstance(sanitized.get("seo"), dict) else None
+    if seo:
+        for key in ("title", "description"):
+            if isinstance(seo.get(key), str):
+                seo[key] = clean(seo[key])
+    sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
+    cleaned_sections: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        cleaned = dict(section)
+        cleaned["body_markdown"] = clean(str(cleaned.get("body_markdown") or ""))
+        if cleaned["body_markdown"]:
+            cleaned_sections.append(cleaned)
+    sanitized["sections"] = cleaned_sections
     return sanitized
 
 
