@@ -5,10 +5,10 @@
  */
 export const homepageContent = {
   hero: {
-    eyebrow: "Stock Research & Market Intelligence",
+    eyebrow: "Stock Research for Self-Directed Investors",
     title: "Everything You Need to Research a Stock, in One Place.",
     description:
-      "Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes.",
+      "Bring fundamentals, technicals, analyst expectations, Congress trades, insider filings, institutional holdings, government contracts, and more into one research workflow. See where the evidence agrees, where it conflicts, what changed, and what to watch next.",
   },
   metadata: {
     title: "Walnut Markets | Stock Research & Market Intelligence",
