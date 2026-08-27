@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { analytics } from "@heycatch/sdk";
 import {
   ApiError,
   createCustomerPortalSession,
@@ -15,6 +14,7 @@ import { formatAccessLabel } from "@/lib/accountDisplay";
 import type { Entitlements } from "@/lib/entitlements";
 import { EmailVerificationBadge, EmailVerificationBanner } from "@/components/auth/EmailVerificationNotice";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { resetHeyCatchIdentity } from "@/lib/heycatch";
 
 function AccountAccessSkeleton() {
   return (
@@ -86,7 +86,7 @@ export function AccountAccessPanel() {
     setLoading(true);
     try {
       await logout();
-      analytics.resetIdentity();
+      resetHeyCatchIdentity();
       setUser(null);
       setEntitlements(null);
       setStatus("Signed out.");

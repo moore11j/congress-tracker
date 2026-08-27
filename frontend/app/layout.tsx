@@ -7,7 +7,6 @@ import { AppTopNav } from "@/components/AppTopNav";
 import { AppVersionRefresh } from "@/components/AppVersionRefresh";
 import { CookieConsentManager } from "@/components/CookieConsentManager";
 import { GlobalSearch } from "@/components/GlobalSearch";
-import { HeyCatchIdentity } from "@/components/HeyCatchIdentity";
 import { PageAnalyticsTracker } from "@/components/PageAnalyticsTracker";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { appVersion } from "@/lib/appVersion";
@@ -43,7 +42,6 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           {children}
           <AppVersionRefresh version={version} />
           <PageAnalyticsTracker />
-          <HeyCatchIdentity />
           <CookieConsentManager />
         </body>
       </html>
@@ -79,7 +77,6 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             </div>
           </header>
           <PageAnalyticsTracker />
-          <HeyCatchIdentity />
           <main className="relative z-0 mx-auto w-full min-w-0 max-w-[1728px] px-4 py-1.5 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
         </div>
         <AppVersionRefresh version={version} />
