@@ -148,6 +148,7 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
             <LandingNavLink key={link.label} href={link.href} label={link.label} />
           ))}
           <DesktopMenu label="Tools" heading="Research tools" items={toolsNavLinks} />
+          <LandingNavLink href="/compare" label="Compare Walnut" />
           <LandingNavLink href={pricingHref} label="Pricing" />
           <DesktopMenu label="Company" heading="Company" items={companyNavLinks} />
         </nav>
@@ -209,6 +210,7 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
                   <NavMenuItems items={toolsNavLinks} mobile />
                 </div>
               </details>
+              <LandingNavLink href="/compare" label="Compare Walnut" className="rounded-lg px-3 py-2.5 text-slate-200" />
               <LandingNavLink href={pricingHref} label="Pricing" className="rounded-lg px-3 py-2.5 text-slate-200" />
               <details className="group/company">
                 <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">

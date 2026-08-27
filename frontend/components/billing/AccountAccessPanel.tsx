@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { analytics } from "@heycatch/sdk";
 import {
   ApiError,
   createCustomerPortalSession,
@@ -85,6 +86,7 @@ export function AccountAccessPanel() {
     setLoading(true);
     try {
       await logout();
+      analytics.resetIdentity();
       setUser(null);
       setEntitlements(null);
       setStatus("Signed out.");

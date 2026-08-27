@@ -5,15 +5,15 @@
  */
 export const homepageContent = {
   hero: {
-    eyebrow: "Stock Research & Market Intelligence",
-    title: "Everything You Need to Research a Stock, in One Place.",
+    eyebrow: "For self-directed stock investors",
+    title: "Alternative-data stock research in one workflow.",
     description:
-      "Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes.",
+      "Research stocks across fundamentals, technicals, Congress trades, insider filings, institutional holdings, government contracts, analyst expectations, and macro context. See where the evidence agrees or conflicts before you decide what to watch next.",
   },
   metadata: {
-    title: "Walnut Markets | Stock Research & Market Intelligence",
+    title: "Alternative Data Stock Research | Walnut Markets",
     description:
-      "Research stocks across fundamentals, technicals, Congress, insiders, institutions and more. Follow your stocks and get alerts when the evidence changes.",
+      "Research stocks across fundamentals, technicals, Congress trades, insiders, institutions, contracts, and more. See where the evidence agrees, conflicts, and changes.",
     socialDescription:
       "Research stocks across multiple data sources, follow the evidence, and get alerted when it changes. Built for research. Not investment advice.",
   },

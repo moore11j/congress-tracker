@@ -78,6 +78,9 @@ export default async function AboutPage() {
         <p>
           That background shapes the product: traceable source context, clear dates, visible limitations, and practical workflows matter more than black-box claims.
         </p>
+        <p>
+          Walnut identifies its operating entity, keeps the public-record context behind research visible, and explains its Confirmation Score as an interpretive layer rather than a recommendation. See the <a className="text-emerald-200 hover:text-emerald-100" href="/stock-confirmation-score">Confirmation Score methodology</a> and the <a className="text-emerald-200 hover:text-emerald-100" href={`${process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com"}/outcomes`}>Outcomes ledger</a> for the supporting product context.
+        </p>
       </LegalSection>
 
       <LegalSection title="Trust and Support">

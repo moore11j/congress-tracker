@@ -699,15 +699,23 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       "Walnut's proprietary confirmation score helps investors interpret market data across price and volume, fundamentals, public disclosures, and ticker context without replacing the underlying data.",
     highlights: [
       "Proprietary score built for research context",
-      "Separate from the underlying data categories",
-      "No formula disclosure and no investment advice",
+      "Evidence sources, drivers, and conflicting inputs remain visible",
+      "Point-in-time methodology; not investment advice",
     ],
     sections: [
       {
         title: "What the confirmation score is",
         paragraphs: [
           "Walnut's proprietary confirmation score is an interpretive research metric designed to summarize whether different categories of market information appear to support or contradict a ticker research view.",
-          "The score is separate from the underlying data. Users should still review the actual price and volume behavior, fundamentals, public disclosures, and ticker context behind any score.",
+          "The score is separate from the underlying data. Users should still review the actual price and volume behavior, fundamentals, analyst context, reported disclosures, institutional activity, contract context, macro positioning, and ticker context behind any score.",
+        ],
+      },
+      {
+        title: "How Walnut builds the score",
+        paragraphs: [
+          "Walnut first evaluates the evidence that is available for a ticker. Depending on coverage, the score can draw from price and volume, fundamentals, analyst consensus, reported Congress and insider activity, institutional activity, government contracts, macro positioning, and other supported source layers.",
+          "Each active source is assessed for direction, strength, data quality, and freshness. A score gains confidence when multiple current sources point in the same direction; weak, stale, unavailable, or conflicting evidence reduces that confidence. A single active source cannot produce a high-confirmation reading, and material conflict is capped below the strongest bands.",
+          "The result is point in time: it can change as new filings, disclosures, prices, or other evidence become available. Walnut shows the active sources, drivers, and source details next to the score so you can judge the underlying record rather than treating the number as a black box.",
         ],
       },
       {
@@ -733,7 +741,12 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       {
         question: "Does Walnut reveal the confirmation score formula?",
         answer:
-          "No. The confirmation score is proprietary, and Walnut does not publish the formula.",
+          "Walnut keeps its precise formula proprietary, but explains the inputs and the high-level method: active sources are evaluated for direction, strength, quality, freshness, agreement, and conflict. The underlying evidence remains visible with the score.",
+      },
+      {
+        question: "Why can a confirmation score change?",
+        answer:
+          "The score is point in time. It can change when the available evidence changes, including market behavior, new public disclosures, filings, institutional activity, analyst context, contracts, or macro positioning.",
       },
       {
         question: "Is the confirmation score the same as the underlying data?",
