@@ -1260,6 +1260,15 @@ def test_prepare_generated_article_removes_published_placeholder_sentences():
     assert "current share price is $33.26" in cleaned["preview_body"].lower()
 
 
+def test_only_low_information_density_failure_is_reviewable():
+    assert service._only_low_information_density_failure(
+        {"warnings": [{"code": "low_information_density", "blocking": True}]}
+    )
+    assert not service._only_low_information_density_failure(
+        {"warnings": [{"code": "low_information_density", "blocking": True}, {"code": "missing_source_links", "blocking": True}]}
+    )
+
+
 def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv(service.DETERMINISTIC_DRAFTS_ENV, "1")

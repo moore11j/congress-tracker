@@ -3730,7 +3730,14 @@ def apply_research_brief_corrections(
         article = _prepare_generated_research_article(article, config, context)
         validation = validate_article(article, context, draft_id=draft_id)
     if validation.get("status") == "failed":
-        raise HTTPException(status_code=422, detail=_validation_failure_message(validation))
+        # A manual edit request should not be discarded solely because the
+        # verified packet is thin. Save the cleaned replacement for explicit
+        # editorial review, while retaining the blocking validation warning so
+        # it cannot masquerade as a fully cleared draft.
+        if _only_low_information_density_failure(validation):
+            validation["saved_for_editorial_review"] = True
+        else:
+            raise HTTPException(status_code=422, detail=_validation_failure_message(validation))
 
     previous_article = draft.get("article") if isinstance(draft.get("article"), dict) else {}
     if previous_article.get("thumbnail_asset") and not article.get("thumbnail_asset"):
@@ -5401,6 +5408,15 @@ def _validation_failure_message(validation: dict[str, Any]) -> str:
     if blocking_messages:
         message = f"{message} {blocking_messages[0]}"
     return message[:300]
+
+
+def _only_low_information_density_failure(validation: dict[str, Any]) -> bool:
+    blocking_codes = {
+        str(warning.get("code") or "")
+        for warning in validation.get("warnings") or []
+        if isinstance(warning, dict) and warning.get("blocking")
+    }
+    return blocking_codes == {"low_information_density"}
 
 
 def _quality_repair_attempts() -> int:
