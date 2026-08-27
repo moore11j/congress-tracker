@@ -40,6 +40,7 @@ SCOPE_TYPES = {"any_watchlist_ticker", "specific_ticker", "watchlist_aggregate"}
 MATCH_TYPES = {"all", "any"}
 DELIVERIES = {"immediate", "daily", "both"}
 WINDOW_UNITS = {"hour", "day", "month"}
+DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES = {"5% Price Increase", "5% Price Decrease"}
 
 
 # This registry is the server-side source of truth.  It describes only metrics
@@ -172,6 +173,66 @@ def validate_conditions(conditions: Any) -> list[dict[str, Any]]:
             "time_window": window if window is not None else None,
         })
     return normalized
+
+
+def default_intraday_price_move_alerts() -> tuple[tuple[str, list[dict[str, Any]]], ...]:
+    """The two existing immediate price-move rules applied to each watchlist."""
+    return (
+        ("5% Price Increase", validate_conditions([{
+            "metric": "price_change_pct",
+            "operator": "increases_by",
+            "comparison_type": "value",
+            "comparison_value": 5,
+            "time_window": {"value": 1, "unit": "day"},
+        }])),
+        ("5% Price Decrease", validate_conditions([{
+            "metric": "price_change_pct",
+            "operator": "decreases_by",
+            "comparison_type": "value",
+            "comparison_value": 5,
+            "time_window": {"value": 1, "unit": "day"},
+        }])),
+    )
+
+
+def is_default_intraday_price_move_alert(rule: WatchlistAlertRule) -> bool:
+    """Identify the built-in rule so non-Pro users receive only this default."""
+    return any(rule.name == name and is_intraday_five_percent_price_move_alert(rule, conditions) for name, conditions in default_intraday_price_move_alerts())
+
+
+def is_intraday_five_percent_price_move_alert(rule: WatchlistAlertRule, conditions: list[dict[str, Any]]) -> bool:
+    """Recognize an equivalent configured rule to avoid duplicate defaults."""
+    if rule.scope_type != "any_watchlist_ticker" or rule.match_type != "all" or rule.delivery != "immediate":
+        return False
+    return _loads(rule.conditions_json, []) == conditions
+
+
+def ensure_default_intraday_price_move_alert(db: Session, *, user_id: int, watchlist_id: int) -> int:
+    """Add missing defaults while leaving equivalent rules unchanged."""
+    existing = db.execute(
+        select(WatchlistAlertRule).where(
+            WatchlistAlertRule.user_id == user_id,
+            WatchlistAlertRule.watchlist_id == watchlist_id,
+        )
+    ).scalars().all()
+    added = 0
+    for name, conditions in default_intraday_price_move_alerts():
+        if any(is_intraday_five_percent_price_move_alert(rule, conditions) for rule in existing):
+            continue
+        db.add(
+            WatchlistAlertRule(
+                user_id=user_id,
+                watchlist_id=watchlist_id,
+                name=name,
+                enabled=True,
+                scope_type="any_watchlist_ticker",
+                match_type="all",
+                conditions_json=json.dumps(conditions),
+                delivery="immediate",
+            )
+        )
+        added += 1
+    return added
 
 
 def format_condition(condition: dict[str, Any]) -> str:
@@ -381,9 +442,23 @@ def _watchlist_tickers(db: Session, watchlist_id: int) -> list[str]:
     return sorted({str(symbol).upper() for symbol in db.execute(select(Security.symbol).join(WatchlistItem, WatchlistItem.security_id == Security.id).where(WatchlistItem.watchlist_id == watchlist_id, WatchlistItem.target_type == "ticker")).scalars().all() if symbol})
 
 
-def evaluate_watchlist_custom_alerts(db: Session, *, user_id: int, watchlist_id: int, now: datetime | None = None) -> dict[str, int]:
+def evaluate_watchlist_custom_alerts(
+    db: Session,
+    *,
+    user_id: int,
+    watchlist_id: int,
+    now: datetime | None = None,
+    rule_names: set[str] | None = None,
+) -> dict[str, int]:
     current = now or datetime.now(timezone.utc)
-    rules = db.execute(select(WatchlistAlertRule).where(WatchlistAlertRule.user_id == user_id, WatchlistAlertRule.watchlist_id == watchlist_id, WatchlistAlertRule.enabled.is_(True))).scalars().all()
+    rules_query = select(WatchlistAlertRule).where(
+        WatchlistAlertRule.user_id == user_id,
+        WatchlistAlertRule.watchlist_id == watchlist_id,
+        WatchlistAlertRule.enabled.is_(True),
+    )
+    if rule_names is not None:
+        rules_query = rules_query.where(WatchlistAlertRule.name.in_(rule_names))
+    rules = db.execute(rules_query).scalars().all()
     tickers = _watchlist_tickers(db, watchlist_id)
     states = {(state.rule_id, state.ticker): state for state in db.execute(select(WatchlistAlertRuleState).where(WatchlistAlertRuleState.rule_id.in_([rule.id for rule in rules] or [-1]))).scalars().all()}
     evaluated = triggered = initialized = 0

@@ -49,7 +49,7 @@ from app.services.email_delivery import send_email
 from app.services.openai_request_audit import audited_openai_request
 from app.utils.symbols import normalize_symbol
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v6_institutional_ownership"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v7_structured_packet"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -410,6 +410,7 @@ COMPANY_IDENTITY_GUARDS = {
     "AMD": ["Advanced Micro Devices", "AMD"],
     "AMZN": ["Amazon"],
     "CRWV": ["CoreWeave", "CRWV"],
+    "CXW": ["CoreCivic", "CXW"],
     "GOOG": ["Alphabet", "Google", "GOOG"],
     "GOOGL": ["Alphabet", "Google", "GOOGL"],
     "META": ["Meta", "Facebook"],
@@ -440,6 +441,14 @@ _STORE_LOCK = threading.Lock()
 _ACTIVE_GENERATIONS: set[str] = set()
 _JOB_WORKER_LOCK = threading.Lock()
 _JOB_WORKERS: dict[str, threading.Thread] = {}
+# SEC reference data is immutable per filing but every cache key includes the
+# entity identifier.  This avoids cross-ticker reuse while keeping sparse-name
+# lookups within the research latency budget.
+_SEC_CACHE_LOCK = threading.Lock()
+_SEC_COMPANY_RECORD_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
+_SEC_COMPANY_FACTS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+SEC_COMPANY_RECORD_TTL_SECONDS = 6 * 60 * 60
+SEC_COMPANY_FACTS_TTL_SECONDS = 60 * 60
 
 
 def research_brief_model(db: Session | None = None) -> str:
@@ -3942,6 +3951,7 @@ def _latest_fundamentals(db: Session, symbol: str) -> dict[str, Any] | None:
         "free_cash_flow": row.free_cash_flow,
         "fcf_yield": row.fcf_yield,
         "eps_ttm": row.eps_ttm,
+        "current_ratio": row.current_ratio,
     }
 
 
@@ -4412,6 +4422,12 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         desired_angle=payload.get("desired_angle"),
         research_question=payload.get("research_question"),
     )
+    entity_scope = {
+        "ticker": symbol,
+        "company_name": identity.get("company_name"),
+        "cik": external_research.get("cik"),
+        "cache_namespace": f"research:{symbol}:{external_research.get('cik') or 'unmapped'}",
+    }
     primary_context = {
         "identity": identity,
         "quote": quotes.get(symbol),
@@ -4445,6 +4461,8 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         missing.extend(_filter_missing_data_notes(external_research["missing_data_notes"], data_availability))
 
     context = {
+        "research_run_id": f"rr_{uuid.uuid4().hex}",
+        "entity_scope": entity_scope,
         "generated_at": _now(),
         "external_research_mode": payload.get("external_research_mode") or "Standard",
         "desired_angle": payload.get("desired_angle") or "",
@@ -4531,19 +4549,40 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
 
 
 def _research_packet(context: dict[str, Any]) -> dict[str, Any]:
-    """Stable packet boundary: omit unavailable data instead of narrating its absence."""
+    """A publication boundary containing only entity-scoped, sourced facts.
+
+    The writer receives this compact packet instead of a loose collection of
+    provider payloads.  Values intentionally retain their reporting period and
+    provenance so a later calculation cannot silently combine periods.
+    """
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
     confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
     external = context.get("external_research") if isinstance(context.get("external_research"), dict) else {}
     official = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
+    financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
+    fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
+    market = primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}
+    sec_facts = external.get("official_facts") if isinstance(external.get("official_facts"), dict) else {}
+    latest_quarter = _latest_reported_quarter(financials, sec_facts)
+    balance_sheet = _structured_balance_sheet(financials, sec_facts, fundamentals)
+    valuation = _deterministic_valuation(market, financials, fundamentals)
     packet = {
-        "ticker": identity.get("symbol"),
-        "company": identity.get("company_name"),
-        "latest_price": (primary.get("quote") or {}).get("price") if isinstance(primary.get("quote"), dict) else None,
-        "latest_earnings": official.get("latest_official_quarter") or (primary.get("financials") or {}).get("latest_quarter") if isinstance(primary.get("financials"), dict) else official.get("latest_official_quarter"),
+        "research_run_id": context.get("research_run_id"),
+        "entity": {
+            "ticker": identity.get("symbol"),
+            "company": identity.get("company_name"),
+            "exchange": identity.get("exchange"),
+            "sector": identity.get("sector"),
+            "industry": identity.get("industry"),
+            "cik": (context.get("entity_scope") or {}).get("cik"),
+        },
+        "industry_profile": _industry_profile(identity),
+        "market": _sourced_market_packet(market, fundamentals),
+        "latest_reported_quarter": latest_quarter,
+        "balance_sheet": balance_sheet,
         "guidance": official.get("guidance"),
-        "valuation": (primary.get("fundamentals") or {}) if isinstance(primary.get("fundamentals"), dict) else None,
+        "valuation": valuation,
         "confirmation_score": confirmation.get("score") or confirmation.get("confirmation_score"),
         "directional_judgment": confirmation.get("direction") or confirmation.get("status"),
         "score_components": confirmation.get("sources"),
@@ -4561,6 +4600,123 @@ def _research_packet(context: dict[str, Any]) -> dict[str, Any]:
         "source_timestamps": {"data_as_of": context.get("generated_at")},
     }
     return {key: value for key, value in packet.items() if value not in (None, {}, [], "")}
+
+
+def _industry_profile(identity: dict[str, Any]) -> dict[str, Any]:
+    """Select relevance rules without imposing a one-size-fits-all KPI template."""
+    text_value = " ".join(str(identity.get(key) or "") for key in ("sector", "industry", "company_name")).lower()
+    if any(term in text_value for term in ("reit", "real estate", "corrections", "infrastructure", "property")):
+        return {"kind": "asset_or_contract_intensive", "relevant_kpis": ["occupancy or utilization", "debt", "capex", "EBITDA", "contract exposure"]}
+    if any(term in text_value for term in ("bank", "financial services", "insurance")):
+        return {"kind": "financial", "relevant_kpis": ["net interest margin", "deposits", "capital", "credit quality"]}
+    if any(term in text_value for term in ("oil", "gas", "energy", "mining")):
+        return {"kind": "resource", "relevant_kpis": ["production", "realized pricing", "capex", "reserves"]}
+    if any(term in text_value for term in ("software", "saas", "cloud")):
+        return {"kind": "software", "relevant_kpis": ["ARR", "NRR", "RPO", "customers", "gross margin"]}
+    if any(term in text_value for term in ("semiconductor", "chip")):
+        return {"kind": "semiconductors", "relevant_kpis": ["segment revenue", "gross margin", "inventory", "capex"]}
+    return {"kind": "general", "relevant_kpis": ["revenue", "profitability", "cash flow", "balance sheet", "guidance"]}
+
+
+def _source_value(value: Any, *, period: str | None, source_type: str, source_url: str | None = None, confidence: str = "high") -> dict[str, Any] | None:
+    if value is None or value == "":
+        return None
+    return _compact({"value": value, "period": period, "source_type": source_type, "source_url": source_url, "confidence": confidence})
+
+
+def _latest_reported_quarter(financials: dict[str, Any], sec_facts: dict[str, Any]) -> dict[str, Any]:
+    income = financials.get("income") if isinstance(financials.get("income"), dict) else {}
+    quarterly = income.get("quarterly") if isinstance(income.get("quarterly"), list) else []
+    latest = next((item for item in reversed(quarterly) if isinstance(item, dict)), {})
+    previous = next((item for item in reversed(quarterly[:-1]) if isinstance(item, dict)), {})
+    period = str(latest.get("period") or sec_facts.get("latest_official_quarter") or "") or None
+    result: dict[str, Any] = {"fiscal_period": period}
+    source_url = _sec_fact_url(sec_facts)
+    fields = {
+        "revenue": ("revenue", "revenue"), "operating_income": ("operatingIncome", "operating_income"),
+        "net_income": ("netIncome", "net_income"), "gaap_eps": ("eps", "diluted_eps"),
+        "operating_cash_flow": ("operatingCashFlow", "operating_cash_flow"), "capex": ("capex", "capex"),
+    }
+    for output, (local_key, sec_key) in fields.items():
+        local = latest.get(local_key)
+        sec = sec_facts.get(sec_key) if isinstance(sec_facts.get(sec_key), dict) else None
+        source = _source_value(local, period=period, source_type="walnut_ticker_financials", confidence="medium")
+        if source is None and sec:
+            source = _source_value(sec.get("value"), period=str(sec.get("period_end") or period or "") or None, source_type="sec_company_facts", source_url=source_url)
+        if source:
+            result[output] = source
+    revenue = result.get("revenue", {}).get("value") if isinstance(result.get("revenue"), dict) else None
+    for output, numerator in (("gross_margin", latest.get("grossProfit")), ("operating_margin", latest.get("operatingIncome"))):
+        if revenue not in (None, 0) and numerator is not None:
+            result[output] = _source_value(round(float(numerator) / float(revenue) * 100, 2), period=period, source_type="deterministic_calculation", confidence="high")
+    for output, sec_key in (("gross_margin", "gross_margin"), ("operating_margin", "operating_margin"), ("free_cash_flow", "free_cash_flow")):
+        if output not in result and isinstance(sec_facts.get(sec_key), dict):
+            fact = sec_facts[sec_key]
+            result[output] = _source_value(fact.get("value"), period=str(fact.get("period_end") or period or "") or None, source_type="deterministic_calculation" if fact.get("derived_from") else "sec_company_facts", source_url=source_url)
+    ocf = result.get("operating_cash_flow", {}).get("value") if isinstance(result.get("operating_cash_flow"), dict) else None
+    capex = result.get("capex", {}).get("value") if isinstance(result.get("capex"), dict) else None
+    if ocf is not None and capex is not None:
+        result["free_cash_flow"] = _source_value(float(ocf) - abs(float(capex)), period=period, source_type="deterministic_calculation")
+    previous_revenue = previous.get("revenue")
+    if revenue not in (None, 0) and previous_revenue not in (None, 0):
+        result["qoq_revenue_growth"] = _source_value(round((float(revenue) / float(previous_revenue) - 1) * 100, 2), period=period, source_type="deterministic_calculation")
+    return _compact(result)
+
+
+def _structured_balance_sheet(financials: dict[str, Any], sec_facts: dict[str, Any], fundamentals: dict[str, Any]) -> dict[str, Any]:
+    health = financials.get("health") if isinstance(financials.get("health"), dict) else {}
+    period = str(sec_facts.get("cash", {}).get("period_end") or "") if isinstance(sec_facts.get("cash"), dict) else None
+    result: dict[str, Any] = {}
+    fields = {"cash": ("cashAndCashEquivalents", "cash"), "total_debt": ("totalDebt", "debt"), "current_assets": ("currentAssets", "current_assets"), "current_liabilities": ("currentLiabilities", "current_liabilities")}
+    for output, (local_key, sec_key) in fields.items():
+        value = health.get(local_key)
+        fact = sec_facts.get(sec_key) if isinstance(sec_facts.get(sec_key), dict) else {}
+        item = _source_value(value, period=period, source_type="walnut_ticker_financials", confidence="medium") or _source_value(fact.get("value"), period=str(fact.get("period_end") or period or "") or None, source_type="sec_company_facts", source_url=_sec_fact_url(sec_facts))
+        if item:
+            result[output] = item
+    cash = result.get("cash", {}).get("value") if isinstance(result.get("cash"), dict) else None
+    debt = result.get("total_debt", {}).get("value") if isinstance(result.get("total_debt"), dict) else None
+    if cash is not None and debt is not None:
+        result["net_debt"] = _source_value(float(debt) - float(cash), period=period, source_type="deterministic_calculation")
+    current_assets = result.get("current_assets", {}).get("value") if isinstance(result.get("current_assets"), dict) else None
+    current_liabilities = result.get("current_liabilities", {}).get("value") if isinstance(result.get("current_liabilities"), dict) else None
+    if current_assets is not None and current_liabilities not in (None, 0):
+        result["current_ratio"] = _source_value(round(float(current_assets) / float(current_liabilities), 2), period=period, source_type="deterministic_calculation")
+    elif fundamentals.get("current_ratio") is not None:
+        result["current_ratio"] = _source_value(fundamentals.get("current_ratio"), period=fundamentals.get("period_date"), source_type="walnut_fundamentals", confidence="medium")
+    if fundamentals.get("debt_to_equity") is not None:
+        result["debt_to_equity"] = _source_value(fundamentals.get("debt_to_equity"), period=fundamentals.get("period_date"), source_type="walnut_fundamentals", confidence="medium")
+    return _compact(result)
+
+
+def _deterministic_valuation(market: dict[str, Any], financials: dict[str, Any], fundamentals: dict[str, Any]) -> dict[str, Any]:
+    price = market.get("price")
+    forecasts = financials.get("forecasts") if isinstance(financials.get("forecasts"), dict) else {}
+    next_year = forecasts.get("nextFiscalYear") if isinstance(forecasts.get("nextFiscalYear"), dict) else {}
+    forward_eps = next_year.get("epsEstimate") or next_year.get("estimatedEpsAvg")
+    result: dict[str, Any] = {}
+    if price is not None and forward_eps is not None:
+        try:
+            if float(forward_eps) > 0:
+                result["forward_pe"] = _source_value(round(float(price) / float(forward_eps), 2), period=str(next_year.get("period") or "") or None, source_type="deterministic_calculation")
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+    for key in ("trailing_pe", "price_to_sales", "ev_to_ebitda", "fcf_yield"):
+        if fundamentals.get(key) is not None:
+            result[key] = _source_value(fundamentals[key], period=fundamentals.get("period_date"), source_type="walnut_fundamentals", confidence="medium")
+    return result
+
+
+def _sourced_market_packet(market: dict[str, Any], fundamentals: dict[str, Any]) -> dict[str, Any]:
+    period = market.get("price_as_of") or fundamentals.get("as_of")
+    return _compact({key: _source_value(value, period=period, source_type="walnut_market_data", confidence="medium") for key, value in {"price": market.get("price"), "market_cap": market.get("market_cap"), "volume": market.get("volume"), "volume_vs_avg": market.get("volume_vs_avg")}.items()})
+
+
+def _sec_fact_url(facts: dict[str, Any]) -> str | None:
+    for fact in facts.values():
+        if isinstance(fact, dict) and fact.get("source_url"):
+            return str(fact["source_url"])
+    return None
 
 
 def discover_external_research(
@@ -4588,6 +4744,7 @@ def discover_external_research(
             "official_facts": {},
             "missing_data_notes": [],
             "source_discovery": source_discovery,
+            "cik": None,
         }
     reviewed_sources = [
         {
@@ -4615,6 +4772,7 @@ def discover_external_research(
         reviewed_sources.insert(0, {"label": "Admin-added source URL", "url": manual_source, "source_type": "manual_official_source"})
         source_notes.append("Admin-added manual source URL is included for extraction and citation.")
     sec_record = _sec_company_record(symbol)
+    cik: str | None = None
     if sec_record:
         cik = str(sec_record.get("cik_str") or "").zfill(10)
         company = str(sec_record.get("title") or identity.get("company_name") or symbol).strip()
@@ -4647,6 +4805,7 @@ def discover_external_research(
         "official_facts": official_facts,
         "missing_data_notes": [f"{field}: Not found in reviewed sources" for field in missing_fields],
         "source_discovery": source_discovery,
+        "cik": cik,
     }
 
 
@@ -4763,6 +4922,12 @@ def enforce_research_readiness(context: dict[str, Any]) -> None:
 
 
 def _sec_company_record(symbol: str) -> dict[str, Any] | None:
+    cache_key = normalize_symbol(symbol) or str(symbol).upper()
+    now = time.monotonic()
+    with _SEC_CACHE_LOCK:
+        cached = _SEC_COMPANY_RECORD_CACHE.get(cache_key)
+        if cached and now - cached[0] < SEC_COMPANY_RECORD_TTL_SECONDS:
+            return deepcopy(cached[1]) if cached[1] else None
     try:
         response = requests.get(
             "https://www.sec.gov/files/company_tickers.json",
@@ -4780,11 +4945,21 @@ def _sec_company_record(symbol: str) -> dict[str, Any] | None:
     records = payload.values() if isinstance(payload, dict) else payload if isinstance(payload, list) else []
     for record in records:
         if isinstance(record, dict) and str(record.get("ticker") or "").upper() == symbol.upper():
+            with _SEC_CACHE_LOCK:
+                _SEC_COMPANY_RECORD_CACHE[cache_key] = (now, deepcopy(record))
             return record
+    with _SEC_CACHE_LOCK:
+        _SEC_COMPANY_RECORD_CACHE[cache_key] = (now, None)
     return None
 
 
 def _sec_company_facts(cik: str) -> dict[str, Any]:
+    cache_key = str(cik).zfill(10)
+    now = time.monotonic()
+    with _SEC_CACHE_LOCK:
+        cached = _SEC_COMPANY_FACTS_CACHE.get(cache_key)
+        if cached and now - cached[0] < SEC_COMPANY_FACTS_TTL_SECONDS:
+            return deepcopy(cached[1])
     try:
         response = requests.get(
             f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
@@ -4801,14 +4976,17 @@ def _sec_company_facts(cik: str) -> dict[str, Any]:
         return {}
     us_gaap = ((payload.get("facts") or {}).get("us-gaap") or {}) if isinstance(payload, dict) else {}
     facts = {
-        "revenue": _latest_sec_fact(us_gaap, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"]),
-        "gross_profit": _latest_sec_fact(us_gaap, ["GrossProfit"]),
-        "operating_income": _latest_sec_fact(us_gaap, ["OperatingIncomeLoss"]),
-        "net_income": _latest_sec_fact(us_gaap, ["NetIncomeLoss"]),
-        "operating_cash_flow": _latest_sec_fact(us_gaap, ["NetCashProvidedByUsedInOperatingActivities"]),
-        "capex": _latest_sec_fact(us_gaap, ["PaymentsToAcquirePropertyPlantAndEquipment"]),
+        "revenue": _latest_sec_quarterly_fact(us_gaap, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"]),
+        "gross_profit": _latest_sec_quarterly_fact(us_gaap, ["GrossProfit"]),
+        "operating_income": _latest_sec_quarterly_fact(us_gaap, ["OperatingIncomeLoss"]),
+        "net_income": _latest_sec_quarterly_fact(us_gaap, ["NetIncomeLoss"]),
+        "diluted_eps": _latest_sec_quarterly_fact(us_gaap, ["EarningsPerShareDiluted"]),
+        "operating_cash_flow": _latest_sec_quarterly_or_derived_fact(us_gaap, ["NetCashProvidedByUsedInOperatingActivities"]),
+        "capex": _latest_sec_quarterly_or_derived_fact(us_gaap, ["PaymentsToAcquirePropertyPlantAndEquipment"]),
         "cash": _latest_sec_fact(us_gaap, ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"]),
         "debt": _latest_sec_fact(us_gaap, ["LongTermDebt", "LongTermDebtAndFinanceLeaseObligationsCurrentAndNoncurrent"]),
+        "current_assets": _latest_sec_fact(us_gaap, ["AssetsCurrent"]),
+        "current_liabilities": _latest_sec_fact(us_gaap, ["LiabilitiesCurrent"]),
         "shares": _latest_sec_fact(us_gaap, ["EntityCommonStockSharesOutstanding", "CommonStocksIncludingAdditionalPaidInCapital"]),
     }
     revenue = facts.get("revenue", {}).get("value") if isinstance(facts.get("revenue"), dict) else None
@@ -4823,7 +5001,74 @@ def _sec_company_facts(cik: str) -> dict[str, Any]:
     capex = facts.get("capex", {}).get("value") if isinstance(facts.get("capex"), dict) else None
     if ocf is not None and capex is not None:
         facts["free_cash_flow"] = {"value": float(ocf) - abs(float(capex)), "unit": "USD", "derived_from": ["operating_cash_flow", "capex"]}
-    return {key: value for key, value in facts.items() if value}
+    source_url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+    for fact in facts.values():
+        if isinstance(fact, dict):
+            fact["source_url"] = source_url
+            fact["source_type"] = "sec_company_facts"
+            fact["confidence"] = "high"
+    latest_period = next((str(fact.get("period_end") or "") for fact in facts.values() if isinstance(fact, dict) and fact.get("period_end")), "")
+    if latest_period:
+        facts["latest_official_quarter"] = latest_period
+    result = {key: value for key, value in facts.items() if value}
+    with _SEC_CACHE_LOCK:
+        _SEC_COMPANY_FACTS_CACHE[cache_key] = (now, deepcopy(result))
+    return result
+
+
+def _latest_sec_quarterly_fact(us_gaap: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    """Choose a single-quarter SEC XBRL value, never a YTD value masquerading as a quarter."""
+    for name in names:
+        units = ((us_gaap.get(name) or {}).get("units") or {}) if isinstance(us_gaap.get(name), dict) else {}
+        candidates: list[dict[str, Any]] = []
+        for unit, rows in units.items():
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict) or row.get("val") is None or not row.get("start") or not row.get("end"):
+                    continue
+                try:
+                    days = (date.fromisoformat(str(row["end"])) - date.fromisoformat(str(row["start"]))).days
+                except (TypeError, ValueError):
+                    continue
+                if 70 <= days <= 110 and str(row.get("form") or "") in {"10-Q", "10-K", "8-K"}:
+                    candidates.append({**row, "unit": unit, "taxonomy": name, "duration_days": days})
+        if candidates:
+            row = sorted(candidates, key=lambda item: (str(item.get("end") or ""), str(item.get("filed") or "")), reverse=True)[0]
+            return {"value": row.get("val"), "unit": row.get("unit"), "period_end": row.get("end"), "filed": row.get("filed"), "form": row.get("form"), "taxonomy": row.get("taxonomy"), "duration_days": row.get("duration_days")}
+    return None
+
+
+def _latest_sec_quarterly_or_derived_fact(us_gaap: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    direct = _latest_sec_quarterly_fact(us_gaap, names)
+    # Cash-flow statements commonly report Q2/Q3 on a year-to-date basis.  A
+    # quarter value is safe only when it is the difference between two values
+    # with the same fiscal start and unit; otherwise the metric is omitted.
+    for name in names:
+        units = ((us_gaap.get(name) or {}).get("units") or {}) if isinstance(us_gaap.get(name), dict) else {}
+        candidates: list[dict[str, Any]] = []
+        for unit, rows in units.items():
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict) or row.get("val") is None or not row.get("start") or not row.get("end"):
+                    continue
+                try:
+                    days = (date.fromisoformat(str(row["end"])) - date.fromisoformat(str(row["start"]))).days
+                except (TypeError, ValueError):
+                    continue
+                if 150 <= days <= 310 and str(row.get("form") or "") in {"10-Q", "10-K"}:
+                    candidates.append({**row, "unit": unit, "taxonomy": name, "duration_days": days})
+        for current in sorted(candidates, key=lambda item: (str(item.get("end") or ""), str(item.get("filed") or "")), reverse=True):
+            earlier = [item for item in candidates if item["unit"] == current["unit"] and item.get("start") == current.get("start") and str(item.get("end")) < str(current.get("end"))]
+            if not earlier:
+                continue
+            prior = max(earlier, key=lambda item: str(item.get("end") or ""))
+            try:
+                value = float(current["val"]) - float(prior["val"])
+            except (TypeError, ValueError):
+                continue
+            derived = {"value": value, "unit": current["unit"], "period_end": current["end"], "filed": current.get("filed"), "form": current.get("form"), "taxonomy": name, "derived_from": ["year_to_date_current", "year_to_date_prior"], "duration_days": current["duration_days"] - prior["duration_days"]}
+            if not direct or str(derived["period_end"]) > str(direct.get("period_end") or ""):
+                return derived
+            break
+    return direct
 
 
 def _latest_sec_fact(us_gaap: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
@@ -5822,10 +6067,14 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "You are Walnut's senior market research editor writing a publishable research brief in Walnut's investor-to-investor voice.",
             f"PRIMARY_TICKER: {primary_symbol}",
             f"PRIMARY_COMPANY: {primary_company}",
+            f"RESEARCH_RUN_ID: {context.get('research_run_id')}",
             f"COMPARISON_TICKERS: {', '.join(comparison_symbols) if comparison_symbols else 'None'}",
             "Every company-specific statement must be about PRIMARY_COMPANY unless it is explicitly framed as comparison, industry, or macro context. Do not analyze Nvidia, AMD, CoreWeave, or any other company as the subject unless that ticker is listed in COMPARISON_TICKERS.",
             "Use a company's full legal name only in the title or first reference. In the body, use the common company name or ticker: write 'Nebius' or 'NBIS,' never 'Nebius Group N.V.' after the opening. Drop legal suffixes such as Inc., Corp., Ltd., N.V., plc, and S.A. from ordinary prose.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
+            "The STRUCTURED_RESEARCH_PACKET is the only authority for company-specific financial values and valuation multiples. Use a metric only when it appears in that packet; omit optional metrics that are absent. Never convert an absent field into 'not available', 'not reported', 'N/A', or similar prose.",
+            "Do not calculate financial arithmetic yourself. Use the deterministic values in STRUCTURED_RESEARCH_PACKET and preserve their period labels. A forward P/E is usable only when the packet explicitly provides it.",
+            "Industry profile controls KPI relevance. Do not use SaaS metrics such as ARR, NRR, RPO, subscribers, or AI-cloud customer wins unless the profile is software or the packet explicitly supplies that metric.",
             "The target search query is the organizing question, not a phrase to repeat. Answer it immediately, then earn the conclusion with Walnut-native evidence.",
             *(
                 [
@@ -5913,7 +6162,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Admin configuration:",
             json.dumps(prompt_config, indent=2, sort_keys=True),
             "Walnut research context:",
-            json.dumps(context, indent=2, sort_keys=True, default=str)[:18000],
+            json.dumps({"research_run_id": context.get("research_run_id"), "research_packet": context.get("research_packet"), "walnut_context": {key: value for key, value in context.items() if key not in {"research_packet", "comparisons"}}, "comparisons": context.get("comparisons")}, indent=2, sort_keys=True, default=str)[:18000],
         ]
     )
 
@@ -6115,6 +6364,12 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         warnings.extend(company_identity_warnings)
         labels["company_identity"] = "failed"
         blocking = True
+    packet_warnings = _research_packet_integrity_warnings(article, context)
+    if packet_warnings:
+        warnings.extend(packet_warnings)
+        labels["company_identity"] = "failed"
+        labels["numeric_validation"] = "failed"
+        blocking = True
     if not title:
         warnings.append(_warning("missing_title", "Title is required.", blocking=True))
         blocking = True
@@ -6124,8 +6379,9 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         labels["seo_keyword_coverage"] = "failed"
         blocking = True
     if len(body) < 800:
-        warnings.append(_warning("thin_body", "Article body appears too short for a professional research brief.", blocking=True))
-        blocking = True
+        deterministic_packet_brief = str(article.get("_generation_mode") or "") == "walnut_data_fallback"
+        warnings.append(_warning("thin_body", "Article body appears too short for a professional research brief.", blocking=not deterministic_packet_brief))
+        blocking = blocking or not deterministic_packet_brief
     summary_text = f"{article.get('summary') or ''}\n{article.get('preview_body') or ''}"
     if "not investment advice" not in body.lower() and "not investment advice" not in summary_text.lower():
         warnings.append(_warning("missing_disclaimer", "Research-only / not-investment-advice language is missing from the body; rely on the Walnut legal/footer disclaimer when appropriate.", blocking=False))
@@ -6149,6 +6405,10 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
             blocking = True
     if "not supplied" in lowered:
         warnings.append(_warning("not_supplied_language", "Use 'Not found in reviewed sources' once in Data limitations instead of repeated 'not supplied' language.", blocking=True))
+        labels["missing_data_language"] = "failed"
+        blocking = True
+    if re.search(r"\b(?:not available|not reported|data unavailable|n/?a|not verified)\b", lowered):
+        warnings.append(_warning("published_placeholder_language", "Published prose cannot expose missing-data placeholders; omit the optional metric instead.", blocking=True))
         labels["missing_data_language"] = "failed"
         blocking = True
     missing_language_hits = _missing_data_language_hits(lowered)
@@ -6401,6 +6661,38 @@ def _company_identity_warnings(article: dict[str, Any], context: dict[str, Any])
     return warnings
 
 
+def _research_packet_integrity_warnings(article: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Fail closed on cross-company language and unsupported material multiples."""
+    packet = context.get("research_packet") if isinstance(context.get("research_packet"), dict) else {}
+    entity = packet.get("entity") if isinstance(packet.get("entity"), dict) else {}
+    profile = packet.get("industry_profile") if isinstance(packet.get("industry_profile"), dict) else {}
+    text_value = _article_full_text(article)
+    lowered = text_value.lower()
+    warnings: list[dict[str, Any]] = []
+    if entity.get("ticker") and entity.get("ticker") != ((context.get("entity_scope") or {}).get("ticker")):
+        warnings.append(_warning("research_packet_entity_mismatch", "Research packet entity does not match the requested ticker.", blocking=True))
+    if profile.get("kind") != "software":
+        software_terms = ("arr", "net revenue retention", "nrr", "remaining performance obligation", "rpo", "ai cloud customer")
+        hit = next((term for term in software_terms if re.search(rf"\b{re.escape(term)}\b", lowered)), None)
+        if hit:
+            warnings.append(_warning("industry_kpi_contamination", f"Irrelevant software KPI detected for {entity.get('ticker') or 'the requested company'}: {hit}.", blocking=True))
+    valuation = packet.get("valuation") if isinstance(packet.get("valuation"), dict) else {}
+    forward = valuation.get("forward_pe") if isinstance(valuation.get("forward_pe"), dict) else None
+    stated = re.search(r"(?:roughly|approximately|about|at)?\s*(\d+(?:\.\d+)?)\s*x?\s+forward\s+(?:p/?e|earnings)", lowered)
+    if stated:
+        if not forward:
+            warnings.append(_warning("unsupported_forward_pe", "Draft states forward earnings valuation without a deterministic packet calculation.", blocking=True))
+        else:
+            try:
+                expected = float(forward["value"])
+                actual = float(stated.group(1))
+                if abs(expected - actual) > max(0.25, abs(expected) * 0.03):
+                    warnings.append(_warning("forward_pe_mismatch", f"Draft forward P/E does not match the deterministic calculation ({expected:.2f}x).", blocking=True))
+            except (KeyError, TypeError, ValueError):
+                warnings.append(_warning("invalid_forward_pe_packet", "Forward P/E packet value is invalid.", blocking=True))
+    return warnings
+
+
 def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
     text = _article_full_text(article)
     lowered = text.lower()
@@ -6640,6 +6932,11 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
             "elapsed_ms": elapsed_ms,
             "storage": "database",
             "usage": article.get("_generation_usage") or {},
+            "research_run_id": context.get("research_run_id"),
+            "entity_scope": context.get("entity_scope") or {},
+            "source_types": [str(item.get("source_type") or "") for item in ((context.get("external_research") or {}).get("reviewed_sources") or []) if isinstance(item, dict)],
+            "latest_reported_period": ((context.get("research_packet") or {}).get("latest_reported_quarter") or {}).get("fiscal_period") if isinstance((context.get("research_packet") or {}).get("latest_reported_quarter"), dict) else None,
+            "qa_status": validation.get("status"),
         },
         "research_context": context,
     }
@@ -6940,7 +7237,117 @@ def _institutional_activity_fallback_article(
     }
 
 
+def _packet_value(packet: dict[str, Any], *path: str) -> Any:
+    value: Any = packet
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value.get("value") if isinstance(value, dict) and "value" in value else value
+
+
+def _structured_walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic brief used when editorial generation is deliberately bypassed.
+
+    It is intentionally additive: each sentence is created only when its
+    packet fact exists, so it cannot leak provider nulls or another issuer's
+    template language into published copy.
+    """
+    packet = context.get("research_packet") if isinstance(context.get("research_packet"), dict) else {}
+    if not packet:
+        primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+        identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+        scoped_context = {
+            **context,
+            "research_run_id": context.get("research_run_id") or f"rr_{uuid.uuid4().hex}",
+            "entity_scope": context.get("entity_scope") or {"ticker": identity.get("symbol") or config.get("ticker")},
+        }
+        packet = _research_packet(scoped_context)
+    entity = packet.get("entity") if isinstance(packet.get("entity"), dict) else {}
+    symbol = str(entity.get("ticker") or config.get("ticker") or "").upper()
+    company = _reader_company_name(str(entity.get("company") or symbol), symbol)
+    quarter = packet.get("latest_reported_quarter") if isinstance(packet.get("latest_reported_quarter"), dict) else {}
+    balance = packet.get("balance_sheet") if isinstance(packet.get("balance_sheet"), dict) else {}
+    valuation = packet.get("valuation") if isinstance(packet.get("valuation"), dict) else {}
+    market = packet.get("market") if isinstance(packet.get("market"), dict) else {}
+    profile = packet.get("industry_profile") if isinstance(packet.get("industry_profile"), dict) else {}
+    source_links = [item for item in ((context.get("external_research") or {}).get("reviewed_sources") or []) if isinstance(item, dict)]
+    if not source_links:
+        source_links = [{"label": "SEC EDGAR company search", "url": f"https://www.sec.gov/edgar/search/#/q={symbol}&dateRange=all", "source_type": "filing_search"}, {"label": f"{symbol} Nasdaq market activity", "url": f"https://www.nasdaq.com/market-activity/stocks/{symbol.lower()}", "source_type": "reputable_market_source"}]
+    period = str(quarter.get("fiscal_period") or "the latest reported period")
+    price = _packet_value(market, "price")
+    revenue = _packet_value(quarter, "revenue")
+    net_income = _packet_value(quarter, "net_income")
+    eps = _packet_value(quarter, "gaap_eps")
+    op_income = _packet_value(quarter, "operating_income")
+    ocf = _packet_value(quarter, "operating_cash_flow")
+    capex = _packet_value(quarter, "capex")
+    fcf = _packet_value(quarter, "free_cash_flow")
+    qoq = _packet_value(quarter, "qoq_revenue_growth")
+    forward_pe = _packet_value(valuation, "forward_pe")
+    score = _packet_value(packet, "confirmation_score")
+    opening_bits = [f"{company} ({symbol}) is being assessed from an entity-scoped packet covering {period}."]
+    if revenue is not None:
+        opening_bits.append(f"Revenue was {_format_brief_money(revenue)}")
+    if qoq is not None:
+        opening_bits[-1] = opening_bits[-1] + f", with {_format_brief_percent(qoq)} sequential growth"
+    if net_income is not None:
+        opening_bits.append(f"Net income was {_format_brief_money(net_income)}.")
+    sections: list[dict[str, str]] = [{"key": "executive-thesis", "heading": "Executive thesis", "body_markdown": " ".join(opening_bits)}]
+    results: list[str] = []
+    if revenue is not None:
+        results.append(f"Revenue was {_format_brief_money(revenue)}.")
+    if op_income is not None:
+        results.append(f"Operating income was {_format_brief_money(op_income)}.")
+    if net_income is not None:
+        results.append(f"Net income was {_format_brief_money(net_income)}.")
+    if eps is not None:
+        results.append(f"GAAP EPS was {_format_brief_money(eps)} per share.")
+    if results:
+        sections.append({"key": "reported-results", "heading": f"{period} reported results", "body_markdown": " ".join(results)})
+    cash_flow: list[str] = []
+    if ocf is not None:
+        cash_flow.append(f"Operating cash flow was {_format_brief_money(ocf)}.")
+    if capex is not None:
+        cash_flow.append(f"Capital expenditures were {_format_brief_money(abs(float(capex)))}.")
+    if fcf is not None:
+        cash_flow.append(f"Deterministic free cash flow was {_format_brief_money(fcf)}.")
+    if cash_flow:
+        sections.append({"key": "cash-flow", "heading": "Cash flow and capital allocation", "body_markdown": " ".join(cash_flow)})
+    balance_sentences: list[str] = []
+    for label, key in (("Cash", "cash"), ("Total debt", "total_debt"), ("Net debt", "net_debt"), ("Current ratio", "current_ratio"), ("Debt to equity", "debt_to_equity")):
+        value = _packet_value(balance, key)
+        if value is not None:
+            formatted = _format_brief_ratio(value) if "ratio" in key or key == "debt_to_equity" else _format_brief_money(value)
+            balance_sentences.append(f"{label} was {formatted}.")
+    if balance_sentences:
+        sections.append({"key": "balance-sheet", "heading": "Balance sheet", "body_markdown": " ".join(balance_sentences)})
+    valuation_sentences: list[str] = []
+    if price is not None:
+        valuation_sentences.append(f"The latest price snapshot was {_format_brief_money(price)}.")
+    if forward_pe is not None:
+        valuation_sentences.append(f"Deterministic forward P/E was {_format_brief_ratio(forward_pe)} using a positive forward EPS estimate from the packet.")
+    if valuation_sentences:
+        sections.append({"key": "valuation", "heading": "Market and valuation", "body_markdown": " ".join(valuation_sentences)})
+    guidance = packet.get("guidance") if isinstance(packet.get("guidance"), dict) else {}
+    if guidance.get("value"):
+        sections.append({"key": "guidance", "heading": "Management guidance", "body_markdown": str(guidance["value"])})
+    kpis = ", ".join(str(item) for item in profile.get("relevant_kpis") or [] if item)
+    if kpis:
+        sections.append({"key": "what-to-watch", "heading": "What to watch next", "body_markdown": f"The company-specific watch list is {kpis}. The next filing and earnings release should confirm whether those measures are improving or deteriorating."})
+    score_value = int(score) if isinstance(score, (int, float)) else None
+    judgment = "bullish" if score_value is not None and score_value >= 60 else "bearish" if score_value is not None and score_value <= 40 else "mixed"
+    walnut_call = "Bullish" if judgment == "bullish" else "Bearish" if judgment == "bearish" else "Neutral"
+    if score_value is not None and config.get("include_confirmation_score"):
+        sections.append({"key": "final-walnut-judgment", "heading": "Final Walnut judgment", "body_markdown": f"Our call: {walnut_call}. Our Confirmation Score is {score_value}/100; it is presented separately from the reported financial data."})
+    else:
+        sections.append({"key": "final-walnut-judgment", "heading": "Final Walnut judgment", "body_markdown": f"Our call: {walnut_call}. The conclusion reflects the reported figures above and is limited to the evidence retained in this brief."})
+    summary = " ".join(opening_bits[:2])
+    return {"title": f"{company}: reported results and current evidence", "slug": _slugify(f"{symbol} reported results current evidence", fallback=f"{symbol.lower()}-research-brief"), "subtitle": f"A fact-based review of {symbol}'s reported financial and market evidence.", "summary": summary, "preview_body": summary, "judgment": judgment, "walnut_call": walnut_call, "confidence": "high" if revenue is not None else "medium", "confirmation_score_included": bool(score_value is not None and config.get("include_confirmation_score")), "primary_ticker": symbol, "comparison_tickers": list(config.get("comparison_tickers") or []), "category": str(entity.get("sector") or "Research"), "reading_minutes": max(2, len(" ".join(section["body_markdown"] for section in sections).split()) // 180 + 1), "sections": sections, "key_points": [sentence for section in sections[:4] for sentence in [section["body_markdown"]]][:4], "catalysts": [], "risks": [], "watch_items": list(profile.get("relevant_kpis") or []), "data_freshness": [str(context.get("generated_at") or ""), period], "missing_data_notes": [], "source_links": source_links[:8], "suggested_card": {"title": f"{symbol}: reported results", "description": summary, "judgment": judgment, "tickers": [symbol]}, "seo": {"title": f"{symbol} reported results and valuation", "description": summary}}
+
+
 def _walnut_data_fallback_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    return _structured_walnut_data_fallback_article(config, context)
     """Create a complete review draft from the assembled Walnut context, without invented facts."""
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}

@@ -584,7 +584,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "from_name": ALERTS_FROM_NAME,
         "from_email": ALERTS_FROM_EMAIL,
         "reply_to": SUPPORT_EMAIL,
-        "subject": "Walnut high-priority watchlist alert: {{ticker}}",
+        "subject": "Walnut Alerts: [{{ticker}}]",
         "preheader": "High-priority watchlist activity cleared Walnut intraday alert thresholds.",
         "variables": [
             "first_name",
@@ -649,7 +649,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "from_name": ALERTS_FROM_NAME,
         "from_email": ALERTS_FROM_EMAIL,
         "reply_to": SUPPORT_EMAIL,
-        "subject": "Walnut intraday monitoring alert: {{ticker}}",
+        "subject": "Walnut Alerts: [{{ticker}}]",
         "preheader": "A watched monitoring event cleared Walnut intraday alert criteria.",
         "variables": [
             "first_name",
@@ -1060,6 +1060,14 @@ def seed_default_email_templates(db: Session) -> int:
     refreshed = 0
     for template in existing_templates.values():
         if _refresh_legacy_template_branding(template):
+            refreshed += 1
+        if template.template_key in {"alerts.signal_intraday", "alerts.watchlist_intraday"} and template.subject in {
+            "Walnut high-conviction signal: {{ticker}}",
+            "Walnut intraday monitoring alert: {{ticker}}",
+            "Walnut high-priority watchlist alert: {{ticker}}",
+        }:
+            template.subject = "Walnut Alerts: [{{ticker}}]"
+            template.updated_at = datetime.now(timezone.utc)
             refreshed += 1
     for template in DEFAULT_TEMPLATES:
         if template["template_key"] in existing_templates:

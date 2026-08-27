@@ -222,7 +222,7 @@ export function NotificationPreferences({
     ? "min-w-[20rem] space-y-4 font-sans"
     : "min-h-[13.5rem] rounded-lg border border-white/10 bg-slate-950/45 p-5 font-sans shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]";
   const active = sourceType === "watchlist"
-    ? Object.values(deliveryModes).some((mode) => mode !== "off")
+    ? Boolean(subscription?.active) && (dailyDigestEnabled || intradayAlertsEnabled || Object.values(deliveryModes).some((mode) => mode !== "off"))
     : dailyDigestEnabled || intradayAlertsEnabled;
   const alertState = subscription ? (active ? "Active" : "Paused") : "Not subscribed";
   const alertStateClassName = subscription
@@ -412,6 +412,7 @@ export function NotificationPreferences({
           </div>
         )}
         <div className="mt-4 border-t border-white/10 pt-4">
+          <p className="mb-3 text-xs leading-5 text-slate-500">New watchlists also include immediate 5% price-move alerts. You can review them under Custom Alert Rules.</p>
           <DigestSwitch
             checked={onlyIfNew}
             disabled={!canUseDigests || loading}

@@ -687,7 +687,10 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_intraday" and template.name == "Intraday signal alert":
             template = reset_email_template_to_default(db, template_key) or template
-        if template_key == "alerts.signal_intraday" and template.subject == "Walnut high-conviction signal: {{ticker}}":
+        if template_key == "alerts.signal_intraday" and template.subject in {
+            "Walnut high-conviction signal: {{ticker}}",
+            "Walnut intraday monitoring alert: {{ticker}}",
+        }:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.watchlist_activity" and template.name == "Watchlist activity alert":
             template = reset_email_template_to_default(db, template_key) or template

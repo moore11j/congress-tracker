@@ -429,12 +429,26 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                     lookback_days=lookback_days,
                     now=observed_at,
                 )
+                # The built-in 5% intraday move alert is enabled for every
+                # watchlist. Other custom rules remain a Pro feature.
                 if can_use_custom_rules:
                     custom_result = evaluate_watchlist_custom_alerts(
                         db,
                         user_id=user_id,
                         watchlist_id=watchlist_id,
                         now=observed_at,
+                    )
+                    custom_rules_evaluated += int(custom_result.get("evaluated") or 0)
+                    custom_rules_triggered += int(custom_result.get("triggered") or 0)
+                else:
+                    from app.services.custom_alert_rules import DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES
+
+                    custom_result = evaluate_watchlist_custom_alerts(
+                        db,
+                        user_id=user_id,
+                        watchlist_id=watchlist_id,
+                        now=observed_at,
+                        rule_names=DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES,
                     )
                     custom_rules_evaluated += int(custom_result.get("evaluated") or 0)
                     custom_rules_triggered += int(custom_result.get("triggered") or 0)

@@ -197,6 +197,9 @@ from app.services.price_lookup import (
     is_price_history_stale,
 )
 from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db
+from app.services.custom_alert_rules import ensure_default_intraday_price_move_alert
+from app.services.notifications import upsert_subscription
+from app.services.watchlist_delivery import WATCHLIST_ALERT_CATEGORIES
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_contracts import get_government_contracts_summary
@@ -13505,7 +13508,30 @@ def create_watchlist(
     try:
         db.flush()
         db.add(WatchlistViewState(watchlist_id=w.id, last_seen_at=datetime.now(timezone.utc)))
-        db.commit()
+        ensure_default_intraday_price_move_alert(db, user_id=user.id, watchlist_id=w.id)
+        daily_enabled = bool(user.watchlist_activity_notifications)
+        intraday_enabled = daily_enabled and bool(user.signals_notifications)
+        delivery_mode = "daily" if daily_enabled else "off"
+        upsert_subscription(
+            db,
+            email=user.email,
+            source_type="watchlist",
+            source_id=str(w.id),
+            source_name=w.name,
+            source_payload={
+                "daily_digest_enabled": daily_enabled,
+                "intraday_alerts_enabled": intraday_enabled,
+                "alert_delivery_modes": {
+                    category: delivery_mode for category in WATCHLIST_ALERT_CATEGORIES
+                },
+            },
+            frequency="daily",
+            only_if_new=True,
+            active=daily_enabled,
+            alert_triggers=[],
+            min_smart_score=None,
+            large_trade_amount=None,
+        )
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Watchlist name already exists")

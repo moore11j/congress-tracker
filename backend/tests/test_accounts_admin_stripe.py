@@ -20,7 +20,7 @@ from app.auth import SESSION_COOKIE_NAME, admin_emails, sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates, seed_plan_prices
 from app.main import WatchlistPayload, create_watchlist
-from app.models import AdminBillingOverrideAuditLog, AppSetting, BillingTransaction, EmailDelivery, PageViewEvent, StripeWebhookEvent, UserAccount, Watchlist
+from app.models import AdminBillingOverrideAuditLog, AppSetting, BillingTransaction, EmailDelivery, NotificationSubscription, PageViewEvent, StripeWebhookEvent, UserAccount, Watchlist, WatchlistAlertRule
 from app.routers import accounts as accounts_module
 from app.services.billing_reminders import run_billing_expiry_reminders
 from app.routers.accounts import (
@@ -5675,6 +5675,44 @@ def test_admin_feature_gate_change_is_backend_authoritative(monkeypatch):
         admin_update_feature_gate("watchlists", FeatureGatePayload(required_tier="free"), request, db)
         response = create_watchlist(WatchlistPayload(name="Allowed"), reader_request, db)
         assert response["name"] == "Allowed"
+        watchlist = db.execute(select(Watchlist).where(Watchlist.name == "Allowed")).scalar_one()
+        rules = db.execute(select(WatchlistAlertRule).where(WatchlistAlertRule.watchlist_id == watchlist.id)).scalars().all()
+        assert {rule.name for rule in rules} == {"5% Price Increase", "5% Price Decrease"}
+        assert all(rule.enabled for rule in rules)
+        subscription = db.execute(select(NotificationSubscription).where(NotificationSubscription.source_id == str(watchlist.id))).scalar_one()
+        assert subscription.active is True
+        payload = json.loads(subscription.source_payload_json or "{}")
+        assert payload["daily_digest_enabled"] is True
+        assert payload["intraday_alerts_enabled"] is True
+        assert set(payload["alert_delivery_modes"].values()) == {"daily"}
+
+        reader.watchlist_activity_notifications = False
+        reader.signals_notifications = True
+        db.commit()
+        create_watchlist(WatchlistPayload(name="Daily opt-out"), reader_request, db)
+        opted_out_watchlist = db.execute(select(Watchlist).where(Watchlist.name == "Daily opt-out")).scalar_one()
+        opted_out = db.execute(
+            select(NotificationSubscription).where(NotificationSubscription.source_id == str(opted_out_watchlist.id))
+        ).scalar_one()
+        opted_out_payload = json.loads(opted_out.source_payload_json or "{}")
+        assert opted_out.active is False
+        assert opted_out_payload["daily_digest_enabled"] is False
+        assert opted_out_payload["intraday_alerts_enabled"] is False
+        assert set(opted_out_payload["alert_delivery_modes"].values()) == {"off"}
+
+        reader.watchlist_activity_notifications = True
+        reader.signals_notifications = False
+        db.commit()
+        create_watchlist(WatchlistPayload(name="Intraday opt-out"), reader_request, db)
+        daily_only_watchlist = db.execute(select(Watchlist).where(Watchlist.name == "Intraday opt-out")).scalar_one()
+        daily_only = db.execute(
+            select(NotificationSubscription).where(NotificationSubscription.source_id == str(daily_only_watchlist.id))
+        ).scalar_one()
+        daily_only_payload = json.loads(daily_only.source_payload_json or "{}")
+        assert daily_only.active is True
+        assert daily_only_payload["daily_digest_enabled"] is True
+        assert daily_only_payload["intraday_alerts_enabled"] is False
+        assert set(daily_only_payload["alert_delivery_modes"].values()) == {"daily"}
     finally:
         db.close()
 

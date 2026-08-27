@@ -160,21 +160,21 @@ export function CustomAlertRules({ watchlistId, tickers, canUseCustomAlerts }: {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Custom Alert Rules</p>
             {!canUseCustomAlerts ? <span className="rounded border border-amber-300/30 bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-100">Pro</span> : null}
           </div>
-          <p className="mt-1 text-sm text-slate-400">Build your own alerts using price, technical, fundamental, and activity data.</p>
+          <p className="mt-1 text-sm text-slate-400">Every watchlist starts with immediate alerts for 5% daily price increases and decreases. Build additional alerts using price, technical, fundamental, and activity data.</p>
         </div>
         {canUseCustomAlerts ? <button type="button" onClick={() => { setError(null); setDraft(draftFromRule()); }} className={subtlePrimaryButtonClassName}>+ Create alert</button> : null}
       </div>
 
       {!canUseCustomAlerts ? (
         <div className="mt-4 rounded-xl border border-amber-300/15 bg-white/[0.025] p-4">
-          <p className="text-sm font-semibold text-white">Define the setup. Walnut watches for it.</p>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">Custom Alert Rules are included with Walnut Pro. Combine price, technical, Congress, insider, government-contract, and Walnut data in the exact setup you care about.</p>
+          <p className="text-sm font-semibold text-white">Your 5% price-move alerts are active.</p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">Every watchlist includes immediate alerts when a ticker rises or falls 5% over one day. Walnut Pro lets you create and edit additional custom rules.</p>
           <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
             <div className="rounded-md border border-white/10 bg-slate-950/40 p-2.5">Price increases at least 10% over 1 day</div>
             <div className="rounded-md border border-white/10 bg-slate-950/40 p-2.5">RSI (14) below 35 AND Price above SMA (200)</div>
             <div className="rounded-md border border-white/10 bg-slate-950/40 p-2.5">At least 2 Congress members buy within 7 days</div>
           </div>
-          {rules.length ? <div className="mt-3 space-y-2">{rules.map((rule) => <div key={rule.id} className="flex items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm"><span className="text-slate-300">Locked: {rule.name}<span className="ml-2 text-xs text-slate-500">{rule.summary}</span></span></div>)}</div> : null}
+          {rules.length ? <div className="mt-3 space-y-2">{rules.map((rule) => <div key={rule.id} className="flex items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm"><span className="text-slate-300">Active: {rule.name}<span className="ml-2 text-xs text-slate-500">{rule.summary}</span></span></div>)}</div> : null}
           <Link href={`/pricing?return_to=${encodeURIComponent(`/watchlists/${watchlistId}`)}`} className={`mt-4 ${subtlePrimaryButtonClassName}`}>Upgrade to Pro</Link>
         </div>
       ) : null}

@@ -100,7 +100,7 @@ export function WatchlistCreateForm({
     <WalnutModal
       open={open}
       title="Name your watchlist"
-      description="Organize tickers you want to monitor closely."
+      description="Organize tickers you want to monitor closely. New watchlists include every monitoring category in the daily digest and immediate 5% price-move alerts, subject to your account delivery choices."
       onClose={handleClose}
       closeLabel="Cancel create watchlist"
       isBusy={isPending}

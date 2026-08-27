@@ -1256,8 +1256,8 @@ def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path,
     assert "free-cash-flow" not in fallback_text
     assert "watch-and-verify" not in fallback_text
     headings = {section["heading"] for section in draft["article"]["sections"]}
-    assert {"Current price, valuation, and technical context", "Upcoming catalysts", "Risks that could break the thesis", "Final Walnut judgment"} <= headings
-    assert any(heading.endswith("earnings and guidance") for heading in headings)
+    assert {"Executive thesis", "Market and valuation", "What to watch next", "Final Walnut judgment"} <= headings
+    assert "Upcoming catalysts" not in headings
 
     updated = service.update_draft(admin, draft["id"], {"title": "MU Stock: Research Review"}, db=db)
 
@@ -1278,7 +1278,7 @@ def test_walnut_data_fallback_matches_bullish_confirmation_score_direction():
         },
     )
 
-    assert article["walnut_call"] == "Bullish but expensive"
+    assert article["walnut_call"] == "Bullish"
     assert article["judgment"] == "bullish"
     assert "Neutral but expensive" not in service._article_full_text(article)
 
@@ -1303,8 +1303,8 @@ def test_walnut_data_fallback_uses_the_latest_fiscal_earnings_period_in_all_publ
     public_copy = " ".join(
         [article["slug"], article["subtitle"], article["summary"], article["seo"]["title"], article["seo"]["description"], *article["key_points"]]
     )
-    assert article["slug"] == "cohr-stock-overvalued-after-q4-2026-earnings"
-    assert article["sections"][1]["heading"] == "Q4 2026 earnings and guidance"
+    assert article["slug"] == "cohr-reported-results-current-evidence"
+    assert article["sections"][1]["heading"] == "Q4 2026 reported results"
     assert "Q4 2026" in public_copy
     assert "Q2 2026" not in public_copy
 
@@ -3215,3 +3215,88 @@ def test_premium_preview_marker_overrides_count_and_does_not_leak_marker_or_hidd
     assert "walnut:paywall" not in preview_body
     assert "Hidden base case" in full_body
     assert "walnut:paywall" not in full_body
+
+
+def test_structured_packet_is_entity_scoped_and_calculates_forward_pe():
+    context = {
+        "research_run_id": "rr_cxw",
+        "entity_scope": {"ticker": "CXW", "cik": "0001070985"},
+        "primary": {
+            "identity": {"symbol": "CXW", "company_name": "CoreCivic, Inc.", "sector": "Real Estate", "industry": "Specialty REITs"},
+            "market_state": {"price": 33.26, "price_as_of": "2026-08-20"},
+            "fundamentals": {},
+            "financials": {"forecasts": {"nextFiscalYear": {"period": "FY 2027", "epsEstimate": 2.0}}},
+            "confirmation": {},
+            "insider_activity": [], "congress_activity": [], "institutional_activity": [], "government_contracts": {},
+        },
+        "external_research": {"official_facts": {}},
+    }
+
+    packet = service._research_packet(context)
+
+    assert packet["entity"]["ticker"] == "CXW"
+    assert packet["entity"]["cik"] == "0001070985"
+    assert packet["industry_profile"]["kind"] == "asset_or_contract_intensive"
+    assert packet["valuation"]["forward_pe"]["value"] == 16.63
+    assert packet["valuation"]["forward_pe"]["source_type"] == "deterministic_calculation"
+
+
+def test_cxw_deterministic_fallback_omits_missing_metrics_and_saas_language():
+    context = {
+        "generated_at": "2026-08-26T00:00:00+00:00",
+        "research_packet": {
+            "entity": {"ticker": "CXW", "company": "CoreCivic, Inc.", "sector": "Real Estate"},
+            "industry_profile": {"kind": "asset_or_contract_intensive", "relevant_kpis": ["occupancy or utilization", "debt", "capex", "EBITDA", "contract exposure"]},
+            "market": {"price": {"value": 33.26}},
+            "latest_reported_quarter": {"fiscal_period": "Q2 2026", "revenue": {"value": 500_000_000}, "net_income": {"value": 50_000_000}, "gaap_eps": {"value": 0.44}, "operating_cash_flow": {"value": 80_000_000}, "capex": {"value": 12_000_000}, "free_cash_flow": {"value": 68_000_000}},
+            "balance_sheet": {"cash": {"value": 100_000_000}, "total_debt": {"value": 1_000_000_000}, "net_debt": {"value": 900_000_000}},
+            "valuation": {"forward_pe": {"value": 16.63}},
+        },
+        "external_research": {"reviewed_sources": [{"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=CXW", "source_type": "filing_search"}, {"label": "CXW market", "url": "https://www.nasdaq.com/market-activity/stocks/cxw", "source_type": "reputable_market_source"}]},
+    }
+
+    article = service._structured_walnut_data_fallback_article({"ticker": "CXW", "comparison_tickers": [], "include_confirmation_score": False}, context)
+    text_value = service._article_full_text(article).lower()
+
+    assert "not available" not in text_value
+    assert "not reported" not in text_value
+    assert "arr" not in text_value
+    assert "ai cloud" not in text_value
+    assert "16.63x" in text_value
+
+
+def test_packet_integrity_rejects_irrelevant_kpis_and_wrong_forward_pe():
+    article = {"primary_ticker": "CXW", "title": "CXW brief", "sections": [{"heading": "Thesis", "body_markdown": "CXW reported ARR growth and trades at 2.1x forward earnings."}]}
+    context = {"entity_scope": {"ticker": "CXW"}, "research_packet": {"entity": {"ticker": "CXW"}, "industry_profile": {"kind": "asset_or_contract_intensive"}, "valuation": {"forward_pe": {"value": 16.63}}}}
+
+    codes = {item["code"] for item in service._research_packet_integrity_warnings(article, context)}
+
+    assert {"industry_kpi_contamination", "forward_pe_mismatch"}.issubset(codes)
+
+
+def test_sec_cash_flow_derives_q2_only_from_compatible_ytd_periods():
+    facts = {
+        "NetCashProvidedByUsedInOperatingActivities": {
+            "units": {"USD": [
+                {"start": "2026-01-01", "end": "2026-03-31", "filed": "2026-05-01", "form": "10-Q", "val": 100},
+                {"start": "2026-01-01", "end": "2026-06-30", "filed": "2026-08-01", "form": "10-Q", "val": 260},
+            ]}
+        }
+    }
+
+    result = service._latest_sec_quarterly_or_derived_fact(facts, ["NetCashProvidedByUsedInOperatingActivities"])
+
+    assert result["value"] == 160.0
+    assert result["period_end"] == "2026-06-30"
+    assert result["derived_from"] == ["year_to_date_current", "year_to_date_prior"]
+
+
+def test_forward_pe_is_omitted_when_forward_eps_is_negative_or_missing():
+    market = {"price": 33.26}
+    fundamentals = {"forward_pe": 2.1, "period_date": "2026-06-30"}
+
+    negative = service._deterministic_valuation(market, {"forecasts": {"nextFiscalYear": {"epsEstimate": -1.0}}}, fundamentals)
+    missing = service._deterministic_valuation(market, {"forecasts": {}}, fundamentals)
+
+    assert "forward_pe" not in negative
+    assert "forward_pe" not in missing

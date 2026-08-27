@@ -25,6 +25,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.email_delivery import send_email
+from app.services.custom_alert_rules import DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES
 from app.services.email_digests import (
     DEFAULT_DIGEST_TIMEZONE,
     DUPLICATE_BLOCKING_STATUSES,
@@ -295,9 +296,11 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
             if _is_institutional_alert_type(alert.alert_type) and not can_view_institutional:
                 continue
             if alert.alert_type == "custom_alert":
-                if not entitlements_for_user(db, user).has_feature("custom_alert_rules"):
+                payload = _loads_dict(alert.payload_json)
+                is_default_price_move_alert = payload.get("rule_name") in DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES
+                if not entitlements_for_user(db, user).has_feature("custom_alert_rules") and not is_default_price_move_alert:
                     continue
-                if _loads_dict(alert.payload_json).get("delivery") not in {"immediate", "both"}:
+                if payload.get("delivery") not in {"immediate", "both"}:
                     continue
                 subscription = subscription_by_source.get((alert.source_type, alert.source_id))
                 if subscription is None or not _subscription_intraday_alerts_enabled(subscription):
