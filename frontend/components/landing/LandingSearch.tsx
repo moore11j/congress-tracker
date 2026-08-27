@@ -115,6 +115,7 @@ export function LandingSearch({
   const buttonClassName = buttonOutside
     ? "rounded-lg bg-emerald-300 px-6 py-3 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
     : "rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15";
+  const resolvedButtonLabel = buttonLabel === "Run Walnut" ? "Research a Stock" : buttonLabel;
 
   return (
     <div ref={rootRef} className={`relative z-[80] w-full ${className || "mx-auto mt-4 max-w-2xl sm:mt-8"}`}>
@@ -133,7 +134,7 @@ export function LandingSearch({
           />
         </label>
         <button type="submit" className={buttonClassName}>
-          {buttonLabel}
+          {resolvedButtonLabel}
         </button>
       </form>
 
