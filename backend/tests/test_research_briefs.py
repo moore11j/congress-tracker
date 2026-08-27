@@ -1096,11 +1096,12 @@ def test_campaign_invalid_structured_output_is_retried_with_format_correction(tm
 
     assert result["id"] == generated["id"]
     assert len(configs) == 2
-    assert configs[1]["use_deterministic_draft"] is True
+    assert not configs[1].get("use_deterministic_draft")
+    assert "Generation correction instructions" in configs[1]["additional_context"]
     assert "RFC 8259 JSON" in notes[0]
 
 
-def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_path, monkeypatch):
+def test_campaign_never_saves_walnut_data_fallback_after_exhausted_quality_retries(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()
     admin = _user(db, "admin@example.com", role="admin")
@@ -1131,14 +1132,11 @@ def test_campaign_uses_walnut_data_fallback_after_exhausted_quality_retries(tmp_
     monkeypatch.setattr(service, "generate_research_brief", fake_generate)
     monkeypatch.setattr(service, "revise_research_brief_from_quality_gate", fake_revision)
 
-    result, notes = service._generate_campaign_brief_with_corrections(db, admin, config)
+    with pytest.raises(HTTPException, match="No generic fallback draft was saved"):
+        service._generate_campaign_brief_with_corrections(db, admin, config)
 
-    assert result["id"] == generated["id"]
-    assert len(configs) == 2
+    assert len(configs) == 1
     assert len(revisions) == 2
-    assert configs[-1]["use_deterministic_draft"] is True
-    assert configs[-1]["generate_thumbnail"] is False
-    assert "Walnut data fallback" in notes[-1]
 
 
 def test_campaign_generation_preserves_selected_opportunity_question():
@@ -1242,6 +1240,7 @@ def test_ai_watermark_words_warn_without_blocking():
 
 def test_generate_research_brief_saves_reviewable_walnut_data_fallback(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.DETERMINISTIC_DRAFTS_ENV, "1")
     db = _session()
     _seed_ticker(db)
     admin = _user(db, "admin@example.com", role="admin")

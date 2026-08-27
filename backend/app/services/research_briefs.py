@@ -57,6 +57,7 @@ RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
 STORE_ENV = "RESEARCH_BRIEF_DRAFT_STORE_PATH"
 MOCK_ENV = "RESEARCH_BRIEF_GENERATOR_MOCK"
+DETERMINISTIC_DRAFTS_ENV = "RESEARCH_BRIEF_ALLOW_DETERMINISTIC_DRAFTS"
 DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.4-mini"
 DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.4-mini"]
 # Full research briefs need more capability than headline classification, but the
@@ -3132,16 +3133,7 @@ def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
         draft = _generate_non_ticker_campaign_stub(db, admin, item, campaign_config)
     else:
         config = _campaign_item_generation_config(item, campaign_config)
-        # A previously failed campaign item has already exhausted provider
-        # attempts. Its explicit rerun should produce the review draft from
-        # Walnut data immediately instead of repeating the same dead end.
-        if "Draft generation failed validation." in str(item.get("last_error") or ""):
-            config["use_deterministic_draft"] = True
         draft, correction_notes = _generate_campaign_brief_with_corrections(db, admin, config)
-        if config.get("use_deterministic_draft"):
-            correction_notes.append(
-                "Walnut data fallback: this re-run used the validated Walnut research context after the prior provider output failed review checks."
-            )
         if correction_notes:
             draft["quality_gate_correction_note"] = correction_notes[-1]
     draft = _mark_draft_scheduled_review(draft, item, campaign_config)
@@ -3317,17 +3309,33 @@ def _generate_campaign_brief_with_corrections(
     admin: UserAccount,
     config: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Generate once with the full packet, then revise only the rejected draft and fact pack."""
+    """Generate a review draft, revising only the rejected copy and fact pack.
+
+    A failed provider response must remain a failed generation.  It must never
+    be replaced with a generic deterministic article that looks ready to
+    publish.
+    """
     initial_config = deepcopy(config)
     correction_notes: list[str] = []
-    try:
-        result = generate_research_brief(db, admin, initial_config, return_quality_gate_candidate=True)
-    except HTTPException as exc:
-        correction_note = _campaign_generation_correction_note(exc)
-        if not correction_note:
-            raise
-        correction_notes.append(correction_note)
-        result = None
+    result: dict[str, Any] | None = None
+    # A malformed structured response gets one clean retry with the exact
+    # parser correction.  The normal quality-gate path below already handles
+    # substantive revisions without replaying the full research request.
+    for request_attempt in range(2):
+        attempt_config = deepcopy(initial_config)
+        if correction_notes:
+            prior_context = str(attempt_config.get("additional_context") or "").strip()
+            attempt_config["additional_context"] = (
+                f"{prior_context}\n\nGeneration correction instructions: {correction_notes[-1]}"
+            ).strip()[:4000]
+        try:
+            result = generate_research_brief(db, admin, attempt_config, return_quality_gate_candidate=True)
+            break
+        except HTTPException as exc:
+            correction_note = _campaign_generation_correction_note(exc)
+            if not correction_note or request_attempt == 1:
+                raise
+            correction_notes.append(correction_note)
     if result and not _is_quality_gate_candidate(result):
         return result, correction_notes
     candidate = result if _is_quality_gate_candidate(result) else None
@@ -3347,13 +3355,13 @@ def _generate_campaign_brief_with_corrections(
                 return revised, correction_notes
             candidate = revised
             correction_notes.append(_quality_gate_correction_note(str(candidate.get("quality_gate_error") or "")))
-    fallback_config = deepcopy(initial_config)
-    fallback_config["use_deterministic_draft"] = True
-    fallback_config["generate_thumbnail"] = False
-    correction_notes.append(
-        "Walnut data fallback: OpenAI output failed the quality gate, so this review-only draft was assembled from the validated Walnut research context."
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            "Draft generation failed validation after automatic corrections. "
+            "No generic fallback draft was saved; retry the draft or provide correction instructions."
+        ),
     )
-    return generate_research_brief(db, admin, fallback_config), correction_notes
 
 
 def _campaign_item_generation_config(item: dict[str, Any], campaign_config: dict[str, Any]) -> dict[str, Any]:
@@ -5355,6 +5363,11 @@ def _quality_repair_attempts() -> int:
         return 2
 
 
+def _deterministic_drafts_enabled() -> bool:
+    """Keep canned fallback copy confined to local/test-only workflows."""
+    return os.getenv(MOCK_ENV) == "1" or str(os.getenv(DETERMINISTIC_DRAFTS_ENV) or "").strip().lower() in {"1", "true", "yes"}
+
+
 def _quality_gate_repair_note(validation: dict[str, Any]) -> str:
     details = [
         f"{warning.get('code')}: {warning.get('message')}"
@@ -5443,10 +5456,14 @@ def generate_research_brief(
         started = time.perf_counter()
         if progress_callback:
             progress_callback("generating_brief", "Generating research brief.")
-        # Campaign review must not dead-end when a provider response repeatedly
-        # misses an editorial copy rule. The deterministic path uses the same
-        # assembled Walnut context, remains review-only, and never publishes.
         use_deterministic_draft = bool(normalized_config.get("use_deterministic_draft"))
+        if use_deterministic_draft and not _deterministic_drafts_enabled():
+            # Old campaign payloads can carry this flag.  Treat it as a normal
+            # AI request in production rather than silently serving template
+            # copy that is mislabeled as an OpenAI-generated brief.
+            logger.warning("research_brief_deterministic_fallback_blocked ticker=%s", normalized_config.get("ticker"))
+            use_deterministic_draft = False
+            normalized_config["use_deterministic_draft"] = False
         if os.getenv(MOCK_ENV) == "1":
             article = _mock_article(normalized_config, context)
         elif use_deterministic_draft:
@@ -6919,7 +6936,11 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
         "index_status": "unknown",
         "first_seen_indexed_at": None,
         "last_checked_at": None,
-        "model": article.get("_model") or config.get("selected_model") or research_brief_model(None),
+        "model": (
+            "Walnut data fallback"
+            if str(article.get("_generation_mode") or "") == "walnut_data_fallback"
+            else article.get("_model") or config.get("selected_model") or research_brief_model(None)
+        ),
         "prompt_version": RESEARCH_BRIEF_PROMPT_VERSION,
         "research_context_timestamp": context.get("generated_at"),
         "primary_ticker": context["primary"]["identity"]["symbol"],
