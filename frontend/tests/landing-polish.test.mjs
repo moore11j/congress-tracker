@@ -117,12 +117,12 @@ test("landing page uses canonical homepage positioning and free-tier messaging",
   assert.match(landingPage, /<SectionEyebrow>\{homepageContent\.hero\.eyebrow\}<\/SectionEyebrow>/);
   assert.match(landingPage, /\{homepageContent\.hero\.title\}/);
   assert.match(landingPage, /\{homepageContent\.hero\.description\}/);
-  assert.match(homepageContent, /Everything You Need to Research a Stock, in One Place\./);
-  assert.match(homepageContent, /Research stocks across fundamentals, technicals, insider trades, Congress activity, institutional holdings, government contracts, analyst ratings, and more\. See whether the evidence agrees, follow the stocks you care about, and get alerted when something changes\./);
+  assert.match(homepageContent, /Alternative-data stock research in one workflow\./);
+  assert.match(homepageContent, /Research stocks across fundamentals, technicals, Congress trades, insider filings, institutional holdings, government contracts, analyst expectations, and macro context\./);
   assert.doesNotMatch(homepageContent, /Before You Buy Your Next Stock|Keep Following It/);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
-  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Research a Stock" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
   assert.match(landingSearch, /buttonOutside[\s\S]*font-medium text-slate-950/);
   assert.doesNotMatch(landingSearch, /font-bold text-slate-950/);
   assert.match(landingSearch, /Search tickers, companies, Congress members, insiders, institutions, departments\.\.\./);
@@ -158,8 +158,8 @@ test("landing metadata reflects research and monitoring positioning", () => {
   assert.match(marketingMetadata, /import \{ homepageContent \} from "@\/lib\/homepageContent"/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = homepageContent\.metadata\.title/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_DESCRIPTION = homepageContent\.metadata\.description/);
-  assert.match(homepageContent, /title: "Walnut Markets \| Stock Research & Market Intelligence"/);
-  assert.match(homepageContent, /Research stocks across fundamentals, technicals, Congress, insiders, institutions and more\. Follow your stocks and get alerts when the evidence changes\./);
+  assert.match(homepageContent, /title: "Alternative Data Stock Research \| Walnut Markets"/);
+  assert.match(homepageContent, /Research stocks across fundamentals, technicals, Congress trades, insiders, institutions, contracts, and more\. See where the evidence agrees, conflicts, and changes\./);
   assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
   assert.match(marketingMetadata, /openGraph:/);
   assert.match(marketingMetadata, /twitter:/);

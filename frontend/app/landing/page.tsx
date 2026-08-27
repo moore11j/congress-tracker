@@ -36,6 +36,7 @@ type BillingInterval = "monthly" | "annual";
 type LandingPlanPriceDisplay = {
   primary: string;
   secondary?: string;
+  savings?: string;
 };
 
 type MarketInstrument = {
@@ -467,9 +468,11 @@ function landingPlanPriceDisplay(config: PlanConfig | null, tier: PlanTier): Lan
   const monthly = planPriceFor(config, tier, "monthly");
   if (!monthly) return { primary: "See pricing page" };
   const annual = planPriceFor(config, tier, "annual");
+  const annualSavings = annual ? monthly.amount_cents * 12 - annual.amount_cents : 0;
   return {
     primary: `${formatPlanMoney(monthly)}/mo`,
     secondary: annual ? `${formatPlanMoney(annual)}/yr` : undefined,
+    savings: annualSavings > 0 ? `Save ${formatPlanMoney({ ...annual!, amount_cents: annualSavings })}/year with annual` : undefined,
   };
 }
 
@@ -685,10 +688,13 @@ function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }
 
 function LandingPlanPrice({ display }: { display: LandingPlanPriceDisplay }) {
   return (
-    <p className="mt-4 flex min-h-10 flex-wrap items-baseline gap-x-2 gap-y-1 text-white">
-      <span className="text-3xl font-semibold tracking-normal">{display.primary}</span>
-      {display.secondary ? <span className="text-sm font-semibold text-slate-400">/ {display.secondary}</span> : null}
-    </p>
+    <div className="mt-4 min-h-10">
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-white">
+        <span className="text-3xl font-semibold tracking-normal">{display.primary}</span>
+        {display.secondary ? <span className="text-sm font-semibold text-slate-400">/ {display.secondary}</span> : null}
+      </p>
+      {display.savings ? <p className="mt-1 text-xs font-semibold text-emerald-200">{display.savings}</p> : null}
+    </div>
   );
 }
 
@@ -722,7 +728,7 @@ export default async function LandingPage() {
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               {homepageContent.hero.description}
             </p>
-            <LandingSearch appUrl={appUrl} buttonLabel="Run Walnut" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
+            <LandingSearch appUrl={appUrl} buttonLabel="Research a Stock" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
             <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
               <span>See How It Works</span>
               <span aria-hidden="true">&darr;</span>
@@ -736,7 +742,7 @@ export default async function LandingPage() {
               ))}
             </p>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
-              Research and informational tools only. Walnut does not provide personalized financial advice or make investment decisions for users.
+              Walnut is a research terminal for investors who do their own analysis—not a trading bot, signal-call service, or robo-advisor.
             </p>
           </div>
         </div>
@@ -859,6 +865,28 @@ export default async function LandingPage() {
               </div>
             </div>
           </div>
+          <div className="mt-6 grid gap-6 rounded-lg border border-white/10 bg-slate-950/70 p-5 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Why Walnut</p>
+              <h3 className="mt-2 text-2xl font-semibold text-white">Data is easy to find. Context is harder.</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-400">{homepageContent.differentiation.description}</p>
+            </div>
+            <div>
+              <div className="flex flex-wrap gap-2">
+                {whySources.map((source) => (
+                  <span key={source} className="rounded border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-xs font-semibold text-slate-300">{source}</span>
+                ))}
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                {whySteps.map((step, index) => (
+                  <div key={step} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                    <p className="font-mono text-xs font-semibold text-slate-500">0{index + 1}</p>
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-white">{step}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -871,6 +899,9 @@ export default async function LandingPage() {
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
               {homepageContent.confirmationScore.disclaimer}
             </p>
+            <a href="/stock-confirmation-score" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+              Read the score methodology <span aria-hidden="true">&rarr;</span>
+            </a>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
             <div className="grid gap-5 md:grid-cols-[0.45fr_0.55fr] md:items-center">
@@ -928,33 +959,6 @@ export default async function LandingPage() {
               <span>Explore watchlists</span>
               <span aria-hidden="true">&rarr;</span>
             </a>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.86fr_1.14fr] lg:items-center">
-          <div>
-            <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Data is easy to find. Context is harder.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.differentiation.description}</p>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5">
-            <div className="mb-5 flex flex-wrap gap-2">
-              {whySources.map((source) => (
-                <span key={source} className="rounded border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-xs font-semibold text-slate-300">
-                  {source}
-                </span>
-              ))}
-            </div>
-            <div className="grid gap-3 md:grid-cols-4">
-              {whySteps.map((step, index) => (
-                <div key={step} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-                  <p className="font-mono text-xs font-semibold text-slate-500">0{index + 1}</p>
-                  <p className="mt-3 text-sm font-semibold uppercase tracking-[0.12em] text-white">{step}</p>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>
@@ -1103,7 +1107,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Feature Depth</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">The broader Walnut research surface.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Walnut gives everyday investors access to professional grade tools and data sets they need to make better, more informed, investment decisions.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Research tools for comparing fundamentals, technicals, disclosures, ownership, contracts, macro context, and the changes that can alter a stock thesis.</p>
           </div>
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {featureDepthItems.map(([title, body]) => (
@@ -1123,6 +1127,7 @@ export default async function LandingPage() {
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">Premium is $24.95/month—about $0.82 a day for a deeper, source-aware research workflow.</p>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
@@ -1153,6 +1158,25 @@ export default async function LandingPage() {
                 See the data most investors miss with Walnut Pro, including institutional activity, options flow, and macro positioning that can show whether buying interest is building or fading.
               </p>
             </article>
+          </div>
+          <div className="mt-5 grid gap-3 rounded-lg border border-white/10 bg-slate-950/70 p-5 md:grid-cols-3">
+            <div>
+              <p className="text-sm font-semibold text-white">Traceable research context</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">Review public filings, reported disclosures, and government records with dates and source context kept visible.</p>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Methods and accountability</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">See the evidence behind the Confirmation Score and use Outcomes to review historical results rather than relying on unsupported claims.</p>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Operated by Walnut Intelligence Inc.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">Free access requires no card. Paid billing is processed by Stripe, and subscriptions can be managed through the billing portal.</p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-emerald-200">
+            <a href="/about" className="hover:text-emerald-100">About Walnut</a>
+            <a href="/stock-confirmation-score" className="hover:text-emerald-100">Confirmation Score methodology</a>
+            <a href={`${appUrl}/outcomes`} className="hover:text-emerald-100">View Outcomes</a>
           </div>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a

@@ -107,13 +107,21 @@ function formatMoney(price?: PlanPrice) {
 }
 
 function annualSavingsLabel(monthly?: PlanPrice, annual?: PlanPrice) {
+  if (!monthly || !annual) return null;
   const monthlyYear = (monthly?.amount_cents ?? 0) * 12;
   const annualAmount = annual?.amount_cents ?? 0;
   const monthlyAmount = monthly?.amount_cents ?? 0;
   if (monthlyYear <= 0 || monthlyAmount <= 0 || annualAmount <= 0 || annualAmount >= monthlyYear) return null;
   const monthsFree = Math.ceil(((monthlyYear - annualAmount) / monthlyAmount) * 2) / 2;
   const formattedMonths = Number.isInteger(monthsFree) ? monthsFree.toFixed(0) : monthsFree.toFixed(1);
-  return `${formattedMonths} ${monthsFree === 1 ? "month" : "months"} free`;
+  const savings = monthlyYear - annualAmount;
+  const formattedSavings = formatMoney({ ...annual, amount_cents: savings });
+  return `Save ${formattedSavings}/year · ${formattedMonths} ${monthsFree === 1 ? "month" : "months"} free`;
+}
+
+function monthlyEquivalent(annual?: PlanPrice) {
+  if (!annual || annual.amount_cents <= 0) return null;
+  return formatMoney({ ...annual, amount_cents: Math.round(annual.amount_cents / 12) });
 }
 
 function formatLimit(feature: PlanConfigFeature | undefined, value: number) {
@@ -241,7 +249,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
                 onClick={() => setBillingInterval(interval)}
                 className={`rounded-md px-4 py-2 transition ${billingInterval === interval ? "bg-emerald-300 text-slate-950" : "hover:text-white"}`}
               >
-                {interval === "monthly" ? "Monthly" : "Annual"}
+                {interval === "monthly" ? "Monthly" : "Annual · save"}
               </button>
             ))}
           </div>
@@ -341,6 +349,7 @@ function PlanCard({
   const monthly = priceFor(config, tier, "monthly");
   const annual = priceFor(config, tier, "annual");
   const savings = billingInterval === "annual" ? annualSavingsLabel(monthly, annual) : null;
+  const equivalent = billingInterval === "annual" && tier !== "free" ? monthlyEquivalent(annual) : null;
   const highlighted = tier === "premium";
 
   return (
@@ -356,6 +365,7 @@ function PlanCard({
         <span className="pb-1 text-sm text-slate-500">{tier === "free" ? "forever" : billingInterval === "annual" ? "/yr" : "/mo"}</span>
       </div>
       {savings ? <div className="mt-2 inline-flex rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">{savings}</div> : null}
+      {equivalent ? <p className="mt-2 text-xs text-slate-400">{equivalent}/mo billed annually</p> : null}
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         {headlineLimitKeys.map((featureKey) => {

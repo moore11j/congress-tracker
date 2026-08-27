@@ -52,6 +52,14 @@ const pricingFaq = [
     question: "Can I cancel a paid plan?",
     answer: "Yes. Billing is managed from your account, and access remains available through the paid period.",
   },
+  {
+    question: "What does annual billing save?",
+    answer: "Premium annual billing is $249.50/year instead of $299.40 across twelve monthly payments, a $49.90 savings. Pro annual billing is $399.95/year instead of $479.40 across twelve monthly payments, a $79.45 savings.",
+  },
+  {
+    question: "What is Walnut built for?",
+    answer: "Walnut is a research terminal for self-directed investors who want to review fundamentals, technicals, disclosures, holdings, contracts, and other evidence together. It is not a trading bot, a signal-call service, or investment advice.",
+  },
 ] as const;
 
 function planOffer(tier: "free" | "premium" | "pro", name: string, interval: "monthly" | "annual") {
@@ -112,6 +120,10 @@ export default async function PricingPage() {
     <div className="mx-auto max-w-6xl space-y-8">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pricingJsonLd()).replace(/</g, "\\u003c") }} />
       <PricingPlannerDeferred />
+      <section className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Research-first pricing</p>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">Premium is $24.95/month—about $0.82 a day for a deeper, source-aware stock research workflow. Start with Free without a credit card, then choose the research depth and monitoring limits that fit your process.</p>
+      </section>
       <section className="rounded-lg border border-white/10 bg-slate-950/60 p-5">
         <h2 className="text-xl font-semibold text-white">Pricing FAQ</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
