@@ -3202,6 +3202,7 @@ async function DeferredTickerContent({
   hasAuthForEntitlementDisplay,
   canViewPremiumMetrics,
   tickerConfirmationGate,
+  deferHeavyTickerLoads,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -3224,6 +3225,8 @@ async function DeferredTickerContent({
   hasAuthForEntitlementDisplay: boolean;
   canViewPremiumMetrics: boolean;
   tickerConfirmationGate?: TickerConfirmationGate | null;
+  /** The live context refresh owns the network until the primary shell is ready. */
+  deferHeavyTickerLoads: boolean;
 }) {
   const {
     events,
@@ -3443,6 +3446,7 @@ async function DeferredTickerContent({
                   lookbackStartKey={lookbackStartDateKey(confirmationLookbackDays)}
                   initialSource={signalsCardSource}
                   initialResolved={canReuseSignalSummary}
+                  deferLoad={deferHeavyTickerLoads}
                   initialTopSignal={
                     topSignal
                       ? {
@@ -3543,7 +3547,7 @@ async function DeferredTickerContent({
         </div>
       </div>
 
-      <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} />
+      <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} deferLoad={deferHeavyTickerLoads} />
       <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -3709,6 +3713,7 @@ async function DeferredTickerContent({
                 initialItems={null}
                 initialTotal={null}
                 initialState={null}
+                deferLoad={deferHeavyTickerLoads}
               />
             </div>
           ) : showSignals ? (
@@ -4490,6 +4495,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           hasAuthForEntitlementDisplay={hasAuthForEntitlementDisplay}
           canViewPremiumMetrics={canViewPremiumMetrics}
           tickerConfirmationGate={tickerConfirmationGate}
+          deferHeavyTickerLoads={Boolean(shellFallbackMessage)}
         />
       </Suspense>
     </div>

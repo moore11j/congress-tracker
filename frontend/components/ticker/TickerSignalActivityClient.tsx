@@ -191,6 +191,7 @@ export function TickerSignalActivityClient({
   initialItems,
   initialTotal,
   initialState,
+  deferLoad = false,
 }: {
   symbol: string;
   side: string;
@@ -200,6 +201,8 @@ export function TickerSignalActivityClient({
   initialItems?: SignalItem[] | null;
   initialTotal?: number | null;
   initialState?: SignalActivityState | null;
+  /** Keep this expensive detail request behind the foreground ticker context. */
+  deferLoad?: boolean;
 }) {
   const hasInitialItems = Array.isArray(initialItems);
   const [items, setItems] = useState<SignalItem[]>(() => initialItems ?? []);
@@ -214,6 +217,12 @@ export function TickerSignalActivityClient({
       setTotal(tickerSignalItems.length);
       setGate(gateFromActivityState(initialState));
       setLoading(false);
+      return;
+    }
+
+    if (deferLoad) {
+      setLoading(true);
+      setGate(null);
       return;
     }
 
@@ -251,7 +260,7 @@ export function TickerSignalActivityClient({
       alive = false;
       controller.abort();
     };
-  }, [hasInitialItems, initialItems, initialState, initialTotal, lookbackDays, side, symbol]);
+  }, [deferLoad, hasInitialItems, initialItems, initialState, initialTotal, lookbackDays, side, symbol]);
 
   const visibleItems = useMemo(
     () => [...items].sort((a, b) => dateSortValue(b.report_date ?? b.ts) - dateSortValue(a.report_date ?? a.ts) || Number(b.event_id ?? 0) - Number(a.event_id ?? 0)),

@@ -211,6 +211,7 @@ export function TickerSignalsSourceCardClient({
   initialSource,
   initialTopSignal,
   initialResolved = false,
+  deferLoad = false,
 }: {
   symbol: string;
   side: string;
@@ -219,6 +220,8 @@ export function TickerSignalsSourceCardClient({
   initialSource: SignalCardSource;
   initialTopSignal: InitialTopSignal | null;
   initialResolved?: boolean;
+  /** Avoid competing with the foreground context refresh after a cache miss. */
+  deferLoad?: boolean;
 }) {
   const fallbackSource = useMemo<SignalCardSource>(() => ({ ...inactiveSource, ...initialSource }), [initialSource]);
   const [state, setState] = useState<CardState>(() => initialCardState(fallbackSource, initialTopSignal, lookbackDays, initialResolved));
@@ -226,6 +229,11 @@ export function TickerSignalsSourceCardClient({
   useEffect(() => {
     if (fallbackSource.present || initialResolved) {
       setState(initialCardState(fallbackSource, initialTopSignal, lookbackDays, initialResolved));
+      return;
+    }
+
+    if (deferLoad) {
+      setState((current) => ({ ...current, loading: true, body: "Loading ticker context", support: windowLabel(lookbackDays) }));
       return;
     }
 
@@ -284,7 +292,7 @@ export function TickerSignalsSourceCardClient({
       alive = false;
       controller.abort();
     };
-  }, [fallbackSource, initialResolved, initialTopSignal, lookbackDays, lookbackStartKey, side, symbol]);
+  }, [deferLoad, fallbackSource, initialResolved, initialTopSignal, lookbackDays, lookbackStartKey, side, symbol]);
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${cardBorderClass(state.source, state.loading)}`}>

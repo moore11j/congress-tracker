@@ -137,7 +137,7 @@ function waitForHydrationWindow(signal: AbortSignal): Promise<void> {
   });
 }
 
-export function TickerChartLoader({ symbol, days }: { symbol: string; days: number }) {
+export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol: string; days: number; deferLoad?: boolean }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [bundle, setBundle] = useState<TickerChartBundle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -146,6 +146,7 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
   const [shouldLoad, setShouldLoad] = useState(false);
 
   useEffect(() => {
+    if (deferLoad) return;
     if (shouldLoad) return;
     const node = rootRef.current;
     let initialLoadTimer: number | undefined;
@@ -177,7 +178,7 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
       if (initialLoadTimer !== undefined) window.clearTimeout(initialLoadTimer);
       observer.disconnect();
     };
-  }, [shouldLoad]);
+  }, [deferLoad, shouldLoad]);
 
   useEffect(() => {
     if (!shouldLoad) return;
