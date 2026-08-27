@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -818,6 +819,12 @@ def test_institutions_overview_skips_sparse_newer_period():
     assert payload["report_quarter"] == 1
     assert payload["previous_report_year"] is None
     assert payload["previous_report_quarter"] is None
+    assert payload["latest_available_report_year"] == 2026
+    assert payload["latest_available_report_quarter"] == 2
+    assert payload["latest_available_institution_count"] == 2
+    assert payload["latest_available_reference_institution_count"] == 30
+    assert payload["latest_available_coverage_pct"] == pytest.approx(6.7)
+    assert payload["latest_available_is_comparable"] is False
     assert payload["summary"][0]["value"] == 30
     assert payload["summary"][0]["previous_value"] is None
     assert all(row["period"] != "Q2 2026" for row in payload["sector_exposure"])
