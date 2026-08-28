@@ -56,6 +56,7 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.match(monitoringSource, /isSavedScreenSourceType/);
   assert.match(monitoringSource, /applyInboxMutation/);
   assert.match(monitoringSource, /mergeInboxCounts/);
+  assert.match(monitoringSource, /\[5, 10, 25, 50, 100\]/);
   assert.match(monitoringSource, /markMonitoringItemsUnread\(itemIds\)[\s\S]*?applyMutationSuccess\(response\);[\s\S]*?void refreshInbox\(\);/);
   assert.match(monitoringSource, /stopMonitoringSource/);
   assert.match(monitoringSource, /Monitored through/);

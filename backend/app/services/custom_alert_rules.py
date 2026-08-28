@@ -494,8 +494,42 @@ def evaluate_watchlist_custom_alerts(
             db.flush()
             state.last_triggered_at, state.dedupe_key = current, result.dedupe_key
             rule.last_triggered_at, rule.last_triggered_ticker = current, ticker
+            # Persist the observed quote with price-based alerts. The email is
+            # delivered later by a separate job, so looking up the price then
+            # could show a different value from the one that caused the rule
+            # to transition to matched.
+            matched_price_condition = any(
+                item["matched"] and conditions[index].get("metric") in {"price", "price_change_pct"}
+                for index, item in enumerate(result.condition_results)
+                if index < len(conditions)
+            )
+            trigger_price: float | None = None
+            if matched_price_condition:
+                trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
+            alert_payload = {
+                "custom_alert": True,
+                "rule_id": rule.id,
+                "rule_name": rule.name,
+                "delivery": rule.delivery,
+                "conditions": result.condition_results,
+                "price_alert": matched_price_condition,
+                "trigger_price": trigger_price,
+                "href": f"/watchlists/{watchlist_id}",
+            }
             # Negative IDs live in a distinct namespace from canonical Event IDs.
-            db.add(MonitoringAlert(user_id=user_id, source_type="watchlist", source_id=str(watchlist_id), source_name=db.get(Watchlist, watchlist_id).name, event_id=-int(trigger.id), alert_type="custom_alert", symbol=ticker, title=trigger.title, body=trigger.body, payload_json=json.dumps({"custom_alert": True, "rule_id": rule.id, "rule_name": rule.name, "delivery": rule.delivery, "conditions": result.condition_results, "href": f"/watchlists/{watchlist_id}"}), event_created_at=current))
+            db.add(MonitoringAlert(
+                user_id=user_id,
+                source_type="watchlist",
+                source_id=str(watchlist_id),
+                source_name=db.get(Watchlist, watchlist_id).name,
+                event_id=-int(trigger.id),
+                alert_type="custom_alert",
+                symbol=ticker,
+                title=trigger.title,
+                body=trigger.body,
+                payload_json=json.dumps(alert_payload),
+                event_created_at=current,
+            ))
             triggered += 1
             logger.info("custom_alert_rule_triggered rule_id=%s watchlist_id=%s ticker=%s", rule.id, watchlist_id, ticker)
     return {"evaluated": evaluated, "triggered": triggered, "initialized": initialized}

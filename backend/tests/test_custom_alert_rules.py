@@ -88,7 +88,10 @@ def test_worker_triggers_once_then_rearms_after_the_condition_resets() -> None:
         db.get(QuoteCache, "TEST").price = 120
         assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=5))["triggered"] == 1
         db.commit()
-        assert db.execute(select(MonitoringAlert).where(MonitoringAlert.alert_type == "custom_alert")).scalars().all()
+        alert = db.execute(select(MonitoringAlert).where(MonitoringAlert.alert_type == "custom_alert")).scalar_one()
+        payload = json.loads(alert.payload_json)
+        assert payload["price_alert"] is True
+        assert payload["trigger_price"] == 120
 
         # Staying above is deduped; falling below re-arms a later crossing.
         assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=10))["triggered"] == 0

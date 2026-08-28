@@ -131,6 +131,36 @@ def test_watchlist_alert_uses_created_at_not_old_trade_date_and_dedupes():
         db.close()
 
 
+def test_monitoring_inbox_does_not_truncate_alert_history_at_four_pages():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add_all(
+            [
+                MonitoringAlert(
+                    user_id=user.id,
+                    source_type="watchlist",
+                    source_id=str(watchlist.id),
+                    source_name=watchlist.name,
+                    event_id=10_000 + index,
+                    alert_type="custom_alert",
+                    symbol="AAPL",
+                    title=f"Alert {index}",
+                    payload_json="{}",
+                    event_created_at=now - timedelta(minutes=index),
+                )
+                for index in range(101)
+            ]
+        )
+        db.commit()
+
+        payload = get_monitoring_inbox(_request_for_user(user), db)
+
+        assert len(payload["items"]) == 101
+    finally:
+        db.close()
+
+
 def test_watchlist_member_target_and_ticker_match_same_event_once():
     db = _session()
     try:

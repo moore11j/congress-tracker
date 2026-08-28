@@ -517,7 +517,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [inboxSourceFilter, setInboxSourceFilter] = useState("all");
   const [inboxCategoryFilter, setInboxCategoryFilter] = useState("all");
-  const [inboxPageSize, setInboxPageSize] = useState<5 | 10 | 25>(5);
+  const [inboxPageSize, setInboxPageSize] = useState<5 | 10 | 25 | 50 | 100>(5);
   const [inboxPage, setInboxPage] = useState(1);
   const [pendingRemoveSource, setPendingRemoveSource] = useState<MonitoredSourceRow | null>(null);
   const [pendingRemoveKey, setPendingRemoveKey] = useState<string | null>(null);
@@ -1040,10 +1040,10 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                 Page size
                 <select
                   value={inboxPageSize}
-                  onChange={(event) => setInboxPageSize(Number(event.target.value) as 5 | 10 | 25)}
+                  onChange={(event) => setInboxPageSize(Number(event.target.value) as 5 | 10 | 25 | 50 | 100)}
                   className="rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1 text-xs font-semibold text-slate-200 outline-none transition focus:border-emerald-300/40"
                 >
-                  {[5, 10, 25].map((size) => (
+                  {[5, 10, 25, 50, 100].map((size) => (
                     <option key={size} value={size}>
                       {size}
                     </option>

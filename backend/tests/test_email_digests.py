@@ -23,7 +23,8 @@ from app.models import (
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
 from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, monitoring_email_send_day, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
-from app.services.email_intraday import _watchlist_candidate, is_market_hours, run_intraday_alert_sweep, summarize_intraday_alert_results
+from app.services.email_intraday import _signal_alert_candidate, _watchlist_candidate, is_market_hours, run_intraday_alert_sweep, summarize_intraday_alert_results
+from app.services.email_renderer import render_template_string
 from app.services.email_templates import seed_default_email_templates
 from app.services.event_calendar import CalendarFetchResult
 
@@ -1019,7 +1020,7 @@ def test_signal_digest_includes_source_monitoring_alert_without_score():
         db.close()
 
 
-def test_signal_digest_keeps_top_four_per_monitoring_source():
+def test_signal_digest_keeps_top_four_per_delivery_category():
     db = _session()
     try:
         user = _user(db, "signal-source-balance@example.com")
@@ -1041,10 +1042,116 @@ def test_signal_digest_keeps_top_four_per_monitoring_source():
 
         digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
 
+        assert len(digest.items) == 4
         assert len([item for item in digest.items if item["source_type"] == "saved_screen"]) == 4
-        assert {item["ticker"] for item in digest.items if item["source_type"] == "watchlist"} == {"TSLA", "IBM"}
+        assert not [item for item in digest.items if item["source_type"] == "watchlist"]
         assert digest.context["signal_cta_label"] == "View all"
-        assert digest.diagnostics["excluded_reasons"]["source_display_limit"] == 2
+        assert digest.diagnostics["excluded_reasons"]["category_display_limit"] == 4
+    finally:
+        db.close()
+
+
+def test_signal_digest_includes_up_to_four_daily_news_and_press_releases():
+    db = _session()
+    try:
+        user = _user(db, "daily-news-press@example.com")
+        delivery_modes = {
+            "bullish_bearish_monitor": "off",
+            "congress": "off",
+            "conviction_threshold": "off",
+            "cross_source": "off",
+            "fundamentals": "off",
+            "government_contracts": "off",
+            "insiders": "off",
+            "institutional_activity": "off",
+            "large_trade_contract": "off",
+            "news": "daily",
+            "press_releases": "daily",
+        }
+        watchlist = _watchlist(
+            db,
+            user,
+            source_payload={
+                "daily_digest_enabled": True,
+                "intraday_alerts_enabled": False,
+                "alert_delivery_modes": delivery_modes,
+            },
+        )
+        now = datetime.now(timezone.utc)
+        for index in range(5):
+            _monitoring_alert(
+                db,
+                user,
+                watchlist,
+                alert_type="news_article",
+                event_id=30_000 + index,
+                symbol=f"N{index:03}",
+                ts=now - timedelta(minutes=index),
+                title=f"News story {index}",
+                payload={"event": {"summary": f"News summary {index}"}},
+            )
+            _monitoring_alert(
+                db,
+                user,
+                watchlist,
+                alert_type="press_release",
+                event_id=40_000 + index,
+                symbol=f"P{index:03}",
+                ts=now - timedelta(minutes=10 + index),
+                title=f"Press release {index}",
+                payload={"event": {"summary": f"Press summary {index}"}},
+            )
+
+        digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
+
+        assert len([item for item in digest.items if item["alert_type"] == "news_article"]) == 4
+        assert len([item for item in digest.items if item["alert_type"] == "press_release"]) == 4
+        assert "News story" in digest.context["signals_text"]
+        assert "Press release" in digest.context["signals_text"]
+        assert digest.diagnostics["excluded_reasons"]["category_display_limit"] == 2
+    finally:
+        db.close()
+
+
+def test_signal_digest_materializes_a_daily_press_release_event():
+    db = _session()
+    try:
+        user = _user(db, "daily-press-materialized@example.com")
+        delivery_modes = {
+            "bullish_bearish_monitor": "off",
+            "congress": "off",
+            "conviction_threshold": "off",
+            "cross_source": "off",
+            "fundamentals": "off",
+            "government_contracts": "off",
+            "insiders": "off",
+            "institutional_activity": "off",
+            "large_trade_contract": "off",
+            "news": "off",
+            "press_releases": "daily",
+        }
+        _watchlist(
+            db,
+            user,
+            source_payload={
+                "daily_digest_enabled": True,
+                "intraday_alerts_enabled": False,
+                "alert_delivery_modes": delivery_modes,
+            },
+        )
+        now = datetime.now(timezone.utc)
+        _bare_event(
+            db,
+            event_type="press_release",
+            ts=now - timedelta(minutes=5),
+            payload={"title": "Micron opens training center", "summary": "A new official company release."},
+        )
+
+        digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["alert_type"] == "press_release"
+        assert "Micron opens training center" in digest.context["signals_text"]
     finally:
         db.close()
 
@@ -1840,6 +1947,47 @@ def test_intraday_watchlist_fundamental_monitoring_candidate():
         assert results[0]["template_key"] == "alerts.signal_intraday"
         assert results[0]["event_type"] == "fundamentals_flip"
         assert results[0]["trigger"] == "fundamentals"
+    finally:
+        db.close()
+
+
+def test_intraday_custom_price_alert_renders_the_triggering_quote():
+    db = _session()
+    try:
+        user = _user(db, "custom-price-intraday@example.com", tier="pro")
+        watchlist = _watchlist(db, user)
+        alert = MonitoringAlert(
+            user_id=user.id,
+            source_type="watchlist",
+            source_id=str(watchlist.id),
+            source_name=watchlist.name,
+            event_id=-1,
+            alert_type="custom_alert",
+            symbol="NVDA",
+            title="Custom Alert - 5% Price Increase",
+            body="NVDA: Price % change increases by 5% over 1 day",
+            payload_json=json.dumps({
+                "custom_alert": True,
+                "rule_name": "5% Price Increase",
+                "delivery": "immediate",
+                "price_alert": True,
+                "trigger_price": 196.59,
+            }),
+            event_created_at=datetime.now(timezone.utc),
+        )
+        db.add(alert)
+        db.commit()
+
+        candidate = _signal_alert_candidate(user, alert, {"NVDA"})
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.signal_intraday")).scalar_one()
+        variables = json.loads(template.variables_json)
+        rendered_html = render_template_string(template.body_html, candidate.context, variables, html=True)
+
+        assert candidate.context["metric_label"] == "Price"
+        assert candidate.context["metric_value"] == "$196.59"
+        assert ">Price</td>" in rendered_html
+        assert ">$196.59</td>" in rendered_html
+        assert "Signal score" not in rendered_html
     finally:
         db.close()
 

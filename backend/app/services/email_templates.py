@@ -658,6 +658,8 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             "alert_intro",
             "event_type",
             "signal_score",
+            "metric_label",
+            "metric_value",
             "direction",
             "trigger",
             "monitored_through",
@@ -672,7 +674,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             greeting="Hello {{first_name}},",
             intro="{{alert_intro}}",
             sections=[
-                "Intraday Monitoring Alert\nTicker: {{ticker}}\nMonitored through: {{monitored_through}}\nType: {{monitoring_source_type}}\nAlert type: {{alert_type}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nObserved: {{event_date}}",
+                "Intraday Monitoring Alert\nTicker: {{ticker}}\nMonitored through: {{monitored_through}}\nType: {{monitoring_source_type}}\nAlert type: {{alert_type}}\n{{metric_label}}: {{metric_value}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nObserved: {{event_date}}",
                 "Daily Monitoring Digest\nNormal monitoring activity that does not clear intraday criteria is summarized in the daily monitoring digest.",
             ],
             cta_label="Review monitoring",
@@ -691,7 +693,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                     ("Monitored through", "{{monitored_through}}"),
                     ("Type", "{{monitoring_source_type}}"),
                     ("Alert type", "{{alert_type}}"),
-                    ("Signal score", "{{signal_score}}"),
+                    ("{{metric_label}}", "{{metric_value}}"),
                     ("Direction", "{{direction}}"),
                     ("Why notable", "{{why_notable}}"),
                 ]
@@ -1051,6 +1053,44 @@ def _refresh_legacy_template_branding(template: EmailTemplate) -> bool:
     return changed
 
 
+def _refresh_signal_intraday_metric_fields(template: EmailTemplate) -> bool:
+    """Upgrade the stock intraday template without replacing admin edits.
+
+    Existing installations already have this template in their database, so
+    changing DEFAULT_TEMPLATES alone would not update the price-alert email.
+    Only the exact former metric row is rewritten here.
+    """
+    if template.template_key != "alerts.signal_intraday":
+        return False
+
+    changed = False
+    body_text = template.body_text or ""
+    updated_text = body_text.replace("Signal score: {{signal_score}}", "{{metric_label}}: {{metric_value}}")
+    if updated_text != body_text:
+        template.body_text = updated_text
+        changed = True
+
+    body_html = template.body_html or ""
+    updated_html = body_html.replace(">Signal score</td>", ">{{metric_label}}</td>").replace(">{{signal_score}}</td>", ">{{metric_value}}</td>")
+    if updated_html != body_html:
+        template.body_html = updated_html
+        changed = True
+
+    if changed:
+        try:
+            variables = json.loads(template.variables_json or "[]")
+        except (TypeError, ValueError):
+            variables = []
+        if not isinstance(variables, list):
+            variables = []
+        for variable in ("metric_label", "metric_value"):
+            if variable not in variables:
+                variables.append(variable)
+        template.variables_json = json.dumps(variables)
+        template.updated_at = datetime.now(timezone.utc)
+    return changed
+
+
 def seed_default_email_templates(db: Session) -> int:
     inserted = 0
     existing_templates = {
@@ -1060,6 +1100,8 @@ def seed_default_email_templates(db: Session) -> int:
     refreshed = 0
     for template in existing_templates.values():
         if _refresh_legacy_template_branding(template):
+            refreshed += 1
+        if _refresh_signal_intraday_metric_fields(template):
             refreshed += 1
         if template.template_key in {"alerts.signal_intraday", "alerts.watchlist_intraday"} and template.subject in {
             "Walnut high-conviction signal: {{ticker}}",
