@@ -289,26 +289,34 @@ export function InsightsMacroPositioningPanel() {
           {data.message ?? "Macro positioning is temporarily unavailable."}
         </div>
       ) : (
-        <div className="mt-3 divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10 bg-slate-950/35">
-          {rows.map(({ label, market, icon, tone }) => (
-            <Link key={label} href={MACRO_POSITIONING_HREF} className="grid gap-3 p-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(0,1fr)_auto]">
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border ${tone}`}>{icon}</span>
-                  <p className="truncate text-sm font-semibold text-white">{label}</p>
+        <div className="mt-3 space-y-3">
+          {data.summary ? (
+            <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200">Market Summary</p>
+              <p className="mt-1 text-xs leading-5 text-slate-300">{data.summary}</p>
+            </div>
+          ) : null}
+          <div className="divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10 bg-slate-950/35">
+            {rows.map(({ label, market, icon, tone }) => (
+              <Link key={label} href={MACRO_POSITIONING_HREF} className="grid gap-3 p-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border ${tone}`}>{icon}</span>
+                    <p className="truncate text-sm font-semibold text-white">{label}</p>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+                    {trendCopy(label, market)}
+                  </p>
                 </div>
-                <p className="mt-2 text-xs leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-                  {trendCopy(label, market)}
-                </p>
-              </div>
-              <div className="flex items-start justify-between gap-3 sm:block sm:text-right">
-                <span className={`text-[11px] font-semibold ${biasClassName(market?.bias)}`}>
-                  {biasLabel(market?.bias)}
-                </span>
-                {market?.trend ? <p className="mt-2 text-xs capitalize text-slate-500">{market.trend}</p> : null}
-              </div>
-            </Link>
-          ))}
+                <div className="flex items-start justify-between gap-3 sm:block sm:text-right">
+                  <span className={`text-[11px] font-semibold ${biasClassName(market?.bias)}`}>
+                    {biasLabel(market?.bias)}
+                  </span>
+                  {market?.trend ? <p className="mt-2 text-xs capitalize text-slate-500">{market.trend}</p> : null}
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 
