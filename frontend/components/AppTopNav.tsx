@@ -9,7 +9,7 @@ const topNavLinks = [
   { href: "/?mode=all", label: "Feed" },
   { href: "/insights", label: "Insights" },
   { href: "/signals", label: "Signals" },
-  { href: "/leaderboards/congress-traders", label: "Leaderboards" },
+  { href: "/leaderboards", label: "Leaderboards" },
   ...(process.env.NEXT_PUBLIC_STRATEGIES_ENABLED === "0" ? [] : [{ href: "/strategies", label: "Strategies" }]),
   ...(process.env.NEXT_PUBLIC_OUTCOMES_LEDGER_ENABLED === "0" ? [] : [{ href: "/outcomes", label: "Outcomes" }]),
 ] as const;
@@ -51,7 +51,7 @@ function isActiveNavLink(pathname: string | null, href: string) {
   const path = pathname || "/";
   if (href === "/?mode=all") return path === "/";
   const basePath = href.split("?")[0] || href;
-  if (basePath === "/leaderboards/congress-traders") return path === basePath || path.startsWith("/leaderboards/");
+  if (basePath === "/leaderboards") return path === basePath || path.startsWith("/leaderboards/");
   if (basePath === "/compare") return path === "/compare" || path.startsWith("/compare/");
   return path === basePath || path.startsWith(`${basePath}/`);
 }

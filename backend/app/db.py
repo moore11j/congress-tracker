@@ -573,6 +573,31 @@ def ensure_market_pressure_snapshot_schema(bind=engine) -> None:
         )
 
 
+def ensure_leaderboard_snapshot_schema(bind=engine) -> None:
+    """Create the shared persisted leaderboard cache without mutating live rows."""
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
+        id_type = "INTEGER PRIMARY KEY AUTOINCREMENT" if dialect_name == "sqlite" else "BIGSERIAL PRIMARY KEY"
+        now_default = "CURRENT_TIMESTAMP" if dialect_name == "sqlite" else "now()"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS leaderboard_snapshots (
+                    id {id_type},
+                    leaderboard_key TEXT NOT NULL UNIQUE,
+                    generated_at {timestamp_type} NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at {timestamp_type} DEFAULT {now_default},
+                    updated_at {timestamp_type} DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_leaderboard_snapshots_key ON leaderboard_snapshots (leaderboard_key)"))
+
+
 def ensure_strategy_storage_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

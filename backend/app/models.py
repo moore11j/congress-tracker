@@ -1746,6 +1746,26 @@ class MarketPressureSnapshot(Base):
     )
 
 
+class LeaderboardSnapshot(Base):
+    """One persisted payload per named leaderboard, refreshed by background jobs."""
+
+    __tablename__ = "leaderboard_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    leaderboard_key: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class ConfirmationMethodologyVersion(Base):
     __tablename__ = "confirmation_methodology_versions"
     __table_args__ = (

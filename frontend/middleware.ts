@@ -439,6 +439,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(marketingUrl, 301);
   }
 
+  if (pathname === "/top-stocks") {
+    const leaderboardsUrl = request.nextUrl.clone();
+    leaderboardsUrl.protocol = localDevHosts.has(host) ? request.nextUrl.protocol : "https:";
+    leaderboardsUrl.hostname = localDevHosts.has(host) ? host : appHost;
+    leaderboardsUrl.port = localDevHosts.has(host) ? request.nextUrl.port : "";
+    leaderboardsUrl.pathname = "/leaderboards";
+    leaderboardsUrl.hash = "top-stocks";
+    return NextResponse.redirect(leaderboardsUrl, 301);
+  }
+
   if (host === appHost && isMarketingComparisonSlugRoute(pathname)) {
     const marketingUrl = request.nextUrl.clone();
     marketingUrl.protocol = "https:";

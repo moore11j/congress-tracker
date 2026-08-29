@@ -46,6 +46,7 @@ from app.db import (
     ensure_house_annual_disclosure_schema,
     ensure_index_membership_metadata_schema,
     ensure_institutional_activity_schema,
+    ensure_leaderboard_snapshot_schema,
     ensure_macro_positioning_schema,
     ensure_market_pressure_snapshot_schema,
     ensure_monitoring_alert_columns,
@@ -166,6 +167,9 @@ from app.routers.research_briefs import router as research_briefs_router
 from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
+from app.routers.top_stocks import router as top_stocks_router
+from app.routers.leaderboards import router as leaderboard_snapshots_router
+from app.services.leaderboard_snapshots import CONGRESS_LEADERBOARD_KEY, read_leaderboard_snapshot
 from app.routers.strategies import router as strategies_router
 from app.routers.events import (
     _cap_feed_quote_symbols,
@@ -4175,6 +4179,7 @@ def _startup_create_tables():
         ("schema_search_entities", lambda: ensure_search_entities_schema(engine)),
         ("schema_macro_positioning", lambda: ensure_macro_positioning_schema(engine)),
         ("schema_market_pressure_snapshots", lambda: ensure_market_pressure_snapshot_schema(engine)),
+        ("schema_leaderboard_snapshots", lambda: ensure_leaderboard_snapshot_schema(engine)),
         ("schema_strategy_storage", lambda: ensure_strategy_storage_schema(engine)),
         ("schema_ticker_content_cache", lambda: ensure_ticker_content_cache_schema(engine)),
         ("schema_ticker_financials_cache", lambda: ensure_ticker_financials_cache_schema(engine)),
@@ -5545,6 +5550,22 @@ def congress_trader_leaderboard(
         "leaderboards",
         message="Leaderboards are included with Premium.",
     )
+    # Legacy API compatibility: the dashboard no longer calculates rankings on a
+    # visitor request. Its once-daily prepared snapshot is the only source here.
+    snapshot = read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY)
+    return {
+        "lookback_days": 1095,
+        "chamber": "all",
+        "source_mode": "congress",
+        "performance_model": "portfolio",
+        "persisted_only": True,
+        "mode": "realistic_disclosure_lag",
+        "sort": snapshot.get("sort") or "alpha_pct",
+        "limit": len(snapshot.get("items") or []),
+        "benchmark_symbol": "SPY",
+        "rows": snapshot.get("items") or [],
+        "metadata": {**(snapshot.get("metadata") or {}), "generated_at": snapshot.get("generated_at"), "snapshot_only": True},
+    }
     perf = _LeaderboardPerfTracker(
         mode=(source_mode or "congress").strip().lower() or "congress",
         lookback_days=lookback_days,
@@ -15216,6 +15237,8 @@ app.include_router(institutional_router, prefix="/api")
 app.include_router(institutional_ingest_admin_router, prefix="/api")
 app.include_router(market_pressure_router, prefix="/api")
 app.include_router(screener_router, prefix="/api")
+app.include_router(top_stocks_router, prefix="/api")
+app.include_router(leaderboard_snapshots_router, prefix="/api")
 app.include_router(backtests_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
 app.include_router(custom_alert_rules_router, prefix="/api")

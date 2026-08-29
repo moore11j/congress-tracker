@@ -6329,6 +6329,31 @@ export type CongressTraderLeaderboardResponse = {
   rows: CongressTraderLeaderboardRow[];
 };
 
+export type CachedLeaderboardSection = "top-stocks" | "congress_members" | "insiders" | "institutions";
+
+export type CachedLeaderboardResponse = {
+  key?: string;
+  items: Record<string, unknown>[];
+  generated_at: string | null;
+  timeframe_label?: string;
+  sort?: string | null;
+  methodology?: string;
+  empty_message?: string;
+  metadata?: Record<string, unknown>;
+};
+
+/** Reads a prepared daily leaderboard snapshot. It never recomputes rankings. */
+export async function getCachedLeaderboard(
+  section: CachedLeaderboardSection,
+  params?: { authToken?: string; source?: string },
+): Promise<CachedLeaderboardResponse> {
+  return fetchJson<CachedLeaderboardResponse>(buildApiUrl(`/api/leaderboards/${section}`), {
+    headers: authHeaders(params?.authToken),
+    next: { revalidate: 300 },
+    source: params?.source ?? "LeaderboardsDashboard",
+  });
+}
+
 export type ScreenerApiActivityOverlay = {
   present: boolean;
   label: string;

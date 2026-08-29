@@ -28,7 +28,7 @@ const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.co
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 const publicPricingUrl = `${WALNUT_MARKETING_URL}/pricing`;
-const bullishConfirmationScreenerUrl = `${appUrl}/screener?confirmation_direction=bullish&confirmation_score_min=60&confirmation_band=strong_plus&sort=confirmation_score&sort_dir=desc&lookback_days=30`;
+const topStocksUrl = `${appUrl}/leaderboards#top-stocks`;
 const nvdaProductScreenshot = "/landing/nvda-ticker-intelligence.png";
 const outcomesProductScreenshot = "/landing/outcomes-confirmation-events.png";
 
@@ -48,11 +48,29 @@ type MarketInstrument = {
   timeframeLabel?: string | null;
 };
 
+type TopStockPreview = {
+  rank: number;
+  symbol: string;
+  company_name: string;
+  confirmation_score: number | null;
+  confirmation_band: string;
+  confirmation_direction: string;
+  key_drivers: string[];
+  updated_at: string | null;
+  ticker_url: string;
+};
+
+type TopStocksResponse = {
+  items: TopStockPreview[];
+  generated_at: string | null;
+};
+
 const platformFooterLinks = [
   { label: "Compare Walnut", href: "/compare" },
   { label: "Stock Research Software", href: "/stock-research-software" },
   { label: "Stock Analysis Platform", href: "/stock-analysis-platform" },
   { label: "Stock Analysis Tools", href: "/stock-analysis-tools" },
+  { label: "Leaderboards", href: topStocksUrl },
   { label: "Stock Screener", href: `${appUrl}/screener` },
   { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },
   { label: "Research Briefs", href: `${appUrl}/insights` },
@@ -79,8 +97,6 @@ const companyFooterLinks = [
   { label: "Privacy", href: "/privacy" },
 ] as const;
 
-const evidenceSources = ["Fundamentals", "Technicals", "Insiders", "Congress", "Institutions", "Contracts", "Analysts"] as const;
-const interpretedOutputs = ["Confirmation Score", "What Changed", "Catalysts", "Risks", "What to Watch Next"] as const;
 const heroEvidenceSources = ["Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"] as const;
 const heroFeaturedTicker = {
   kind: "ticker",
@@ -105,16 +121,6 @@ const confirmationPrinciples = [
   ["Lower confirmation", "The evidence is weaker, mixed, or conflicting."],
   ["Explainable", "Every confirmation score is accompanied by the underlying evidence so you can see the data behind the score."],
 ] as const;
-
-const workflowStages = [
-  ["01", "What does the evidence say?", "Walnut interprets multiple data sources together rather than leaving each one isolated."],
-  ["02", "What changed?", "See which parts of the underlying data have strengthened, weakened, or reversed the investment thesis."],
-  ["03", "Does that change the thesis?", "Understand whether new evidence reinforces or challenges the current directional view."],
-  ["04", "What should I watch next?", "Track the catalysts, risks, and developments most likely to matter."],
-] as const;
-
-const whySources = ["Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Options", "Analysts"] as const;
-const whySteps = ["Raw data", "Interpretation", "Judgment", "Ongoing research"] as const;
 
 const followActivityCards = [
   {
@@ -189,13 +195,6 @@ const featureDepthItems = [
   ["Outcomes", "Historical accountability layer"],
   ["Research Memory", "Coming Soon"],
   ["Walnut Strategies", "Live Beta — explore published strategies with transparent methodology and performance"],
-] as const;
-
-const dailyInsightTickers = [
-  ["NVDA", "NVIDIA Corp", "$223.96", "+2.27%"],
-  ["AAPL", "Apple Inc", "$313.33", "+0.29%"],
-  ["LMT", "Lockheed Martin", "$587.95", "+0.88%"],
-  ["PLTR", "Palantir Technologies", "$172.01", "+10.32%"],
 ] as const;
 
 const fallbackInsights: NewsItem[] = [
@@ -347,6 +346,14 @@ async function loadPublishedStrategies(): Promise<StrategyDefinitionPayload[]> {
   }
 }
 
+async function loadTopStocks(): Promise<TopStocksResponse> {
+  try {
+    return await landingFetchJson<TopStocksResponse>("/api/top-stocks", undefined, 2500);
+  } catch {
+    return { items: [], generated_at: null };
+  }
+}
+
 function formatMarketValue(value: number | string | null | undefined, digits = 2): string {
   if (typeof value === "string") return value || "Unavailable";
   if (typeof value !== "number" || !Number.isFinite(value)) return "Unavailable";
@@ -381,6 +388,18 @@ function formatDate(value: string | null | undefined): string | null {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(parsed);
+}
+
+function formatTopStocksTimestamp(value: string | null | undefined): string {
+  if (!value) return "Latest stored snapshot";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Latest stored snapshot";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(parsed);
+}
+
+function topStockDirectionLabel(stock: TopStockPreview): string {
+  const band = stock.confirmation_band === "exceptional" ? "Exceptional" : stock.confirmation_band === "strong" ? "Strong" : stock.confirmation_band;
+  return `${band} ${stock.confirmation_direction}`.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function publicSnapshotMetaLabel(...values: Array<string | null | undefined>): string {
@@ -731,11 +750,12 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [latestInsights, planConfig, outcomeSummary, publishedStrategies] = await Promise.all([
+  const [latestInsights, planConfig, outcomeSummary, publishedStrategies, topStocks] = await Promise.all([
     loadLatestInsights(),
     loadPlanConfig(),
     loadOutcomeSummary(),
     loadPublishedStrategies(),
+    loadTopStocks(),
   ]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
   const heroImageInsight = insightImageUrl(heroInsight) ? heroInsight : latestInsights.find((item) => insightImageUrl(item)) ?? heroInsight;
@@ -762,8 +782,8 @@ export default async function LandingPage() {
               {homepageContent.hero.description}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <HomepageCtaLink href="#whats-working" eventName="see_top_performers_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200">
-                See Top Performers
+              <HomepageCtaLink href={topStocksUrl} eventName="see_top_performers_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200">
+                View Leaderboards
               </HomepageCtaLink>
               <a href="#analyze-a-stock" className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]">
                 Analyze a Stock
@@ -789,15 +809,12 @@ export default async function LandingPage() {
 
       <section id="whats-working" className="scroll-mt-24 border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
             <div className="max-w-3xl">
               <SectionEyebrow>OUTPERFORMING THE MARKET</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">What&apos;s Working on Walnut.</h2>
               <p className="mt-4 text-base leading-7 text-slate-400">Live confirmation score outcomes and stored strategy results show the power behind Walnut&apos;s data and research—a track record of outperforming the market.</p>
             </div>
-            <HomepageCtaLink href={`${appUrl}/outcomes`} eventName="outcomes_click" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
-              View outcomes <span aria-hidden="true">&rarr;</span>
-            </HomepageCtaLink>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-5 sm:p-6">
@@ -811,6 +828,7 @@ export default async function LandingPage() {
                   <p className="mt-5 text-sm leading-6 text-slate-300">* out of {outcomeSummary.completed_events} confirmation score events in the past 30 days</p>
                 </>
               ) : <p className="mt-5 text-sm leading-6 text-slate-400">Current 30-day outcome metrics are temporarily unavailable. Open Outcomes to review the recorded event ledger.</p>}
+              <HomepageCtaLink href={`${appUrl}/outcomes`} eventName="outcomes_click" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">View outcomes <span aria-hidden="true">&rarr;</span></HomepageCtaLink>
             </article>
             <article className="rounded-lg border border-white/10 bg-slate-950/85 p-5 sm:p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">People and participants</p>
@@ -832,17 +850,17 @@ export default async function LandingPage() {
       <section id="top-stock-opportunities" className="scroll-mt-24 border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-center">
           <div>
-            <SectionEyebrow>Current research</SectionEyebrow>
+            <SectionEyebrow>Current opportunities</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Stocks Walnut Ranks Highest.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">Use Walnut&apos;s Screener to find stocks with the strongest current Bullish Confirmation across fundamentals, technicals, insider activity, Congress trades, institutional activity, analysts and other data.</p>
-            <p className="mt-4 text-base leading-7 text-slate-400">Filter the market by Confirmation Score, valuation, momentum, ownership activity and more, then open any result to see the underlying evidence.</p>
+            <p className="mt-4 text-base leading-7 text-slate-400">See which stocks currently rank highest based on Walnut&apos;s cross-source Confirmation Score.</p>
             <p className="mt-4 text-sm leading-6 text-slate-500">Rankings are based on Walnut&apos;s proprietary Confirmation Score, which summarizes current cross-source alignment and strength. Scores are not predictions or guarantees of future performance.</p>
-            <HomepageCtaLink href={bullishConfirmationScreenerUrl} eventName="open_screener_click" className="mt-6 inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">Open Screener</HomepageCtaLink>
+            <HomepageCtaLink href={topStocksUrl} eventName="top_stocks_click" className="mt-6 inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">View Leaderboards →</HomepageCtaLink>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Cross-source ranking</p><p className="mt-1 text-sm text-slate-400">Investigate the drivers before acting.</p></div><span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Live workspace</span></div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {[['Fundamentals', 'Financial quality and valuation context'], ['Technicals', 'Trend and market structure'], ['Alternative data', 'Insiders, Congress, holdings, contracts, analysts']].map(([label, body], index) => <div key={label} className="rounded-lg border border-white/10 bg-white/[0.035] p-4"><p className="font-mono text-sm font-semibold text-emerald-200">0{index + 1}</p><p className="mt-3 text-sm font-semibold text-white">{label}</p><p className="mt-2 text-xs leading-5 text-slate-400">{body}</p></div>)}
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Top ranked preview</p><p className="mt-1 text-sm text-slate-400">Data as of {formatTopStocksTimestamp(topStocks.generated_at)}</p></div><span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Stored ranking</span></div>
+            <div className="mt-2 divide-y divide-white/10">
+              {topStocks.items.slice(0, 5).map((stock) => <article key={stock.symbol} className="grid gap-2 py-4 sm:grid-cols-[3rem_1fr_auto] sm:items-center"><p className="font-mono text-sm font-semibold text-emerald-300">#{stock.rank}</p><div><p className="font-mono text-base font-semibold text-white">{stock.symbol} <span className="font-sans text-sm font-normal text-slate-400">{stock.company_name}</span></p><p className="mt-1 text-xs text-slate-500">{stock.key_drivers.join(" · ") || "Stored evidence available"}</p></div><div className="sm:text-right"><p className="font-mono text-lg font-semibold text-emerald-200">{stock.confirmation_score ?? "—"}<span className="text-xs text-slate-500"> / 100</span></p><p className="mt-1 text-xs text-slate-400">{topStockDirectionLabel(stock)}</p><a href={stock.ticker_url} className="mt-2 inline-flex text-xs font-semibold text-emerald-200 hover:text-emerald-100">View Analysis →</a></div></article>)}
+              {topStocks.items.length === 0 ? <p className="py-8 text-sm leading-6 text-slate-400">The current stored ranking is temporarily unavailable. Visit Leaderboards after the next scheduled refresh.</p> : null}
             </div>
           </div>
         </div>
@@ -850,6 +868,11 @@ export default async function LandingPage() {
 
       <section className="border-b border-white/10 px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
+          <div className="mb-8 max-w-3xl">
+            <SectionEyebrow>Ticker Intelligence</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Every Result, Backed by the Data.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">Go beyond a single score with fundamentals, technicals, insiders, Congress, institutions, government contracts, analysts, macro, options where available, catalysts, risks, and market context.</p>
+          </div>
           <figure className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/90 p-2 shadow-2xl shadow-black/40">
             <div className="overflow-x-auto [scrollbar-width:thin]">
               <img
@@ -865,142 +888,6 @@ export default async function LandingPage() {
               <span>Confirmation Score, catalysts, risks, and source context remain visible.</span>
             </figcaption>
           </figure>
-        </div>
-      </section>
-
-      <section id="insights" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-            <div>
-              <SectionEyebrow>Daily Insights</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Keep informed with the news that moves the market.</h2>
-            </div>
-            <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
-              <span>Open insights</span>
-              <span aria-hidden="true">-&gt;</span>
-            </a>
-          </div>
-          <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]" data-nosnippet>
-            <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
-              <div className="divide-y divide-white/10">
-                {latestInsights.slice(0, 5).map((item) => (
-                  <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0">
-                    <p className="text-sm font-semibold leading-6 text-white hover:text-emerald-100">{item.title}</p>
-                    <p className="mt-1 text-xs text-slate-400">{item.site || item.source || "Market news"}</p>
-                  </a>
-                ))}
-              </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {dailyInsightTickers.map(([symbol, company, price, change]) => (
-                  <a key={symbol} href={`${appUrl}/ticker/${symbol}`} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-mono text-base font-semibold text-emerald-200">{symbol}</p>
-                        <p className="mt-2 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-400">{company}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="font-mono text-sm font-semibold text-white">{price}</p>
-                        <p className="mt-1 text-xs font-semibold text-emerald-300">{change}</p>
-                      </div>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-            <article className="rounded-lg border border-white/10 bg-slate-950/90 p-5 shadow-2xl shadow-black/30">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Market Brief</p>
-                <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
-              </div>
-              <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-                <LatestInsightImage src={heroInsightImage} alt={heroImageInsight.title} />
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p>
-                <h3 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h3>
-                {heroInsight.summary ? (
-                  <p className="mt-3 overflow-hidden text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
-                    {heroInsight.summary}
-                  </p>
-                ) : null}
-              </a>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="three-ways" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl">
-            <SectionEyebrow>What Walnut helps you investigate</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Three Ways Walnut Helps You Find an Edge.</h2>
-          </div>
-          <div className="mt-8 grid gap-4 lg:grid-cols-3">
-            <article className="flex flex-col rounded-lg border border-white/10 bg-slate-950/85 p-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Stocks</p><h3 className="mt-4 text-xl font-semibold text-white">Stocks Positioned for Outperformance</h3><p className="mt-3 flex-1 text-sm leading-6 text-slate-400">See which stocks Walnut currently ranks highest using fundamentals, technicals, alternative financial data, analyst activity, and cross-source confirmation.</p><HomepageCtaLink href={`${appUrl}/signals`} eventName="top_stock_click" className="mt-6 text-sm font-semibold text-emerald-200 hover:text-emerald-100">See Top Stocks &rarr;</HomepageCtaLink></article>
-            <article className="flex flex-col rounded-lg border border-white/10 bg-slate-950/85 p-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">People</p><h3 className="mt-4 text-xl font-semibold text-white">Follow Market Participants</h3><p className="mt-3 flex-1 text-sm leading-6 text-slate-400">Track insider trades, Congress trades, and institutional holdings, and inspect historical performance where Walnut has sufficient disclosed-data coverage.</p><HomepageCtaLink href={`${appUrl}/profiles`} eventName="insider_profile_click" className="mt-6 text-sm font-semibold text-emerald-200 hover:text-emerald-100">Explore Profiles &rarr;</HomepageCtaLink></article>
-            <article className="flex flex-col rounded-lg border border-white/10 bg-slate-950/85 p-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Strategies</p><h3 className="mt-4 text-xl font-semibold text-white">Strategies That Have Historically Beaten Their Benchmark</h3><p className="mt-3 flex-1 text-sm leading-6 text-slate-400">Explore stored backtests built from Congress activity, insider buying, technical trends, fundamentals, and other Walnut datasets.</p><HomepageCtaLink href={`${appUrl}/strategies`} eventName="strategy_click" className="mt-6 text-sm font-semibold text-emerald-200 hover:text-emerald-100">Explore Strategies &rarr;</HomepageCtaLink></article>
-          </div>
-        </div>
-      </section>
-
-      <section id="how-it-works" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl">
-            <SectionEyebrow>More than data. Measurable results.</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Connect the data. Rank the opportunity. Track the outcome.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings together fundamental analysis, technical analysis, insider trades, Congress trades, institutional holdings, government contracts, analyst consensus, macro positioning, and other market data so you can clearly see which sources reinforce or contradict your investment thesis.
-            </p>
-          </div>
-          <div className="mt-10 grid gap-4 lg:grid-cols-[1fr_auto_1.2fr_auto_1fr] lg:items-center">
-            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Evidence sources</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {evidenceSources.map((source) => (
-                  <span key={source} className="rounded border border-white/10 bg-slate-950/70 px-3 py-2 text-sm font-semibold text-slate-100">
-                    {source}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="hidden text-2xl font-semibold text-emerald-300 lg:block">-&gt;</div>
-            <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-6 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Interpretation</p>
-              <h3 className="mt-3 text-2xl font-semibold text-white">Walnut interprets the evidence together</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-300">Walnut reveals alignment, conflict, and change across different investment data sets rather than leaving each one isolated.</p>
-            </div>
-            <div className="hidden text-2xl font-semibold text-emerald-300 lg:block">-&gt;</div>
-            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Research outputs</p>
-              <div className="mt-4 grid gap-2">
-                {interpretedOutputs.map((item) => (
-                  <span key={item} className="rounded border border-white/10 bg-slate-950/70 px-3 py-2 text-sm font-semibold text-slate-100">
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="mt-6 grid gap-6 rounded-lg border border-white/10 bg-slate-950/70 p-5 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Why Walnut</p>
-              <h3 className="mt-2 text-2xl font-semibold text-white">More Than Data. Measurable Results.</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-400">{homepageContent.differentiation.description}</p>
-            </div>
-            <div>
-              <div className="flex flex-wrap gap-2">
-                {whySources.map((source) => (
-                  <span key={source} className="rounded border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-xs font-semibold text-slate-300">{source}</span>
-                ))}
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                {whySteps.map((step, index) => (
-                  <div key={step} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
-                    <p className="font-mono text-xs font-semibold text-slate-500">0{index + 1}</p>
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-white">{step === "Judgment" ? "Ranking" : step === "Ongoing research" ? "Outcome" : step}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -1042,37 +929,6 @@ export default async function LandingPage() {
                 </article>
               ))}
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <SectionEyebrow>The Walnut Research Workflow</SectionEyebrow>
-          <div className="mt-3 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <h2 className="max-w-3xl text-3xl font-semibold text-white sm:text-4xl">From evidence to outcome.</h2>
-            <p className="max-w-2xl text-sm leading-6 text-slate-400">Walnut is built around the research process: inspect the evidence, rank the opportunity, monitor what changes, and measure what happened next.</p>
-          </div>
-          <div className="mt-9 grid gap-3 lg:grid-cols-4">
-            {workflowStages.map(([number, title, body], index) => (
-              <article key={number} className="relative rounded-lg border border-white/10 bg-white/[0.035] p-5">
-                {index < workflowStages.length - 1 ? <div className="absolute -right-2 top-8 hidden h-px w-4 bg-emerald-300/40 lg:block" /> : null}
-                <p className="font-mono text-sm font-semibold text-emerald-300">{number}</p>
-                <h3 className="mt-4 text-base font-semibold uppercase tracking-[0.12em] text-white">{title}</h3>
-                <p className="mt-4 text-sm leading-6 text-slate-400">{body}</p>
-              </article>
-            ))}
-          </div>
-          <div className="mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-5 sm:flex sm:items-start sm:justify-between sm:gap-8">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Watchlists + Alerts</p>
-              <h3 className="mt-2 text-lg font-semibold text-white">{homepageContent.monitoring.title}</h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{homepageContent.monitoring.description}</p>
-            </div>
-            <a href={`${appUrl}/watchlists`} className="mt-4 inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100 sm:mt-1">
-              <span>Explore watchlists</span>
-              <span aria-hidden="true">&rarr;</span>
-            </a>
           </div>
         </div>
       </section>
@@ -1126,6 +982,38 @@ export default async function LandingPage() {
               </article>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div>
+            <SectionEyebrow>Walnut Strategies</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Backtested Strategies Built From Walnut Data.</h2>
+            <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.strategies.description}</p>
+            <p className="mt-4 text-sm leading-6 text-slate-500">Published results are stored records, not live backtest execution. Compare each strategy&apos;s historical return, benchmark, coverage period, and trade count.</p>
+            <HomepageCtaLink href={`${appUrl}/strategies`} eventName="strategy_click" className="mt-6 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">Explore all strategies <span aria-hidden="true">&rarr;</span></HomepageCtaLink>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {publishedStrategies.map((strategy) => {
+              const performance = strategy.performance!;
+              const period = [formatDate(performance.metrics?.coverage_start as string | null | undefined), formatDate(performance.metrics?.coverage_end as string | null | undefined)].filter(Boolean).join(" – ");
+              return <article key={strategy.slug} className="rounded-lg border border-white/10 bg-slate-950/85 p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{strategy.category} strategy</p><h3 className="mt-3 text-lg font-semibold text-white">{strategy.name}</h3><div className="mt-5 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.045] p-4"><p className="font-mono text-3xl font-semibold text-emerald-200">{formatPercent(performance.totalReturnPct)}</p><p className="mt-2 text-xs leading-5 text-slate-400">Historical total return</p></div><dl className="mt-4 space-y-2 text-xs"><div className="flex justify-between gap-3"><dt className="text-slate-500">Benchmark ({strategy.latestRun?.benchmark ?? "SPY"})</dt><dd className="font-mono text-slate-200">{formatPercent(performance.benchmarkReturnPct)}</dd></div><div className="flex justify-between gap-3"><dt className="text-slate-500">Excess CAGR</dt><dd className="font-mono text-slate-200">{formatPercent(performance.alphaCagrPct)}</dd></div><div className="flex justify-between gap-3"><dt className="text-slate-500">Trades</dt><dd className="font-mono text-slate-200">{performance.tradeCount ?? "—"}</dd></div></dl>{period ? <p className="mt-4 text-[11px] leading-5 text-slate-500">{period}</p> : null}<HomepageCtaLink href={`${appUrl}/strategies/${strategy.slug}`} eventName="strategy_click" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">View strategy &rarr;</HomepageCtaLink></article>;
+            })}
+            {publishedStrategies.length === 0 ? <div className="sm:col-span-3 rounded-lg border border-white/10 bg-slate-950/85 p-6 text-sm leading-6 text-slate-400">Published strategy performance is temporarily unavailable. Visit Strategies to review the latest stored records.</div> : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-6 sm:flex sm:items-start sm:justify-between sm:gap-8">
+          <div>
+            <SectionEyebrow>Follow what changes</SectionEyebrow>
+            <h2 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">{homepageContent.monitoring.title}</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">Finding an opportunity is only the start. Follow the stocks you care about and get alerted when the data, Confirmation Score, disclosures, or other important activity changes.</p>
+            <p className="mt-3 text-xs leading-5 text-slate-400">Watchlists · Monitoring · Alerts · Custom logical alerts</p>
+          </div>
+          <a href={`${appUrl}/watchlists`} className="mt-5 inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100 sm:mt-1"><span>Explore watchlists</span><span aria-hidden="true">&rarr;</span></a>
         </div>
       </section>
 
@@ -1194,26 +1082,18 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
-          <div>
-            <SectionEyebrow>Walnut Strategies</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Backtested Strategies Built From Walnut Data.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.strategies.description}</p>
-            <p className="mt-4 text-sm leading-6 text-slate-500">Published results are stored records, not live backtest execution. Compare each strategy&apos;s historical return, benchmark, coverage period, and trade count.</p>
-            <HomepageCtaLink href={`${appUrl}/strategies`} eventName="strategy_click" className="mt-6 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">Explore all strategies <span aria-hidden="true">&rarr;</span></HomepageCtaLink>
+      <section id="insights" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div><SectionEyebrow>Daily Insights</SectionEyebrow><h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Keep informed with the news that moves the market.</h2></div>
+            <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100">Open insights <span aria-hidden="true">→</span></a>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            {publishedStrategies.map((strategy) => {
-              const performance = strategy.performance!;
-              const period = [formatDate(performance.metrics?.coverage_start as string | null | undefined), formatDate(performance.metrics?.coverage_end as string | null | undefined)].filter(Boolean).join(" – ");
-              return <article key={strategy.slug} className="rounded-lg border border-white/10 bg-slate-950/85 p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{strategy.category} strategy</p><h3 className="mt-3 text-lg font-semibold text-white">{strategy.name}</h3><div className="mt-5 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.045] p-4"><p className="font-mono text-3xl font-semibold text-emerald-200">{formatPercent(performance.totalReturnPct)}</p><p className="mt-2 text-xs leading-5 text-slate-400">Historical total return</p></div><dl className="mt-4 space-y-2 text-xs"><div className="flex justify-between gap-3"><dt className="text-slate-500">Benchmark ({strategy.latestRun?.benchmark ?? "SPY"})</dt><dd className="font-mono text-slate-200">{formatPercent(performance.benchmarkReturnPct)}</dd></div><div className="flex justify-between gap-3"><dt className="text-slate-500">Excess CAGR</dt><dd className="font-mono text-slate-200">{formatPercent(performance.alphaCagrPct)}</dd></div><div className="flex justify-between gap-3"><dt className="text-slate-500">Trades</dt><dd className="font-mono text-slate-200">{performance.tradeCount ?? "—"}</dd></div></dl>{period ? <p className="mt-4 text-[11px] leading-5 text-slate-500">{period}</p> : null}<HomepageCtaLink href={`${appUrl}/strategies/${strategy.slug}`} eventName="strategy_click" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">View strategy &rarr;</HomepageCtaLink></article>;
-            })}
-            {publishedStrategies.length === 0 ? <div className="sm:col-span-3 rounded-lg border border-white/10 bg-slate-950/85 p-6 text-sm leading-6 text-slate-400">Published strategy performance is temporarily unavailable. Visit Strategies to review the latest stored records.</div> : null}
+          <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]" data-nosnippet>
+            <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5"><div className="divide-y divide-white/10">{latestInsights.slice(0, 5).map((item) => <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0"><p className="text-sm font-semibold leading-6 text-white hover:text-emerald-100">{item.title}</p><p className="mt-1 text-xs text-slate-400">{item.site || item.source || "Market news"}</p></a>)}</div></div>
+            <article className="rounded-lg border border-white/10 bg-slate-950/90 p-5 shadow-2xl shadow-black/30"><div className="mb-3 flex items-center justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Market Brief</p><span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span></div><a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer"><LatestInsightImage src={heroInsightImage} alt={heroImageInsight.title} /><p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p><h3 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h3>{heroInsight.summary ? <p className="mt-3 overflow-hidden text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">{heroInsight.summary}</p> : null}</a></article>
           </div>
         </div>
       </section>
-
 
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
@@ -1317,7 +1197,7 @@ export default async function LandingPage() {
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Explore the historical record, inspect the current evidence, and decide for yourself.</p>
             </div>
             <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
-              <HomepageCtaLink href="#whats-working" eventName="see_top_performers_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200">See Top Performers</HomepageCtaLink>
+              <HomepageCtaLink href={topStocksUrl} eventName="see_top_performers_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200">View Leaderboards</HomepageCtaLink>
               <a href="#analyze-a-stock" className="inline-flex items-center justify-center rounded-lg border border-white/15 bg-slate-950/35 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40">Analyze a Stock</a>
             </div>
           </div>

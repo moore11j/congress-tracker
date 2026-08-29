@@ -19,6 +19,9 @@ CRON_TZ=America/Los_Angeles
 41 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-price-hydrator
 45 7,16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-cache-warm
 5 7-13 * * 1-5 cd /app && python -m app.jobs.refresh_market_pressure_snapshots --all
+# Leaderboards refresh from their canonical sources once per business day.
+# The public pages read the stored snapshot only.
+0 18 * * 1-5 cd /app && python -m app.jobs.refresh_leaderboard_snapshots
 # The durable cursor visits one five-filing page per run. Run hourly during
 # the 13F catch-up window so new quarterly reports are not delayed for weeks.
 14 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily
