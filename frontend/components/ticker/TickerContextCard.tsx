@@ -123,6 +123,23 @@ function macroBiasTextClass(bias: string | null | undefined) {
   return "text-slate-500";
 }
 
+function macroImpactClasses(impact: string | null | undefined) {
+  const value = (impact ?? "").toUpperCase();
+  if (value.includes("TAILWIND")) return "border-emerald-300/30 bg-emerald-300/10 text-emerald-200";
+  if (value.includes("HEADWIND")) return "border-rose-300/30 bg-rose-300/10 text-rose-200";
+  return "border-slate-300/20 bg-slate-300/10 text-slate-200";
+}
+
+function macroImpactText(impact: string | null | undefined) {
+  return (impact ?? "NEUTRAL").replaceAll("_", " ");
+}
+
+function macroFactorMark(factor: string | null | undefined) {
+  if (factor === "US_DOLLAR") return "$";
+  if (factor === "US_10Y_YIELD") return "%";
+  return "↗";
+}
+
 function normalizeSecForm(value: string | null | undefined) {
   return (value ?? "")
     .trim()
@@ -1304,32 +1321,66 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
                   </p>
                 </section>
               ) : (
-                <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold text-white">{macroPositioning.title ?? "Macro Positioning"}</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-300">{macroPositioning.summary ?? "Macro positioning is active for this ticker."}</p>
-                    </div>
-                    <span className={`rounded-lg border px-3 py-1 text-xs font-semibold uppercase ${
-                      macroPositioning.overall === "bullish"
-                        ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
-                        : macroPositioning.overall === "bearish"
-                          ? "border-rose-300/30 bg-rose-300/10 text-rose-100"
-                          : "border-slate-300/20 bg-slate-300/10 text-slate-200"
-                    }`}>
-                      {macroPositioning.overall ?? "Neutral"}
-                    </span>
-                  </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    {(macroPositioning.drivers ?? []).map((driver) => (
-                      <div key={`${driver.name}-${driver.bias}`} className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
-                        <p className="text-sm font-semibold text-slate-100">{driver.name}</p>
-                        <p className={`mt-1 text-xs font-semibold uppercase tracking-[0.14em] ${macroBiasTextClass(driver.bias)}`}>{driver.bias}</p>
+                <section className="space-y-3 pb-2">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/65 p-4 shadow-[0_14px_42px_-32px_rgba(45,212,191,0.5)]">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-300/30 bg-emerald-300/10 text-lg text-emerald-200">◎</div>
+                        <div>
+                          <p className="text-lg font-semibold text-white">{macroPositioning.title ?? "Macro Positioning"}</p>
+                          <p className="text-sm text-slate-400">How the current market environment affects {symbol}.</p>
+                        </div>
                       </div>
+                      <span className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${macroImpactClasses(macroPositioning.overall_state ?? macroPositioning.overall)}`}>
+                        {macroPositioning.overall_state ?? macroPositioning.overall ?? "Neutral"}
+                      </span>
+                    </div>
+                    <p className="mt-3 max-w-4xl text-sm leading-5 text-slate-200">{macroPositioning.summary ?? "Macro positioning is active for this ticker."}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-white/10 pt-3 text-xs text-slate-400">
+                      <span><strong className="text-lg font-medium text-emerald-300">{macroPositioning.counts?.tailwinds ?? 0}</strong> Tailwinds</span>
+                      <span><strong className="text-lg font-medium text-rose-300">{macroPositioning.counts?.headwinds ?? 0}</strong> Headwind{(macroPositioning.counts?.headwinds ?? 0) === 1 ? "" : "s"}</span>
+                      <span><strong className="text-lg font-medium text-slate-200">{macroPositioning.counts?.neutral ?? 0}</strong> Neutral</span>
+                      {macroPositioning.updated ? <span className="ml-auto">Updated {formatDateShort(macroPositioning.updated)}</span> : null}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {(macroPositioning.drivers ?? []).map((driver, index) => (
+                      <article key={`${driver.factor ?? driver.name}-${driver.bias}`} className={`rounded-xl border border-white/10 bg-slate-950/55 p-3.5 ${index === 2 ? "lg:col-span-2" : ""}`}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex min-w-0 gap-2.5">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-sm font-semibold text-emerald-200">{macroFactorMark(driver.factor)}</span>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">{driver.category ?? "MACRO FACTOR"}</p>
+                              <p className="text-base font-semibold text-slate-100">{driver.name}</p>
+                              <p className={`text-xs font-medium ${macroBiasTextClass(driver.bias)}`}>{driver.regime_label ?? driver.bias}</p>
+                            </div>
+                          </div>
+                          <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${macroImpactClasses(driver.ticker_impact)}`}>{macroImpactText(driver.ticker_impact)}</span>
+                        </div>
+                        <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Why this is happening</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-300">{driver.why_macro ?? "Latest available macro positioning is reflected in the current regime."}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">What it means for {symbol}</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-300">{driver.ticker_readthrough ?? "This factor is incorporated into the ticker’s current macro assessment."}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center gap-5 border-t border-white/10 pt-2 text-xs text-slate-400">
+                          <span>Impact <strong className={driver.impact_score && driver.impact_score > 0 ? "ml-1 text-emerald-300" : driver.impact_score && driver.impact_score < 0 ? "ml-1 text-rose-300" : "ml-1 text-slate-200"}>{typeof driver.impact_score === "number" && driver.impact_score > 0 ? "+" : ""}{driver.impact_score ?? 0}</strong></span>
+                          <span>Confidence <strong className={driver.confidence === "HIGH" ? "ml-1 text-emerald-300" : driver.confidence === "MEDIUM" ? "ml-1 text-amber-300" : "ml-1 text-slate-200"}>{driver.confidence ?? "Medium"}</strong></span>
+                        </div>
+                      </article>
                     ))}
                   </div>
-                  {macroPositioning.updated ? (
-                    <p className="mt-5 text-xs text-slate-500">Updated {formatDateShort(macroPositioning.updated)}</p>
+
+                  {(macroPositioning.watch_items?.length ?? 0) > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/55 px-3.5 py-3">
+                      <p className="mr-2 text-sm font-semibold text-slate-100">What to watch next</p>
+                      {macroPositioning.watch_items?.map((item) => <span key={item} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-slate-300"><span className="mr-2 text-emerald-300">●</span>{item}</span>)}
+                    </div>
                   ) : null}
                 </section>
               )}

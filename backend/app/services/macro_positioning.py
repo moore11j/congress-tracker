@@ -59,6 +59,21 @@ MACRO_AI_SUMMARY_KIND = "macro-positioning-ai-summary"
 DEFAULT_MACRO_AI_SUMMARY_MODEL = "gpt-5.4-nano"
 MACRO_AI_SUMMARY_MODEL = "MACRO_AI_SUMMARY_MODEL"
 MACRO_AI_SUMMARY_MAX_CHARS = 520
+MACRO_TICKER_INTERPRETATION_MODEL = "MACRO_TICKER_INTERPRETATION_MODEL"
+DEFAULT_MACRO_TICKER_INTERPRETATION_MODEL = "gpt-5.4-nano"
+MACRO_IMPACT_SCORES = {
+    "STRONG_TAILWIND": 2,
+    "TAILWIND": 1,
+    "NEUTRAL": 0,
+    "HEADWIND": -1,
+    "STRONG_HEADWIND": -2,
+}
+MACRO_RELEVANCE_WEIGHTS = {"HIGH": 1.0, "MEDIUM": 0.6, "LOW": 0.25}
+_TICKER_FACTOR_SPECS = (
+    {"asset_key": "nasdaq_futures", "factor": "NASDAQ_100_FUTURES", "name": "Nasdaq 100 Futures", "category": "RISK APPETITE"},
+    {"asset_key": "us_dollar", "factor": "US_DOLLAR", "name": "US Dollar", "category": "FX CONDITIONS"},
+    {"asset_key": "ten_year_treasury", "factor": "US_10Y_YIELD", "name": "10-Year Treasury Yield", "category": "RATES / DISCOUNT RATE"},
+)
 
 
 @dataclass(frozen=True)
@@ -826,6 +841,14 @@ def _loads_dict(value: str | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _loads_list(value: str | None) -> list[dict[str, Any]]:
+    try:
+        parsed = json.loads(value or "[]")
+    except Exception:
+        return []
+    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+
+
 def _first_number(payload: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     for key in keys:
         value = payload.get(key)
@@ -1144,8 +1167,10 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
         drivers = []
     driver_payloads = [
         {
+            **driver,
             "name": str(driver.get("name") or "").strip(),
             "bias": _bias_value(driver.get("bias")),
+            "impact_score": int(driver.get("impact_score") or 0) if str(driver.get("impact_score") or "").lstrip("-").isdigit() else 0,
         }
         for driver in drivers
         if isinstance(driver, dict) and str(driver.get("name") or "").strip()
@@ -1169,6 +1194,17 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
     if active:
         payload["overall"] = display_overall
         payload["rating"] = max(1, min(int(row.rating or 3), 5))
+        rich_factors = [driver for driver in driver_payloads if driver.get("factor")]
+        if rich_factors:
+            aggregate = aggregate_macro_factor_scores(rich_factors)
+            payload["overall_state"] = macro_overall_state(aggregate)
+            payload["aggregate_score"] = aggregate
+            payload["counts"] = {
+                "tailwinds": sum(1 for driver in rich_factors if int(driver.get("impact_score") or 0) > 0),
+                "headwinds": sum(1 for driver in rich_factors if int(driver.get("impact_score") or 0) < 0),
+                "neutral": sum(1 for driver in rich_factors if int(driver.get("impact_score") or 0) == 0),
+            }
+            payload["watch_items"] = [str(driver.get("watch_condition")) for driver in rich_factors if isinstance(driver.get("watch_condition"), str) and driver.get("watch_condition")][:3]
     return payload
 
 
@@ -1201,11 +1237,18 @@ def refresh_macro_positioning_cache(
         if mapping is None:
             skipped += 1
             continue
-        interpreted = _interpret_mapping(symbol, mapping, assets, updated=updated, generated_at=generated_at)
+        interpreted = _interpret_mapping(symbol, mapping, assets, profile=_profile_for_symbol(db, symbol), updated=updated, generated_at=generated_at)
         if interpreted is None:
             skipped += 1
             continue
         row = db.get(MacroPositioningCache, symbol)
+        interpreted = _apply_cached_ticker_interpretation(
+            db,
+            symbol=symbol,
+            profile=_profile_for_symbol(db, symbol),
+            interpreted=interpreted,
+            previous=row,
+        )
         if row is None:
             row = MacroPositioningCache(symbol=symbol, summary=interpreted["summary"], updated=updated, generated_at=generated_at)
             db.add(row)
@@ -1244,6 +1287,7 @@ def _latest_asset_payloads(db: Session) -> dict[str, dict[str, Any]]:
             "rating": max(1, min(int(row.rating or 3), 5)),
             "positioning_date": row.positioning_date,
             "fetched_at": row.fetched_at,
+            "payload": _loads_dict(row.payload_json),
         }
         for row in rows
     }
@@ -1282,6 +1326,11 @@ def _profile_for_symbol(db: Session, symbol: str) -> dict[str, Any]:
     return {
         "asset_class": (security.asset_class if security else None) or "Equity",
         "sector": (security.sector if security else None) or (meta.sector if meta else None) or (fundamentals.sector if fundamentals else None),
+        "company_name": (meta.company_name if meta else None) or (fundamentals.company_name if fundamentals else None) or (security.name if security else None) or symbol,
+        "industry": (meta.industry if meta else None) or (fundamentals.industry if fundamentals else None),
+        "country": (meta.country if meta else None) or (fundamentals.country if fundamentals else None),
+        "price_to_sales": getattr(fundamentals, "price_to_sales", None) if fundamentals else None,
+        "market_cap": getattr(fundamentals, "market_cap", None) if fundamentals else None,
     }
 
 
@@ -1316,43 +1365,326 @@ def _interpret_mapping(
     mapping: MacroMapping,
     assets: dict[str, dict[str, Any]],
     *,
+    profile: dict[str, Any],
     updated: date,
     generated_at: datetime,
 ) -> dict[str, Any] | None:
-    driver_payloads: list[dict[str, str]] = []
-    scores: list[float] = []
-    source_refreshes: list[datetime] = []
-    for driver in mapping.drivers:
-        asset_key = str(driver.get("asset_key") or "").strip()
-        asset = assets.get(asset_key)
-        if not asset:
-            continue
-        bias = _bias_value(asset.get("bias"))
-        effect = str(driver.get("effect") or "direct").strip().lower()
-        score = _mapped_bias_score(bias, effect)
-        scores.append(score)
-        driver_payloads.append({"name": str(driver.get("name") or asset.get("name") or asset_key).strip(), "bias": bias})
-        fetched_at = asset.get("fetched_at")
-        if isinstance(fetched_at, datetime):
-            source_refreshes.append(fetched_at)
-    if not scores or not driver_payloads:
+    drivers = _ticker_macro_factors(mapping, assets, profile)
+    if not drivers:
         return None
-    avg = sum(scores) / len(scores)
-    overall = "bullish" if avg >= 0.34 else "bearish" if avg <= -0.34 else "neutral"
-    rating = 5 if avg >= 0.67 else 4 if avg >= 0.34 else 2 if avg <= -0.34 else 3
-    summary = _summary_for_bias(overall, mapping.thesis_label)
+    aggregate = aggregate_macro_factor_scores(drivers)
+    overall_state = macro_overall_state(aggregate)
+    overall = "bullish" if aggregate > 0.20 else "bearish" if aggregate < -0.20 else "neutral"
+    rating = 5 if aggregate >= 1.25 else 4 if aggregate >= 0.35 else 2 if aggregate <= -0.35 else 3
+    summary = _ticker_macro_summary(symbol, drivers, overall_state)
+    source_refreshes = [driver["source_refresh_at"] for driver in drivers if isinstance(driver.get("source_refresh_at"), datetime)]
+    for driver in drivers:
+        driver.pop("source_refresh_at", None)
     return {
         "symbol": symbol,
         "overall": overall,
         "rating": rating,
         "summary": summary,
-        "drivers": driver_payloads,
+        "drivers": drivers,
         "mapped_sector": mapping.label if mapping.mapping_type == "sector" else None,
         "mapped_asset_class": mapping.label if mapping.mapping_type == "asset_class" else None,
         "updated": updated,
         "generated_at": generated_at,
         "source_refresh_at": max(source_refreshes) if source_refreshes else None,
+        "aggregate_score": aggregate,
+        "overall_state": overall_state,
     }
+
+
+def _ticker_macro_factors(mapping: MacroMapping, assets: dict[str, dict[str, Any]], profile: dict[str, Any]) -> list[dict[str, Any]]:
+    configured = {str(item.get("asset_key") or ""): item for item in mapping.drivers}
+    factors: list[dict[str, Any]] = []
+    for spec in _TICKER_FACTOR_SPECS:
+        asset = assets.get(spec["asset_key"])
+        if not asset:
+            continue
+        configured_driver = configured.get(spec["asset_key"], {})
+        effect = str(configured_driver.get("effect") or _default_factor_effect(spec["asset_key"], mapping.key)).lower()
+        relevance = _factor_relevance(spec["asset_key"], mapping.key, effect)
+        bias = _bias_value(asset.get("bias"))
+        # Treasury-futures positioning is first translated into an explicit
+        # yield regime before ticker relevance is applied: bullish Treasury
+        # positioning is a yields-easing read, not a generic "bullish rates"
+        # label. This prevents directionally correct macro facts from being
+        # displayed with the wrong ticker implication.
+        if spec["asset_key"] == "ten_year_treasury" and effect == "inverse_yield":
+            raw_score = _BIAS_SCORES[bias]
+        elif spec["asset_key"] == "ten_year_treasury" and effect == "direct_yield":
+            raw_score = -_BIAS_SCORES[bias]
+        else:
+            raw_score = _mapped_bias_score(bias, effect)
+        impact_score = max(-2, min(2, int(round(raw_score * 2))))
+        impact = _impact_from_score(impact_score)
+        regime_label = _factor_regime_label(spec["asset_key"], _bias_value(asset.get("bias")), _loads_dict(asset.get("payload") if isinstance(asset.get("payload"), str) else None) or asset.get("payload") or {})
+        factors.append(
+            {
+                "factor": spec["factor"],
+                "name": spec["name"],
+                "category": spec["category"],
+                "bias": bias,
+                "regime_label": regime_label,
+                "ticker_impact": impact,
+                "impact_score": impact_score,
+                "confidence": "HIGH" if asset.get("positioning_date") else "MEDIUM",
+                "relevance": relevance,
+                "why_macro": _factor_why_macro(spec["asset_key"], regime_label, asset),
+                "ticker_readthrough": _factor_readthrough(spec["asset_key"], profile, impact),
+                "watch_condition": _factor_watch_condition(spec["asset_key"], regime_label, impact),
+                "source_refresh_at": asset.get("fetched_at"),
+            }
+        )
+    return factors
+
+
+def _default_factor_effect(asset_key: str, sector: str) -> str:
+    normalized = (sector or "").lower()
+    if asset_key == "ten_year_treasury" and normalized in {"financials", "financial services"}:
+        return "direct"
+    if asset_key == "ten_year_treasury" and normalized in {"energy", "utilities"}:
+        return "neutral"
+    if asset_key == "us_dollar" and normalized in {"energy", "basic materials", "materials", "industrials"}:
+        return "inverse"
+    return "direct" if asset_key == "nasdaq_futures" else "inverse"
+
+
+def _factor_relevance(asset_key: str, sector: str, effect: str) -> str:
+    if effect == "neutral":
+        return "LOW"
+    normalized = (sector or "").lower()
+    if normalized in {"technology", "communication services", "financials", "financial services", "real estate", "energy", "basic materials", "materials"}:
+        return "HIGH" if asset_key != "nasdaq_futures" or normalized in {"technology", "communication services"} else "MEDIUM"
+    return "MEDIUM"
+
+
+def _factor_regime_label(asset_key: str, bias: str, payload: dict[str, Any]) -> str:
+    trend = str(payload.get("trend") or "").lower()
+    if asset_key == "nasdaq_futures":
+        return "Risk-on / Positive positioning" if bias == "bullish" else "Risk-off / Defensive positioning" if bias == "bearish" else "Balanced risk appetite"
+    if asset_key == "us_dollar":
+        return "Dollar strengthening" if bias == "bullish" else "Dollar weakening" if bias == "bearish" else "Dollar range-bound"
+    if asset_key == "ten_year_treasury":
+        if bias == "bullish":
+            return "Yields easing"
+        if bias == "bearish":
+            return "Yields rising"
+        return "Yields stable"
+    return "Positioning improving" if trend == "increasing" else "Positioning softening" if trend == "decreasing" else "Positioning balanced"
+
+
+def _impact_from_score(score: int) -> str:
+    return next((name for name, value in MACRO_IMPACT_SCORES.items() if value == score), "NEUTRAL")
+
+
+def _factor_why_macro(asset_key: str, regime_label: str, asset: dict[str, Any]) -> str:
+    report_date = asset.get("positioning_date")
+    date_text = report_date.isoformat() if isinstance(report_date, date) else "the latest available report"
+    if asset_key == "nasdaq_futures":
+        return f"The latest futures positioning report, dated {date_text}, points to {regime_label.lower()}."
+    if asset_key == "us_dollar":
+        return f"The latest dollar futures positioning report, dated {date_text}, is consistent with a {regime_label.lower()} regime."
+    return f"The latest Treasury futures positioning report, dated {date_text}, maps to a {regime_label.lower()} read."
+
+
+def _factor_readthrough(asset_key: str, profile: dict[str, Any], impact: str) -> str:
+    company = str(profile.get("company_name") or "This company")
+    sector = str(profile.get("sector") or "the company’s sector").lower()
+    if asset_key == "nasdaq_futures":
+        return f"{company} is evaluated against {sector} risk appetite, so this backdrop can influence valuation multiples and capital flows into comparable equities."
+    if asset_key == "us_dollar":
+        return f"For {company}, dollar conditions can affect overseas demand, translated results, and investor appetite for global risk assets; the expected effect is {impact.lower().replace('_', ' ')}."
+    return f"Rate direction affects the discount rate investors apply to {company}'s future cash flows; the expected effect is {impact.lower().replace('_', ' ')}."
+
+
+def _factor_watch_condition(asset_key: str, regime_label: str, impact: str) -> str:
+    if asset_key == "nasdaq_futures":
+        return "Sustained Nasdaq risk-on tone" if impact.endswith("TAILWIND") else "A reversal in Nasdaq risk appetite"
+    if asset_key == "us_dollar":
+        return "A DXY reversal would remove a headwind" if impact.endswith("HEADWIND") else "Whether dollar conditions remain supportive"
+    return "Further easing in 10Y yields" if impact.endswith("TAILWIND") else "Whether 10Y yields keep rising"
+
+
+def aggregate_macro_factor_scores(factors: list[dict[str, Any]]) -> float:
+    weighted = [(float(factor.get("impact_score") or 0), MACRO_RELEVANCE_WEIGHTS.get(str(factor.get("relevance") or "MEDIUM"), 0.6)) for factor in factors]
+    denominator = sum(weight for _score, weight in weighted)
+    return round(sum(score * weight for score, weight in weighted) / denominator, 2) if denominator else 0.0
+
+
+def macro_overall_state(score: float) -> str:
+    if score >= 1.25:
+        return "STRONGLY SUPPORTIVE"
+    if score >= 0.35:
+        return "MODERATELY SUPPORTIVE"
+    if score <= -1.25:
+        return "STRONGLY CHALLENGING"
+    if score <= -0.35:
+        return "MODERATELY CHALLENGING"
+    return "NEUTRAL"
+
+
+def _ticker_macro_summary(symbol: str, factors: list[dict[str, Any]], overall_state: str) -> str:
+    supportive = [factor["name"] for factor in factors if int(factor.get("impact_score") or 0) > 0]
+    challenging = [factor["name"] for factor in factors if int(factor.get("impact_score") or 0) < 0]
+    if supportive and challenging:
+        return f"Current macro conditions are a mixed but {overall_state.lower()} backdrop for {symbol}. {_join_names(supportive[:2])} support the setup, partly offset by {_join_names(challenging[:1])}."
+    if supportive:
+        return f"Current macro conditions are a {overall_state.lower()} backdrop for {symbol}, led by {_join_names(supportive[:2])}."
+    if challenging:
+        return f"Current macro conditions are a {overall_state.lower()} backdrop for {symbol}, with pressure from {_join_names(challenging[:2])}."
+    return f"Current macro conditions are broadly neutral for {symbol}."
+
+
+def _apply_cached_ticker_interpretation(
+    db: Session,
+    *,
+    symbol: str,
+    profile: dict[str, Any],
+    interpreted: dict[str, Any],
+    previous: MacroPositioningCache | None,
+) -> dict[str, Any]:
+    """Enrich a deterministic factor assessment in the background refresh only.
+
+    The stored market facts, numeric scores, relevance and overall state never
+    come from the model.  On a missing key, failed request, or stale cached
+    interpretation the deterministic copy remains immediately renderable.
+    """
+    factors = interpreted["drivers"]
+    fingerprint = _ticker_interpretation_fingerprint(symbol, profile, factors)
+    previous_drivers = _loads_list(previous.drivers_json) if previous else []
+    if previous_drivers and all(item.get("interpretation_fingerprint") == fingerprint for item in previous_drivers if isinstance(item, dict)):
+        by_factor = {item.get("factor"): item for item in previous_drivers if isinstance(item, dict)}
+        if all(isinstance(by_factor.get(item.get("factor")), dict) and by_factor[item.get("factor")].get("ticker_readthrough") for item in factors):
+            for factor in factors:
+                old = by_factor.get(factor.get("factor"), {})
+                for key in ("why_macro", "ticker_readthrough", "watch_condition", "confidence"):
+                    if isinstance(old.get(key), str) and old[key].strip():
+                        factor[key] = old[key]
+                factor["interpretation_fingerprint"] = fingerprint
+                factor["interpretation_source"] = old.get("interpretation_source") or "cached"
+            if previous and previous.summary:
+                interpreted["summary"] = previous.summary
+            return interpreted
+
+    generated = _generate_ticker_interpretation(db, symbol=symbol, profile=profile, factors=factors)
+    if generated:
+        by_factor = {item["factor"]: item for item in generated["factors"]}
+        for factor in factors:
+            model_factor = by_factor.get(factor["factor"])
+            if model_factor:
+                # Validate categorical fields, but never allow the model to
+                # alter the deterministic impact/relevance calculation.
+                factor["why_macro"] = model_factor["why_macro"]
+                factor["ticker_readthrough"] = model_factor["ticker_readthrough"]
+                factor["watch_condition"] = model_factor["watch_condition"]
+                factor["confidence"] = model_factor["confidence"]
+                factor["interpretation_source"] = "openai"
+        if generated.get("summary"):
+            interpreted["summary"] = generated["summary"]
+    for factor in factors:
+        factor["interpretation_fingerprint"] = fingerprint
+        factor.setdefault("interpretation_source", "derived")
+    return interpreted
+
+
+def _ticker_interpretation_fingerprint(symbol: str, profile: dict[str, Any], factors: list[dict[str, Any]]) -> str:
+    material = {
+        "symbol": symbol,
+        "profile": {key: profile.get(key) for key in ("company_name", "sector", "industry", "country", "price_to_sales")},
+        "factors": [{key: factor.get(key) for key in ("factor", "bias", "regime_label", "impact_score", "relevance")} for factor in factors],
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _ticker_interpretation_schema() -> dict[str, Any]:
+    item = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "factor": {"type": "string", "enum": [spec["factor"] for spec in _TICKER_FACTOR_SPECS]},
+            "confidence": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+            "why_macro": {"type": "string"},
+            "ticker_readthrough": {"type": "string"},
+            "watch_condition": {"type": "string"},
+        },
+        "required": ["factor", "confidence", "why_macro", "ticker_readthrough", "watch_condition"],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"summary": {"type": "string"}, "factors": {"type": "array", "items": item, "minItems": 1, "maxItems": 3}},
+        "required": ["summary", "factors"],
+    }
+
+
+def _generate_ticker_interpretation(db: Session, *, symbol: str, profile: dict[str, Any], factors: list[dict[str, Any]]) -> dict[str, Any] | None:
+    from app.services.ai_marketing import OPENAI_API_KEY, _record_openai_usage_cost, resolved_setting_value
+
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        return None
+    model = os.getenv(MACRO_TICKER_INTERPRETATION_MODEL, "").strip() or DEFAULT_MACRO_TICKER_INTERPRETATION_MODEL
+    factual_factors = [{key: factor.get(key) for key in ("factor", "name", "category", "bias", "regime_label", "impact_score", "relevance")} for factor in factors]
+    prompt = "\n".join(
+        [
+            "Produce concise ticker-specific macro interpretation from the supplied facts only.",
+            "Do not invent catalysts or claim causation from a price move. Where no cause is supplied, describe the observed regime only.",
+            "Do not alter or opine on impact_score or relevance; they are deterministic Walnut inputs.",
+            "Return a 1-2 sentence summary plus one concise explanation, read-through and watch condition per supplied factor.",
+            "Company context:", json.dumps({key: profile.get(key) for key in ("company_name", "sector", "industry", "country", "price_to_sales")}, default=str),
+            "Factor facts:", json.dumps(factual_factors, default=str),
+        ]
+    )
+    request_payload = {
+        "model": model,
+        "input": prompt,
+        "store": False,
+        "reasoning": {"effort": "none"},
+        "text": {"format": {"type": "json_schema", "name": "ticker_macro_interpretation", "schema": _ticker_interpretation_schema(), "strict": True}},
+        "max_output_tokens": 700,
+    }
+    try:
+        response = audited_openai_request(
+            feature="ticker_macro_positioning", operation="ticker_macro_interpretation", method="POST", endpoint=OPENAI_RESPONSES_ENDPOINT, payload=request_payload, model=model,
+            send=lambda: requests.post(OPENAI_RESPONSES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=25),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"OpenAI ticker macro request failed with status {response.status_code}.")
+        data = response.json()
+        _record_openai_usage_cost(db, model=model, data=data, feature="ticker_macro_positioning", commit=False)
+        return validate_ticker_macro_interpretation(json.loads(_extract_openai_response_text(data)))
+    except Exception:
+        logger.exception("ticker_macro_interpretation_failed symbol=%s", symbol)
+        db.rollback()
+        return None
+
+
+def validate_ticker_macro_interpretation(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"summary", "factors"} or not isinstance(value.get("summary"), str) or not isinstance(value.get("factors"), list):
+        raise ValueError("Invalid ticker macro structured output.")
+    summary = _clean_macro_ai_summary(value["summary"])
+    if not summary:
+        raise ValueError("Ticker macro summary was empty.")
+    seen: set[str] = set()
+    normalized: list[dict[str, str]] = []
+    allowed = {spec["factor"] for spec in _TICKER_FACTOR_SPECS}
+    for item in value["factors"]:
+        if not isinstance(item, dict) or set(item) != {"factor", "confidence", "why_macro", "ticker_readthrough", "watch_condition"} or item.get("factor") not in allowed or item["factor"] in seen:
+            raise ValueError("Ticker macro factor output was invalid.")
+        fields = {key: " ".join(str(item.get(key) or "").split()) for key in ("why_macro", "ticker_readthrough", "watch_condition")}
+        if not all(fields.values()) or any(len(text) > 520 for text in fields.values()):
+            raise ValueError("Ticker macro explanatory output was invalid.")
+        confidence = str(item.get("confidence") or "").upper()
+        if confidence not in {"LOW", "MEDIUM", "HIGH"}:
+            raise ValueError("Ticker macro confidence output was invalid.")
+        seen.add(item["factor"])
+        normalized.append({"factor": item["factor"], "confidence": confidence, **fields})
+    if not normalized:
+        raise ValueError("Ticker macro output had no factors.")
+    return {"summary": summary, "factors": normalized}
 
 
 def _mapped_bias_score(bias: str, effect: str) -> float:

@@ -4974,6 +4974,16 @@ export type TickerDecisionLayer = {
 export type MacroPositioningDriver = {
   name: string;
   bias: "bullish" | "bearish" | "neutral" | string;
+  factor?: "NASDAQ_100_FUTURES" | "US_DOLLAR" | "US_10Y_YIELD" | string;
+  category?: string;
+  regime_label?: string;
+  ticker_impact?: "STRONG_TAILWIND" | "TAILWIND" | "NEUTRAL" | "HEADWIND" | "STRONG_HEADWIND" | string;
+  impact_score?: -2 | -1 | 0 | 1 | 2 | number;
+  confidence?: "LOW" | "MEDIUM" | "HIGH" | string;
+  relevance?: "LOW" | "MEDIUM" | "HIGH" | string;
+  why_macro?: string;
+  ticker_readthrough?: string;
+  watch_condition?: string;
 };
 
 export type MacroPositioningResponse = {
@@ -4989,6 +4999,10 @@ export type MacroPositioningResponse = {
   required_plan?: "pro" | string | null;
   title?: string | null;
   subtitle?: string | null;
+  overall_state?: "STRONGLY SUPPORTIVE" | "MODERATELY SUPPORTIVE" | "NEUTRAL" | "MODERATELY CHALLENGING" | "STRONGLY CHALLENGING" | string;
+  aggregate_score?: number;
+  counts?: { tailwinds: number; headwinds: number; neutral: number };
+  watch_items?: string[];
 };
 
 export type InsightsMacroPositioningMarket = {

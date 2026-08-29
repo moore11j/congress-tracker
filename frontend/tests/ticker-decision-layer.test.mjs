@@ -51,3 +51,14 @@ test("macro positioning is a real lazy ticker tab", () => {
   assert.match(card, /getTickerMacroPositioning\(symbol/);
   assert.match(card, /activeTab === "macro"/);
 });
+
+test("macro positioning presents explicit regimes in a compact responsive factor layout", () => {
+  assert.match(card, /How the current market environment affects \{symbol\}/);
+  assert.match(card, /What it means for \{symbol\}/);
+  assert.match(card, /What to watch next/);
+  assert.match(card, /lg:grid-cols-2/);
+  assert.match(card, /lg:col-span-2/);
+  assert.match(api, /regime_label\?: string/);
+  assert.match(api, /ticker_impact\?:/);
+  assert.match(api, /overall_state\?:/);
+});

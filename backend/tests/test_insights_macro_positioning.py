@@ -5,6 +5,7 @@ import io
 import json
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
@@ -15,11 +16,17 @@ from app.main import insights_macro_positioning, macro_positioning_feed, ticker_
 from app.models import MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent
 from app.services.macro_positioning import (
     _CFTC_MARKET_SPECS,
+    MacroMapping,
+    MACRO_RELEVANCE_WEIGHTS,
+    _ticker_macro_factors,
+    aggregate_macro_factor_scores,
     get_insights_macro_positioning,
     get_macro_positioning_feed,
     ingest_macro_positioning_assets,
+    macro_overall_state,
     macro_positioning_cache_payload,
     refresh_macro_positioning_feed_events,
+    validate_ticker_macro_interpretation,
 )
 
 FAKE_CFTC_REPORT_DATE = datetime.now(timezone.utc).date() - timedelta(days=3)
@@ -113,6 +120,51 @@ def _install_fake_cftc(monkeypatch) -> None:
         return _FakeResponse(texts["financial"] if "FinFutWk" in url else texts["disaggregated"])
 
     monkeypatch.setattr("app.services.macro_positioning.requests.get", fake_get)
+
+
+def test_ticker_macro_aggregate_uses_relevance_weights_and_explicit_states():
+    score = aggregate_macro_factor_scores(
+        [
+            {"impact_score": 2, "relevance": "HIGH"},
+            {"impact_score": -2, "relevance": "LOW"},
+        ]
+    )
+
+    assert MACRO_RELEVANCE_WEIGHTS["HIGH"] == 1.0
+    assert score == 1.2
+    assert macro_overall_state(score) == "MODERATELY SUPPORTIVE"
+
+
+def test_ticker_macro_structured_output_validation_rejects_invalid_impact_like_payloads():
+    valid = {
+        "summary": "Rates are a mixed but usable backdrop for the ticker.",
+        "factors": [{"factor": "US_10Y_YIELD", "confidence": "HIGH", "why_macro": "The observed regime is yields easing.", "ticker_readthrough": "Lower discount rates can support long-duration equities.", "watch_condition": "Further easing in 10Y yields."}],
+    }
+    assert validate_ticker_macro_interpretation(valid)["factors"][0]["factor"] == "US_10Y_YIELD"
+
+    invalid = {"summary": "x", "factors": [{"factor": "US_10Y_YIELD", "confidence": "HIGH", "why_macro": "x", "ticker_readthrough": "x", "watch_condition": "x", "impact_score": 2}]}
+    with pytest.raises(ValueError):
+        validate_ticker_macro_interpretation(invalid)
+
+
+def test_treasury_yield_regime_is_explicit_and_not_a_generic_bullish_label():
+    mapping = MacroMapping(
+        key="technology",
+        label="Technology",
+        thesis_label="growth equities",
+        headline="",
+        mapping_type="sector",
+        drivers=[{"asset_key": "ten_year_treasury", "effect": "inverse_yield"}],
+    )
+    factors = _ticker_macro_factors(
+        mapping,
+        {"ten_year_treasury": {"bias": "bullish", "positioning_date": date(2026, 8, 28), "fetched_at": datetime.now(timezone.utc), "payload": {}}},
+        {"company_name": "Example Growth", "sector": "Technology"},
+    )
+
+    treasury = next(item for item in factors if item["factor"] == "US_10Y_YIELD")
+    assert treasury["regime_label"] == "Yields easing"
+    assert treasury["ticker_impact"] == "STRONG_TAILWIND"
 
 
 def test_insights_macro_positioning_pro_receives_full_payload(monkeypatch):
