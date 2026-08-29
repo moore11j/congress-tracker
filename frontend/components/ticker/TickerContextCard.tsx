@@ -1134,14 +1134,14 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
       <div className="relative p-4 xl:flex-1 xl:min-h-0">
         <div
           className={`${
-            activeTab === "overview" ? "relative" : "invisible pointer-events-none select-none"
+            activeTab === "overview" ? "relative" : "hidden xl:block xl:invisible xl:pointer-events-none xl:select-none"
           } xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}
           aria-hidden={activeTab !== "overview"}
         >
           {overview}
         </div>
         {activeTab === "news" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">News</p>
@@ -1180,7 +1180,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "financials" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Financials</p>
@@ -1196,7 +1196,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "valuation" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Valuation</p>
@@ -1212,7 +1212,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "consensus" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Analyst Consensus</p>
@@ -1232,7 +1232,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "research" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Related Research</p>
@@ -1257,7 +1257,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "ownership" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Ownership</p>
@@ -1275,7 +1275,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "macro" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Macro Positioning</p>
@@ -1337,7 +1337,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           </div>
         ) : null}
         {activeTab === "events" ? (
-          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>

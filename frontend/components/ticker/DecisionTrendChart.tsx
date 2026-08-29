@@ -50,6 +50,15 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   useEffect(() => { const animationFrame = requestAnimationFrame(() => setRevealed(true)); return () => cancelAnimationFrame(animationFrame); }, []);
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
   useEffect(() => {
+    if (activeIndex === null) return;
+    const dismissOnOutsideInteraction = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !svgRef.current?.contains(target)) setActiveIndex(null);
+    };
+    document.addEventListener("pointerdown", dismissOnOutsideInteraction, true);
+    return () => document.removeEventListener("pointerdown", dismissOnOutsideInteraction, true);
+  }, [activeIndex]);
+  useEffect(() => {
     if (!chart || activeIndex === null) {
       setTooltipPosition(null);
       return;
@@ -78,10 +87,13 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   const linePoints = chart.rendered.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
   const areaPoints = `${linePoints} ${chart.rendered.at(-1)?.x ?? width - padding.right},${height - padding.bottom} ${chart.rendered[0]?.x ?? padding.left},${height - padding.bottom}`;
   const theme = chartTheme(direction);
-  const setNearestIndex = (event: PointerEvent<SVGSVGElement>) => {
+  const nearestIndexFor = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerX = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * width;
-    const nearestIndex = chart.rendered.reduce((nearest, point, index) => Math.abs(point.x - pointerX) < Math.abs(chart.rendered[nearest].x - pointerX) ? index : nearest, 0);
+    return chart.rendered.reduce((nearest, point, index) => Math.abs(point.x - pointerX) < Math.abs(chart.rendered[nearest].x - pointerX) ? index : nearest, 0);
+  };
+  const setNearestIndex = (event: PointerEvent<SVGSVGElement>) => {
+    const nearestIndex = nearestIndexFor(event);
     if (frame.current !== null) cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => { setActiveIndex(nearestIndex); frame.current = null; });
   };
@@ -93,7 +105,16 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   };
 
   return <div className="relative z-20 h-24 w-full overflow-visible">
-    <svg ref={svgRef} className="h-full w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores." tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => { if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId); setNearestIndex(event); }} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
+    <svg ref={svgRef} className="h-full w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores." tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => {
+      const nearestIndex = nearestIndexFor(event);
+      if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId);
+      if (event.pointerType !== "mouse" && activeIndex === nearestIndex) {
+        setActiveIndex(null);
+        return;
+      }
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = requestAnimationFrame(() => { setActiveIndex(nearestIndex); frame.current = null; });
+    }} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
       <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop stopColor={theme.areaTop} /><stop offset="1" stopColor={theme.areaBottom} /></linearGradient><clipPath id={`${gradientId}-clip`}><rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} /></clipPath></defs>
       <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="stroke-white/20" />
       {chart.yTicks.map((tick) => { const y = chart.yFor(tick); return <g key={tick}><line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="stroke-white/10" strokeDasharray="2 4" /><text x={padding.left - 6} y={y + 3} textAnchor="end" className="fill-slate-500 tabular-nums" fontSize="10">{tick}</text></g>; })}

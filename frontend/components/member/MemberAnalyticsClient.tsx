@@ -1050,7 +1050,7 @@ export function MemberAnalyticsClient({
                     <th className="pb-3 font-medium">Type</th>
                     <th className="pb-3 font-medium">Ticker</th>
                     <th className="pb-3 font-medium">Est. range</th>
-                    <th className="pb-3 font-medium">% Change Since</th>
+                    <th className="pb-3 font-medium">% Delta</th>
                     <th className="pb-3 font-medium">Signal</th>
                   </tr>
                 </thead>
