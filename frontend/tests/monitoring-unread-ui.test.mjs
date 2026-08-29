@@ -48,6 +48,9 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.match(monitoringSource, /window\.dispatchEvent\(new CustomEvent\("ct:monitoring-unread-updated"/);
   assert.match(monitoringSource, /listWatchlists/);
   assert.match(monitoringSource, /void refreshInbox\(\);\s*void refreshWatchlists\(\);/);
+  assert.match(monitoringSource, /Mark all new read/);
+  assert.match(monitoringSource, /markMonitoringSourceRead/);
+  assert.match(monitoringSource, /refresh: true/);
   assert.match(monitoringSource, /inboxSourceCounts/);
   assert.match(monitoringSource, /additionalInboxSources/);
   assert.match(monitoringSource, /sourceTypeLabel/);
@@ -70,6 +73,7 @@ test("api client includes read and unread monitoring mutations", () => {
   assert.match(apiSource, /\/api\/monitoring\/sources\/\$\{encodeURIComponent\(sourceId\)\}\/mark-unread/);
   assert.match(apiSource, /\/api\/monitoring\/alerts\/\$\{encodeURIComponent\(String\(alertId\)\)\}\/read/);
   assert.match(apiSource, /\/api\/monitoring\/alerts\/\$\{encodeURIComponent\(String\(alertId\)\)\}\/unread/);
+  assert.match(apiSource, /options\?\.refresh \? \{ refresh: "true" \} : undefined/);
 });
 
 test("watchlist surfaces render canonical unread count fields", () => {

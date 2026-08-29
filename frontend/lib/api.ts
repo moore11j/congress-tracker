@@ -8491,8 +8491,8 @@ export async function listSavedScreenEvents(
   });
 }
 
-export async function getMonitoringInbox(authToken?: string, options?: { source?: string }): Promise<MonitoringInboxResponse> {
-  return fetchJson<MonitoringInboxResponse>(buildApiUrl("/api/monitoring/inbox"), {
+export async function getMonitoringInbox(authToken?: string, options?: { source?: string; refresh?: boolean }): Promise<MonitoringInboxResponse> {
+  return fetchJson<MonitoringInboxResponse>(buildApiUrl("/api/monitoring/inbox", options?.refresh ? { refresh: "true" } : undefined), {
     headers: authHeaders(authToken),
     cache: "no-store",
     next: { revalidate: 0 },

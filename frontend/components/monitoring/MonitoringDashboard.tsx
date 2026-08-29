@@ -17,6 +17,7 @@ import {
   dismissMonitoringItems,
   markMonitoringItemsRead,
   markMonitoringItemsUnread,
+  markMonitoringSourceRead,
   listSavedScreenEvents,
   stopMonitoringSource,
   getWatchlistEvents,
@@ -419,6 +420,8 @@ function MonitoredSourceCard({
   countClassName,
   alertHref,
   onClick,
+  onClearNew,
+  clearNewDisabled = false,
   onRemove,
   removeDisabled = false,
 }: {
@@ -429,6 +432,8 @@ function MonitoredSourceCard({
   countClassName: string;
   alertHref?: string;
   onClick?: () => void;
+  onClearNew?: () => void;
+  clearNewDisabled?: boolean;
   onRemove?: () => void;
   removeDisabled?: boolean;
 }) {
@@ -456,6 +461,17 @@ function MonitoredSourceCard({
           <Link href={alertHref} prefetch={false} className="text-sm font-semibold text-emerald-200 transition hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40">
             Manage alerts
           </Link>
+        ) : null}
+        {onClearNew ? (
+          <button
+            type="button"
+            onClick={onClearNew}
+            disabled={clearNewDisabled}
+            className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold text-slate-300 transition hover:border-emerald-300/35 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label={`Mark all new updates in ${title} as read`}
+          >
+            Mark all new read
+          </button>
         ) : null}
         {onRemove ? (
           <button
@@ -702,7 +718,9 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const refreshInbox = async () => {
     setInboxStatus(null);
     try {
-      const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox" });
+      // Materialize checkpoint-based watchlist updates before rendering the
+      // inbox, so a source's “new” badge always has matching cards here.
+      const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox", refresh: true });
       setInbox(nextInbox);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
     } catch (error) {
@@ -776,6 +794,30 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     } catch {
       void refreshInbox();
       setReadActionMessage("Unable to delete the selected updates.");
+    } finally {
+      setPendingReadAction((current) => (current === actionKey ? null : current));
+    }
+  };
+
+  const markSourceNewRead = async (source: MonitoredSourceRow) => {
+    if (source.sourceType !== "watchlist" || source.count <= 0) return;
+    const actionKey = `source-read:${source.key}`;
+    setPendingReadAction(actionKey);
+    setReadActionMessage(null);
+    try {
+      const response = await markMonitoringSourceRead(source.sourceId, "watchlist");
+      applyMutationSuccess(response);
+      setSelectedItemIds((current) =>
+        current.filter((id) => {
+          const item = inboxItems.find((candidate) => candidate.id === id);
+          return !item || normalizedMonitoringSourceType(item.source_type) !== "watchlist" || String(item.source_id) !== source.sourceId;
+        }),
+      );
+      setReadActionMessage(`All new updates in ${source.title} are marked read.`);
+      void refreshInbox();
+      void refreshWatchlists();
+    } catch {
+      setReadActionMessage(`Unable to mark new updates in ${source.title} as read.`);
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
     }
@@ -1015,6 +1057,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       countLabel={source.countLabel}
                       countClassName={source.countClassName}
                       alertHref={source.alertHref}
+                      onClearNew={source.sourceType === "watchlist" && source.count > 0 ? () => void markSourceNewRead(source) : undefined}
+                      clearNewDisabled={Boolean(pendingReadAction)}
                       onRemove={() => setPendingRemoveSource(source)}
                       removeDisabled={Boolean(pendingRemoveKey)}
                     />
