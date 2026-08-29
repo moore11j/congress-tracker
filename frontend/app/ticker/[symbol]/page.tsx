@@ -21,7 +21,7 @@ import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActi
 import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignalsSourceCardClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { ResearchActions } from "@/components/research/ResearchActions";
-import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
+import { TickerFollowButton } from "@/components/ticker/TickerFollowButton";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { entitlementsFromTierHint, hasEntitlement, isAdminEntitlement, type Entitlements } from "@/lib/entitlements";
 import {
@@ -4410,7 +4410,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
               }}
             />
           ) : null}
-          <AddTickerToWatchlist symbol={normalizedSymbol} />
+          <TickerFollowButton key={normalizedSymbol} symbol={normalizedSymbol} />
           <Link href={`/compare/${encodeURIComponent(normalizedSymbol)}/_`} className={ghostButtonClassName}>Compare</Link>
           <ShareLinks canonicalUrl={canonicalTickerUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>

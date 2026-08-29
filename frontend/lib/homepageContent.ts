@@ -6,9 +6,9 @@
 export const homepageContent = {
   hero: {
     eyebrow: "For self-directed stock investors",
-    title: "Alternative-data stock research in one workflow.",
+    title: "Stock Research & Market Intelligence in One Platform.",
     description:
-      "Research stocks across fundamentals, technicals, Congress trades, insider filings, institutional holdings, government contracts, analyst expectations, and macro context. See where the evidence agrees or conflicts before you decide what to watch next.",
+      "Research stocks across fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst expectations, and macro data — all in one place.",
   },
   metadata: {
     title: "Alternative Data Stock Research | Walnut Markets",

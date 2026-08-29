@@ -218,6 +218,36 @@ function FilterRow({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap items-end justify-start gap-3">{children}</div>;
 }
 
+function SavedFeedViews({ mode }: { mode: FeedMode }) {
+  return (
+    <div className="min-w-[220px] max-w-full sm:ml-auto">
+      <SavedViewsBar
+        surface="feed"
+        restoreOnLoad={true}
+        defaultParams={{ mode }}
+        paramKeys={[
+          "mode",
+          "symbol",
+          "recent_days",
+          "member",
+          "chamber",
+          "party",
+          "trade_type",
+          "role",
+          "department",
+          "sort_by",
+          "sort_dir",
+          "ownership",
+          "whale",
+          "limit",
+          "page_size",
+        ]}
+        inline={true}
+      />
+    </div>
+  );
+}
+
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
   const normalizedParams = {
     ...params,
@@ -241,34 +271,6 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           Collapse
         </span>
       </summary>
-
-      <div className="mt-4 flex flex-wrap items-start justify-between gap-4 border-t border-slate-800 pt-4">
-        <div className="min-w-[280px] max-w-full rounded-2xl bg-slate-900/35 p-2 sm:ml-auto">
-          <SavedViewsBar
-            surface="feed"
-            restoreOnLoad={true}
-            defaultParams={{ mode }}
-            paramKeys={[
-              "mode",
-              "symbol",
-              "recent_days",
-              "member",
-              "chamber",
-              "party",
-              "trade_type",
-              "role",
-              "department",
-              "sort_by",
-              "sort_dir",
-              "ownership",
-              "whale",
-              "limit",
-              "page_size",
-            ]}
-            inline={true}
-          />
-        </div>
-      </div>
 
       <div className="mt-4 flex flex-wrap gap-1 border-t border-slate-800 pt-3">
         {feedModeOptions.map(([value, label]) => {
@@ -300,6 +302,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />
             <RecentDaysField value={params.recent_days} />
+            <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
 
@@ -313,6 +316,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />
             <RecentDaysField value={params.recent_days} />
+            <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
 
@@ -325,6 +329,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />
             <RecentDaysField value={params.recent_days} />
+            <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
 
@@ -335,6 +340,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <TradeTypeField value={params.trade_type} />
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />
+            <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
 
@@ -345,6 +351,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <TradeTypeField value={params.trade_type} />
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />
+            <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
 

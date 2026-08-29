@@ -16,6 +16,8 @@ type GoogleAnalyticsOptions = {
   sendInitialPageView?: boolean;
 };
 
+type GoogleAnalyticsEventParameters = Record<string, string | number | boolean | null | undefined>;
+
 function isGoogleLinkerParam(key: string): boolean {
   return key === "_gl" || key === "_ga" || key.startsWith("_ga_");
 }
@@ -87,5 +89,16 @@ export function recordGoogleAnalyticsPageView(path: string, title: string | null
     page_path: path,
     page_title: title || undefined,
   });
+  return true;
+}
+
+export function recordGoogleAnalyticsEvent(eventName: string, parameters: GoogleAnalyticsEventParameters = {}): boolean {
+  if (!ensureGoogleAnalytics()) return false;
+  const gtag = (window as WindowWithGoogleAnalytics).gtag;
+  if (!gtag || !eventName.trim()) return false;
+  const cleanParameters = Object.fromEntries(
+    Object.entries(parameters).filter(([, value]) => value !== null && value !== undefined),
+  );
+  gtag("event", eventName, cleanParameters);
   return true;
 }

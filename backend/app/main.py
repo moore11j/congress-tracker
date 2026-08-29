@@ -3769,6 +3769,10 @@ class WatchlistPayload(BaseModel):
     name: str
 
 
+class FollowTickerPayload(BaseModel):
+    symbol: str
+
+
 WATCHLIST_TARGET_TYPES = {"ticker", "member", "insider", "department", "institution"}
 
 
@@ -13536,6 +13540,122 @@ def create_watchlist(
         db.rollback()
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
     return {"id": w.id, "name": w.name, "symbols": [], "targets": []}
+
+
+def _next_default_watchlist_name(db: Session) -> str:
+    # Watchlist names are currently globally unique. Keep the existing numbered
+    # default naming convention while avoiding a collision with another account.
+    used_numbers: set[int] = set()
+    rows = db.execute(select(Watchlist.name).where(Watchlist.name.ilike("watchlist %"))).scalars().all()
+    for value in rows:
+        match = re.fullmatch(r"watchlist\s+(\d+)", (value or "").strip(), flags=re.IGNORECASE)
+        if match:
+            used_numbers.add(int(match.group(1)))
+    number = 1
+    while number in used_numbers:
+        number += 1
+    return f"Watchlist {number}"
+
+
+@app.post("/api/watchlists/follow")
+def follow_ticker(payload: FollowTickerPayload, request: Request, db: Session = Depends(get_db)):
+    """Follow a ticker through the normal watchlist membership and alert pipeline."""
+    user = _require_account(request, db)
+    symbol = normalize_symbol(payload.symbol)
+    if not symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    security = _resolve_watchlist_security(db, symbol)
+
+    existing = db.execute(
+        select(Watchlist)
+        .join(WatchlistItem, WatchlistItem.watchlist_id == Watchlist.id)
+        .where(Watchlist.owner_user_id == user.id)
+        .where(WatchlistItem.target_type == "ticker")
+        .where(WatchlistItem.security_id == security.id)
+        .order_by(Watchlist.name.asc(), Watchlist.id.asc())
+    ).scalars().first()
+    if existing is not None:
+        return {
+            "status": "exists",
+            "symbol": security.symbol,
+            "watchlist": {"id": existing.id, "name": existing.name, "symbols": [security.symbol], "targets": []},
+        }
+
+    entitlements = current_entitlements(request, db)
+    watchlist = db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc(), Watchlist.id.asc())).scalars().first()
+    if watchlist is None:
+        require_feature(entitlements, "watchlists", message="Watchlist creation is included with Premium.")
+        current_count = int(
+            db.execute(select(func.count()).select_from(Watchlist).where(Watchlist.owner_user_id == user.id)).scalar_one() or 0
+        )
+        enforce_limit(
+            entitlements,
+            "watchlists",
+            current_count=current_count,
+            message="Your current plan has reached its watchlist limit. Upgrade to create more.",
+        )
+        watchlist = Watchlist(name=_next_default_watchlist_name(db), owner_user_id=user.id)
+        db.add(watchlist)
+        try:
+            db.flush()
+            db.add(WatchlistViewState(watchlist_id=watchlist.id, last_seen_at=datetime.now(timezone.utc)))
+            ensure_default_intraday_price_move_alert(db, user_id=user.id, watchlist_id=watchlist.id)
+            daily_enabled = bool(user.watchlist_activity_notifications)
+            intraday_enabled = daily_enabled and bool(user.signals_notifications)
+            delivery_mode = "daily" if daily_enabled else "off"
+            upsert_subscription(
+                db,
+                email=user.email,
+                source_type="watchlist",
+                source_id=str(watchlist.id),
+                source_name=watchlist.name,
+                source_payload={
+                    "daily_digest_enabled": daily_enabled,
+                    "intraday_alerts_enabled": intraday_enabled,
+                    "alert_delivery_modes": {category: delivery_mode for category in WATCHLIST_ALERT_CATEGORIES},
+                },
+                frequency="daily",
+                only_if_new=True,
+                active=daily_enabled,
+                alert_triggers=[],
+                min_smart_score=None,
+                large_trade_amount=None,
+            )
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Unable to create a default watchlist. Please try again.")
+
+    require_feature(entitlements, "watchlist_tickers", message=_watchlist_target_limit_message("ticker"))
+    current_count = int(
+        db.execute(
+            select(func.count())
+            .select_from(WatchlistItem)
+            .where(WatchlistItem.watchlist_id == watchlist.id)
+            .where(WatchlistItem.target_type == "ticker")
+        ).scalar_one()
+        or 0
+    )
+    enforce_limit(
+        entitlements,
+        "watchlist_tickers",
+        current_count=current_count,
+        message=_watchlist_target_limit_message("ticker"),
+    )
+    db.add(
+        WatchlistItem(
+            watchlist_id=watchlist.id,
+            security_id=security.id,
+            target_type="ticker",
+            target_value=security.symbol,
+            target_label=security.symbol,
+        )
+    )
+    db.commit()
+    return {
+        "status": "added",
+        "symbol": security.symbol,
+        "watchlist": {"id": watchlist.id, "name": watchlist.name, "symbols": [security.symbol], "targets": []},
+    }
 
 
 def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:

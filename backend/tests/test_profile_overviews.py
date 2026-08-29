@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.main import _cached_profile_overview_response, _profile_overview_database_cache_get, _profile_overview_persistent_key, _run_profile_overview_prewarm
-from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
+from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
 from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profile_activity, profiles_summary
 
 
@@ -518,6 +518,7 @@ def test_congress_snapshot_most_active_member_uses_trade_count_not_value():
     assert payload["top_members"][0]["name"] == "Nancy Pelosi"
     assert payload["snapshot"]["top_member"]["name"] == "Ro Khanna"
     assert payload["snapshot"]["top_member"]["trades"] == 3
+    assert payload["summary"][3] == {"label": "Active Members", "value": 2, "previous_value": None, "change_pct": None, "format": "number"}
 
 
 def test_insiders_overview_uses_normalized_open_market_transactions():
@@ -777,6 +778,29 @@ def test_institutions_overview_compares_previous_quarter_and_classifies_mega_cap
     assert activity_by_period["Q2 2026"]["portfolio_value"] == 6_500_000
 
 
+def test_recent_institutional_filings_include_notable_position_data():
+    db = _db()
+    filing_date = date(2026, 8, 15)
+    db.add_all(
+        [
+            InstitutionalHolder(cik="0000000001", holder_name="Alpha Capital"),
+            InstitutionalHolder(cik="0000000002", holder_name="Beta Capital"),
+            InstitutionalFiling(id=1, cik="0000000001", filing_date=filing_date, report_year=2026, report_quarter=2, form_type="13F-HR"),
+            InstitutionalFiling(id=2, cik="0000000002", filing_date=filing_date, report_year=2026, report_quarter=2, form_type="13F-HR"),
+            InstitutionalPosition(filing_id=1, cik="0000000001", symbol="AAPL", normalized_symbol="AAPL", issuer_name="Apple Inc.", shares=100, value_usd=1_000_000, report_year=2026, report_quarter=2, filing_date=filing_date),
+            InstitutionalPosition(filing_id=2, cik="0000000002", symbol="MSFT", normalized_symbol="MSFT", issuer_name="Microsoft Corp.", shares=200, value_usd=2_000_000, report_year=2026, report_quarter=2, filing_date=filing_date),
+            InstitutionalPositionChange(cik="0000000001", holder_name="Alpha Capital", symbol="AAPL", normalized_symbol="AAPL", report_year=2026, report_quarter=2, filing_date=filing_date, shares_delta=-10, curr_value_usd=1_000_000, value_delta_usd=-250_000, change_type="decrease"),
+        ]
+    )
+    db.commit()
+
+    payload = institutions_overview(db, include_details=True)
+    filings = {row["cik"]: row for row in payload["recent_filings"]}
+
+    assert filings["0000000001"].items() >= {"symbol": "AAPL", "action": "Reduced position", "value": -250_000, "ticker_href": "/ticker/AAPL"}.items()
+    assert filings["0000000002"].items() >= {"symbol": "MSFT", "action": "Reported position", "value": 2_000_000, "ticker_href": "/ticker/MSFT"}.items()
+
+
 def test_institutions_overview_skips_sparse_newer_period():
     db = _db()
     db.add(TickerMeta(symbol="AAPL", company_name="Apple Inc.", sector="Technology"))
@@ -943,6 +967,10 @@ def test_departments_overview_uses_contract_language():
     assert payload["top_vendors"][0]["symbol"] == "LMT"
     assert payload["top_vendors"][0]["contract_value"] == 2_500_000
     assert payload["largest_recent_awards"][0]["value"] != 9_000_000
+    assert payload["largest_recent_awards"][0]["department_href"] == "/departments/department-of-defense"
+    moving_vendors = {row["symbol"]: row for row in payload["fastest_growing_vendors"]}
+    assert moving_vendors["LMT"].items() >= {"current_value": 2_500_000, "previous_value": 1_000_000, "increase_value": 1_500_000}.items()
+    assert moving_vendors["NVDA"].items() >= {"current_value": 500_000, "previous_value": 0, "increase_value": 500_000}.items()
     sector_labels = {segment["label"] for row in payload["contract_value_over_time"] for segment in row["segments"]}
     assert {"Industrials", "Technology"}.issubset(sector_labels)
     assert "Other" not in sector_labels

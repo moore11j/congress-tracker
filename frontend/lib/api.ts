@@ -8413,6 +8413,14 @@ export async function addToWatchlist(id: number, symbol: string, authToken?: str
   });
 }
 
+export async function followTicker(symbol: string): Promise<{ status: "added" | "exists"; symbol: string; watchlist: WatchlistSummary }> {
+  return fetchJson<{ status: "added" | "exists"; symbol: string; watchlist: WatchlistSummary }>(buildApiUrl("/api/watchlists/follow"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol }),
+  });
+}
+
 export async function addWatchlistTarget(
   id: number,
   target: { type: string; value: string; label?: string },

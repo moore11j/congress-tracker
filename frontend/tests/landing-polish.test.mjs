@@ -117,17 +117,18 @@ test("landing page uses canonical homepage positioning and free-tier messaging",
   assert.match(landingPage, /<SectionEyebrow>\{homepageContent\.hero\.eyebrow\}<\/SectionEyebrow>/);
   assert.match(landingPage, /\{homepageContent\.hero\.title\}/);
   assert.match(landingPage, /\{homepageContent\.hero\.description\}/);
-  assert.match(homepageContent, /Alternative-data stock research in one workflow\./);
-  assert.match(homepageContent, /Research stocks across fundamentals, technicals, Congress trades, insider filings, institutional holdings, government contracts, analyst expectations, and macro context\./);
+  assert.match(homepageContent, /Stock Research & Market Intelligence in One Platform\./);
+  assert.match(homepageContent, /Research stocks across fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst expectations, and macro data — all in one place\./);
   assert.doesNotMatch(homepageContent, /Before You Buy Your Next Stock|Keep Following It/);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
-  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Research a Stock" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
+  assert.match(landingPage, /<LandingSearch appUrl=\{appUrl\} buttonLabel="Research a Stock" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments\.\.\." reassuranceCopy="Free to research · No credit card required" className="mt-8 max-w-3xl" featuredSuggestion=\{heroFeaturedTicker\} \/>/);
   assert.match(landingSearch, /buttonOutside[\s\S]*font-medium text-slate-950/);
   assert.doesNotMatch(landingSearch, /font-bold text-slate-950/);
   assert.match(landingSearch, /Search tickers, companies, Congress members, insiders, institutions, departments\.\.\./);
   assert.match(landingPage, /See How It Works/);
   assert.match(landingPage, /href="#how-it-works"/);
+  assert.match(landingPage, /text-sm font-medium text-slate-400 transition hover:text-slate-200/);
   assert.match(landingPage, /Research the evidence\. Then keep following it\./);
   assert.match(landingPage, /heroEvidenceSources\.map/);
   assert.match(landingPage, /&middot;/);
@@ -152,6 +153,29 @@ test("landing page uses canonical homepage positioning and free-tier messaging",
   assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
   assert.doesNotMatch(landingPage, /Evaluate all the data|Evaluate the full setup before putting capital at risk\./);
   assert.doesNotMatch(landingPage, /Explore Walnut's stock research app/);
+});
+
+test("homepage research activation keeps the existing search flow and emits GA4 funnel events", () => {
+  assert.match(landingSearch, /getEntitlements/);
+  assert.match(landingSearch, /recordGoogleAnalyticsEvent/);
+  for (const eventName of [
+    "homepage_view",
+    "homepage_search_focus",
+    "homepage_search_input",
+    "homepage_ticker_selected",
+    "homepage_research_stock_click",
+  ]) {
+    assert.match(landingSearch, new RegExp(eventName));
+  }
+  assert.match(landingSearch, /source_page_type: "homepage"/);
+  assert.match(landingSearch, /auth_state: entitlements\.user \? "authenticated" : "anonymous"/);
+  assert.match(landingSearch, /isHighConfidenceSearchResult\(bestResult, trimmedQuery\)/);
+  assert.match(landingSearch, /window\.location\.href = absoluteAppHref\(appUrl, routeForSearchResult\(bestResult\)\)/);
+  assert.match(landingSearch, /window\.location\.href = absoluteAppHref\(appUrl, searchResultsHref\(trimmedQuery\)\)/);
+  assert.match(landingPage, /reassuranceCopy="Free to research · No credit card required"/);
+  assert.match(landingSearch, /homepageViewTrackedRef/);
+  assert.match(landingSearch, /searchFocusTrackedRef/);
+  assert.match(landingSearch, /searchInputTrackedRef/);
 });
 
 test("landing metadata reflects research and monitoring positioning", () => {

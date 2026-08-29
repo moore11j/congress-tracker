@@ -728,8 +728,8 @@ export default async function LandingPage() {
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               {homepageContent.hero.description}
             </p>
-            <LandingSearch appUrl={appUrl} buttonLabel="Research a Stock" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
-            <a href="#how-it-works" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+            <LandingSearch appUrl={appUrl} buttonLabel="Research a Stock" buttonOutside placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." reassuranceCopy="Free to research · No credit card required" className="mt-8 max-w-3xl" featuredSuggestion={heroFeaturedTicker} />
+            <a href="#how-it-works" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-slate-400 transition hover:text-slate-200">
               <span>See How It Works</span>
               <span aria-hidden="true">&darr;</span>
             </a>

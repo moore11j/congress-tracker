@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { type SearchSuggestResult } from "@/lib/api";
+import { getEntitlements, type SearchSuggestResult } from "@/lib/api";
+import { defaultEntitlements, type Entitlements } from "@/lib/entitlements";
+import { recordGoogleAnalyticsEvent } from "@/lib/googleAnalytics";
+import { hasPrivacyConsent } from "@/lib/privacyConsent";
 import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
 import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref } from "@/lib/searchNavigation";
 
@@ -12,6 +15,7 @@ type LandingSearchProps = {
   className?: string;
   featuredSuggestion?: SearchSuggestResult;
   placeholder?: string;
+  reassuranceCopy?: string;
 };
 
 const resultLimit = 6;
@@ -40,6 +44,10 @@ function SearchIcon() {
   );
 }
 
+function planForAnalytics(entitlements: Entitlements) {
+  return entitlements.effective_tier ?? entitlements.plan ?? entitlements.tier ?? "free";
+}
+
 export function LandingSearch({
   appUrl,
   buttonLabel = "Search",
@@ -47,10 +55,15 @@ export function LandingSearch({
   className = "",
   featuredSuggestion,
   placeholder = "Search tickers, companies, Congress members, insiders, institutions, departments...",
+  reassuranceCopy,
 }: LandingSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const homepageViewTrackedRef = useRef(false);
+  const searchFocusTrackedRef = useRef(false);
+  const searchInputTrackedRef = useRef(false);
 
   const trimmedQuery = query.trim();
   const suggest = useFastSearchSuggest(trimmedQuery, { limit: resultLimit, minLength: minQueryLength, source: "LandingSearch" });
@@ -93,13 +106,55 @@ export function LandingSearch({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
+  const track = (eventName: string, ticker?: string | null) => {
+    if (!hasPrivacyConsent("analytics")) return;
+    recordGoogleAnalyticsEvent(eventName, {
+      pathname: window.location.pathname,
+      ticker: ticker || undefined,
+      source_page_type: "homepage",
+      auth_state: entitlements.user ? "authenticated" : "anonymous",
+      plan: planForAnalytics(entitlements),
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void getEntitlements()
+      .then((nextEntitlements) => {
+        if (cancelled) return;
+        setEntitlements(nextEntitlements);
+        if (!homepageViewTrackedRef.current) {
+          homepageViewTrackedRef.current = true;
+          if (hasPrivacyConsent("analytics")) {
+            recordGoogleAnalyticsEvent("homepage_view", {
+              pathname: window.location.pathname,
+              source_page_type: "homepage",
+              auth_state: nextEntitlements.user ? "authenticated" : "anonymous",
+              plan: planForAnalytics(nextEntitlements),
+            });
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled && !homepageViewTrackedRef.current) {
+          homepageViewTrackedRef.current = true;
+          track("homepage_view");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    track("homepage_research_stock_click", bestResult?.kind === "ticker" ? bestResult.symbol : null);
     if (!trimmedQuery) {
       window.location.href = appUrl;
       return;
     }
     if (bestResult && isHighConfidenceSearchResult(bestResult, trimmedQuery)) {
+      if (bestResult.kind === "ticker") track("homepage_ticker_selected", bestResult.symbol);
       window.location.href = absoluteAppHref(appUrl, routeForSearchResult(bestResult));
       return;
     }
@@ -117,14 +172,24 @@ export function LandingSearch({
     : "rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15";
 
   return (
-    <div ref={rootRef} className={`relative z-[80] w-full ${className || "mx-auto mt-4 max-w-2xl sm:mt-8"}`}>
+    <div ref={rootRef} className={`relative z-[80] w-full ${reassuranceCopy ? "sm:pb-5 " : ""}${className || "mx-auto mt-4 max-w-2xl sm:mt-8"}`}>
       <form onSubmit={submit} className={formClassName}>
         <label className={inputShellClassName}>
           <SearchIcon />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              if (event.target.value.trim() && !searchInputTrackedRef.current) {
+                searchInputTrackedRef.current = true;
+                track("homepage_search_input");
+              }
+            }}
             onFocus={() => {
+              if (!searchFocusTrackedRef.current) {
+                searchFocusTrackedRef.current = true;
+                track("homepage_search_focus");
+              }
               if (trimmedQuery.length >= minQueryLength) setOpen(true);
             }}
             placeholder={placeholder}
@@ -132,9 +197,12 @@ export function LandingSearch({
             aria-label="Search Walnut Market Terminal"
           />
         </label>
-        <button type="submit" className={buttonClassName}>
-          {buttonLabel}
-        </button>
+        <div className="flex min-w-0 flex-col items-stretch sm:relative">
+          <button type="submit" className={`${buttonClassName} w-full`}>
+            {buttonLabel}
+          </button>
+          {reassuranceCopy ? <p className="mt-1.5 whitespace-nowrap text-center text-xs font-medium text-slate-500 sm:absolute sm:right-0 sm:top-full sm:text-right">{reassuranceCopy}</p> : null}
+        </div>
       </form>
 
       {open ? (
@@ -147,6 +215,9 @@ export function LandingSearch({
                 <a
                   key={`${result.kind}:${result.id}:${result.href}`}
                   href={absoluteAppHref(appUrl, routeForSearchResult(result))}
+                  onClick={() => {
+                    if (result.kind === "ticker") track("homepage_ticker_selected", result.symbol);
+                  }}
                   className="flex items-center justify-between gap-4 px-4 py-3 text-sm transition hover:bg-white/[0.04]"
                 >
                   <span className="min-w-0">

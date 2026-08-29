@@ -248,6 +248,7 @@ test("insider dashboard renders role mix, top movers, then notable trades", () =
   assert.match(source, /Vs prior TTM/);
   assert.match(source, /function InsiderNotableTrades/);
   assert.match(source, /\["Insider", "Ticker", "Action", "Value", "Date"\]/);
+  assert.match(source, /const insider = item\.profile_href \? <Link href=\{item\.profile_href\}/);
 });
 
 test("insider dashboard adds full-width monthly activity chart after notable trades", () => {
@@ -309,6 +310,7 @@ test("congress snapshot cards label real net values and sector trade share", () 
   assert.match(source, /valueKey="trade_percent" format="percent" suffix=" of Trades"/);
   assert.match(source, /function formatCongressSnapshotValue/);
   assert.match(source, /format === "percent"/);
+  assert.match(source, /const valueClass = typeof value === "number" && value < 0 \? "text-rose-300" : "text-emerald-300"/);
 });
 
 test("congress most traded stocks table shows trades and signed net values", () => {
@@ -324,12 +326,24 @@ test("congress most traded stocks table shows trades and signed net values", () 
 test("congress notable trades normalize and color action labels", () => {
   const source = read("components/profiles/EnhancedProfileDashboards.tsx");
 
+  assert.match(source, /const member = item\.profile_href \? <Link href=\{item\.profile_href\}/);
+  assert.match(source, /hover:text-emerald-100 hover:underline/);
   assert.match(source, /const action = congressTradeAction\(item\.activity\)/);
   assert.match(source, /action\.label/);
   assert.match(source, /normalized\.includes\("purchase"\) \|\| normalized === "buy"/);
   assert.match(source, /label: "Buy", className: "text-emerald-300"/);
   assert.match(source, /normalized\.includes\("sale"\) \|\| normalized === "sell"/);
   assert.match(source, /label: "Sell", className: "text-rose-300"/);
+});
+
+test("departments vendors expose ticker comparisons and linked departments", () => {
+  const source = read("components/profiles/EnhancedGovernmentDashboard.tsx");
+
+  assert.match(source, /function GrowingVendors/);
+  assert.match(source, /\["Vendor", "Ticker", "Current value", "Prior period", "Change vs prior"\]/);
+  assert.match(source, /<Link href=\{href\} prefetch=\{false\}/);
+  assert.match(source, /\["department", "Department", "department_link"\]/);
+  assert.match(source, /format === "department_link"/);
 });
 
 test("institutional dashboard uses mockup-style net change charts", () => {
@@ -354,5 +368,8 @@ test("institutional dashboard uses mockup-style net change charts", () => {
   assert.match(source, /Position decreases/);
   assert.match(source, /Total positions/);
   assert.match(source, /rounded-full border border-blue-100 bg-blue-400/);
+  assert.match(source, /flavor === "institutions" \? <section className="grid gap-3 2xl:grid-cols-\[1\.15fr_1\.25fr_\.65fr\]">/);
+  assert.match(source, /<DataTable \{\.\.\.left\} tableClassName="min-w-\[36rem\]" \/>/);
+  assert.match(source, /tableClassName = "min-w-\[38rem\]"/);
   assert.doesNotMatch(source, /flavor === "institutions"[\s\S]{0,140}Recent notable activity/);
 });
