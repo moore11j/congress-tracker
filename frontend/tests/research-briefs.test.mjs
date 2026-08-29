@@ -166,6 +166,7 @@ test("generated research briefs do not render hard-coded hero buttons", () => {
 test("generated research briefs render markdown links and bare urls as anchors", () => {
   assert.match(generatedBriefPage, /function inlineMarkdown/);
   assert.match(generatedBriefPage, /markdownLinkPattern/);
+  assert.match(generatedBriefPage, /Permit balanced parentheses in external URLs/);
   assert.match(generatedBriefPage, /function autoLinkUrls/);
   assert.match(generatedBriefPage, /target=\{href\.startsWith\("http"\) \? "_blank" : undefined\}/);
   assert.match(generatedBriefPage, /<p key=\{block\.key\}>\{inlineMarkdown\(block\.text\)\}<\/p>/);

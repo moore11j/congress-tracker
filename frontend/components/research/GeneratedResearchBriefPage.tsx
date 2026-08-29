@@ -65,7 +65,8 @@ function linkClassName() {
 function inlineMarkdown(text: string): ReactNode[] {
   const cleaned = cleanInlineText(text);
   const nodes: ReactNode[] = [];
-  const markdownLinkPattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/[^)\s]+)\)/g;
+  // Permit balanced parentheses in external URLs, such as official prospectus filenames.
+  const markdownLinkPattern = /\[([^\]\n]+)\]\((https?:\/\/(?:[^\s()]|\([^)]*\))+|\/[^)\s]+)\)/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
   let nodeIndex = 0;
