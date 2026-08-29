@@ -291,10 +291,23 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
             "recent_filings": [],
         }
 
-    period = _latest_institutional_period(db, year=year, quarter=quarter)
+    available_periods = _institutional_periods(db)
+    period = _latest_institutional_period(db, year=year, quarter=quarter, periods=available_periods)
     if period is None:
         return {"status": "no_data", "summary": [], "top_institutions": [], "position_changes": [], "sector_exposure": [], "institutional_activity_over_time": [], "recent_filings": []}
     report_year, report_quarter = period
+    latest_available_period = available_periods[0] if available_periods else None
+    coverage = _institutional_period_coverage(db, available_periods[:2])
+    latest_available_coverage = coverage.get(latest_available_period, {}) if latest_available_period else {}
+    latest_available_reference = available_periods[1] if len(available_periods) > 1 else None
+    latest_available_reference_coverage = coverage.get(latest_available_reference, {}) if latest_available_reference else {}
+    latest_available_institutions = int(latest_available_coverage.get("institutions") or 0)
+    latest_available_reference_institutions = int(latest_available_reference_coverage.get("institutions") or 0)
+    latest_available_coverage_pct = (
+        round((latest_available_institutions / latest_available_reference_institutions) * 100, 1)
+        if latest_available_reference_institutions > 0
+        else None
+    )
     previous_period = _previous_comparable_institutional_period(db, report_year, report_quarter)
     table_previous_period = previous_period or _previous_institutional_period_with_data(db, report_year, report_quarter)
     prev_year, prev_quarter = previous_period if previous_period is not None else (None, None)
@@ -320,6 +333,15 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
         "report_quarter": report_quarter,
         "previous_report_year": prev_year,
         "previous_report_quarter": prev_quarter,
+        # The newest filing quarter may still be incomplete while managers submit
+        # their 13Fs. Keep the dashboard on the latest comparable period, but
+        # expose progress so the automatic update is visible to users.
+        "latest_available_report_year": latest_available_period[0] if latest_available_period else None,
+        "latest_available_report_quarter": latest_available_period[1] if latest_available_period else None,
+        "latest_available_institution_count": latest_available_institutions or None,
+        "latest_available_reference_institution_count": latest_available_reference_institutions or None,
+        "latest_available_coverage_pct": latest_available_coverage_pct,
+        "latest_available_is_comparable": latest_available_period == period,
         "summary": [
             _metric("Tracked Institutions", tracked_institutions, previous_tracked_institutions),
             _metric("Total Portfolio Value", total_value, previous_total_value, "currency"),
@@ -1628,16 +1650,26 @@ def _cluster_buying(db: Session, *, since: datetime, symbols: set[str] | None = 
     ]
 
 
-def _latest_institutional_period(db: Session, *, year: int | None = None, quarter: int | None = None) -> tuple[int, int] | None:
-    if year and quarter:
-        return int(year), int(quarter)
+def _institutional_periods(db: Session) -> list[tuple[int, int]]:
     rows = db.execute(
         select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
         .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
         .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
         .limit(12)
     ).all()
-    periods = [(int(row[0]), int(row[1])) for row in rows]
+    return [(int(row[0]), int(row[1])) for row in rows]
+
+
+def _latest_institutional_period(
+    db: Session,
+    *,
+    year: int | None = None,
+    quarter: int | None = None,
+    periods: list[tuple[int, int]] | None = None,
+) -> tuple[int, int] | None:
+    if year and quarter:
+        return int(year), int(quarter)
+    periods = periods if periods is not None else _institutional_periods(db)
     complete_periods = _complete_institutional_periods(db, periods)
     return complete_periods[0] if complete_periods else (periods[0] if periods else None)
 

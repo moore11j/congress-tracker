@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { completeGoogleSignIn, verifyAuthenticatedSession } from "@/lib/api";
+import { identifyHeyCatchUser } from "@/lib/heycatch";
 import { defaultPostLoginPath, safeAppReturnPath } from "@/lib/returnPaths";
 
 export default function GoogleCallbackPage() {
@@ -27,7 +28,8 @@ export default function GoogleCallbackPage() {
         const next = safeAppReturnPath(response.return_to);
         setReturnTo(next);
         setStatus("Verifying your session...");
-        return verifyAuthenticatedSession("GoogleCallbackPage").then(() => {
+        return verifyAuthenticatedSession("GoogleCallbackPage").then((session) => {
+          if (session.user) identifyHeyCatchUser(session.user);
           window.location.replace(next);
         });
       })

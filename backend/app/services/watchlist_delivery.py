@@ -139,6 +139,11 @@ def categories_for_event(event_type: str | None, payload: dict[str, Any] | None 
 
 def category_for_trigger(trigger: str | None, event_type: str | None = None, payload: dict[str, Any] | None = None) -> str | None:
     key = (trigger or "").strip().lower()
+    # Price/volume changes are a concrete monitor-state signal, but the
+    # delivery matrix intentionally groups them under Bullish/bearish monitor
+    # rather than exposing a second, overlapping row.
+    if key == "price_volume":
+        return "bullish_bearish_monitor"
     reverse = {value: category for category, value in CATEGORY_TRIGGER.items()}
     if key in reverse:
         return reverse[key]

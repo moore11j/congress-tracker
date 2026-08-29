@@ -346,6 +346,12 @@ export type InstitutionsOverviewResponse = {
   report_quarter?: number;
   previous_report_year?: number;
   previous_report_quarter?: number;
+  latest_available_report_year?: number | null;
+  latest_available_report_quarter?: number | null;
+  latest_available_institution_count?: number | null;
+  latest_available_reference_institution_count?: number | null;
+  latest_available_coverage_pct?: number | null;
+  latest_available_is_comparable?: boolean;
   summary: ProfileMetric[];
   top_institutions: Array<Record<string, unknown>>;
   position_changes: Array<Record<string, unknown>>;

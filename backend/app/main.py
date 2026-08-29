@@ -14127,7 +14127,10 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db), refres
     disabled_sources = _disabled_monitoring_sources(db, user.id)
     alerts = [
         monitoring_alert_to_dict(alert, can_view_signal_context=entitlements.has_feature("signals"))
-        for alert in recent_alerts(db, user_id=user.id, unread_only=False, limit=100)
+        # The monitoring screen paginates this client-side. Do not silently
+        # truncate history at 100 records (four 25-item pages), otherwise
+        # older alerts cannot be selected and deleted.
+        for alert in recent_alerts(db, user_id=user.id, unread_only=False, limit=None)
         if (str(alert.source_type), str(alert.source_id)) not in disabled_sources
     ]
     unread_alerts = [item for item in alerts if item.get("is_unread")]

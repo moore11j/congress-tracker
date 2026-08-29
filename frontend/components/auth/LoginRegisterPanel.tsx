@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { analytics } from "@heycatch/sdk";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import { ApiError, getGoogleAuthUrl, getMe, login, recordProductEvent, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
 import { selectClassName } from "@/lib/styles";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 import { campaignParamKeys } from "@/lib/campaignAttribution";
+import { identifyHeyCatchUser, trackHeyCatchEvent } from "@/lib/heycatch";
 
 type Mode = "login" | "register";
 
@@ -211,19 +211,9 @@ export function LoginRegisterPanel({
       setLoadingLabel("Verifying session...");
       setStatus("Verifying your session...");
       const session = await verifyAuthenticatedSession(mode === "register" ? "RegisterPanel" : "LoginPanel");
+      if (session.user) identifyHeyCatchUser(session.user);
       if (mode === "register") {
-        analytics.setIdentity(
-          String(session.user!.id),
-          {
-            email: session.user!.email,
-            ...(session.user!.name ? { name: session.user!.name } : {}),
-            ...(session.user!.current_plan || session.user!.subscription_plan || session.user!.entitlement_tier || session.user!.plan
-              ? { plan: session.user!.current_plan || session.user!.subscription_plan || session.user!.entitlement_tier || session.user!.plan! }
-              : {}),
-          },
-          session.user!.created_at ? { signup_date: session.user!.created_at } : undefined,
-        );
-        analytics.trackEvent("signup_completed");
+        trackHeyCatchEvent("signup_completed");
       }
       setLoadingLabel(`Opening ${destinationLabel}...`);
       setStatus(`You're in. Opening the ${destinationLabel}...`);

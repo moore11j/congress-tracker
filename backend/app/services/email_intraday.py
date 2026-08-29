@@ -375,6 +375,8 @@ def _watchlist_candidate(db: Session, user: UserAccount, watchlist: Watchlist, e
         "actor": actor,
         "amount": _amount(event.amount_min, event.amount_max),
         "signal_score": _score_display(score),
+        "metric_label": "Signal score",
+        "metric_value": _score_display(score),
         "direction": _direction_from_payload(payload),
         "trigger": _trigger_label(trigger),
         "monitored_through": watchlist.name,
@@ -437,6 +439,8 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
     score = _numeric_score(payload.get("score") or after.get("confirmation_score") or after.get("smart_score"))
     ticker = (alert.symbol or saved_screen_event.get("ticker") or "UNKNOWN").upper()
     is_custom_alert = alert.alert_type == "custom_alert"
+    is_custom_price_alert = is_custom_alert and _is_custom_price_alert(payload)
+    trigger_price = _numeric_score(payload.get("trigger_price")) if is_custom_price_alert else None
     trigger = "custom_alert" if is_custom_alert else _signal_trigger(alert.alert_type, payload, score, ticker in watchlist_symbols, source_type=alert.source_type)
     rule_name = str(payload.get("rule_name") or "Custom alert").strip()
     watchlist_url = f"{_frontend_base_url()}/watchlists/{alert.source_id}" if alert.source_id else f"{_frontend_base_url()}/monitoring"
@@ -447,6 +451,8 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         "alert_intro": (alert.body or f"{ticker} matched the conditions for {rule_name}.") if is_custom_alert else f"A saved Walnut signal matched high-conviction intraday criteria for {ticker}.",
         "event_type": alert.alert_type.replace("_", " "),
         "signal_score": _score_display(score),
+        "metric_label": "Price" if trigger_price is not None else "Signal score",
+        "metric_value": _price_display(trigger_price) if trigger_price is not None else _score_display(score),
         "direction": str(payload.get("direction") or after.get("direction") or "mixed"),
         "trigger": _trigger_label(trigger),
         "monitored_through": rule_name if is_custom_alert else alert.source_name or alert.source_type.replace("_", " ").title(),
@@ -474,6 +480,25 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
     )
 
 
+def _is_custom_price_alert(payload: dict[str, Any]) -> bool:
+    """Identify price-rule payloads, including alerts queued before this field existed."""
+    if payload.get("price_alert") is True:
+        return True
+    conditions = payload.get("conditions")
+    return isinstance(conditions, list) and any(
+        isinstance(condition, dict)
+        and bool(condition.get("matched"))
+        and str(condition.get("condition") or "").strip().lower().startswith("price")
+        for condition in conditions
+    )
+
+
+def _price_display(value: int | float | None) -> str:
+    if value is None:
+        return "--"
+    return f"${float(value):,.2f}"
+
+
 def _confirmation_candidate(user: UserAccount, event: ConfirmationMonitoringEvent, watchlist_symbols: set[str]) -> IntradayAlertCandidate:
     ticker = (event.ticker or "UNKNOWN").upper()
     score = _numeric_score(event.score_after)
@@ -485,6 +510,8 @@ def _confirmation_candidate(user: UserAccount, event: ConfirmationMonitoringEven
         "alert_intro": f"Walnut monitoring detected a major confirmation change for {ticker}.",
         "event_type": event.event_type.replace("_", " "),
         "signal_score": _score_display(score),
+        "metric_label": "Signal score",
+        "metric_value": _score_display(score),
         "direction": event.direction_after or "mixed",
         "trigger": _trigger_label(trigger),
         "why_notable": event.title or event.event_type.replace("_", " "),

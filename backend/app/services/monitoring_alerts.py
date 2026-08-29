@@ -28,7 +28,30 @@ ALERTABLE_EVENT_TYPES = (
     "signal",
     "government_contract",
     "government_contract_new",
+    "government_contract_award",
+    "contract_award",
+    "government_exposure",
+    "large_trade",
+    "large_trade_contract",
+    "large_trade_threshold",
     "analyst_consensus_change",
+    "price_volume_change",
+    "price_volume_signal",
+    "unusual_price_volume",
+    "volume_surge",
+    "technical_breakout",
+    "technical_breakdown",
+    "price_volume_flip",
+    "fundamental_change",
+    "fundamentals_change",
+    "fundamentals_flip",
+    "entered_bullish_monitor",
+    "entered_bearish_monitor",
+    "exited_bullish_monitor",
+    "exited_bearish_monitor",
+    "smart_score_threshold",
+    "cross_source_confirmation",
+    "new_multi_source_confirmation",
     "news_article",
     "press_release",
     "institutional_buy",
@@ -532,6 +555,7 @@ def refresh_watchlist_alerts(
     watchlist: Watchlist,
     lookback_days: int = 7,
     force_lookback: bool = False,
+    since: datetime | None = None,
 ) -> int:
     # News and releases are fetched by the existing ticker-content ingestion
     # pipeline. Materialize that durable cache before matching Events so the
@@ -541,9 +565,12 @@ def refresh_watchlist_alerts(
     symbols = watchlist_symbols(db, watchlist.id)
     targets = watchlist_targets(db, watchlist.id)
     checkpoint = watchlist_checkpoint(db, watchlist.id)
-    since = datetime.now(timezone.utc) - timedelta(days=max(int(lookback_days or 1), 1))
-    if checkpoint is not None and not force_lookback:
-        since = checkpoint
+    if since is None:
+        since = datetime.now(timezone.utc) - timedelta(days=max(int(lookback_days or 1), 1))
+        if checkpoint is not None and not force_lookback:
+            since = checkpoint
+    elif since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
 
     target_count = sum(len(values) for values in targets.values())
     if not symbols and target_count == 0:
@@ -633,7 +660,7 @@ def unread_count_by_source(db: Session, *, user_id: int) -> dict[tuple[str, str]
     return {(str(source_type), str(source_id)): int(count or 0) for source_type, source_id, count in rows}
 
 
-def recent_alerts(db: Session, *, user_id: int, unread_only: bool = False, limit: int = 8) -> list[MonitoringAlert]:
+def recent_alerts(db: Session, *, user_id: int, unread_only: bool = False, limit: int | None = 8) -> list[MonitoringAlert]:
     q = _exclude_institutional_alerts(
         select(MonitoringAlert).where(MonitoringAlert.user_id == user_id, MonitoringAlert.dismissed_at.is_(None)),
         db,
@@ -641,11 +668,10 @@ def recent_alerts(db: Session, *, user_id: int, unread_only: bool = False, limit
     )
     if unread_only:
         q = q.where(MonitoringAlert.read_at.is_(None))
-    return (
-        db.execute(q.order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc()).limit(limit))
-        .scalars()
-        .all()
-    )
+    q = q.order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
+    if limit is not None:
+        q = q.limit(max(int(limit), 1))
+    return db.execute(q).scalars().all()
 
 
 def mark_alerts_read(db: Session, *, user_id: int, alert_ids: list[int], now: datetime | None = None) -> int:

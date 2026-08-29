@@ -39,11 +39,11 @@ from app.services.event_calendar import upcoming_event_calendar_items
 from app.services.fmp_news import get_press_releases, get_stock_news
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
-from app.services.monitoring_alerts import watchlist_candidate_events
+from app.services.monitoring_alerts import refresh_watchlist_alerts, watchlist_candidate_events
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
 from app.services.watchlist_content_events import sync_watchlist_content_events
-from app.services.watchlist_delivery import category_for_trigger, categories_for_event, is_delivery_enabled
+from app.services.watchlist_delivery import WATCHLIST_ALERT_CATEGORIES, category_for_trigger, categories_for_event, is_delivery_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +113,23 @@ SOURCE_MONITORING_ALERT_TYPES = (
     "institutional_activity_change",
     *PRICE_VOLUME_ALERT_TYPES,
     *FUNDAMENTAL_ALERT_TYPES,
+    "entered_bullish_monitor",
+    "entered_bearish_monitor",
+    "exited_bullish_monitor",
+    "exited_bearish_monitor",
+    "direction_flipped",
+    "smart_score_threshold",
+    "cross_source_confirmation",
+    "new_multi_source_confirmation",
+    "large_trade",
+    "large_trade_contract",
+    "large_trade_threshold",
+    "news",
+    "news_article",
+    "market_news",
+    "press_release",
+    "press_releases",
+    "issuer_press_release",
 )
 SUPPORT_EMAIL = "support@walnutmarkets.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
@@ -122,9 +139,14 @@ WATCHLIST_DISPLAY_LIMIT = 10
 WATCHLIST_FETCH_LIMIT = 25
 WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT = 8
 WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT = 3
-SIGNAL_DISPLAY_LIMIT = 20
-SIGNAL_ITEMS_PER_SOURCE_LIMIT = 4
-SIGNAL_QUERY_LIMIT = 100
+# Every enabled row in the watchlist delivery matrix may contribute up to four
+# relevant events. This keeps news and press releases visible when another
+# monitoring category was particularly busy during the same digest window.
+SIGNAL_ITEMS_PER_CATEGORY_LIMIT = 4
+SIGNAL_DISPLAY_LIMIT = len(WATCHLIST_ALERT_CATEGORIES) * SIGNAL_ITEMS_PER_CATEGORY_LIMIT
+# Evaluate the entire digest window before applying the four-per-category
+# display cap, so a high-volume category cannot hide a quieter enabled one.
+SIGNAL_QUERY_LIMIT: int | None = None
 CALENDAR_ITEMS_PER_KIND_LIMIT = 4
 SIGNAL_ACTIVITY_SECTION_LIMIT = 8
 SIGNAL_ALLOWED_DIRECTIONS = {"bullish", "bearish", "mixed", "neutral"}
@@ -316,6 +338,10 @@ def build_signal_alert_digest(
     watchlist: Watchlist | None = None,
     window_end: datetime | None = None,
 ) -> DigestBuild:
+    # Content ingestion stores news and press releases as Event rows. Ensure
+    # the daily job materializes those (and any other watchlist events) into
+    # monitoring alerts for this exact window before selecting digest items.
+    _materialize_daily_watchlist_alerts(db, user, since)
     # Fetch enough history to let each monitoring source contribute its best
     # candidates. A global "latest 10" query lets a noisy saved screen crowd
     # out watchlists and other monitoring sources before ranking even starts.
@@ -328,12 +354,12 @@ def build_signal_alert_digest(
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
     raw_items = _apply_daily_signal_subscription_preferences(db, user, raw_items)
     items, diagnostics = _qualify_signal_items(raw_items)
-    items, source_limited_count = _limit_signal_items_per_source(items)
-    if source_limited_count:
+    items, category_limited_count = _limit_signal_items_per_category(items)
+    if category_limited_count:
         diagnostics["qualified_count"] = len(items)
-        diagnostics["excluded_count"] += source_limited_count
+        diagnostics["excluded_count"] += category_limited_count
         reasons = diagnostics["excluded_reasons"]
-        reasons["source_display_limit"] = reasons.get("source_display_limit", 0) + source_limited_count
+        reasons["category_display_limit"] = reasons.get("category_display_limit", 0) + category_limited_count
     _attach_company_names(db, items)
     lead = items[0] if items else {}
     is_single = len(items) == 1
@@ -1514,6 +1540,7 @@ def _intish(value: Any) -> int | None:
 def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
     score = event.score_after
+    trigger = _daily_signal_trigger(event.event_type, payload, score, source_type="confirmation_monitoring")
     return {
         "ticker": _normalize_ticker(event.ticker),
         "title": event.title,
@@ -1527,7 +1554,8 @@ def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
         "source_type": "confirmation_monitoring",
         "source_id": str(event.watchlist_id),
         "alert_type": event.event_type,
-        "trigger": _daily_signal_trigger(event.event_type, payload, score, source_type="confirmation_monitoring"),
+        "trigger": trigger,
+        "delivery_triggers": _daily_signal_triggers(event.event_type, payload, score, source_type="confirmation_monitoring"),
     }
 
 
@@ -1537,6 +1565,7 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
     if score is None and isinstance(event_payload, dict):
         score = event_payload.get("smart_score") or event_payload.get("confirmation_score")
+    trigger = _daily_signal_trigger(alert.alert_type, event_payload or payload, score, source_type=alert.source_type)
     return {
         "ticker": _normalize_ticker(alert.symbol) if alert.symbol else "Unresolved security",
         "title": alert.title,
@@ -1550,7 +1579,8 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "source_type": alert.source_type,
         "source_id": alert.source_id,
         "alert_type": alert.alert_type,
-        "trigger": _daily_signal_trigger(alert.alert_type, event_payload or payload, score, source_type=alert.source_type),
+        "trigger": trigger,
+        "delivery_triggers": _daily_signal_triggers(alert.alert_type, event_payload or payload, score, source_type=alert.source_type),
     }
 
 
@@ -1582,6 +1612,8 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     )
     if is_custom_alert:
         source_stack = str(payload.get("rule_name") or "Custom Alert Rule")
+    delivery_payload = event_payload or payload
+    trigger = _daily_signal_trigger(alert.alert_type, delivery_payload, score, source_type=alert.source_type)
     return {
         "ticker": ticker,
         "company_name": _clean_text(payload.get("company_name")) or _clean_text(event_payload.get("company_name")) or _clean_text(after.get("company_name")),
@@ -1597,7 +1629,8 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "source_type": alert.source_type,
         "source_id": alert.source_id,
         "alert_type": alert.alert_type,
-        "trigger": _daily_signal_trigger(alert.alert_type, payload, score, source_type=alert.source_type),
+        "trigger": trigger,
+        "delivery_triggers": _daily_signal_triggers(alert.alert_type, delivery_payload, score, source_type=alert.source_type),
         "custom_delivery": payload.get("delivery"),
         "watchlist_boost": alert.source_type == "watchlist",
     }
@@ -1607,6 +1640,7 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
     payload = _loads_dict(event.payload_json)
     score = event.score_after
     ticker = _normalize_ticker(event.ticker)
+    trigger = _daily_signal_trigger(event.event_type, payload, score, source_type="confirmation_monitoring")
     return {
         "ticker": ticker,
         "company_name": None,
@@ -1622,7 +1656,8 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
         "source_type": "confirmation_monitoring",
         "source_id": str(event.watchlist_id) if event.watchlist_id is not None else None,
         "alert_type": event.event_type,
-        "trigger": _daily_signal_trigger(event.event_type, payload, score, source_type="confirmation_monitoring"),
+        "trigger": trigger,
+        "delivery_triggers": _daily_signal_triggers(event.event_type, payload, score, source_type="confirmation_monitoring"),
         "watchlist_boost": event.watchlist_id is not None,
     }
 
@@ -1660,7 +1695,7 @@ def _signal_source_label(*, source_type: str, source_name: str | None, direction
     return fallback or _clean_text(source_name) or source_type.replace("_", " ")
 
 
-def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime, limit: int) -> list[MonitoringAlert]:
+def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime, limit: int | None) -> list[MonitoringAlert]:
     signal_types = (
         "signal",
         "score_change",
@@ -1679,13 +1714,35 @@ def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime
         .where(MonitoringAlert.event_created_at >= since)
         .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(signal_types)))
         .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
-        .limit(limit)
     )
+    if limit is not None:
+        query = query.limit(max(int(limit), 1))
     return (
         db.execute(_exclude_institutional_alerts_for_user(db, user, query))
         .scalars()
         .all()
     )
+
+
+def _materialize_daily_watchlist_alerts(db: Session, user: UserAccount, since: datetime) -> None:
+    subscriptions = (
+        db.execute(
+            select(NotificationSubscription)
+            .where(func.lower(NotificationSubscription.email) == normalize_email(user.email))
+            .where(NotificationSubscription.source_type == "watchlist")
+            .where(NotificationSubscription.active == True)  # noqa: E712
+        )
+        .scalars()
+        .all()
+    )
+    for subscription in subscriptions:
+        if not _subscription_daily_digest_enabled(subscription):
+            continue
+        watchlist_id = _int_value(subscription.source_id)
+        watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
+        if watchlist is None or watchlist.owner_user_id != user.id:
+            continue
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, since=since)
 
 
 def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> bool:
@@ -1710,15 +1767,16 @@ def _signal_confirmation_events(
     *,
     since: datetime,
     watchlist: Watchlist | None,
-    limit: int,
+    limit: int | None,
 ) -> list[ConfirmationMonitoringEvent]:
     query = (
         select(ConfirmationMonitoringEvent)
         .where(ConfirmationMonitoringEvent.user_id == user.id)
         .where(ConfirmationMonitoringEvent.created_at >= since)
         .order_by(ConfirmationMonitoringEvent.created_at.desc(), ConfirmationMonitoringEvent.id.desc())
-        .limit(limit)
     )
+    if limit is not None:
+        query = query.limit(max(int(limit), 1))
     if watchlist is not None:
         query = query.where(ConfirmationMonitoringEvent.watchlist_id == watchlist.id)
     if not _user_can_view_institutional_activity(db, user):
@@ -1769,8 +1827,8 @@ def _apply_daily_signal_subscription_preferences(db: Session, user: UserAccount,
             if item.get("custom_delivery") in {"daily", "both"}:
                 filtered.append(item)
             continue
-        trigger = str(item.get("trigger") or "").strip()
-        if _subscription_allows_any_trigger(subscription, {trigger} if trigger else set()):
+        triggers = _item_delivery_triggers(item)
+        if _subscription_allows_any_trigger(subscription, triggers):
             filtered.append(item)
     return filtered
 
@@ -1782,10 +1840,17 @@ def _apply_monitoring_subscription_preferences(items: list[dict[str, Any]], subs
         return []
     filtered: list[dict[str, Any]] = []
     for item in items:
-        trigger = str(item.get("trigger") or "").strip()
-        if _subscription_allows_any_trigger(subscription, {trigger} if trigger else set()):
+        if _subscription_allows_any_trigger(subscription, _item_delivery_triggers(item)):
             filtered.append(item)
     return filtered
+
+
+def _item_delivery_triggers(item: dict[str, Any]) -> set[str]:
+    values = item.get("delivery_triggers")
+    if isinstance(values, (list, tuple, set)):
+        return {str(value).strip() for value in values if str(value).strip()}
+    trigger = str(item.get("trigger") or "").strip()
+    return {trigger} if trigger else set()
 
 
 def _daily_signal_trigger(alert_type: str, payload: dict[str, Any], score: Any, *, source_type: str | None = None) -> str | None:
@@ -1810,6 +1875,12 @@ def _daily_signal_trigger(alert_type: str, payload: dict[str, Any], score: Any, 
         return "congress_activity"
     if normalized.startswith("insider_trade"):
         return "insider_activity"
+    if normalized in {"large_trade", "large_trade_contract", "large_trade_threshold"} or payload.get("large_trade"):
+        return "large_trade_threshold"
+    if normalized in {"news", "news_article", "market_news"}:
+        return "news"
+    if normalized in {"press_release", "press_releases", "issuer_press_release"}:
+        return "press_releases"
     if normalized in {"cross_source_confirmation", "new_multi_source_confirmation"} or payload.get("cross_source") or payload.get("source_count"):
         return "cross_source_confirmation"
     if _numeric_score(score) is not None:
@@ -1817,16 +1888,34 @@ def _daily_signal_trigger(alert_type: str, payload: dict[str, Any], score: Any, 
     return None
 
 
+def _daily_signal_triggers(alert_type: str, payload: dict[str, Any], score: Any, *, source_type: str | None = None) -> list[str]:
+    """Return every matrix trigger an event can legitimately satisfy.
+
+    A congress item can also be a cross-source confirmation, for example. The
+    matrix should include it when either matching daily category is enabled.
+    """
+    triggers: list[str] = []
+    primary = _daily_signal_trigger(alert_type, payload, score, source_type=source_type)
+    if primary:
+        triggers.append(primary)
+    normalized = (alert_type or "").strip().lower()
+    if normalized in {"cross_source_confirmation", "new_multi_source_confirmation"} or payload.get("cross_source") or payload.get("source_count") or payload.get("confirmation_sources"):
+        triggers.append("cross_source_confirmation")
+    if normalized in {"large_trade", "large_trade_contract", "large_trade_threshold"} or payload.get("large_trade"):
+        triggers.append("large_trade_threshold")
+    return list(dict.fromkeys(triggers))
+
+
 def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     candidates = [item for item in raw_items if item]
     qualified: list[dict[str, Any]] = []
     excluded_reasons: dict[str, int] = {}
-    seen_source_tickers: set[tuple[str, str]] = set()
+    seen_source_tickers: set[tuple[str, str, str]] = set()
 
     for item in sorted(candidates, key=_signal_rank_key, reverse=True):
         reason = _signal_exclusion_reason(item)
         ticker = str(item.get("ticker") or "")
-        source_ticker = (_signal_source_bucket(item), ticker)
+        source_ticker = (_signal_source_bucket(item), _signal_item_category(item), ticker)
         if reason is None and source_ticker in seen_source_tickers:
             reason = "duplicate"
         if reason is not None:
@@ -1843,19 +1932,32 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
     }
 
 
-def _limit_signal_items_per_source(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """Keep the digest balanced while retaining the highest-ranked item first."""
+def _limit_signal_items_per_category(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Keep at most four relevant events for each delivery-matrix category."""
     selected: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
     for item in sorted(items, key=_signal_rank_key, reverse=True):
-        source = _signal_source_bucket(item)
-        if counts.get(source, 0) >= SIGNAL_ITEMS_PER_SOURCE_LIMIT:
+        category = _signal_item_category(item)
+        if counts.get(category, 0) >= SIGNAL_ITEMS_PER_CATEGORY_LIMIT:
             continue
-        counts[source] = counts.get(source, 0) + 1
+        counts[category] = counts.get(category, 0) + 1
         selected.append(item)
         if len(selected) >= SIGNAL_DISPLAY_LIMIT:
             break
     return selected, max(len(items) - len(selected), 0)
+
+
+def _signal_item_category(item: dict[str, Any]) -> str:
+    alert_type = str(item.get("alert_type") or "").strip().lower()
+    primary_trigger = str(item.get("trigger") or "").strip()
+    primary_category = category_for_trigger(primary_trigger, alert_type)
+    if primary_category:
+        return primary_category
+    for trigger in _item_delivery_triggers(item):
+        category = category_for_trigger(trigger, alert_type)
+        if category:
+            return category
+    return alert_type or "other_monitoring"
 
 
 def _signal_source_bucket(item: dict[str, Any]) -> str:

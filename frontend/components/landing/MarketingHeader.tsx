@@ -128,8 +128,8 @@ function DesktopMenu({
 
 export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: string }) {
   return (
-    <header className="sticky top-0 isolate z-[8000] border-b border-white/10 bg-slate-950/95 backdrop-blur" style={{ zIndex: 8000 }}>
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 isolate z-[8000] border-b border-white/10 bg-slate-950/95 px-4 backdrop-blur sm:px-6 lg:px-8" style={{ zIndex: 8000 }}>
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 py-4">
         <a href="/" className="flex min-w-0 items-center gap-3" aria-label="Walnut home">
           <WalnutBrandMark
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-300/35 bg-slate-950 shadow-[0_0_28px_rgba(16,185,129,0.18)]"
@@ -148,7 +148,6 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
             <LandingNavLink key={link.label} href={link.href} label={link.label} />
           ))}
           <DesktopMenu label="Tools" heading="Research tools" items={toolsNavLinks} />
-          <LandingNavLink href="/compare" label="Compare Walnut" />
           <LandingNavLink href={pricingHref} label="Pricing" />
           <DesktopMenu label="Company" heading="Company" items={companyNavLinks} />
         </nav>
@@ -173,7 +172,7 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
           </a>
         </div>
       </div>
-      <div className="mx-auto flex max-w-7xl justify-end px-4 pb-4 sm:px-6 lg:hidden lg:px-8">
+      <div className="mx-auto flex max-w-7xl justify-end pb-4 lg:hidden">
         <details className="group relative z-[9000] isolate" style={{ zIndex: 9000 }}>
           <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/35 hover:text-white [&::-webkit-details-marker]:hidden">
             <span>Menu</span>
@@ -210,7 +209,6 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
                   <NavMenuItems items={toolsNavLinks} mobile />
                 </div>
               </details>
-              <LandingNavLink href="/compare" label="Compare Walnut" className="rounded-lg px-3 py-2.5 text-slate-200" />
               <LandingNavLink href={pricingHref} label="Pricing" className="rounded-lg px-3 py-2.5 text-slate-200" />
               <details className="group/company">
                 <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 font-semibold text-slate-100 transition hover:text-white [&::-webkit-details-marker]:hidden">

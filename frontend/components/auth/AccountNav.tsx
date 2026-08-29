@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { analytics } from "@heycatch/sdk";
 import { ApiError, clearLegacyAuthStorage, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
 import { isAdminRoute } from "@/lib/routes";
+import { resetHeyCatchIdentity } from "@/lib/heycatch";
 
 function displayName(user: AccountUser): string {
   const name = user.name?.trim();
@@ -253,7 +253,7 @@ export function AccountNav() {
             onClick={() => {
               setMenuOpen(false);
               logout().finally(() => {
-                analytics.resetIdentity();
+                resetHeyCatchIdentity();
                 setUser(null);
                 window.location.replace("/login");
               });
