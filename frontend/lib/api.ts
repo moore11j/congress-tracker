@@ -6347,11 +6347,24 @@ export async function getCachedLeaderboard(
   section: CachedLeaderboardSection,
   params?: { authToken?: string; source?: string },
 ): Promise<CachedLeaderboardResponse> {
-  return fetchJson<CachedLeaderboardResponse>(buildApiUrl(`/api/leaderboards/${section}`), {
+  const url = buildApiUrl(`/api/leaderboards/${section}`);
+  const init: ApiRequestInit = {
     headers: authHeaders(params?.authToken),
-    next: { revalidate: 300 },
+    // The payload itself is the once-daily backend snapshot. Avoid preserving
+    // a transient availability failure in the server fetch cache.
+    cache: "no-store",
+    next: { revalidate: 0 },
     source: params?.source ?? "LeaderboardsDashboard",
-  });
+  };
+  try {
+    return await fetchJson<CachedLeaderboardResponse>(url, init);
+  } catch (error) {
+    // A just-released backend can briefly reject a request while its worker
+    // pool is draining. One retry lets the dashboard render the same snapshot.
+    if (!(error instanceof ApiError) || error.status !== 503) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return fetchJson<CachedLeaderboardResponse>(url, init);
+  }
 }
 
 export type ScreenerApiActivityOverlay = {

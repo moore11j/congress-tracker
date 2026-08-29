@@ -115,7 +115,16 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
             return RoutePriority.HEAVY
         return RoutePriority.NORMAL
 
-    if lower_path == "/api/leaderboards/congress-traders":
+    # Snapshot reads only return a persisted daily payload.  They must stay out
+    # of the expensive analytics lane so a busy worker cannot hide an already
+    # generated leaderboard from the dashboard.
+    if lower_path in (
+        "/api/leaderboards/congress-traders",
+        "/api/leaderboards/top-stocks",
+        "/api/leaderboards/congress_members",
+        "/api/leaderboards/insiders",
+        "/api/leaderboards/institutions",
+    ):
         return RoutePriority.NORMAL
 
     if lower_path.startswith("/api/tickers/") and lower_path.endswith(

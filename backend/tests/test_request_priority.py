@@ -57,6 +57,11 @@ def test_search_suggest_is_critical_route():
     assert classify_request("/api/search/suggest", {}) == RoutePriority.CRITICAL
 
 
+def test_persisted_leaderboard_snapshot_reads_are_not_heavy_route_gated():
+    for section in ("top-stocks", "congress_members", "insiders", "institutions"):
+        assert classify_request(f"/api/leaderboards/{section}", {}) == RoutePriority.NORMAL
+
+
 def test_insider_profile_identity_and_recent_trades_are_not_heavy_route_gated():
     assert classify_request("/api/insiders/0001824159/summary", {}) == RoutePriority.NORMAL
     assert classify_request("/api/insiders/0001824159/trades", {}) == RoutePriority.NORMAL
