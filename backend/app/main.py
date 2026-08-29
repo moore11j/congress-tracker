@@ -14155,6 +14155,63 @@ def _strategy_subscription_sources(db: Session, user: UserAccount) -> list[dict[
     ]
 
 
+def _monitoring_source_metadata_payload(request: Request, db: Session, user: UserAccount) -> list[dict[str, object]]:
+    """Load source identity only; unread badge counts are intentionally separate."""
+    watchlists = _monitored_watchlists_for_user(request, db, user)
+    saved_screens = _monitored_saved_screens_for_user(request, db, user)
+    subscription_ids = _notification_subscription_ids_for_user(db, user)
+    sources: list[dict[str, object]] = [
+        {
+            "id": str(watchlist.id),
+            "type": "watchlist",
+            "name": watchlist.name,
+            "subscription_id": subscription_ids.get(("watchlist", str(watchlist.id))),
+            "unread_count": 0,
+            "new_count": 0,
+        }
+        for watchlist in watchlists
+    ]
+    sources.extend(
+        {
+            "id": str(screen.id),
+            "type": "saved_screen",
+            "name": screen.name,
+            "subscription_id": subscription_ids.get(("saved_screen", str(screen.id))) or subscription_ids.get(("saved_view", str(screen.id))),
+            "unread_count": 0,
+            "new_count": 0,
+        }
+        for screen in saved_screens
+    )
+    known_source_keys = {(str(source["type"]), str(source["id"])) for source in sources}
+    disabled_sources = _disabled_monitoring_sources(db, user.id)
+    alert_source_rows = db.execute(
+        select(MonitoringAlert.source_type, MonitoringAlert.source_id, func.max(MonitoringAlert.source_name))
+        .where(MonitoringAlert.user_id == user.id, MonitoringAlert.dismissed_at.is_(None))
+        .group_by(MonitoringAlert.source_type, MonitoringAlert.source_id)
+    ).all()
+    for source_type, source_id, source_name in alert_source_rows:
+        key = (str(source_type), str(source_id))
+        if key in known_source_keys or key in disabled_sources:
+            continue
+        sources.append(
+            {
+                "id": key[1],
+                "type": key[0],
+                "name": str(source_name or key[0].replace("_", " ").title()),
+                "subscription_id": subscription_ids.get(key),
+                "unread_count": 0,
+                "new_count": 0,
+            }
+        )
+        known_source_keys.add(key)
+    for source in _strategy_subscription_sources(db, user):
+        key = (str(source["type"]), str(source["id"]))
+        if key not in known_source_keys:
+            sources.append(source)
+            known_source_keys.add(key)
+    return sources
+
+
 def _monitoring_unread_total(request: Request, db: Session, user: UserAccount) -> int:
     watchlists = _monitored_watchlists_for_user(request, db, user)
     watchlist_counts = _monitoring_watchlist_counts(db, watchlists, user.id)
@@ -14493,6 +14550,21 @@ def mark_monitoring_source_unread(source_id: str, request: Request, db: Session 
         "unread_count": counts["total_unread"],
         "counts": counts,
     }
+
+
+@app.get("/api/monitoring/sources")
+def get_monitoring_sources(request: Request, db: Session = Depends(get_db)):
+    """Return stable monitored-source metadata without loading alert-card history."""
+    user = _require_account(request, db)
+    return {"sources": _monitoring_source_metadata_payload(request, db, user)}
+
+
+@app.get("/api/monitoring/source-counts")
+def get_monitoring_source_counts(request: Request, db: Session = Depends(get_db)):
+    """Return fresh unread counts without serializing the full inbox history."""
+    user = _require_account(request, db)
+    counts = _monitoring_counts_payload(request, db, user)
+    return {"unread_total": counts["total_unread"], "counts": counts}
 
 
 @app.get("/api/entitlements")

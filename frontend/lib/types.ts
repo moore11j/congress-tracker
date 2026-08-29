@@ -629,6 +629,10 @@ export type MonitoringInboxSource = {
   new_count: number;
 };
 
+export type MonitoringSourcesResponse = {
+  sources: MonitoringInboxSource[];
+};
+
 export type MonitoringCounts = {
   total_unread: number;
   watchlist_unread: number;

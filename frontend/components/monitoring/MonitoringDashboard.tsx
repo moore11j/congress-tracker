@@ -11,6 +11,8 @@ import {
   getEntitlements,
   hasClientAuthHint,
   getMonitoringInbox,
+  getMonitoringSourceCounts,
+  getMonitoringSources,
   listWatchlists,
   dismissMonitoringItems,
   markMonitoringItemsRead,
@@ -79,7 +81,7 @@ type MonitoredSourceRow = {
   subtitle: string;
   href: string;
   alertHref?: string;
-  count: number;
+  count: number | null;
   countLabel: string;
   countClassName: string;
   group: MonitoringSourceGroup;
@@ -404,6 +406,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const { store, markSeen } = useSavedViews();
   const [watchlists, setWatchlists] = useState(initialWatchlists);
   const [inbox, setInbox] = useState<MonitoringInboxResponse | null>(null);
+  const [sourceMetadata, setSourceMetadata] = useState<MonitoringInboxSource[] | null>(null);
+  const [sourceCounts, setSourceCounts] = useState<MonitoringCounts | null>(null);
   const [savedStatuses, setSavedStatuses] = useState<SavedViewStatus[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
@@ -436,26 +440,29 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     0,
   );
   const inboxLoading = inbox === null && inboxStatus === null;
+  const monitoringSources = sourceMetadata ?? inbox?.sources ?? [];
+  const freshCountSources = sourceCounts?.sources ?? inbox?.sources ?? null;
+  const sourceCountsLoading = freshCountSources === null;
   const inboxSourceCounts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const source of inbox?.sources ?? []) {
+    for (const source of freshCountSources ?? []) {
       map.set(monitoringSourceKey(normalizedMonitoringSourceType(source.type), source.id), Math.max(Number(source.unread_count) || 0, 0));
     }
     return map;
-  }, [inbox]);
+  }, [freshCountSources]);
   const inboxSourceMetadata = useMemo(() => {
     const map = new Map<string, MonitoringInboxSource>();
-    for (const source of inbox?.sources ?? []) {
+    for (const source of monitoringSources) {
       map.set(monitoringSourceKey(normalizedMonitoringSourceType(source.type), source.id), source);
     }
     return map;
-  }, [inbox]);
-  const totalWatchlistNew = inbox
-    ? (inbox.sources ?? []).filter((source) => source.type === "watchlist").reduce((sum, item) => sum + Math.max(item.unread_count ?? 0, 0), 0)
-    : visibleWatchlists.reduce((sum, item) => sum + Math.max(Number(item.unread_count ?? item.unseen_count) || 0, 0), 0);
-  const totalSavedViewNew = inbox
-    ? (inbox.sources ?? []).filter((source) => isSavedScreenSourceType(source.type)).reduce((sum, item) => sum + Math.max(item.unread_count ?? 0, 0), 0)
-    : savedStatuses.reduce((sum, item) => sum + item.unseenCount, 0);
+  }, [monitoringSources]);
+  const totalWatchlistNew = freshCountSources
+    ? freshCountSources.filter((source) => source.type === "watchlist").reduce((sum, item) => sum + Math.max(item.unread_count ?? 0, 0), 0)
+    : null;
+  const totalSavedViewNew = freshCountSources
+    ? freshCountSources.filter((source) => isSavedScreenSourceType(source.type)).reduce((sum, item) => sum + Math.max(item.unread_count ?? 0, 0), 0)
+    : null;
   const visibleSourceKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const watchlist of visibleWatchlists) {
@@ -469,15 +476,15 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, [savedStatuses, visibleWatchlists]);
   const additionalInboxSources = useMemo(
     () =>
-      (inbox?.sources ?? []).filter((source) => {
+      monitoringSources.filter((source) => {
         return !visibleSourceKeys.has(monitoringSourceKey(normalizedMonitoringSourceType(source.type), source.id));
       }),
-    [inbox, visibleSourceKeys],
+    [monitoringSources, visibleSourceKeys],
   );
   const monitoredSourceRows = useMemo(() => {
     const rows: MonitoredSourceRow[] = [];
     const shouldShowSource = (sourceType: string, sourceId: string) => {
-      if (!inbox) return true;
+      if (sourceMetadata === null && inbox === null) return true;
       const metadata = inboxSourceMetadata.get(monitoringSourceKey(normalizedMonitoringSourceType(sourceType), sourceId));
       return Boolean(metadata);
     };
@@ -486,7 +493,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       const sourceId = String(watchlist.id);
       const metadata = inboxSourceMetadata.get(monitoringSourceKey("watchlist", sourceId));
       if (!shouldShowSource("watchlist", sourceId)) continue;
-      const count = inboxSourceCounts.get(monitoringSourceKey("watchlist", sourceId)) ?? Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
+      const count = inboxSourceCounts.get(monitoringSourceKey("watchlist", sourceId)) ?? null;
       rows.push({
         key: `watchlist-${watchlist.id}`,
         sourceType: "watchlist",
@@ -497,8 +504,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         href: sourceHrefForWatchlist(watchlist),
         alertHref: `/watchlists/${watchlist.id}#monitoring-alerts`,
         count,
-        countLabel: count > 0 ? `${count} new` : "0 new",
-        countClassName: count > 0 ? "border-red-300/35 bg-red-500/15 text-red-100" : "border-white/10 text-slate-400",
+        countLabel: count === null ? "Loading" : count > 0 ? `${count} new` : "0 new",
+        countClassName: count !== null && count > 0 ? "border-red-300/35 bg-red-500/15 text-red-100" : "border-white/10 text-slate-400",
         group: "watchlists",
       });
     }
@@ -509,7 +516,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       const metadata = savedScreenId ? inboxSourceMetadata.get(monitoringSourceKey("saved_screen", sourceId)) : undefined;
       if (savedScreenId && !shouldShowSource("saved_screen", sourceId)) continue;
       const inboxCount = savedScreenId ? inboxSourceCounts.get(monitoringSourceKey("saved_screen", sourceId)) : undefined;
-      const count = inboxCount ?? status.unseenCount;
+      const count = inboxCount ?? null;
       rows.push({
         key: `saved-${status.view.id}`,
         sourceType: "saved_screen",
@@ -520,15 +527,15 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         href: savedViewHref(status.view),
         alertHref: manageAlertsHrefForSavedView(status.view),
         count,
-        countLabel: status.status === "loading" && inboxCount === undefined ? "checking" : `${count} new`,
-        countClassName: count > 0 ? "border-sky-300/30 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-400",
+        countLabel: count === null ? "Loading" : `${count} new`,
+        countClassName: count !== null && count > 0 ? "border-sky-300/30 bg-sky-300/15 text-sky-100" : "border-white/10 text-slate-400",
         group: "saved_screens",
         onOpen: () => markSeen(status.view.id),
       });
     }
 
     for (const source of additionalInboxSources) {
-      const count = Math.max(Number(source.unread_count) || 0, 0);
+      const count = inboxSourceCounts.get(monitoringSourceKey(normalizedMonitoringSourceType(source.type), source.id)) ?? null;
       const href = hrefForInboxSource(source);
       rows.push({
         key: `inbox-source-${source.type}-${source.id}`,
@@ -540,14 +547,14 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         href,
         alertHref: manageAlertsHrefForSource(source.type, source.id, href),
         count,
-        countLabel: count > 0 ? `${count} new` : "0 new",
-        countClassName: sourceCountClassName(source.type, count),
+        countLabel: count === null ? "Loading" : count > 0 ? `${count} new` : "0 new",
+        countClassName: count === null ? "border-white/10 text-slate-400" : sourceCountClassName(source.type, count),
         group: sourceGroup(source.type),
       });
     }
 
     return rows;
-  }, [additionalInboxSources, inbox, inboxSourceCounts, inboxSourceMetadata, markSeen, savedStatuses, visibleWatchlists]);
+  }, [additionalInboxSources, inbox, inboxSourceCounts, inboxSourceMetadata, markSeen, savedStatuses, sourceMetadata, visibleWatchlists]);
   const groupedMonitoredSourceRows = useMemo(
     () =>
       (["watchlists", "saved_screens", "strategies", "other"] as MonitoringSourceGroup[])
@@ -605,9 +612,31 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       // refresh for every watched symbol.
       const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox" });
       setInbox(nextInbox);
+      setSourceMetadata((current) => current ?? nextInbox.sources);
+      if (nextInbox.counts) setSourceCounts(nextInbox.counts);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
     } catch (error) {
       setInboxStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load monitoring updates." : "Monitoring updates are temporarily unavailable.");
+    }
+  };
+
+  const refreshSourceMetadata = async () => {
+    try {
+      const response = await getMonitoringSources({ source: "MonitoringSources" });
+      setSourceMetadata(response.sources);
+    } catch {
+      // The inbox response remains a safe fallback if this lightweight
+      // metadata request is temporarily unavailable.
+    }
+  };
+
+  const refreshSourceCounts = async () => {
+    try {
+      const response = await getMonitoringSourceCounts({ source: "MonitoringSourceCounts" });
+      setSourceCounts(response.counts);
+      dispatchUnreadUpdated(response.unread_total);
+    } catch {
+      // Keep the count neutral while the full inbox request is in flight.
     }
   };
 
@@ -639,6 +668,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
   const applyMutationSuccess = (response: MonitoringReadMutationResponse) => {
     setInbox((current) => mergeInboxCounts(current, response.counts));
+    if (response.counts) setSourceCounts(response.counts);
     dispatchUnreadUpdated(response.counts?.total_unread ?? response.unread_count);
   };
 
@@ -684,7 +714,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
   const markSourceNewRead = async (source: MonitoredSourceRow) => {
     const sourceType = normalizedMonitoringSourceType(source.sourceType);
-    if (!(["watchlist", "saved_screen", "strategy"] as string[]).includes(sourceType) || source.count <= 0) return;
+    if (!(["watchlist", "saved_screen", "strategy"] as string[]).includes(sourceType) || source.count === null || source.count <= 0) return;
     const actionKey = `source-read:${source.key}`;
     setPendingReadAction(actionKey);
     setReadActionMessage(null);
@@ -716,9 +746,14 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     try {
       await stopMonitoringSource(normalizedMonitoringSourceType(source.sourceType), source.sourceId);
       setInbox((current) => removeInboxSource(current, source));
+      setSourceMetadata((current) => current?.filter((item) => !(normalizedMonitoringSourceType(item.type) === normalizedMonitoringSourceType(source.sourceType) && item.id === source.sourceId)) ?? null);
+      setSourceCounts((current) => (current ? {
+        ...current,
+        sources: current.sources.filter((item) => !(normalizedMonitoringSourceType(item.type) === normalizedMonitoringSourceType(source.sourceType) && item.id === source.sourceId)),
+      } : current));
       setPendingRemoveSource(null);
       setReadActionMessage("Monitoring removed.");
-      dispatchUnreadUpdated(Math.max((inbox?.unread_total ?? 0) - source.count, 0));
+      dispatchUnreadUpdated(Math.max((inbox?.unread_total ?? 0) - (source.count ?? 0), 0));
     } catch {
       setReadActionMessage("Couldn't remove monitoring. Try again.");
     } finally {
@@ -746,6 +781,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, [initialAuthPending]);
 
   useEffect(() => {
+    void refreshSourceMetadata();
+    void refreshSourceCounts();
     void refreshInbox();
     void refreshWatchlists();
   }, []);
@@ -762,7 +799,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     // Saved-screen monitoring is already represented by the inbox response.
     // Do not issue a full saved-screen events request per card just to render
     // a count that the inbox has already calculated.
-    if (inbox === null) return;
+    if (sourceMetadata === null && inbox === null) return;
     setSavedStatuses(
       visibleSavedViews.map((view) => ({
         view,
@@ -774,19 +811,19 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
         error: null,
       })),
     );
-  }, [inbox, inboxSourceCounts, visibleSavedViews]);
+  }, [inbox, inboxSourceCounts, sourceMetadata, visibleSavedViews]);
 
   return (
     <div className="flex flex-col gap-6">
       <section className="order-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Watchlist events</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : inboxLoading && watchlists.length === 0 ? "—" : totalWatchlistNew}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{watchlistsStatus && watchlists.length === 0 ? "-" : sourceCountsLoading ? "—" : totalWatchlistNew}</div>
           <p className="mt-1 text-sm text-slate-400">new</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saved screen events</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{inboxLoading ? "—" : inboxStatus && !inbox ? "-" : totalSavedViewNew}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{sourceCountsLoading ? "—" : inboxStatus && !inbox ? "-" : totalSavedViewNew}</div>
           <p className="mt-1 text-sm text-slate-400">new</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -857,7 +894,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       countLabel={source.countLabel}
                       countClassName={source.countClassName}
                       alertHref={source.alertHref}
-                      onClearNew={(["watchlist", "saved_screen", "strategy"] as string[]).includes(normalizedMonitoringSourceType(source.sourceType)) && source.count > 0 ? () => void markSourceNewRead(source) : undefined}
+                      onClearNew={(["watchlist", "saved_screen", "strategy"] as string[]).includes(normalizedMonitoringSourceType(source.sourceType)) && source.count !== null && source.count > 0 ? () => void markSourceNewRead(source) : undefined}
                       clearNewDisabled={Boolean(pendingReadAction)}
                       onRemove={() => setPendingRemoveSource(source)}
                       removeDisabled={Boolean(pendingRemoveKey)}

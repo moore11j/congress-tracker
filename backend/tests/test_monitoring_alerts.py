@@ -12,6 +12,8 @@ from app.db import Base
 from app.main import (
     add_to_watchlist,
     get_monitoring_inbox,
+    get_monitoring_source_counts,
+    get_monitoring_sources,
     get_monitoring_unread_count,
     get_watchlist,
     mark_monitoring_items_read,
@@ -1044,6 +1046,39 @@ def test_mark_saved_screen_source_read_clears_its_unread_alerts():
         assert response["marked_read"] == 1
         assert response["source_unread_count"] == 0
         assert response["unread_count"] == 0
+    finally:
+        db.close()
+
+
+def test_monitoring_sources_omits_counts_while_source_counts_stay_fresh():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            MonitoringAlert(
+                user_id=user.id,
+                source_type="watchlist",
+                source_id=str(watchlist.id),
+                source_name=watchlist.name,
+                event_id=103,
+                alert_type="news",
+                symbol="NVDA",
+                title="NVDA news",
+                body=None,
+                payload_json="{}",
+                event_created_at=now,
+            )
+        )
+        db.commit()
+
+        request = _request_for_user(user)
+        metadata = get_monitoring_sources(request, db)
+        counts = get_monitoring_source_counts(request, db)
+
+        source = next(item for item in metadata["sources"] if item["id"] == str(watchlist.id))
+        assert source["unread_count"] == 0
+        assert counts["unread_total"] == 1
+        assert counts["counts"]["sources"][0]["unread_count"] == 1
     finally:
         db.close()
 

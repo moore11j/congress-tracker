@@ -10,6 +10,7 @@ import type {
   MemberProfile,
   MonitoringCounts,
   MonitoringInboxResponse,
+  MonitoringSourcesResponse,
   NewsItem,
   PressReleasesResponse,
   SavedScreen,
@@ -741,6 +742,8 @@ const searchSuggestCache = new Map<string, { value: SearchSuggestResponse; expir
 const searchSuggestPromises = new Map<string, Promise<SearchSuggestResponse>>();
 const eventsCache = new Map<string, { value: EventsResponse; expiresAt: number }>();
 const eventCalendarCache = new Map<string, { value: EventCalendarResponse; expiresAt: number }>();
+let monitoringSourcesCache: { value: MonitoringSourcesResponse; expiresAt: number } | null = null;
+let monitoringSourcesPromise: Promise<MonitoringSourcesResponse> | null = null;
 const eventsPromises = new Map<string, Promise<EventsResponse>>();
 const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
 const tickerDataPromises = new Map<string, Promise<unknown>>();
@@ -8523,6 +8526,35 @@ export async function getMonitoringInbox(authToken?: string, options?: { source?
     cache: "no-store",
     next: { revalidate: 0 },
     source: options?.source ?? "MonitoringInbox",
+  });
+}
+
+export async function getMonitoringSources(options?: { force?: boolean; source?: string }): Promise<MonitoringSourcesResponse> {
+  if (typeof window !== "undefined") {
+    if (!options?.force && monitoringSourcesCache && monitoringSourcesCache.expiresAt > Date.now()) return monitoringSourcesCache.value;
+    if (!options?.force && monitoringSourcesPromise) return monitoringSourcesPromise;
+  }
+  const request = fetchJson<MonitoringSourcesResponse>(buildApiUrl("/api/monitoring/sources"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: options?.source ?? "MonitoringSources",
+  }).then((response) => {
+    if (typeof window !== "undefined") {
+      monitoringSourcesCache = { value: response, expiresAt: Date.now() + 5 * 60_000 };
+    }
+    return response;
+  }).finally(() => {
+    if (typeof window !== "undefined") monitoringSourcesPromise = null;
+  });
+  if (typeof window !== "undefined") monitoringSourcesPromise = request;
+  return request;
+}
+
+export async function getMonitoringSourceCounts(options?: { source?: string }): Promise<{ counts: MonitoringCounts; unread_total: number }> {
+  return fetchJson<{ counts: MonitoringCounts; unread_total: number }>(buildApiUrl("/api/monitoring/source-counts"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: options?.source ?? "MonitoringSourceCounts",
   });
 }
 
