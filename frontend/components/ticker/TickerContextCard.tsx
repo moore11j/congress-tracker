@@ -15,6 +15,7 @@ import {
   getTickerValuation,
   type EventItem,
   type InsightsNewsResponse,
+  type MacroPositioningDriver,
   type MacroPositioningResponse,
   type NewsItem,
   type PressReleasesResponse,
@@ -138,6 +139,92 @@ function macroFactorMark(factor: string | null | undefined) {
   if (factor === "US_DOLLAR") return "$";
   if (factor === "US_10Y_YIELD") return "%";
   return "↗";
+}
+
+function macroDriverFallback(driver: MacroPositioningDriver, symbol: string) {
+  const factor = (driver.factor ?? "").toUpperCase();
+  const name = (driver.name ?? "").toLowerCase();
+  const bias = (driver.bias ?? "neutral").toLowerCase();
+  const isNasdaq = factor === "NASDAQ_100_FUTURES" || name.includes("nasdaq");
+  const isDollar = factor === "US_DOLLAR" || name.includes("dollar") || name.includes("usd");
+  const isTreasury = factor === "US_10Y_YIELD" || name.includes("treasury") || name.includes("10-year");
+
+  if (isNasdaq) {
+    const why = bias === "bullish"
+      ? "Bullish Nasdaq futures positioning signals that institutions are leaning into growth-equity risk."
+      : bias === "bearish"
+        ? "Bearish Nasdaq futures positioning signals that institutions are leaning away from growth-equity risk."
+        : "Nasdaq futures positioning is balanced, signalling neither a clear risk-on nor risk-off regime.";
+    const readthrough = bias === "bullish"
+      ? `A risk-on Nasdaq backdrop can support ${symbol}'s valuation multiple and flows into AI and semiconductor equities. It is a sentiment input, not a revenue forecast.`
+      : bias === "bearish"
+        ? `A defensive Nasdaq backdrop can pressure ${symbol}'s valuation multiple and flows into AI and semiconductor equities. It is a sentiment input, not a revenue forecast.`
+        : `The balanced Nasdaq backdrop is not currently providing a directional valuation signal for ${symbol}.`;
+    return { why, readthrough };
+  }
+  if (isDollar) {
+    const why = bias === "bullish"
+      ? "Bullish dollar futures positioning points to a strengthening-dollar regime."
+      : bias === "bearish"
+        ? "Bearish dollar futures positioning points to a weakening-dollar regime."
+        : "Dollar futures positioning is balanced, pointing to a range-bound dollar regime.";
+    const readthrough = bias === "bullish"
+      ? `A stronger dollar can make ${symbol}'s products less affordable abroad and reduce the translated value of overseas sales, creating a potential headwind.`
+      : bias === "bearish"
+        ? `A weaker dollar can improve overseas affordability and lift the translated value of ${symbol}'s foreign sales, creating a potential tailwind.`
+        : `A stable dollar is not currently providing a directional currency read-through for ${symbol}.`;
+    return { why, readthrough };
+  }
+  if (isTreasury) {
+    const why = bias === "bullish"
+      ? "Bullish Treasury futures positioning is read as easing Treasury yields."
+      : bias === "bearish"
+        ? "Bearish Treasury futures positioning is read as rising Treasury yields."
+        : "Treasury futures positioning points to broadly stable yields.";
+    const readthrough = bias === "bullish"
+      ? `Easing yields lower the discount rate applied to ${symbol}'s future cash flows, which can support long-duration technology valuations.`
+      : bias === "bearish"
+        ? `Rising yields raise the discount rate applied to ${symbol}'s future cash flows, which can pressure long-duration technology valuations.`
+        : `Stable yields are not currently providing a directional discount-rate read-through for ${symbol}.`;
+    return { why, readthrough };
+  }
+  return {
+    why: "The latest institutional positioning data defines this macro regime.",
+    readthrough: `This macro factor is monitored for its potential effect on ${symbol}.`,
+  };
+}
+
+function MacroFactorCard({ driver, symbol, index }: { driver: MacroPositioningDriver; symbol: string; index: number }) {
+  const fallback = macroDriverFallback(driver, symbol);
+  return (
+    <article className={`rounded-xl border border-white/10 bg-slate-950/55 p-3.5 ${index === 2 ? "lg:col-span-2" : ""}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-sm font-semibold text-emerald-200">{macroFactorMark(driver.factor)}</span>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">{driver.category ?? "MACRO FACTOR"}</p>
+            <p className="text-base font-semibold text-slate-100">{driver.name}</p>
+            <p className={`text-xs font-medium ${macroBiasTextClass(driver.bias)}`}>{driver.regime_label ?? driver.bias}</p>
+          </div>
+        </div>
+        <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${macroImpactClasses(driver.ticker_impact)}`}>{macroImpactText(driver.ticker_impact)}</span>
+      </div>
+      <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Why this is happening</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">{driver.why_macro || fallback.why}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">What it means for {symbol}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">{driver.ticker_readthrough || fallback.readthrough}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-5 border-t border-white/10 pt-2 text-xs text-slate-400">
+        <span>Impact <strong className={driver.impact_score && driver.impact_score > 0 ? "ml-1 text-emerald-300" : driver.impact_score && driver.impact_score < 0 ? "ml-1 text-rose-300" : "ml-1 text-slate-200"}>{typeof driver.impact_score === "number" && driver.impact_score > 0 ? "+" : ""}{driver.impact_score ?? 0}</strong></span>
+        <span>Confidence <strong className={driver.confidence === "HIGH" ? "ml-1 text-emerald-300" : driver.confidence === "MEDIUM" ? "ml-1 text-amber-300" : "ml-1 text-slate-200"}>{driver.confidence ?? "Medium"}</strong></span>
+      </div>
+    </article>
+  );
 }
 
 function normalizeSecForm(value: string | null | undefined) {
@@ -1340,39 +1427,14 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
                       <span><strong className="text-lg font-medium text-emerald-300">{macroPositioning.counts?.tailwinds ?? 0}</strong> Tailwinds</span>
                       <span><strong className="text-lg font-medium text-rose-300">{macroPositioning.counts?.headwinds ?? 0}</strong> Headwind{(macroPositioning.counts?.headwinds ?? 0) === 1 ? "" : "s"}</span>
                       <span><strong className="text-lg font-medium text-slate-200">{macroPositioning.counts?.neutral ?? 0}</strong> Neutral</span>
-                      {macroPositioning.updated ? <span className="ml-auto">Updated {formatDateShort(macroPositioning.updated)}</span> : null}
+                      {macroPositioning.updated ? <span className="ml-auto">Data as of {formatDateShort(macroPositioning.updated)}</span> : null}
+                      {macroPositioning.generated_at ? <span>Refreshed {formatDateShort(macroPositioning.generated_at)}</span> : null}
                     </div>
                   </div>
 
                   <div className="grid gap-3 lg:grid-cols-2">
                     {(macroPositioning.drivers ?? []).map((driver, index) => (
-                      <article key={`${driver.factor ?? driver.name}-${driver.bias}`} className={`rounded-xl border border-white/10 bg-slate-950/55 p-3.5 ${index === 2 ? "lg:col-span-2" : ""}`}>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="flex min-w-0 gap-2.5">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-sm font-semibold text-emerald-200">{macroFactorMark(driver.factor)}</span>
-                            <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">{driver.category ?? "MACRO FACTOR"}</p>
-                              <p className="text-base font-semibold text-slate-100">{driver.name}</p>
-                              <p className={`text-xs font-medium ${macroBiasTextClass(driver.bias)}`}>{driver.regime_label ?? driver.bias}</p>
-                            </div>
-                          </div>
-                          <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${macroImpactClasses(driver.ticker_impact)}`}>{macroImpactText(driver.ticker_impact)}</span>
-                        </div>
-                        <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
-                          <div>
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Why this is happening</p>
-                            <p className="mt-1 text-xs leading-5 text-slate-300">{driver.why_macro ?? "Latest available macro positioning is reflected in the current regime."}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">What it means for {symbol}</p>
-                            <p className="mt-1 text-xs leading-5 text-slate-300">{driver.ticker_readthrough ?? "This factor is incorporated into the ticker’s current macro assessment."}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex items-center gap-5 border-t border-white/10 pt-2 text-xs text-slate-400">
-                          <span>Impact <strong className={driver.impact_score && driver.impact_score > 0 ? "ml-1 text-emerald-300" : driver.impact_score && driver.impact_score < 0 ? "ml-1 text-rose-300" : "ml-1 text-slate-200"}>{typeof driver.impact_score === "number" && driver.impact_score > 0 ? "+" : ""}{driver.impact_score ?? 0}</strong></span>
-                          <span>Confidence <strong className={driver.confidence === "HIGH" ? "ml-1 text-emerald-300" : driver.confidence === "MEDIUM" ? "ml-1 text-amber-300" : "ml-1 text-slate-200"}>{driver.confidence ?? "Medium"}</strong></span>
-                        </div>
-                      </article>
+                      <MacroFactorCard key={`${driver.factor ?? driver.name}-${driver.bias}`} driver={driver} symbol={symbol} index={index} />
                     ))}
                   </div>
 

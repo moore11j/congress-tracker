@@ -1484,20 +1484,32 @@ def _factor_why_macro(asset_key: str, regime_label: str, asset: dict[str, Any]) 
     report_date = asset.get("positioning_date")
     date_text = report_date.isoformat() if isinstance(report_date, date) else "the latest available report"
     if asset_key == "nasdaq_futures":
-        return f"The latest futures positioning report, dated {date_text}, points to {regime_label.lower()}."
+        return f"The latest CFTC futures-positioning report ({date_text}) shows a {regime_label.lower()} regime, indicating whether institutions are leaning into or away from growth-equity risk."
     if asset_key == "us_dollar":
-        return f"The latest dollar futures positioning report, dated {date_text}, is consistent with a {regime_label.lower()} regime."
-    return f"The latest Treasury futures positioning report, dated {date_text}, maps to a {regime_label.lower()} read."
+        return f"The latest CFTC dollar futures-positioning report ({date_text}) is consistent with a {regime_label.lower()} regime."
+    return f"The latest Treasury futures-positioning report ({date_text}) maps to {regime_label.lower()}; Treasury futures strength is read as easing yields."
 
 
 def _factor_readthrough(asset_key: str, profile: dict[str, Any], impact: str) -> str:
     company = str(profile.get("company_name") or "This company")
     sector = str(profile.get("sector") or "the company’s sector").lower()
     if asset_key == "nasdaq_futures":
-        return f"{company} is evaluated against {sector} risk appetite, so this backdrop can influence valuation multiples and capital flows into comparable equities."
+        if impact.endswith("TAILWIND"):
+            return f"{company} is a {sector} equity whose valuation is sensitive to appetite for long-duration growth stocks. A risk-on Nasdaq backdrop can support its valuation multiple and capital flows into comparable equities; it is a sentiment signal, not a revenue forecast."
+        if impact.endswith("HEADWIND"):
+            return f"{company} is a {sector} equity whose valuation is sensitive to appetite for long-duration growth stocks. A defensive Nasdaq backdrop can pressure its valuation multiple and capital flows into comparable equities; it is a sentiment signal, not a revenue forecast."
+        return f"{company} is a {sector} equity whose valuation is sensitive to appetite for long-duration growth stocks. The current Nasdaq backdrop is not providing a directional valuation signal."
     if asset_key == "us_dollar":
-        return f"For {company}, dollar conditions can affect overseas demand, translated results, and investor appetite for global risk assets; the expected effect is {impact.lower().replace('_', ' ')}."
-    return f"Rate direction affects the discount rate investors apply to {company}'s future cash flows; the expected effect is {impact.lower().replace('_', ' ')}."
+        if impact.endswith("HEADWIND"):
+            return f"A stronger dollar can make {company}'s products less affordable in local-currency terms and reduce the dollar value of overseas sales, creating a potential headwind to global demand and translated results."
+        if impact.endswith("TAILWIND"):
+            return f"A weaker dollar can improve local-currency affordability for {company}'s products and lift the dollar value of overseas sales, supporting global demand and translated results."
+        return f"Dollar conditions can affect overseas demand and translated results for {company}, but the current regime is not assigned a directional impact."
+    if impact.endswith("TAILWIND"):
+        return f"Easing Treasury yields lower the discount rate investors apply to {company}'s future cash flows. That generally supports the valuation of long-duration growth equities, including {company}, more than it changes near-term operating results."
+    if impact.endswith("HEADWIND"):
+        return f"Rising Treasury yields raise the discount rate investors apply to {company}'s future cash flows. That can pressure the valuation of long-duration growth equities, including {company}, more than it changes near-term operating results."
+    return f"Treasury yields affect the discount rate investors apply to {company}'s future cash flows, but the current rates regime is not assigned a directional impact."
 
 
 def _factor_watch_condition(asset_key: str, regime_label: str, impact: str) -> str:

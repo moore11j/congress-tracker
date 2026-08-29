@@ -167,6 +167,37 @@ def test_treasury_yield_regime_is_explicit_and_not_a_generic_bullish_label():
     assert treasury["ticker_impact"] == "STRONG_TAILWIND"
 
 
+def test_technology_factor_readthroughs_explain_the_ticker_effect():
+    mapping = MacroMapping(
+        key="technology",
+        label="Technology",
+        thesis_label="growth equities",
+        headline="",
+        mapping_type="sector",
+        drivers=[
+            {"asset_key": "nasdaq_futures", "effect": "direct"},
+            {"asset_key": "us_dollar", "effect": "inverse"},
+            {"asset_key": "ten_year_treasury", "effect": "inverse_yield"},
+        ],
+    )
+    fetched_at = datetime.now(timezone.utc)
+    factors = _ticker_macro_factors(
+        mapping,
+        {
+            "nasdaq_futures": {"bias": "bullish", "positioning_date": date(2026, 8, 25), "fetched_at": fetched_at, "payload": {}},
+            "us_dollar": {"bias": "bullish", "positioning_date": date(2026, 8, 25), "fetched_at": fetched_at, "payload": {}},
+            "ten_year_treasury": {"bias": "bullish", "positioning_date": date(2026, 8, 25), "fetched_at": fetched_at, "payload": {}},
+        },
+        {"company_name": "NVIDIA", "sector": "Technology"},
+    )
+    by_factor = {factor["factor"]: factor for factor in factors}
+
+    assert "valuation multiple" in by_factor["NASDAQ_100_FUTURES"]["ticker_readthrough"]
+    assert "overseas sales" in by_factor["US_DOLLAR"]["ticker_readthrough"]
+    assert "discount rate" in by_factor["US_10Y_YIELD"]["ticker_readthrough"]
+    assert "easing Treasury yields" in by_factor["US_10Y_YIELD"]["why_macro"]
+
+
 def test_insights_macro_positioning_pro_receives_full_payload(monkeypatch):
     db = _db()
     try:

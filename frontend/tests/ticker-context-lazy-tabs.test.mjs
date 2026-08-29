@@ -133,3 +133,12 @@ test("analyst consensus tab is lazy and shows free summary with premium detail g
   assert.match(panel, /Rating Distribution/);
   assert.match(panel, /Price Targets/);
 });
+
+test("ticker macro positioning explains factor read-throughs and separates source date from refresh time", () => {
+  assert.match(card, /function macroDriverFallback/);
+  assert.match(card, /make \$\{symbol\}'s products less affordable abroad/);
+  assert.match(card, /Easing yields lower the discount rate applied to \$\{symbol\}'s future cash flows/);
+  assert.match(card, /Data as of \{formatDateShort\(macroPositioning\.updated\)\}/);
+  assert.match(card, /Refreshed \{formatDateShort\(macroPositioning\.generated_at\)\}/);
+  assert.doesNotMatch(card, /This factor is incorporated into the ticker’s current macro assessment\./);
+});

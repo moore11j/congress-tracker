@@ -4995,6 +4995,8 @@ export type MacroPositioningResponse = {
   summary?: string | null;
   drivers?: MacroPositioningDriver[];
   updated?: string | null;
+  generated_at?: string | null;
+  source_refresh_at?: string | null;
   locked?: boolean;
   required_plan?: "pro" | string | null;
   title?: string | null;
