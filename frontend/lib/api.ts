@@ -96,6 +96,7 @@ export const EVENTS_API_MAX_LIMIT = 100;
 const CLIENT_CACHE_TTL_MS = 30_000;
 const SEARCH_CACHE_TTL_MS = 20 * 60_000;
 const EVENTS_CACHE_TTL_MS = 5_000;
+const EVENT_CALENDAR_CACHE_TTL_MS = 7 * 24 * 60 * 60_000;
 
 export class ApiError extends Error {
   status: number;
@@ -8553,7 +8554,6 @@ export async function getEventCalendar(params: {
   };
   const url = buildApiUrl("/api/monitoring/event-calendar", query);
   const cacheKey = `${query.start}:${query.end}:${query.scope}`;
-  const isHistorical = new Date(`${params.end}T23:59:59Z`).getTime() < Date.now();
   if (typeof window !== "undefined" && !params.signal?.aborted) {
     const cached = eventCalendarCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
@@ -8565,7 +8565,7 @@ export async function getEventCalendar(params: {
       source: params.source ?? "EventCalendar",
   });
   if (typeof window !== "undefined" && !params.signal?.aborted) {
-    eventCalendarCache.set(cacheKey, { value: response, expiresAt: Date.now() + (isHistorical ? 24 * 60 * 60_000 : 5 * 60_000) });
+    eventCalendarCache.set(cacheKey, { value: response, expiresAt: Date.now() + EVENT_CALENDAR_CACHE_TTL_MS });
   }
   return response;
 }

@@ -304,6 +304,8 @@ from app.services.monitoring_alerts import (
     mark_alerts_read,
     mark_alerts_unread,
     mark_alert_unread,
+    mark_source_read,
+    mark_source_unread,
     mark_watchlist_source_read,
     mark_watchlist_source_unread,
     recent_alerts,
@@ -14400,20 +14402,70 @@ def mark_monitoring_alert_unread(alert_id: int, request: Request, db: Session = 
     return {"id": alert_id, "read": False, "unread_count": counts["total_unread"], "counts": counts}
 
 
+def _require_owned_monitoring_source(
+    db: Session,
+    user: UserAccount,
+    source_type: str,
+    source_id: str,
+) -> tuple[str, Watchlist | None]:
+    """Validate that a bulk source mutation is scoped to one of the user's sources."""
+    normalized_type = "saved_screen" if source_type in {"saved_screen", "saved-screen", "saved_view"} else source_type
+    normalized_id = str(source_id).strip()
+    if normalized_type not in {"watchlist", "saved_screen", "strategy"} or not normalized_id:
+        raise HTTPException(status_code=422, detail="Unsupported monitoring source.")
+
+    if normalized_type == "watchlist":
+        watchlist_id = int(normalized_id) if normalized_id.isdigit() else -1
+        return normalized_type, _get_owned_watchlist(db, user, watchlist_id)
+
+    if normalized_type == "saved_screen":
+        saved_screen_id = int(normalized_id) if normalized_id.isdigit() else -1
+        saved_screen = db.get(SavedScreen, saved_screen_id)
+        if saved_screen is None or saved_screen.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Saved screen not found.")
+        return normalized_type, None
+
+    subscription = (
+        db.execute(
+            select(StrategySubscription)
+            .join(StrategyDefinition, StrategyDefinition.id == StrategySubscription.strategy_id)
+            .where(StrategySubscription.user_id == user.id, StrategyDefinition.slug == normalized_id)
+        )
+        .scalars()
+        .first()
+    )
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="Strategy monitoring subscription not found.")
+    return normalized_type, None
+
+
+def _monitoring_source_unread_count(counts: dict[str, Any], source_type: str, source_id: str) -> int:
+    normalized_id = str(source_id)
+    for source in counts.get("sources", []):
+        if not isinstance(source, dict):
+            continue
+        raw_source_type = str(source.get("type") or "")
+        normalized_source_type = "saved_screen" if raw_source_type in {"saved_screen", "saved-screen", "saved_view"} else raw_source_type
+        if normalized_source_type == source_type and str(source.get("id") or "") == normalized_id:
+            return max(int(source.get("unread_count") or 0), 0)
+    return 0
+
+
 @app.post("/api/monitoring/sources/{source_id}/mark-read", dependencies=[Depends(rate_limit_notification_mutation)])
 def mark_monitoring_source_read(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
     user = _require_account(request, db)
-    if source_type != "watchlist":
-        raise HTTPException(status_code=422, detail="Unsupported source_type")
-    watchlist_id = int(source_id) if source_id.isdigit() else -1
-    watchlist = _get_owned_watchlist(db, user, watchlist_id)
-    marked = mark_watchlist_source_read(db, user_id=user.id, watchlist=watchlist)
+    normalized_type, watchlist = _require_owned_monitoring_source(db, user, source_type, source_id)
+    marked = (
+        mark_watchlist_source_read(db, user_id=user.id, watchlist=watchlist)
+        if watchlist is not None
+        else mark_source_read(db, user_id=user.id, source_type=normalized_type, source_id=source_id)
+    )
     db.commit()
-    source_count = watchlist_unread_count(db, watchlist_id, user_id=user.id)
     counts = _monitoring_counts_payload(request, db, user)
+    source_count = _monitoring_source_unread_count(counts, normalized_type, source_id)
     return {
         "source_id": source_id,
-        "source_type": source_type,
+        "source_type": normalized_type,
         "marked_read": marked,
         "source_unread_count": source_count,
         "unread_count": counts["total_unread"],
@@ -14424,17 +14476,18 @@ def mark_monitoring_source_read(source_id: str, request: Request, db: Session = 
 @app.post("/api/monitoring/sources/{source_id}/mark-unread", dependencies=[Depends(rate_limit_notification_mutation)])
 def mark_monitoring_source_unread(source_id: str, request: Request, db: Session = Depends(get_db), source_type: str = "watchlist"):
     user = _require_account(request, db)
-    if source_type != "watchlist":
-        raise HTTPException(status_code=422, detail="Unsupported source_type")
-    watchlist_id = int(source_id) if source_id.isdigit() else -1
-    watchlist = _get_owned_watchlist(db, user, watchlist_id)
-    marked = mark_watchlist_source_unread(db, user_id=user.id, watchlist=watchlist)
+    normalized_type, watchlist = _require_owned_monitoring_source(db, user, source_type, source_id)
+    marked = (
+        mark_watchlist_source_unread(db, user_id=user.id, watchlist=watchlist)
+        if watchlist is not None
+        else mark_source_unread(db, user_id=user.id, source_type=normalized_type, source_id=source_id)
+    )
     db.commit()
-    source_count = watchlist_unread_count(db, watchlist_id, user_id=user.id)
     counts = _monitoring_counts_payload(request, db, user)
+    source_count = _monitoring_source_unread_count(counts, normalized_type, source_id)
     return {
         "source_id": source_id,
-        "source_type": source_type,
+        "source_type": normalized_type,
         "marked_unread": marked,
         "source_unread_count": source_count,
         "unread_count": counts["total_unread"],

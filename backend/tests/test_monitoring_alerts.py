@@ -1014,6 +1014,40 @@ def test_inbox_includes_alert_only_saved_screen_source_in_counts():
         db.close()
 
 
+def test_mark_saved_screen_source_read_clears_its_unread_alerts():
+    db = _session()
+    try:
+        user, _watchlist, now = _seed_watchlist(db)
+        screen = SavedScreen(user_id=user.id, name="Bullish confirmation", params_json='{"confirmation_direction":"bullish"}')
+        db.add(screen)
+        db.flush()
+        db.add(
+            MonitoringAlert(
+                user_id=user.id,
+                source_type="saved_screen",
+                source_id=str(screen.id),
+                source_name=screen.name,
+                event_id=102,
+                alert_type="entered_screen",
+                symbol="MY",
+                title="MY entered your 'Bullish confirmation' screen",
+                body=None,
+                payload_json="{}",
+                event_created_at=now,
+            )
+        )
+        db.commit()
+
+        response = mark_monitoring_source_read(str(screen.id), _request_for_user(user), db, source_type="saved_screen")
+
+        assert response["source_type"] == "saved_screen"
+        assert response["marked_read"] == 1
+        assert response["source_unread_count"] == 0
+        assert response["unread_count"] == 0
+    finally:
+        db.close()
+
+
 def test_inbox_keeps_subscribed_saved_screen_source_with_no_alerts():
     db = _session()
     try:

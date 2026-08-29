@@ -9,27 +9,19 @@ import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   ApiError,
   getEntitlements,
-  getEvents,
   hasClientAuthHint,
   getMonitoringInbox,
-  getSignalsAll,
   listWatchlists,
   dismissMonitoringItems,
   markMonitoringItemsRead,
   markMonitoringItemsUnread,
   markMonitoringSourceRead,
-  listSavedScreenEvents,
   stopMonitoringSource,
-  getWatchlistEvents,
-  type EventItem,
   type MonitoringReadMutationResponse,
-  type SignalItem,
-  type SignalMode,
-  type SignalSort,
 } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import { buildMonitoringEventTitle, displayMonitoringAlertTitle } from "@/lib/monitoringTitles";
-import type { MonitoringCounts, MonitoringInboxResponse, SavedScreenEvent, WatchlistSummary } from "@/lib/types";
+import { displayMonitoringAlertTitle } from "@/lib/monitoringTitles";
+import type { MonitoringCounts, MonitoringInboxResponse, WatchlistSummary } from "@/lib/types";
 import { compactInteractiveSurfaceClassName, compactInteractiveTitleClassName } from "@/lib/styles";
 import {
   markSavedViewSeen,
@@ -65,25 +57,8 @@ type SourceStatus = "idle" | "loading" | "ready";
 type SavedViewStatus = {
   view: SavedView;
   unseenCount: number;
-  latest: MonitoredEvent[];
   status: SourceStatus;
   error?: string | null;
-};
-
-type MonitoredEvent = {
-  id: string;
-  ts: string;
-  symbol?: string | null;
-  title: string;
-  sourceName: string;
-  sourceHref: string;
-  sourceType: "watchlist" | "saved-view";
-  savedViewId?: string;
-  smartScore?: number | null;
-  scoreLabel?: string | null;
-  body?: string | null;
-  alertId?: number;
-  readAt?: string | null;
 };
 
 type MonitoringDashboardProps = {
@@ -110,11 +85,6 @@ type MonitoredSourceRow = {
   group: MonitoringSourceGroup;
   onOpen?: () => void;
 };
-
-function isNewer(ts: string | null | undefined, checkpoint: string | null | undefined) {
-  if (!ts || !checkpoint) return false;
-  return new Date(ts).getTime() > new Date(checkpoint).getTime();
-}
 
 function isUnreadMonitoringItem(item: { is_unread?: boolean; read_at?: string | null }) {
   return Boolean(item.is_unread ?? !item.read_at);
@@ -283,100 +253,12 @@ function sourceHrefForWatchlist(watchlist: WatchlistSummary) {
   return `/watchlists/${watchlist.id}?${params.toString()}`;
 }
 
-function eventTitle(event: EventItem) {
-  const normalizedTitle = buildMonitoringEventTitle(event, event.payload ?? {});
-  if (normalizedTitle) return normalizedTitle;
-  const payload = event.payload ?? {};
-  const symbol = event.symbol ?? event.ticker ?? payload.symbol ?? payload.ticker;
-  const name =
-    event.member_name ??
-    payload.member?.name ??
-    payload.insider_name ??
-    payload.insiderName ??
-    event.source ??
-    event.event_type;
-  const tradeType = event.trade_type ?? payload.transaction_type ?? payload.transactionType ?? payload.raw?.transactionType;
-  return [symbol, name, tradeType].filter(Boolean).join(" · ") || event.headline || event.summary || event.event_type;
-}
-
-function signalTitle(signal: SignalItem) {
-  return [signal.symbol, signal.who, signal.trade_type].filter(Boolean).join(" · ") || "Unusual signal";
-}
-
-function eventToMonitoredEvent(
-  event: EventItem,
-  sourceName: string,
-  sourceHref: string,
-  sourceType: MonitoredEvent["sourceType"],
-  savedViewId?: string,
-): MonitoredEvent {
-  return {
-    id: `${sourceType}:event:${sourceName}:${event.id}`,
-    ts: event.ts,
-    symbol: event.symbol ?? event.ticker ?? null,
-    title: eventTitle(event),
-    sourceName,
-    sourceHref,
-    sourceType,
-    savedViewId,
-    smartScore: event.smart_score ?? null,
-    scoreLabel: typeof event.smart_score === "number" ? `conviction ${event.smart_score}` : null,
-  };
-}
-
-function signalToMonitoredEvent(signal: SignalItem, sourceName: string, sourceHref: string, savedViewId?: string): MonitoredEvent {
-  return {
-    id: `saved-view:signal:${sourceName}:${signal.event_id}`,
-    ts: signal.ts,
-    symbol: signal.symbol ?? null,
-    title: signalTitle(signal),
-    sourceName,
-    sourceHref,
-    sourceType: "saved-view",
-    savedViewId,
-    smartScore: signal.smart_score ?? null,
-    scoreLabel: typeof signal.smart_score === "number" ? `conviction ${signal.smart_score}` : null,
-  };
-}
-
-function savedScreenEventToMonitoredEvent(event: SavedScreenEvent): MonitoredEvent {
-  const after = event.after_snapshot;
-  const before = event.before_snapshot;
-  const delta =
-    typeof before?.confirmation_score === "number" && typeof after?.confirmation_score === "number"
-      ? after.confirmation_score - before.confirmation_score
-      : typeof after?.confirmation_score === "number"
-        ? after.confirmation_score
-        : null;
-  const scoreLabel = delta && delta !== 0 ? `score ${delta > 0 ? "+" : ""}${delta}` : after ? `score ${after.confirmation_score}` : null;
-  return {
-    id: `saved-screen:event:${event.saved_screen_id}:${event.id}`,
-    ts: event.created_at,
-    symbol: event.ticker,
-    title: event.title,
-    body: event.description,
-    sourceName: event.screen_name ?? "Saved screen",
-    sourceHref: `/ticker/${encodeURIComponent(event.ticker)}`,
-    sourceType: "saved-view",
-    smartScore: after?.confirmation_score ?? null,
-    scoreLabel,
-  };
-}
-
 const SAVED_SCREEN_VIEW_PREFIX = "saved-screen:";
 
 function parseSavedScreenId(view: SavedView): number | null {
   if (!view.id.startsWith(SAVED_SCREEN_VIEW_PREFIX)) return null;
   const parsed = Number(view.id.slice(SAVED_SCREEN_VIEW_PREFIX.length));
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function validSignalMode(value: string | undefined): SignalMode {
-  return value === "congress" || value === "insider" ? value : "all";
-}
-
-function validSignalSort(value: string | undefined): SignalSort {
-  return value === "multiple" || value === "recent" || value === "amount" || value === "confirmation" || value === "freshness" ? value : "smart";
 }
 
 function useSavedViews() {
@@ -718,9 +600,10 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const refreshInbox = async () => {
     setInboxStatus(null);
     try {
-      // Materialize checkpoint-based watchlist updates before rendering the
-      // inbox, so a source's “new” badge always has matching cards here.
-      const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox", refresh: true });
+      // Alert materialization runs in scheduled/background work. Rendering
+      // this page should read the persisted inbox, never wait on a provider
+      // refresh for every watched symbol.
+      const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox" });
       setInbox(nextInbox);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
     } catch (error) {
@@ -800,22 +683,23 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   };
 
   const markSourceNewRead = async (source: MonitoredSourceRow) => {
-    if (source.sourceType !== "watchlist" || source.count <= 0) return;
+    const sourceType = normalizedMonitoringSourceType(source.sourceType);
+    if (!(["watchlist", "saved_screen", "strategy"] as string[]).includes(sourceType) || source.count <= 0) return;
     const actionKey = `source-read:${source.key}`;
     setPendingReadAction(actionKey);
     setReadActionMessage(null);
     try {
-      const response = await markMonitoringSourceRead(source.sourceId, "watchlist");
+      const response = await markMonitoringSourceRead(source.sourceId, sourceType);
       applyMutationSuccess(response);
       setSelectedItemIds((current) =>
         current.filter((id) => {
           const item = inboxItems.find((candidate) => candidate.id === id);
-          return !item || normalizedMonitoringSourceType(item.source_type) !== "watchlist" || String(item.source_id) !== source.sourceId;
+          return !item || normalizedMonitoringSourceType(item.source_type) !== sourceType || String(item.source_id) !== source.sourceId;
         }),
       );
       setReadActionMessage(`All new updates in ${source.title} are marked read.`);
       void refreshInbox();
-      void refreshWatchlists();
+      if (sourceType === "watchlist") void refreshWatchlists();
     } catch {
       setReadActionMessage(`Unable to mark new updates in ${source.title} as read.`);
     } finally {
@@ -875,106 +759,22 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, [inboxCategoryFilter, inboxFilter, inboxPageSize, inboxSourceFilter]);
 
   useEffect(() => {
-    let cancelled = false;
+    // Saved-screen monitoring is already represented by the inbox response.
+    // Do not issue a full saved-screen events request per card just to render
+    // a count that the inbox has already calculated.
+    if (inbox === null) return;
     setSavedStatuses(
       visibleSavedViews.map((view) => ({
         view,
-        unseenCount: 0,
-        latest: [],
-        status: view.lastSeenAt ? "loading" : "ready",
+        unseenCount: (() => {
+          const savedScreenId = parseSavedScreenId(view);
+          return savedScreenId ? inboxSourceCounts.get(monitoringSourceKey("saved_screen", String(savedScreenId))) ?? 0 : 0;
+        })(),
+        status: "ready",
         error: null,
       })),
     );
-
-    async function loadSavedViews() {
-      const statuses = await Promise.all(
-        visibleSavedViews.map(async (view): Promise<SavedViewStatus> => {
-          const href = savedViewHref(view);
-          if (!view.lastSeenAt) {
-            return { view, unseenCount: 0, latest: [], status: "ready" };
-          }
-
-          try {
-            if (view.surface === "screener") {
-              const savedScreenId = parseSavedScreenId(view);
-              if (!Number.isFinite(savedScreenId)) {
-                return { view, unseenCount: 0, latest: [], status: "ready" };
-              }
-              const data = await listSavedScreenEvents({ limit: 100 });
-              const newItems = data.items.filter(
-                (item) => item.saved_screen_id === savedScreenId && isNewer(item.created_at, view.lastSeenAt),
-              );
-              return {
-                view,
-                unseenCount: newItems.length,
-                latest: newItems.slice(0, 3).map(savedScreenEventToMonitoredEvent),
-                status: "ready",
-              };
-            }
-
-            if (view.surface === "signals") {
-              const data = await getSignalsAll({
-                mode: validSignalMode(view.params.mode),
-                side: view.params.side,
-                sort: validSignalSort(view.params.sort),
-                symbol: view.params.symbol,
-                limit: 100,
-              });
-              const newItems = data.items.filter((item) => isNewer(item.ts, view.lastSeenAt));
-              return {
-                view,
-                unseenCount: newItems.length,
-                latest: newItems.slice(0, 3).map((item) => signalToMonitoredEvent(item, view.name, href, view.id)),
-                status: "ready",
-              };
-            }
-
-            if (view.surface === "watchlist" && view.scopeKey) {
-              const id = Number(view.scopeKey);
-              if (!Number.isFinite(id)) return { view, unseenCount: 0, latest: [], status: "ready" };
-              const data = await getWatchlistEvents(id, {
-                mode: view.params.mode,
-                since: view.lastSeenAt,
-                limit: 100,
-                source: "MonitoringInbox",
-              });
-              return {
-                view,
-                unseenCount: typeof data.total === "number" ? data.total : data.items.length,
-                latest: data.items.slice(0, 3).map((event) => eventToMonitoredEvent(event, view.name, href, "saved-view", view.id)),
-                status: "ready",
-              };
-            }
-
-            const feedMode = view.params.mode === "congress" || view.params.mode === "insider" ? view.params.mode : "all";
-            const params = { ...view.params, mode: undefined, tape: feedMode, since: view.lastSeenAt, limit: 100 };
-            const data = await getEvents({ ...params, source: "MonitoringInbox" });
-            return {
-              view,
-              unseenCount: typeof data.total === "number" ? data.total : data.items.length,
-              latest: data.items.slice(0, 3).map((event) => eventToMonitoredEvent(event, view.name, href, "saved-view", view.id)),
-              status: "ready",
-            };
-          } catch (error) {
-            return {
-              view,
-              unseenCount: 0,
-              latest: [],
-              status: "ready",
-              error: error instanceof Error ? error.message : "Unable to load saved screen.",
-            };
-          }
-        }),
-      );
-
-      if (!cancelled) setSavedStatuses(statuses);
-    }
-
-    loadSavedViews();
-    return () => {
-      cancelled = true;
-    };
-  }, [visibleSavedViews]);
+  }, [inbox, inboxSourceCounts, visibleSavedViews]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -1057,7 +857,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       countLabel={source.countLabel}
                       countClassName={source.countClassName}
                       alertHref={source.alertHref}
-                      onClearNew={source.sourceType === "watchlist" && source.count > 0 ? () => void markSourceNewRead(source) : undefined}
+                      onClearNew={(["watchlist", "saved_screen", "strategy"] as string[]).includes(normalizedMonitoringSourceType(source.sourceType)) && source.count > 0 ? () => void markSourceNewRead(source) : undefined}
                       clearNewDisabled={Boolean(pendingReadAction)}
                       onRemove={() => setPendingRemoveSource(source)}
                       removeDisabled={Boolean(pendingRemoveKey)}

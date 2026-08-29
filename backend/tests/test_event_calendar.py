@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
-from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, Security, UserAccount, Watchlist, WatchlistItem
+from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, Security, TickerContentCache, UserAccount, Watchlist, WatchlistItem
 from app.routers.event_calendar import get_monitoring_event_calendar
 from app.services.event_calendar import CalendarFetchResult, fetch_event_calendar, upcoming_event_calendar_items
 
@@ -25,6 +25,7 @@ def _session():
             PlanLimit.__table__,
             PlanPrice.__table__,
             Security.__table__,
+            TickerContentCache.__table__,
             UserAccount.__table__,
             Watchlist.__table__,
             WatchlistItem.__table__,
@@ -128,6 +129,31 @@ def test_event_calendar_uses_symbol_earnings_sources_for_watchlist_earnings(monk
         assert "earnings" in requested_endpoints
         assert "earnings-calendar" in requested_endpoints
         assert [item["title"] for item in result.items] == ["TSM earnings"]
+    finally:
+        db.close()
+
+
+def test_event_calendar_reuses_weekly_snapshot_for_dashboard_and_digest(monkeypatch):
+    db = _session()
+    try:
+        user = _user(db, "calendar-cache@example.com")
+        _watchlist(db, user, "NVDA")
+        requests: list[str] = []
+
+        def fake_request(endpoint, **kwargs):
+            requests.append(endpoint)
+            return []
+
+        monkeypatch.setattr("app.services.event_calendar.request_fmp_json", fake_request)
+
+        first = fetch_event_calendar(db, user, start=date(2026, 8, 1), end=date(2026, 8, 31), scope="watchlist", source="page_load")
+        request_count = len(requests)
+        second = fetch_event_calendar(db, user, start=date(2026, 8, 1), end=date(2026, 8, 31), scope="watchlist", source="scheduled_job")
+
+        assert first.items == []
+        assert second.items == []
+        assert request_count > 0
+        assert len(requests) == request_count
     finally:
         db.close()
 

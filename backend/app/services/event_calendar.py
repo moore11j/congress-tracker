@@ -88,10 +88,12 @@ def fetch_event_calendar(
     symbols = set(watchlist_symbols_for_user(db, user.id))
     provider_symbols = watchlist_provider_symbols_for_user(db, user.id)
     cache_key = _calendar_cache_key(user.id, scope, start, end, provider_symbols)
-    if source != "scheduled_job":
-        cached = _load_calendar_cache(db, cache_key, start=start, end=end)
-        if cached is not None:
-            return cached
+    # The same month can appear in the dashboard, daily digests, and alert
+    # jobs.  Serving all of them from one persisted snapshot avoids a serial
+    # provider request per symbol on every page load.
+    cached = _load_calendar_cache(db, cache_key, start=start, end=end)
+    if cached is not None:
+        return cached
     raw_items: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     params = {"from": start.isoformat(), "to": end.isoformat()}
@@ -170,9 +172,10 @@ def _calendar_cache_ttl(start: date, end: date) -> timedelta | None:
     today = datetime.now(timezone.utc).date()
     if end < today:
         return None
-    if start <= today <= end:
-        return timedelta(minutes=15)
-    return timedelta(hours=6)
+    # Calendar dates move slowly and a dashboard load must never fan out into
+    # dozens of serial provider calls.  A weekly refresh keeps this useful
+    # without making normal monitoring navigation wait on the provider.
+    return timedelta(days=7)
 
 
 def _calendar_cache_is_fresh(row: TickerContentCache, *, start: date, end: date) -> bool:
