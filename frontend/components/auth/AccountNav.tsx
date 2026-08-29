@@ -129,7 +129,7 @@ export function AccountNav() {
     };
   }, [menuOpen]);
 
-  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : !loaded ? "Account" : "Login / Register"), [loaded, user]);
+  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : !loaded ? "Account" : "Log in"), [loaded, user]);
   const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
   if (!loaded || (!user && !authUnavailable)) {

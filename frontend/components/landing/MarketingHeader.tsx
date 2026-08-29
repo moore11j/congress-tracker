@@ -156,13 +156,13 @@ export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: st
             href={`${appUrl}/login`}
             className="hidden rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/25 hover:text-white md:inline-flex"
           >
-            Login / Register
+            Log in
           </a>
           <a
             href={`${appUrl}/login`}
             className="whitespace-nowrap rounded-lg border border-emerald-200 bg-emerald-300 px-3 py-1.5 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 md:hidden"
           >
-            Login / Register
+            Log in
           </a>
           <a
             href={appUrl}

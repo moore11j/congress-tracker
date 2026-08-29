@@ -344,6 +344,11 @@ test("departments vendors expose ticker comparisons and linked departments", () 
   assert.match(source, /<Link href=\{href\} prefetch=\{false\}/);
   assert.match(source, /\["department", "Department", "department_link"\]/);
   assert.match(source, /format === "department_link"/);
+  assert.match(source, /title="Top departments by contract value"[\s\S]*?\["previous_value", "Prior period", "currency"\][\s\S]*?\["change_pct", "Change", "percent"\]/);
+  assert.doesNotMatch(source, /Vs \$\{comparison\}/);
+  assert.match(source, /title="Recent notable awards"[\s\S]*?tableClassName="min-w-\[26rem\]"[\s\S]*?\["symbol", "Ticker", "link"\]/);
+  assert.doesNotMatch(source, /title="Recent notable awards"[\s\S]*?\["company", "Vendor", "link"\]/);
+  assert.match(source, /xl:grid-cols-\[\.85fr_1\.5fr_\.95fr\]/);
 });
 
 test("institutional dashboard uses mockup-style net change charts", () => {

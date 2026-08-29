@@ -521,6 +521,24 @@ def test_congress_snapshot_most_active_member_uses_trade_count_not_value():
     assert payload["summary"][3] == {"label": "Active Members", "value": 2, "previous_value": None, "change_pct": None, "format": "number"}
 
 
+def test_congress_overview_counts_unique_member_names_when_bioguide_ids_are_missing():
+    db = _db()
+    now = datetime.now(timezone.utc) - timedelta(days=2)
+    db.add_all(
+        [
+            Event(id=1101, event_type="congress_trade", ts=now, event_date=now, source="test", payload_json="{}", member_name="Nancy Pelosi", member_bioguide_id="P000197", chamber="house", trade_type="purchase"),
+            Event(id=1102, event_type="congress_trade", ts=now + timedelta(minutes=1), event_date=now, source="test", payload_json="{}", member_name="Nancy Pelosi", chamber="house", trade_type="purchase"),
+            Event(id=1103, event_type="congress_trade", ts=now + timedelta(minutes=2), event_date=now, source="test", payload_json="{}", member_name="Ro Khanna", chamber="house", trade_type="purchase"),
+        ]
+    )
+    db.commit()
+
+    payload = congress_overview(db, chamber="house", period_days=365)
+
+    assert payload["summary"][3]["value"] == 2
+    assert payload["monthly_activity"][-1]["active_members"] == 2
+
+
 def test_insiders_overview_uses_normalized_open_market_transactions():
     db = _db()
     today = date.today()

@@ -51,15 +51,20 @@ test("landing removes standalone tool promos but preserves access paths", () => 
   assert.match(marketingHeader, /\{ label: "Stock Comparisons", href: `\$\{appUrl\}\/compare`/);
 });
 
-test("landing mobile header uses feed-style login instead of terminal launch", () => {
+test("landing logged-out header separates Log in from terminal launch", () => {
   assert.match(
     marketingHeader,
-    /href=\{`\$\{appUrl\}\/login`\}\s+className="whitespace-nowrap rounded-lg border border-emerald-300\/30 bg-emerald-300\/10 px-3 py-1\.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300\/15 md:hidden"[\s\S]*?Login \/ Register/,
+    /href=\{`\$\{appUrl\}\/login`\}\s+className="hidden rounded-lg border border-white\/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-white\/25 hover:text-white md:inline-flex"[\s\S]*?Log in/,
+  );
+  assert.match(
+    marketingHeader,
+    /href=\{`\$\{appUrl\}\/login`\}\s+className="whitespace-nowrap rounded-lg border border-emerald-200 bg-emerald-300 px-3 py-1\.5 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950\/30 transition hover:bg-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 md:hidden"[\s\S]*?Log in/,
   );
   assert.match(
     marketingHeader,
     /href=\{appUrl\}\s+className="hidden rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950\/30 transition hover:bg-emerald-200 md:inline-flex"[\s\S]*?Launch Terminal/,
   );
+  assert.doesNotMatch(marketingHeader, /Login \/ Register/);
 });
 
 test("landing header dropdowns layer above page content", () => {
