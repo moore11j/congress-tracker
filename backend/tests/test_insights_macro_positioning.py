@@ -195,7 +195,7 @@ def test_technology_factor_readthroughs_explain_the_ticker_effect():
     assert "valuation multiple" in by_factor["NASDAQ_100_FUTURES"]["ticker_readthrough"]
     assert "overseas sales" in by_factor["US_DOLLAR"]["ticker_readthrough"]
     assert "discount rate" in by_factor["US_10Y_YIELD"]["ticker_readthrough"]
-    assert "easing Treasury yields" in by_factor["US_10Y_YIELD"]["why_macro"]
+    assert "yields easing" in by_factor["US_10Y_YIELD"]["why_macro"]
 
 
 def test_insights_macro_positioning_pro_receives_full_payload(monkeypatch):
@@ -635,3 +635,30 @@ def test_ticker_macro_positioning_payload_does_not_show_neutral_when_all_visible
 
     assert payload["overall"] == "bullish"
     assert payload["summary"] == "Institutional positioning currently supports this investment thesis."
+
+
+def test_ticker_macro_positioning_repairs_legacy_zero_impacts_from_driver_biases():
+    row = MacroPositioningCache(
+        symbol="NVDA",
+        status="ok",
+        overall="neutral",
+        rating=3,
+        summary="Institutional positioning is currently neutral for this investment thesis.",
+        drivers_json=json.dumps(
+            [
+                {"factor": "NASDAQ_100_FUTURES", "name": "Nasdaq Futures", "bias": "bullish", "ticker_impact": "NEUTRAL", "impact_score": 0},
+                {"factor": "US_DOLLAR", "name": "US Dollar", "bias": "bullish", "ticker_impact": "NEUTRAL", "impact_score": 0},
+                {"factor": "US_10Y_YIELD", "name": "10-Year Treasury", "bias": "bullish", "ticker_impact": "NEUTRAL", "impact_score": 0},
+            ]
+        ),
+        mapped_sector="Technology",
+        updated=date(2026, 8, 25),
+        generated_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
+    )
+
+    payload = macro_positioning_cache_payload(row)
+
+    impacts = {driver["factor"]: driver["impact_score"] for driver in payload["drivers"]}
+    assert impacts == {"NASDAQ_100_FUTURES": 2, "US_DOLLAR": -2, "US_10Y_YIELD": 2}
+    assert payload["counts"] == {"tailwinds": 2, "headwinds": 1, "neutral": 0}
+    assert payload["overall_state"] == "MODERATELY SUPPORTIVE"

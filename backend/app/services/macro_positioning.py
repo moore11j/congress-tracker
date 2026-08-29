@@ -74,6 +74,7 @@ _TICKER_FACTOR_SPECS = (
     {"asset_key": "us_dollar", "factor": "US_DOLLAR", "name": "US Dollar", "category": "FX CONDITIONS"},
     {"asset_key": "ten_year_treasury", "factor": "US_10Y_YIELD", "name": "10-Year Treasury Yield", "category": "RATES / DISCOUNT RATE"},
 )
+_ASSET_KEY_BY_TICKER_FACTOR = {spec["factor"]: spec["asset_key"] for spec in _TICKER_FACTOR_SPECS}
 
 
 @dataclass(frozen=True)
@@ -1166,12 +1167,7 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
     if not isinstance(drivers, list):
         drivers = []
     driver_payloads = [
-        {
-            **driver,
-            "name": str(driver.get("name") or "").strip(),
-            "bias": _bias_value(driver.get("bias")),
-            "impact_score": int(driver.get("impact_score") or 0) if str(driver.get("impact_score") or "").lstrip("-").isdigit() else 0,
-        }
+        _cached_macro_driver_payload(driver, row)
         for driver in drivers
         if isinstance(driver, dict) and str(driver.get("name") or "").strip()
     ]
@@ -1206,6 +1202,53 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
             }
             payload["watch_items"] = [str(driver.get("watch_condition")) for driver in rich_factors if isinstance(driver.get("watch_condition"), str) and driver.get("watch_condition")][:3]
     return payload
+
+
+def _cached_macro_driver_payload(driver: dict[str, Any], row: MacroPositioningCache) -> dict[str, Any]:
+    """Normalize legacy cached drivers whose market bias was saved without its ticker impact."""
+    impact_score = int(driver.get("impact_score") or 0) if str(driver.get("impact_score") or "").lstrip("-").isdigit() else 0
+    payload = {
+        **driver,
+        "name": str(driver.get("name") or "").strip(),
+        "bias": _bias_value(driver.get("bias")),
+        "impact_score": impact_score,
+    }
+    factor = str(driver.get("factor") or "").strip()
+    asset_key = _ASSET_KEY_BY_TICKER_FACTOR.get(factor)
+    explicit_effect = str(driver.get("effect") or "").strip().lower()
+    if not asset_key or explicit_effect or impact_score != 0 or payload["bias"] == "neutral":
+        return payload
+
+    # Older rows omitted `effect` and defaulted every ticker impact to neutral.
+    # Reconstruct the deterministic impact using the same mapping defaults used
+    # by refreshes, then let the UI use its matching deterministic explanation.
+    effect = _legacy_cached_factor_effect(asset_key, row.mapped_sector or row.mapped_asset_class or "")
+    repaired_score = _ticker_factor_impact_score(asset_key, payload["bias"], effect)
+    if repaired_score == 0:
+        return payload
+    payload.update(
+        {
+            "effect": effect,
+            "impact_score": repaired_score,
+            "ticker_impact": _impact_from_score(repaired_score),
+            "why_macro": None,
+            "ticker_readthrough": None,
+            "watch_condition": None,
+        }
+    )
+    return payload
+
+
+def _legacy_cached_factor_effect(asset_key: str, context: str) -> str:
+    """Recover the configured default for rows created before `effect` was stored."""
+    normalized = context.strip().lower()
+    if asset_key != "ten_year_treasury":
+        return _default_factor_effect(asset_key, normalized)
+    if normalized in {"financials", "financial services", "banks"}:
+        return "direct_yield"
+    if normalized in {"energy", "utilities"}:
+        return "neutral"
+    return "inverse_yield"
 
 
 def _overall_from_visible_drivers(overall: str, drivers: list[dict[str, str]]) -> str:
@@ -1412,18 +1455,13 @@ def _ticker_macro_factors(mapping: MacroMapping, assets: dict[str, dict[str, Any
         # positioning is a yields-easing read, not a generic "bullish rates"
         # label. This prevents directionally correct macro facts from being
         # displayed with the wrong ticker implication.
-        if spec["asset_key"] == "ten_year_treasury" and effect == "inverse_yield":
-            raw_score = _BIAS_SCORES[bias]
-        elif spec["asset_key"] == "ten_year_treasury" and effect == "direct_yield":
-            raw_score = -_BIAS_SCORES[bias]
-        else:
-            raw_score = _mapped_bias_score(bias, effect)
-        impact_score = max(-2, min(2, int(round(raw_score * 2))))
+        impact_score = _ticker_factor_impact_score(spec["asset_key"], bias, effect)
         impact = _impact_from_score(impact_score)
         regime_label = _factor_regime_label(spec["asset_key"], _bias_value(asset.get("bias")), _loads_dict(asset.get("payload") if isinstance(asset.get("payload"), str) else None) or asset.get("payload") or {})
         factors.append(
             {
                 "factor": spec["factor"],
+                "effect": effect,
                 "name": spec["name"],
                 "category": spec["category"],
                 "bias": bias,
@@ -1439,6 +1477,16 @@ def _ticker_macro_factors(mapping: MacroMapping, assets: dict[str, dict[str, Any
             }
         )
     return factors
+
+
+def _ticker_factor_impact_score(asset_key: str, bias: str, effect: str) -> int:
+    if asset_key == "ten_year_treasury" and effect == "inverse_yield":
+        raw_score = _BIAS_SCORES[_bias_value(bias)]
+    elif asset_key == "ten_year_treasury" and effect == "direct_yield":
+        raw_score = -_BIAS_SCORES[_bias_value(bias)]
+    else:
+        raw_score = _mapped_bias_score(bias, effect)
+    return max(-2, min(2, int(round(raw_score * 2))))
 
 
 def _default_factor_effect(asset_key: str, sector: str) -> str:
