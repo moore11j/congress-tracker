@@ -291,9 +291,9 @@ export function InsightsMacroPositioningPanel() {
       ) : (
         <div className="mt-3 space-y-3">
           {data.summary ? (
-            <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200">Market Summary</p>
-              <p className="mt-1 text-xs leading-5 text-slate-300">{data.summary}</p>
+            <div className="px-3 py-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Macro Summary</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">{data.summary}</p>
             </div>
           ) : null}
           <div className="divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10 bg-slate-950/35">

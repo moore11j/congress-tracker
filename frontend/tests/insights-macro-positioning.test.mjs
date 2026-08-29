@@ -20,7 +20,7 @@ const landing = read("app/landing/page.tsx");
 test("insights page renders approved dashboard hierarchy", () => {
   assert.match(insightsPage, /<InsightsMarketSnapshotClient \/>[\s\S]*<InsightsNewsClient[\s\S]*<InsightsMacroPositioningPanel \/>[\s\S]*<ResearchBriefsSection \/>/);
   assert.match(component, /id="macro-positioning"/);
-  assert.match(component, /Market Summary/);
+  assert.match(component, /Macro Summary/);
   assert.match(component, /View full Macro Positioning feed/);
   assert.match(api, /\/api\/insights\/macro-positioning/);
 });
