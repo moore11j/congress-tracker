@@ -6330,6 +6330,7 @@ def article_schema() -> dict[str, Any]:
                     "heading": {"type": "string"},
                     "description": {"type": "string"},
                     "cta_label": {"type": "string"},
+                    "secondary_cta_label": {"type": "string"},
                 },
             },
             "analytics": {

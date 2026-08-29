@@ -24,9 +24,10 @@ const researchCampaignParamKeys = ["utm_source", "utm_medium", "utm_campaign", "
 
 function researchSubscriptionProperties(returnTo: string, entitlement: string) {
   const url = new URL(returnTo || "/", window.location.origin);
+  const researchSlug = url.searchParams.get("research_slug") || (url.pathname.startsWith("/research/") ? url.pathname.split("/").filter(Boolean).at(-1) || null : null);
   const properties: Record<string, string | number | boolean | null> = {
-    article_slug: url.searchParams.get("research_slug") || (url.pathname === "/research/mu-dd" ? "mu-dd" : null),
-    ticker: url.searchParams.get("cta_ticker") || (url.pathname === "/research/mu-dd" ? "MU" : null),
+    article_slug: researchSlug,
+    ticker: url.searchParams.get("cta_ticker") || (researchSlug === "mu-dd" ? "MU" : researchSlug === "spacex-stock-price-2030-forecast" ? "SPCX" : null),
     user_entitlement: entitlement,
     page_path: `${url.pathname}${url.search}`,
     referrer: document.referrer || null,
@@ -35,10 +36,10 @@ function researchSubscriptionProperties(returnTo: string, entitlement: string) {
   return properties;
 }
 
-function isMuResearchReturn(returnTo: string) {
+function isResearchReturn(returnTo: string) {
   try {
     const url = new URL(returnTo || "/", window.location.origin);
-    return url.pathname === "/research/mu-dd" || url.searchParams.get("research_slug") === "mu-dd";
+    return url.pathname.startsWith("/research/") || Boolean(url.searchParams.get("research_slug"));
   } catch {
     return false;
   }
@@ -170,7 +171,7 @@ export function BillingAccountPanel() {
           await loadBillingHistory();
           if ((fromCheckout && paidTier(response.user, response.entitlements.effective_tier ?? response.entitlements.tier)) || (!fromCheckout && refreshedFromStripe)) {
             setReturnSyncStatus("synced");
-            if (fromCheckout && returnTo && isMuResearchReturn(returnTo) && !subscriptionCompletedTrackedRef.current) {
+            if (fromCheckout && returnTo && isResearchReturn(returnTo) && !subscriptionCompletedTrackedRef.current) {
               subscriptionCompletedTrackedRef.current = true;
               recordProductEvent({
                 event_name: "research_subscription_completed",

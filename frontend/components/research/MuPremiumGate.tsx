@@ -18,6 +18,7 @@ type PremiumResearchGateProps = MuPremiumGateProps & {
   heading: string;
   description: string;
   ctaLabel?: string;
+  secondaryCtaLabel?: string;
   analytics?: Record<string, string | number | boolean | null>;
 };
 
@@ -55,6 +56,7 @@ export function PremiumResearchGate({
   heading,
   description,
   ctaLabel = "Subscribe to Premium",
+  secondaryCtaLabel,
   analytics = {},
 }: PremiumResearchGateProps) {
   const [loading, setLoading] = useState(false);
@@ -145,6 +147,21 @@ export function PremiumResearchGate({
             {loading ? "Starting Checkout" : primaryLabel}
           </button>
         )}
+        {secondaryCtaLabel ? (
+          <Link
+            href="/pricing"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:text-white"
+            onClick={() => {
+              recordProductEvent({
+                event_name: "research_paywall_cta_clicked",
+                path: returnTo,
+                properties: paywallProperties(entitlement, articleSlug, tickers, analytics, { cta: "view_premium_plans", required_plan: checkoutPlan }),
+              });
+            }}
+          >
+            {secondaryCtaLabel}
+          </Link>
+        ) : null}
       </div>
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
     </section>

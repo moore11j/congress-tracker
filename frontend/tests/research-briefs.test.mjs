@@ -97,7 +97,7 @@ test("mu premium gate uses requested copy, CTAs, and analytics events", () => {
   assert.match(gate, /Subscribe to Premium/);
   assert.match(gate, /ctaLabel = "Subscribe to Premium"/);
   assert.match(gate, /Unlock with Premium/);
-  assert.doesNotMatch(gate, /View Premium Plans/);
+  assert.match(gate, /secondaryCtaLabel/);
   for (const eventName of [
     "research_preview_viewed",
     "research_paywall_viewed",

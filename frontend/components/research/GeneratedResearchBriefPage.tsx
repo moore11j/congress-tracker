@@ -5,6 +5,7 @@ import { WALNUT_MARKETING_URL, marketingCanonicalUrl } from "@/lib/marketingMeta
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
 import { PremiumResearchGate } from "@/components/research/MuPremiumGate";
 import { ResearchBriefTopNav } from "@/components/research/ResearchBriefTopNav";
+import { CampaignEventOnMount } from "@/components/campaign/CampaignAnalytics";
 
 type StoredSignalResult = {
   ticker: string;
@@ -35,6 +36,7 @@ type GeneratedResearchArticleExtras = {
     heading?: string;
     description?: string;
     cta_label?: string;
+    secondary_cta_label?: string;
   };
   analytics?: Record<string, string | number | boolean | null>;
 };
@@ -200,6 +202,12 @@ export function GeneratedResearchBriefPage({
   const paywallHeading = article.paywall_copy?.heading || fallbackPaywallTitle;
   const paywallDescription = article.paywall_copy?.description || "See the full judgment, confirmation evidence, catalysts, risks, source trail, and what could change the setup.";
   const paywallCtaLabel = article.paywall_copy?.cta_label || "Subscribe to Premium";
+  const paywallSecondaryCtaLabel = article.paywall_copy?.secondary_cta_label;
+  const researchAnalytics = {
+    ...(article.analytics || {}),
+    article_slug: article.slug,
+    ticker: tickers[0] || null,
+  };
 
   return (
     <>
@@ -251,11 +259,14 @@ export function GeneratedResearchBriefPage({
             </section>
           ))}
           {fullArticleVisible ? (
-            <ResearchBriefContextualCta
-              ticker={article.primary_ticker || draft.primary_ticker}
-              companyName={article.primary_ticker || draft.primary_ticker}
-              researchSlug={article.slug}
-            />
+            <>
+              <CampaignEventOnMount eventName="research_full_article_viewed" path={returnTo || `/research/${article.slug}`} properties={researchAnalytics} />
+              <ResearchBriefContextualCta
+                ticker={article.primary_ticker || draft.primary_ticker}
+                companyName={article.primary_ticker || draft.primary_ticker}
+                researchSlug={article.slug}
+              />
+            </>
           ) : (
             <PremiumResearchGate
               authState={authenticated ? "free" : "logged_out"}
@@ -267,6 +278,7 @@ export function GeneratedResearchBriefPage({
               heading={paywallHeading}
               description={paywallDescription}
               ctaLabel={paywallCtaLabel}
+              secondaryCtaLabel={paywallSecondaryCtaLabel}
               analytics={article.analytics}
             />
           )}
