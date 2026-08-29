@@ -148,6 +148,7 @@ test("landing page uses canonical homepage positioning and free-tier messaging",
   assert.match(landingPage, /<section id="how-it-works"/);
   assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
   assert.match(landingPage, /What&apos;s Working on Walnut\./);
+  assert.match(landingPage, /out of \{outcomeSummary\.completed_events\} confirmation score events in the past 30 days/);
   assert.match(landingPage, /Stocks Walnut Ranks Highest\./);
   assert.doesNotMatch(landingPage, /More data is not the edge|Stock research that explains the move|buy signals|sell signals|Make smarter decisions|AI-powered investing/);
   assert.match(landingPage, /Walnut&apos;s proprietary confirmation score/);

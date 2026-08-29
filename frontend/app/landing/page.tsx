@@ -792,7 +792,7 @@ export default async function LandingPage() {
             <div className="max-w-3xl">
               <SectionEyebrow>OUTPERFORMING THE MARKET</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">What&apos;s Working on Walnut.</h2>
-              <p className="mt-4 text-base leading-7 text-slate-400">Live confirmation score outcome records and stored strategy results show the power behind Walnut&apos;s data and research—a track record of outperforming the market.</p>
+              <p className="mt-4 text-base leading-7 text-slate-400">Live confirmation score outcomes and stored strategy results show the power behind Walnut&apos;s data and research—a track record of outperforming the market.</p>
             </div>
             <HomepageCtaLink href={`${appUrl}/outcomes`} eventName="outcomes_click" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
               View outcomes <span aria-hidden="true">&rarr;</span>
@@ -807,7 +807,7 @@ export default async function LandingPage() {
                     <div><p className="font-mono text-4xl font-semibold text-emerald-200">{formatPercent(outcomeSummary.accuracy, 0)}</p><p className="mt-1 text-xs leading-5 text-slate-300">Directional accuracy</p></div>
                     <div><p className="font-mono text-4xl font-semibold text-emerald-200">{formatPercent(outcomeSummary.average_directional_excess_return)}</p><p className="mt-1 text-xs leading-5 text-slate-300">Average excess vs. SPY</p></div>
                   </div>
-                  <p className="mt-5 text-sm leading-6 text-slate-300">{outcomeSummary.directional_sample_count} directional, matured 30-day events · {outcomeSummary.benchmarked_events} benchmarked against SPY</p>
+                  <p className="mt-5 text-sm leading-6 text-slate-300">* out of {outcomeSummary.completed_events} confirmation score events in the past 30 days</p>
                 </>
               ) : <p className="mt-5 text-sm leading-6 text-slate-400">Current 30-day outcome metrics are temporarily unavailable. Open Outcomes to review the recorded event ledger.</p>}
             </article>
