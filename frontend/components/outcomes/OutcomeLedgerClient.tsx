@@ -1198,7 +1198,7 @@ export function OutcomeLedgerClient({
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
   const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
-  const [horizonFilter, setHorizonFilter] = useState("7D");
+  const [horizonFilter, setHorizonFilter] = useState("30D");
   const [directionFilter, setDirectionFilter] = useState("All");
   const [scoreBandFilter, setScoreBandFilter] = useState("All Scores");
   const [methodologyFilter, setMethodologyFilter] = useState("All Methodologies");
@@ -1226,7 +1226,7 @@ export function OutcomeLedgerClient({
     if (initialStatus && initialSummary && initialSnapshots) return;
     let alive = true;
     setLoading(true);
-    getOutcomeLedgerOverview({ limit: 100, horizons: "7D,30D" })
+    getOutcomeLedgerOverview({ limit: 100, horizons: "30D,7D" })
       .then((overview) => {
         if (!alive) return;
         setStatus(overview.status);

@@ -1453,7 +1453,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) 
     store_public_outcome_ledger_payload(db, status_key, status_payload)
     warmed = 1
 
-    raw_horizons = os.getenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "7D,30D")
+    raw_horizons = os.getenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "30D,7D")
     warm_horizons = [
         item.strip().upper()
         for item in raw_horizons.split(",")
@@ -1501,7 +1501,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) 
         "status": status_payload,
         "summaries": summary_payloads,
         "snapshots": snapshot_payload,
-        "default_horizon": warm_horizons[0] if warm_horizons else "7D",
+        "default_horizon": warm_horizons[0] if warm_horizons else "30D",
     }
     store_public_outcome_ledger_payload(
         db,

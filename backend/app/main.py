@@ -6445,13 +6445,13 @@ def _public_outcome_ledger_cache_set(cache_key: str, payload: dict[str, Any]) ->
 
 def _parse_public_outcome_overview_horizons(value: str | None) -> list[str]:
     allowed = {f"{days}D" for days in OUTCOME_HORIZONS}
-    raw_items = (value or "7D,30D").split(",")
+    raw_items = (value or "30D,7D").split(",")
     horizons: list[str] = []
     for raw_item in raw_items:
         horizon = raw_item.strip().upper()
         if horizon in allowed and horizon not in horizons:
             horizons.append(horizon)
-    return horizons or ["7D", "30D"]
+    return horizons or ["30D", "7D"]
 
 
 @app.get("/api/outcomes/status")
@@ -6477,7 +6477,7 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
 def outcomes_overview(
     response: Response,
     limit: int = Query(100, ge=1, le=5000),
-    horizons: str | None = Query("7D,30D"),
+    horizons: str | None = Query("30D,7D"),
     db: Session = Depends(get_db),
 ):
     if not outcome_ledger_enabled(db):

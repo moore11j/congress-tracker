@@ -18,8 +18,8 @@ export const metadata: Metadata = {
 export default async function OutcomesPage() {
   if (process.env.NEXT_PUBLIC_OUTCOMES_LEDGER_ENABLED === "0") notFound();
   try {
-    const overview = await getOutcomeLedgerOverview({ limit: 100, horizons: "7D,30D" });
-    return <OutcomeLedgerClient initialStatus={overview.status} initialSummary={overview.summaries["7D"] ?? null} initialSnapshots={overview.snapshots} />;
+    const overview = await getOutcomeLedgerOverview({ limit: 100, horizons: "30D,7D" });
+    return <OutcomeLedgerClient initialStatus={overview.status} initialSummary={overview.summaries["30D"] ?? null} initialSnapshots={overview.snapshots} />;
   } catch {
     return <OutcomeLedgerClient initialStatus={null} initialSummary={null} initialSnapshots={null} />;
   }

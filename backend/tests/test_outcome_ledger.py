@@ -94,18 +94,18 @@ def test_public_outcome_ledger_cache_returns_deep_copies(monkeypatch):
 
 
 def test_warm_public_outcome_ledger_cache_persists_overview_payload(monkeypatch):
-    monkeypatch.setenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "7D,30D")
+    monkeypatch.setenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "30D,7D")
     engine = _engine()
     with Session(engine) as db:
         report = warm_public_outcome_ledger_cache(db, snapshot_limit=25)
         overview = cached_public_outcome_ledger_payload(
             db,
-            public_outcome_ledger_cache_key("overview", {"horizons": ["7D", "30D"], "snapshot_limit": 25}),
+            public_outcome_ledger_cache_key("overview", {"horizons": ["30D", "7D"], "snapshot_limit": 25}),
         )
 
         assert report["status"] == "ok"
         assert overview is not None
-        assert overview["default_horizon"] == "7D"
+        assert overview["default_horizon"] == "30D"
         assert set(overview["summaries"]) == {"7D", "30D"}
         assert overview["status"]["enabled"] is True
         assert overview["snapshots"]["limit"] == 25
