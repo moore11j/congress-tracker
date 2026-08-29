@@ -790,9 +790,9 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div className="max-w-3xl">
-              <SectionEyebrow>Historical accountability</SectionEyebrow>
+              <SectionEyebrow>OUTPERFORMING THE MARKET</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">What&apos;s Working on Walnut.</h2>
-              <p className="mt-4 text-base leading-7 text-slate-400">Live outcome records and stored strategy results show the historical evidence behind Walnut&apos;s research—not a forecast of what will happen next.</p>
+              <p className="mt-4 text-base leading-7 text-slate-400">Live confirmation score outcome records and stored strategy results show the power behind Walnut&apos;s data and research—a track record of outperforming the market.</p>
             </div>
             <HomepageCtaLink href={`${appUrl}/outcomes`} eventName="outcomes_click" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">
               View outcomes <span aria-hidden="true">&rarr;</span>
@@ -800,7 +800,7 @@ export default async function LandingPage() {
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-5 sm:p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Confirmation outcomes</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Confirmation Score Outcomes</p>
               {outcomeSummary ? (
                 <>
                   <div className="mt-5 grid grid-cols-2 gap-4">
