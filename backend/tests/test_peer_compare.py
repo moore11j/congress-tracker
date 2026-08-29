@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 import app.main as main_module
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.models import FundamentalsCache, TickerFinancialsCache
+from app.models import Event, FundamentalsCache, TickerFinancialsCache
 
 
 def _engine():
@@ -49,6 +50,90 @@ def test_peer_compare_rejects_same_symbol():
 
     assert exc.value.status_code == 422
     assert "different" in str(exc.value.detail).lower()
+
+
+def test_peer_compare_call_makes_a_call_for_a_small_net_material_edge():
+    call = main_module._peer_compare_call(
+        "NVDA",
+        "TSM",
+        [
+            {"key": "business_quality", "label": "Business Quality", "edge": "left"},
+            {"key": "valuation", "label": "Valuation", "edge": "right"},
+        ],
+    )
+
+    assert call["winner"] == "left"
+    assert call["symbol"] == "NVDA"
+    assert call["score"] == 1.0
+
+
+def test_peer_compare_call_uses_strongest_material_edge_for_exact_offset():
+    call = main_module._peer_compare_call(
+        "NVDA",
+        "TSM",
+        [
+            {"key": "business_quality", "label": "Business Quality", "edge": "left"},
+            {"key": "valuation", "label": "Valuation", "edge": "right"},
+            {"key": "government_contracts", "label": "Government Contracts", "edge": "right"},
+        ],
+    )
+
+    assert call["score"] == 0.0
+    assert call["winner"] == "left"
+    assert call["symbol"] == "NVDA"
+    assert call["drivers"] == ["Business Quality"]
+
+
+def test_peer_compare_trade_summary_counts_normalized_congress_and_insider_sides():
+    engine = _engine()
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Event(
+                    event_type="congress_trade",
+                    ts=recent,
+                    event_date=recent,
+                    symbol="NVDA",
+                    source="test",
+                    trade_type="purchase",
+                    payload_json="{}",
+                ),
+                Event(
+                    event_type="congress_trade",
+                    ts=recent,
+                    event_date=recent,
+                    symbol="NVDA",
+                    source="test",
+                    trade_type="sale",
+                    payload_json="{}",
+                ),
+                Event(
+                    event_type="insider_trade",
+                    ts=recent,
+                    event_date=recent,
+                    symbol="NVDA",
+                    source="test",
+                    payload_json=json.dumps({"tradeType": "P-Purchase"}),
+                ),
+                Event(
+                    event_type="insider_trade",
+                    ts=recent,
+                    event_date=recent,
+                    symbol="NVDA",
+                    source="test",
+                    transaction_type="S-Sale",
+                    payload_json="{}",
+                ),
+            ]
+        )
+        db.commit()
+
+        congress = main_module._peer_compare_trade_summary(db, "NVDA", "congress_trade")
+        insiders = main_module._peer_compare_trade_summary(db, "NVDA", "insider_trade")
+
+    assert (congress["buy_count"], congress["sell_count"]) == (1, 1)
+    assert (insiders["buy_count"], insiders["sell_count"]) == (1, 1)
 
 
 def test_peer_compare_free_tier_returns_teaser_only(monkeypatch):

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { PeerCompareResponse, TickerContextBundleResponse, TickerDecisionLayer, TickerSignalsSummaryResponse } from "@/lib/api";
 import { ghostButtonClassName } from "@/lib/styles";
 
@@ -21,7 +22,15 @@ type CompareResearchSubject = {
 
 type ResearchSubject = TickerResearchSubject | CompareResearchSubject;
 
-export function ResearchActions({ subject, canCreateResearch }: { subject: ResearchSubject; canCreateResearch: boolean }) {
+export function ResearchActions({
+  subject,
+  canCreateResearch,
+  backToTickerHref,
+}: {
+  subject: ResearchSubject;
+  canCreateResearch: boolean;
+  backToTickerHref?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const outputs = useMemo(() => buildResearchOutputs(subject), [subject]);
@@ -44,6 +53,11 @@ export function ResearchActions({ subject, canCreateResearch }: { subject: Resea
         <button type="button" onClick={() => run(() => shareResearchUrl())} className={ghostButtonClassName}>
           Share
         </button>
+      ) : null}
+      {subject.kind === "compare" && backToTickerHref ? (
+        <Link href={backToTickerHref} className={ghostButtonClassName}>
+          Back to ticker
+        </Link>
       ) : null}
       <div className="relative">
         <button type="button" onClick={() => setOpen((value) => !value)} className={ghostButtonClassName}>

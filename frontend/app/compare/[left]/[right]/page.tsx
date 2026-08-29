@@ -396,13 +396,16 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
               Compare tickers to see which setup has stronger support across fundamentals, valuation, price action, catalysts, risks and Walnut&apos;s proprietary confirmation score.
             </p>
           </div>
-          {hasLeft ? (
+          {data && canCreateResearch ? (
+            <ResearchActions
+              canCreateResearch={canCreateResearch}
+              subject={{ kind: "compare", data }}
+              backToTickerHref={hasLeft ? tickerHref(left) || "/" : null}
+            />
+          ) : hasLeft ? (
             <Link href={tickerHref(left) || "/"} className={ghostButtonClassName}>
               Back to ticker
             </Link>
-          ) : null}
-          {data && canCreateResearch ? (
-            <ResearchActions canCreateResearch={canCreateResearch} subject={{ kind: "compare", data }} />
           ) : null}
         </div>
         <PeerCompareSelector leftSymbol={left} rightSymbol={right} />

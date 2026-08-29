@@ -10106,7 +10106,21 @@ def _peer_compare_trade_summary(db: Session, symbol: str, event_type: str, *, lo
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
-        side = normalize_trade_side(row.trade_type or row.transaction_type or payload.get("transaction_type") or payload.get("type") or payload.get("side"))
+        side = None
+        for raw_side in (
+            row.trade_type,
+            row.transaction_type,
+            payload.get("trade_type"),
+            payload.get("tradeType"),
+            payload.get("transaction_type"),
+            payload.get("transactionType"),
+            payload.get("type"),
+            payload.get("side"),
+        ):
+            if isinstance(raw_side, str):
+                side = _ticker_summary_side(raw_side)
+            if side:
+                break
         if side == "buy":
             buy_count += 1
         elif side == "sell":
@@ -10555,6 +10569,7 @@ def _peer_compare_teaser_payload(
 def _peer_compare_call(left_symbol: str, right_symbol: str, categories: list[dict[str, Any]]) -> dict[str, Any]:
     weighted = 0.0
     used = []
+    directional_contributions: list[tuple[dict[str, Any], float]] = []
     for category in categories:
         if category.get("locked"):
             continue
@@ -10565,14 +10580,21 @@ def _peer_compare_call(left_symbol: str, right_symbol: str, categories: list[dic
         direction = 1.0 if edge == "left" else -1.0
         if category.get("key") == "confirmation_score":
             score_units = max(1.0, abs(_peer_compare_num(category.get("score")) or 0.0))
-            weighted += direction * weight * score_units
+            contribution = direction * weight * score_units
         else:
-            weighted += direction * weight
+            contribution = direction * weight
+        weighted += contribution
         used.append(category)
-    if weighted >= 2.0:
+        directional_contributions.append((category, contribution))
+    if weighted > 0:
         winner = "left"
-    elif weighted <= -2.0:
+    elif weighted < 0:
         winner = "right"
+    elif directional_contributions:
+        # An exact aggregate tie should not erase the strongest material edge.
+        # `max` preserves category order for equal contributions, keeping this deterministic.
+        _, contribution = max(directional_contributions, key=lambda item: abs(item[1]))
+        winner = "left" if contribution > 0 else "right"
     else:
         winner = "even"
     leader = left_symbol if winner == "left" else right_symbol if winner == "right" else None
@@ -10588,7 +10610,7 @@ def _peer_compare_call(left_symbol: str, right_symbol: str, categories: list[dic
         "score": round(weighted, 2),
         "summary": summary,
         "drivers": drivers,
-        "methodology": "Weighted category call with materiality thresholds; confirmation score uses score and direction strength, and gated categories are excluded until entitled.",
+        "methodology": "Weighted category call with materiality thresholds; any net material edge produces a call, exact offsets resolve to the strongest directional category, and gated categories are excluded until entitled.",
     }
 
 
