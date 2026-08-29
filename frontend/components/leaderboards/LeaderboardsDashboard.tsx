@@ -19,7 +19,7 @@ function price(value: number | null) { return value === null ? "—" : new Intl.
 function fresh(value: string | null) {
   if (!value) return "Snapshot unavailable";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Stored snapshot" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
+  return Number.isNaN(date.getTime()) ? "Stored snapshot" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles", timeZoneName: "short" }).format(date);
 }
 function track(eventName: string, properties: Record<string, string | number | boolean | null> = {}) {
   recordProductEvent({ event_name: eventName, path: "/leaderboards", properties });
