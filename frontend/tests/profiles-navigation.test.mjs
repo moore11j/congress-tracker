@@ -341,6 +341,7 @@ test("departments vendors expose ticker comparisons and linked departments", () 
 
   assert.match(source, /function GrowingVendors/);
   assert.match(source, /\["Vendor", "Ticker", "Current value", "Prior period", "Change vs prior"\]/);
+  assert.match(source, /rows\.slice\(0, 10\)/);
   assert.match(source, /<Link href=\{href\} prefetch=\{false\}/);
   assert.match(source, /\["department", "Department", "department_link"\]/);
   assert.match(source, /format === "department_link"/);

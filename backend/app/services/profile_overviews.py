@@ -2229,7 +2229,7 @@ def _largest_recent_awards(db: Session, *, since: date | None = None, before: da
     ]
 
 
-def _fastest_growing_vendors(db: Session, *, period_days: int = 365, limit: int = 8) -> list[dict[str, Any]]:
+def _fastest_growing_vendors(db: Session, *, period_days: int = 365, limit: int = 10) -> list[dict[str, Any]]:
     today = date.today()
     current_since = today - timedelta(days=period_days)
     previous_since = current_since - timedelta(days=period_days)
@@ -2244,8 +2244,7 @@ def _fastest_growing_vendors(db: Session, *, period_days: int = 365, limit: int 
         )
         .where(GovernmentContract.award_date >= previous_since, GovernmentContract.award_date < today + timedelta(days=1), GovernmentContract.symbol.is_not(None))
         .group_by(func.upper(GovernmentContract.symbol))
-        .having(change_value != 0)
-        .order_by(func.abs(change_value).desc())
+        .order_by(change_value.desc())
         .limit(limit)
     ).all()
     company_names = _company_names(db, [row[0] for row in rows])

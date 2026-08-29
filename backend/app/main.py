@@ -3004,7 +3004,8 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
 
 
 PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 900
-CONGRESS_OVERVIEW_CACHE_VERSION = "trade_count_v2"
+CONGRESS_OVERVIEW_CACHE_VERSION = "active_members_v3"
+DEPARTMENTS_OVERVIEW_CACHE_VERSION = "top_moving_vendors_v2"
 _PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 _PROFILE_OVERVIEW_INFLIGHT: dict[tuple[Any, ...], threading.Event] = {}
@@ -3161,7 +3162,7 @@ def _run_profile_overview_prewarm(*, force_refresh: bool = False) -> dict[str, o
                 force_refresh=force_refresh,
             )
             refreshed_keys.append(key)
-        congress_key = ("profiles_congress_overview", "all", 365)
+        congress_key = ("profiles_congress_overview", "all", 365, CONGRESS_OVERVIEW_CACHE_VERSION)
         _cached_profile_overview_response(
             db,
             congress_key,
@@ -3189,7 +3190,7 @@ def _run_profile_overview_prewarm(*, force_refresh: bool = False) -> dict[str, o
             force_refresh=force_refresh,
         )
         refreshed_keys.append(insiders_key)
-        departments_key = ("profiles_departments_overview", None, 365)
+        departments_key = ("profiles_departments_overview", None, 365, DEPARTMENTS_OVERVIEW_CACHE_VERSION)
         _cached_profile_overview_response(
             db,
             departments_key,
@@ -5018,7 +5019,7 @@ def profiles_departments_overview(
         return prefetch_response
     return _cached_profile_overview_response(
         db,
-        ("profiles_departments_overview", fiscal_year, period_days),
+        ("profiles_departments_overview", fiscal_year, period_days, DEPARTMENTS_OVERVIEW_CACHE_VERSION),
         lambda: build_departments_overview(db, fiscal_year=fiscal_year, period_days=period_days),
     )
 

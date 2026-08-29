@@ -8,9 +8,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.main import _cached_profile_overview_response, _profile_overview_database_cache_get, _profile_overview_persistent_key, _run_profile_overview_prewarm
+from app.main import CONGRESS_OVERVIEW_CACHE_VERSION, DEPARTMENTS_OVERVIEW_CACHE_VERSION, _cached_profile_overview_response, _profile_overview_database_cache_get, _profile_overview_persistent_key, _run_profile_overview_prewarm
 from app.models import Event, GovernmentContract, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, Member, Security, TickerContextBundleCache, TickerMeta
-from app.services.profile_overviews import congress_overview, departments_overview, insiders_overview, institutions_overview, profile_activity, profiles_summary
+from app.services.profile_overviews import _fastest_growing_vendors, congress_overview, departments_overview, insiders_overview, institutions_overview, profile_activity, profiles_summary
 
 
 def _db() -> Session:
@@ -278,10 +278,10 @@ def test_profile_subpage_overview_caches_serve_stale_payloads_before_expiry():
     db = _db()
     now = datetime.now(timezone.utc)
     keys = [
-        ("profiles_congress_overview", "all", 365),
+        ("profiles_congress_overview", "all", 365, CONGRESS_OVERVIEW_CACHE_VERSION),
         ("profiles_insiders_overview", "", 365),
         ("profiles_institutions_overview", None, None, True),
-        ("profiles_departments_overview", None, 365),
+        ("profiles_departments_overview", None, 365, DEPARTMENTS_OVERVIEW_CACHE_VERSION),
     ]
 
     for index, key in enumerate(keys):
@@ -355,11 +355,11 @@ def test_profile_overview_prewarm_warms_public_and_entitled_summaries(monkeypatc
     assert [key for _, key in seen_keys] == [
         ("profiles_summary", "all", 25, False, True, 5),
         ("profiles_summary", "all", 25, True, True, 5),
-        ("profiles_congress_overview", "all", 365),
+        ("profiles_congress_overview", "all", 365, CONGRESS_OVERVIEW_CACHE_VERSION),
         ("profiles_institutions_overview", None, None, False),
         ("profiles_institutions_overview", None, None, True),
         ("profiles_insiders_overview", "", 365),
-        ("profiles_departments_overview", None, 365),
+        ("profiles_departments_overview", None, 365, DEPARTMENTS_OVERVIEW_CACHE_VERSION),
     ]
     assert result["force_refresh"] is True
     assert result["cache_entries_refreshed"] == 7
@@ -992,6 +992,45 @@ def test_departments_overview_uses_contract_language():
     sector_labels = {segment["label"] for row in payload["contract_value_over_time"] for segment in row["segments"]}
     assert {"Industrials", "Technology"}.issubset(sector_labels)
     assert "Other" not in sector_labels
+
+
+def test_fastest_growing_vendors_returns_ten_rows_ranked_by_change_vs_prior():
+    db = _db()
+    today = date.today()
+    for index in range(11):
+        symbol = f"V{index:02d}"
+        db.add_all(
+            [
+                GovernmentContract(
+                    award_id=f"CURRENT-{symbol}",
+                    dedupe_key=f"CURRENT-{symbol}",
+                    symbol=symbol,
+                    recipient_name=symbol,
+                    award_date=today - timedelta(days=1),
+                    award_amount=(index + 1) * 100,
+                    awarding_agency="Test Department",
+                    source="test",
+                ),
+                GovernmentContract(
+                    award_id=f"PRIOR-{symbol}",
+                    dedupe_key=f"PRIOR-{symbol}",
+                    symbol=symbol,
+                    recipient_name=symbol,
+                    award_date=today - timedelta(days=366),
+                    award_amount=0,
+                    awarding_agency="Test Department",
+                    source="test",
+                ),
+            ]
+        )
+    db.commit()
+
+    rows = _fastest_growing_vendors(db)
+
+    assert len(rows) == 10
+    assert [row["increase_value"] for row in rows] == sorted((row["increase_value"] for row in rows), reverse=True)
+    assert rows[0]["symbol"] == "V10"
+    assert rows[-1]["symbol"] == "V01"
 
 
 def test_departments_overview_suppresses_deltas_when_recent_ingest_is_undercovered():
