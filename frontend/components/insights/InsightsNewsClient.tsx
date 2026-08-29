@@ -159,7 +159,10 @@ function walnutTake(item: NewsItem): string {
   const read = effectiveMarketRead(item);
   const concise = conciseWalnutTake(item, read);
   const cached = item.walnut_take?.replace(/\s+/g, " ").trim();
-  if (cached && isCompleteVisibleSentence(cached) && cached.length <= WALNUT_TAKE_VISIBLE_CHAR_LIMIT && read === item.walnut_take_bias) return cached;
+  // A model-generated take is the article-specific analysis. Do not replace it
+  // with a generic client-side fallback merely because a lightweight phrase
+  // heuristic arrives at a different bias.
+  if (cached && isCompleteVisibleSentence(cached) && cached.length <= WALNUT_TAKE_VISIBLE_CHAR_LIMIT && item.walnut_take_source === "openai") return cached;
   if (concise) return concise;
   const category = itemCategory(item);
   if (read === "bullish") {

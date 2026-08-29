@@ -25,7 +25,8 @@ WALNUT_TAKE_MODEL = "WALNUT_TAKE_MODEL"
 VALID_BIASES = {"bullish", "bearish", "neutral"}
 WALNUT_TAKE_MAX_CHARS = 125
 WALNUT_SUMMARY_MAX_CHARS = 190
-WALNUT_TAKE_PROMPT_VERSION = "market_read_v6_compact"
+WALNUT_TAKE_PROMPT_VERSION = "market_read_v7_resilient"
+WALNUT_TAKE_BATCH_SIZE = 8
 
 BULLISH_READ_PHRASES = (
     "stabilize trade",
@@ -148,13 +149,17 @@ def enrich_walnut_takes(
         logger.info("walnut_takes_openai_skipped reason=missing_key count=%s", len(missing))
         return enriched
 
-    try:
-        generated = _generate_openai_takes(db, api_key=api_key, articles=missing)
-    except Exception:
-        logger.exception("walnut_takes_openai_failed count=%s", len(missing))
-        return enriched
-
-    generated_by_id = {item["id"]: item for item in generated if isinstance(item.get("id"), str)}
+    # Keep a slow or malformed model response from replacing an entire refresh with
+    # the generic fallback. The former single batch included every new headline and
+    # was especially vulnerable when a web lookup stalled.
+    generated_by_id: dict[str, dict[str, Any]] = {}
+    for batch in _batches(missing, WALNUT_TAKE_BATCH_SIZE):
+        try:
+            generated = _generate_openai_takes(db, api_key=api_key, articles=batch)
+        except Exception:
+            logger.exception("walnut_takes_openai_failed count=%s", len(batch))
+            continue
+        generated_by_id.update({item["id"]: item for item in generated if isinstance(item.get("id"), str)})
     generated_at = datetime.now(timezone.utc).isoformat()
     output: list[dict[str, Any]] = []
     for item in enriched:
@@ -184,7 +189,6 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
     model = _walnut_take_model(db)
     request_payload = {
         "model": model,
-        "tools": [{"type": "web_search"}],
         "input": _prompt(articles),
         "store": False,
         "reasoning": {"effort": "none"},
@@ -202,7 +206,7 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
             OPENAI_RESPONSES_ENDPOINT,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=request_payload,
-            timeout=35,
+            timeout=20,
         ),
     )
     if response.status_code >= 400:
@@ -233,8 +237,8 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
     return "\n".join(
         [
             "You generate Walnut Takes for a market intelligence news list.",
-            "For each article, read the article_url when available, then return one concise market-impact sentence and a bias.",
-            "Use web search to open or verify article_url. If the article cannot be read, rely on title, provider_summary, ticker, source, and provider_market_read without inventing facts.",
+            "For each article, return one concise market-impact sentence and a bias using only the supplied article data.",
+            "The supplied title and provider summary are the source of truth. Do not browse, infer unstated facts, or make up a rationale.",
             "Allowed bias values: bullish, bearish, neutral.",
             f"The take must be one compact sentence of {WALNUT_TAKE_MAX_CHARS} characters or fewer.",
             "Do not write a separate summary, explanation, rationale, or preamble.",
@@ -267,6 +271,11 @@ def _fallback_take(item: dict[str, Any]) -> dict[str, Any]:
         "walnut_take": _fallback_take_text(item, bias=bias),
         "walnut_take_source": "fallback",
     }
+
+
+def _batches(items: list[dict[str, Any]], size: int):
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
 
 
 def _fallback_take_text(item: dict[str, Any], *, bias: str) -> str:

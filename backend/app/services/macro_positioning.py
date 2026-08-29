@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import os
@@ -13,8 +15,13 @@ import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, FundamentalsCache, MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent, Security, TickerMeta
+from app.models import AppSetting, FundamentalsCache, InsightsSnapshot, MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent, Security, TickerMeta
+from app.services.ai_marketing import OPENAI_API_KEY, _record_openai_usage_cost, resolved_setting_value
+from app.services.openai_request_audit import audited_openai_request
+from app.services.walnut_takes import _extract_responses_text
 from app.utils.symbols import normalize_symbol
+
+logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "macro_positioning_mappings.json"
 _BIAS_SCORES = {"bearish": -1.0, "neutral": 0.0, "bullish": 1.0}
@@ -49,6 +56,11 @@ _MARKET_META_BY_ASSET = {
     "ten_year_treasury": {"id": "us-treasuries", "group": "rates"},
 }
 _FEED_PAGE_SIZES = {25, 50, 100}
+OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
+MACRO_AI_SUMMARY_KIND = "macro-positioning-ai-summary"
+DEFAULT_MACRO_AI_SUMMARY_MODEL = "gpt-5.4-nano"
+MACRO_AI_SUMMARY_MODEL = "MACRO_AI_SUMMARY_MODEL"
+MACRO_AI_SUMMARY_MAX_CHARS = 520
 
 
 @dataclass(frozen=True)
@@ -377,10 +389,13 @@ def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
     latest_positioning_date = max((market["positioning_date"] for market in markets if market.get("positioning_date")), default=None)
     stale = _is_stale_positioning_date(latest_positioning_date)
     updated_at = (max(fetched_dates) if fetched_dates else max(updated_dates) if updated_dates else datetime.now(timezone.utc)).isoformat()
+    summary = _market_picture_summary(db, markets)
     return {
         "status": "stale" if stale else "available",
         "entitlement": {"required_plan": "pro", "unlocked": True},
-        "summary": _insights_positioning_summary(markets),
+        "summary": summary["text"],
+        "summary_source": summary["source"],
+        "summary_generated_at": summary.get("generated_at"),
         "markets": [{key: value for key, value in market.items() if key != "positioning_date"} for market in markets],
         "updated_at": updated_at,
         "stale": stale,
@@ -924,6 +939,125 @@ def _insights_positioning_summary(markets: list[dict[str, Any]]) -> str:
     if not parts:
         parts.append("Institutional futures positioning is broadly balanced across the supported markets.")
     return " ".join(parts)
+
+
+def _market_picture_summary(db: Session, markets: list[dict[str, Any]]) -> dict[str, str | None]:
+    """Return one cached model synthesis for the exact current positioning set."""
+    fallback = _insights_positioning_summary(markets)
+    fingerprint = _market_picture_fingerprint(markets)
+    cached = db.get(InsightsSnapshot, MACRO_AI_SUMMARY_KIND)
+    if cached is not None:
+        cached_payload = _loads_dict(cached.payload_json)
+        if cached_payload.get("fingerprint") == fingerprint and isinstance(cached_payload.get("text"), str):
+            return {
+                "text": _clean_macro_ai_summary(cached_payload["text"]) or fallback,
+                "source": "openai",
+                "generated_at": cached_payload.get("generated_at") if isinstance(cached_payload.get("generated_at"), str) else None,
+            }
+
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        return {"text": fallback, "source": "derived", "generated_at": None}
+
+    try:
+        model = os.getenv(MACRO_AI_SUMMARY_MODEL, "").strip() or DEFAULT_MACRO_AI_SUMMARY_MODEL
+        text = _generate_market_picture_summary(db, api_key=api_key, model=model, markets=markets)
+        if not text:
+            raise ValueError("OpenAI macro summary response was empty.")
+        generated_at = datetime.now(timezone.utc).isoformat()
+        payload = {"fingerprint": fingerprint, "text": text, "model": model, "generated_at": generated_at}
+        if cached is None:
+            db.add(InsightsSnapshot(kind=MACRO_AI_SUMMARY_KIND, payload_json=json.dumps(payload), source="openai", fetched_at=datetime.now(timezone.utc)))
+        else:
+            cached.payload_json = json.dumps(payload)
+            cached.source = "openai"
+            cached.fetched_at = datetime.now(timezone.utc)
+            cached.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"text": text, "source": "openai", "generated_at": generated_at}
+    except Exception:
+        # Positioning remains usable even during an API outage; the next request
+        # retries the model synthesis rather than persisting a generic fallback.
+        logger.exception("macro_positioning_ai_summary_failed")
+        db.rollback()
+        return {"text": fallback, "source": "derived", "generated_at": None}
+
+
+def _market_picture_fingerprint(markets: list[dict[str, Any]]) -> str:
+    compact = [
+        {
+            "id": market.get("id"),
+            "bias": market.get("bias"),
+            "trend": market.get("trend"),
+            "crowding": market.get("crowding"),
+            "percentile": market.get("percentile"),
+            "positioning_date": market.get("positioning_date").isoformat() if isinstance(market.get("positioning_date"), date) else None,
+        }
+        for market in sorted(markets, key=lambda value: str(value.get("id") or ""))
+    ]
+    return hashlib.sha256(json.dumps(compact, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _generate_market_picture_summary(db: Session, *, api_key: str, model: str, markets: list[dict[str, Any]]) -> str:
+    market_data = [
+        {
+            "market": market.get("name"),
+            "id": market.get("id"),
+            "positioning": market.get("bias"),
+            "trend": market.get("trend"),
+            "crowding": market.get("crowding"),
+            "percentile": market.get("percentile"),
+        }
+        for market in markets
+    ]
+    prompt = "\n".join(
+        [
+            "Write the Market Summary for a professional investor dashboard from the supplied institutional positioning data.",
+            "Synthesize the entire picture across equities, rates, the US dollar, gold, oil, bitcoin, and the resulting risk-on/risk-off regime.",
+            "Use only the supplied data. State where signals agree or conflict and what that implies for the current market regime.",
+            "Return two concise plain-English sentences, 160-420 characters total. No heading, bullets, disclaimer, trading instruction, or invented facts.",
+            "For Treasuries, bullish positioning means a yields-down/rates-down read; bearish means yields-up/rates-up.",
+            "Data:",
+            json.dumps(market_data, sort_keys=True),
+        ]
+    )
+    request_payload = {
+        "model": model,
+        "input": prompt,
+        "store": False,
+        "reasoning": {"effort": "none"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 180,
+    }
+    response = audited_openai_request(
+        feature="macro_positioning_summary",
+        operation="market_picture_summary",
+        method="POST",
+        endpoint=OPENAI_RESPONSES_ENDPOINT,
+        payload=request_payload,
+        model=model,
+        send=lambda: requests.post(
+            OPENAI_RESPONSES_ENDPOINT,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=request_payload,
+            timeout=20,
+        ),
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"OpenAI macro summary request failed with status {response.status_code}.")
+    data = response.json()
+    _record_openai_usage_cost(db, model=model, data=data, feature="macro_positioning_summary", commit=False)
+    return _clean_macro_ai_summary(_extract_responses_text(data)) or ""
+
+
+def _clean_macro_ai_summary(value: Any) -> str | None:
+    text = " ".join(str(value or "").split()).replace("Market Summary:", "").strip()
+    if not text:
+        return None
+    text = text[:MACRO_AI_SUMMARY_MAX_CHARS].rstrip(" ,;:-")
+    if text[-1] not in ".!?":
+        text = f"{text}."
+    return text
 
 
 def _join_names(values: list[str]) -> str:

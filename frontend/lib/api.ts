@@ -5006,6 +5006,8 @@ export type InsightsMacroPositioningResponse = {
     unlocked: boolean;
   };
   summary?: string | null;
+  summary_source?: "openai" | "derived" | string | null;
+  summary_generated_at?: string | null;
   markets: InsightsMacroPositioningMarket[];
   updated_at?: string | null;
   stale?: boolean;
