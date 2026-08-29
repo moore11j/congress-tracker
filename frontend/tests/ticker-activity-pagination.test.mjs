@@ -126,6 +126,7 @@ test("ticker trade activity tables disclose price and preserve participant summa
 
 test("ticker activity stats and participant rankings use the rendered tape rows", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
+  const headerStats = read("components/ticker/TickerActivityHeaderStatsClient.tsx");
 
   assert.match(page, /const congressBuys = congressEvents\.filter/);
   assert.match(page, /const congressSells = congressEvents\.filter/);
@@ -136,4 +137,9 @@ test("ticker activity stats and participant rankings use the rendered tape rows"
   assert.match(page, /source: "TickerInsiderActivity",[\s\S]*?stalePageCache: false/);
   assert.doesNotMatch(page, /const metricCongressEvents/);
   assert.doesNotMatch(page, /const metricInsiderEvents/);
+  assert.match(page, /TickerActivityHeaderStatsClient/);
+  assert.match(headerStats, /normalized\.includes\("purchase"\).*return "buy"/);
+  assert.match(headerStats, /normalized\.includes\("sale"\).*return "sell"/);
+  assert.match(headerStats, /tape: source/);
+  assert.match(headerStats, /setCounts\(\{/);
 });

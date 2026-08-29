@@ -8,6 +8,7 @@ import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, g
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
+import { TickerActivityHeaderStatsClient } from "@/components/ticker/TickerActivityHeaderStatsClient";
 import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
@@ -2675,60 +2676,6 @@ function ActivityScrollRegion({ children }: { children: ReactNode }) {
   );
 }
 
-function ActivityHeaderStat({
-  href,
-  label,
-  value,
-  toneClass,
-}: {
-  href: string;
-  label: string;
-  value: number;
-  toneClass: string;
-}) {
-  return (
-    <Link
-      href={href}
-      prefetch={false}
-      className="inline-grid min-w-[4.75rem] grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-white/10 bg-slate-950/70 px-2.5 py-1.5 transition hover:border-white/20 hover:bg-slate-900/80"
-    >
-      <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</span>
-      <span className={`text-sm font-semibold tabular-nums ${toneClass}`}>{value}</span>
-    </Link>
-  );
-}
-
-function ActivityHeaderStats({
-  symbol,
-  lookback,
-  source,
-  buys,
-  sells,
-}: {
-  symbol: string;
-  lookback: Lookback;
-  source: Extract<SourceFilter, "congress" | "insider">;
-  buys: number;
-  sells: number;
-}) {
-  return (
-    <div className="flex shrink-0 flex-wrap items-center justify-start gap-2 sm:justify-center">
-      <ActivityHeaderStat
-        href={hrefWithFilters(symbol, lookback, source, "buy")}
-        label="Buys"
-        value={buys}
-        toneClass="text-emerald-300"
-      />
-      <ActivityHeaderStat
-        href={hrefWithFilters(symbol, lookback, source, "sell")}
-        label="Sells"
-        value={sells}
-        toneClass="text-rose-300"
-      />
-    </div>
-  );
-}
-
 function InstitutionalActivityRow({
   event,
 }: {
@@ -3556,10 +3503,11 @@ async function DeferredTickerContent({
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
-                <ActivityHeaderStats
+                <TickerActivityHeaderStatsClient
                   symbol={normalizedSymbol}
                   lookback={lookback}
                   source="congress"
+                  side={side}
                   buys={congressBuys}
                   sells={congressSells}
                 />
@@ -3636,10 +3584,11 @@ async function DeferredTickerContent({
                     Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
                   </p>
                 </div>
-                <ActivityHeaderStats
+                <TickerActivityHeaderStatsClient
                   symbol={normalizedSymbol}
                   lookback={lookback}
                   source="insider"
+                  side={side}
                   buys={insiderBuys}
                   sells={insiderSells}
                 />

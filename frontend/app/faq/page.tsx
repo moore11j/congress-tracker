@@ -29,14 +29,14 @@ const faqCategories = [
         answer: "Not every company has disclosed activity within the selected window.",
       },
       {
-        question: "What does Gain / Loss mean?",
+        question: "What does % Delta mean?",
         answer:
-          "Gain / Loss estimates the unrealized return you would have if you made the same disclosed trade. For example, if a Congress member disclosed a purchase and the stock later rose, Walnut may show a positive Gain / Loss. This does not necessarily mean the filer personally realized that gain or still holds the position. It is an estimate based on the disclosure, transaction timing, and latest available EOD prices.",
+          "% Delta is the estimated percentage change since a disclosed trade, based on the trade price and the latest available end-of-day market price. A positive value means the price moved favorably for the disclosed side: up after a purchase or down after a sale. It is not the filer's actual realized return and does not show whether the filer still holds the position.",
       },
       {
-        question: "Why does Gain / Loss change?",
+        question: "Why does % Delta change?",
         answer:
-          "Gain / Loss can change as market prices update. Walnut uses cached EOD pricing where available, so the estimate may update after new daily prices are refreshed.",
+          "% Delta changes as market prices update. Walnut uses cached end-of-day pricing where available, so the estimate may update after new daily prices are refreshed.",
       },
       {
         question: "What are Class A common shares?",
@@ -150,7 +150,17 @@ const faqCategories = [
       {
         question: "What is Walnut's confirmation score?",
         answer:
-          "Walnut's proprietary confirmation score is a research metric that summarizes whether available evidence appears to support or contradict a ticker view. It is separate from the underlying data and is not investment advice, a price target, or a recommendation.",
+          "Walnut's proprietary confirmation score is a research metric that summarizes whether available evidence appears to support or contradict a ticker view. It combines cross-source agreement (22%), the breadth of active sources (20%), source quality (16%), freshness (12%), and price/volume confirmation (12%), with additional directional contributions from fundamentals, analyst activity, institutional activity, Congress and insider disclosures, options flow, and reported government contracts. It is separate from the underlying data and is not investment advice, a price target, or a recommendation.",
+      },
+      {
+        question: "Why can a ticker be bullish when insiders are selling?",
+        answer:
+          "The score does not simply count buys and sells. Insider selling is one disclosure input, and bearish insider activity has a deliberately smaller direct contribution than stronger confirmation from institutional activity, fundamentals, analyst activity, price/volume, and agreement across several fresh sources. For example, a strong institutional signal has a larger directional contribution than bearish insider activity. A bullish result means the weighted evidence overall is bullish; it does not mean insider sales are ignored or that the ticker is risk-free.",
+      },
+      {
+        question: "How are insider sales weighted in the confirmation score?",
+        answer:
+          "The model weights direction, source strength, data quality, freshness, and cross-source agreement—not just the number of trades. Direct disclosure weighting is asymmetric: bullish insider activity uses 7% of its source strength, while bearish insider activity uses 2%. By comparison, bullish and bearish institutional activity use 20% and 10% respectively, and analyst activity uses 8% and 5%. Conflicting evidence can also limit the score, so no single source should be read in isolation.",
       },
       {
         question: "What is the difference between institutionals, insiders, and Congress activity?",

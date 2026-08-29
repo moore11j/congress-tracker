@@ -22,12 +22,13 @@ import { tickerLinkClassName } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
-import { gainLossLabel, gainLossTooltip } from "@/lib/gainLossCopy";
+import { gainLossTooltip } from "@/lib/gainLossCopy";
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
 type PerformanceLookback = "7" | "30" | "90" | "180" | "365";
 
 const RECENT_TRADES_PAGE_SIZE = 20;
+const RECENT_FORM_4_CHANGE_LABEL = "% Change Since Trade";
 const ACTIVITY_TREND_LOOKBACK_DAYS = 365;
 const ACTIVITY_TREND_LOOKBACK_LABEL = "1Y";
 const TREND_TRADES_LIMIT = 200;
@@ -692,7 +693,7 @@ export function InsiderAnalyticsClient({
                   <th className="pb-3 font-medium">Price range</th>
                   <th className="pb-3 font-medium">Est. value</th>
                   <th className="pb-3 font-medium">Signal</th>
-                  <th className="pb-3 font-medium">{gainLossLabel}</th>
+                  <th className="pb-3 text-center font-medium">{RECENT_FORM_4_CHANGE_LABEL}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/8">
@@ -729,8 +730,8 @@ export function InsiderAnalyticsClient({
                           )}
                         </div>
                       </td>
-                      <td className="py-2.5 text-right text-xs text-slate-400">
-                        <div className="cursor-help whitespace-nowrap" title={gainLossTooltip} aria-label={`${gainLossLabel}: ${gainLossTooltip}`}>
+                      <td className="py-2.5 text-center text-xs text-slate-400">
+                        <div className="cursor-help whitespace-nowrap" title={gainLossTooltip} aria-label={`${RECENT_FORM_4_CHANGE_LABEL}: ${gainLossTooltip}`}>
                           {display.pnl !== null ? (
                             <span className={`text-sm font-semibold tabular-nums ${pnlClass(display.pnl)}`}>{formatPnl(display.pnl)}</span>
                           ) : (

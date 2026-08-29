@@ -31,7 +31,7 @@ type FeedFiltersServerProps = {
 const sortOptions = [
   ["filed_after", "Filed after"],
   ["amount", "Amount"],
-  ["pnl", "G/L"],
+  ["pnl", "% Delta"],
   ["signal", "Signal"],
 ] as const satisfies readonly (readonly [FeedSortBy, string])[];
 

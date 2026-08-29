@@ -386,7 +386,7 @@ export function FeedTable({
               <th className="px-3 py-3 font-semibold">Source</th>
               <th className="px-3 py-3 font-semibold">Action</th>
               <th className="px-3 py-3 text-right font-semibold">Amount</th>
-              <th className="px-3 py-3 text-right font-semibold">G/L</th>
+              <th className="px-3 py-3 text-right font-semibold">% Delta</th>
               <th className="px-3 py-3 text-right font-semibold">Signal</th>
               <th className="px-3 py-3 text-right font-semibold">Disclosure</th>
             </tr>
