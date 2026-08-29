@@ -16,6 +16,7 @@ type LandingSearchProps = {
   featuredSuggestion?: SearchSuggestResult;
   placeholder?: string;
   reassuranceCopy?: string;
+  submitEventName?: string;
 };
 
 const resultLimit = 6;
@@ -56,6 +57,7 @@ export function LandingSearch({
   featuredSuggestion,
   placeholder = "Search tickers, companies, Congress members, insiders, institutions, departments...",
   reassuranceCopy,
+  submitEventName = "homepage_research_stock_click",
 }: LandingSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -148,7 +150,7 @@ export function LandingSearch({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    track("homepage_research_stock_click", bestResult?.kind === "ticker" ? bestResult.symbol : null);
+    track(submitEventName, bestResult?.kind === "ticker" ? bestResult.symbol : null);
     if (!trimmedQuery) {
       window.location.href = appUrl;
       return;

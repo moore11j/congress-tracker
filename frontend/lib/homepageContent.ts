@@ -5,25 +5,25 @@
  */
 export const homepageContent = {
   hero: {
-    eyebrow: "For self-directed stock investors",
-    title: "Stock Research & Market Intelligence in One Platform.",
+    eyebrow: "Stock Analysis · Alternative Data · Market Intelligence",
+    title: "Build Your Next Winning Portfolio.",
     description:
-      "Research stocks across fundamentals, technicals, insider trades, Congress trades, institutional holdings, government contracts, analyst expectations, and macro data — all in one place.",
+      "See the stocks, insiders, and backtested strategies with a history of market outperformance—then use Walnut’s Confirmation Score, fundamentals, technicals, Congress activity, institutional holdings, government contracts, analyst ratings, and more to find what could outperform next.",
   },
   metadata: {
-    title: "Alternative Data Stock Research | Walnut Markets",
+    title: "Walnut Markets | Stock Analysis, Alternative Data & Strategies",
     description:
-      "Research stocks across fundamentals, technicals, Congress trades, insiders, institutions, contracts, and more. See where the evidence agrees, conflicts, and changes.",
+      "Find top-ranked stocks, track insiders and Congress trades, explore backtested strategies, and analyze market data with Walnut Markets.",
     socialDescription:
       "Research stocks across multiple data sources, follow the evidence, and get alerted when it changes. Built for research. Not investment advice.",
   },
   differentiation: {
     description:
-      "Other research tools often specialize in individual data categories or leave investors to connect everything manually. Walnut combines evidence into context and ongoing research so you can see where the evidence agrees, where it conflicts, what changed, the catalysts and risks, and what to watch next.",
+      "Most platforms give you one slice of the market. Walnut connects the data, ranks the opportunities, tracks the participants and strategies, and measures the outcome afterward—so every conclusion remains inspectable.",
   },
   confirmationScore: {
     description:
-      "The Walnut Confirmation Score is a proprietary, evidence-based, and explainable 0-100 measure of how strongly Walnut's available evidence supports a directional view at a specific point in time.",
+      "Walnut combines multiple independent data sources into a proprietary Confirmation Score to identify stocks where the current setup is strongest. The score summarizes current evidence alignment and strength, not a probability of future return.",
     disclaimer:
       "It is not a probability of future returns, a guaranteed prediction, or a recommendation. Its purpose is to summarize the strength and alignment of available evidence.",
   },
