@@ -150,6 +150,12 @@ test("landing page uses canonical homepage positioning and free-tier messaging",
   assert.match(landingPage, /What&apos;s Working on Walnut\./);
   assert.match(landingPage, /out of \{outcomeSummary\.completed_events\} confirmation score events in the past 30 days/);
   assert.match(landingPage, /Stocks Walnut Ranks Highest\./);
+  assert.match(landingPage, /Use Walnut&apos;s Screener to find stocks with the strongest current Bullish Confirmation across fundamentals, technicals, insider activity, Congress trades, institutional activity, analysts and other data\./);
+  assert.match(landingPage, /Filter the market by Confirmation Score, valuation, momentum, ownership activity and more, then open any result to see the underlying evidence\./);
+  assert.match(landingPage, /Rankings are based on Walnut&apos;s proprietary Confirmation Score, which summarizes current cross-source alignment and strength\. Scores are not predictions or guarantees of future performance\./);
+  assert.match(landingPage, /const bullishConfirmationScreenerUrl = `\$\{appUrl\}\/screener\?confirmation_direction=bullish&confirmation_score_min=60&confirmation_band=strong_plus&sort=confirmation_score&sort_dir=desc&lookback_days=30`/);
+  assert.match(landingPage, /<HomepageCtaLink href=\{bullishConfirmationScreenerUrl\} eventName="open_screener_click"[\s\S]*?>Open Screener<\/HomepageCtaLink>/);
+  assert.doesNotMatch(landingPage, /Use Walnut&apos;s live Signals workspace/);
   assert.doesNotMatch(landingPage, /More data is not the edge|Stock research that explains the move|buy signals|sell signals|Make smarter decisions|AI-powered investing/);
   assert.match(landingPage, /Walnut&apos;s proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);

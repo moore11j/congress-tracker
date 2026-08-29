@@ -28,6 +28,7 @@ const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.co
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 const publicPricingUrl = `${WALNUT_MARKETING_URL}/pricing`;
+const bullishConfirmationScreenerUrl = `${appUrl}/screener?confirmation_direction=bullish&confirmation_score_min=60&confirmation_band=strong_plus&sort=confirmation_score&sort_dir=desc&lookback_days=30`;
 const nvdaProductScreenshot = "/landing/nvda-ticker-intelligence.png";
 const outcomesProductScreenshot = "/landing/outcomes-confirmation-events.png";
 
@@ -833,9 +834,10 @@ export default async function LandingPage() {
           <div>
             <SectionEyebrow>Current research</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Stocks Walnut Ranks Highest.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">Use Walnut&apos;s live Signals workspace to investigate stocks with the strongest current cross-source setup. Every result leads into the underlying stock analysis rather than presenting a black-box pick.</p>
-            <p className="mt-4 text-sm leading-6 text-slate-500">Ranked using Walnut&apos;s cross-source Confirmation Score. Scores summarize evidence alignment and strength; they are not predictions or guarantees of future performance.</p>
-            <HomepageCtaLink href={`${appUrl}/signals`} eventName="top_stock_click" className="mt-6 inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">See Top Stocks</HomepageCtaLink>
+            <p className="mt-4 text-base leading-7 text-slate-400">Use Walnut&apos;s Screener to find stocks with the strongest current Bullish Confirmation across fundamentals, technicals, insider activity, Congress trades, institutional activity, analysts and other data.</p>
+            <p className="mt-4 text-base leading-7 text-slate-400">Filter the market by Confirmation Score, valuation, momentum, ownership activity and more, then open any result to see the underlying evidence.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-500">Rankings are based on Walnut&apos;s proprietary Confirmation Score, which summarizes current cross-source alignment and strength. Scores are not predictions or guarantees of future performance.</p>
+            <HomepageCtaLink href={bullishConfirmationScreenerUrl} eventName="open_screener_click" className="mt-6 inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">Open Screener</HomepageCtaLink>
           </div>
           <div className="rounded-lg border border-white/10 bg-slate-950/85 p-5 shadow-2xl shadow-black/30">
             <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Cross-source ranking</p><p className="mt-1 text-sm text-slate-400">Investigate the drivers before acting.</p></div><span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Live workspace</span></div>
