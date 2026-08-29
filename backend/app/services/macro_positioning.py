@@ -16,9 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AppSetting, FundamentalsCache, InsightsSnapshot, MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent, Security, TickerMeta
-from app.services.ai_marketing import OPENAI_API_KEY, _record_openai_usage_cost, resolved_setting_value
 from app.services.openai_request_audit import audited_openai_request
-from app.services.walnut_takes import _extract_responses_text
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -955,6 +953,10 @@ def _market_picture_summary(db: Session, markets: list[dict[str, Any]]) -> dict[
                 "generated_at": cached_payload.get("generated_at") if isinstance(cached_payload.get("generated_at"), str) else None,
             }
 
+    # ai_marketing imports confirmation-score, which imports this module. Keep
+    # this dependency lazy so normal application startup never forms a cycle.
+    from app.services.ai_marketing import OPENAI_API_KEY, resolved_setting_value
+
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
         return {"text": fallback, "source": "derived", "generated_at": None}
@@ -999,6 +1001,8 @@ def _market_picture_fingerprint(markets: list[dict[str, Any]]) -> str:
 
 
 def _generate_market_picture_summary(db: Session, *, api_key: str, model: str, markets: list[dict[str, Any]]) -> str:
+    from app.services.ai_marketing import _record_openai_usage_cost
+
     market_data = [
         {
             "market": market.get("name"),
@@ -1047,7 +1051,7 @@ def _generate_market_picture_summary(db: Session, *, api_key: str, model: str, m
         raise RuntimeError(f"OpenAI macro summary request failed with status {response.status_code}.")
     data = response.json()
     _record_openai_usage_cost(db, model=model, data=data, feature="macro_positioning_summary", commit=False)
-    return _clean_macro_ai_summary(_extract_responses_text(data)) or ""
+    return _clean_macro_ai_summary(_extract_openai_response_text(data)) or ""
 
 
 def _clean_macro_ai_summary(value: Any) -> str | None:
@@ -1058,6 +1062,27 @@ def _clean_macro_ai_summary(value: Any) -> str | None:
     if text[-1] not in ".!?":
         text = f"{text}."
     return text
+
+
+def _extract_openai_response_text(data: dict[str, Any]) -> str:
+    output_text = data.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+    texts: list[str] = []
+    for item in _walk_response_dicts(data):
+        if str(item.get("type") or "") in {"output_text", "text"} and isinstance(item.get("text"), str) and item["text"].strip():
+            texts.append(item["text"].strip())
+    return "\n".join(dict.fromkeys(texts))
+
+
+def _walk_response_dicts(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_response_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_response_dicts(child)
 
 
 def _join_names(values: list[str]) -> str:
