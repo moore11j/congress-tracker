@@ -842,7 +842,9 @@ def mark_watchlist_source_read(
     now: datetime | None = None,
 ) -> int:
     current_unread = watchlist_unread_count(db, watchlist.id, user_id=user_id)
-    refresh_watchlist_alerts(db, user_id=user_id, watchlist=watchlist)
+    # Marking a source read is a local acknowledgement.  Do not make this
+    # user action wait for a full event scan (which can fan out across a large
+    # watchlist and leave the UI button disabled for minutes).
     marked = mark_source_read(db, user_id=user_id, source_type="watchlist", source_id=str(watchlist.id), now=now)
     set_watchlist_checkpoint(db, watchlist.id, now or datetime.now(timezone.utc))
     return max(marked, current_unread)

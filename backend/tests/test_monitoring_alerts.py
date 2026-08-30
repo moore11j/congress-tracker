@@ -46,6 +46,7 @@ from app.models import (
     WatchlistViewState,
 )
 from app.services.monitoring_alerts import refresh_watchlist_alerts, unread_count, watchlist_unread_count
+from app.services.monitoring_alerts import mark_watchlist_source_read
 from app.services.monitoring_titles import build_monitoring_event_title
 
 
@@ -1012,6 +1013,20 @@ def test_inbox_includes_alert_only_saved_screen_source_in_counts():
         assert source["name"] == "Bullish confirmation"
         assert source["unread_count"] == 1
         assert source["new_count"] == 1
+    finally:
+        db.close()
+
+
+def test_mark_watchlist_source_read_does_not_rescan_events(monkeypatch):
+    db = _session()
+    try:
+        user, watchlist, _now = _seed_watchlist(db)
+
+        def fail_refresh(*args, **kwargs):
+            raise AssertionError("marking read must not refresh the watchlist")
+
+        monkeypatch.setattr("app.services.monitoring_alerts.refresh_watchlist_alerts", fail_refresh)
+        assert mark_watchlist_source_read(db, user_id=user.id, watchlist=watchlist) == 0
     finally:
         db.close()
 

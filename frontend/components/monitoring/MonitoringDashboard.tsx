@@ -306,6 +306,7 @@ function MonitoredSourceCard({
   onClick,
   onClearNew,
   clearNewDisabled = false,
+  clearNewPending = false,
   onRemove,
   removeDisabled = false,
 }: {
@@ -318,6 +319,7 @@ function MonitoredSourceCard({
   onClick?: () => void;
   onClearNew?: () => void;
   clearNewDisabled?: boolean;
+  clearNewPending?: boolean;
   onRemove?: () => void;
   removeDisabled?: boolean;
 }) {
@@ -354,7 +356,7 @@ function MonitoredSourceCard({
             className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold text-slate-300 transition hover:border-emerald-300/35 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={`Mark all new updates in ${title} as read`}
           >
-            Mark all new read
+            {clearNewPending ? "Marking…" : "Mark all new read"}
           </button>
         ) : null}
         {onRemove ? (
@@ -896,6 +898,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
                       alertHref={source.alertHref}
                       onClearNew={(["watchlist", "saved_screen", "strategy"] as string[]).includes(normalizedMonitoringSourceType(source.sourceType)) && source.count !== null && source.count > 0 ? () => void markSourceNewRead(source) : undefined}
                       clearNewDisabled={Boolean(pendingReadAction)}
+                      clearNewPending={pendingReadAction === `source-read:${source.key}`}
                       onRemove={() => setPendingRemoveSource(source)}
                       removeDisabled={Boolean(pendingRemoveKey)}
                     />
