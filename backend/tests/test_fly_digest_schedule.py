@@ -78,7 +78,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "backfill_historical_analyst_grades" not in crontab
     assert "backfill_historical_analyst_price_targets" not in crontab
     assert "14 14 * * 1-5 cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
-    assert "7,22,37,52 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh" in crontab
+    assert "run_institutional_historical_job.sh" not in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "15 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type member --batch --limit 250" in crontab

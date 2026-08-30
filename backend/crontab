@@ -25,7 +25,6 @@ CRON_TZ=America/Los_Angeles
 # The durable cursor visits one five-filing page per run. Run hourly during
 # the 13F catch-up window so new quarterly reports are not delayed for weeks.
 14 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily
-7,22,37,52 * * * * cd /app && sh /app/scripts/run_institutional_historical_job.sh
 34 15,16 * * 1-5 cd /app && python -m app.ingest_run --job market-data-refresh-daily
 18 16 * * 1-5 cd /app && python -m app.ingest_run --job portfolio-simulation-refresh
 52 16 * * 1-5 cd /app && python -m app.refresh_institutional_performance_cache --calls-per-minute 400 --progress-every 50
