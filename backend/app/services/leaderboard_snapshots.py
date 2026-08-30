@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import InstitutionalHolder, InstitutionalHolderPerformanceMetric, LeaderboardSnapshot
+from app.models import Event, InstitutionalHolder, InstitutionalHolderPerformanceMetric, LeaderboardSnapshot, TradeOutcome
 
 CONGRESS_LEADERBOARD_KEY = "congress_members"
 INSIDER_LEADERBOARD_KEY = "insiders"
@@ -32,7 +32,7 @@ def refresh_performance_leaderboard_snapshots(db: Session, *, now: datetime | No
     generated_at = _utc(now or datetime.now(timezone.utc))
     payloads = {
         CONGRESS_LEADERBOARD_KEY: _build_congress_payload(db, generated_at),
-        INSIDER_LEADERBOARD_KEY: _build_insider_payload(generated_at),
+        INSIDER_LEADERBOARD_KEY: _build_insider_payload(db, generated_at),
         INSTITUTION_LEADERBOARD_KEY: _build_institution_payload(db, generated_at),
     }
     for key, payload in payloads.items():
@@ -83,18 +83,105 @@ def _build_congress_payload(db: Session, generated_at: datetime) -> dict[str, An
     }
 
 
-def _build_insider_payload(generated_at: datetime) -> dict[str, Any]:
-    # Existing portfolio runs aggregate by reporting issuer CIK rather than an
-    # individual insider identity. Do not relabel that as an insider leaderboard.
+def _build_insider_payload(db: Session, generated_at: datetime) -> dict[str, Any]:
+    """Build the existing insider trade-outcomes leaderboard during the daily job."""
+    from datetime import timedelta
+    from app.main import _load_member_leaderboard_rows
+
+    rows = _load_member_leaderboard_rows(
+        db,
+        normalized_source_mode="insiders",
+        normalized_chamber="all",
+        insider_market_trade_types={"purchase", "sale", "buy", "sell"},
+        benchmark_symbol="SPY",
+        cutoff_date=(generated_at - timedelta(days=365)).date(),
+        min_trades=3,
+        limit=10,
+        normalized_sort="avg_alpha",
+    )
+    details = _insider_details(db, [str(row.get("member_id") or "") for row in rows])
+    items = []
+    for index, row in enumerate(rows, start=1):
+        member_id = str(row.get("member_id") or "")
+        detail = details.get(member_id, {})
+        raw_name = str(row.get("member_name") or "").strip()
+        name = detail.get("insider_name") or (raw_name if raw_name and not raw_name.isdigit() else None) or detail.get("company_name") or member_id
+        items.append(
+            {
+                "rank": index,
+                "name": name,
+                "company_name": detail.get("company_name"),
+                "role": detail.get("role"),
+                "symbol": detail.get("symbol"),
+                "reporting_cik": detail.get("reporting_cik") or member_id,
+                "avg_return_pct": row.get("avg_return"),
+                "avg_alpha_pct": row.get("avg_alpha"),
+                "win_rate_pct": (float(row["win_rate"]) * 100) if row.get("win_rate") is not None else None,
+                "trade_count": row.get("trade_count_scored"),
+            }
+        )
     return {
         "key": INSIDER_LEADERBOARD_KEY,
-        "items": [],
+        "items": items,
         "generated_at": _iso(generated_at),
-        "timeframe_label": "—",
-        "sort": None,
-        "methodology": "A personal-insider, point-in-time portfolio leaderboard is not yet available.",
-        "empty_message": "Historical performance rankings are still being built as more qualifying Form 4 records mature.",
+        "timeframe_label": "1Y trade outcomes",
+        "sort": "avg_alpha_pct",
+        "methodology": "Ranked by average scored trade alpha versus SPY across qualifying insider purchase and sale disclosures; this is not a CAGR or portfolio simulation.",
+        "empty_message": "No qualifying insider trade outcomes are available in the current one-year snapshot.",
     }
+
+
+def _insider_details(db: Session, member_ids: list[str]) -> dict[str, dict[str, str | None]]:
+    normalized_ids = [member_id for member_id in member_ids if member_id]
+    if not normalized_ids:
+        return {}
+    rows = db.execute(
+        select(TradeOutcome.member_id, TradeOutcome.symbol, Event.symbol, Event.payload_json)
+        .select_from(TradeOutcome)
+        .join(Event, Event.id == TradeOutcome.event_id)
+        .where(TradeOutcome.member_id.in_(normalized_ids))
+        .where(Event.event_type == "insider_trade")
+        .order_by(TradeOutcome.member_id, TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
+    ).all()
+    details: dict[str, dict[str, str | None]] = {}
+    for member_id, outcome_symbol, event_symbol, payload_json in rows:
+        key = str(member_id or "")
+        if not key or key in details:
+            continue
+        payload = _payload_dict(payload_json)
+        details[key] = {
+            "symbol": str(outcome_symbol or event_symbol or "").strip().upper() or None,
+            "reporting_cik": _payload_text(payload, "reporting_cik", "reportingCik", "reportingCIK", "rptOwnerCik"),
+            "insider_name": _payload_text(payload, "insider_name", "insiderName", "reporting_owner_name", "reportingOwnerName", "owner_name", "ownerName"),
+            "company_name": _payload_text(payload, "company_name", "companyName", "issuer_name", "issuerName"),
+            "role": _payload_text(payload, "role", "typeOfOwner", "officerTitle", "insiderRole", "position"),
+        }
+    return details
+
+
+def _payload_dict(raw: str | None) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    # Historical Form 4 events have used both a top-level payload and nested
+    # `payload`/`raw` envelopes. Preserve every known shape for the daily cache.
+    result = dict(payload)
+    for key in ("raw", "payload"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            result.update(nested)
+    return result
+
+
+def _payload_text(payload: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _build_institution_payload(db: Session, generated_at: datetime) -> dict[str, Any]:

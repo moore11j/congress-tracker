@@ -52,6 +52,9 @@ def test_daily_refresh_uses_the_canonical_bullish_confirmation_screener_and_pers
             "price": 123.45,
             "ticker_url": "/ticker/NVDA",
             "confirmation": {"score": 86, "band": "exceptional", "direction": "bullish"},
+            "market_cap": 4_000_000_000_000,
+            "sector": "Information Technology",
+            "country": "United States",
         },
         {
             "symbol": "MSFT",
@@ -59,6 +62,9 @@ def test_daily_refresh_uses_the_canonical_bullish_confirmation_screener_and_pers
             "price": 456.78,
             "ticker_url": "/ticker/MSFT",
             "confirmation": {"score": 80, "band": "strong", "direction": "bullish"},
+            "market_cap": 3_000_000_000_000,
+            "sector": "Information Technology",
+            "country": "United States",
         },
     ]
     try:
@@ -72,6 +78,9 @@ def test_daily_refresh_uses_the_canonical_bullish_confirmation_screener_and_pers
         assert calls[0][1] == top_stocks.TOP_STOCKS_PARAMS
         assert calls[0][2] == top_stocks.MAX_FETCH_ROWS
         assert [item["symbol"] for item in refreshed["items"]] == ["NVDA", "MSFT"]
+        assert [item["symbol"] for item in refreshed["filter_items"]["tech"]] == ["NVDA", "MSFT"]
+        assert [item["symbol"] for item in refreshed["filter_items"]["large_cap"]] == ["NVDA", "MSFT"]
+        assert [item["symbol"] for item in refreshed["filter_items"]["us"]] == ["NVDA", "MSFT"]
         assert refreshed["items"][0]["key_drivers"] == ["Confirmation Score"]
         assert refreshed["qualification"] == {
             "confirmation_score_min": 60,
