@@ -143,7 +143,7 @@ export function EnhancedInstitutionDashboard({ data, period }: { data: Instituti
     ? `Q${data.latest_available_report_quarter} ${data.latest_available_report_year}`
     : null;
   const pendingCoverage = !data.latest_available_is_comparable && latestAvailablePeriod && typeof data.latest_available_coverage_pct === "number"
-    ? `${latestAvailablePeriod} filings are still arriving (${data.latest_available_coverage_pct.toFixed(0)}% coverage). Showing ${period} until the quarter is comparable.`
+    ? `${latestAvailablePeriod} data ingestion is incomplete (${data.latest_available_coverage_pct.toFixed(0)}% manager coverage). Showing ${period} until the period is comparable.`
     : null;
   const filter = <div className="flex max-w-xs flex-col items-end gap-2"><PeriodBadge label={period} />{pendingCoverage ? <p className="text-right text-xs leading-5 text-slate-400">{pendingCoverage}</p> : null}</div>;
   if (data.locked) {

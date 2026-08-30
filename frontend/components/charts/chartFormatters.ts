@@ -8,6 +8,7 @@ export function formatChartCurrency(value: number, maximumFractionDigits = 2) {
 
 export function formatChartCompact(value: number) {
   const absolute = Math.abs(value);
+  if (absolute >= 1_000_000_000_000) return `${value < 0 ? "-" : ""}$${(absolute / 1_000_000_000_000).toFixed(1)}T`;
   if (absolute >= 1_000_000_000) return `${value < 0 ? "-" : ""}$${(absolute / 1_000_000_000).toFixed(1)}B`;
   if (absolute >= 1_000_000) return `${value < 0 ? "-" : ""}$${(absolute / 1_000_000).toFixed(1)}M`;
   if (absolute >= 1_000) return `${value < 0 ? "-" : ""}$${(absolute / 1_000).toFixed(1)}K`;
