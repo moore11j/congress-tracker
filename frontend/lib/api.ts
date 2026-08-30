@@ -7705,19 +7705,24 @@ export async function getProfilesSummary(params?: { activity_type?: string; acti
 }
 
 export async function getCongressOverview(params?: { chamber?: string; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<CongressOverviewResponse> {
-  return fetchJson<CongressOverviewResponse>(
-    buildApiUrl("/api/profiles/congress/overview", {
+  const url = buildApiUrl("/api/profiles/congress/overview", {
       chamber: params?.chamber,
       period_days: params?.period_days,
-    }),
+    });
+  const request = () => fetchJson<CongressOverviewResponse>(
+    url,
     {
-      headers: authHeaders(params?.authToken ?? undefined),
       cache: "no-store",
       next: { revalidate: 0 },
       signal: params?.signal,
       source: "CongressOverview",
     },
   );
+  // This is a shared public snapshot; it contains no account-specific fields.
+  // Coalescing it avoids an API round trip for every server render, regardless
+  // of whether the visitor happens to be signed in.
+  if (params?.signal) return request();
+  return serverCachedJson(`congress-overview:${url}`, request);
 }
 
 export async function getInsidersOverview(params?: { sector?: string; period_days?: number; authToken?: string | null; signal?: AbortSignal }): Promise<InsidersOverviewResponse> {
@@ -7728,7 +7733,6 @@ export async function getInsidersOverview(params?: { sector?: string; period_day
   const request = () => fetchJson<InsidersOverviewResponse>(
     url,
     {
-      headers: authHeaders(params?.authToken ?? undefined),
       cache: "no-store",
       next: { revalidate: 0 },
       signal: params?.signal,
