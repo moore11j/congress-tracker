@@ -14,6 +14,7 @@ from app.services.fred_macro_cache import build_fred_macro_sections
 from app.services.fmp_market_snapshot import get_macro_snapshot
 from app.services.fmp_news import get_general_news
 from app.services.insights_builder_safe import build_builder_safe_insights_snapshot
+from app.services.insights_quote_overview import refresh_insights_quote_overview
 from app.services.walnut_takes import enrich_walnut_takes
 
 logger = logging.getLogger(__name__)
@@ -187,6 +188,7 @@ def refresh_insights_snapshot(db: Session, kind: str = INSIGHTS_SNAPSHOT_KIND) -
     if kind == "all":
         snapshot = refresh_insights_snapshot(db, INSIGHTS_SNAPSHOT_KIND)
         refresh_insights_headlines(db)
+        refresh_insights_quote_overview(db)
         return snapshot
     started_at = perf_counter()
     try:

@@ -14,6 +14,7 @@ from app.services.insights_quote_overview import (
     QUOTE_GROUPS,
     get_insights_quote_overview,
     normalize_insights_quote_response,
+    refresh_insights_quote_overview,
 )
 
 
@@ -168,7 +169,7 @@ def test_failed_fetch_marks_only_that_symbol_unavailable(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
-        payload = get_insights_quote_overview(db)
+        payload = refresh_insights_quote_overview(db)
     finally:
         db.close()
 
@@ -177,6 +178,22 @@ def test_failed_fetch_marks_only_that_symbol_unavailable(monkeypatch):
     assert global_rows["EWG"]["status"] == "unavailable"
     assert global_rows["IJP"]["status"] == "ok"
     assert "secret-key" not in json.dumps(payload)
+
+
+def test_overview_read_never_fetches_a_provider_when_the_cache_is_empty(monkeypatch):
+    db = _db()
+
+    def provider_fetch(*_args, **_kwargs):
+        raise AssertionError("page reads must not refresh quote providers")
+
+    monkeypatch.setattr("app.services.insights_quote_overview.requests.get", provider_fetch)
+    try:
+        payload = get_insights_quote_overview(db)
+    finally:
+        db.close()
+
+    assert payload["global_markets"]
+    assert all(item["status"] == "unavailable" for item in payload["global_markets"])
 
 
 def test_free_currency_provider_returns_dxy_and_pairs(monkeypatch):
@@ -189,7 +206,7 @@ def test_free_currency_provider_returns_dxy_and_pairs(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
-        payload = get_insights_quote_overview(db)
+        payload = refresh_insights_quote_overview(db)
     finally:
         db.close()
 
@@ -211,7 +228,7 @@ def test_free_currency_provider_parses_v2_rows(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
-        payload = get_insights_quote_overview(db)
+        payload = refresh_insights_quote_overview(db)
     finally:
         db.close()
 
@@ -231,7 +248,7 @@ def test_free_commodity_provider_returns_metals_and_copper(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
-        payload = get_insights_quote_overview(db)
+        payload = refresh_insights_quote_overview(db)
     finally:
         db.close()
 
@@ -271,7 +288,7 @@ def test_fresh_unavailable_cache_does_not_block_free_provider(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
-        payload = get_insights_quote_overview(db)
+        payload = refresh_insights_quote_overview(db)
     finally:
         db.close()
 
@@ -309,7 +326,7 @@ def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fail_get)
     try:
-        payload = get_insights_quote_overview(db)
+        payload = refresh_insights_quote_overview(db)
     finally:
         db.close()
 
@@ -317,7 +334,7 @@ def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
     assert global_rows["MCHI"] == cached
 
 
-def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
+def test_insights_overview_endpoint_reads_prepared_quote_cache_without_fetching(monkeypatch):
     db = _db()
     calls: list[str] = []
 
@@ -339,6 +356,8 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
+        refresh_insights_quote_overview(db)
+        calls_before_read = list(calls)
         payload = insights_overview(db)
     finally:
         db.close()
@@ -372,7 +391,7 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
     ]
 
     assert returned == expected
-    assert calls == [
+    assert calls_before_read == [
         "ACWI",
         "MCHI",
         "EWG",
@@ -394,5 +413,6 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
         "ripple",
         "binancecoin",
     ]
+    assert calls == calls_before_read
     assert payload["updated_at"] is not None
     assert "secret-key" not in json.dumps(payload)

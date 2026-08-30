@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import requests
 from requests import RequestException
@@ -475,6 +475,12 @@ def _quote_item(db: Session, group: InsightQuoteGroup, config: InsightQuoteConfi
     return _unavailable_item(group, config)
 
 
+def _cached_quote_item(db: Session, group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
+    """Read a prepared quote without ever reaching an upstream provider."""
+    _row, cached = _load_cached_item(db, group, config)
+    return cached if cached is not None else _unavailable_item(group, config)
+
+
 def _latest_timestamp(items: list[dict[str, Any]]) -> str | None:
     latest: datetime | None = None
     latest_raw: str | None = None
@@ -495,11 +501,14 @@ def _latest_timestamp(items: list[dict[str, Any]]) -> str | None:
     return latest_raw
 
 
-def get_insights_quote_overview(db: Session) -> dict[str, Any]:
+def _build_quote_overview(
+    db: Session,
+    loader: Callable[[Session, InsightQuoteGroup, InsightQuoteConfig], dict[str, Any]],
+) -> dict[str, Any]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     all_items: list[dict[str, Any]] = []
     for group, configs in QUOTE_GROUPS.items():
-        items = [_quote_item(db, group, config) for config in configs]
+        items = [loader(db, group, config) for config in configs]
         grouped[group] = items
         all_items.extend(items)
     return {
@@ -509,3 +518,13 @@ def get_insights_quote_overview(db: Session) -> dict[str, Any]:
         "crypto": grouped["crypto"],
         "updated_at": _latest_timestamp(all_items),
     }
+
+
+def refresh_insights_quote_overview(db: Session) -> dict[str, Any]:
+    """Refresh quote providers from the scheduled Insights job only."""
+    return _build_quote_overview(db, _quote_item)
+
+
+def get_insights_quote_overview(db: Session) -> dict[str, Any]:
+    """Serve the prepared quote cache; never make provider calls on page load."""
+    return _build_quote_overview(db, _cached_quote_item)
