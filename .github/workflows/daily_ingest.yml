@@ -89,7 +89,7 @@ jobs:
               exit 0
             fi
 
-            if ! grep -Eqi "tunnel unavailable|Error contacting Fly.io API|context deadline exceeded|i/o timeout|connection reset|connection refused|has no started VMs|not have been deployed yet|ssh shell: wait: remote command exited without exit status|remote command exited without exit status or exit signal" "$log_file"; then
+            if ! grep -Eqi "tunnel unavailable|Error contacting Fly.io API|context deadline exceeded|i/o timeout|connection reset|connection refused|has no started VMs|not have been deployed yet|ssh shell: wait: remote command exited without exit status|remote command exited without exit status or exit signal|server closed the connection unexpectedly|database system is in recovery mode|SSL connection has been closed unexpectedly|terminating connection due to administrator command" "$log_file"; then
               exit 1
             fi
 

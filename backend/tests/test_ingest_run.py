@@ -93,6 +93,7 @@ def test_scheduled_ingest_workflow_retries_transient_fly_ssh_failures() -> None:
     assert "tunnel unavailable|Error contacting Fly.io API|context deadline exceeded" in contents
     assert "has no started VMs|not have been deployed yet" in contents
     assert "remote command exited without exit status or exit signal" in contents
+    assert "server closed the connection unexpectedly|database system is in recovery mode" in contents
 
 
 def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:
