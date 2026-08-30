@@ -11,10 +11,16 @@ from app.services.top_stocks import build_top_stocks_response
 router = APIRouter(tags=["leaderboards"])
 
 
-def _preview_snapshot(snapshot: dict) -> dict:
+def _preview_snapshot(snapshot: dict, *, key: str) -> dict:
     """Expose a deliberately small public teaser from an already-built snapshot."""
     preview = dict(snapshot)
-    preview["items"] = list(snapshot.get("items") or [])[:3]
+    items = [dict(item) for item in list(snapshot.get("items") or [])[:3] if isinstance(item, dict)]
+    if key == "top_stocks":
+        # Confirmation Score is a Premium signal. The guest teaser can show
+        # the ranked companies without serializing the proprietary score.
+        for item in items:
+            item.pop("confirmation_score", None)
+    preview["items"] = items
     # Filter variants are a Premium interaction. The public page shows the
     # filters as disabled affordances and receives only the all-stocks teaser.
     preview.pop("filter_items", None)
@@ -26,10 +32,10 @@ def leaderboard_preview(response: Response, db: Session = Depends(get_db)):
     """Serve a cacheable three-row preview without evaluating any rankings."""
     response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
     return {
-        "top_stocks": _preview_snapshot(build_top_stocks_response(db)),
-        "congress": _preview_snapshot(read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY)),
-        "insiders": _preview_snapshot(read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY)),
-        "institutions": _preview_snapshot(read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY)),
+        "top_stocks": _preview_snapshot(build_top_stocks_response(db), key="top_stocks"),
+        "congress": _preview_snapshot(read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY), key=CONGRESS_LEADERBOARD_KEY),
+        "insiders": _preview_snapshot(read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY), key=INSIDER_LEADERBOARD_KEY),
+        "institutions": _preview_snapshot(read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY), key=INSTITUTION_LEADERBOARD_KEY),
         "can_view_performance": False,
         "can_view_institutions": False,
     }
