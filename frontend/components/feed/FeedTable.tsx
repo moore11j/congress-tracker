@@ -290,6 +290,8 @@ function gainLossLabel(item: FeedItem, canViewPremiumMetrics: boolean): { label:
     };
   }
 
+  if (isGovernmentContract(item)) return { label: "N/A", sublabel: null, tone: "text-slate-400" };
+
   if (!canViewPremiumMetrics && (percent !== null || amount !== null || status)) {
     return { label: "Locked", sublabel: "Premium", tone: "text-slate-400" };
   }
