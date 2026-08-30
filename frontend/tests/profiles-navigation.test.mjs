@@ -379,3 +379,30 @@ test("institutional dashboard uses mockup-style net change charts", () => {
   assert.match(source, /tableClassName = "min-w-\[38rem\]"/);
   assert.doesNotMatch(source, /flavor === "institutions"[\s\S]{0,140}Recent notable activity/);
 });
+
+test("institution dashboard ranks its requested tables", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /title: "Top institutions by portfolio value"[\s\S]*?showRank: true/);
+  assert.match(source, /title: "Top increased positions"[\s\S]*?showRank: true/);
+  assert.match(source, /title: "Most widely held stocks"[\s\S]*?showRank: true/);
+  assert.match(source, /function DataTable\([\s\S]*?showRank = false[\s\S]*?<th className="px-2 py-2\.5 font-semibold">Rank<\/th>[\s\S]*?<td className="px-2 py-2\.5 text-slate-500">\{index \+ 1\}<\/td>/);
+  assert.match(source, /function SectorMovers[\s\S]*?<span>Rank<\/span>[\s\S]*?\{index \+ 1\}/);
+});
+
+test("insider dashboard ranks its requested tables", () => {
+  const source = read("components/profiles/EnhancedProfileDashboards.tsx");
+
+  assert.match(source, /title: "Top insiders by net buying"[\s\S]*?showRank: true/);
+  assert.match(source, /title: "Most traded stocks"[\s\S]*?showRank: true/);
+  assert.match(source, /function InsiderTopMovingSectors[\s\S]*?<th className="w-\[9%\] px-2 py-2">Rank<\/th>[\s\S]*?<td className="px-2 py-2\.5 text-slate-500">\{index \+ 1\}<\/td>/);
+});
+
+test("departments dashboard ranks its requested tables", () => {
+  const source = read("components/profiles/EnhancedGovernmentDashboard.tsx");
+
+  assert.match(source, /title="Top departments by contract value"[\s\S]*?showRank/);
+  assert.match(source, /title="Top vendors"[\s\S]*?showRank/);
+  assert.match(source, /function DataTable\([\s\S]*?showRank = false[\s\S]*?<th className="px-2 py-2\.5 font-semibold">Rank<\/th>[\s\S]*?<td className="px-2 py-2\.5 text-slate-500">\{index \+ 1\}<\/td>/);
+  assert.match(source, /function GrowingVendors[\s\S]*?\["Rank", "Vendor", "Ticker"[\s\S]*?<td className="px-2 py-2\.5 text-slate-500">\{index \+ 1\}<\/td>/);
+});
