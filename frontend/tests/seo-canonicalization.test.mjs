@@ -32,11 +32,10 @@ test("marketing metadata uses non-www HTTPS canonicals", () => {
   assert.doesNotMatch(marketingMetadata, /https?:\/\/www\.walnutmarkets\.com/);
 });
 
-test("public marketing pages define self-referencing canonical metadata", () => {
-  assert.match(readAppPage("faq"), /marketingPageMetadata\("\/faq"/);
-  assert.match(readAppPage("pricing"), /marketingPageMetadata\("\/pricing"/);
-  assert.match(readAppPage("terms"), /marketingPageMetadata\("\/terms"/);
-  assert.match(readAppPage("privacy"), /marketingPageMetadata\("\/privacy"/);
+test("app-owned information pages define self-referencing app canonical metadata", () => {
+  for (const route of ["about", "faq", "pricing", "terms", "privacy", "contact"]) {
+    assert.match(readAppPage(route), new RegExp(`appPageMetadata\\("/${route}"`));
+  }
   for (const route of seoRoutes) {
     assert.match(readAppPage(route.slice(1)), /marketingSeoPageMetadata\(page\.pathname/);
   }
@@ -46,15 +45,15 @@ test("public marketing pages define self-referencing canonical metadata", () => 
 test("sitemap contains canonical URLs and no www or http variants", () => {
   const urls = Array.from(sitemap.matchAll(/<loc>([^<]+)<\/loc>/g), (match) => match[1]);
   assert.ok(urls.includes("https://walnutmarkets.com/"));
-  assert.ok(urls.includes("https://walnutmarkets.com/faq"));
-  assert.ok(urls.includes("https://walnutmarkets.com/pricing"));
-  assert.ok(urls.includes("https://walnutmarkets.com/terms"));
-  assert.ok(urls.includes("https://walnutmarkets.com/privacy"));
+  for (const route of ["about", "faq", "pricing", "terms", "privacy"]) {
+    assert.ok(urls.includes(`https://app.walnutmarkets.com/${route}`));
+    assert.ok(!urls.includes(`https://walnutmarkets.com/${route}`));
+  }
   for (const route of seoRoutes) {
     assert.ok(urls.includes(`https://walnutmarkets.com${route}`));
   }
   assert.ok(!urls.includes("https://walnutmarkets.com/market-intelligence-terminal"));
-  assert.ok(urls.every((url) => url.startsWith("https://walnutmarkets.com/")));
+  assert.ok(urls.every((url) => url.startsWith("https://walnutmarkets.com/") || url.startsWith("https://app.walnutmarkets.com/")));
   assert.doesNotMatch(sitemap, /https?:\/\/www\.walnutmarkets\.com/);
   assert.doesNotMatch(sitemap, /http:\/\/walnutmarkets\.com/);
 });

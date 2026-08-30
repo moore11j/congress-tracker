@@ -28,11 +28,11 @@ const toolsNavLinks = [
 ] as const;
 
 const companyNavLinks = [
-  { label: "About", href: "/about", description: "Who operates Walnut Markets." },
-  { label: "FAQ", href: "/faq", description: "Answers about data, billing, privacy, and support." },
-  { label: "Contact", href: "/contact", description: "Send feedback, bug reports, and requests." },
-  { label: "Terms", href: "/terms", description: "Terms of Use." },
-  { label: "Privacy", href: "/privacy", description: "Privacy Policy." },
+  { label: "About", href: `${appUrl}/about`, description: "Who operates Walnut Markets." },
+  { label: "FAQ", href: `${appUrl}/faq`, description: "Answers about data, billing, privacy, and support." },
+  { label: "Contact", href: `${appUrl}/contact`, description: "Send feedback, bug reports, and requests." },
+  { label: "Terms", href: `${appUrl}/terms`, description: "Terms of Use." },
+  { label: "Privacy", href: `${appUrl}/privacy`, description: "Privacy Policy." },
 ] as const;
 
 function LandingNavLink({ href, label, className = "" }: { href: string; label: string; className?: string }) {
@@ -127,7 +127,7 @@ function DesktopMenu({
   );
 }
 
-export function MarketingHeader({ pricingHref = "/pricing" }: { pricingHref?: string }) {
+export function MarketingHeader({ pricingHref = `${appUrl}/pricing` }: { pricingHref?: string }) {
   return (
     <header className="sticky top-0 isolate z-[8000] border-b border-white/10 bg-slate-950/95 px-4 backdrop-blur sm:px-6 lg:px-8" style={{ zIndex: 8000 }}>
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 py-4">

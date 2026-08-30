@@ -1,25 +1,21 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
-import { legalPageChrome } from "@/lib/legalPageChrome";
-import { marketingPageMetadata } from "@/lib/marketingMetadata";
+import { appPageMetadata } from "@/lib/marketingMetadata";
 
 const lastUpdated = "June 4, 2026";
 
-export const metadata: Metadata = marketingPageMetadata("/terms", {
+export const metadata: Metadata = appPageMetadata("/terms", {
   title: "Terms of Use | Walnut Market Terminal",
   description: "Terms of Use for Walnut Intelligence Inc. and Walnut Market Terminal.",
 });
 
 export default async function TermsPage() {
-  const chrome = await legalPageChrome();
-
   return (
     <LegalPageShell
       eyebrow="Legal"
       title="Terms of Use"
       description="These Terms of Use govern access to Walnut Intelligence Inc. and Walnut Market Terminal."
       lastUpdated={lastUpdated}
-      chrome={chrome}
     >
       <LegalSection title="1. Acceptance of Terms">
         <p>By accessing or using Walnut Market Terminal or related services, you agree to these Terms of Use. If you do not agree, do not use the service.</p>

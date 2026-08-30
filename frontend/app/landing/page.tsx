@@ -27,7 +27,6 @@ export const metadata: Metadata = walnutMarketingMetadata;
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
-const publicPricingUrl = `${WALNUT_MARKETING_URL}/pricing`;
 const topStocksUrl = `${appUrl}/leaderboards#top-stocks`;
 const nvdaProductScreenshot = "/landing/nvda-ticker-intelligence.png";
 const outcomesProductScreenshot = "/landing/outcomes-confirmation-events.png";
@@ -74,7 +73,7 @@ const platformFooterLinks = [
   { label: "Stock Screener", href: `${appUrl}/screener` },
   { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },
   { label: "Research Briefs", href: `${appUrl}/insights` },
-  { label: "Pricing", href: publicPricingUrl },
+  { label: "Pricing", href: pricingUrl },
 ] as const;
 
 const researchDataFooterLinks = [
@@ -90,11 +89,11 @@ const researchDataFooterLinks = [
 ] as const;
 
 const companyFooterLinks = [
-  { label: "About", href: "/about" },
-  { label: "FAQ", href: "/faq" },
-  { label: "Contact", href: "/contact" },
-  { label: "Terms", href: "/terms" },
-  { label: "Privacy", href: "/privacy" },
+  { label: "About", href: `${appUrl}/about` },
+  { label: "FAQ", href: `${appUrl}/faq` },
+  { label: "Contact", href: `${appUrl}/contact` },
+  { label: "Terms", href: `${appUrl}/terms` },
+  { label: "Privacy", href: `${appUrl}/privacy` },
 ] as const;
 
 const heroEvidenceSources = ["Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"] as const;
@@ -527,7 +526,7 @@ function planOffer(price: PlanPrice, name: string) {
   return {
     "@type": "Offer",
     name,
-    url: publicPricingUrl,
+    url: pricingUrl,
     price: Number((price.amount_cents / 100).toFixed(2)),
     priceCurrency: price.currency || "USD",
     availability: "https://schema.org/InStock",
@@ -540,7 +539,7 @@ function landingPlanOffers(config: PlanConfig | null) {
     {
       "@type": "Offer",
       name: "Free plan",
-      url: publicPricingUrl,
+      url: pricingUrl,
       price: 0,
       priceCurrency: "USD",
       availability: "https://schema.org/InStock",
@@ -769,7 +768,7 @@ export default async function LandingPage() {
     <main className="min-h-screen overflow-hidden bg-[#030712] text-slate-100">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
-      <MarketingHeader pricingHref="#pricing" />
+      <MarketingHeader pricingHref={pricingUrl} />
 
       <section className="relative border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
         <div className="mx-auto max-w-7xl">
@@ -1167,7 +1166,7 @@ export default async function LandingPage() {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-emerald-200">
-            <a href="/about" className="hover:text-emerald-100">About Walnut</a>
+            <a href={`${appUrl}/about`} className="hover:text-emerald-100">About Walnut</a>
             <a href="/stock-confirmation-score" className="hover:text-emerald-100">Confirmation Score methodology</a>
             <a href={`${appUrl}/outcomes`} className="hover:text-emerald-100">View Outcomes</a>
           </div>

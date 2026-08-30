@@ -14,7 +14,7 @@ import { WALNUT_REDDIT_URL, WALNUT_X_HANDLE, WALNUT_X_URL } from "@/lib/marketin
 const headerLinks = [
   { label: "Comparisons", href: "/compare" },
   { label: "Analysis tools", href: "/stock-analysis-tools" },
-  { label: "Pricing", href: "/pricing" },
+  { label: "Pricing", href: `${appUrl}/pricing` },
 ] as const;
 
 const footerPlatformLinks = [
@@ -22,7 +22,7 @@ const footerPlatformLinks = [
   { label: "Stock Analysis Tools", href: "/stock-analysis-tools" },
   { label: "Stock Screener", href: `${appUrl}/screener` },
   { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },
-  { label: "Pricing", href: "/pricing" },
+  { label: "Pricing", href: `${appUrl}/pricing` },
 ] as const;
 
 const footerResearchLinks = [
@@ -34,11 +34,11 @@ const footerResearchLinks = [
 ] as const;
 
 const footerCompanyLinks = [
-  { label: "About", href: "/about" },
-  { label: "FAQ", href: "/faq" },
+  { label: "About", href: `${appUrl}/about` },
+  { label: "FAQ", href: `${appUrl}/faq` },
   { label: "Contact", href: "mailto:support@walnutmarkets.com" },
-  { label: "Terms", href: "/terms" },
-  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: `${appUrl}/terms` },
+  { label: "Privacy", href: `${appUrl}/privacy` },
 ] as const;
 
 const primaryButtonClassName = "inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200";
@@ -159,7 +159,7 @@ export function ComparisonHubPage() {
                 <a href={appUrl} className={primaryButtonClassName}>
                   Launch Walnut
                 </a>
-                <a href="/pricing" className={secondaryButtonClassName}>
+                <a href={`${appUrl}/pricing`} className={secondaryButtonClassName}>
                   View pricing
                 </a>
               </div>

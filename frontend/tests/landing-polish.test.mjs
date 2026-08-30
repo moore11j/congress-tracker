@@ -64,8 +64,8 @@ test("landing logged-out header separates Log in from terminal launch", () => {
 });
 
 test("landing header dropdowns layer above page content", () => {
-  assert.match(landingPage, /<MarketingHeader pricingHref="#pricing" \/>/);
-  assert.match(legalShell, /<MarketingHeader \/>/);
+  assert.match(landingPage, /<MarketingHeader pricingHref=\{pricingUrl\} \/>/);
+  assert.doesNotMatch(legalShell, /MarketingHeader/);
   assert.match(marketingHeader, /<header className="sticky top-0 isolate z-\[8000\][\s\S]*style=\{\{ zIndex: 8000 \}\}/);
   assert.match(marketingHeader, /<DesktopMenu label="Profiles" heading="Profiles" items=\{profilesNavLinks\} \/>/);
   assert.match(marketingHeader, /<DesktopMenu label="Tools" heading="Research tools" items=\{toolsNavLinks\} \/>/);
@@ -96,7 +96,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.match(marketingHeader, /\{ label: "Leaderboards", href: `\$\{appUrl\}\/leaderboards` \}/);
   assert.match(marketingHeader, /<LandingNavLink href=\{pricingHref\} label="Pricing" \/>/);
   assert.match(marketingHeader, /const profilesNavLinks = \[[\s\S]*\{ label: "Overview", href: `\$\{appUrl\}\/profiles`[\s\S]*\{ label: "Congress", href: `\$\{appUrl\}\/members`[\s\S]*\{ label: "Insiders", href: `\$\{appUrl\}\/insiders`[\s\S]*\{ label: "Institutions", href: `\$\{appUrl\}\/institutions`[\s\S]*\{ label: "Departments", href: `\$\{appUrl\}\/departments`/);
-  assert.match(marketingHeader, /const companyNavLinks = \[[\s\S]*\{ label: "About", href: "\/about"[\s\S]*\{ label: "FAQ", href: "\/faq"[\s\S]*\{ label: "Contact", href: "\/contact"[\s\S]*\{ label: "Terms", href: "\/terms"[\s\S]*\{ label: "Privacy", href: "\/privacy"/);
+  assert.match(marketingHeader, /const companyNavLinks = \[[\s\S]*\{ label: "About", href: `\$\{appUrl\}\/about`[\s\S]*\{ label: "FAQ", href: `\$\{appUrl\}\/faq`[\s\S]*\{ label: "Contact", href: `\$\{appUrl\}\/contact`[\s\S]*\{ label: "Terms", href: `\$\{appUrl\}\/terms`[\s\S]*\{ label: "Privacy", href: `\$\{appUrl\}\/privacy`/);
   assert.match(marketingHeader, /<span>\{label\}<\/span>[\s\S]*&#9662;/);
   assert.match(marketingHeader, /<NavMenuItems items=\{companyNavLinks\} mobile \/>/);
   assert.doesNotMatch(landingPage, /\["Congress", "#congress"\]|\["Insiders", "#insiders"\]|\["Stock Comparisons", "#compare"\]|\["Stock Screener", "#screener"\]/);
@@ -107,7 +107,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(marketingHeader, /\{ label: "Congress", href: `\$\{appUrl\}\/feed\?mode=congress`/);
   assert.doesNotMatch(marketingHeader, /\{ label: "Insiders", href: `\$\{appUrl\}\/feed\?mode=insider`/);
   assert.match(marketingHeader, /\{ label: "Strategies", href: `\$\{appUrl\}\/strategies`, beta: true/);
-  assert.match(landingPage, /<MarketingHeader pricingHref="#pricing" \/>/);
+  assert.match(landingPage, /<MarketingHeader pricingHref=\{pricingUrl\} \/>/);
   assert.match(landingPage, /<section id="insights"/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Feature Depth<\/SectionEyebrow>/);
@@ -278,13 +278,11 @@ test("landing macro rows resolve Core CPI by label variants", () => {
   assert.match(landingPage, /const economics = landingMacroRows\(snapshot\.economics \?\? \[\]\)/);
 });
 
-test("public legal navigation includes FAQ across landing and legal shell", () => {
-  assert.match(marketingHeader, /\{ label: "FAQ", href: "\/faq"/);
-  assert.match(marketingHeader, /\{ label: "Contact", href: "\/contact"/);
-  assert.match(legalShell, /<MarketingHeader \/>/);
-  assert.match(legalShell, /href="\/contact"[\s\S]*?Contact \/ support@walnutmarkets\.com/);
-  assert.match(legalShell, /chrome\?: "public" \| "embedded"/);
-  assert.match(legalShell, /if \(chrome === "embedded"\)/);
+test("landing navigation sends app-owned information pages to the app host", () => {
+  assert.match(marketingHeader, /\{ label: "FAQ", href: `\$\{appUrl\}\/faq`/);
+  assert.match(marketingHeader, /\{ label: "Contact", href: `\$\{appUrl\}\/contact`/);
+  assert.match(marketingHeader, /pricingHref = `\$\{appUrl\}\/pricing`/);
+  assert.doesNotMatch(legalShell, /MarketingHeader|chrome\?: "public" \| "embedded"/);
   assert.match(contactPage, /<ContactForm \/>/);
   assert.doesNotMatch(contactPage, /mailto:support@walnutmarkets.com/);
   assert.match(contactForm, /fetch\("\/api\/contact"/);
@@ -293,14 +291,14 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(contactForm, /Your message was successfully sent\. We will try to respond within the next 2-3 business days\./);
   assert.match(contactApiRoute, /\$\{API_BASE\}\/api\/contact/);
   assert.match(contactApiRoute, /fallbackRefererPath: "\/contact"/);
-  assert.match(legalPageChrome, /publicLandingHosts\.has\(host\) \? "public" : "embedded"/);
-  assert.match(legalPageChrome, /new Set\(\["walnutmarkets\.com"\]\)/);
-  assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
-  assert.match(faqPage, /chrome=\{chrome\}/);
   assert.match(middleware, /const publicStaticPaths = new Set\(\[/);
-  for (const route of ["/landing", "/about", "/pricing", "/terms", "/privacy", "/faq", "/contact", "/congress-trades", "/insider-trading-tracker"]) {
+  for (const route of ["/landing", "/congress-trades", "/insider-trading-tracker"]) {
     assert.match(middleware, new RegExp(`"${route}"`));
   }
+  assert.match(middleware, /const appHostedPaths = new Set\(\["\/about", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/contact"\]\)/);
+  assert.match(middleware, /\(publicLandingHosts\.has\(host\) \|\| legacyMarketingHosts\.has\(host\)\) && appHostedPaths\.has\(pathname\)/);
+  assert.match(middleware, /appUrl\.hostname = appHost/);
+  assert.match(middleware, /return NextResponse\.redirect\(appUrl, 308\)/);
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
   assert.match(middleware, /const localDevHosts = new Set\(\["localhost", "127\.0\.0\.1", "::1"\]\)/);
   assert.match(middleware, /const isMarketingHost = publicLandingHosts\.has\(host\) \|\| localDevHosts\.has\(host\)/);

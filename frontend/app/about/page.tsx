@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
-import { legalPageChrome } from "@/lib/legalPageChrome";
 import {
+  appCanonicalUrl,
+  appPageMetadata,
+  WALNUT_APP_URL,
   WALNUT_MARKETING_DESCRIPTION,
-  WALNUT_MARKETING_URL,
   WALNUT_REDDIT_URL,
   WALNUT_SOCIAL_URLS,
   WALNUT_X_HANDLE,
   WALNUT_X_URL,
-  marketingPageMetadata,
 } from "@/lib/marketingMetadata";
 
 const lastUpdated = "July 9, 2026";
 const ABOUT_DESCRIPTION =
   "Learn who operates Walnut Market Terminal, why Walnut focuses on disclosure intelligence, and how its research tools are built.";
 
-export const metadata: Metadata = marketingPageMetadata("/about", {
+export const metadata: Metadata = appPageMetadata("/about", {
   title: "About Walnut Markets | Walnut Market Terminal",
   description: ABOUT_DESCRIPTION,
 });
@@ -25,17 +25,17 @@ const aboutJsonLd = [
     "@context": "https://schema.org",
     "@type": "AboutPage",
     name: "About Walnut Markets",
-    url: `${WALNUT_MARKETING_URL}/about`,
+    url: appCanonicalUrl("/about"),
     description: ABOUT_DESCRIPTION,
     isPartOf: {
       "@type": "WebSite",
       name: "Walnut Markets",
-      url: WALNUT_MARKETING_URL,
+      url: WALNUT_APP_URL,
     },
     about: {
       "@type": "Organization",
       name: "Walnut Intelligence Inc.",
-      url: WALNUT_MARKETING_URL,
+      url: WALNUT_APP_URL,
       sameAs: WALNUT_SOCIAL_URLS,
     },
   },
@@ -43,22 +43,19 @@ const aboutJsonLd = [
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "Walnut Intelligence Inc.",
-    url: WALNUT_MARKETING_URL,
+    url: WALNUT_APP_URL,
     description: WALNUT_MARKETING_DESCRIPTION,
     sameAs: WALNUT_SOCIAL_URLS,
   },
 ];
 
 export default async function AboutPage() {
-  const chrome = await legalPageChrome();
-
   return (
     <LegalPageShell
       eyebrow="Company"
       title="About Walnut Markets"
       description="Walnut Market Terminal is operated by Walnut Intelligence Inc. and built for investors who want public disclosure data organized into a practical research workflow."
       lastUpdated={lastUpdated}
-      chrome={chrome}
     >
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(aboutJsonLd).replace(/</g, "\\u003c") }} />
 

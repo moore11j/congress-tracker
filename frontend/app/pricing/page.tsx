@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { PricingPlannerDeferred } from "@/components/billing/PricingPlannerDeferred";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
-import { WALNUT_MARKETING_URL, WALNUT_SOCIAL_IMAGE_URL, WALNUT_X_HANDLE, marketingCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMetadata";
+import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_URL, WALNUT_X_HANDLE, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
 
 export const dynamic = "force-static";
 export const revalidate = false;
 
-export const metadata: Metadata = marketingPageMetadata("/pricing", {
+export const metadata: Metadata = appPageMetadata("/pricing", {
   title: "Walnut Markets Pricing | Stock Research Software Plans",
   description:
     "Compare Walnut Markets Free, Premium, and Pro plans for stock research, confirmation scoring, disclosures, watchlists, monitoring, and Pro data layers.",
@@ -68,7 +68,7 @@ function planOffer(tier: "free" | "premium" | "pro", name: string, interval: "mo
   return {
     "@type": "Offer",
     name: `${name} ${interval}`,
-    url: marketingCanonicalUrl("/pricing"),
+    url: appCanonicalUrl("/pricing"),
     price: Number((price.amount_cents / 100).toFixed(2)),
     priceCurrency: price.currency || "USD",
     availability: "https://schema.org/InStock",
@@ -91,7 +91,7 @@ function pricingJsonLd() {
       name: "Walnut Market Terminal",
       applicationCategory: "FinanceApplication",
       operatingSystem: "Web",
-      url: WALNUT_MARKETING_URL,
+      url: WALNUT_APP_URL,
       image: WALNUT_SOCIAL_IMAGE_URL,
       offers,
     },
@@ -99,8 +99,8 @@ function pricingJsonLd() {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Walnut Markets", item: WALNUT_MARKETING_URL },
-        { "@type": "ListItem", position: 2, name: "Pricing", item: marketingCanonicalUrl("/pricing") },
+        { "@type": "ListItem", position: 1, name: "Walnut Markets", item: WALNUT_APP_URL },
+        { "@type": "ListItem", position: 2, name: "Pricing", item: appCanonicalUrl("/pricing") },
       ],
     },
     {

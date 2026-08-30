@@ -10,12 +10,6 @@ const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidat
 const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
   "/landing",
-  "/about",
-  "/pricing",
-  "/terms",
-  "/privacy",
-  "/faq",
-  "/contact",
   "/congress-trades",
   "/insider-trading-tracker",
   "/insider-trading-analysis-software",
@@ -31,6 +25,10 @@ const publicStaticPaths = new Set([
   "/compare",
   "/reddit/stock-research",
 ]);
+// These pages are part of the terminal experience. Keep the public marketing
+// site focused on acquisition pages and send requests for app-owned content
+// straight to the app host.
+const appHostedPaths = new Set(["/about", "/pricing", "/terms", "/privacy", "/faq", "/contact"]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -336,6 +334,14 @@ export async function middleware(request: NextRequest) {
     canonicalUrl.pathname = "/";
     canonicalUrl.search = "";
     return NextResponse.redirect(canonicalUrl, 308);
+  }
+
+  if ((publicLandingHosts.has(host) || legacyMarketingHosts.has(host)) && appHostedPaths.has(pathname)) {
+    const appUrl = request.nextUrl.clone();
+    appUrl.protocol = "https:";
+    appUrl.hostname = appHost;
+    appUrl.port = "";
+    return NextResponse.redirect(appUrl, 308);
   }
 
   if (legacyMarketingHosts.has(host) || isHttpCanonicalMarketingRequest) {

@@ -6,7 +6,7 @@ import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { getEntitlements } from "@/lib/api";
 import { campaignPropertiesFromRecord, pathWithCampaignParams, registerHref, type SearchParamRecord } from "@/lib/campaignAttribution";
-import { marketingCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMetadata";
+import { marketingCanonicalUrl, marketingPageMetadata, WALNUT_APP_URL } from "@/lib/marketingMetadata";
 
 type PageProps = {
   searchParams?: Promise<SearchParamRecord>;
@@ -119,7 +119,7 @@ export default async function RedditStockResearchPage({ searchParams }: PageProp
   const primaryHref = authState.token ? researchEntryPath : registerHref(researchEntryPath);
   const compareHref = pathWithCampaignParams("/compare/_/_", sp, { referring_landing_page: pagePath });
   const insightsHref = pathWithCampaignParams("/insights", sp, { referring_landing_page: pagePath });
-  const pricingHref = pathWithCampaignParams("/pricing", sp, { referring_landing_page: pagePath });
+  const pricingHref = `${WALNUT_APP_URL}${pathWithCampaignParams("/pricing", sp, { referring_landing_page: pagePath })}`;
   const pageProperties = {
     ...campaignPropertiesFromRecord(sp),
     page_path: pagePath,
@@ -332,10 +332,10 @@ export default async function RedditStockResearchPage({ searchParams }: PageProp
         <div className="mx-auto flex max-w-7xl flex-col gap-3 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <p>Research and informational purposes only. Not investment advice.</p>
           <div className="flex flex-wrap gap-4">
-            <Link href="/pricing" className="hover:text-slate-300">Pricing</Link>
-            <Link href="/privacy" className="hover:text-slate-300">Privacy</Link>
-            <Link href="/terms" className="hover:text-slate-300">Terms</Link>
-            <Link href="/faq" className="hover:text-slate-300">Disclosures</Link>
+            <a href={`${WALNUT_APP_URL}/pricing`} className="hover:text-slate-300">Pricing</a>
+            <a href={`${WALNUT_APP_URL}/privacy`} className="hover:text-slate-300">Privacy</a>
+            <a href={`${WALNUT_APP_URL}/terms`} className="hover:text-slate-300">Terms</a>
+            <a href={`${WALNUT_APP_URL}/faq`} className="hover:text-slate-300">Disclosures</a>
           </div>
         </div>
       </footer>

@@ -7,9 +7,9 @@ Walnut Markets is operated by Walnut Intelligence Inc. It provides research and 
 ## Preferred pages
 
 - [Homepage](https://walnutmarkets.com/): Product overview and stock research workflow.
-- [Pricing](https://walnutmarkets.com/pricing): Free, Premium, and Pro plans.
-- [About](https://walnutmarkets.com/about): Operator, support, data provenance, and billing context.
-- [FAQ](https://walnutmarkets.com/faq): Data, disclosure timing, billing, privacy, and product answers.
+- [Pricing](https://app.walnutmarkets.com/pricing): Free, Premium, and Pro plans.
+- [About](https://app.walnutmarkets.com/about): Operator, support, data provenance, and billing context.
+- [FAQ](https://app.walnutmarkets.com/faq): Data, disclosure timing, billing, privacy, and product answers.
 - [Compare Walnut](https://walnutmarkets.com/compare): Compare Walnut with other stock research tools.
 - [Congress Trades](https://walnutmarkets.com/congress-trades): Reported U.S. Congress trading disclosure context.
 - [Confirmation Score](https://walnutmarkets.com/stock-confirmation-score): Methodology and limitations for Walnut's proprietary research metric.
