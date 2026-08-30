@@ -11,6 +11,30 @@ from app.services.top_stocks import build_top_stocks_response
 router = APIRouter(tags=["leaderboards"])
 
 
+def _preview_snapshot(snapshot: dict) -> dict:
+    """Expose a deliberately small public teaser from an already-built snapshot."""
+    preview = dict(snapshot)
+    preview["items"] = list(snapshot.get("items") or [])[:3]
+    # Filter variants are a Premium interaction. The public page shows the
+    # filters as disabled affordances and receives only the all-stocks teaser.
+    preview.pop("filter_items", None)
+    return preview
+
+
+@router.get("/leaderboards/preview")
+def leaderboard_preview(response: Response, db: Session = Depends(get_db)):
+    """Serve a cacheable three-row preview without evaluating any rankings."""
+    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+    return {
+        "top_stocks": _preview_snapshot(build_top_stocks_response(db)),
+        "congress": _preview_snapshot(read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY)),
+        "insiders": _preview_snapshot(read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY)),
+        "institutions": _preview_snapshot(read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY)),
+        "can_view_performance": False,
+        "can_view_institutions": False,
+    }
+
+
 @router.get("/leaderboards/dashboard")
 def leaderboard_dashboard(request: Request, response: Response, db: Session = Depends(get_db)):
     """Serve the complete dashboard from prepared snapshots in one request.

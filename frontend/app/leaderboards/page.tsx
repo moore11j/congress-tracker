@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { LeaderboardsDashboard } from "@/components/leaderboards/LeaderboardsDashboard";
-import { getLeaderboardDashboard, type CachedLeaderboardResponse } from "@/lib/api";
+import { getLeaderboardDashboard, getLeaderboardPreview, type CachedLeaderboardResponse } from "@/lib/api";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
@@ -25,11 +25,11 @@ const gatedDashboard = {
 
 export default async function LeaderboardsPage() {
   const { token } = await optionalPageAuthState();
-  // Logged-out visitors receive the upgrade surface immediately. There is no
-  // reason to wait for a protected snapshot bundle they cannot view.
+  // Guests receive a deliberately small, public preview from the same prepared
+  // daily snapshots. The protected bundle is never fetched without a session.
   const dashboard = token
     ? await getLeaderboardDashboard({ authToken: token, source: "LeaderboardsPage" }).catch(() => gatedDashboard)
-    : gatedDashboard;
+    : await getLeaderboardPreview({ source: "LeaderboardsPreviewPage" }).catch(() => gatedDashboard);
 
   return <div className="w-full py-4 sm:py-5"><h1 className="sr-only">Leaderboards</h1><LeaderboardsDashboard topStocks={dashboard.top_stocks} congress={dashboard.congress} insiders={dashboard.insiders} institutions={dashboard.institutions} canViewTopStocks={dashboard.can_view_performance} canViewPerformance={dashboard.can_view_performance} canViewInstitutions={dashboard.can_view_institutions} /><p className="mt-4 text-xs leading-5 text-slate-500">Rankings are research tools, not investment advice. Past or backtested performance does not guarantee future results. Return calculations use the stated public-data methodology and may be affected by disclosure timing, data coverage, and survivorship limitations.</p></div>;
 }

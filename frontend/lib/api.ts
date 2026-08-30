@@ -6351,6 +6351,17 @@ export type LeaderboardDashboardResponse = {
   can_view_institutions: boolean;
 };
 
+/** Reads the public three-row teaser from already-prepared daily snapshots. */
+export async function getLeaderboardPreview(params?: { source?: string }): Promise<LeaderboardDashboardResponse> {
+  const url = buildApiUrl("/api/leaderboards/preview");
+  const request = () => fetchJson<LeaderboardDashboardResponse>(url, {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: params?.source ?? "LeaderboardsPreview",
+  });
+  return serverCachedJson(`leaderboards-preview:${url}`, request);
+}
+
 /** Reads the prebuilt dashboard bundle; the API never calculates rankings here. */
 export async function getLeaderboardDashboard(params?: { authToken?: string; source?: string }): Promise<LeaderboardDashboardResponse> {
   const url = buildApiUrl("/api/leaderboards/dashboard");
