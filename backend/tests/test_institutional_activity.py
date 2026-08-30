@@ -387,6 +387,55 @@ def test_historical_backfill_dry_run_plans_unprocessed_filings_without_writes(mo
     assert all(row["apply_action"] == "fetch_extract" for row in result["selected"])
 
 
+def test_missing_period_recovery_uses_prior_quarter_managers_absent_from_target(monkeypatch):
+    engine = _engine()
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    present_cik = "0000000001"
+    missing_cik = "0000000002"
+
+    with _session(engine) as db:
+        for cik, positions in ((present_cik, 2), (missing_cik, 1)):
+            candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1))
+            assert candidate is not None
+            upsert_institutional_holder(db, candidate)
+            filing, _ = upsert_institutional_filing(db, candidate)
+            db.flush()
+            upsert_positions_for_filing(db, filing=filing, rows=[{"symbol": f"Q1{index}", "shares": 1, "value": 100} for index in range(positions)])
+
+        candidate = parse_latest_filing(_filing_row(cik=present_cik, filing_date=date(2026, 8, 14), year=2026, quarter=2))
+        assert candidate is not None
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        upsert_positions_for_filing(db, filing=filing, rows=[{"symbol": "Q2", "shares": 1, "value": 100}])
+        db.commit()
+
+    captured: dict[str, object] = {}
+
+    def fake_backfill(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ok", "processed_filings": 1, "position_rows": 1}
+
+    monkeypatch.setattr(ingest_module, "SessionLocal", Session)
+    monkeypatch.setattr(ingest_module, "backfill_institutional_historical_batch", fake_backfill)
+
+    result = ingest_module.backfill_missing_institutional_period_batch(
+        report_year=2026,
+        report_quarter=2,
+        max_holders=5,
+        apply=True,
+    )
+
+    assert captured["holder_ciks"] == [missing_cik]
+    assert captured["start_year"] == 2026
+    assert captured["end_year"] == 2026
+    assert captured["positions_only"] is True
+    assert captured["apply"] is True
+    assert result["reference_institution_count"] == 2
+    assert result["current_institution_count_before"] == 1
+    assert result["missing_institution_count_before"] == 1
+    assert result["coverage_pct_after"] == 50.0
+
+
 def test_historical_backfill_apply_processes_oldest_first_and_counts_results(monkeypatch):
     engine = _engine()
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)

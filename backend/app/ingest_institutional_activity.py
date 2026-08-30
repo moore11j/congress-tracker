@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.clients.fmp import (
@@ -264,8 +265,10 @@ def ingest_institutional_filing(
     quarter: int,
     force: bool = False,
     positions_only: bool = False,
+    ensure_schema: bool = True,
 ) -> dict[str, int | str]:
-    ensure_institutional_activity_schema(engine)
+    if ensure_schema:
+        ensure_institutional_activity_schema(engine)
     db = SessionLocal()
     try:
         rows = fetch_institutional_filing_dates(cik=cik)
@@ -405,6 +408,87 @@ def _default_historical_backfill_ciks() -> list[str]:
         for row in CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE
         if (cik := normalize_cik(row.get("cik")))
     ]
+
+
+def backfill_missing_institutional_period_batch(
+    *,
+    report_year: int,
+    report_quarter: int,
+    max_holders: int = 10,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Recover missing managers from the matching prior 13F period.
+
+    Holdings are loaded before derived position-change events so a large filer
+    cannot block the dashboard's quarter-level coverage recovery.
+    """
+    if report_quarter < 1 or report_quarter > 4:
+        raise ValueError("report_quarter must be between 1 and 4")
+    reference_year, reference_quarter = (
+        (int(report_year) - 1, 4) if int(report_quarter) == 1 else (int(report_year), int(report_quarter) - 1)
+    )
+    db = SessionLocal()
+    try:
+        reference_rows = db.execute(
+            select(InstitutionalPosition.cik, func.count(InstitutionalPosition.id))
+            .where(
+                InstitutionalPosition.report_year == reference_year,
+                InstitutionalPosition.report_quarter == reference_quarter,
+            )
+            .group_by(InstitutionalPosition.cik)
+            .order_by(func.count(InstitutionalPosition.id), InstitutionalPosition.cik)
+        ).all()
+        current_ciks = set(
+            db.scalars(
+                select(InstitutionalPosition.cik)
+                .where(
+                    InstitutionalPosition.report_year == int(report_year),
+                    InstitutionalPosition.report_quarter == int(report_quarter),
+                )
+                .distinct()
+            ).all()
+        )
+        missing_ciks = [str(cik) for cik, _position_count in reference_rows if cik not in current_ciks]
+    finally:
+        db.close()
+
+    result = backfill_institutional_historical_batch(
+        holder_ciks=missing_ciks,
+        start_year=int(report_year),
+        end_year=int(report_year),
+        max_holders=max(1, int(max_holders)),
+        max_filings_total=max(1, int(max_holders)),
+        max_filings_per_holder=1,
+        positions_only=True,
+        apply=apply,
+    )
+
+    db = SessionLocal()
+    try:
+        current_after = int(
+            db.execute(
+                select(func.count(func.distinct(InstitutionalPosition.cik))).where(
+                    InstitutionalPosition.report_year == int(report_year),
+                    InstitutionalPosition.report_quarter == int(report_quarter),
+                )
+            ).scalar_one()
+            or 0
+        )
+    finally:
+        db.close()
+    reference_count = len(reference_rows)
+    return {
+        **result,
+        "report_year": int(report_year),
+        "report_quarter": int(report_quarter),
+        "reference_year": reference_year,
+        "reference_quarter": reference_quarter,
+        "reference_institution_count": reference_count,
+        "current_institution_count_before": len(current_ciks),
+        "missing_institution_count_before": len(missing_ciks),
+        "current_institution_count_after": current_after,
+        "coverage_pct_after": round((current_after / reference_count) * 100, 1) if reference_count else None,
+    }
 
 
 def _parse_cik_csv(value: str | None) -> list[str] | None:
@@ -693,6 +777,7 @@ def backfill_institutional_historical_batch(
                             quarter=candidate.report_quarter,
                             force=force,
                             positions_only=positions_only,
+                            ensure_schema=False,
                         )
                         counts["processed_filings"] += int(result.get("processed_filings", 0))
                         counts["position_rows"] += int(result.get("position_rows", 0))
@@ -797,6 +882,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--quarter", type=int)
     parser.add_argument("--historical-backfill", action="store_true", help="Plan a bounded 13F historical backfill. Dry-run unless --apply-historical-backfill is set.")
     parser.add_argument("--apply-historical-backfill", action="store_true", help="Write bounded 13F historical backfill rows.")
+    parser.add_argument("--recover-missing-period", action="store_true", help="Recover managers missing from a filing period using the matching prior quarter as the source universe.")
+    parser.add_argument("--recovery-year", type=int, default=None)
+    parser.add_argument("--recovery-quarter", type=int, default=None)
     parser.add_argument("--historical-job-init", action="store_true", help="Initialize durable historical 13F backfill state.")
     parser.add_argument("--historical-job-config", action="store_true", help="Update durable historical 13F backfill configuration without running it.")
     parser.add_argument("--historical-job-status", action="store_true", help="Print durable historical 13F backfill status.")
@@ -910,6 +998,15 @@ def main() -> None:
             if status in {"paused", "complete", "skipped_locked"}:
                 raise SystemExit(0)
             return
+        elif args.recover_missing_period:
+            if args.recovery_year is None or args.recovery_quarter is None:
+                raise SystemExit("--recover-missing-period requires --recovery-year and --recovery-quarter")
+            result = backfill_missing_institutional_period_batch(
+                report_year=args.recovery_year,
+                report_quarter=args.recovery_quarter,
+                max_holders=args.max_holders,
+                apply=args.apply_historical_backfill,
+            )
         elif args.historical_backfill:
             result = backfill_institutional_historical_batch(
                 holder_ciks=_parse_cik_csv(args.holder_ciks),
