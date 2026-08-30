@@ -3152,6 +3152,20 @@ def _run_profile_overview_prewarm(*, force_refresh: bool = False) -> dict[str, o
     refreshed_keys: list[tuple[Any, ...]] = []
     db = SessionLocal()
     try:
+        # Institutions can switch filing quarters immediately after a recovery.
+        # Warm it first so an unrelated overview cannot delay that visible update.
+        for include_details in (False, True):
+            institution_key = ("profiles_institutions_overview", None, None, include_details)
+            _cached_profile_overview_response(
+                db,
+                institution_key,
+                lambda include_details=include_details: build_institutions_overview(
+                    db,
+                    include_details=include_details,
+                ),
+                force_refresh=force_refresh,
+            )
+            refreshed_keys.append(institution_key)
         for key in cache_keys:
             include_institutions = bool(key[3])
             _cached_profile_overview_response(
@@ -3176,18 +3190,6 @@ def _run_profile_overview_prewarm(*, force_refresh: bool = False) -> dict[str, o
             force_refresh=force_refresh,
         )
         refreshed_keys.append(congress_key)
-        for include_details in (False, True):
-            institution_key = ("profiles_institutions_overview", None, None, include_details)
-            _cached_profile_overview_response(
-                db,
-                institution_key,
-                lambda include_details=include_details: build_institutions_overview(
-                    db,
-                    include_details=include_details,
-                ),
-                force_refresh=force_refresh,
-            )
-            refreshed_keys.append(institution_key)
         insiders_key = ("profiles_insiders_overview", "", 365)
         _cached_profile_overview_response(
             db,
