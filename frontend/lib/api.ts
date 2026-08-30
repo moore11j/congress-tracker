@@ -6342,6 +6342,33 @@ export type CachedLeaderboardResponse = {
   metadata?: Record<string, unknown>;
 };
 
+export type LeaderboardDashboardResponse = {
+  top_stocks: CachedLeaderboardResponse;
+  congress: CachedLeaderboardResponse | null;
+  insiders: CachedLeaderboardResponse | null;
+  institutions: CachedLeaderboardResponse | null;
+  can_view_performance: boolean;
+  can_view_institutions: boolean;
+};
+
+/** Reads the prebuilt dashboard bundle; the API never calculates rankings here. */
+export async function getLeaderboardDashboard(params?: { authToken?: string; source?: string }): Promise<LeaderboardDashboardResponse> {
+  const url = buildApiUrl("/api/leaderboards/dashboard");
+  const init: ApiRequestInit = {
+    headers: authHeaders(params?.authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: params?.source ?? "LeaderboardsPage",
+  };
+  try {
+    return await fetchJson<LeaderboardDashboardResponse>(url, init);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 503) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return fetchJson<LeaderboardDashboardResponse>(url, init);
+  }
+}
+
 /** Reads a prepared daily leaderboard snapshot. It never recomputes rankings. */
 export async function getCachedLeaderboard(
   section: CachedLeaderboardSection,

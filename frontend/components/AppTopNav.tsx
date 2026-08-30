@@ -257,7 +257,7 @@ export function AppTopNav() {
             <Link
               key={link.href}
               href={link.href}
-              prefetch={false}
+              prefetch={link.href === "/leaderboards"}
               aria-current={active ? "page" : undefined}
               className={`flex min-h-11 items-center rounded-full px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:min-h-0 lg:px-2.5 lg:py-1 ${
                 active

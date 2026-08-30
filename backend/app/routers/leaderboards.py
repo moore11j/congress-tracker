@@ -11,6 +11,28 @@ from app.services.top_stocks import build_top_stocks_response
 router = APIRouter(tags=["leaderboards"])
 
 
+@router.get("/leaderboards/dashboard")
+def leaderboard_dashboard(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Serve the complete dashboard from prepared snapshots in one request.
+
+    Ranking calculations are performed by the daily refresh job, never here.
+    Keeping the entitlement check and all snapshot reads together avoids a
+    page-load waterfall of individually authenticated API requests.
+    """
+    entitlements = current_entitlements(request, db)
+    can_view_performance = entitlements.has_feature("leaderboards")
+    can_view_institutions = entitlements.has_feature("institutional_feed")
+    response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=3600"
+    return {
+        "top_stocks": build_top_stocks_response(db),
+        "congress": read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY) if can_view_performance else None,
+        "insiders": read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY) if can_view_performance else None,
+        "institutions": read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY) if can_view_institutions else None,
+        "can_view_performance": can_view_performance,
+        "can_view_institutions": can_view_institutions,
+    }
+
+
 @router.get("/leaderboards/{section}")
 def leaderboard_section(section: str, request: Request, response: Response, db: Session = Depends(get_db)):
     normalized = (section or "").strip().lower()

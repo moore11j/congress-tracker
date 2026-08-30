@@ -120,6 +120,7 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
     # generated leaderboard from the dashboard.
     if lower_path in (
         "/api/leaderboards/congress-traders",
+        "/api/leaderboards/dashboard",
         "/api/leaderboards/top-stocks",
         "/api/leaderboards/congress_members",
         "/api/leaderboards/insiders",

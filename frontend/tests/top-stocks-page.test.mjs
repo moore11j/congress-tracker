@@ -14,7 +14,7 @@ test("Top Stocks redirects to the canonical crawlable Leaderboards dashboard", (
   assert.match(page, /redirect\("\/leaderboards#top-stocks"\)/);
   assert.match(leaderboards, /Stock, Congress, Insider & Institution Leaderboards/);
   assert.match(leaderboards, /<h1[^>]*>Leaderboards<\/h1>/);
-  assert.match(leaderboards, /getCachedLeaderboard\("top-stocks"/);
+  assert.match(leaderboards, /getLeaderboardDashboard/);
   assert.match(dashboard, /id="top-stocks"/);
   assert.match(dashboard, /Top Stocks/);
   assert.match(landing, /topStocks\.items\.slice\(0, 5\)/);
@@ -23,9 +23,8 @@ test("Top Stocks redirects to the canonical crawlable Leaderboards dashboard", (
 });
 
 test("The Leaderboards page only reads prepared snapshots", () => {
-  assert.match(leaderboards, /getCachedLeaderboard\("congress_members"/);
-  assert.match(leaderboards, /getCachedLeaderboard\("insiders"/);
-  assert.match(leaderboards, /getCachedLeaderboard\("institutions"/);
+  assert.match(leaderboards, /getLeaderboardDashboard/);
+  assert.doesNotMatch(leaderboards, /getEntitlements/);
   assert.doesNotMatch(leaderboards, /\/api\/screener/);
   assert.doesNotMatch(leaderboards, /build_screener/);
 });

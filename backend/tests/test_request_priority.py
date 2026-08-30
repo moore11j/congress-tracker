@@ -58,7 +58,7 @@ def test_search_suggest_is_critical_route():
 
 
 def test_persisted_leaderboard_snapshot_reads_are_not_heavy_route_gated():
-    for section in ("top-stocks", "congress_members", "insiders", "institutions"):
+    for section in ("dashboard", "top-stocks", "congress_members", "insiders", "institutions"):
         assert classify_request(f"/api/leaderboards/{section}", {}) == RoutePriority.NORMAL
 
 
