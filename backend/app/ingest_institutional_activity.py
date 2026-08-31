@@ -459,6 +459,7 @@ def backfill_missing_institutional_period_batch(
         max_holders=max(1, int(max_holders)),
         max_filings_total=max(1, int(max_holders)),
         max_filings_per_holder=1,
+        target_quarter=int(report_quarter),
         # A metadata-only filing can be marked processed before its holdings
         # extract is loaded. These managers are absent from the target period,
         # so refresh the snapshot instead of repeatedly skipping that shell.
@@ -526,6 +527,7 @@ def backfill_institutional_historical_batch(
     holder_ciks: list[str] | tuple[str, ...] | None = None,
     start_year: int | None = None,
     end_year: int | None = None,
+    target_quarter: int | None = None,
     max_holders: int | None = 3,
     max_filings_total: int | None = 10,
     max_filings_per_holder: int | None = 4,
@@ -544,6 +546,8 @@ def backfill_institutional_historical_batch(
     max_year = int(end_year) if end_year is not None else now_year
     if min_year > max_year:
         raise ValueError("--historical-start-year cannot be after --historical-end-year")
+    if target_quarter is not None and int(target_quarter) not in {1, 2, 3, 4}:
+        raise ValueError("target_quarter must be between 1 and 4")
 
     source_ciks = list(holder_ciks or _default_historical_backfill_ciks())
     normalized_ciks: list[str] = []
@@ -681,6 +685,9 @@ def backfill_institutional_historical_batch(
                 if candidate is None:
                     continue
                 if candidate.report_year < min_year or candidate.report_year > max_year:
+                    counts["skipped_bounds"] += 1
+                    continue
+                if target_quarter is not None and candidate.report_quarter != int(target_quarter):
                     counts["skipped_bounds"] += 1
                     continue
                 key = (candidate.report_year, candidate.report_quarter)
