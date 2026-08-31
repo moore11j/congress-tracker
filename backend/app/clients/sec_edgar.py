@@ -32,7 +32,6 @@ def _headers() -> dict[str, str]:
             "Walnut Market Terminal institutional research contact@walnutmarkets.com",
         ).strip(),
         "Accept-Encoding": "gzip, deflate",
-        "Host": "www.sec.gov",
     }
 
 
