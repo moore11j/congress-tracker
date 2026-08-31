@@ -142,17 +142,21 @@ def fetch_13f_filing_metadata(*, cik: str, report_year: int, report_quarter: int
     return rows
 
 
-def _information_table_filename(*, cik: str, accession_number: str) -> str | None:
+def _information_table_filenames(*, cik: str, accession_number: str) -> list[str]:
     payload = _request(f"{_archive_url(cik, accession_number)}/index.json", expect_json=True)
     items = ((payload or {}).get("directory") or {}).get("item") if isinstance(payload, dict) else None
     if not isinstance(items, list):
-        return None
+        return []
     xml_names = [str(item.get("name")) for item in items if isinstance(item, dict) and str(item.get("name") or "").lower().endswith(".xml")]
+    preferred: list[str] = []
     for name in xml_names:
         normalized = name.lower().replace("_", "").replace("-", "")
         if "infotable" in normalized or "informationtable" in normalized or "inftab" in normalized:
-            return name
-    return xml_names[0] if len(xml_names) == 1 else None
+            preferred.append(name)
+    # Some filers call the information table simply ``13F.xml``.  Inspect the
+    # remaining XML attachments too; only the document containing infoTable
+    # elements is accepted by the parser below.
+    return preferred + [name for name in xml_names if name not in preferred]
 
 
 def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict[str, Any]]:
@@ -160,37 +164,39 @@ def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict
     normalized_cik = normalize_cik(cik)
     if not normalized_cik:
         return []
-    filename = _information_table_filename(cik=normalized_cik, accession_number=accession_number)
-    if not filename:
+    filenames = _information_table_filenames(cik=normalized_cik, accession_number=accession_number)
+    if not filenames:
         return []
-    payload = _request(_archive_url(normalized_cik, accession_number, filename), expect_json=False)
-    if not isinstance(payload, bytes):
-        return []
-    try:
-        root = ET.fromstring(payload)
-    except ET.ParseError as exc:
-        raise SecEdgarClientError(f"SEC 13F information table XML was invalid for {normalized_cik} {accession_number}") from exc
-
-    rows: list[dict[str, Any]] = []
-    for item in root.findall(".//{*}infoTable"):
-        cusip = _text(item, "{*}cusip")
-        if not cusip:
+    for filename in filenames:
+        payload = _request(_archive_url(normalized_cik, accession_number, filename), expect_json=False)
+        if not isinstance(payload, bytes):
             continue
-        value_thousands = _number(_text(item, "{*}value"))
-        rows.append(
-            {
-                "cusip": cusip,
-                "issuerName": _text(item, "{*}nameOfIssuer"),
-                "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
-                "valueUsd": value_thousands * 1000 if value_thousands is not None else None,
-                "putCall": _text(item, "{*}putCall"),
-                "investmentDiscretion": _text(item, "{*}investmentDiscretion"),
-                "votingAuthority": {
-                    "sole": _number(_text(item, "{*}votingAuthority/{*}Sole")),
-                    "shared": _number(_text(item, "{*}votingAuthority/{*}Shared")),
-                    "none": _number(_text(item, "{*}votingAuthority/{*}None")),
-                },
-                "source": "sec_edgar",
-            }
-        )
-    return rows
+        try:
+            root = ET.fromstring(payload)
+        except ET.ParseError:
+            continue
+        rows: list[dict[str, Any]] = []
+        for item in root.findall(".//{*}infoTable"):
+            cusip = _text(item, "{*}cusip")
+            if not cusip:
+                continue
+            value_thousands = _number(_text(item, "{*}value"))
+            rows.append(
+                {
+                    "cusip": cusip,
+                    "issuerName": _text(item, "{*}nameOfIssuer"),
+                    "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
+                    "valueUsd": value_thousands * 1000 if value_thousands is not None else None,
+                    "putCall": _text(item, "{*}putCall"),
+                    "investmentDiscretion": _text(item, "{*}investmentDiscretion"),
+                    "votingAuthority": {
+                        "sole": _number(_text(item, "{*}votingAuthority/{*}Sole")),
+                        "shared": _number(_text(item, "{*}votingAuthority/{*}Shared")),
+                        "none": _number(_text(item, "{*}votingAuthority/{*}None")),
+                    },
+                    "source": "sec_edgar",
+                }
+            )
+        if rows:
+            return rows
+    return []
