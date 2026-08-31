@@ -840,15 +840,7 @@ def _monthly_department_contract_trend(db: Session) -> list[dict[str, Any]]:
 
 
 def _quarterly_institutional_value_trend(db: Session, *, latest_period: tuple[int, int] | None) -> list[dict[str, Any]]:
-    periods = [
-        (int(year), int(quarter))
-        for year, quarter in db.execute(
-            select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-            .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-            .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
-            .limit(16)
-        ).all()
-    ]
+    periods = _institutional_periods(db)
     if latest_period is not None:
         periods = [period for period in periods if period <= latest_period]
     complete_periods = _complete_institutional_periods(db, periods)
