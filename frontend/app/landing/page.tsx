@@ -786,8 +786,8 @@ export default async function LandingPage() {
               <HomepageCtaLink href={topStocksUrl} eventName="see_top_performers_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200">
                 View Leaderboards
               </HomepageCtaLink>
-              <a href="#analyze-a-stock" className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]">
-                Analyze a Stock
+              <a href={`${appUrl}/strategies`} className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]">
+                Browse Strategies
               </a>
             </div>
             <div id="analyze-a-stock" className="scroll-mt-28">
