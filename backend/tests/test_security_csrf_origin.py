@@ -161,10 +161,13 @@ def test_get_routes_and_options_preflight_are_not_blocked(monkeypatch):
     monkeypatch.setenv("FRONTEND_ORIGINS", "https://app.walnutmarkets.com")
 
     get_status, get_body = asyncio.run(_call_app("/health", method="GET", headers=[_cookie_header()]))
+    ready_status, ready_body = asyncio.run(_call_app("/ready", method="GET", headers=[_cookie_header()]))
     options_status, _ = asyncio.run(_call_app("/api/auth/logout", method="OPTIONS", headers=[_cookie_header()]))
 
     assert get_status == 200
     assert get_body == {"status": "ok"}
+    assert ready_status == 200
+    assert ready_body == {"status": "ok", "database": "ok"}
     assert options_status != 403
 
 

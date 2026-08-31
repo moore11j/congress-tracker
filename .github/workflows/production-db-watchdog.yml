@@ -1,0 +1,83 @@
+name: Production Database Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-db-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check-and-recover:
+    runs-on: ubuntu-latest
+    env:
+      API_URL: https://congress-tracker-api.fly.dev/api/events?limit=1
+      PG_APP: congress-tracker-pg-production
+      PG_MACHINE: 81721da9770131
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Install flyctl
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+
+      - name: Check the public feed and database health
+        id: probe
+        run: |
+          set -euo pipefail
+
+          api_healthy() {
+            curl --fail --silent --show-error --connect-timeout 10 --max-time 20 "$API_URL" >/dev/null
+          }
+
+          db_healthy() {
+            flyctl machine status "$PG_MACHINE" --app "$PG_APP" 2>&1 \
+              | sed -r 's/\x1B\[[0-9;]*[mK]//g' \
+              | grep -q 'Checks \[3/3\]'
+          }
+
+          if api_healthy && db_healthy; then
+            echo "Production feed and PostgreSQL are healthy."
+            exit 0
+          fi
+
+          echo "Initial probe failed; retrying after 30 seconds to avoid restarting for a transient error."
+          sleep 30
+
+          if api_healthy && db_healthy; then
+            echo "Production recovered without intervention."
+            exit 0
+          fi
+
+          if db_healthy; then
+            echo "The database is healthy but the public feed is failing; refusing to restart PostgreSQL."
+            exit 1
+          fi
+
+          echo "restart_required=true" >> "$GITHUB_OUTPUT"
+
+      - name: Restart unhealthy PostgreSQL machine
+        if: steps.probe.outputs.restart_required == 'true'
+        run: |
+          set -euo pipefail
+          flyctl machine restart "$PG_MACHINE" --app "$PG_APP"
+
+      - name: Verify recovery
+        if: steps.probe.outputs.restart_required == 'true'
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --connect-timeout 10 --max-time 20 "$API_URL" >/dev/null; then
+              echo "Production feed recovered after PostgreSQL restart."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "PostgreSQL restart completed, but the public feed did not recover."
+          exit 1

@@ -27,7 +27,7 @@ from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal, inspect
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SATimeoutError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError, TimeoutError as SATimeoutError
 from pydantic import BaseModel
 import requests
 
@@ -4273,6 +4273,17 @@ def _utc_iso_from_mtime(path: str) -> str | None:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready(db: Session = Depends(get_db)):
+    """Report whether this API instance can serve database-backed requests."""
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        logger.warning("readiness_check_failed database_unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return {"status": "ok", "database": "ok"}
 
 
 @app.post("/admin/seed-demo")

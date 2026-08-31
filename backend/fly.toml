@@ -101,7 +101,7 @@ destination = "/data"
     interval = "20s"
     timeout = "5s"
     method = "GET"
-    path = "/health"
+    path = "/ready"
 
 [[vm]]
   processes = ["app"]
