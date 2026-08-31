@@ -459,6 +459,10 @@ def backfill_missing_institutional_period_batch(
         max_holders=max(1, int(max_holders)),
         max_filings_total=max(1, int(max_holders)),
         max_filings_per_holder=1,
+        # A metadata-only filing can be marked processed before its holdings
+        # extract is loaded. These managers are absent from the target period,
+        # so refresh the snapshot instead of repeatedly skipping that shell.
+        force=True,
         positions_only=True,
         apply=apply,
     )
