@@ -1707,13 +1707,13 @@ def _institutional_period_coverage(db: Session, periods: list[tuple[int, int]]) 
         return {}
     rows = db.execute(
         select(
-            InstitutionalPosition.report_year,
-            InstitutionalPosition.report_quarter,
-            func.count(func.distinct(InstitutionalPosition.cik)),
-            func.count(InstitutionalPosition.id),
+            InstitutionalFiling.report_year,
+            InstitutionalFiling.report_quarter,
+            func.count(func.distinct(InstitutionalFiling.cik)),
+            func.count(InstitutionalFiling.id),
         )
-        .where(tuple_(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter).in_(periods))  # type: ignore[name-defined]
-        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
+        .where(tuple_(InstitutionalFiling.report_year, InstitutionalFiling.report_quarter).in_(periods))  # type: ignore[name-defined]
+        .group_by(InstitutionalFiling.report_year, InstitutionalFiling.report_quarter)
     ).all()
     return {
         (int(year), int(quarter)): {"institutions": int(institutions or 0), "positions": int(positions or 0)}
