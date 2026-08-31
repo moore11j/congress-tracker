@@ -426,6 +426,7 @@ def test_missing_period_recovery_uses_prior_quarter_managers_absent_from_target(
     )
 
     assert captured["holder_ciks"] == [missing_cik]
+    assert captured["max_holders"] is None
     assert captured["start_year"] == 2026
     assert captured["end_year"] == 2026
     assert captured["target_quarter"] == 2

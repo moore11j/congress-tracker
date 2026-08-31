@@ -456,7 +456,10 @@ def backfill_missing_institutional_period_batch(
         holder_ciks=missing_ciks,
         start_year=int(report_year),
         end_year=int(report_year),
-        max_holders=max(1, int(max_holders)),
+        # Scan the whole missing universe: the first alphabetical/smallest
+        # managers can have no provider record for the target quarter. The
+        # filing limit below still bounds each recovery run's writes.
+        max_holders=None,
         max_filings_total=max(1, int(max_holders)),
         max_filings_per_holder=1,
         target_quarter=int(report_quarter),
