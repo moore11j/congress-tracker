@@ -19,6 +19,11 @@ from app.clients.fmp import (
     fetch_institutional_filing_extract,
     fetch_latest_institutional_filings,
 )
+from app.clients.sec_edgar import (
+    SecEdgarClientError,
+    fetch_13f_filing_metadata,
+    fetch_13f_information_table,
+)
 from app.db import SessionLocal, engine, ensure_institutional_activity_schema
 from app.models import InstitutionalFiling, InstitutionalPosition
 from app.services.institutional_activity import (
@@ -366,6 +371,77 @@ def ingest_institutional_filing(
         db.close()
 
 
+def ingest_institutional_filing_from_sec(
+    *,
+    metadata_row: dict[str, Any],
+    force: bool = False,
+    positions_only: bool = False,
+    ensure_schema: bool = True,
+) -> dict[str, int | str]:
+    """Ingest an exact 13F snapshot from SEC EDGAR rather than FMP."""
+    candidate = parse_latest_filing(metadata_row)
+    if candidate is None:
+        raise ValueError("SEC 13F metadata could not be parsed")
+    if not candidate.accession_number:
+        raise ValueError(f"SEC 13F metadata has no accession number for cik={candidate.cik}")
+    if ensure_schema:
+        ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        canonical_filing = get_canonical_filing_for_holder_period(
+            db, filing.cik, filing.report_year, filing.report_quarter
+        )
+        if canonical_filing is not None:
+            filing = canonical_filing
+        if filing.processed_at is not None and not force:
+            if _should_retry_processed_zero_position_filing(db, filing):
+                filing.processed_at = None
+                db.flush()
+            else:
+                db.commit()
+                return {"status": "ok", "processed_filings": 0, "skipped": 1}
+
+        extract_rows = fetch_13f_information_table(cik=candidate.cik, accession_number=candidate.accession_number)
+        if not extract_rows:
+            metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
+            db.commit()
+            return _empty_extract_result(metric)
+        position_counts = upsert_positions_for_filing(db, filing=filing, rows=extract_rows)
+        position_row_count = int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0))
+        if position_row_count == 0 and _count_filing_positions(db, filing) == 0:
+            metric = _mark_empty_extract_outcome(
+                db,
+                filing,
+                raw_extract_rows=len(extract_rows),
+                skipped_positions=int(position_counts.get("skipped_positions", 0)),
+            )
+            db.commit()
+            return _empty_extract_result(metric)
+        if positions_only:
+            db.commit()
+            return {
+                "status": "ok", "processed_filings": 1, "empty_extract_retryable": 0,
+                "empty_extract_processed_no_holdings": 0, "position_rows": position_row_count,
+                "position_changes": 0, "summaries": 0, "activity_events": 0,
+                "feed_events": 0, "positions_only": 1,
+            }
+        process_counts = process_filing_changes_and_events(db, filing)
+        db.commit()
+        return {
+            "status": "ok", "processed_filings": 1, "empty_extract_retryable": 0,
+            "empty_extract_processed_no_holdings": 0, "position_rows": position_row_count,
+            "position_changes": int(process_counts.get("changes", 0)),
+            "summaries": int(process_counts.get("summaries", 0)),
+            "activity_events": int(process_counts.get("activity_events", 0)),
+            "feed_events": int(process_counts.get("feed_events", 0)),
+        }
+    finally:
+        db.close()
+
+
 def backfill_institutional_holder(
     *,
     cik: str,
@@ -495,6 +571,120 @@ def backfill_missing_institutional_period_batch(
         "current_institution_count_before": len(current_ciks),
         "missing_institution_count_before": len(missing_ciks),
         "current_institution_count_after": current_after,
+        "coverage_pct_after": round((current_after / reference_count) * 100, 1) if reference_count else None,
+    }
+
+
+def backfill_missing_institutional_period_from_sec_batch(
+    *,
+    report_year: int,
+    report_quarter: int,
+    max_holders: int = 10,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Recover missing managers from the primary SEC 13F feed for one period."""
+    if report_quarter < 1 or report_quarter > 4:
+        raise ValueError("report_quarter must be between 1 and 4")
+    reference_year, reference_quarter = (
+        (int(report_year) - 1, 4) if int(report_quarter) == 1 else (int(report_year), int(report_quarter) - 1)
+    )
+    if apply:
+        ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        reference_rows = db.execute(
+            select(InstitutionalPosition.cik, func.count(InstitutionalPosition.id))
+            .where(
+                InstitutionalPosition.report_year == reference_year,
+                InstitutionalPosition.report_quarter == reference_quarter,
+            )
+            .group_by(InstitutionalPosition.cik)
+            .order_by(func.count(InstitutionalPosition.id), InstitutionalPosition.cik)
+        ).all()
+        current_ciks = set(
+            db.scalars(
+                select(InstitutionalPosition.cik)
+                .where(
+                    InstitutionalPosition.report_year == int(report_year),
+                    InstitutionalPosition.report_quarter == int(report_quarter),
+                )
+                .distinct()
+            ).all()
+        )
+        missing_ciks = [str(cik) for cik, _position_count in reference_rows if cik not in current_ciks]
+    finally:
+        db.close()
+
+    limit = max(0, int(max_holders))
+    counts: dict[str, Any] = {
+        "status": "ok", "mode": "apply" if apply else "dry_run", "source": "sec_edgar", "positions_only": 1,
+        "holders_requested": len(missing_ciks), "holders_considered": 0, "holders_with_candidates": 0,
+        "candidate_filings": 0, "selected_filings": 0, "no_13f_hr": 0, "processed_filings": 0,
+        "position_rows": 0, "empty_extract_retryable": 0, "errors": 0, "selected": [], "error_details": [],
+    }
+    selected: list[dict[str, Any]] = []
+    for cik in missing_ciks:
+        if len(selected) >= limit:
+            break
+        counts["holders_considered"] += 1
+        try:
+            rows = fetch_13f_filing_metadata(cik=cik, report_year=int(report_year), report_quarter=int(report_quarter))
+        except SecEdgarClientError as exc:
+            counts["errors"] += 1
+            counts["error_details"].append({"cik": cik, "error": str(exc)[:240]})
+            logger.warning("SEC 13F metadata unavailable cik=%s: %s", cik, exc)
+            continue
+        candidates = [candidate for row in rows if (candidate := parse_latest_filing(row))]
+        if not candidates:
+            counts["no_13f_hr"] += 1
+            continue
+        candidate = max(candidates, key=_candidate_canonical_sort_key)
+        counts["holders_with_candidates"] += 1
+        counts["candidate_filings"] += len(candidates)
+        selected.append(candidate.raw)
+        if len(counts["selected"]) < 100:
+            counts["selected"].append(
+                {
+                    "cik": candidate.cik, "holder_name": candidate.holder_name,
+                    "year": candidate.report_year, "quarter": candidate.report_quarter,
+                    "filing_date": candidate.filing_date.isoformat(), "accession_number": candidate.accession_number,
+                    "apply_action": "fetch_sec_information_table",
+                }
+            )
+    counts["selected_filings"] = len(selected)
+    if apply:
+        for metadata_row in selected:
+            try:
+                result = ingest_institutional_filing_from_sec(
+                    metadata_row=metadata_row, force=True, positions_only=True, ensure_schema=False
+                )
+                counts["processed_filings"] += int(result.get("processed_filings", 0))
+                counts["position_rows"] += int(result.get("position_rows", 0))
+                counts["empty_extract_retryable"] += int(result.get("empty_extract_retryable", 0))
+            except Exception as exc:
+                counts["errors"] += 1
+                counts["error_details"].append({"cik": metadata_row.get("cik"), "error": str(exc)[:240]})
+                logger.exception("SEC 13F recovery failed cik=%s", metadata_row.get("cik"))
+
+    db = SessionLocal()
+    try:
+        current_after = int(
+            db.execute(
+                select(func.count(func.distinct(InstitutionalPosition.cik))).where(
+                    InstitutionalPosition.report_year == int(report_year),
+                    InstitutionalPosition.report_quarter == int(report_quarter),
+                )
+            ).scalar_one()
+            or 0
+        )
+    finally:
+        db.close()
+    reference_count = len(reference_rows)
+    return {
+        **counts, "report_year": int(report_year), "report_quarter": int(report_quarter),
+        "reference_year": reference_year, "reference_quarter": reference_quarter,
+        "reference_institution_count": reference_count, "current_institution_count_before": len(current_ciks),
+        "missing_institution_count_before": len(missing_ciks), "current_institution_count_after": current_after,
         "coverage_pct_after": round((current_after / reference_count) * 100, 1) if reference_count else None,
     }
 
@@ -899,6 +1089,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--recover-missing-period", action="store_true", help="Recover managers missing from a filing period using the matching prior quarter as the source universe.")
     parser.add_argument("--recovery-year", type=int, default=None)
     parser.add_argument("--recovery-quarter", type=int, default=None)
+    parser.add_argument("--recovery-source", choices=("fmp", "sec"), default="fmp")
     parser.add_argument("--historical-job-init", action="store_true", help="Initialize durable historical 13F backfill state.")
     parser.add_argument("--historical-job-config", action="store_true", help="Update durable historical 13F backfill configuration without running it.")
     parser.add_argument("--historical-job-status", action="store_true", help="Print durable historical 13F backfill status.")
@@ -1015,7 +1206,12 @@ def main() -> None:
         elif args.recover_missing_period:
             if args.recovery_year is None or args.recovery_quarter is None:
                 raise SystemExit("--recover-missing-period requires --recovery-year and --recovery-quarter")
-            result = backfill_missing_institutional_period_batch(
+            recovery = (
+                backfill_missing_institutional_period_from_sec_batch
+                if args.recovery_source == "sec"
+                else backfill_missing_institutional_period_batch
+            )
+            result = recovery(
                 report_year=args.recovery_year,
                 report_quarter=args.recovery_quarter,
                 max_holders=args.max_holders,
