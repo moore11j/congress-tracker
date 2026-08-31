@@ -146,8 +146,8 @@ export function EnhancedInstitutionDashboard({ data, period }: { data: Instituti
     ? `${latestAvailablePeriod} data ingestion is incomplete (${data.latest_available_coverage_pct.toFixed(0)}% manager coverage). Showing ${period} until the period is comparable.`
     : null;
   const filter = <div className="flex max-w-xs flex-col items-end gap-2"><PeriodBadge label={period} />{pendingCoverage ? <p className="text-right text-xs leading-5 text-slate-400">{pendingCoverage}</p> : null}</div>;
-  const sectorRows = data.sector_mapping_is_comparable ? data.sector_exposure : [];
-  const sectorNote = data.sector_mapping_is_comparable ? undefined : `Sector comparison is withheld: only ${(data.sector_mapping_coverage_pct ?? 0).toFixed(1)}% of ${period} portfolio value has mapped tickers, versus ${(data.previous_sector_mapping_coverage_pct ?? 0).toFixed(1)}% in the prior quarter.`;
+  const sectorRows = data.sector_exposure;
+  const sectorNote = data.sector_mapping_is_comparable ? undefined : `Sector values reflect ticker-mapped holdings; coverage is ${(data.sector_mapping_coverage_pct ?? 0).toFixed(1)}% for ${period} and ${(data.previous_sector_mapping_coverage_pct ?? 0).toFixed(1)}% for the prior quarter.`;
   const portfolioSeries = (data.institutional_activity_over_time ?? []).map((row) => ({ label: row.period, value: Number(row.portfolio_value ?? 0) }));
   if (data.locked) {
     const preview = institutionalLockedPreview(data.summary);
