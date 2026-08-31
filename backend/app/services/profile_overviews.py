@@ -1660,10 +1660,11 @@ def _cluster_buying(db: Session, *, since: datetime, symbols: set[str] | None = 
 
 
 def _institutional_periods(db: Session) -> list[tuple[int, int]]:
+    """List reported periods from filings, avoiding a full positions-table scan."""
     rows = db.execute(
-        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-        .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
+        select(InstitutionalFiling.report_year, InstitutionalFiling.report_quarter)
+        .group_by(InstitutionalFiling.report_year, InstitutionalFiling.report_quarter)
+        .order_by(InstitutionalFiling.report_year.desc(), InstitutionalFiling.report_quarter.desc())
         .limit(12)
     ).all()
     return [(int(row[0]), int(row[1])) for row in rows]
