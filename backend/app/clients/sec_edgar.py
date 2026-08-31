@@ -150,7 +150,7 @@ def _information_table_filename(*, cik: str, accession_number: str) -> str | Non
     xml_names = [str(item.get("name")) for item in items if isinstance(item, dict) and str(item.get("name") or "").lower().endswith(".xml")]
     for name in xml_names:
         normalized = name.lower().replace("_", "").replace("-", "")
-        if "infotable" in normalized or "informationtable" in normalized:
+        if "infotable" in normalized or "informationtable" in normalized or "inftab" in normalized:
             return name
     return xml_names[0] if len(xml_names) == 1 else None
 
