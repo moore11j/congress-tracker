@@ -1905,13 +1905,7 @@ def _institutional_position_changes(db: Session, year: int, quarter: int, *, cha
 
 
 def _institution_sector_exposure(db: Session) -> list[dict[str, Any]]:
-    rows = db.execute(
-        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-        .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
-        .limit(16)
-    ).all()
-    periods = _complete_institutional_periods(db, [(int(y), int(q)) for y, q in rows])[:8]
+    periods = _complete_institutional_periods(db, _institutional_periods(db))[:8]
     if not periods:
         return []
     rows = db.execute(
@@ -1947,13 +1941,7 @@ def _institution_sector_exposure(db: Session) -> list[dict[str, Any]]:
 
 
 def _institutional_activity_over_time(db: Session) -> list[dict[str, Any]]:
-    period_rows = db.execute(
-        select(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-        .group_by(InstitutionalPosition.report_year, InstitutionalPosition.report_quarter)
-        .order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc())
-        .limit(16)
-    ).all()
-    periods = list(reversed(_complete_institutional_periods(db, [(int(y), int(q)) for y, q in period_rows])[:8]))
+    periods = list(reversed(_complete_institutional_periods(db, _institutional_periods(db))[:8]))
     if not periods:
         return []
 
