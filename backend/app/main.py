@@ -57,6 +57,7 @@ from app.db import (
     ensure_price_cache_volume_columns,
     ensure_quote_cache_market_cap_schema,
     ensure_reddit_ads_assistant_schema,
+    ensure_research_memory_schema,
     ensure_search_and_insights_schema,
     ensure_search_entities_schema,
     ensure_strategy_storage_schema,
@@ -164,6 +165,7 @@ from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
 from app.routers.ai_marketing import router as ai_marketing_router
 from app.routers.research_briefs import router as research_briefs_router
+from app.routers.research_memory import router as research_memory_router
 from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
@@ -3033,7 +3035,7 @@ def _profile_overview_can_serve_stale(family: str) -> bool:
 
 def _profile_overview_persistent_key(key: tuple[Any, ...]) -> str:
     raw = json.dumps(key, separators=(",", ":"), default=str)
-    return f"profile-overview:v23:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+    return f"profile-overview:v24:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
 
 def _profile_overview_database_cache_get(db: Session, key: tuple[Any, ...], *, now: datetime) -> Any | None:
@@ -4191,6 +4193,7 @@ def _startup_create_tables():
         ("schema_provider_control", lambda: ensure_provider_control_schema(engine)),
         ("schema_data_enrichment_jobs", lambda: ensure_data_enrichment_jobs_schema(engine)),
         ("schema_ai_marketing", lambda: ensure_ai_marketing_schema(engine)),
+        ("schema_research_memory", lambda: ensure_research_memory_schema(engine)),
         ("schema_reddit_ads_assistant", lambda: ensure_reddit_ads_assistant_schema(engine)),
         ("schema_institutional_activity", lambda: ensure_institutional_activity_schema(engine)),
         ("schema_event_columns", ensure_event_columns),
@@ -15263,4 +15266,5 @@ app.include_router(strategies_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
 app.include_router(reddit_ads_assistant_router, prefix="/api")
 app.include_router(research_briefs_router, prefix="/api")
+app.include_router(research_memory_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")

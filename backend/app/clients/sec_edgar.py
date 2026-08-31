@@ -180,13 +180,15 @@ def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict
             cusip = _text(item, "{*}cusip")
             if not cusip:
                 continue
-            value_thousands = _number(_text(item, "{*}value"))
+            value_usd = _number(_text(item, "{*}value"))
             rows.append(
                 {
                     "cusip": cusip,
                     "issuerName": _text(item, "{*}nameOfIssuer"),
                     "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
-                    "valueUsd": value_thousands * 1000 if value_thousands is not None else None,
+                    # The XML information-table values returned for the
+                    # recovered filings are already dollar-denominated.
+                    "valueUsd": value_usd,
                     "putCall": _text(item, "{*}putCall"),
                     "investmentDiscretion": _text(item, "{*}investmentDiscretion"),
                     "votingAuthority": {
