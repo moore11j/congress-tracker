@@ -324,6 +324,15 @@ test("landing navigation sends app-owned information pages to the app host", () 
   assert.match(faqPage, /No\. Walnut provides informational and research tools only\./);
 });
 
+test("landing footer links Walnut's official Instagram and TikTok profiles", () => {
+  assert.match(landingPage, /WALNUT_INSTAGRAM_URL/);
+  assert.match(landingPage, /Instagram \/ @walnutmarkets/);
+  assert.match(landingPage, /WALNUT_TIKTOK_URL/);
+  assert.match(landingPage, /TikTok \/ @walnutmarkets/);
+  assert.match(marketingMetadata, /WALNUT_INSTAGRAM_URL = "https:\/\/www\.instagram\.com\/walnutmarkets\/"/);
+  assert.match(marketingMetadata, /WALNUT_TIKTOK_URL = "https:\/\/www\.tiktok\.com\/@walnutmarkets"/);
+});
+
 test("terminal app routes log request intent and bypass anonymous bot prefetch SSR", () => {
   assert.match(middleware, /const terminalRouteFamilies = \["ticker", "insider", "member", "institution"\] as const/);
   assert.match(middleware, /function isPrefetchRequest\(request: NextRequest\)/);

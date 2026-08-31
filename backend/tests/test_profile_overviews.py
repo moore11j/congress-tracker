@@ -139,7 +139,7 @@ def test_profiles_summary_uses_real_aggregate_counts():
     assert insiders["metrics"][1]["value"] == 1
     assert departments["metrics"][1]["value"] == 1_000_000
     assert payload["directories"][0]["primary_title"] == "Top Congress by Trading Value"
-    assert payload["activity"][0]["profile_href"] == "/member/nancy-pelosi"
+    assert payload["activity"][0]["profile_href"] == "/member/NANCY_PELOSI"
     assert activity_mix == {"Congress": 1, "Insider": 1, "Institution": 2, "Department": 1}
     assert len(payload["activity_by_profile_type"]) == 12
     assert payload["activity_by_profile_type"][-1]["period"] == date.today().strftime("%b %y")
@@ -218,7 +218,7 @@ def test_profile_activity_uses_transaction_level_labels():
     activity = {item["id"]: item for item in profile_activity(db, include_institutions=True)}
 
     assert activity[1]["activity"] == "Purchase"
-    assert activity[1]["profile_href"] == "/member/nancy-pelosi"
+    assert activity[1]["profile_href"] == "/member/NANCY_PELOSI"
     assert activity[2]["activity"] == "Sale"
     assert activity[2]["profile_href"] == "/insider/jane-insider-1234567890"
     assert activity[3]["activity"] == "Increased"
@@ -450,7 +450,7 @@ def test_congress_overview_returns_page_ready_sections():
     assert payload["summary"][0]["label"] == "Total Trades"
     assert payload["summary"][0]["value"] == 2
     assert len(payload["monthly_activity"]) == 12
-    assert payload["top_members"][0]["href"] == "/member/nancy-pelosi"
+    assert payload["top_members"][0]["href"] == "/member/NANCY_PELOSI"
     assert payload["most_traded_stocks"][0]["symbol"] == "NVDA"
     assert payload["most_traded_stocks"][0]["trades"] == 1
     sector_labels = {segment["label"] for segment in payload["sector_exposure"][0]["segments"]}

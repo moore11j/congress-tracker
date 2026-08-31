@@ -21,7 +21,7 @@ export const seoPilotPages = {
     { type: "ticker", path: "/ticker/LMT", lastmod: "2026-08-01", rationale: "Government-contract research pilot with issuer context." },
   ],
   members: [
-    { type: "member", path: "/member/nancy-pelosi", lastmod: "2026-08-01", rationale: "Canonical public member page with meaningful disclosure activity and profile context." },
+    { type: "member", path: "/member/NANCY_PELOSI", lastmod: "2026-08-01", rationale: "Canonical public member page with meaningful disclosure activity and profile context." },
   ],
   insiders: [
     { type: "insider", path: "/insider/tim-cook-0001214156", lastmod: "2026-08-01", rationale: "Canonical public insider pilot with issuer relationship and filing history." },

@@ -8,9 +8,11 @@ import { API_BASE, type OutcomeLedgerSummary, type PlanConfig, type PlanPrice, t
 import {
   WALNUT_MARKETING_DESCRIPTION,
   WALNUT_MARKETING_URL,
+  WALNUT_INSTAGRAM_URL,
   WALNUT_REDDIT_URL,
   WALNUT_SOCIAL_IMAGE_URL,
   WALNUT_SOCIAL_URLS,
+  WALNUT_TIKTOK_URL,
   WALNUT_X_HANDLE,
   WALNUT_X_URL,
   walnutMarketingMetadata,
@@ -1240,6 +1242,12 @@ export default async function LandingPage() {
               </a>
               <a href={WALNUT_REDDIT_URL} target="_blank" rel="noreferrer" className="hover:text-white">
                 Reddit / r/walnutmarkets
+              </a>
+              <a href={WALNUT_INSTAGRAM_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+                Instagram / @walnutmarkets
+              </a>
+              <a href={WALNUT_TIKTOK_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+                TikTok / @walnutmarkets
               </a>
             </nav>
           </div>

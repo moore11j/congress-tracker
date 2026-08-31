@@ -6,7 +6,7 @@ Date checked: 2026-08-04
 
 | Page type | Current route | Indexation stance | Main risk | Phase 3 control |
 | --- | --- | --- | --- | --- |
-| Ticker pages | `/ticker/[symbol]` | App-domain public pages, pilot sitemap only | Empty or unresolved ticker shells | `tickerHasIndexableContent` requires identity and multiple research modules |
+| Ticker pages | `/ticker/[symbol]` | App-domain public pages, snapshot-backed sitemap | Empty or unresolved ticker shells | `tickerHasIndexableContent` requires identity and multiple research modules |
 | Congress member pages | `/member/[slug]` | App-domain public pages, pilot sitemap only | Duplicate member ids or low-activity profiles | Missing profile metadata is `noindex, follow`; sitemap stays approved-pilot only |
 | Insider pages | `/insider/[slug]` | App-domain public pages, pilot sitemap only | Ambiguous identity or no issuer/activity context | `insiderHasIndexableContent` requires CIK plus identity and activity/issuer context |
 | Institution pages | `/institution/[cik]` | App-domain public pages, pilot sitemap only | Locked or delayed filings mistaken for live data | `institutionHasIndexableContent` excludes locked/unavailable shells |
@@ -52,27 +52,27 @@ The app-domain sitemap is already segmented:
 - `/sitemap-research.xml`
 - `/sitemap-comparisons.xml`
 
-Phase 3 keeps these segmented files and moves approved pilot URLs into a centralized registry. Each URL now carries `lastmod`. The system intentionally avoids database-wide sitemap expansion.
+Phase 3 keeps these segmented files and moves approved pilot URLs into a centralized registry. Each URL now carries `lastmod`. The ticker sitemap expands from the indexable stored-data snapshot index, and the research sitemap includes every published static and generated brief; thin, draft, and unpublished pages stay excluded.
 
 No screener, sector, or market sitemap segment is created in Phase 3 because those page families do not yet have approved public pilot URLs.
 
 ## Newly Indexable Pilot Pages
 
-Phase 3 adds app-domain pilot sitemap coverage only for the centralized approved set:
+Phase 3 adds app-domain pilot sitemap coverage for the centralized approved set, every indexable ticker snapshot, and every published research brief:
 
-- Tickers: `/ticker/NVDA`, `/ticker/AAPL`, `/ticker/MSFT`, `/ticker/TSLA`, `/ticker/PLTR`, `/ticker/LMT`
-- Member: `/member/nancy-pelosi`
+- Tickers: every indexable stored-data `/ticker/[symbol]` snapshot
+- Member: `/member/NANCY_PELOSI`
 - Insider: `/insider/tim-cook-0001214156`
 - Institution: `/institution/0001364742`
 - Departments: `/departments/department-of-defense`, `/departments/nasa`
-- Research: `/research/nbis-vs-crwv-ai-neoclouds`, `/research/ai-earnings-dd`, `/research/mu-dd`
+- Research: every published static and generated `/research/[slug]` brief
 - Comparison: `/compare/NVDA/MU`
 
 ## Newly Excluded Or Held Back
 
 Phase 3 deliberately holds back:
 
-- Arbitrary ticker symbols not in the approved pilot registry
+- Ticker symbols without an indexable stored-data snapshot
 - Non-pilot ticker comparison pairs
 - Screener query states, user saved views, pagination states, and empty result combinations
 - Sector or market pages without stable public methodology and approved pilot status
@@ -100,5 +100,5 @@ Marketing pages use Organization, WebPage, BreadcrumbList, SoftwareApplication, 
 
 - Full entity metadata quality still depends on backend availability during metadata generation.
 - The app-domain terminal chrome can affect local mobile screenshots even when marketing-host HTML checks pass.
-- Only a small pilot set is included in app-domain sitemaps. Scaling requires a backend-driven eligibility job, not direct database-wide generation at request time.
+- Member, insider, institution, department, and comparison sitemaps retain their eligibility controls. Ticker snapshots and published research briefs safely expand from their respective public indexes.
 - Some older app-contract tests remain red outside this SEO work and should be fixed separately before treating the whole frontend suite as green.

@@ -46,12 +46,14 @@ test("segmented app sitemaps consume controlled whitelist sources", () => {
   const membersSitemap = read("app/sitemap-members.xml/route.ts");
   assert.match(membersSitemap, /nameToSlug/);
   assert.match(membersSitemap, /memberSitemapPath/);
-  for (const routePath of ["app/sitemap-research.xml/route.ts"]) {
-    const source = read(routePath);
-    assert.match(source, /seoPilotPages/);
-    assert.match(source, /sitemapUrlset/);
-    assert.doesNotMatch(source, /const PATHS|const TICKERS/);
-  }
+  assert.match(membersSitemap, /replace\(\/\[_-\]\+\/g, " "\)/, "legacy member slugs must be emitted with underscores");
+  const researchSitemap = read("app/sitemap-research.xml/route.ts");
+  assert.match(researchSitemap, /getPublishedResearchBriefs/);
+  assert.match(researchSitemap, /getGeneratedResearchBriefCards/);
+  assert.match(researchSitemap, /sitemapUrlset/);
+  assert.match(researchSitemap, /pagesByPath/);
+  assert.doesNotMatch(researchSitemap, /seoPilotPages\.research/);
+  assert.doesNotMatch(researchSitemap, /const PATHS|const TICKERS/);
   const institutions = read("app/sitemap-institutions.xml/route.ts");
   assert.match(institutions, /getPublicInstitutionIndex/);
   assert.match(institutions, /latest_filing_date/);

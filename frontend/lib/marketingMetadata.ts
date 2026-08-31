@@ -12,7 +12,9 @@ export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets stock research and analys
 export const WALNUT_X_HANDLE = "@Walnutmarkets";
 export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";
-export const WALNUT_SOCIAL_URLS = [WALNUT_X_URL, WALNUT_REDDIT_URL] as const;
+export const WALNUT_INSTAGRAM_URL = "https://www.instagram.com/walnutmarkets/";
+export const WALNUT_TIKTOK_URL = "https://www.tiktok.com/@walnutmarkets";
+export const WALNUT_SOCIAL_URLS = [WALNUT_X_URL, WALNUT_REDDIT_URL, WALNUT_INSTAGRAM_URL, WALNUT_TIKTOK_URL] as const;
 
 function metadataText(value: Metadata["title"] | Metadata["description"], fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;

@@ -37,7 +37,9 @@ CRON_TZ=America/Los_Angeles
 45 13 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning
 */15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all
 # Stored-data SEO refreshes only: no providers, AI, or page changes.
+5 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type ticker --batch --limit 250
 15 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type member --batch --limit 250
 25 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type insider --batch --limit 250
 35 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type member --batch --include-existing --limit 250
 45 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type insider --batch --include-existing --limit 250
+55 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type ticker --batch --include-existing --limit 250

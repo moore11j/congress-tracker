@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSeoSnapshotIndex } from "@/lib/api";
-import { sitemapUrlset } from "@/lib/seoQuality";
+import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
 
 const APP_URL = "https://app.walnutmarkets.com";
 
@@ -8,14 +8,14 @@ export const dynamic = "force-dynamic";
 export const revalidate = 1800;
 
 export async function GET() {
-  const pages = await getSeoSnapshotIndex("ticker", { source: "TickerSitemap" })
+  const pages = await getSeoSnapshotIndex("ticker", { source: "TickerSitemap", limit: 50_000 })
     .then((response) => response.items.map((item) => ({
       type: "ticker" as const,
       path: item.canonical_path,
       lastmod: (item.data_as_of ?? item.updated_at ?? new Date().toISOString()).slice(0, 10),
       rationale: "Indexable cached ticker profile page.",
     })))
-    .catch(() => []);
+    .catch(() => seoPilotPages.tickers);
   return xmlResponse(sitemapUrlset(APP_URL, pages));
 }
 

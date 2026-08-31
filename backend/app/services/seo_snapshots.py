@@ -86,6 +86,13 @@ def _slugify(value: str) -> str:
     return slug or "unknown"
 
 
+def _member_slugify(value: str) -> str:
+    """Match the underscore-based canonical member URLs used by the frontend."""
+    cleaned = re.sub(r"\s+", " ", (value or "").strip()).upper()
+    cleaned = re.sub(r"[^A-Z0-9 ]", "", cleaned)
+    return cleaned.replace(" ", "_") or "UNKNOWN"
+
+
 def _member_name(member: Member) -> str:
     return " ".join(part for part in [member.first_name, member.last_name] if _clean_text(part)).strip() or member.bioguide_id
 
@@ -182,7 +189,7 @@ def normalize_snapshot_key(entity_type: SeoEntityType, entity_key: str) -> str:
         return _normalize_symbol(entity_key)
     if entity_type == "insider":
         return _normalize_cik(entity_key)
-    return _slugify(entity_key)
+    return _member_slugify(entity_key)
 
 
 def _existing_snapshot_keys(db: Session, entity_type: SeoEntityType) -> set[str]:
@@ -268,7 +275,7 @@ def _member_batch_candidates(db: Session, limit: int, *, include_existing: bool)
     ).all()
     candidates: list[str] = []
     for member, _trade_count, _latest_report_date in rows:
-        key = _slugify(_member_name(member))
+        key = _member_slugify(_member_name(member))
         if not key or key in existing or key in candidates:
             continue
         candidates.append(key)
@@ -439,14 +446,14 @@ def refresh_member_seo_snapshot(db: Session, slug_or_bioguide: str) -> dict[str,
     key = (slug_or_bioguide or "").strip()
     member = db.execute(select(Member).where(func.lower(Member.bioguide_id) == key.lower())).scalar_one_or_none()
     if member is None:
-        slug = _slugify(key)
+        slug = _member_slugify(key)
         members = db.execute(select(Member)).scalars().all()
-        member = next((row for row in members if _slugify(_member_name(row)) == slug), None)
+        member = next((row for row in members if _member_slugify(_member_name(row)) == slug), None)
     if member is None:
         raise ValueError("member not found")
 
     member_name = _member_name(member)
-    slug = _slugify(member_name)
+    slug = _member_slugify(member_name)
     recent_trades = db.execute(
         select(Transaction)
         .where(Transaction.member_id == member.id)

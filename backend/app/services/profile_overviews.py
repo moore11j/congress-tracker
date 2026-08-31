@@ -2528,7 +2528,8 @@ def _activity_label(event_type: str, trade_type: str | None) -> str:
 def _member_href(name: str | None) -> str | None:
     if not name:
         return None
-    slug = "-".join(part for part in "".join(ch.lower() if ch.isalnum() else " " for ch in name).split() if part)
+    cleaned = re.sub(r"\s+", " ", name.strip()).upper()
+    slug = re.sub(r"[^A-Z0-9 ]", "", cleaned).replace(" ", "_")
     return f"/member/{slug}" if slug else None
 
 

@@ -304,13 +304,13 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
           {
             title: "Member and insider profiles",
             body: "Open profiles to inspect disclosure histories, ticker context, and activity patterns.",
-            href: `${appUrl}/member/nancy-pelosi`,
+            href: `${appUrl}/member/NANCY_PELOSI`,
             label: "Profiles",
           },
           {
             title: "Portfolio simulations",
             body: "Review historical simulated disclosure portfolios where Walnut has enough data to model the activity.",
-            href: `${appUrl}/member/nancy-pelosi`,
+            href: `${appUrl}/member/NANCY_PELOSI`,
             label: requiredTierLabel("leaderboards"),
           },
           {
