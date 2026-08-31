@@ -319,6 +319,27 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
 
     total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*period_filter)).scalar_one()
     previous_total_value = db.execute(select(func.sum(InstitutionalPosition.value_usd)).where(*previous_position_filter)).scalar_one() if previous_position_filter else None
+    mapped_sector_value = db.execute(
+        select(func.sum(InstitutionalSymbolSummary.total_value_usd)).where(
+            InstitutionalSymbolSummary.report_year == report_year,
+            InstitutionalSymbolSummary.report_quarter == report_quarter,
+        )
+    ).scalar_one()
+    previous_mapped_sector_value = db.execute(
+        select(func.sum(InstitutionalSymbolSummary.total_value_usd)).where(
+            InstitutionalSymbolSummary.report_year == prev_year,
+            InstitutionalSymbolSummary.report_quarter == prev_quarter,
+        )
+    ).scalar_one() if previous_period is not None else None
+    sector_mapping_coverage_pct = round((float(mapped_sector_value or 0) / float(total_value or 0)) * 100, 1) if total_value else None
+    previous_sector_mapping_coverage_pct = round((float(previous_mapped_sector_value or 0) / float(previous_total_value or 0)) * 100, 1) if previous_total_value else None
+    sector_mapping_is_comparable = bool(
+        sector_mapping_coverage_pct is not None
+        and previous_sector_mapping_coverage_pct is not None
+        and sector_mapping_coverage_pct >= 60
+        and previous_sector_mapping_coverage_pct >= 60
+        and min(sector_mapping_coverage_pct, previous_sector_mapping_coverage_pct) / max(sector_mapping_coverage_pct, previous_sector_mapping_coverage_pct) >= 0.8
+    )
     tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*period_filter)).scalar_one()
     previous_tracked_institutions = db.execute(select(func.count(func.distinct(InstitutionalPosition.cik))).where(*previous_position_filter)).scalar_one() if previous_position_filter else None
     increases = db.execute(select(func.count()).select_from(InstitutionalPositionChange).where(*change_filter, InstitutionalPositionChange.shares_delta > 0)).scalar_one()
@@ -343,6 +364,9 @@ def institutions_overview(db: Session, *, year: int | None = None, quarter: int 
         "latest_available_reference_institution_count": latest_available_reference_institutions or None,
         "latest_available_coverage_pct": latest_available_coverage_pct,
         "latest_available_is_comparable": latest_available_period == period,
+        "sector_mapping_coverage_pct": sector_mapping_coverage_pct,
+        "previous_sector_mapping_coverage_pct": previous_sector_mapping_coverage_pct,
+        "sector_mapping_is_comparable": sector_mapping_is_comparable,
         "summary": [
             _metric("Tracked Institutions", tracked_institutions, previous_tracked_institutions),
             _metric("Total Portfolio Value", total_value, previous_total_value, "currency"),

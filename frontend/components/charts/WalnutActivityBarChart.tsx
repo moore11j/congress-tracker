@@ -14,8 +14,7 @@ export function WalnutActivityBarChart({ data, ariaLabel, positiveLabel, negativ
   const [revealed, setRevealed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const frame = useRef<number | null>(null);
-  const positiveMax = Math.max(...data.map((point) => Math.max(0, point.positive)), 1);
-  const negativeMax = Math.max(...data.map((point) => Math.abs(Math.min(0, point.negative ?? 0))), 1);
+  const barMax = Math.max(...data.map((point) => Math.max(Math.max(0, point.positive), Math.abs(Math.min(0, point.negative ?? 0)))), 1);
   const lineMax = Math.max(...data.map((point) => Math.max(0, point.line ?? 0)), 1);
   const hasNegative = Boolean(negativeLabel) && data.some((point) => (point.negative ?? 0) !== 0);
   const zeroY = hasNegative ? 50 : 92;
@@ -62,8 +61,8 @@ export function WalnutActivityBarChart({ data, ariaLabel, positiveLabel, negativ
       {data.map((point, index) => {
         const x = xFor(index);
         const width = Math.max(1.1, Math.min(3.2, 30 / data.length));
-        const positive = (Math.max(0, point.positive) / positiveMax) * positiveHeight;
-        const negative = (Math.abs(Math.min(0, point.negative ?? 0)) / negativeMax) * negativeHeight;
+        const positive = (Math.max(0, point.positive) / barMax) * positiveHeight;
+        const negative = (Math.abs(Math.min(0, point.negative ?? 0)) / barMax) * negativeHeight;
         const emphasized = activeIndex == null || activeIndex === index;
         return <g key={point.label} opacity={emphasized ? 1 : .38} style={{ transition: "opacity 140ms ease-out" }}><rect x={x - width - .35} y={zeroY - positive} width={width} height={positive} rx=".55" fill="#42d3a7" style={{ transformBox: "fill-box", transformOrigin: "center bottom", transform: `scaleY(${revealed || reducedMotion ? 1 : 0})`, transition: reducedMotion ? "opacity 120ms ease-out" : `transform 460ms cubic-bezier(.22,1,.36,1) ${index * 18}ms, opacity 140ms ease-out` }} />{negativeLabel ? <rect x={x + .35} y={zeroY} width={width} height={negative} rx=".55" fill="#fb7185" style={{ transformBox: "fill-box", transformOrigin: "center top", transform: `scaleY(${revealed || reducedMotion ? 1 : 0})`, transition: reducedMotion ? "opacity 120ms ease-out" : `transform 460ms cubic-bezier(.22,1,.36,1) ${index * 18}ms, opacity 140ms ease-out` }} /> : null}</g>;
       })}

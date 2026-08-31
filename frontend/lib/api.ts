@@ -354,6 +354,9 @@ export type InstitutionsOverviewResponse = {
   latest_available_reference_institution_count?: number | null;
   latest_available_coverage_pct?: number | null;
   latest_available_is_comparable?: boolean;
+  sector_mapping_coverage_pct?: number | null;
+  previous_sector_mapping_coverage_pct?: number | null;
+  sector_mapping_is_comparable?: boolean;
   summary: ProfileMetric[];
   top_institutions: Array<Record<string, unknown>>;
   position_changes: Array<Record<string, unknown>>;
@@ -6361,6 +6364,31 @@ export async function getLeaderboardPreview(params?: { source?: string }): Promi
   });
   return serverCachedJson(`leaderboards-preview:${url}`, request);
 }
+
+export type ResearchMemoryClaim = { id?: string; claim_type: string; subject: string; metric?: string | null; expected_direction?: string | null; expected_magnitude?: string | null; expected_timeframe?: string | null; importance: "low" | "medium" | "high" | string; monitoring_mode: "structured_metric" | "event" | "semantic" | "hybrid" | "manual" | string; coverage_level: "fully_monitored" | "partially_monitored" | "news_monitored" | "manual_review_required" | string; user_confirmed?: boolean };
+export type ResearchMemoryCatalyst = { id?: string; title: string; catalyst_type: string; expected_date?: string | null; expected_window_start?: string | null; expected_window_end?: string | null; status: string; monitoring_mode: string; importance: string };
+export type ResearchMemoryRisk = { id?: string; title: string; risk_type: string; severity: string; monitoring_mode: string };
+export type ResearchMemoryInvalidator = { id?: string; description: string; condition_type: string; metric?: string | null; operator?: string | null; threshold?: string | null; time_window?: string | null; severity: string; monitoring_mode: string };
+export type ResearchMemoryStructure = { title: string; summary: string; orientation: "bullish" | "bearish" | "neutral" | string; target_horizon?: string | null; original_text?: string | null; source_type: "walnut_suggested" | "template" | "custom" | string; template_id?: string | null; status?: string; claims: ResearchMemoryClaim[]; catalysts: ResearchMemoryCatalyst[]; risks: ResearchMemoryRisk[]; invalidators: ResearchMemoryInvalidator[] };
+export type ResearchMemoryThesis = ResearchMemoryStructure & { id: string; security_id: number; ticker: string; company_name: string; status: "draft" | "active" | "paused" | "archived" | string; created_at?: string | null; updated_at?: string | null; started_monitoring_at?: string | null; phase_one_notice?: string };
+export type ResearchMemorySuggestion = { id: string; suggestion_type: string; title: string; summary: string; orientation: string; evidence_basis: string[]; structured_thesis: ResearchMemoryStructure; monitoring_coverage: string[] };
+export type ResearchMemoryTemplate = { id: string; title: string; description: string; orientation: string };
+
+function researchMemoryInit(method: string, payload?: unknown): ApiRequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: payload === undefined ? undefined : JSON.stringify(payload), cache: "no-store", next: { revalidate: 0 }, source: "ResearchMemory" };
+}
+
+export async function getResearchMemories(): Promise<{ items: ResearchMemoryThesis[] }> { return fetchJson(buildApiUrl("/api/research-memory"), researchMemoryInit("GET")); }
+export async function getResearchMemory(id: string, authToken?: string): Promise<ResearchMemoryThesis> { return fetchJson(buildApiUrl(`/api/research-memory/${encodeURIComponent(id)}`), { ...researchMemoryInit("GET"), headers: authHeaders(authToken) }); }
+export async function getResearchMemoryTemplates(): Promise<{ items: ResearchMemoryTemplate[] }> { return fetchJson(buildApiUrl("/api/research-memory/templates"), researchMemoryInit("GET")); }
+export async function getResearchMemoryTemplateDraft(templateId: string, ticker: string): Promise<{ security_id: number; ticker: string; structure: ResearchMemoryStructure }> { return fetchJson(buildApiUrl(`/api/research-memory/templates/${encodeURIComponent(templateId)}/draft`, { ticker }), researchMemoryInit("GET")); }
+export async function getResearchMemorySuggestions(ticker: string): Promise<{ security_id: number; ticker: string; items: ResearchMemorySuggestion[] }> { return fetchJson(buildApiUrl(`/api/research-memory/suggestions/${tickerPathSymbol(ticker)}`), researchMemoryInit("GET")); }
+export async function getResearchMemorySuggestionDraft(ticker: string, suggestionId: string): Promise<{ security_id: number; ticker: string; structure: ResearchMemoryStructure }> { return fetchJson(buildApiUrl(`/api/research-memory/suggestions/${tickerPathSymbol(ticker)}/${encodeURIComponent(suggestionId)}/draft`), researchMemoryInit("GET")); }
+export async function compileResearchMemoryThesis(payload: { security_id?: number; ticker?: string; original_text: string }): Promise<{ security_id: number; ticker: string; structure: ResearchMemoryStructure }> { return fetchJson(buildApiUrl("/api/research-memory/compile"), researchMemoryInit("POST", payload)); }
+export async function createResearchMemoryDraft(payload: { security_id?: number; ticker?: string; structure: ResearchMemoryStructure }): Promise<ResearchMemoryThesis> { return fetchJson(buildApiUrl("/api/research-memory/drafts"), researchMemoryInit("POST", payload)); }
+export async function updateResearchMemory(id: string, structure: ResearchMemoryStructure): Promise<ResearchMemoryThesis> { return fetchJson(buildApiUrl(`/api/research-memory/${encodeURIComponent(id)}`), researchMemoryInit("PUT", { structure })); }
+export async function activateResearchMemory(id: string): Promise<ResearchMemoryThesis> { return fetchJson(buildApiUrl(`/api/research-memory/${encodeURIComponent(id)}/activate`), researchMemoryInit("POST")); }
+export async function getTickerResearchMemories(ticker: string): Promise<{ ticker: string; count: number; items: { id: string; title: string; status: string }[] }> { return fetchJson(buildApiUrl(`/api/research-memory/ticker/${tickerPathSymbol(ticker)}/active`), researchMemoryInit("GET")); }
 
 /** Reads the prebuilt dashboard bundle; the API never calculates rankings here. */
 export async function getLeaderboardDashboard(params?: { authToken?: string; source?: string }): Promise<LeaderboardDashboardResponse> {

@@ -146,6 +146,9 @@ export function EnhancedInstitutionDashboard({ data, period }: { data: Instituti
     ? `${latestAvailablePeriod} data ingestion is incomplete (${data.latest_available_coverage_pct.toFixed(0)}% manager coverage). Showing ${period} until the period is comparable.`
     : null;
   const filter = <div className="flex max-w-xs flex-col items-end gap-2"><PeriodBadge label={period} />{pendingCoverage ? <p className="text-right text-xs leading-5 text-slate-400">{pendingCoverage}</p> : null}</div>;
+  const sectorRows = data.sector_mapping_is_comparable ? data.sector_exposure : [];
+  const sectorNote = data.sector_mapping_is_comparable ? undefined : `Sector comparison is withheld: only ${(data.sector_mapping_coverage_pct ?? 0).toFixed(1)}% of ${period} portfolio value has mapped tickers, versus ${(data.previous_sector_mapping_coverage_pct ?? 0).toFixed(1)}% in the prior quarter.`;
+  const portfolioSeries = (data.institutional_activity_over_time ?? []).map((row) => ({ label: row.period, value: Number(row.portfolio_value ?? 0) }));
   if (data.locked) {
     const preview = institutionalLockedPreview(data.summary);
     return <ProfileDashboard flavor="institutions" eyebrow="INSTITUTIONS" title="Institutional Holdings" subtitle="Track institutional portfolios, quarterly position changes, accumulation, and sector exposure." filter={filter} comparison="previous comparable quarter" snapshotTitle="Institutional holdings snapshot" snapshotSeries={periodTotals(preview.sector_exposure)} snapshotLabel="Aggregate reported portfolio value by filing quarter" metrics={preview.summary} primary={{ title: "Top institutions by portfolio value", rows: preview.top_institutions, columns: [["name", "Institution", "link"], ["portfolio_value", "Portfolio value", "currency"], ["previous_value", "Previous quarter", "currency"], ["qoq_change", "QoQ change", "signed_percent"], ["positions", "Positions", "number"]], showRank: true }} secondary={{ title: "Top increased positions", rows: preview.position_changes, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["current_value", "Current value", "currency"], ["previous_value", "Previous value", "currency"], ["increase_value", "Increase", "positive_currency"]], showRank: true }} sectorRows={preview.sector_exposure} institutionalActivity={preview.institutional_activity_over_time} sectorTitle="Sector exposure over time" left={{ title: "Most widely held stocks", rows: preview.most_widely_held, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["value", "Total value", "currency"], ["holders", "Institutions", "number"]], showRank: true }} right={{ title: "Recent notable filings", rows: preview.recent_filings, columns: [["name", "Institution", "link"], ["symbol", "Ticker", "link"], ["action", "Action"], ["value", "Value", "currency"], ["filing_date", "Date", "date"]] }} recent={[]} lockedMessage={data.message ?? "Upgrade to Pro to unlock institutional holdings, 13F position changes, and sector exposure."} />;
@@ -158,14 +161,15 @@ export function EnhancedInstitutionDashboard({ data, period }: { data: Instituti
     filter={filter}
     comparison="previous comparable quarter"
     snapshotTitle="Institutional holdings snapshot"
-    snapshotSeries={periodTotals(data.sector_exposure)}
+    snapshotSeries={portfolioSeries}
     snapshotLabel="Aggregate reported portfolio value by filing quarter"
     metrics={data.summary}
     primary={{ title: "Top institutions by portfolio value", rows: data.top_institutions, columns: [["name", "Institution", "link"], ["portfolio_value", "Portfolio value", "currency"], ["previous_value", "Previous quarter", "currency"], ["qoq_change", "QoQ change", "signed_percent"], ["positions", "Positions", "number"]], showRank: true }}
     secondary={{ title: "Top increased positions", rows: data.position_changes, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["current_value", "Current value", "currency"], ["previous_value", "Previous value", "currency"], ["increase_value", "Increase", "positive_currency"]], showRank: true }}
-    sectorRows={data.sector_exposure}
+    sectorRows={sectorRows}
     institutionalActivity={data.institutional_activity_over_time ?? []}
     sectorTitle="Sector exposure over time"
+    note={sectorNote}
     left={{ title: "Most widely held stocks", rows: data.most_widely_held, columns: [["symbol", "Ticker", "link"], ["company", "Company"], ["value", "Total value", "currency"], ["holders", "Institutions", "number"]], showRank: true }}
     right={{ title: "Recent notable filings", rows: data.recent_filings, columns: [["name", "Institution", "link"], ["symbol", "Ticker", "link"], ["action", "Action"], ["value", "Value", "currency"], ["filing_date", "Date", "date"]] }}
     recent={data.largest_new_positions as unknown as ProfileActivityItem[]}
