@@ -12,7 +12,9 @@ export const metadata: Metadata = appPageMetadata("/profiles", {
 
 export default async function ProfilesPage() {
   const authState = await optionalPageAuthState();
-  const data = await getProfilesSummary({ authToken: authState.token, include_activity: true, activity_per_type: 5 }).catch(() => null);
+  const data = await getProfilesSummary({ authToken: authState.token, include_activity: true, activity_per_type: 5 }).catch(() =>
+    getProfilesSummary({ include_activity: true, activity_per_type: 5 }).catch(() => null),
+  );
   if (!data) return <ProfileDashboardUnavailable kind="profiles" />;
   return <EnhancedProfilesOverview data={{ ...data, activity: activityVisibleAcrossFilters(data.activity ?? []) }} />;
 }
