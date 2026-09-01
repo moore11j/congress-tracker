@@ -458,7 +458,7 @@ function ScoredHorizonsPill({ value, detail, className = "" }: { value: string |
 
 function PendingOverlay({ children }: { children: ReactNode }) {
   return (
-    <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-md border border-white/10 bg-slate-950/85 p-4 text-center shadow-2xl shadow-black/30">
+    <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 rounded-md border border-white/10 bg-slate-950/85 p-4 text-center shadow-2xl shadow-black/30 sm:inset-x-6">
       <p className="text-sm font-semibold text-white">Outcome measurements pending</p>
       <p className="mt-2 text-xs leading-5 text-slate-300">{children}</p>
     </div>
@@ -483,7 +483,7 @@ function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnap
   const hasOutcomes = bandStats.some((stat) => stat.count > 0);
 
   return (
-    <section className="rounded-md border border-white/10 bg-slate-900/55 p-4">
+    <section className="min-w-0 overflow-hidden rounded-md border border-white/10 bg-slate-900/55 p-4">
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Performance by Score Band</h2>
         <span className="text-slate-400">i</span>
@@ -492,22 +492,22 @@ function BarChartPanel({ snapshots, horizon, summary }: { snapshots: OutcomeSnap
         <span className="h-2 w-2 rounded-sm bg-lime-500" />
         {horizon} Directional Accuracy
       </p>
-      <div className="relative mt-5 grid h-52 grid-cols-[2.5rem_1fr] gap-3 text-xs text-slate-400">
+      <div className="relative mt-5 grid h-52 min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] gap-3 text-xs text-slate-400">
         <div className="flex flex-col justify-between py-1 text-right">
           {["100%", "80%", "60%", "40%", "20%", "0%"].map((tick) => (
             <span key={tick}>{tick}</span>
           ))}
         </div>
-        <div className="relative flex items-end justify-around border-b border-slate-500/60 bg-[linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[length:100%_20%] px-4">
+        <div className="relative flex min-w-0 items-end justify-around overflow-hidden border-b border-slate-500/60 bg-[linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[length:100%_20%] px-2 sm:px-4">
           {bandStats.map((stat) => (
-            <button key={stat.band} type="button" className={`flex w-16 flex-col items-center gap-2 rounded-sm outline-none transition focus-visible:ring-2 focus-visible:ring-lime-300/70 ${activeBand === null || activeBand === stat.band ? "opacity-100" : "opacity-40"}`} onPointerEnter={() => setActiveBand(stat.band)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveBand(null); }} onFocus={() => setActiveBand(stat.band)} onBlur={() => setActiveBand(null)} onClick={() => setActiveBand((current) => current === stat.band ? null : stat.band)} aria-pressed={activeBand === stat.band} aria-label={`${stat.band} score band: ${stat.accuracy === null ? "no directional accuracy yet" : `${stat.accuracy}% directional accuracy`}, ${stat.count} calls`}>
+            <button key={stat.band} type="button" className={`flex min-w-0 flex-1 flex-col items-center gap-2 rounded-sm outline-none transition focus-visible:ring-2 focus-visible:ring-lime-300/70 ${activeBand === null || activeBand === stat.band ? "opacity-100" : "opacity-40"}`} onPointerEnter={() => setActiveBand(stat.band)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveBand(null); }} onFocus={() => setActiveBand(stat.band)} onBlur={() => setActiveBand(null)} onClick={() => setActiveBand((current) => current === stat.band ? null : stat.band)} aria-pressed={activeBand === stat.band} aria-label={`${stat.band} score band: ${stat.accuracy === null ? "no directional accuracy yet" : `${stat.accuracy}% directional accuracy`}, ${stat.count} calls`}>
               <span className="text-[11px] text-slate-200">{stat.accuracy === null ? "-" : stat.reliable ? `${stat.accuracy}%` : `n=${stat.count}`}</span>
               <div
                 className={`w-9 rounded-t-sm border border-lime-400/35 bg-gradient-to-t from-lime-500/75 to-lime-300/80 ${stat.accuracy === null ? "opacity-20" : stat.reliable ? "" : "opacity-35"}`}
                 style={{ height: `${Math.max(12, ((stat.accuracy ?? 18) / 100) * 130)}px` }}
               />
-              <span className="text-[10px] text-slate-500">{stat.count ? `${stat.count} calls` : "no calls"}</span>
-              <span>{stat.band}</span>
+              <span className="hidden text-[10px] text-slate-500 sm:inline">{stat.count ? `${stat.count} calls` : "no calls"}</span>
+              <span className="text-[10px] sm:text-xs">{stat.band}</span>
             </button>
           ))}
         </div>
@@ -564,7 +564,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
   }
 
   return (
-    <section className="rounded-md border border-white/10 bg-slate-900/55 p-4">
+    <section className="min-w-0 overflow-hidden rounded-md border border-white/10 bg-slate-900/55 p-4">
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Event Outcomes</h2>
         <span className="text-slate-400">i</span>
@@ -579,7 +579,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           Negative outcome
         </span>
       </div>
-      <div className="relative mt-2 h-52">
+      <div className="relative mt-2 h-52 min-w-0 overflow-hidden">
         <svg viewBox="0 0 760 235" className="h-full w-full overflow-visible outline-none" role="img" aria-label="Event outcomes by date and return" tabIndex={0} style={{ touchAction: "pan-y" }} onPointerLeave={(event) => { if (event.pointerType === "mouse") { setHoverPoint(null); setActiveIndex(null); } }} onKeyDown={(event) => { if (event.key === "Escape") { setHoverPoint(null); setActiveIndex(null); return; } if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" || !points.length) return; event.preventDefault(); const next = Math.max(0, Math.min(points.length - 1, (activeIndex ?? 0) + (event.key === "ArrowLeft" ? -1 : 1))); const point = points[next]; const { x, y } = pointCoordinates(point); setActiveIndex(next); setHoverPoint({ ...point, x, y }); }}>
           {[36, 72, 108, 144, 180].map((y) => (
             <line key={y} x1="40" x2="735" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
@@ -886,11 +886,11 @@ function EventsTable({
   }
 
   return (
-    <section className="overflow-hidden rounded-md border border-white/10 bg-slate-900/55">
+    <section className="min-w-0 overflow-hidden rounded-md border border-white/10 bg-slate-900/55">
       {tableGateOpen ? <OutcomeTableGateModal onClose={() => setTableGateOpen(false)} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Confirmation Events</h2>
-        <div className="flex overflow-hidden rounded-md border border-white/10 bg-slate-950/60 p-0.5 text-xs font-semibold text-slate-200">
+        <div className="flex max-w-full overflow-x-auto rounded-md border border-white/10 bg-slate-950/60 p-0.5 text-xs font-semibold text-slate-200">
           {outcomeTableFilterOptions.map((label) => (
             <button
               key={label}
@@ -1076,7 +1076,7 @@ function DetailPanel({
   }, [canViewPremium, selected?.ticker]);
 
   return (
-    <aside className="rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
+    <aside className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
         <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-white">Event Detail</h2>
         <button type="button" onClick={onClose} className="rounded-md border border-transparent px-2 py-1 text-xl leading-none text-slate-300 hover:border-white/10 hover:bg-white/5" aria-label="Close event detail">
@@ -1429,9 +1429,9 @@ export function OutcomeLedgerClient({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 py-5 text-slate-100 sm:px-6">
+    <div className="mx-auto w-full max-w-[1500px] overflow-x-hidden px-4 py-5 text-slate-100 sm:px-6">
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
-      <div className={`grid gap-4 ${eventDetailOpen ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
+      <div className={`grid min-w-0 gap-4 ${eventDetailOpen ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
         <main className="min-w-0 space-y-4">
           <header>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">OUTCOMES</p>
@@ -1443,8 +1443,8 @@ export function OutcomeLedgerClient({
             <div className="rounded-md border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">{error}</div>
           ) : null}
 
-          <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_14.25rem]">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,1fr)_14.25rem]">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
               <FilterSelect label="Outcome Set" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
               <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={setHorizonFilter} />
               <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
@@ -1452,7 +1452,7 @@ export function OutcomeLedgerClient({
               <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
               <FilterSelect label="Date Range" value={dateRangeFilter} options={dateRangeFilterOptions} onChange={(value) => setDateRangeFilter(value as DateRangeFilterValue)} />
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-1">
               <button
                 type="button"
                 onClick={handleExportCsv}
@@ -1476,7 +1476,7 @@ export function OutcomeLedgerClient({
             </div>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon="OK"
               label="Completed Events"
@@ -1519,7 +1519,7 @@ export function OutcomeLedgerClient({
             />
           </div>
 
-          <div className="grid gap-2 xl:grid-cols-[0.82fr_1.18fr]">
+          <div className="grid min-w-0 gap-2 xl:grid-cols-[0.82fr_1.18fr]">
             <BarChartPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} summary={canUseServerSummary ? summary : null} />
             <ScatterPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
           </div>
