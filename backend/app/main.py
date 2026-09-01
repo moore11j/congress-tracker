@@ -3013,7 +3013,7 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
 
 PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 900
 CONGRESS_OVERVIEW_CACHE_VERSION = "active_members_v3"
-DEPARTMENTS_OVERVIEW_CACHE_VERSION = "top_moving_vendors_v2"
+DEPARTMENTS_OVERVIEW_CACHE_VERSION = "department_row_prior_values_v1"
 _PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 _PROFILE_OVERVIEW_INFLIGHT: dict[tuple[Any, ...], threading.Event] = {}

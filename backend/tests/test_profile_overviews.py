@@ -1033,7 +1033,7 @@ def test_fastest_growing_vendors_returns_ten_rows_ranked_by_change_vs_prior():
     assert rows[-1]["symbol"] == "V01"
 
 
-def test_departments_overview_suppresses_deltas_when_recent_ingest_is_undercovered():
+def test_departments_overview_keeps_department_row_deltas_when_recent_ingest_is_undercovered():
     db = _db()
     today = date.today()
     month_end = date(today.year, today.month, 1)
@@ -1074,5 +1074,5 @@ def test_departments_overview_suppresses_deltas_when_recent_ingest_is_undercover
     assert payload["summary"][0]["value"] == 10
     assert payload["summary"][0]["previous_value"] is None
     assert payload["summary"][0]["change_pct"] is None
-    assert payload["top_departments"][0]["previous_value"] is None
-    assert payload["top_departments"][0]["change_pct"] is None
+    assert payload["top_departments"][0]["previous_value"] == 600_000_000
+    assert payload["top_departments"][0]["change_pct"] == -98.33333333333333

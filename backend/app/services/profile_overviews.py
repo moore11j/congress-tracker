@@ -399,7 +399,6 @@ def departments_overview(db: Session, *, fiscal_year: int | None = None, period_
     comparison = _government_contract_comparison_status(db, today=today, period_days=period_days)
     comparison_available = comparison["status"] == "ok"
     previous_summary = previous if comparison_available else {}
-    top_departments_previous_since = previous_since if comparison_available else None
 
     return {
         "status": "ok",
@@ -413,7 +412,7 @@ def departments_overview(db: Session, *, fiscal_year: int | None = None, period_
             _metric("Average Contract Size", current["average_size"], previous_summary.get("average_size"), "currency"),
             _metric("Contract Modifications", current["modification_count"], previous_summary.get("modification_count")),
         ],
-        "top_departments": _top_departments(db, since=since, before=before, previous_since=top_departments_previous_since),
+        "top_departments": _top_departments(db, since=since, before=before, previous_since=previous_since),
         "top_vendors": _top_vendors(db, since=since, before=before),
         "contract_value_over_time": _contract_value_by_sector_over_time(db, since=trend_since, before=before),
         "largest_recent_awards": _largest_recent_awards(db, since=since, before=before),
