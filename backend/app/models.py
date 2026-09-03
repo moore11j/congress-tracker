@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, Index, Text, UniqueConstraint, event, func, inspect, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, Index, Text, UniqueConstraint, event, func, inspect, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -1832,6 +1832,118 @@ class ConfirmationScoreSnapshot(Base):
     supersedes_snapshot_id: Mapped[Optional[int]] = mapped_column(nullable=True)
     correction_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutcomeEntry(Base):
+    """Executable point-in-time entry for an immutable Confirmation snapshot."""
+
+    __tablename__ = "outcome_entries"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", name="uq_outcome_entries_snapshot"),
+        UniqueConstraint("entry_key", name="uq_outcome_entries_entry_key"),
+        CheckConstraint("entry_price > 0", name="ck_outcome_entries_price_positive"),
+        CheckConstraint("benchmark_entry_price > 0", name="ck_outcome_entries_benchmark_price_positive"),
+        CheckConstraint("entry_price_type = 'official_open'", name="ck_outcome_entries_price_type"),
+        CheckConstraint("entry_price_at >= qualifying_event_at", name="ck_outcome_entries_no_lookahead"),
+        CheckConstraint("benchmark_entry_price_at = entry_price_at", name="ck_outcome_entries_benchmark_aligned"),
+        Index("ix_outcome_entries_security_session", "security_id", "entry_session_date"),
+        Index("ix_outcome_entries_qualifying_event", "qualifying_event_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(nullable=False)
+    security_id: Mapped[int] = mapped_column(nullable=False)
+    ticker_at_time: Mapped[str] = mapped_column(Text, nullable=False)
+    entry_key: Mapped[str] = mapped_column(Text, nullable=False)
+    qualifying_event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    evidence_cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    entry_session_date: Mapped[date] = mapped_column(nullable=False)
+    entry_price: Mapped[float] = mapped_column(Float, nullable=False)
+    entry_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    entry_price_type: Mapped[str] = mapped_column(Text, default="official_open", server_default="official_open", nullable=False)
+    entry_price_source: Mapped[str] = mapped_column(Text, nullable=False)
+    adjustment_type: Mapped[str] = mapped_column(Text, nullable=False)
+    benchmark_symbol: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY", nullable=False)
+    benchmark_entry_price: Mapped[float] = mapped_column(Float, nullable=False)
+    benchmark_entry_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    benchmark_price_source: Mapped[str] = mapped_column(Text, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(Text, nullable=False)
+    audit_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class OutcomeHorizonObservation(Base):
+    """Persisted close and returns for one canonical entry/horizon pair."""
+
+    __tablename__ = "outcome_horizon_observations"
+    __table_args__ = (
+        UniqueConstraint("entry_id", "horizon_days", name="uq_outcome_horizon_entry_days"),
+        CheckConstraint("horizon_days IN (7,30,90,180,365)", name="ck_outcome_horizon_days"),
+        CheckConstraint("security_price > 0", name="ck_outcome_horizon_security_price_positive"),
+        CheckConstraint("benchmark_price > 0", name="ck_outcome_horizon_benchmark_price_positive"),
+        CheckConstraint("price_type = 'official_close'", name="ck_outcome_horizon_price_type"),
+        CheckConstraint("benchmark_session_date = security_session_date", name="ck_outcome_horizon_benchmark_aligned"),
+        CheckConstraint("benchmark_price_at = security_price_at", name="ck_outcome_horizon_timestamp_aligned"),
+        Index("ix_outcome_horizon_target", "target_date", "horizon_days"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entry_id: Mapped[int] = mapped_column(nullable=False)
+    snapshot_id: Mapped[int] = mapped_column(nullable=False)
+    horizon_days: Mapped[int] = mapped_column(nullable=False)
+    target_date: Mapped[date] = mapped_column(nullable=False)
+    security_price: Mapped[float] = mapped_column(Float, nullable=False)
+    security_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    security_session_date: Mapped[date] = mapped_column(nullable=False)
+    security_price_source: Mapped[str] = mapped_column(Text, nullable=False)
+    benchmark_price: Mapped[float] = mapped_column(Float, nullable=False)
+    benchmark_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    benchmark_session_date: Mapped[date] = mapped_column(nullable=False)
+    benchmark_price_source: Mapped[str] = mapped_column(Text, nullable=False)
+    price_type: Mapped[str] = mapped_column(Text, default="official_close", server_default="official_close", nullable=False)
+    adjustment_type: Mapped[str] = mapped_column(Text, nullable=False)
+    security_return_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    benchmark_return_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    excess_return_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    audit_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class OutcomeEvidenceProvenance(Base):
+    """Evidence identifiers and public-availability timestamps used by a score."""
+
+    __tablename__ = "outcome_evidence_provenance"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "source_key", "evidence_id", name="uq_outcome_evidence_snapshot_source_id"),
+        CheckConstraint("available_at <= qualifying_event_at", name="ck_outcome_evidence_no_lookahead"),
+        Index("ix_outcome_evidence_snapshot", "snapshot_id", "source_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(nullable=False)
+    source_key: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_id: Mapped[str] = mapped_column(Text, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    qualifying_event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_payload_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class OutcomeCorrectionAudit(Base):
+    __tablename__ = "outcome_correction_audit"
+    __table_args__ = (Index("ix_outcome_correction_snapshot_created", "snapshot_id", "correction_timestamp"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(nullable=False)
+    record_type: Mapped[str] = mapped_column(Text, nullable=False)
+    record_id: Mapped[Optional[int]] = mapped_column(nullable=True)
+    field_name: Mapped[str] = mapped_column(Text, nullable=False)
+    previous_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    corrected_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    correction_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    audit_version: Mapped[str] = mapped_column(Text, nullable=False)
+    correction_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 def _prevent_snapshot_mutation(_mapper, _connection, target: ConfirmationScoreSnapshot) -> None:

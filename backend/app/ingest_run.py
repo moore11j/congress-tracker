@@ -35,8 +35,8 @@ from app.models import (
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import (
     ensure_fresh_price_history,
-    get_daily_close_series_with_fallback,
     get_expected_latest_market_date,
+    hydrate_split_adjusted_ohlc,
 )
 from app.services.provider_usage import log_provider_budget_summary
 from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
@@ -45,6 +45,7 @@ from app.services.confirmation_monitoring import refresh_all_monitored_watchlist
 from app.services.confirmation_score import confirmation_active_source_count, get_confirmation_score_bundles_for_tickers
 from app.services.institutional_ingest_job import run_scheduled_latest_once
 from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled, warm_public_outcome_ledger_cache
+from app.services.outcome_integrity import materialize_outcome_entry, materialize_outcome_horizons
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
@@ -1267,7 +1268,7 @@ def _run_outcome_ledger_hydrator_job() -> dict[str, object]:
             evaluated += 1
             score = int(bundle.get("score") or 0)
             active_sources = confirmation_active_source_count(bundle)
-            if score < min_score and active_sources < min_active_sources:
+            if score < min_score or active_sources < min_active_sources:
                 skipped_low_signal += 1
                 continue
             try:
@@ -1311,14 +1312,10 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
     max_seconds = int(os.getenv("OUTCOME_LEDGER_PRICE_HYDRATOR_MAX_SECONDS", "240") or 240)
     started = time.monotonic()
     expected_date = get_expected_latest_market_date()
-    earliest_matured_date = expected_date - timedelta(days=min(OUTCOME_HORIZONS))
-
     with SessionLocal() as db:
         rows = db.execute(
             select(ConfirmationScoreSnapshot)
             .where(ConfirmationScoreSnapshot.calculation_type == "live")
-            .where(ConfirmationScoreSnapshot.reference_price.is_not(None))
-            .where(ConfirmationScoreSnapshot.market_date <= earliest_matured_date)
             .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
             .limit(max(1, snapshot_limit))
         ).scalars().all()
@@ -1342,9 +1339,7 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
                 for days in OUTCOME_HORIZONS
                 if snapshot.market_date + timedelta(days=days) <= expected_date
             ]
-            if not matured_targets:
-                continue
-            end_day = min(max(matured_targets) + timedelta(days=7), expected_date)
+            end_day = min((max(matured_targets) + timedelta(days=7)) if matured_targets else expected_date, expected_date)
             add_window(snapshot.ticker_at_time, snapshot.market_date, end_day)
             add_window(benchmark_symbol, snapshot.market_date, end_day)
 
@@ -1357,28 +1352,37 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
                 logger.info("outcome_ledger_price_hydrator_time_budget_exhausted hydrated_symbols=%s", hydrated_symbols)
                 break
             try:
-                series = get_daily_close_series_with_fallback(
+                points = hydrate_split_adjusted_ohlc(
                     db,
                     symbol,
                     start_day.isoformat(),
                     end_day.isoformat(),
-                    release_connection_before_provider=True,
                 )
                 hydrated_symbols += 1
-                total_points += len(series)
+                total_points += points
                 if len(items) < 25:
                     items.append(
                         {
                             "symbol": symbol,
                             "start_date": start_day.isoformat(),
                             "end_date": end_day.isoformat(),
-                            "points": len(series),
+                            "points": points,
                         }
                     )
             except Exception as exc:
                 logger.warning("outcome_ledger_price_hydrator_failed symbol=%s error=%s", symbol, exc)
                 if len(failures) < 10:
                     failures.append({"symbol": symbol, "error": exc.__class__.__name__})
+
+        materialized_entries = 0
+        materialized_horizons = 0
+        for snapshot in rows:
+            entry = materialize_outcome_entry(db, snapshot)
+            if entry is None:
+                continue
+            materialized_entries += 1
+            materialized_horizons += len(materialize_outcome_horizons(db, entry, as_of=expected_date))
+        db.commit()
 
     result = {
         "job": "outcome-ledger-price-hydrator",
@@ -1387,6 +1391,8 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
         "window_count": len(windows),
         "hydrated_symbols": hydrated_symbols,
         "total_points": total_points,
+        "materialized_entries": materialized_entries,
+        "materialized_horizons": materialized_horizons,
         "duration_seconds": round(time.monotonic() - started, 3),
         "items": items,
         "failures": failures,

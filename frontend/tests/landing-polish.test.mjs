@@ -142,8 +142,9 @@ test("landing page uses canonical performance positioning and the Top Stocks pat
   assert.doesNotMatch(landingPage, /<section id="how-it-works"/);
   assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
   assert.match(landingPage, /What&apos;s Working on Walnut\./);
-  assert.match(landingPage, /out of \{outcomeSummary\.completed_events\} confirmation score events in the past 30 days/);
-  assert.match(landingPage, /Confirmation Score Outcomes[\s\S]*?<HomepageCtaLink href=\{`\$\{appUrl\}\/outcomes`\} eventName="outcomes_click" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">View outcomes/);
+  assert.doesNotMatch(landingPage, /outcomeSummary\.completed_events/);
+  assert.doesNotMatch(landingPage, /eventName="outcomes_click"/);
+  assert.match(landingPage, /Historical Outcomes are being recalculated using Walnut&apos;s updated point-in-time methodology\./);
   assert.doesNotMatch(landingPage, /<div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">[\s\S]*?View outcomes/);
   assert.match(landingPage, /Stocks Walnut Ranks Highest\./);
   assert.match(landingPage, /See which stocks currently rank highest based on Walnut&apos;s cross-source Confirmation Score\./);
@@ -199,9 +200,8 @@ test("landing metadata reflects research and monitoring positioning", () => {
   assert.match(marketingMetadata, /twitter:/);
 });
 
-test("landing page adds real product proof and future product sections", () => {
+test("landing page adds real product proof and withholds uncertified outcomes", () => {
   assert.match(landingPage, /const nvdaProductScreenshot = "\/landing\/nvda-ticker-intelligence\.png"/);
-  assert.match(landingPage, /const outcomesProductScreenshot = "\/landing\/outcomes-confirmation-events\.png"/);
   assert.match(landingPage, /<SectionEyebrow>Ticker Intelligence<\/SectionEyebrow>/);
   assert.match(landingPage, /Every Result, Backed by the Data\./);
   assert.match(landingPage, /fundamentals, technicals, insiders, Congress, institutions, government contracts, analysts, macro, options where available/);
@@ -211,8 +211,7 @@ test("landing page adds real product proof and future product sections", () => {
   assert.match(landingPage, /\{homepageContent\.confirmationScore\.disclaimer\}/);
   assert.match(homepageContent, /proprietary Confirmation Score to identify stocks where the current setup is strongest/);
   assert.match(homepageContent, /not a probability of future returns, a guaranteed prediction, or a recommendation/);
-  assert.match(landingPage, /data-outcomes-screenshot="confirmation-events"/);
-  assert.match(landingPage, /Scores are research context, not predictions of future performance/);
+  assert.match(landingPage, /Historical Outcomes are being recalculated using Walnut&apos;s updated point-in-time methodology\./);
   assert.match(landingPage, /<SectionEyebrow>Research Memory - Coming Soon<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Walnut Strategies<\/SectionEyebrow>/);
   assert.match(landingPage, /Backtested Strategies Built From Walnut Data\./);
@@ -226,8 +225,8 @@ test("landing page adds real product proof and future product sections", () => {
   assert.doesNotMatch(landingPage, /\["Cleo Fields Portfolio", "Congress Strategies", "58\.9%", "CAGR"\]/);
   assert.ok(fs.existsSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")));
   assert.ok(fs.statSync(path.join(root, "public/landing/nvda-ticker-intelligence.png")).size > 10000);
-  assert.ok(fs.existsSync(path.join(root, "public/landing/outcomes-confirmation-events.png")));
-  assert.ok(fs.statSync(path.join(root, "public/landing/outcomes-confirmation-events.png")).size > 10000);
+  assert.ok(!landingPage.includes("outcomes-confirmation-events.png"));
+  assert.ok(!landingPage.includes("data-outcomes-screenshot"));
 });
 
 test("landing includes compact watchlist and alert proof", () => {
@@ -239,7 +238,7 @@ test("landing includes compact watchlist and alert proof", () => {
   assert.match(homepageContent, /Save tickers to watchlists and get alerted when meaningful disclosures, news, press releases, institutional activity/);
 });
 
-test("landing adds follow activity showcase before outcomes", () => {
+test("landing adds follow activity showcase before the Outcomes recalculation notice", () => {
   assert.match(landingPage, /const followActivityCards = \[/);
   assert.match(landingPage, /<SectionEyebrow>People and profiles<\/SectionEyebrow>/);
   assert.match(landingPage, /See Who&apos;s Beating the Market\./);
@@ -254,7 +253,7 @@ test("landing adds follow activity showcase before outcomes", () => {
   assert.match(landingPage, /Explore Government Contracts/);
   assert.match(landingPage, /BlackRock, Inc\./);
   assert.match(landingPage, /5,685 holdings/);
-  assert.ok(landingPage.indexOf("<SectionEyebrow>People and profiles</SectionEyebrow>") < landingPage.indexOf("<SectionEyebrow>Outcomes</SectionEyebrow>"));
+  assert.ok(landingPage.indexOf("<SectionEyebrow>People and profiles</SectionEyebrow>") < landingPage.indexOf('<section id="outcomes"'));
   assert.match(landingPage, /"Activity Feeds", "Congress, insiders, institutions, and contracts"/);
 });
 

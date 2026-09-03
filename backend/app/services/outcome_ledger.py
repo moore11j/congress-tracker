@@ -12,7 +12,17 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, PriceCache, Security, TickerContextBundleCache, TickerMeta
+from app.models import (
+    AppSetting,
+    ConfirmationMethodologyVersion,
+    ConfirmationScoreSnapshot,
+    OutcomeEntry,
+    OutcomeHorizonObservation,
+    PriceCache,
+    Security,
+    TickerContextBundleCache,
+    TickerMeta,
+)
 from app.services.confirmation_score import (
     CONFIRMATION_CLASSIFICATION_VERSION,
     SHORT_HORIZON_SOURCES,
@@ -23,6 +33,13 @@ from app.services.confirmation_score import (
 from app.services.cross_source_divergence import (
     CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION,
     build_cross_source_divergence,
+)
+from app.services.outcome_integrity import (
+    MARKET_TZ,
+    canonical_outcome_payload,
+    materialize_outcome_entry,
+    materialize_outcome_horizons,
+    persist_evidence_provenance,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,8 +56,12 @@ OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
 DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
+OUTCOME_QUALIFICATION_MIN_SCORE = 40
+OUTCOME_QUALIFICATION_MIN_SOURCES = 1
+OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS = 30
+OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE = 10
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v2"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v3-audited"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -88,16 +109,16 @@ def outcome_ledger_enabled(db: Session | None = None) -> bool:
 
 def outcome_ledger_cache_ttl_seconds() -> int:
     try:
-        return max(60, min(86400, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_TTL_SECONDS", "43200") or 43200)))
+        return max(60, min(3600, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_TTL_SECONDS", "300") or 300)))
     except ValueError:
-        return 43200
+        return 300
 
 
 def outcome_ledger_cache_expiry_seconds() -> int:
     try:
-        return max(300, min(604800, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_EXPIRY_SECONDS", "172800") or 172800)))
+        return max(300, min(86400, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_EXPIRY_SECONDS", "3600") or 3600)))
     except ValueError:
-        return 172800
+        return 3600
 
 
 def public_outcome_ledger_cache_key(kind: str, params: dict[str, Any] | None = None) -> str:
@@ -736,14 +757,20 @@ def capture_live_confirmation_score_snapshot(
         calculated = calculated_at or datetime.now(timezone.utc)
         if calculated.tzinfo is None:
             calculated = calculated.replace(tzinfo=timezone.utc)
-        reference_price, reference_price_at, reference_price_source, market_date = _latest_reference_price(db, normalized_symbol, as_of_date=calculated.date())
+        event_market_date = calculated.astimezone(MARKET_TZ).date()
+        reference_price, reference_price_at, reference_price_source, legacy_price_date = _latest_reference_price(
+            db,
+            normalized_symbol,
+            as_of_date=event_market_date,
+        )
         if reference_price is None:
             _increment_counter(db, OUTCOMES_LEDGER_MISSING_PRICE_KEY)
         max_stale_days = int(os.getenv("OUTCOME_LEDGER_LIVE_REFERENCE_MAX_STALE_DAYS", "5") or 5)
-        if reference_price is None or market_date < calculated.date() - timedelta(days=max(1, max_stale_days)):
+        if reference_price is not None and legacy_price_date < event_market_date - timedelta(days=max(1, max_stale_days)):
             _increment_counter(db, OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY)
-            db.commit()
-            return None
+            reference_price = None
+            reference_price_at = None
+            reference_price_source = None
         active_sources = bundle.get("active_sources") if isinstance(bundle.get("active_sources"), list) else []
         source_contributions = source_contributions_from_bundle(bundle)
         source_freshness = source_freshness_from_bundle(bundle)
@@ -761,7 +788,7 @@ def capture_live_confirmation_score_snapshot(
             source_freshness=source_freshness,
             methodology=methodology,
             calculated_at=calculated,
-            market_date=market_date,
+            market_date=event_market_date,
             calculation_type=calculation_type,
             score=normalized_score,
             direction=normalized_direction,
@@ -778,7 +805,7 @@ def capture_live_confirmation_score_snapshot(
             select(ConfirmationScoreSnapshot).where(
                 ConfirmationScoreSnapshot.security_id == security.id,
                 ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
-                ConfirmationScoreSnapshot.market_date == market_date,
+                ConfirmationScoreSnapshot.market_date == event_market_date,
                 ConfirmationScoreSnapshot.input_hash == input_hash,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             )
@@ -792,7 +819,7 @@ def capture_live_confirmation_score_snapshot(
             select(ConfirmationScoreSnapshot).where(
                 ConfirmationScoreSnapshot.security_id == security.id,
                 ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
-                ConfirmationScoreSnapshot.market_date == market_date,
+                ConfirmationScoreSnapshot.market_date == event_market_date,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             ).order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc()).limit(1)
         ).scalar_one_or_none()
@@ -805,7 +832,7 @@ def capture_live_confirmation_score_snapshot(
             security_id=security.id,
             ticker_at_time=normalized_symbol,
             calculated_at=calculated,
-            market_date=market_date,
+            market_date=event_market_date,
             score=normalized_score,
             direction=normalized_direction,
             strength=_strength_from_bundle(bundle),
@@ -823,6 +850,11 @@ def capture_live_confirmation_score_snapshot(
             supersedes_snapshot_id=visible_duplicate.id if visible_duplicate is not None else None,
         )
         db.add(snapshot)
+        db.flush()
+        persist_evidence_provenance(db, snapshot, bundle)
+        canonical_entry = materialize_outcome_entry(db, snapshot)
+        if canonical_entry is not None:
+            materialize_outcome_horizons(db, canonical_entry)
         db.commit()
         return snapshot
     except IntegrityError:
@@ -1022,6 +1054,14 @@ def _matured_summary_outcome(snapshot: dict[str, Any], horizon: str) -> dict[str
     return outcome if outcome.get("status") == "matured" and isinstance(outcome.get("return_pct"), (int, float)) else None
 
 
+def _legacy_outcomes_allowed(snapshot: ConfirmationScoreSnapshot) -> bool:
+    source = str(snapshot.reference_price_source or "")
+    return source == "test" or source.startswith("outcome_ledger_demo") or os.getenv(
+        "OUTCOME_LEDGER_ALLOW_UNAUDITED_LEGACY",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _snapshot_outcomes(
     db: Session,
     snapshot: ConfirmationScoreSnapshot,
@@ -1033,6 +1073,54 @@ def _snapshot_outcomes(
     if not _is_directional_snapshot(snapshot):
         return {
             f"{days}D": {"status": "not_directional", "horizon_days": days}
+            for days in OUTCOME_HORIZONS
+        }
+
+    canonical_entry = db.execute(
+        select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)
+    ).scalar_one_or_none()
+    if canonical_entry is not None:
+        observations = db.execute(
+            select(OutcomeHorizonObservation)
+            .where(OutcomeHorizonObservation.entry_id == canonical_entry.id)
+            .order_by(OutcomeHorizonObservation.horizon_days.asc())
+        ).scalars().all()
+        outcomes = canonical_outcome_payload(canonical_entry, observations)
+        for outcome in outcomes.values():
+            if not isinstance(outcome, dict) or outcome.get("status") != "matured":
+                continue
+            raw_return = outcome.get("return_pct")
+            benchmark_return = outcome.get("spy_return_pct")
+            excess_return = outcome.get("excess_return_pct")
+            outcome.update(
+                {
+                    "directional_return_pct": _directional_return_pct(snapshot.direction, raw_return),
+                    "raw_directionally_correct": _directionally_correct(snapshot.direction, raw_return),
+                    "directional_excess_return_pct": _directional_return_pct(snapshot.direction, excess_return),
+                    "benchmark_directionally_correct": _benchmark_directionally_correct(
+                        snapshot.direction,
+                        raw_return,
+                        benchmark_return,
+                    ),
+                    "directionally_correct": _headline_directionally_correct(
+                        snapshot.direction,
+                        raw_return,
+                        benchmark_return,
+                    ),
+                    "grading_basis": "raw_or_vs_spy",
+                }
+            )
+        return outcomes
+
+    # Old snapshots are retained as immutable audit evidence but are not safe
+    # to publish as performance. Test/demo fixtures remain available locally.
+    if not _legacy_outcomes_allowed(snapshot):
+        return {
+            f"{days}D": {
+                "status": "requires_reconstruction",
+                "horizon_days": days,
+                "audit_version": "outcomes-integrity-v1",
+            }
             for days in OUTCOME_HORIZONS
         }
 
@@ -1125,6 +1213,13 @@ def _snapshot_row(
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
     closed_at: date | None = None,
 ) -> dict[str, Any]:
+    canonical_entry = db.execute(
+        select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)
+    ).scalar_one_or_none()
+    legacy_allowed = _legacy_outcomes_allowed(snapshot)
+    public_reference_price = canonical_entry.entry_price if canonical_entry is not None else snapshot.reference_price if legacy_allowed else None
+    public_reference_at = canonical_entry.entry_price_at if canonical_entry is not None else snapshot.reference_price_at if legacy_allowed else None
+    public_reference_source = canonical_entry.entry_price_source if canonical_entry is not None else snapshot.reference_price_source if legacy_allowed else None
     row = {
         "id": snapshot.id,
         "ticker": snapshot.ticker_at_time,
@@ -1133,9 +1228,11 @@ def _snapshot_row(
         "score": snapshot.score,
         "direction": snapshot.direction,
         "strength": snapshot.strength,
-        "reference_price": snapshot.reference_price,
-        "reference_price_at": snapshot.reference_price_at.isoformat() if snapshot.reference_price_at else None,
-        "reference_price_source": snapshot.reference_price_source,
+        "reference_price": public_reference_price,
+        "reference_price_at": public_reference_at.isoformat() if public_reference_at else None,
+        "reference_price_source": public_reference_source,
+        "entry_price_type": canonical_entry.entry_price_type if canonical_entry is not None else None,
+        "data_integrity_status": "verified" if canonical_entry is not None else "fixture" if legacy_allowed else "requires_reconstruction",
         "active_source_count": snapshot.active_source_count,
         "active_sources": _json_loads(snapshot.active_sources_json, []),
         "methodology": None,
@@ -1156,6 +1253,9 @@ def _snapshot_row(
                 "source_freshness": _json_loads(snapshot.source_freshness_json, {}),
                 "supersedes_snapshot_id": snapshot.supersedes_snapshot_id,
                 "correction_reason": snapshot.correction_reason,
+                "legacy_reference_price": snapshot.reference_price,
+                "legacy_reference_price_at": snapshot.reference_price_at.isoformat() if snapshot.reference_price_at else None,
+                "legacy_reference_price_source": snapshot.reference_price_source,
             }
         )
     return row
@@ -1245,10 +1345,30 @@ def _project_directional_outcome_events(rows: list[ConfirmationScoreSnapshot]) -
                 latest_directional_by_day[row.market_date] = row
 
         daily_rows = sorted(latest_directional_by_day.values(), key=_snapshot_event_time)
-        for index, row in enumerate(daily_rows):
+        qualifying_rows: list[ConfirmationScoreSnapshot] = []
+        for row in daily_rows:
+            if int(row.score or 0) < OUTCOME_QUALIFICATION_MIN_SCORE:
+                continue
+            if int(row.active_source_count or 0) < OUTCOME_QUALIFICATION_MIN_SOURCES:
+                continue
+            if not qualifying_rows:
+                qualifying_rows.append(row)
+                continue
+            previous = qualifying_rows[-1]
+            previous_side = _directional_side(previous.direction)
+            current_side = _directional_side(row.direction)
+            if current_side != previous_side:
+                qualifying_rows.append(row)
+                continue
+            cooldown_elapsed = (row.market_date - previous.market_date).days >= OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS
+            material_score_change = abs(int(row.score or 0) - int(previous.score or 0)) >= OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE
+            if cooldown_elapsed and material_score_change:
+                qualifying_rows.append(row)
+
+        for index, row in enumerate(qualifying_rows):
             side = _directional_side(row.direction)
             closed_at = None
-            for later in daily_rows[index + 1 :]:
+            for later in qualifying_rows[index + 1 :]:
                 later_side = _directional_side(later.direction)
                 if later_side is not None and later_side != side:
                     closed_at = later.market_date
@@ -1293,6 +1413,16 @@ def list_outcome_snapshots(
         )
     ).scalars().all()
     events = sorted(_project_directional_outcome_events(ordered_rows), key=_event_display_sort_key, reverse=True)
+    if not include_internal and events:
+        event_ids = [int(event.snapshot.id) for event in events]
+        verified_ids = set(
+            db.execute(select(OutcomeEntry.snapshot_id).where(OutcomeEntry.snapshot_id.in_(event_ids))).scalars().all()
+        )
+        events = [
+            event
+            for event in events
+            if int(event.snapshot.id) in verified_ids or _legacy_outcomes_allowed(event.snapshot)
+        ]
     total = len(events)
     paged_events = events[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
     rows = [event.snapshot for event in paged_events]
@@ -1546,8 +1676,17 @@ def outcome_ledger_status(db: Session, *, include_admin: bool = False) -> dict[s
     missing_source_payloads = db.execute(
         select(func.count()).select_from(ConfirmationScoreSnapshot).where(ConfirmationScoreSnapshot.source_contributions_json == "{}")
     ).scalar() or 0
+    canonical_entries = db.execute(select(func.count()).select_from(OutcomeEntry)).scalar() or 0
+    directional_snapshots = db.execute(
+        select(func.count()).select_from(ConfirmationScoreSnapshot).where(
+            func.lower(ConfirmationScoreSnapshot.direction).in_(["bullish", "bearish"])
+        )
+    ).scalar() or 0
+    audit_hold_count = max(0, int(directional_snapshots) - int(canonical_entries))
     data_quality_status = "ok"
-    if missing_prices or missing_source_payloads or _counter_value(db, OUTCOMES_LEDGER_ERRORS_KEY):
+    if audit_hold_count:
+        data_quality_status = "audit_hold"
+    elif missing_prices or missing_source_payloads or _counter_value(db, OUTCOMES_LEDGER_ERRORS_KEY):
         data_quality_status = "review"
     status = {
         "enabled": outcome_ledger_enabled(db),
@@ -1558,6 +1697,8 @@ def outcome_ledger_status(db: Session, *, include_admin: bool = False) -> dict[s
         "unique_securities_captured": unique_securities,
         "total_live_snapshots": total_live,
         "data_quality_status": data_quality_status,
+        "verified_outcome_entries": int(canonical_entries),
+        "outcomes_on_audit_hold": audit_hold_count,
     }
     if include_admin:
         status.update(

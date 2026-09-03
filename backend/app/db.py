@@ -5020,6 +5020,115 @@ def ensure_outcome_ledger_schema(bind=engine) -> None:
         ):
             conn.execute(text(statement))
 
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS outcome_entries (
+                    id {id_column},
+                    snapshot_id INTEGER NOT NULL,
+                    security_id INTEGER NOT NULL,
+                    ticker_at_time TEXT NOT NULL,
+                    entry_key TEXT NOT NULL,
+                    qualifying_event_at {timestamp_type} NOT NULL,
+                    evidence_cutoff_at {timestamp_type} NOT NULL,
+                    entry_session_date DATE NOT NULL,
+                    entry_price FLOAT NOT NULL CHECK (entry_price > 0),
+                    entry_price_at {timestamp_type} NOT NULL,
+                    entry_price_type TEXT NOT NULL DEFAULT 'official_open' CHECK (entry_price_type = 'official_open'),
+                    entry_price_source TEXT NOT NULL,
+                    adjustment_type TEXT NOT NULL,
+                    benchmark_symbol TEXT NOT NULL DEFAULT 'SPY',
+                    benchmark_entry_price FLOAT NOT NULL CHECK (benchmark_entry_price > 0),
+                    benchmark_entry_price_at {timestamp_type} NOT NULL,
+                    benchmark_price_source TEXT NOT NULL,
+                    methodology_version TEXT NOT NULL,
+                    audit_version TEXT NOT NULL,
+                    created_at {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ,CHECK (entry_price_at >= qualifying_event_at)
+                    ,CHECK (benchmark_entry_price_at = entry_price_at)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS outcome_horizon_observations (
+                    id {id_column},
+                    entry_id INTEGER NOT NULL,
+                    snapshot_id INTEGER NOT NULL,
+                    horizon_days INTEGER NOT NULL CHECK (horizon_days IN (7,30,90,180,365)),
+                    target_date DATE NOT NULL,
+                    security_price FLOAT NOT NULL CHECK (security_price > 0),
+                    security_price_at {timestamp_type} NOT NULL,
+                    security_session_date DATE NOT NULL,
+                    security_price_source TEXT NOT NULL,
+                    benchmark_price FLOAT NOT NULL CHECK (benchmark_price > 0),
+                    benchmark_price_at {timestamp_type} NOT NULL,
+                    benchmark_session_date DATE NOT NULL,
+                    benchmark_price_source TEXT NOT NULL,
+                    price_type TEXT NOT NULL DEFAULT 'official_close' CHECK (price_type = 'official_close'),
+                    adjustment_type TEXT NOT NULL,
+                    security_return_pct FLOAT NOT NULL,
+                    benchmark_return_pct FLOAT NOT NULL,
+                    excess_return_pct FLOAT NOT NULL,
+                    audit_version TEXT NOT NULL,
+                    created_at {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ,CHECK (benchmark_session_date = security_session_date)
+                    ,CHECK (benchmark_price_at = security_price_at)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS outcome_evidence_provenance (
+                    id {id_column},
+                    snapshot_id INTEGER NOT NULL,
+                    source_key TEXT NOT NULL,
+                    evidence_id TEXT NOT NULL,
+                    available_at {timestamp_type} NOT NULL,
+                    qualifying_event_at {timestamp_type} NOT NULL,
+                    source_timestamp {timestamp_type},
+                    source_payload_hash TEXT,
+                    created_at {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (available_at <= qualifying_event_at)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS outcome_correction_audit (
+                    id {id_column},
+                    snapshot_id INTEGER NOT NULL,
+                    record_type TEXT NOT NULL,
+                    record_id INTEGER,
+                    field_name TEXT NOT NULL,
+                    previous_value TEXT,
+                    corrected_value TEXT,
+                    correction_reason TEXT NOT NULL,
+                    audit_version TEXT NOT NULL,
+                    correction_timestamp {timestamp_type} NOT NULL
+                )
+                """
+            )
+        )
+        for statement in (
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_outcome_entries_snapshot ON outcome_entries (snapshot_id)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_outcome_entries_entry_key ON outcome_entries (entry_key)",
+            "CREATE INDEX IF NOT EXISTS ix_outcome_entries_security_session ON outcome_entries (security_id, entry_session_date)",
+            "CREATE INDEX IF NOT EXISTS ix_outcome_entries_qualifying_event ON outcome_entries (qualifying_event_at)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_outcome_horizon_entry_days ON outcome_horizon_observations (entry_id, horizon_days)",
+            "CREATE INDEX IF NOT EXISTS ix_outcome_horizon_target ON outcome_horizon_observations (target_date, horizon_days)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_outcome_evidence_snapshot_source_id ON outcome_evidence_provenance (snapshot_id, source_key, evidence_id)",
+            "CREATE INDEX IF NOT EXISTS ix_outcome_evidence_snapshot ON outcome_evidence_provenance (snapshot_id, source_key)",
+            "CREATE INDEX IF NOT EXISTS ix_outcome_correction_snapshot_created ON outcome_correction_audit (snapshot_id, correction_timestamp)",
+        ):
+            conn.execute(text(statement))
+
         existing_current = conn.execute(
             text("SELECT id FROM confirmation_methodology_versions WHERE is_current = :current LIMIT 1"),
             {"current": True if dialect_name == "postgresql" else 1},

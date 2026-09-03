@@ -528,7 +528,7 @@ def test_pending_snapshot_listing_skips_price_outcome_lookups(monkeypatch):
         assert crm["outcomes"]["30D"]["status"] == "pending"
 
 
-def test_live_capture_skips_stale_reference_price():
+def test_live_capture_preserves_event_but_quarantines_stale_reference_price():
     engine = _engine()
     with Session(engine) as db:
         db.add(PriceCache(symbol="CRM", date="2026-01-15", close=101.25, price_source="test"))
@@ -541,8 +541,12 @@ def test_live_capture_skips_stale_reference_price():
             calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc),
         )
 
-        assert snapshot is None
-        assert db.execute(select(ConfirmationScoreSnapshot)).scalars().all() == []
+        assert snapshot is not None
+        assert snapshot.reference_price is None
+        public_row = outcome_ledger_module._snapshot_row(db, snapshot)
+        assert public_row["data_integrity_status"] == "requires_reconstruction"
+        assert public_row["reference_price"] is None
+        assert db.execute(select(ConfirmationScoreSnapshot)).scalars().all() == [snapshot]
 
 
 def test_backfill_history_creates_matured_rows_from_monitoring_events():
@@ -618,8 +622,8 @@ def test_backfill_history_dedupes_same_visible_daily_point():
                     event_type="confirmation_changed",
                     title="DRAM confirmation changed",
                     body=None,
-                    score_before=39,
-                    score_after=39,
+                    score_before=40,
+                    score_after=40,
                     band_before="weak",
                     band_after="weak",
                     direction_before="bullish",

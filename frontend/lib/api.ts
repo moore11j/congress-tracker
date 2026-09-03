@@ -753,7 +753,7 @@ const tickerDataPromises = new Map<string, Promise<unknown>>();
 const serverPublicJsonCache = new Map<string, { value: unknown; expiresAt: number }>();
 const serverInflightJsonRequests = new Map<string, Promise<unknown>>();
 const SERVER_PUBLIC_CACHE_TTL_MS = 30_000;
-const OUTCOME_LEDGER_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const OUTCOME_LEDGER_CACHE_TTL_MS = 5 * 60 * 1000;
 const SERVER_PLAN_CONFIG_CACHE_TTL_MS = 60_000;
 const SERVER_PUBLIC_CACHE_MAX_ENTRIES = 512;
 const SERVER_INFLIGHT_MAX_ENTRIES = 512;
@@ -8206,6 +8206,8 @@ export type OutcomeLedgerStatus = {
   unique_securities_captured: number;
   total_live_snapshots: number;
   data_quality_status: string;
+  verified_outcome_entries?: number;
+  outcomes_on_audit_hold?: number;
 };
 
 export type OutcomeScoreBandSummary = {
@@ -8257,6 +8259,8 @@ export type OutcomeSnapshot = {
   reference_price?: number | null;
   reference_price_at?: string | null;
   reference_price_source?: string | null;
+  entry_price_type?: string | null;
+  data_integrity_status?: "verified" | "requires_reconstruction" | "fixture" | string;
   active_source_count: number;
   active_sources: string[];
   methodology?: string | null;
@@ -8294,6 +8298,22 @@ export type OutcomeSnapshotsResponse = {
   has_next: boolean;
 };
 
+export type OutcomePricePath = {
+  snapshot_id: number;
+  symbol: string;
+  benchmark_symbol: string;
+  horizon_days: number;
+  methodology: string;
+  points: Array<{
+    date: string;
+    session_date: string;
+    price_type: "official_open" | "official_close" | string;
+    security_return_pct: number;
+    benchmark_return_pct: number;
+    excess_return_pct: number;
+  }>;
+};
+
 export type OutcomeLedgerOverview = {
   status: OutcomeLedgerStatus;
   summaries: Record<string, OutcomeLedgerSummary>;
@@ -8308,7 +8328,7 @@ export async function getOutcomeLedgerOverview(params: QueryParams = {}): Promis
     () =>
       fetchPublicJson<OutcomeLedgerOverview>(url, {
         cache: "force-cache",
-        next: { revalidate: 60 * 60 * 12 },
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
@@ -8322,7 +8342,7 @@ export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
     () =>
       fetchPublicJson<OutcomeLedgerStatus>(url, {
         cache: "force-cache",
-        next: { revalidate: 60 * 60 * 12 },
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
@@ -8336,7 +8356,7 @@ export async function getOutcomeLedgerSummary(params: QueryParams = {}): Promise
     () =>
       fetchPublicJson<OutcomeLedgerSummary>(url, {
         cache: "force-cache",
-        next: { revalidate: 60 * 60 * 12 },
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
@@ -8350,10 +8370,17 @@ export async function getOutcomeSnapshots(params: QueryParams = {}): Promise<Out
     () =>
       fetchPublicJson<OutcomeSnapshotsResponse>(url, {
         cache: "force-cache",
-        next: { revalidate: 60 * 60 * 12 },
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
+  );
+}
+
+export async function getOutcomePricePath(snapshotId: number, horizonDays: number, signal?: AbortSignal): Promise<OutcomePricePath> {
+  return fetchPublicJson<OutcomePricePath>(
+    buildApiUrl(`/api/outcomes/snapshots/${encodeURIComponent(String(snapshotId))}/price-path`, { horizon: horizonDays }),
+    { cache: "no-store", signal, source: "OutcomeLedgerPricePath" },
   );
 }
 

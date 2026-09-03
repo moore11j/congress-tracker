@@ -4,7 +4,7 @@ import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
 import { HomepageCtaLink } from "@/components/landing/HomepageCtaLink";
 import { LandingSearch } from "@/components/landing/LandingSearch";
 import { MarketingHeader } from "@/components/landing/MarketingHeader";
-import { API_BASE, type OutcomeLedgerSummary, type PlanConfig, type PlanPrice, type StrategyDefinitionPayload, type StrategyListResponse } from "@/lib/api";
+import { API_BASE, type PlanConfig, type PlanPrice, type StrategyDefinitionPayload, type StrategyListResponse } from "@/lib/api";
 import {
   WALNUT_MARKETING_DESCRIPTION,
   WALNUT_MARKETING_URL,
@@ -31,7 +31,6 @@ const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 const topStocksUrl = `${appUrl}/leaderboards#top-stocks`;
 const nvdaProductScreenshot = "/landing/nvda-ticker-intelligence.png";
-const outcomesProductScreenshot = "/landing/outcomes-confirmation-events.png";
 
 type PlanTier = "free" | "premium" | "pro";
 type BillingInterval = "monthly" | "annual";
@@ -193,7 +192,6 @@ const featureDepthItems = [
   ["Options Flow", "Options context where available"],
   ["Analyst Consensus", "Analyst view and coverage context"],
   ["Research Briefs", "Published and generated research"],
-  ["Outcomes", "Historical accountability layer"],
   ["Research Memory", "Coming Soon"],
   ["Walnut Strategies", "Live Beta — explore published strategies with transparent methodology and performance"],
 ] as const;
@@ -324,14 +322,6 @@ async function loadMarketSnapshot(): Promise<MacroSnapshotResponse> {
     return await landingFetchJson<MacroSnapshotResponse>("/api/insights/snapshot", undefined, 1800);
   } catch {
     return fallbackMarketSnapshot;
-  }
-}
-
-async function loadOutcomeSummary(): Promise<OutcomeLedgerSummary | null> {
-  try {
-    return await landingFetchJson<OutcomeLedgerSummary>("/api/outcomes/summary", { horizon: "30D" }, 2500);
-  } catch {
-    return null;
   }
 }
 
@@ -751,10 +741,9 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [latestInsights, planConfig, outcomeSummary, publishedStrategies, topStocks] = await Promise.all([
+  const [latestInsights, planConfig, publishedStrategies, topStocks] = await Promise.all([
     loadLatestInsights(),
     loadPlanConfig(),
-    loadOutcomeSummary(),
     loadPublishedStrategies(),
     loadTopStocks(),
   ]);
@@ -814,23 +803,10 @@ export default async function LandingPage() {
             <div className="max-w-3xl">
               <SectionEyebrow>OUTPERFORMING THE MARKET</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">What&apos;s Working on Walnut.</h2>
-              <p className="mt-4 text-base leading-7 text-slate-400">Live confirmation score outcomes and stored strategy results show the power behind Walnut&apos;s data and research—a track record of outperforming the market.</p>
+              <p className="mt-4 text-base leading-7 text-slate-400">Explore Walnut&apos;s research tools and published strategy records with their methodology and benchmark context kept visible.</p>
             </div>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
-            <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.045] p-5 sm:p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Confirmation Score Outcomes</p>
-              {outcomeSummary ? (
-                <>
-                  <div className="mt-5 grid grid-cols-2 gap-4">
-                    <div><p className="font-mono text-4xl font-semibold text-emerald-200">{formatPercent(outcomeSummary.accuracy, 0)}</p><p className="mt-1 text-xs leading-5 text-slate-300">Directional accuracy</p></div>
-                    <div><p className="font-mono text-4xl font-semibold text-emerald-200">{formatPercent(outcomeSummary.average_directional_excess_return)}</p><p className="mt-1 text-xs leading-5 text-slate-300">Average excess vs. SPY</p></div>
-                  </div>
-                  <p className="mt-5 text-sm leading-6 text-slate-300">* out of {outcomeSummary.completed_events} confirmation score events in the past 30 days</p>
-                </>
-              ) : <p className="mt-5 text-sm leading-6 text-slate-400">Current 30-day outcome metrics are temporarily unavailable. Open Outcomes to review the recorded event ledger.</p>}
-              <HomepageCtaLink href={`${appUrl}/outcomes`} eventName="outcomes_click" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">View outcomes <span aria-hidden="true">&rarr;</span></HomepageCtaLink>
-            </article>
             <article className="rounded-lg border border-white/10 bg-slate-950/85 p-5 sm:p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">People and participants</p>
               <h3 className="mt-4 text-xl font-semibold text-white">Track Who Has Performed Best.</h3>
@@ -1018,31 +994,9 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section id="outcomes" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
-          <div>
-            <SectionEyebrow>Outcomes</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">We Don&apos;t Just Make the Call. We Track the Result.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              Every qualifying Walnut Confirmation event is timestamped before the outcome and measured across multiple horizons, so you can see what worked, what didn&apos;t, and how the strongest signals performed historically.
-            </p>
-            {outcomeSummary ? <p className="mt-4 text-sm leading-6 text-slate-300">30-day summary: {formatPercent(outcomeSummary.accuracy, 0)} directional accuracy across {outcomeSummary.directional_sample_count} directional matured events; {formatPercent(outcomeSummary.average_directional_excess_return)} average directional excess versus SPY across {outcomeSummary.benchmarked_events} benchmarked events.</p> : null}
-            <HomepageCtaLink href={`${appUrl}/outcomes`} eventName="outcomes_click" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">Open the Outcomes ledger <span aria-hidden="true">&rarr;</span></HomepageCtaLink>
-          </div>
-          <figure className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/90 p-2 shadow-2xl shadow-black/40" data-outcomes-screenshot="confirmation-events">
-            <div className="overflow-x-auto [scrollbar-width:thin]">
-              <img
-                src={outcomesProductScreenshot}
-                alt="Walnut Markets Outcomes confirmation events table showing preserved confirmation events with opened date, opened score, direction, entry price, 7 day, 30 day, 90 day, 180 day, 365 day returns, and status."
-                width={1806}
-                height={871}
-                className="h-auto min-w-[980px] rounded-md border border-white/10 lg:min-w-0 lg:w-full"
-              />
-            </div>
-            <figcaption className="px-2 py-3 text-xs leading-5 text-slate-400">
-              Real Outcomes view showing confirmation judgments preserved at opening and measured after the fact. Scores are research context, not predictions of future performance.
-            </figcaption>
-          </figure>
+      <section id="outcomes" className="border-b border-white/10 px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl rounded-lg border border-white/10 bg-slate-950/70 p-5 text-sm text-slate-400">
+          Historical Outcomes are being recalculated using Walnut&apos;s updated point-in-time methodology.
         </div>
       </section>
 
@@ -1160,7 +1114,7 @@ export default async function LandingPage() {
             </div>
             <div>
               <p className="text-sm font-semibold text-white">Methods and accountability</p>
-              <p className="mt-1 text-xs leading-5 text-slate-400">See the evidence behind the Confirmation Score and use Outcomes to review historical results rather than relying on unsupported claims.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">See the evidence behind the Confirmation Score with source context and dates kept visible.</p>
             </div>
             <div>
               <p className="text-sm font-semibold text-white">Operated by Walnut Intelligence Inc.</p>
@@ -1170,7 +1124,6 @@ export default async function LandingPage() {
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-emerald-200">
             <a href={`${appUrl}/about`} className="hover:text-emerald-100">About Walnut</a>
             <a href="/stock-confirmation-score" className="hover:text-emerald-100">Confirmation Score methodology</a>
-            <a href={`${appUrl}/outcomes`} className="hover:text-emerald-100">View Outcomes</a>
           </div>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a

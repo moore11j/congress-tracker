@@ -1390,6 +1390,32 @@ def _fetch_provider_corporate_actions(
     return {}, {}
 
 
+def _fetch_provider_split_actions(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    allow_user_request: bool = False,
+) -> dict[str, float]:
+    """Fetch only splits for price-return reconstruction; dividends are excluded."""
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        return {}
+    for candidate_symbol in symbol_variants(symbol):
+        payload = _fetch_provider_eod_payload(
+            "splits",
+            candidate_symbol,
+            start_date,
+            end_date,
+            api_key,
+            allow_user_request=allow_user_request,
+        )
+        split_factors = _extract_split_factor_series_from_payload(payload, start_date, end_date)
+        if split_factors:
+            return split_factors
+    return {}
+
+
 def reconstruct_adjusted_price_bars(
     raw_bars: dict[str, EodPriceBar],
     *,
@@ -1446,6 +1472,61 @@ def reconstruct_adjusted_price_bars(
             adjustment_status="reconstructed_adjusted" if not apply_split_factors else "reconstructed_adjusted_with_splits",
         )
     return dict(sorted(reconstructed.items()))
+
+
+def hydrate_split_adjusted_ohlc(
+    db: Session,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> int:
+    """Hydrate a single, explicit price-return basis for Outcomes/Strategies.
+
+    Dividends are deliberately excluded. Historical OHLC values are adjusted
+    only for split factors, preventing a split from creating a fake return
+    while keeping the metric a price return rather than a total return.
+    """
+    raw_bars, provider_symbol = _fetch_provider_eod_price_bars(
+        symbol,
+        start_date,
+        end_date,
+        require_adjusted=False,
+    )
+    if not raw_bars:
+        return 0
+    split_factors = _fetch_provider_split_actions(
+        provider_symbol or symbol,
+        start_date,
+        end_date,
+    )
+    bars = reconstruct_adjusted_price_bars(
+        raw_bars,
+        dividends={},
+        split_factors=split_factors,
+        apply_split_factors=True,
+    )
+    updated = 0
+    for day, bar in bars.items():
+        if _safe_cache_upsert(
+            db,
+            symbol.strip().upper(),
+            day,
+            bar.close,
+            bar.volume,
+            adjusted_close_value=bar.adjusted_close,
+            raw_close_value=bar.raw_close,
+            open_price_value=bar.open_price,
+            high_price_value=bar.high_price,
+            low_price_value=bar.low_price,
+            split_coefficient_value=bar.split_coefficient,
+            dividend_amount_value=bar.dividend_amount,
+            price_source=bar.price_source,
+            provider_symbol=provider_symbol or symbol,
+            adjustment_status="split_adjusted_price_return",
+        ):
+            updated += 1
+    db.commit()
+    return updated
 
 
 def _fetch_massive_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:

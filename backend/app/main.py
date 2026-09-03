@@ -301,6 +301,7 @@ from app.services.outcome_ledger import (
     public_outcome_ledger_cache_key,
     store_public_outcome_ledger_payload,
 )
+from app.services.outcome_integrity import canonical_price_path
 from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
     ensure_alerts_for_saved_screen_events,
@@ -6441,9 +6442,9 @@ def _outcomes_disabled_response() -> None:
 
 def _public_outcome_ledger_cache_ttl_seconds() -> int:
     try:
-        return max(0, min(24 * 60 * 60, int(os.getenv("OUTCOME_LEDGER_PUBLIC_CACHE_TTL_SECONDS", str(12 * 60 * 60)) or 0)))
+        return max(0, min(24 * 60 * 60, int(os.getenv("OUTCOME_LEDGER_PUBLIC_CACHE_TTL_SECONDS", "300") or 0)))
     except ValueError:
-        return 12 * 60 * 60
+        return 300
 
 
 def _public_outcome_ledger_cache_control() -> str:
@@ -6638,6 +6639,22 @@ def outcomes_snapshots(
     )
     store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
+
+
+@app.get("/api/outcomes/snapshots/{snapshot_id}/price-path")
+def outcome_snapshot_price_path(
+    snapshot_id: int,
+    response: Response,
+    horizon: int = Query(30),
+    db: Session = Depends(get_db),
+):
+    if not outcome_ledger_enabled(db):
+        _outcomes_disabled_response()
+    payload = canonical_price_path(db, snapshot_id, horizon_days=horizon)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="This Outcome has not passed integrity reconstruction")
+    response.headers["Cache-Control"] = _public_outcome_ledger_cache_control()
+    return payload
 
 
 @app.get("/api/admin/outcomes/status")

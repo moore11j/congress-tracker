@@ -10,13 +10,21 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import ConfirmationScoreSnapshot, Event, PriceCache, Security, StrategyVersion
+from app.models import ConfirmationScoreSnapshot, Event, OutcomeEntry, PriceCache, Security, StrategyVersion
+from app.services.outcome_integrity import adjusted_price, as_utc
 from app.services.replicated_portfolios import _portfolio_event_from_event
 from app.services.strategy_evaluations import StrategyEvaluationCandidate
 
 
 class UnsupportedStrategyCandidateSource(ValueError):
     pass
+
+
+def _canonical_open(row: PriceCache | None) -> float | None:
+    if row is None or row.adjustment_status != "split_adjusted_price_return":
+        return None
+    value = adjusted_price(row, "open")
+    return float(value) if value is not None and value > 0 else None
 
 
 @dataclass(frozen=True)
@@ -131,7 +139,7 @@ def _candidate_from_event(
         ticker_at_time=symbol,
         security_id=int(security.id) if security else None,
         weight_pct=1.0,
-        entry_price=float(price_row.adjusted_close if price_row and price_row.adjusted_close is not None else price_row.close) if price_row else None,
+        entry_price=_canonical_open(price_row),
         effective_date=date.fromisoformat(price_row.date) if price_row else execution_floor,
         source_count=source_count,
         qualification_snapshot={
@@ -139,7 +147,7 @@ def _candidate_from_event(
             "eventId": int(event.id),
             "publicDate": portfolio_event.public_date.isoformat(),
             "ingestedAt": event.created_at.isoformat() if event.created_at else None,
-            "execution": "next_trading_day_after_daily_ingest",
+            "execution": "next_trading_session_official_open",
             "companyName": security.name if security else None,
             "sector": security.sector if security else None,
         },
@@ -301,11 +309,7 @@ def _resolve_congress_member_candidates(
             .limit(1)
         ).scalar_one_or_none()
         effective_date = date.fromisoformat(price_row.date) if price_row is not None else execution_floor
-        entry_price = (
-            float(price_row.adjusted_close if price_row.adjusted_close is not None else price_row.close)
-            if price_row is not None and (price_row.adjusted_close is not None or price_row.close is not None)
-            else None
-        )
+        entry_price = _canonical_open(price_row)
         candidates.append(
             StrategyEvaluationCandidate(
                 symbol=symbol,
@@ -325,7 +329,7 @@ def _resolve_congress_member_candidates(
                     "memberName": event.member_name,
                     "publicDate": portfolio_event.public_date.isoformat(),
                     "ingestedAt": event.created_at.isoformat() if event.created_at else None,
-                    "execution": "next_trading_day_after_daily_ingest",
+                    "execution": "next_trading_session_official_open",
                     "executionPriceDate": effective_date.isoformat() if price_row is not None else None,
                     "exitRule": "matching_reported_sale",
                     "companyName": security.name if security else None,
@@ -426,6 +430,12 @@ def resolve_strategy_candidates(
         key=lambda item: (-int(item[0].score), -int(item[0].active_source_count), item[0].ticker_at_time),
     )[:max_positions]
     weight = round(100.0 / len(ordered), 8) if ordered else 0.0
+    entries_by_snapshot = {
+        int(entry.snapshot_id): entry
+        for entry in db.execute(
+            select(OutcomeEntry).where(OutcomeEntry.snapshot_id.in_([int(item[0].id) for item in ordered]))
+        ).scalars().all()
+    } if ordered else {}
     candidates = [
         StrategyEvaluationCandidate(
             symbol=snapshot.ticker_at_time,
@@ -434,13 +444,15 @@ def resolve_strategy_candidates(
             weight_pct=weight,
             score=float(snapshot.score),
             source_count=int(snapshot.active_source_count),
-            entry_price=snapshot.reference_price,
-            effective_date=evaluation_date,
+            entry_price=entries_by_snapshot[int(snapshot.id)].entry_price,
+            effective_date=entries_by_snapshot[int(snapshot.id)].entry_session_date,
             qualification_snapshot={
                 "source": source,
                 "confirmationSnapshotId": int(snapshot.id),
                 "marketDate": snapshot.market_date.isoformat(),
                 "calculatedAt": snapshot.calculated_at.isoformat(),
+                "entryPriceAt": entries_by_snapshot[int(snapshot.id)].entry_price_at.isoformat(),
+                "entryPriceType": entries_by_snapshot[int(snapshot.id)].entry_price_type,
                 "methodologyVersionId": int(snapshot.methodology_version_id),
                 "activeSources": json.loads(snapshot.active_sources_json or "[]"),
                 "sourceContributions": json.loads(snapshot.source_contributions_json or "{}"),
@@ -449,7 +461,8 @@ def resolve_strategy_candidates(
             },
         )
         for snapshot, security in ordered
-        if snapshot.reference_price is not None and float(snapshot.reference_price) > 0
+        if int(snapshot.id) in entries_by_snapshot
+        and as_utc(entries_by_snapshot[int(snapshot.id)].entry_price_at) <= as_utc(visible_at)
     ]
     if candidates and len(candidates) != len(ordered):
         weight = round(100.0 / len(candidates), 8)

@@ -4,15 +4,15 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ApiError,
   getEntitlements,
-  getTickerChartBundle,
+  getOutcomePricePath,
   getOutcomeLedgerOverview,
   getOutcomeLedgerSummary,
   type OutcomeHorizonResult,
+  type OutcomePricePath,
   type OutcomeLedgerStatus,
   type OutcomeLedgerSummary,
   type OutcomeSnapshot,
   type OutcomeSnapshotsResponse,
-  type TickerChartBundle,
 } from "@/lib/api";
 import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/lib/entitlements";
 
@@ -202,10 +202,6 @@ function numericReturn(value?: number | null) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function returnFromBase(price: number, base: number) {
-  return ((price / base) - 1) * 100;
-}
-
 function average(values: number[]) {
   if (!values.length) return null;
   return values.reduce((total, value) => total + value, 0) / values.length;
@@ -224,45 +220,6 @@ function scoreBandForScore(score: number) {
 function pctClassName(value?: number | null) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "text-slate-500";
   return value >= 0 ? "text-lime-400" : "text-red-400";
-}
-
-function hasApiOutcomes(snapshot: OutcomeSnapshot) {
-  return Object.values(snapshot.outcomes ?? {}).some((outcome) => outcome?.status === "matured" && typeof outcome.return_pct === "number");
-}
-
-function demoReturnForSnapshot(snapshot: OutcomeSnapshot, horizon: string) {
-  const horizonIndex = Math.max(0, horizonColumns.indexOf(horizon));
-  const baseReturns = [1.2, 4.4, 8.5, 13.2, 20.6];
-  const spyReturns = [0.9, 2.8, 6.1, 9.7, 14.8];
-  const scoreAdjustment = Math.max(-1.5, Math.min(2.5, (snapshot.score - 68) * 0.08));
-  const isBearish = snapshot.direction?.toLowerCase().includes("bear");
-  const isNonDirectional = snapshot.direction?.toLowerCase().includes("neutral") || snapshot.direction?.toLowerCase().includes("mixed");
-  const seededMiss = snapshot.score % 7 === 1 || isNonDirectional;
-  const directionalReturn = baseReturns[horizonIndex] + scoreAdjustment - (seededMiss ? (horizonIndex + 1) * 4.5 : 0);
-  const rawReturn = isNonDirectional ? directionalReturn / 2 : isBearish ? -directionalReturn : directionalReturn;
-  const spyReturn = spyReturns[horizonIndex];
-  const excessReturn = rawReturn - spyReturn;
-  return {
-    status: "matured",
-    horizon_days: Number.parseInt(horizon, 10),
-    target_date: snapshot.market_date ?? null,
-    price: typeof snapshot.reference_price === "number" ? Number((snapshot.reference_price * (1 + rawReturn / 100)).toFixed(2)) : null,
-    return_pct: Number(rawReturn.toFixed(2)),
-    directional_return_pct: isNonDirectional ? null : Number((isBearish ? -rawReturn : rawReturn).toFixed(2)),
-    directionally_correct: isNonDirectional ? null : (isBearish ? -rawReturn : rawReturn) > 0,
-    spy_return_pct: spyReturn,
-    excess_return_pct: Number(excessReturn.toFixed(2)),
-    directional_excess_return_pct: isNonDirectional ? null : Number((isBearish ? -excessReturn : excessReturn).toFixed(2)),
-  } satisfies OutcomeHorizonResult;
-}
-
-function hydrateDemoOutcomes(snapshot: OutcomeSnapshot): OutcomeSnapshot {
-  if (hasApiOutcomes(snapshot)) return snapshot;
-  if (!snapshot.reference_price_source?.startsWith("outcome_ledger_demo")) return snapshot;
-  return {
-    ...snapshot,
-    outcomes: Object.fromEntries(horizonColumns.map((horizon) => [horizon, demoReturnForSnapshot(snapshot, horizon)])),
-  };
 }
 
 function FilterSelect({
@@ -533,7 +490,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
     .map((snapshot) => {
       const outcome = maturedOutcome(snapshot, horizon);
       const opened = openedTime(snapshot);
-      const returnValue = numericReturn(outcome?.directional_return_pct ?? outcome?.return_pct);
+      const returnValue = numericReturn(outcome?.return_pct);
       if (!outcome || !opened || returnValue === null) return null;
       return {
         snapshot,
@@ -549,6 +506,11 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
   const minOpened = Math.min(...points.map((point) => point.opened), Date.now());
   const maxOpened = Math.max(...points.map((point) => point.opened), minOpened);
   const xRange = Math.max(1, maxOpened - minOpened);
+  const maxAbsoluteReturn = Math.max(5, ...points.map((point) => Math.abs(point.returnValue)));
+  const yExtent = Math.ceil(maxAbsoluteReturn / 5) * 5;
+  const yScale = 72 / yExtent;
+  const zeroY = 108;
+  const yTicks = [yExtent, yExtent / 2, 0, -yExtent / 2, -yExtent];
   const xTicks = points.length
     ? [
         { label: compactDate(points[0]?.snapshot.market_date), x: 80 },
@@ -559,7 +521,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
 
   function pointCoordinates(point: EventOutcomePoint) {
     const x = points.length <= 1 ? 390 : 80 + ((point.opened - minOpened) / xRange) * 620;
-    const y = 110 - Math.max(-25, Math.min(25, point.returnValue)) * 3.2;
+    const y = zeroY - point.returnValue * yScale;
     return { x, y };
   }
 
@@ -581,10 +543,16 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
       </div>
       <div className="relative mt-2 h-52 min-w-0 overflow-hidden">
         <svg viewBox="0 0 760 235" className="h-full w-full overflow-visible outline-none" role="img" aria-label="Event outcomes by date and return" tabIndex={0} style={{ touchAction: "pan-y" }} onPointerLeave={(event) => { if (event.pointerType === "mouse") { setHoverPoint(null); setActiveIndex(null); } }} onKeyDown={(event) => { if (event.key === "Escape") { setHoverPoint(null); setActiveIndex(null); return; } if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" || !points.length) return; event.preventDefault(); const next = Math.max(0, Math.min(points.length - 1, (activeIndex ?? 0) + (event.key === "ArrowLeft" ? -1 : 1))); const point = points[next]; const { x, y } = pointCoordinates(point); setActiveIndex(next); setHoverPoint({ ...point, x, y }); }}>
-          {[36, 72, 108, 144, 180].map((y) => (
-            <line key={y} x1="40" x2="735" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
-          ))}
-          <line x1="40" x2="735" y1="110" y2="110" stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
+          {yTicks.map((tick) => {
+            const y = zeroY - tick * yScale;
+            return (
+              <g key={tick}>
+                <line x1="40" x2="735" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
+                <text x="36" y={y + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{formatPercent(tick, { signed: false })}</text>
+              </g>
+            );
+          })}
+          <line x1="40" x2="735" y1={zeroY} y2={zeroY} stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
           <line x1="40" x2="735" y1="190" y2="190" stroke="rgba(148,163,184,0.35)" />
           {xTicks.map(({ label, x }) => (
             <text key={`${label}-${x}`} x={x} y="212" fill="#cbd5e1" fontSize="12" textAnchor="middle">
@@ -705,32 +673,22 @@ function matchesOutcomeFilters(
   return true;
 }
 
-function pricePathPointsFromBundle(bundle: TickerChartBundle | null): PricePathPoint[] {
-  const prices = [...(bundle?.prices ?? [])]
-    .filter((point) => Number.isFinite(point.close))
-    .sort((a, b) => a.date.localeCompare(b.date));
-  const benchmark = [...(bundle?.benchmark.points ?? [])]
-    .filter((point) => Number.isFinite(point.close))
-    .sort((a, b) => a.date.localeCompare(b.date));
-  const stockBase = prices[0]?.close;
-  const spyBase = benchmark[0]?.close;
-  if (!stockBase || !spyBase) return [];
-  const benchmarkByDate = new Map(benchmark.map((point) => [point.date, point.close]));
-  return prices.flatMap((point, index) => {
-    const spyClose = benchmarkByDate.get(point.date) ?? benchmark[index]?.close;
-    if (!spyClose) return [];
-    const stockReturn = returnFromBase(point.close, stockBase);
-    const spyReturn = returnFromBase(spyClose, spyBase);
-    return [
-      {
-        date: point.date,
-        label: point.date.includes(":") ? compactDateTime(point.date) : compactDate(point.date),
-        stockReturn,
-        spyReturn,
-        excessReturn: stockReturn - spyReturn,
-      },
-    ];
-  });
+function pricePathPointsFromBundle(bundle: OutcomePricePath | null): PricePathPoint[] {
+  return [...(bundle?.points ?? [])]
+    .filter(
+      (point) =>
+        Number.isFinite(point.security_return_pct) &&
+        Number.isFinite(point.benchmark_return_pct) &&
+        Number.isFinite(point.excess_return_pct),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((point) => ({
+      date: point.date,
+      label: compactDateTime(point.date),
+      stockReturn: point.security_return_pct,
+      spyReturn: point.benchmark_return_pct,
+      excessReturn: point.excess_return_pct,
+    }));
 }
 
 function linePath(points: PricePathPoint[], valueKey: "stockReturn" | "spyReturn", minValue: number, valueRange: number) {
@@ -744,7 +702,7 @@ function linePath(points: PricePathPoint[], valueKey: "stockReturn" | "spyReturn
     .join(" ");
 }
 
-function PricePathVsSpyChart({ bundle, loading }: { bundle: TickerChartBundle | null; loading: boolean }) {
+function PricePathVsSpyChart({ bundle, loading }: { bundle: OutcomePricePath | null; loading: boolean }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const points = useMemo(() => pricePathPointsFromBundle(bundle), [bundle]);
   if (loading) return <p className="text-sm leading-6 text-slate-300">Loading historical 1D price path...</p>;
@@ -987,7 +945,7 @@ function EventsTable({
                           isClosed ? "bg-amber-400/15 text-amber-100" : "bg-emerald-400/15 text-emerald-100"
                         }`}
                       >
-                        {outcomeLifecycleStatusLabel(snapshot, isClosed)}
+                        {snapshot.data_integrity_status === "requires_reconstruction" ? "Audit hold" : outcomeLifecycleStatusLabel(snapshot, isClosed)}
                       </span>
                     </td>
                   </tr>
@@ -1046,7 +1004,7 @@ function DetailPanel({
 }) {
   const selectedHorizonOutcome = selected ? maturedOutcome(selected, horizon) : undefined;
   const canViewPremium = canViewPremiumOutcomes(entitlementTier);
-  const [chartBundle, setChartBundle] = useState<TickerChartBundle | null>(null);
+  const [chartBundle, setChartBundle] = useState<OutcomePricePath | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
   const maturedHorizons = selected
     ? horizonColumns
@@ -1056,14 +1014,14 @@ function DetailPanel({
   const sourceRows = contributionRows(selected);
 
   useEffect(() => {
-    if (!selected?.ticker || !canViewPremium) {
+    if (!selected?.id || !canViewPremium || selected.data_integrity_status !== "verified") {
       setChartBundle(null);
       setChartLoading(false);
       return;
     }
     const controller = new AbortController();
     setChartLoading(true);
-    getTickerChartBundle(selected.ticker, 30, { signal: controller.signal, source: "OutcomeLedgerPricePath" })
+    getOutcomePricePath(selected.id, Number.parseInt(horizon, 10), controller.signal)
       .then((bundle) => setChartBundle(bundle))
       .catch((error) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -1073,7 +1031,7 @@ function DetailPanel({
         if (!controller.signal.aborted) setChartLoading(false);
       });
     return () => controller.abort();
-  }, [canViewPremium, selected?.ticker]);
+  }, [canViewPremium, horizon, selected?.data_integrity_status, selected?.id]);
 
   return (
     <aside className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
@@ -1099,12 +1057,13 @@ function DetailPanel({
               ["Opened", selected ? openedDate(selected) : "-"],
               ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
-              ["Public Eligible", "Yes"],
+              ["Price Method", selected?.entry_price_type === "official_open" ? "Official open" : "-"],
+              ["Integrity", selected?.data_integrity_status === "verified" ? "Verified" : "Audit hold"],
               ["Status", selected ? outcomeLifecycleStatusLabel(selected, isSelectedReplaced) : "-"],
             ].map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-slate-400">{label}</dt>
-                <dd className={value === "Yes" ? "text-right text-lime-400" : "text-right text-slate-200"}>{value}</dd>
+                <dd className={value === "Verified" ? "text-right text-lime-400" : "text-right text-slate-200"}>{value}</dd>
               </div>
             ))}
           </dl>
@@ -1258,7 +1217,7 @@ export function OutcomeLedgerClient({
     };
   }, [horizonFilter, summary?.horizon]);
 
-  const snapshotItems = useMemo(() => (snapshots?.items ?? []).map(hydrateDemoOutcomes), [snapshots?.items]);
+  const snapshotItems = useMemo(() => snapshots?.items ?? [], [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {
     const byVisibleEvent = new Map<string, OutcomeSnapshot>();
     snapshotItems.forEach((snapshot) => {
@@ -1532,6 +1491,17 @@ export function OutcomeLedgerClient({
             selectedSnapshotId={selectedSnapshot?.id ?? null}
             onSelectSnapshot={handleSelectSnapshot}
           />
+
+          <section className="rounded-md border border-white/10 bg-slate-900/55 p-5 text-sm leading-6 text-slate-300">
+            <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Reproducible return methodology</h2>
+            <p className="mt-3">
+              An Outcome begins when a live, point-in-time Confirmation Score first qualifies, changes direction, or requalifies after the published cooldown. Evidence is frozen at that timestamp.
+              Premarket events use that session&apos;s official open; events at or after 9:30 a.m. New York time use the next trading session&apos;s official open.
+            </p>
+            <p className="mt-2">
+              The 7D, 30D, 90D, 180D, and 365D labels are calendar-day targets measured from the executable entry session. Each uses the first valid market close on or after the target date. SPY uses the identical entry and exit sessions. Returns are split-adjusted price returns; dividends are excluded.
+            </p>
+          </section>
         </main>
 
         {eventDetailOpen ? (
