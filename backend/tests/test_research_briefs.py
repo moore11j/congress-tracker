@@ -1459,6 +1459,7 @@ def test_scheduled_publish_repairs_legacy_markdown_structure():
     db = _session()
     admin = _user(db, "admin@example.com", role="admin")
     draft = _minimal_scheduled_draft(admin, status="approved_scheduled")
+    draft["last_publish_error"] = "HTTPException: prior failed attempt"
     original_body = draft["article"]["sections"][0]["body_markdown"]
     draft["article"]["sections"][0]["body_markdown"] = (
         "## Research Brief\n\n## Evidence\n\n"
@@ -1475,6 +1476,7 @@ def test_scheduled_publish_repairs_legacy_markdown_structure():
     )
 
     assert published["status"] == "published"
+    assert published["last_publish_error"] is None
     assert not any(
         warning["code"] == "markdown_structure" and warning["blocking"]
         for warning in published["validation"]["warnings"]

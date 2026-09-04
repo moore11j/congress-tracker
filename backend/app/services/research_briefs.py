@@ -7992,6 +7992,7 @@ def publish_draft(
             draft["status"] = "published"
             draft["published_at"] = draft.get("published_at") or _now()
             draft["publication_source"] = source
+            draft["last_publish_error"] = None
             draft["updated_at"] = _now()
             draft["validation"] = validation
             _unpublish_other_db_drafts_for_slug(db, draft_id, str((draft.get("article") or {}).get("slug") or ""))
@@ -8016,6 +8017,7 @@ def publish_draft(
                 draft["status"] = "published"
                 draft["published_at"] = draft.get("published_at") or _now()
                 draft["publication_source"] = source
+                draft["last_publish_error"] = None
                 draft["updated_at"] = _now()
                 draft["validation"] = validation
                 _unpublish_other_store_drafts_for_slug(store, draft_id, str((draft.get("article") or {}).get("slug") or ""))
