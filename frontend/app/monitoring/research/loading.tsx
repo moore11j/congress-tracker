@@ -1,0 +1,2 @@
+import { LoadingPageShell, SkeletonBlock, SkeletonCard } from "@/components/ui/LoadingSkeleton";
+export default function ResearchMemoryLoading() { return <LoadingPageShell eyebrow="Research Memory" titleWidth="w-72" descriptionWidth="w-full max-w-xl"><div className="grid gap-4 md:grid-cols-2">{[0, 1].map((item) => <SkeletonCard key={item}><SkeletonBlock className="h-3 w-14" /><SkeletonBlock className="mt-3 h-6 w-2/3" /><SkeletonBlock className="mt-4 h-4 w-full" /></SkeletonCard>)}</div></LoadingPageShell>; }

@@ -57,6 +57,11 @@ FeatureKey = Literal[
     "analyst_consensus",
     "analyst_consensus_history",
     "api_webhooks",
+    "view_research_memory",
+    "create_research_memory",
+    "use_custom_thesis_ai",
+    "monitor_research_memory",
+    "receive_thesis_alerts",
 ]
 
 PLAN_TIERS: tuple[PlanTierName, ...] = ("free", "premium", "pro")
@@ -133,6 +138,11 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "analyst_consensus": 1,
             "analyst_consensus_history": 0,
             "api_webhooks": 0,
+            "view_research_memory": 1,
+            "create_research_memory": 25,
+            "use_custom_thesis_ai": 1,
+            "monitor_research_memory": 1,
+            "receive_thesis_alerts": 0,
         },
         features=frozenset(
             {
@@ -148,6 +158,11 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "insider_feed",
                 "congress_feed",
                 "analyst_consensus",
+                "view_research_memory",
+                "create_research_memory",
+                "use_custom_thesis_ai",
+                "monitor_research_memory",
+                "receive_thesis_alerts",
             }
         ),
     ),
@@ -193,6 +208,11 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "analyst_consensus": 1,
             "analyst_consensus_history": 1,
             "api_webhooks": 0,
+            "view_research_memory": 1,
+            "create_research_memory": 25,
+            "use_custom_thesis_ai": 1,
+            "monitor_research_memory": 1,
+            "receive_thesis_alerts": 0,
         },
         features=frozenset(
             {
@@ -221,6 +241,11 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "congress_feed",
                 "analyst_consensus",
                 "analyst_consensus_history",
+                "view_research_memory",
+                "create_research_memory",
+                "use_custom_thesis_ai",
+                "monitor_research_memory",
+                "receive_thesis_alerts",
             }
         ),
     ),
@@ -266,6 +291,11 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "analyst_consensus": 1,
             "analyst_consensus_history": 1,
             "api_webhooks": 1,
+            "view_research_memory": 1,
+            "create_research_memory": 100,
+            "use_custom_thesis_ai": 1,
+            "monitor_research_memory": 1,
+            "receive_thesis_alerts": 0,
         },
         features=frozenset(
             {
@@ -306,6 +336,11 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "analyst_consensus",
                 "analyst_consensus_history",
                 "api_webhooks",
+                "view_research_memory",
+                "create_research_memory",
+                "use_custom_thesis_ai",
+                "monitor_research_memory",
+                "receive_thesis_alerts",
             }
         ),
     ),
@@ -464,6 +499,11 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
         "required_tier": "pro",
         "description": "API and webhook access placeholder for future workflow automation.",
     },
+    "view_research_memory": {"required_tier": "free", "description": "View private Research Memory objects."},
+    "create_research_memory": {"required_tier": "free", "description": "Create and edit private Research Memory objects."},
+    "use_custom_thesis_ai": {"required_tier": "free", "description": "Compile a private custom thesis into editable structure."},
+    "monitor_research_memory": {"required_tier": "free", "description": "Activate a Research Memory for a future monitoring phase."},
+    "receive_thesis_alerts": {"required_tier": "free", "description": "Future thesis-alert delivery capability."},
 }
 
 ENTITLEMENTS["admin"] = TierEntitlements(

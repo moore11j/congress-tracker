@@ -36,7 +36,12 @@ export type EntitlementFeature =
   | "macro_positioning"
   | "market_pressure"
   | "walnut_strategies"
-  | "api_webhooks";
+  | "api_webhooks"
+  | "view_research_memory"
+  | "create_research_memory"
+  | "use_custom_thesis_ai"
+  | "monitor_research_memory"
+  | "receive_thesis_alerts";
 
 export type Entitlements = {
   plan?: EntitlementTier;
@@ -100,8 +105,13 @@ export const defaultEntitlements: Entitlements = {
     market_pressure: 0,
     walnut_strategies: 0,
     api_webhooks: 0,
+    view_research_memory: 1,
+    create_research_memory: 25,
+    use_custom_thesis_ai: 1,
+    monitor_research_memory: 1,
+    receive_thesis_alerts: 0,
   },
-  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed"],
+  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed", "view_research_memory", "create_research_memory", "use_custom_thesis_ai", "monitor_research_memory", "receive_thesis_alerts"],
   upgrade_url: "/pricing",
 };
 
@@ -144,6 +154,11 @@ export const premiumEntitlements: Entitlements = {
     market_pressure: 0,
     walnut_strategies: 0,
     api_webhooks: 0,
+    view_research_memory: 1,
+    create_research_memory: 25,
+    use_custom_thesis_ai: 1,
+    monitor_research_memory: 1,
+    receive_thesis_alerts: 0,
   },
   features: [
     "signals",
@@ -170,6 +185,11 @@ export const premiumEntitlements: Entitlements = {
     "government_contracts_filters",
     "insider_feed",
     "congress_feed",
+    "view_research_memory",
+    "create_research_memory",
+    "use_custom_thesis_ai",
+    "monitor_research_memory",
+    "receive_thesis_alerts",
   ],
   upgrade_url: "/pricing",
 };
@@ -213,6 +233,11 @@ export const proEntitlements: Entitlements = {
     market_pressure: 1,
     walnut_strategies: 1,
     api_webhooks: 1,
+    view_research_memory: 1,
+    create_research_memory: 100,
+    use_custom_thesis_ai: 1,
+    monitor_research_memory: 1,
+    receive_thesis_alerts: 0,
   },
   features: [
     "signals",
@@ -250,6 +275,11 @@ export const proEntitlements: Entitlements = {
     "market_pressure",
     "walnut_strategies",
     "api_webhooks",
+    "view_research_memory",
+    "create_research_memory",
+    "use_custom_thesis_ai",
+    "monitor_research_memory",
+    "receive_thesis_alerts",
   ],
   upgrade_url: "/pricing",
 };

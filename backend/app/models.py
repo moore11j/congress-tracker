@@ -516,6 +516,315 @@ class WatchlistViewState(Base):
     )
 
 
+class ResearchSourceDocument(Base):
+    """Company-level source identity and extraction state. Raw licensed text stays outside this table."""
+
+    __tablename__ = "research_source_documents"
+    __table_args__ = (
+        UniqueConstraint("source_provider", "external_id", name="uq_research_source_documents_provider_external"),
+        CheckConstraint("processing_status IN ('pending','processing','processed','failed','skipped')", name="ck_research_source_document_status"),
+        Index("ix_research_source_documents_security_published", "security_id", "published_at"),
+        Index("ix_research_source_documents_processing", "processing_status", "updated_at"),
+        Index("ix_research_source_documents_content_hash", "content_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    security_id: Mapped[int] = mapped_column(nullable=False)
+    document_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[Optional[date]] = mapped_column(nullable=True)
+    filing_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    processing_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
+    processing_version: Mapped[str] = mapped_column(Text, nullable=False)
+    last_processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchEvidenceEvent(Base):
+    """Normalized company-level facts. These never contain a user, thesis, or thesis-health state."""
+
+    __tablename__ = "research_evidence_events"
+    __table_args__ = (
+        UniqueConstraint("content_hash", name="uq_research_evidence_events_content_hash"),
+        CheckConstraint("category IN ('financial','government_contract','ownership','walnut_signal','other_material_company_event')", name="ck_research_evidence_event_category"),
+        CheckConstraint("event_type IN ('metric_increased','metric_decreased','growth_accelerated','growth_decelerated','margin_expanded','margin_compressed','contract_awarded','contract_modified','insider_purchase','insider_sale','institutional_position_increased','institutional_position_decreased','institutional_position_opened','institutional_position_closed','confirmation_strengthened','confirmation_weakened','confirmation_direction_changed','cross_source_alignment_changed')", name="ck_research_evidence_event_type"),
+        CheckConstraint("direction IN ('positive','negative','neutral','mixed','unknown')", name="ck_research_evidence_event_direction"),
+        CheckConstraint("confidence IN ('high','medium','low')", name="ck_research_evidence_event_confidence"),
+        CheckConstraint("materiality IN ('low','medium','high')", name="ck_research_evidence_event_materiality"),
+        Index("ix_research_evidence_events_security_event_date", "security_id", "event_date"),
+        Index("ix_research_evidence_events_security_created", "security_id", "created_at"),
+        Index("ix_research_evidence_events_security_category_date", "security_id", "category", "event_date"),
+        Index("ix_research_evidence_events_security_type_date", "security_id", "event_type", "event_date"),
+        Index("ix_research_evidence_events_source", "source_provider", "source_id"),
+        Index("ix_research_evidence_events_source_document", "source_document_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    security_id: Mapped[int] = mapped_column(nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metric: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    direction: Mapped[str] = mapped_column(Text, nullable=False)
+    magnitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    unit: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    period: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    previous_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    current_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    expected_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    actual_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    previous_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    current_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    effective_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_document_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_locator: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    headline: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_excerpt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[str] = mapped_column(Text, nullable=False)
+    materiality: Mapped[str] = mapped_column(Text, nullable=False)
+    extraction_method: Mapped[str] = mapped_column(Text, nullable=False)
+    model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    processing_version: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    related_event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchClaimEvidenceMatch(Base):
+    """Private claim-level interpretation of one immutable global Evidence Event."""
+
+    __tablename__ = "research_claim_evidence_matches"
+    __table_args__ = (
+        UniqueConstraint("claim_id", "evidence_event_id", "matching_version", name="uq_research_claim_evidence_match_pair"),
+        CheckConstraint("relationship IN ('supports','contradicts','related','potential_invalidator')", name="ck_research_claim_match_relationship"),
+        CheckConstraint("relevance IN ('high','medium','low')", name="ck_research_claim_match_relevance"),
+        CheckConstraint("confidence IN ('high','medium','low')", name="ck_research_claim_match_confidence"),
+        CheckConstraint("match_method IN ('deterministic','semantic','hybrid','manual')", name="ck_research_claim_match_method"),
+        Index("ix_research_claim_matches_user_thesis_created", "user_id", "thesis_id", "created_at"),
+        Index("ix_research_claim_matches_claim_created", "claim_id", "created_at"),
+        Index("ix_research_claim_matches_relationship_created", "relationship", "created_at"),
+        Index("ix_research_claim_matches_evidence", "evidence_event_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_id: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_event_id: Mapped[str] = mapped_column(Text, nullable=False)
+    relationship: Mapped[str] = mapped_column(Text, nullable=False)
+    relevance: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    match_method: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    matching_version: Mapped[str] = mapped_column(Text, nullable=False)
+    matching_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchClaimMatchCheckpoint(Base):
+    """Private no-match checkpoint prevents repeat semantic calls for unchanged pairs."""
+
+    __tablename__ = "research_claim_match_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("claim_id", "evidence_event_id", "matching_version", name="uq_research_claim_match_checkpoint_pair"),
+        CheckConstraint("outcome IN ('unrelated','filtered')", name="ck_research_claim_match_checkpoint_outcome"),
+        Index("ix_research_claim_match_checkpoints_thesis", "thesis_id", "created_at"),
+        Index("ix_research_claim_match_checkpoints_hash", "matching_hash", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_id: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_event_id: Mapped[str] = mapped_column(Text, nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    matching_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    matching_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchInvalidatorEvidenceMatch(Base):
+    """Private candidate relationship only; it never changes thesis state in Phase 3."""
+
+    __tablename__ = "research_invalidator_evidence_matches"
+    __table_args__ = (
+        UniqueConstraint("invalidator_id", "evidence_event_id", "matching_version", name="uq_research_invalidator_evidence_match_pair"),
+        CheckConstraint("relationship = 'potential_invalidator'", name="ck_research_invalidator_match_relationship"),
+        CheckConstraint("confidence IN ('high','medium','low')", name="ck_research_invalidator_match_confidence"),
+        CheckConstraint("match_method IN ('deterministic','semantic','hybrid','manual')", name="ck_research_invalidator_match_method"),
+        Index("ix_research_invalidator_matches_user_thesis_created", "user_id", "thesis_id", "created_at"),
+        Index("ix_research_invalidator_matches_invalidator", "invalidator_id", "created_at"),
+        Index("ix_research_invalidator_matches_evidence", "evidence_event_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    invalidator_id: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_event_id: Mapped[str] = mapped_column(Text, nullable=False)
+    relationship: Mapped[str] = mapped_column(Text, default="potential_invalidator", server_default="potential_invalidator", nullable=False)
+    confidence: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    match_method: Mapped[str] = mapped_column(Text, nullable=False)
+    invalidator_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    matching_version: Mapped[str] = mapped_column(Text, nullable=False)
+    matching_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchThesis(Base):
+    """Private, user-owned research memory. Phase 1 stores structure only."""
+
+    __tablename__ = "research_theses"
+    __table_args__ = (
+        CheckConstraint("orientation IN ('bullish', 'bearish', 'neutral')", name="ck_research_theses_orientation"),
+        CheckConstraint("status IN ('draft', 'active', 'paused', 'archived')", name="ck_research_theses_status"),
+        CheckConstraint("source_type IN ('walnut_suggested', 'template', 'custom')", name="ck_research_theses_source_type"),
+        Index("ix_research_theses_user_status_updated", "user_id", "status", "updated_at"),
+        Index("ix_research_theses_user_security_status", "user_id", "security_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(nullable=False)
+    security_id: Mapped[int] = mapped_column(nullable=False)
+    ticker_at_creation: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    original_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    orientation: Mapped[str] = mapped_column(Text, nullable=False)
+    target_horizon: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="draft", server_default="draft", nullable=False)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    template_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    started_monitoring_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ResearchThesisClaim(Base):
+    __tablename__ = "research_thesis_claims"
+    __table_args__ = (
+        CheckConstraint("monitoring_mode IN ('structured_metric', 'event', 'semantic', 'hybrid', 'manual')", name="ck_research_claims_mode"),
+        CheckConstraint("coverage_level IN ('fully_monitored', 'partially_monitored', 'news_monitored', 'manual_review_required')", name="ck_research_claims_coverage"),
+        Index("ix_research_claims_thesis", "thesis_id", "importance"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    claim_type: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    metric: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_direction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_magnitude: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_timeframe: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    importance: Mapped[str] = mapped_column(Text, default="medium", server_default="medium", nullable=False)
+    monitoring_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    coverage_level: Mapped[str] = mapped_column(Text, nullable=False)
+    user_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchThesisCatalyst(Base):
+    __tablename__ = "research_thesis_catalysts"
+    __table_args__ = (Index("ix_research_catalysts_thesis", "thesis_id", "importance"),)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    catalyst_type: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    expected_window_start: Mapped[Optional[date]] = mapped_column(nullable=True)
+    expected_window_end: Mapped[Optional[date]] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="upcoming", server_default="upcoming", nullable=False)
+    monitoring_mode: Mapped[str] = mapped_column(Text, default="manual", server_default="manual", nullable=False)
+    importance: Mapped[str] = mapped_column(Text, default="medium", server_default="medium", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchThesisRisk(Base):
+    __tablename__ = "research_thesis_risks"
+    __table_args__ = (Index("ix_research_risks_thesis", "thesis_id", "severity"),)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_type: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, default="medium", server_default="medium", nullable=False)
+    monitoring_mode: Mapped[str] = mapped_column(Text, default="manual", server_default="manual", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ResearchThesisInvalidator(Base):
+    __tablename__ = "research_thesis_invalidators"
+    __table_args__ = (Index("ix_research_invalidators_thesis", "thesis_id", "severity"),)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    condition_type: Mapped[str] = mapped_column(Text, nullable=False)
+    metric: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    operator: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    threshold: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    time_window: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    severity: Mapped[str] = mapped_column(Text, default="high", server_default="high", nullable=False)
+    monitoring_mode: Mapped[str] = mapped_column(Text, default="manual", server_default="manual", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class TickerThesisSuggestion(Base):
+    __tablename__ = "ticker_thesis_suggestions"
+    __table_args__ = (
+        UniqueConstraint("security_id", "suggestion_type", "evidence_state_hash", "prompt_version", "schema_version", name="uq_ticker_thesis_suggestions_evidence"),
+        Index("ix_ticker_thesis_suggestions_lookup", "security_id", "evidence_state_hash", "expires_at"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    security_id: Mapped[int] = mapped_column(nullable=False)
+    suggestion_type: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    orientation: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_basis_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    structured_thesis_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    evidence_state_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    model_version: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class WatchlistAlertRule(Base):
     """Structured, user-owned custom monitoring rule; never executable user code."""
 

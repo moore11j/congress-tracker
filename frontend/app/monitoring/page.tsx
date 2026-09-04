@@ -25,6 +25,12 @@ export default async function MonitoringPage() {
           </Link>
         </section>
 
+        <nav aria-label="Inbox and Monitoring" className="flex w-full gap-1 overflow-x-auto rounded-xl border border-white/10 bg-slate-950/45 p-1">
+          <Link href="/monitoring" className="shrink-0 rounded-lg bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-100">Inbox</Link>
+          <Link href="/monitoring" className="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-white/5 hover:text-white">Monitoring</Link>
+          {process.env.NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED !== "false" ? <Link href="/monitoring/research" className="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-white/5 hover:text-white">Research Memory</Link> : null}
+        </nav>
+
         <MonitoringDashboard initialWatchlists={[]} initialAuthPending={!authToken} />
       </div>
     </VerifiedSessionGuard>

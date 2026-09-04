@@ -2647,6 +2647,63 @@ def ensure_data_enrichment_jobs_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_enrichment_jobs_status_next_run ON data_enrichment_jobs (status, next_run_at)"))
 
 
+def ensure_research_memory_schema(bind=engine) -> None:
+    """Add the Phase 1 private research-memory tables without touching public caches."""
+    from app.models import (
+        ResearchThesis,
+        ResearchThesisCatalyst,
+        ResearchThesisClaim,
+        ResearchThesisInvalidator,
+        ResearchThesisRisk,
+        TickerThesisSuggestion,
+    )
+
+    with bind.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
+        Base.metadata.create_all(
+            bind=conn,
+            tables=[
+                ResearchThesis.__table__,
+                ResearchThesisClaim.__table__,
+                ResearchThesisCatalyst.__table__,
+                ResearchThesisRisk.__table__,
+                ResearchThesisInvalidator.__table__,
+                TickerThesisSuggestion.__table__,
+            ],
+        )
+
+
+def ensure_research_evidence_schema(bind=engine) -> None:
+    """Create the Phase 2 global evidence tables separately from private Research Memory data."""
+    from app.models import ResearchEvidenceEvent, ResearchSourceDocument
+
+    with bind.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
+        Base.metadata.create_all(
+            bind=conn,
+            tables=[
+                ResearchSourceDocument.__table__,
+                ResearchEvidenceEvent.__table__,
+            ],
+        )
+
+
+def ensure_research_claim_matching_schema(bind=engine) -> None:
+    """Create Phase 3 private matching tables without mutating global evidence."""
+    from app.models import ResearchClaimEvidenceMatch, ResearchClaimMatchCheckpoint, ResearchInvalidatorEvidenceMatch
+
+    with bind.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
+        Base.metadata.create_all(
+            bind=conn,
+            tables=[
+                ResearchClaimEvidenceMatch.__table__,
+                ResearchClaimMatchCheckpoint.__table__,
+                ResearchInvalidatorEvidenceMatch.__table__,
+            ],
+        )
+
+
 def ensure_institutional_activity_schema(bind=engine) -> None:
     from app.models import (
         InstitutionalActivityEvent,

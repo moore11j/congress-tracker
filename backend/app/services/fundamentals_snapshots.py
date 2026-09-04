@@ -171,6 +171,7 @@ def snapshot_current_fundamentals(
     rows = db.execute(statement).scalars().all()
     observed = observed_at or _utc_now()
     written_symbols: list[str] = []
+    evidence_events_written = 0
     skipped_invalid_symbols: dict[str, int] = {}
     for row in rows:
         _, rejection_reason = snapshot_symbol_rejection_reason(row.symbol)
@@ -179,6 +180,11 @@ def snapshot_current_fundamentals(
             continue
         snapshot = upsert_fundamentals_snapshot(db, row, observed_at=observed)
         written_symbols.append(snapshot.symbol)
+        # This path is a background snapshot job, never a ticker-page render.  Keep
+        # known numerical changes deterministic and behind the Phase 2 feature flag.
+        from app.services.research_evidence import events_from_fundamentals_snapshot, research_evidence_engine_enabled
+        if research_evidence_engine_enabled():
+            evidence_events_written += events_from_fundamentals_snapshot(db, snapshot)
     return {
         "status": "ok",
         "rows_seen": len(rows),
@@ -189,6 +195,7 @@ def snapshot_current_fundamentals(
         "provider": provider,
         "symbols": written_symbols,
         "methodology_version": METHODOLOGY_VERSION,
+        "evidence_events_written": evidence_events_written,
     }
 
 

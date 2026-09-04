@@ -57,6 +57,8 @@ from app.db import (
     ensure_price_cache_volume_columns,
     ensure_quote_cache_market_cap_schema,
     ensure_reddit_ads_assistant_schema,
+    ensure_research_claim_matching_schema,
+    ensure_research_evidence_schema,
     ensure_research_memory_schema,
     ensure_search_and_insights_schema,
     ensure_search_entities_schema,
@@ -165,6 +167,8 @@ from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
 from app.routers.ai_marketing import router as ai_marketing_router
 from app.routers.research_briefs import router as research_briefs_router
+from app.routers.research_claim_matching import router as research_claim_matching_router
+from app.routers.research_evidence import router as research_evidence_router
 from app.routers.research_memory import router as research_memory_router
 from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
 from app.routers.saved_screens import router as saved_screens_router
@@ -4195,6 +4199,8 @@ def _startup_create_tables():
         ("schema_data_enrichment_jobs", lambda: ensure_data_enrichment_jobs_schema(engine)),
         ("schema_ai_marketing", lambda: ensure_ai_marketing_schema(engine)),
         ("schema_research_memory", lambda: ensure_research_memory_schema(engine)),
+        ("schema_research_evidence", lambda: ensure_research_evidence_schema(engine)),
+        ("schema_research_claim_matching", lambda: ensure_research_claim_matching_schema(engine)),
         ("schema_reddit_ads_assistant", lambda: ensure_reddit_ads_assistant_schema(engine)),
         ("schema_institutional_activity", lambda: ensure_institutional_activity_schema(engine)),
         ("schema_event_columns", ensure_event_columns),
@@ -15283,5 +15289,7 @@ app.include_router(strategies_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
 app.include_router(reddit_ads_assistant_router, prefix="/api")
 app.include_router(research_briefs_router, prefix="/api")
+app.include_router(research_claim_matching_router, prefix="/api")
+app.include_router(research_evidence_router, prefix="/api")
 app.include_router(research_memory_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")

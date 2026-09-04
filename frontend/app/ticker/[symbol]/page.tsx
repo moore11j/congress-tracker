@@ -11,6 +11,7 @@ import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDe
 import { TickerActivityHeaderStatsClient } from "@/components/ticker/TickerActivityHeaderStatsClient";
 import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
@@ -1471,6 +1472,7 @@ function TickerOverviewPanel({
   confirmationGate,
   divergence,
   similarHistoricalSetups,
+  symbol,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
@@ -1478,6 +1480,7 @@ function TickerOverviewPanel({
   confirmationGate?: TickerConfirmationGate | null;
   divergence?: CrossSourceDivergence | null;
   similarHistoricalSetups?: SimilarHistoricalSetups | null;
+  symbol: string;
 }) {
   const displayBundle = sourceDisplayBundle;
   const confirmationLocked = Boolean(confirmationGate?.locked);
@@ -1563,6 +1566,7 @@ function TickerOverviewPanel({
       ) : (
         <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} />
       )}
+      <TickerResearchMemoryCard symbol={symbol} />
     </div>
   );
 }
@@ -3305,6 +3309,7 @@ async function DeferredTickerContent({
                 confirmationGate={tickerConfirmationGate}
                 divergence={crossSourceDivergence}
                 similarHistoricalSetups={similarHistoricalSetups}
+                symbol={normalizedSymbol}
               />
             }
           />
