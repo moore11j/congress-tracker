@@ -2870,7 +2870,7 @@ function EditorPanel({
                 <input type="datetime-local" value={scheduledAtValue} onChange={(event) => setScheduledAtValue(event.target.value)} className={fieldClassName("mt-2")} />
               </label>
               <div className="mt-3 grid gap-2">
-                <Button disabled={Boolean(busy) || !scheduledAtValue} onClick={() => {
+                <Button disabled={publishDisabled || !scheduledAtValue} onClick={() => {
                   const scheduledAt = new Date(scheduledAtValue).toISOString();
                   if (isApprovedScheduledDraft) {
                     onReschedule(scheduledAt);
@@ -2878,7 +2878,7 @@ function EditorPanel({
                     onSchedule(scheduledAt);
                   }
                 }}>{isApprovedScheduledDraft ? "Reschedule Post" : "Schedule Post"}</Button>
-                {isScheduledForReviewDraft ? <Button disabled={Boolean(busy)} onClick={onApproveScheduled}>Approve Scheduled</Button> : null}
+                {isScheduledForReviewDraft ? <Button disabled={publishDisabled} onClick={onApproveScheduled}>Approve Scheduled</Button> : null}
               </div>
             </div>
           ) : null}

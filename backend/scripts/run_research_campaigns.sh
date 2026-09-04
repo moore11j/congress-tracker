@@ -7,4 +7,4 @@ if [ "${RESEARCH_CAMPAIGNS_SCHEDULE_ENABLED:-0}" != "1" ]; then
   exit 0
 fi
 
-python -m app.jobs.run_research_campaigns --limit "${RESEARCH_CAMPAIGNS_SCHEDULE_LIMIT:-10}"
+python -m app.jobs.run_research_campaigns --limit "${RESEARCH_CAMPAIGNS_SCHEDULE_LIMIT:-10}" "$@"

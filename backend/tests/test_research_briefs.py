@@ -1436,6 +1436,51 @@ def test_scheduled_research_publish_requires_approval(tmp_path, monkeypatch):
     assert service.get_draft(draft["id"], db=db)["status"] == "published"
 
 
+def test_scheduled_research_approval_rejects_publish_hard_stops():
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = _minimal_scheduled_draft(admin)
+    draft["article"]["source_links"] = []
+    service._upsert_db_draft(db, draft)
+
+    with pytest.raises(HTTPException) as exc:
+        service.approve_scheduled_research_brief(db, admin, draft["id"])
+
+    assert exc.value.status_code == 422
+    saved = service.get_draft(draft["id"], db=db)
+    assert saved["status"] == "scheduled_review"
+    assert any(
+        warning["code"] == "missing_source_links" and warning["blocking"]
+        for warning in saved["validation"]["warnings"]
+    )
+
+
+def test_scheduled_publish_repairs_legacy_markdown_structure():
+    db = _session()
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = _minimal_scheduled_draft(admin, status="approved_scheduled")
+    original_body = draft["article"]["sections"][0]["body_markdown"]
+    draft["article"]["sections"][0]["body_markdown"] = (
+        "## Research Brief\n\n## Evidence\n\n"
+        f"{original_body}\n\n## Evidence\n\nAdditional supported context."
+    )
+    service._upsert_db_draft(db, draft)
+
+    published = service.publish_draft(
+        admin,
+        draft["id"],
+        confirm=True,
+        db=db,
+        publication_source="scheduled_campaign",
+    )
+
+    assert published["status"] == "published"
+    assert not any(
+        warning["code"] == "markdown_structure" and warning["blocking"]
+        for warning in published["validation"]["warnings"]
+    )
+
+
 def test_research_daily_publish_cap_uses_pacific_day_and_ignores_manual_publishes(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()

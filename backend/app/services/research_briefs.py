@@ -3611,6 +3611,23 @@ def send_research_campaign_review_email(db: Session, admin: UserAccount, draft: 
 
 def approve_scheduled_research_brief(db: Session, admin: UserAccount, draft_id: str) -> dict[str, Any]:
     draft = get_draft(draft_id, db=db)
+    draft["article"] = sanitize_research_brief_article(
+        draft.get("article") or {},
+        draft.get("config") or {},
+        draft.get("research_context") or {},
+        repair_generated_sections=False,
+    )
+    validation = validate_article(
+        draft.get("article") or {},
+        draft.get("research_context") or {},
+        draft_id=draft_id,
+    )
+    draft["validation"] = validation
+    hard_stop_warnings = _publish_hard_stop_warnings(validation)
+    if hard_stop_warnings:
+        draft["updated_at"] = _now()
+        _upsert_db_draft(db, draft)
+        raise HTTPException(status_code=422, detail="Resolve validation failures before scheduling publication.")
     draft["status"] = "approved_scheduled"
     draft["approved_at"] = _now()
     draft["approved_by"] = admin.id
@@ -7960,7 +7977,11 @@ def publish_draft(
                 draft.get("article") or {},
                 draft.get("config") or {},
                 draft.get("research_context") or {},
-                repair_generated_sections=False,
+                # Approved scheduled drafts can sit across deploys and older
+                # generator versions. Give that automated path one final,
+                # deterministic structural cleanup before enforcing publish
+                # hard stops. Manual publishing must preserve editor layout.
+                repair_generated_sections=source == "scheduled_campaign",
             )
             validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
             hard_stop_warnings = _publish_hard_stop_warnings(validation)
@@ -7984,7 +8005,7 @@ def publish_draft(
                     draft.get("article") or {},
                     draft.get("config") or {},
                     draft.get("research_context") or {},
-                    repair_generated_sections=False,
+                    repair_generated_sections=source == "scheduled_campaign",
                 )
                 validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
                 hard_stop_warnings = _publish_hard_stop_warnings(validation)
