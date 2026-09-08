@@ -41,6 +41,7 @@ MATCH_TYPES = {"all", "any"}
 DELIVERIES = {"immediate", "daily", "both"}
 WINDOW_UNITS = {"hour", "day", "month"}
 DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES = {"5% Price Increase", "5% Price Decrease"}
+PRICE_QUOTE_FRESHNESS = timedelta(minutes=30)
 
 
 # This registry is the server-side source of truth.  It describes only metrics
@@ -306,7 +307,31 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
         delta = _window_delta(condition["time_window"])
         cutoff = (now - delta).date().isoformat()
         prior = next((float(row.adjusted_close or row.close) for row in reversed(rows) if row.date <= cutoff and (row.adjusted_close or row.close) is not None), None)
-        current = closes[-1] if closes else None
+        quote = db.get(QuoteCache, ticker)
+        quote_asof = quote.asof_ts if quote is not None else None
+        if isinstance(quote_asof, datetime) and quote_asof.tzinfo is None:
+            quote_asof = quote_asof.replace(tzinfo=timezone.utc)
+        fresh_quote = bool(
+            quote is not None
+            and quote.price is not None
+            and isinstance(quote_asof, datetime)
+            and quote_asof >= now - PRICE_QUOTE_FRESHNESS
+        )
+        if fresh_quote:
+            current = float(quote.price)
+        else:
+            # Daily bars are a valid fallback only when a newer bar exists
+            # than the comparison point. Reusing the prior close as both
+            # values turns every live 1-day move into 0%.
+            current = next(
+                (
+                    float(row.adjusted_close or row.close)
+                    for row in reversed(rows)
+                    if cutoff < row.date <= now.date().isoformat()
+                    and (row.adjusted_close or row.close) is not None
+                ),
+                None,
+            )
         return (((current - prior) / prior * 100) if prior and current is not None else None, [])
     if metric == "volume": return (float(rows[-1].volume) if rows and rows[-1].volume is not None else None, [])
     if metric == "relative_volume":
@@ -463,6 +488,7 @@ def evaluate_watchlist_custom_alerts(
     states = {(state.rule_id, state.ticker): state for state in db.execute(select(WatchlistAlertRuleState).where(WatchlistAlertRuleState.rule_id.in_([rule.id for rule in rules] or [-1]))).scalars().all()}
     evaluated = triggered = initialized = 0
     for rule in rules:
+        conditions = _loads(rule.conditions_json, [])
         scoped = [rule.scope_ticker.upper()] if rule.scope_type == "specific_ticker" and rule.scope_ticker else tickers
         for ticker in scoped:
             if ticker not in tickers: continue

@@ -22,7 +22,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
-from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, monitoring_email_send_day, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
+from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, daily_digest_window, monitoring_email_send_day, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_intraday import _signal_alert_candidate, _watchlist_candidate, is_market_hours, run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import seed_default_email_templates
@@ -741,9 +741,9 @@ def test_signal_digest_excludes_raw_watchlist_trade_events(monkeypatch):
 
         result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
 
-        assert result["status"] == "skipped"
-        assert result["error"] == "no_qualified_signals"
-        assert result["item_count"] == 0
+        assert result["status"] == "log_only"
+        assert result["item_count"] == 1
+        assert result["excluded_reasons"]["activity_section_only"] == 1
     finally:
         db.close()
 
@@ -1020,7 +1020,7 @@ def test_signal_digest_includes_source_monitoring_alert_without_score():
         db.close()
 
 
-def test_signal_digest_keeps_top_four_per_delivery_category():
+def test_signal_digest_does_not_cap_non_content_monitoring_changes():
     db = _session()
     try:
         user = _user(db, "signal-source-balance@example.com")
@@ -1042,11 +1042,11 @@ def test_signal_digest_keeps_top_four_per_delivery_category():
 
         digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
 
-        assert len(digest.items) == 4
-        assert len([item for item in digest.items if item["source_type"] == "saved_screen"]) == 4
-        assert not [item for item in digest.items if item["source_type"] == "watchlist"]
+        assert len(digest.items) == 8
+        assert len([item for item in digest.items if item["source_type"] == "saved_screen"]) == 6
+        assert {item["ticker"] for item in digest.items if item["source_type"] == "watchlist"} == {"TSLA", "IBM"}
         assert digest.context["signal_cta_label"] == "View all"
-        assert digest.diagnostics["excluded_reasons"]["category_display_limit"] == 4
+        assert "content_category_display_limit" not in digest.diagnostics["excluded_reasons"]
     finally:
         db.close()
 
@@ -1108,7 +1108,7 @@ def test_signal_digest_includes_up_to_four_daily_news_and_press_releases():
         assert len([item for item in digest.items if item["alert_type"] == "press_release"]) == 4
         assert "News story" in digest.context["signals_text"]
         assert "Press release" in digest.context["signals_text"]
-        assert digest.diagnostics["excluded_reasons"]["category_display_limit"] == 2
+        assert digest.diagnostics["excluded_reasons"]["content_category_display_limit"] == 2
     finally:
         db.close()
 
@@ -1208,7 +1208,7 @@ def test_ranked_monitoring_digest_labels_confirmation_screen_and_groups_activity
         digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
 
         tsm = next(item for item in digest.items if item["ticker"] == "TSM")
-        assert tsm["source_stack"] == "Bullish confirmation screen"
+        assert tsm["source_stack"] == watchlist.name
         assert "Score 50 -> 90" in tsm["why_notable"]
         assert "Rep. Example" in digest.context["congress_trades_html"]
         assert "$125.25" in digest.context["congress_trades_html"]
@@ -1271,11 +1271,12 @@ def test_admin_monitoring_digest_run_now_reports_watchlist_monitoring_items():
     try:
         admin = _user(db, "monitoring-admin@example.com", role="admin")
         watchlist = _watchlist(db, admin)
-        _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=1, symbol="UNKNOWN")
-        _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=2, symbol="NBIS")
+        event_time = daily_digest_window(lookback_days=1)[0] + timedelta(hours=1)
+        _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=1, symbol="UNKNOWN", ts=event_time)
+        _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=2, symbol="NBIS", ts=event_time)
 
         result = admin_run_email_digest_now(
-            AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True),
+            AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True, force=True),
             _request_for_user(admin),
             db,
         )
@@ -2023,10 +2024,11 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         admin = _user(db, "run-admin@example.com", role="admin")
         user = _user(db, "run-reader@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold", event_id=1, symbol="NVDA")
+        event_time = daily_digest_window(lookback_days=1)[0] + timedelta(hours=1)
+        _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold", event_id=1, symbol="NVDA", ts=event_time)
 
         result = admin_run_email_digest_now(
-            AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True),
+            AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True, force=True),
             _request_for_user(admin),
             db,
         )
@@ -2088,6 +2090,57 @@ def test_monitoring_digest_job_skips_weekends_and_market_holidays():
         assert monitoring_email_send_day(now=observed_july_fourth) is False
         assert run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True, now=saturday) == []
         assert run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True, now=observed_july_fourth) == []
+    finally:
+        db.close()
+
+
+def test_daily_digest_window_carries_forward_from_previous_market_day():
+    # Tuesday follows the 2026 Labor Day holiday. The digest must include all
+    # activity since Friday instead of silently dropping Friday-after-send and
+    # holiday/weekend events.
+    start, end = daily_digest_window(
+        lookback_days=1,
+        now=datetime(2026, 9, 8, 14, 0, tzinfo=timezone.utc),
+    )
+
+    assert start == datetime(2026, 9, 4, 7, 0, tzinfo=timezone.utc)
+    assert end == datetime(2026, 9, 8, 7, 0, tzinfo=timezone.utc)
+
+
+def test_signal_digest_prefers_watchlist_source_over_overlapping_saved_screen():
+    db = _session()
+    try:
+        user = _user(db, "watchlist-source-priority@example.com")
+        watchlist = _watchlist(db, user)
+        now = datetime.now(timezone.utc)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="price_volume_flip",
+            symbol="NVDA",
+            event_id=9001,
+            ts=now,
+            payload={"score": 99, "direction": "bullish"},
+        )
+        _confirmation_event(
+            db,
+            user,
+            watchlist,
+            ticker="NVDA",
+            event_type="price_volume_flip",
+            score_after=81,
+            ts=now - timedelta(minutes=1),
+        )
+
+        digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
+
+        nvda = [item for item in digest.items if item["ticker"] == "NVDA"]
+        assert len(nvda) == 1
+        assert nvda[0]["source_type"] == "confirmation_monitoring"
+        assert nvda[0]["source_stack"] == watchlist.name
+        assert nvda[0]["href"].endswith(f"/watchlists/{watchlist.id}")
     finally:
         db.close()
 

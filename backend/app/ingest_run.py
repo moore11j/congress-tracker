@@ -659,6 +659,7 @@ def _run_watchlist_confirmation_monitoring_refresh() -> dict[str, object]:
     result = refresh_all_monitored_watchlist_confirmation_monitoring(
         SessionLocal,
         lookback_days=lookback_days,
+        refresh_quotes=True,
     )
     logger.info("Finished scheduled watchlist confirmation monitoring refresh: %s", result)
     return result

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import MonitoringAlert, QuoteCache, Security, UserAccount, Watchlist, WatchlistAlertRule, WatchlistItem
+from app.models import MonitoringAlert, PriceCache, QuoteCache, Security, UserAccount, Watchlist, WatchlistAlertRule, WatchlistItem
 from app.services.custom_alert_rules import _compare, evaluate_watchlist_custom_alerts, format_rule_summary, validate_conditions
 
 
@@ -99,3 +99,55 @@ def test_worker_triggers_once_then_rearms_after_the_condition_resets() -> None:
         assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=15))["triggered"] == 0
         db.get(QuoteCache, "TEST").price = 120
         assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=20))["triggered"] == 1
+
+
+def test_one_day_price_move_uses_fresh_quote_against_prior_close() -> None:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 9, 4, 17, 0, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        user = UserAccount(email="live-price-rule@example.test")
+        watchlist = Watchlist(name="Live price rule", owner_user_id=1)
+        security = Security(symbol="NBIS", name="Nebius", asset_class="equity")
+        db.add_all([user, watchlist, security])
+        db.flush()
+        watchlist.owner_user_id = user.id
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id, target_type="ticker"))
+        db.add(PriceCache(symbol="NBIS", date="2026-09-03", close=210.63, adjusted_close=210.63))
+        db.add(QuoteCache(symbol="NBIS", price=210.63, market_cap=None, asof_ts=now.replace(tzinfo=None)))
+        db.add(WatchlistAlertRule(
+            user_id=user.id,
+            watchlist_id=watchlist.id,
+            name="5% Price Increase",
+            enabled=True,
+            scope_type="any_watchlist_ticker",
+            match_type="all",
+            delivery="immediate",
+            conditions_json=json.dumps(validate_conditions([{
+                "metric": "price_change_pct",
+                "operator": "increases_by",
+                "comparison_type": "value",
+                "comparison_value": 5,
+                "time_window": {"value": 1, "unit": "day"},
+            }])),
+        ))
+        db.commit()
+
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 0
+        db.commit()
+        quote = db.get(QuoteCache, "NBIS")
+        quote.price = 226.39
+        quote.asof_ts = (now + timedelta(minutes=15)).replace(tzinfo=None)
+
+        result = evaluate_watchlist_custom_alerts(
+            db,
+            user_id=user.id,
+            watchlist_id=watchlist.id,
+            now=now + timedelta(minutes=15),
+        )
+
+        assert result["triggered"] == 1
+        alert = db.execute(select(MonitoringAlert).where(MonitoringAlert.alert_type == "custom_alert")).scalar_one()
+        condition = json.loads(alert.payload_json)["conditions"][0]
+        assert round(condition["value"], 2) == 7.48
+        assert json.loads(alert.payload_json)["trigger_price"] == 226.39

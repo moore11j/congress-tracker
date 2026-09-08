@@ -379,11 +379,13 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
     *,
     lookback_days: int = 30,
     now: datetime | None = None,
+    refresh_quotes: bool = False,
 ) -> dict[str, int]:
     started = perf_counter()
     logger.info("scheduled_monitor_refresh_started")
 
     work: list[tuple[int, int, bool]] = []
+    monitored_symbols: set[str] = set()
     with session_factory() as db:
         users = (
             db.execute(
@@ -399,6 +401,35 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
             allowed_ids = monitored_source_ids(db, user_id=user.id, entitlements=entitlements)["watchlist_ids"]
             can_use_custom_rules = entitlements.has_feature("custom_alert_rules")
             work.extend((user.id, watchlist_id, can_use_custom_rules) for watchlist_id in sorted(allowed_ids))
+        if work:
+            monitored_symbols.update(
+                str(symbol).strip().upper()
+                for symbol in db.execute(
+                    select(Security.symbol)
+                    .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+                    .where(WatchlistItem.watchlist_id.in_([watchlist_id for _, watchlist_id, _ in work]))
+                ).scalars()
+                if symbol and str(symbol).strip()
+            )
+        if refresh_quotes and monitored_symbols:
+            # Immediate price rules compare a fresh quote with the prior daily
+            # close. Refresh every monitored ticker before evaluating rules so
+            # less frequently viewed symbols receive the same coverage.
+            from app.services.quote_lookup import get_current_prices_meta_db
+
+            ordered_symbols = sorted(monitored_symbols)
+            for offset in range(0, len(ordered_symbols), 100):
+                get_current_prices_meta_db(
+                    db,
+                    ordered_symbols[offset : offset + 100],
+                    allow_cache_write=True,
+                    release_connection_before_fetch=True,
+                    lane="watchlist_alert_monitoring",
+                    ttl_seconds=10 * 60,
+                    stale_while_revalidate=False,
+                    max_network_fetch=100,
+                )
+            db.commit()
 
     watchlists_checked = 0
     changes_created = 0
@@ -475,6 +506,7 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
         "deduped": deduped,
         "custom_rules_evaluated": custom_rules_evaluated,
         "custom_rules_triggered": custom_rules_triggered,
+        "quote_symbols_checked": len(monitored_symbols) if refresh_quotes else 0,
         "duration_ms": duration_ms,
     }
     logger.info(

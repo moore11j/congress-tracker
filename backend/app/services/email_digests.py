@@ -41,9 +41,9 @@ from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
 from app.services.monitoring_alerts import refresh_watchlist_alerts, watchlist_candidate_events
 from app.services.notifications import normalize_alert_triggers
-from app.services.price_lookup import is_market_trading_day
+from app.services.price_lookup import is_market_trading_day, previous_market_trading_day
 from app.services.watchlist_content_events import sync_watchlist_content_events
-from app.services.watchlist_delivery import WATCHLIST_ALERT_CATEGORIES, category_for_trigger, categories_for_event, is_delivery_enabled
+from app.services.watchlist_delivery import category_for_trigger, categories_for_event, is_delivery_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -139,11 +139,11 @@ WATCHLIST_DISPLAY_LIMIT = 10
 WATCHLIST_FETCH_LIMIT = 25
 WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT = 8
 WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT = 3
-# Every enabled row in the watchlist delivery matrix may contribute up to four
-# relevant events. This keeps news and press releases visible when another
-# monitoring category was particularly busy during the same digest window.
-SIGNAL_ITEMS_PER_CATEGORY_LIMIT = 4
-SIGNAL_DISPLAY_LIMIT = len(WATCHLIST_ALERT_CATEGORIES) * SIGNAL_ITEMS_PER_CATEGORY_LIMIT
+# Content feeds can be noisy, so retain four news items and four press releases.
+# User-authored monitoring changes are not capped: dropping the fifth change
+# makes an enabled alert indistinguishable from a broken one.
+SIGNAL_CONTENT_ITEMS_PER_CATEGORY_LIMIT = 4
+SIGNAL_CONTENT_CATEGORIES = {"news", "press_releases"}
 # Evaluate the entire digest window before applying the four-per-category
 # display cap, so a high-volume category cannot hide a quieter enabled one.
 SIGNAL_QUERY_LIMIT: int | None = None
@@ -345,8 +345,9 @@ def build_signal_alert_digest(
     # Fetch enough history to let each monitoring source contribute its best
     # candidates. A global "latest 10" query lets a noisy saved screen crowd
     # out watchlists and other monitoring sources before ranking even starts.
-    alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_QUERY_LIMIT)
-    confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_QUERY_LIMIT)
+    query_end = _coerce_aware(window_end or datetime.now(timezone.utc))
+    alert_rows = _signal_monitoring_alerts(db, user, since=since, before=query_end, limit=SIGNAL_QUERY_LIMIT)
+    confirmation_rows = _signal_confirmation_events(db, user, since=since, before=query_end, watchlist=watchlist, limit=SIGNAL_QUERY_LIMIT)
     activity_sections = _signal_activity_sections(db, alert_rows)
     # The public Monitoring digest is a qualified ranked board. Candidates may
     # originate from MonitoringAlert rows, but broken or internal
@@ -359,20 +360,22 @@ def build_signal_alert_digest(
         diagnostics["qualified_count"] = len(items)
         diagnostics["excluded_count"] += category_limited_count
         reasons = diagnostics["excluded_reasons"]
-        reasons["category_display_limit"] = reasons.get("category_display_limit", 0) + category_limited_count
+        reasons["content_category_display_limit"] = reasons.get("content_category_display_limit", 0) + category_limited_count
     _attach_company_names(db, items)
+    activity_item_count = sum(len(section_items) for section_items in activity_sections.values())
     lead = items[0] if items else {}
     is_single = len(items) == 1
     ticker = str(lead.get("ticker") or "Monitoring digest")
     signal_title = "Monitoring digest"
     signal_subject = "Walnut monitoring digest"
     signal_intro = f"Your ranked monitoring candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
-    summary = _count_summary(len(items), "monitoring candidate", "monitoring candidates")
+    delivery_item_count = len(items) + activity_item_count
+    summary = _count_summary(delivery_item_count, "monitoring item", "monitoring items")
     upcoming_events, calendar_filters_text = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
     _attach_calendar_company_names(db, upcoming_events)
     return DigestBuild(
         template_key="alerts.signal_alert",
-        items_count=len(items),
+        items_count=delivery_item_count,
         summary=summary,
         items=items,
         context={
@@ -569,7 +572,10 @@ def daily_digest_window(
     if local_now.time() == time.min:
         local_end = local_now
     days = max(int(lookback_days or 1), 1)
-    local_start = local_end - timedelta(days=days)
+    start_day = local_end.date()
+    for _ in range(days):
+        start_day = previous_market_trading_day(start_day)
+    local_start = datetime.combine(start_day, time.min, tzinfo=tz)
     return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
@@ -1304,12 +1310,13 @@ def _user_watchlist_symbols(db: Session, user_id: int) -> list[str]:
 
 
 def _eligible_users(db: Session, *, limit: int) -> list[UserAccount]:
+    # Delivery jobs must not permanently starve users whose IDs fall beyond a
+    # global batch cap. Item queries remain bounded per user/source.
     return (
         db.execute(
             select(UserAccount)
             .where(UserAccount.is_suspended == False)  # noqa: E712
             .order_by(UserAccount.id.asc())
-            .limit(limit)
         )
         .scalars()
         .all()
@@ -1633,6 +1640,7 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "delivery_triggers": _daily_signal_triggers(alert.alert_type, delivery_payload, score, source_type=alert.source_type),
         "custom_delivery": payload.get("delivery"),
         "watchlist_boost": alert.source_type == "watchlist",
+        "canonical_activity_event": bool(event_payload),
     }
 
 
@@ -1647,7 +1655,7 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
         "signal_score": _numeric_score(score),
         "direction": _normalize_direction(event.direction_after),
         "why_notable": _confirmation_signal_reason(event),
-        "source_stack": _confirmation_screen_label(event.direction_after),
+        "source_stack": "Watchlist",
         "cautions": "Review source context before acting.",
         "date": _format_date(event.created_at),
         "latest_event_date": _format_date(event.created_at),
@@ -1695,7 +1703,14 @@ def _signal_source_label(*, source_type: str, source_name: str | None, direction
     return fallback or _clean_text(source_name) or source_type.replace("_", " ")
 
 
-def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime, limit: int | None) -> list[MonitoringAlert]:
+def _signal_monitoring_alerts(
+    db: Session,
+    user: UserAccount,
+    *,
+    since: datetime,
+    before: datetime,
+    limit: int | None,
+) -> list[MonitoringAlert]:
     signal_types = (
         "signal",
         "score_change",
@@ -1712,6 +1727,7 @@ def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime
         .where(MonitoringAlert.user_id == user.id)
         .where(MonitoringAlert.dismissed_at.is_(None))
         .where(MonitoringAlert.event_created_at >= since)
+        .where(MonitoringAlert.event_created_at < before)
         .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(signal_types)))
         .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
     )
@@ -1766,6 +1782,7 @@ def _signal_confirmation_events(
     user: UserAccount,
     *,
     since: datetime,
+    before: datetime,
     watchlist: Watchlist | None,
     limit: int | None,
 ) -> list[ConfirmationMonitoringEvent]:
@@ -1773,6 +1790,7 @@ def _signal_confirmation_events(
         select(ConfirmationMonitoringEvent)
         .where(ConfirmationMonitoringEvent.user_id == user.id)
         .where(ConfirmationMonitoringEvent.created_at >= since)
+        .where(ConfirmationMonitoringEvent.created_at < before)
         .order_by(ConfirmationMonitoringEvent.created_at.desc(), ConfirmationMonitoringEvent.id.desc())
     )
     if limit is not None:
@@ -1827,6 +1845,11 @@ def _apply_daily_signal_subscription_preferences(db: Session, user: UserAccount,
             if item.get("custom_delivery") in {"daily", "both"}:
                 filtered.append(item)
             continue
+        if source_type == "confirmation_monitoring":
+            source_name = _clean_text(subscription.source_name) or "Watchlist"
+            item["source_stack"] = source_name
+            item["href"] = f"{_frontend_base_url()}/watchlists/{source_id}"
+            item["watchlist_boost"] = True
         triggers = _item_delivery_triggers(item)
         if _subscription_allows_any_trigger(subscription, triggers):
             filtered.append(item)
@@ -1910,18 +1933,20 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
     candidates = [item for item in raw_items if item]
     qualified: list[dict[str, Any]] = []
     excluded_reasons: dict[str, int] = {}
-    seen_source_tickers: set[tuple[str, str, str]] = set()
+    seen_category_tickers: set[tuple[str, str]] = set()
 
-    for item in sorted(candidates, key=_signal_rank_key, reverse=True):
+    # A ticker/category can be discovered by both a saved screen and a
+    # watchlist. Prefer the explicitly watched source for that overlap.
+    for item in sorted(candidates, key=lambda value: (1 if value.get("watchlist_boost") else 0, *_signal_rank_key(value)), reverse=True):
         reason = _signal_exclusion_reason(item)
         ticker = str(item.get("ticker") or "")
-        source_ticker = (_signal_source_bucket(item), _signal_item_category(item), ticker)
-        if reason is None and source_ticker in seen_source_tickers:
+        category_ticker = (_signal_item_category(item), ticker)
+        if reason is None and category_ticker in seen_category_tickers:
             reason = "duplicate"
         if reason is not None:
             excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
             continue
-        seen_source_tickers.add(source_ticker)
+        seen_category_tickers.add(category_ticker)
         qualified.append(item)
 
     return qualified, {
@@ -1933,17 +1958,15 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
 
 
 def _limit_signal_items_per_category(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """Keep at most four relevant events for each delivery-matrix category."""
+    """Cap noisy content categories without dropping monitoring changes."""
     selected: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
     for item in sorted(items, key=_signal_rank_key, reverse=True):
         category = _signal_item_category(item)
-        if counts.get(category, 0) >= SIGNAL_ITEMS_PER_CATEGORY_LIMIT:
+        if category in SIGNAL_CONTENT_CATEGORIES and counts.get(category, 0) >= SIGNAL_CONTENT_ITEMS_PER_CATEGORY_LIMIT:
             continue
         counts[category] = counts.get(category, 0) + 1
         selected.append(item)
-        if len(selected) >= SIGNAL_DISPLAY_LIMIT:
-            break
     return selected, max(len(items) - len(selected), 0)
 
 
@@ -1977,10 +2000,19 @@ def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:
         return "missing_ticker"
     if _is_internal_refresh_signal(item):
         return "internal_refresh_event"
+    if item.get("canonical_activity_event") and str(item.get("alert_type") or "").strip().lower() in {
+        "congress_trade",
+        "congress_trade_new",
+        "insider_trade",
+        "insider_trade_new",
+        *GOVERNMENT_CONTRACT_ALERT_TYPES,
+        *INSTITUTIONAL_ALERT_TYPES,
+    }:
+        return "activity_section_only"
     is_custom_alert = str(item.get("alert_type") or "").strip().lower() == "custom_alert"
     if _numeric_score(item.get("signal_score")) is None and not _is_source_monitoring_item(item) and not is_custom_alert:
         return "missing_score"
-    if str(item.get("direction") or "").lower() not in SIGNAL_ALLOWED_DIRECTIONS and not is_custom_alert:
+    if str(item.get("direction") or "").lower() not in SIGNAL_ALLOWED_DIRECTIONS and not _is_source_monitoring_item(item) and not is_custom_alert:
         return "missing_direction"
     if not _clean_text(item.get("why_notable")):
         return "missing_reason"
@@ -1992,7 +2024,28 @@ def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:
 
 
 def _is_source_monitoring_item(item: dict[str, Any]) -> bool:
-    return str(item.get("alert_type") or "").strip().lower() in SOURCE_MONITORING_ALERT_TYPES
+    # Concrete activity and source-change events remain useful without a
+    # numeric score/direction. Threshold-style signals must still carry the
+    # values their titles claim were crossed.
+    return str(item.get("alert_type") or "").strip().lower() in {
+        "congress_trade",
+        "congress_trade_new",
+        "insider_trade",
+        "insider_trade_new",
+        *GOVERNMENT_CONTRACT_ALERT_TYPES,
+        *INSTITUTIONAL_ALERT_TYPES,
+        *PRICE_VOLUME_ALERT_TYPES,
+        *FUNDAMENTAL_ALERT_TYPES,
+        "news",
+        "news_article",
+        "market_news",
+        "press_release",
+        "press_releases",
+        "issuer_press_release",
+        "large_trade",
+        "large_trade_contract",
+        "large_trade_threshold",
+    }
 
 
 def _is_internal_refresh_signal(item: dict[str, Any]) -> bool:

@@ -168,7 +168,7 @@ def run_intraday_alert_sweep(
     enabled = intraday_alerts_enabled()
     candidates = _collect_intraday_candidates(db, since=window_start, limit=requested_limit)
     results: list[dict[str, Any]] = []
-    for candidate in candidates[:requested_limit]:
+    for candidate in candidates:
         skip_reason = candidate.skip_reason or _alert_skip_reason(candidate.user, "intraday_alerts")
         if skip_reason is None and outside_market_hours:
             skip_reason = "outside_market_hours"
@@ -212,7 +212,7 @@ def _collect_intraday_candidates(db: Session, *, since: datetime, limit: int) ->
         *_watchlist_intraday_candidates(db, since=since, limit=limit),
         *_signal_intraday_candidates(db, since=since, limit=limit),
     ]
-    return sorted(candidates, key=lambda item: str(item.context.get("sort_timestamp") or ""), reverse=True)[:limit]
+    return sorted(candidates, key=lambda item: str(item.context.get("sort_timestamp") or ""), reverse=True)
 
 
 def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) -> list[IntradayAlertCandidate]:
@@ -223,7 +223,6 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
             .where(NotificationSubscription.active == True)  # noqa: E712
             .where(NotificationSubscription.frequency == "daily")
             .order_by(NotificationSubscription.id.asc())
-            .limit(limit)
         )
         .scalars()
         .all()
@@ -251,7 +250,7 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
         )
         for event in rows:
             candidates.append(_with_subscription_trigger_skip(_watchlist_candidate(db, user, watchlist, event), subscription))
-    return candidates[:limit]
+    return candidates
 
 
 def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> list[IntradayAlertCandidate]:
@@ -260,7 +259,6 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
             select(UserAccount)
             .where(UserAccount.is_suspended == False)  # noqa: E712
             .order_by(UserAccount.id.asc())
-            .limit(limit)
         )
         .scalars()
         .all()
@@ -329,7 +327,7 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
             candidate = _confirmation_candidate(user, event, watchlist_symbols)
             subscription = watchlist_subscription_by_id.get(str(event.watchlist_id)) if event.watchlist_id is not None else None
             candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription))
-    return candidates[:limit]
+    return candidates
 
 
 def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> bool:
@@ -440,7 +438,10 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
     ticker = (alert.symbol or saved_screen_event.get("ticker") or "UNKNOWN").upper()
     is_custom_alert = alert.alert_type == "custom_alert"
     is_custom_price_alert = is_custom_alert and _is_custom_price_alert(payload)
-    trigger_price = _numeric_score(payload.get("trigger_price")) if is_custom_price_alert else None
+    try:
+        trigger_price = float(payload.get("trigger_price")) if is_custom_price_alert and payload.get("trigger_price") is not None else None
+    except (TypeError, ValueError):
+        trigger_price = None
     trigger = "custom_alert" if is_custom_alert else _signal_trigger(alert.alert_type, payload, score, ticker in watchlist_symbols, source_type=alert.source_type)
     rule_name = str(payload.get("rule_name") or "Custom alert").strip()
     watchlist_url = f"{_frontend_base_url()}/watchlists/{alert.source_id}" if alert.source_id else f"{_frontend_base_url()}/monitoring"
