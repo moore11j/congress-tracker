@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event as sqlalchemy_event, select
 from sqlalchemy.orm import Session
 
 from app.db import Base, ensure_outcome_ledger_schema
@@ -194,7 +194,17 @@ def test_horizon_balanced_snapshot_sample_contains_matured_and_open_events():
         assert matured_entry is not None and pending_entry is not None
         assert materialize_outcome_horizons(db, matured_entry, as_of=today)
 
-        payload = list_outcome_snapshots(db, limit=2, balanced_horizon="7D")
+        query_count = 0
+
+        def count_query(*_args):
+            nonlocal query_count
+            query_count += 1
+
+        sqlalchemy_event.listen(engine, "before_cursor_execute", count_query)
+        try:
+            payload = list_outcome_snapshots(db, limit=2, balanced_horizon="7D")
+        finally:
+            sqlalchemy_event.remove(engine, "before_cursor_execute", count_query)
 
         assert {item["ticker"] for item in payload["items"]} == {"DONE", "OPEN"}
         by_ticker = {item["ticker"]: item for item in payload["items"]}
@@ -203,6 +213,7 @@ def test_horizon_balanced_snapshot_sample_contains_matured_and_open_events():
         assert by_ticker["OPEN"]["live_mark"]["status"] == "provisional"
         assert by_ticker["OPEN"]["live_mark"]["price_date"] == (pending_day + timedelta(days=1)).isoformat()
         assert by_ticker["OPEN"]["live_mark"]["return_pct"] == 10.0
+        assert query_count <= 10
 
 
 def test_date_spread_sample_represents_neighboring_entry_sessions_before_repeating_busy_days():

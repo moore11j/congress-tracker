@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event as sqlalchemy_event, select
 from sqlalchemy.orm import Session
 
 from app.db import Base, ensure_outcome_ledger_schema
@@ -449,7 +449,17 @@ def test_outcome_ledger_summary_calculates_cached_headline_metrics():
             calculated_at=datetime.combine(observed_day, datetime.min.time(), tzinfo=timezone.utc).replace(hour=16),
         )
 
-        summary = outcome_ledger_summary(db, horizon="7D", calculation_type="live")
+        query_count = 0
+
+        def count_query(*_args):
+            nonlocal query_count
+            query_count += 1
+
+        sqlalchemy_event.listen(engine, "before_cursor_execute", count_query)
+        try:
+            summary = outcome_ledger_summary(db, horizon="7D", calculation_type="live")
+        finally:
+            sqlalchemy_event.remove(engine, "before_cursor_execute", count_query)
         bands = {row["band"]: row for row in summary["score_bands"]}
 
         assert summary["completed_events"] == 2
@@ -460,6 +470,7 @@ def test_outcome_ledger_summary_calculates_cached_headline_metrics():
         assert summary["average_directional_excess_return"] == 0.0
         assert summary["benchmarked_events"] == 2
         assert summary["matured_horizon_count"] == 2
+        assert query_count <= 4
         assert bands["70-74"] == {"band": "70-74", "accuracy": 100, "count": 1}
         assert bands["40-59"] == {"band": "40-59", "accuracy": 0, "count": 1}
 

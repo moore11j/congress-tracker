@@ -56,6 +56,8 @@ OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_cont
 CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v2"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
+OutcomeEntriesBySnapshot = dict[int, OutcomeEntry]
+OutcomeObservationsByEntry = dict[int, list[OutcomeHorizonObservation]]
 OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
 DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
 DateSpreadItem = TypeVar("DateSpreadItem")
@@ -64,7 +66,7 @@ OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS = 30
 OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE = 10
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v6-date-spread"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v7-batched-canonical"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -1065,12 +1067,39 @@ def _legacy_outcomes_allowed(snapshot: ConfirmationScoreSnapshot) -> bool:
     ).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _prefetch_canonical_outcome_rows(
+    db: Session,
+    snapshots: list[ConfirmationScoreSnapshot],
+) -> tuple[OutcomeEntriesBySnapshot, OutcomeObservationsByEntry]:
+    """Load immutable entry and horizon rows in two queries for bulk ledger reads."""
+    snapshot_ids = [int(snapshot.id) for snapshot in snapshots]
+    if not snapshot_ids:
+        return {}, {}
+    entries = db.execute(
+        select(OutcomeEntry).where(OutcomeEntry.snapshot_id.in_(snapshot_ids))
+    ).scalars().all()
+    entry_by_snapshot = {int(entry.snapshot_id): entry for entry in entries}
+    if not entries:
+        return entry_by_snapshot, {}
+    observations = db.execute(
+        select(OutcomeHorizonObservation)
+        .where(OutcomeHorizonObservation.entry_id.in_([int(entry.id) for entry in entries]))
+        .order_by(OutcomeHorizonObservation.entry_id.asc(), OutcomeHorizonObservation.horizon_days.asc())
+    ).scalars().all()
+    observations_by_entry: OutcomeObservationsByEntry = {}
+    for observation in observations:
+        observations_by_entry.setdefault(int(observation.entry_id), []).append(observation)
+    return entry_by_snapshot, observations_by_entry
+
+
 def _snapshot_outcomes(
     db: Session,
     snapshot: ConfirmationScoreSnapshot,
     *,
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
     closed_at: date | None = None,
+    entry_by_snapshot: OutcomeEntriesBySnapshot | None = None,
+    observations_by_entry: OutcomeObservationsByEntry | None = None,
 ) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
     if not _is_directional_snapshot(snapshot):
@@ -1079,15 +1108,21 @@ def _snapshot_outcomes(
             for days in OUTCOME_HORIZONS
         }
 
-    canonical_entry = db.execute(
-        select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)
-    ).scalar_one_or_none()
+    canonical_entry = (
+        entry_by_snapshot.get(int(snapshot.id))
+        if entry_by_snapshot is not None
+        else db.execute(select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)).scalar_one_or_none()
+    )
     if canonical_entry is not None:
-        observations = db.execute(
-            select(OutcomeHorizonObservation)
-            .where(OutcomeHorizonObservation.entry_id == canonical_entry.id)
-            .order_by(OutcomeHorizonObservation.horizon_days.asc())
-        ).scalars().all()
+        observations = (
+            observations_by_entry.get(int(canonical_entry.id), [])
+            if observations_by_entry is not None
+            else db.execute(
+                select(OutcomeHorizonObservation)
+                .where(OutcomeHorizonObservation.entry_id == canonical_entry.id)
+                .order_by(OutcomeHorizonObservation.horizon_days.asc())
+            ).scalars().all()
+        )
         outcomes = canonical_outcome_payload(canonical_entry, observations)
         for outcome in outcomes.values():
             if not isinstance(outcome, dict) or outcome.get("status") != "matured":
@@ -1216,10 +1251,14 @@ def _snapshot_row(
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
     closed_at: date | None = None,
     live_mark: dict[str, Any] | None = None,
+    entry_by_snapshot: OutcomeEntriesBySnapshot | None = None,
+    observations_by_entry: OutcomeObservationsByEntry | None = None,
 ) -> dict[str, Any]:
-    canonical_entry = db.execute(
-        select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)
-    ).scalar_one_or_none()
+    canonical_entry = (
+        entry_by_snapshot.get(int(snapshot.id))
+        if entry_by_snapshot is not None
+        else db.execute(select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)).scalar_one_or_none()
+    )
     legacy_allowed = _legacy_outcomes_allowed(snapshot)
     public_reference_price = canonical_entry.entry_price if canonical_entry is not None else snapshot.reference_price if legacy_allowed else None
     public_reference_at = canonical_entry.entry_price_at if canonical_entry is not None else snapshot.reference_price_at if legacy_allowed else None
@@ -1242,7 +1281,14 @@ def _snapshot_row(
         "active_source_count": snapshot.active_source_count,
         "active_sources": _json_loads(snapshot.active_sources_json, []),
         "methodology": None,
-        "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol, closed_at=closed_at),
+        "outcomes": _snapshot_outcomes(
+            db,
+            snapshot,
+            price_rows_by_symbol=price_rows_by_symbol,
+            closed_at=closed_at,
+            entry_by_snapshot=entry_by_snapshot,
+            observations_by_entry=observations_by_entry,
+        ),
         "lifecycle_status": "closed" if closed_at is not None else "open",
         "closed_at": closed_at.isoformat() if closed_at is not None else None,
         "live_mark": live_mark,
@@ -1609,12 +1655,18 @@ def list_outcome_snapshots(
     else:
         paged_events = events[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
     rows = [event.snapshot for event in paged_events]
+    entry_by_snapshot, observations_by_entry = _prefetch_canonical_outcome_rows(db, rows)
     current_marks = _current_marks_for_events(db, paged_events)
     methodology_by_id = {
         row.id: row.version
         for row in db.execute(select(ConfirmationMethodologyVersion)).scalars().all()
     }
-    price_rows_by_symbol = _prefetch_outcome_price_rows(db, rows)
+    legacy_rows = [
+        row
+        for row in rows
+        if int(row.id) not in entry_by_snapshot and _legacy_outcomes_allowed(row)
+    ]
+    price_rows_by_symbol = _prefetch_outcome_price_rows(db, legacy_rows)
     items = []
     for event in paged_events:
         snapshot = event.snapshot
@@ -1625,6 +1677,8 @@ def list_outcome_snapshots(
             price_rows_by_symbol=price_rows_by_symbol,
             closed_at=event.closed_at,
             live_mark=current_marks.get(int(snapshot.id)),
+            entry_by_snapshot=entry_by_snapshot,
+            observations_by_entry=observations_by_entry,
         )
         item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
         items.append(item)
@@ -1665,7 +1719,13 @@ def outcome_ledger_summary(
     ).scalars().all()
     events = _project_directional_outcome_events(ordered_rows)
     canonical_rows = [event.snapshot for event in events]
-    price_rows_by_symbol = _prefetch_outcome_price_rows(db, canonical_rows, horizons=(selected_horizon_days,))
+    entry_by_snapshot, observations_by_entry = _prefetch_canonical_outcome_rows(db, canonical_rows)
+    legacy_rows = [
+        row
+        for row in canonical_rows
+        if int(row.id) not in entry_by_snapshot and _legacy_outcomes_allowed(row)
+    ]
+    price_rows_by_symbol = _prefetch_outcome_price_rows(db, legacy_rows, horizons=(selected_horizon_days,))
 
     rows: list[dict[str, Any]] = []
     for event in events:
@@ -1676,6 +1736,8 @@ def outcome_ledger_summary(
             include_internal=False,
             price_rows_by_symbol=price_rows_by_symbol,
             closed_at=event.closed_at,
+            entry_by_snapshot=entry_by_snapshot,
+            observations_by_entry=observations_by_entry,
         )
         if not _matches_summary_direction(row, direction):
             continue
