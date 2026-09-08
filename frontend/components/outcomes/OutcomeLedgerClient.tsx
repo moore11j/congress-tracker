@@ -550,9 +550,9 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
     if (openedTradingDays.length <= 1) return 390;
     return 80 + ((openedTradingDayIndexes.get(time) ?? 0) / (openedTradingDays.length - 1)) * 620;
   };
-  const tickTimes = openedTradingDays.length <= 9
+  const tickTimes = openedTradingDays.length <= 24
     ? openedTradingDays
-    : Array.from({ length: 9 }, (_, index) => openedTradingDays[Math.round(index * (openedTradingDays.length - 1) / 8)]);
+    : Array.from({ length: 12 }, (_, index) => openedTradingDays[Math.round(index * (openedTradingDays.length - 1) / 11)]);
   const xTicks = [...new Set(tickTimes)].map((time, index, times) => {
     const date = new Date(time);
     const month = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(date);

@@ -37,6 +37,7 @@ test("Outcome dates use the verified entry session without date-only timezone dr
   assert.match(outcomes, /const x = xForOpened\(point\.opened\)/);
   assert.doesNotMatch(outcomes, /point\.opened - minOpened/);
   assert.match(outcomes, /label: index === 0 \|\| month !== priorMonth \? `\$\{month\} \$\{day\}` : day/);
+  assert.match(outcomes, /openedTradingDays\.length <= 24/);
   assert.match(outcomes, /snapshot\.live_mark\?\.return_pct/);
   assert.match(outcomes, /if \(filter === "Matured"\) return `\$\{horizon\} Measured`/);
   assert.match(outcomes, /if \(filter === "Open"\) return "Thesis Open"/);
