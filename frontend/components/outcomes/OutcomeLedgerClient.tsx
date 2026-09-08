@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ApiError,
   getEntitlements,
   getOutcomePricePath,
-  getOutcomeLedgerOverview,
   getOutcomeLedgerSummary,
   getOutcomeSnapshots,
   type OutcomeHorizonResult,
@@ -1233,7 +1232,6 @@ function DetailPanel({
 }
 
 export function OutcomeLedgerClient({
-  initialStatus,
   initialSummary,
   initialSnapshots,
 }: {
@@ -1243,6 +1241,9 @@ export function OutcomeLedgerClient({
 }) {
   const [summary, setSummary] = useState(initialSummary);
   const [snapshots, setSnapshots] = useState<OutcomeSnapshotsResponse | null>(initialSnapshots);
+  const [loadedHorizon, setLoadedHorizon] = useState<string | null>(initialSummary && initialSnapshots ? initialSummary.horizon : null);
+  const [datasetLoading, setDatasetLoading] = useState(!initialSummary || !initialSnapshots);
+  const requestedHorizonRef = useRef(initialSummary?.horizon ?? "30D");
   const [error, setError] = useState<string | null>(null);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
@@ -1272,54 +1273,35 @@ export function OutcomeLedgerClient({
   }, []);
 
   useEffect(() => {
-    if (initialStatus && initialSummary && initialSnapshots) return;
+    if (loadedHorizon === horizonFilter && summary && snapshots) return;
     let alive = true;
-    getOutcomeLedgerOverview({ limit: 500, horizons: "30D,7D" })
-      .then((overview) => {
-        if (!alive) return;
-        setSummary(overview.summaries[overview.default_horizon] ?? null);
-        setSnapshots(overview.snapshots);
-        setError(null);
-      })
-      .catch((nextError) => {
-        if (alive) setError(cleanError(nextError));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [initialStatus, initialSummary, initialSnapshots]);
-
-  useEffect(() => {
-    let alive = true;
-    getOutcomeLedgerSummary({ horizon: horizonFilter })
-      .then((nextSummary) => {
-        if (!alive) return;
+    const requestedHorizon = horizonFilter;
+    requestedHorizonRef.current = requestedHorizon;
+    setDatasetLoading(true);
+    setError(null);
+    Promise.all([
+      getOutcomeLedgerSummary({ horizon: requestedHorizon }),
+      getOutcomeSnapshots({ limit: 500, horizon: requestedHorizon }),
+    ])
+      .then(([nextSummary, nextSnapshots]) => {
+        if (!alive || requestedHorizonRef.current !== requestedHorizon) return;
         setSummary(nextSummary);
-        setError(null);
-      })
-      .catch((nextError) => {
-        if (alive) setError(cleanError(nextError));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [horizonFilter]);
-
-  useEffect(() => {
-    let alive = true;
-    getOutcomeSnapshots({ limit: 500, horizon: horizonFilter })
-      .then((nextSnapshots) => {
-        if (!alive) return;
         setSnapshots(nextSnapshots);
+        setLoadedHorizon(requestedHorizon);
+        setDatasetLoading(false);
         setError(null);
       })
       .catch((nextError) => {
-        if (alive) setError(cleanError(nextError));
+        if (!alive || requestedHorizonRef.current !== requestedHorizon) return;
+        setDatasetLoading(false);
+        setError(cleanError(nextError));
       });
     return () => {
       alive = false;
     };
-  }, [horizonFilter]);
+  }, [horizonFilter, loadedHorizon, snapshots, summary]);
+
+  const datasetReady = !datasetLoading && loadedHorizon === horizonFilter && Boolean(summary && snapshots);
 
   const snapshotItems = useMemo(() => snapshots?.items ?? [], [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {
@@ -1444,6 +1426,14 @@ export function OutcomeLedgerClient({
   }, [canUseServerSummary, filteredSnapshotItems, horizonFilter, summary]);
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
 
+  function handleHorizonChange(nextHorizon: string) {
+    if (nextHorizon === horizonFilter) return;
+    requestedHorizonRef.current = nextHorizon;
+    setDatasetLoading(true);
+    setError(null);
+    setHorizonFilter(nextHorizon);
+  }
+
   function handleSelectSnapshot(snapshot: OutcomeSnapshot) {
     setSelectedSnapshotId(snapshot.id);
     setEventDetailOpen(true);
@@ -1483,8 +1473,8 @@ export function OutcomeLedgerClient({
   return (
     <div className="mx-auto w-full max-w-[1500px] overflow-x-hidden px-4 py-5 text-slate-100 sm:px-6">
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
-      <div className={`grid min-w-0 gap-4 ${eventDetailOpen ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
-        <main className="min-w-0 space-y-4">
+      <div className={`grid min-w-0 gap-4 ${eventDetailOpen && datasetReady ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
+        <main className="min-w-0 space-y-4" aria-busy={datasetLoading}>
           <header>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">OUTCOMES</p>
             <p className="text-sm font-bold uppercase tracking-[0.36em] text-white">Outcome Ledger</p>
@@ -1498,7 +1488,7 @@ export function OutcomeLedgerClient({
           <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,1fr)_14.25rem]">
             <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
               <FilterSelect label="Outcome Set" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
-              <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={setHorizonFilter} />
+              <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={handleHorizonChange} />
               <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
               <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
               <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
@@ -1527,6 +1517,20 @@ export function OutcomeLedgerClient({
             </div>
           </div>
 
+          {!datasetReady ? (
+            <section
+              role="status"
+              aria-live="polite"
+              className="flex min-h-[32rem] items-center justify-center rounded-md border border-white/10 bg-slate-900/55 px-6 text-center"
+            >
+              <div>
+                {datasetLoading ? <span className="mx-auto mb-4 block h-7 w-7 animate-spin rounded-full border-2 border-emerald-300/25 border-t-emerald-300" aria-hidden="true" /> : null}
+                <p className="text-sm font-semibold text-slate-200">{datasetLoading ? `Loading ${horizonFilter} outcomes...` : `Unable to load ${horizonFilter} outcomes.`}</p>
+                <p className="mt-1 text-xs text-slate-400">The dashboard will appear only after its metrics and events are ready together.</p>
+              </div>
+            </section>
+          ) : (
+            <>
           <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon="OK"
@@ -1594,9 +1598,11 @@ export function OutcomeLedgerClient({
               The 7D, 30D, 90D, 180D, and 365D labels are calendar-day targets measured from the executable entry session. Each uses the first valid market close on or after the target date. SPY uses the identical entry and exit sessions. Returns are split-adjusted price returns; dividends are excluded.
             </p>
           </section>
+            </>
+          )}
         </main>
 
-        {eventDetailOpen ? (
+        {eventDetailOpen && datasetReady ? (
           <DetailPanel
             selected={selectedSnapshot}
             isSelectedReplaced={selectedSnapshot ? isClosedOutcomeEvent(selectedSnapshot, horizonFilter, replacedSnapshotIds) : false}
