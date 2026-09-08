@@ -41,7 +41,6 @@ from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
 from app.services.monitoring_alerts import refresh_watchlist_alerts, watchlist_candidate_events
 from app.services.notifications import normalize_alert_triggers
-from app.services.price_lookup import is_market_trading_day, previous_market_trading_day
 from app.services.watchlist_content_events import sync_watchlist_content_events
 from app.services.watchlist_delivery import category_for_trigger, categories_for_event, is_delivery_enabled
 
@@ -568,22 +567,22 @@ def daily_digest_window(
     current = now or datetime.now(timezone.utc)
     current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
     local_now = current.astimezone(tz)
-    local_end = datetime.combine(local_now.date(), time.min, tzinfo=tz)
-    if local_now.time() == time.min:
-        local_end = local_now
     days = max(int(lookback_days or 1), 1)
-    start_day = local_end.date()
-    for _ in range(days):
-        start_day = previous_market_trading_day(start_day)
+    # The scheduled digest is an end-of-day report. Its primary window begins
+    # at midnight on the local report date and ends when the job runs after
+    # market close, rather than describing the prior day the following morning.
+    start_day = local_now.date() - timedelta(days=days - 1)
     local_start = datetime.combine(start_day, time.min, tzinfo=tz)
-    return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
+    return local_start.astimezone(timezone.utc), local_now.astimezone(timezone.utc)
 
 
 def monitoring_email_send_day(*, now: datetime | None = None, timezone_name: str = DEFAULT_DIGEST_TIMEZONE) -> bool:
     tz = ZoneInfo(timezone_name)
     current = now or datetime.now(timezone.utc)
     current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
-    return is_market_trading_day(current.astimezone(tz).date())
+    # Monitoring sources can publish on market holidays. Keep the user-facing
+    # daily cadence on weekdays so those events are delivered the same day.
+    return current.astimezone(tz).weekday() < 5
 
 
 def _build_billing_statement(db: Session, user: UserAccount, start: datetime, end: datetime) -> DigestBuild:

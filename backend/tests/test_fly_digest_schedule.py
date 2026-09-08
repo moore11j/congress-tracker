@@ -32,7 +32,7 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["INSIDER_ANALYTICS_PREWARM_ENABLED"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "true"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "0"
-    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN"] == "true"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_RESET_CURSOR_EACH_RUN"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS"] == "900"
     assert fly_config["env"]["INSTITUTIONAL_HISTORICAL_BACKFILL_ENABLED"] == "true"
     assert fly_config["env"]["SCREEN_MONITORING_REFRESH_INTERVAL_MINUTES"] == "15"
@@ -73,7 +73,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     crontab = (BACKEND_ROOT / "crontab").read_text()
 
     assert "CRON_TZ=America/Los_Angeles" in crontab
-    assert "0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
+    assert "5 13 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "run_email_digest_schedule.sh watchlist_activity" not in crontab
     assert "run_email_digest_schedule.sh signals" not in crontab
     assert "1-56/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh" in crontab
@@ -83,6 +83,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "2,17,32,47 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
     assert "22 6-18 * * 1-5 cd /app && python -m app.ingest_run --job recent-congress" in crontab
     assert "3,18,33,48 6-12 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh" in crontab
+    assert "3 13 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh" in crontab
     assert "4,19,34,49 6-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
     assert "8,38 6-18 * * * cd /app && sh /app/scripts/run_profile_overview_prewarm.sh" in crontab
@@ -91,7 +92,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "backfill_current_analyst_consensus" not in crontab
     assert "backfill_historical_analyst_grades" not in crontab
     assert "backfill_historical_analyst_price_targets" not in crontab
-    assert "14 14 * * 1-5 cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
+    assert "14 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
     assert "run_institutional_historical_job.sh" not in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
@@ -104,7 +105,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" not in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
     assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
-    assert "0 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
+    assert "4 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "billing" not in crontab.lower()
     assert "monthly" not in crontab.lower()
 

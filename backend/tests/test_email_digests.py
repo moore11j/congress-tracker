@@ -1271,7 +1271,8 @@ def test_admin_monitoring_digest_run_now_reports_watchlist_monitoring_items():
     try:
         admin = _user(db, "monitoring-admin@example.com", role="admin")
         watchlist = _watchlist(db, admin)
-        event_time = daily_digest_window(lookback_days=1)[0] + timedelta(hours=1)
+        window_start, window_end = daily_digest_window(lookback_days=1)
+        event_time = window_start + ((window_end - window_start) / 2)
         _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=1, symbol="UNKNOWN", ts=event_time)
         _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=2, symbol="NBIS", ts=event_time)
 
@@ -2024,7 +2025,8 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         admin = _user(db, "run-admin@example.com", role="admin")
         user = _user(db, "run-reader@example.com")
         watchlist = _watchlist(db, user)
-        event_time = daily_digest_window(lookback_days=1)[0] + timedelta(hours=1)
+        window_start, window_end = daily_digest_window(lookback_days=1)
+        event_time = window_start + ((window_end - window_start) / 2)
         _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold", event_id=1, symbol="NVDA", ts=event_time)
 
         result = admin_run_email_digest_now(
@@ -2077,34 +2079,47 @@ def test_admin_monitoring_digest_endpoint_targets_ranked_digest(monkeypatch):
         db.close()
 
 
-def test_monitoring_digest_job_skips_weekends_and_market_holidays():
+def test_monitoring_digest_job_skips_weekends_but_runs_on_weekday_market_holidays():
     db = _session()
     try:
         user = _user(db, "weekend-digest@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
         saturday = datetime(2026, 7, 18, 14, 0, tzinfo=timezone.utc)
-        observed_july_fourth = datetime(2026, 7, 3, 14, 0, tzinfo=timezone.utc)
+        observed_july_fourth = datetime(2026, 7, 3, 20, 5, tzinfo=timezone.utc)
+        holiday_start, _ = daily_digest_window(now=observed_july_fourth)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="smart_score_threshold",
+            ts=holiday_start + timedelta(hours=1),
+        )
 
         assert monitoring_email_send_day(now=saturday) is False
-        assert monitoring_email_send_day(now=observed_july_fourth) is False
+        assert monitoring_email_send_day(now=observed_july_fourth) is True
         assert run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True, now=saturday) == []
-        assert run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True, now=observed_july_fourth) == []
+        holiday_results = run_digest_job(
+            db,
+            kind="monitoring",
+            lookback_days=1,
+            dry_run=True,
+            now=observed_july_fourth,
+        )
+        assert len(holiday_results) == 1
+        assert holiday_results[0]["status"] == "would_send"
     finally:
         db.close()
 
 
-def test_daily_digest_window_carries_forward_from_previous_market_day():
-    # Tuesday follows the 2026 Labor Day holiday. The digest must include all
-    # activity since Friday instead of silently dropping Friday-after-send and
-    # holiday/weekend events.
+def test_daily_digest_window_covers_the_current_local_day_through_market_close():
     start, end = daily_digest_window(
         lookback_days=1,
-        now=datetime(2026, 9, 8, 14, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc),
     )
 
-    assert start == datetime(2026, 9, 4, 7, 0, tzinfo=timezone.utc)
-    assert end == datetime(2026, 9, 8, 7, 0, tzinfo=timezone.utc)
+    assert start == datetime(2026, 9, 8, 7, 0, tzinfo=timezone.utc)
+    assert end == datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc)
 
 
 def test_signal_digest_prefers_watchlist_source_over_overlapping_saved_screen():
