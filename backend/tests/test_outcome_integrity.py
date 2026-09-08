@@ -24,7 +24,7 @@ from app.services.outcome_integrity import (
     materialize_outcome_entry,
     materialize_outcome_horizons,
 )
-from app.services.outcome_ledger import _project_directional_outcome_events, _snapshot_row, list_outcome_snapshots, outcome_ledger_summary
+from app.services.outcome_ledger import _date_spread_sample, _project_directional_outcome_events, _snapshot_row, list_outcome_snapshots, outcome_ledger_summary
 from app.services.price_lookup import EodPriceBar, reconstruct_adjusted_price_bars
 
 UTC = timezone.utc
@@ -203,6 +203,20 @@ def test_horizon_balanced_snapshot_sample_contains_matured_and_open_events():
         assert by_ticker["OPEN"]["live_mark"]["status"] == "provisional"
         assert by_ticker["OPEN"]["live_mark"]["price_date"] == (pending_day + timedelta(days=1)).isoformat()
         assert by_ticker["OPEN"]["live_mark"]["return_pct"] == 10.0
+
+
+def test_date_spread_sample_represents_neighboring_entry_sessions_before_repeating_busy_days():
+    entry_dates = {
+        "new-a": date(2026, 9, 2),
+        "new-b": date(2026, 9, 2),
+        "new-c": date(2026, 9, 2),
+        "middle": date(2026, 8, 25),
+        "old": date(2026, 8, 5),
+    }
+
+    sample = _date_spread_sample(list(entry_dates), 4, entry_dates.__getitem__)
+
+    assert sample == ["new-a", "middle", "old", "new-b"]
 
 
 def test_stock_split_does_not_create_fake_return():

@@ -553,10 +553,18 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
   const tickTimes = openedTradingDays.length <= 9
     ? openedTradingDays
     : Array.from({ length: 9 }, (_, index) => openedTradingDays[Math.round(index * (openedTradingDays.length - 1) / 8)]);
-  const xTicks = [...new Set(tickTimes)].map((time) => ({
-    label: compactDate(new Date(time).toISOString().slice(0, 10)),
-    x: xForOpened(time),
-  }));
+  const xTicks = [...new Set(tickTimes)].map((time, index, times) => {
+    const date = new Date(time);
+    const month = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(date);
+    const day = new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone: "UTC" }).format(date);
+    const priorMonth = index > 0
+      ? new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(new Date(times[index - 1]))
+      : null;
+    return {
+      label: index === 0 || month !== priorMonth ? `${month} ${day}` : day,
+      x: xForOpened(time),
+    };
+  });
 
   function pointCoordinates(point: EventOutcomePoint) {
     const x = xForOpened(point.opened);
@@ -678,7 +686,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
         ) : null}
       </div>
       <p className="text-xs text-slate-400">
-        X-axis = official entry date; weekends and market holidays are not shown. Filled dots = the selected horizon has been measured; the thesis may still be open. Outlined dots = provisional thesis return while that measurement is pending. Headline accuracy and averages use measured horizons only, across both open and closed theses; provisional outlined points and audit-held events are excluded.
+        X-axis = official entry date; weekends and market holidays are not shown. The month appears on the first displayed date, followed by day numbers. Filled dots = the selected horizon has been measured; the thesis may still be open. Outlined dots = provisional thesis return while that measurement is pending. Headline accuracy and averages use measured horizons only, across both open and closed theses; provisional outlined points and audit-held events are excluded.
       </p>
     </section>
   );

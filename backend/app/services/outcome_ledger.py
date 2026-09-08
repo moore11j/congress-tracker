@@ -6,7 +6,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone, timedelta
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -58,12 +58,13 @@ OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OUTCOME_SCORE_BANDS = ("0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+")
 DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
+DateSpreadItem = TypeVar("DateSpreadItem")
 OUTCOME_QUALIFICATION_MIN_SCORE = 40
 OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS = 30
 OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE = 10
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v5-live-marks"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v6-date-spread"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -1453,6 +1454,36 @@ def _event_display_sort_key(event: DirectionalOutcomeEvent) -> tuple[int, dateti
     return is_30d_matured, event_time, event_id
 
 
+def _date_spread_sample(
+    source: list[DateSpreadItem],
+    sample_limit: int,
+    entry_date_for: Callable[[DateSpreadItem], date],
+) -> list[DateSpreadItem]:
+    """Round-robin entry dates so a busy session cannot hide neighboring sessions."""
+    if sample_limit <= 0:
+        return []
+    by_entry_date: dict[date, list[DateSpreadItem]] = {}
+    for item in source:
+        by_entry_date.setdefault(entry_date_for(item), []).append(item)
+    entry_dates = sorted(by_entry_date, reverse=True)
+    sample: list[DateSpreadItem] = []
+    depth = 0
+    while len(sample) < sample_limit:
+        appended = False
+        for entry_date in entry_dates:
+            bucket = by_entry_date[entry_date]
+            if depth >= len(bucket):
+                continue
+            sample.append(bucket[depth])
+            appended = True
+            if len(sample) == sample_limit:
+                return sample
+        if not appended:
+            break
+        depth += 1
+    return sample
+
+
 def _balanced_horizon_event_sample(
     db: Session,
     events: list[DirectionalOutcomeEvent],
@@ -1514,7 +1545,8 @@ def _balanced_horizon_event_sample(
 
     matured_quota = limit // 2
     awaiting_quota = limit - matured_quota
-    selected = awaiting[:awaiting_quota] + matured[:matured_quota]
+    selected = _date_spread_sample(awaiting, awaiting_quota, lambda event: recency(event)[0])
+    selected += _date_spread_sample(matured, matured_quota, lambda event: recency(event)[0])
     selected_ids = {int(event.snapshot.id) for event in selected}
     fill = [
         event
