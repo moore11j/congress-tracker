@@ -49,6 +49,18 @@ test("Outcome headline metrics explicitly exclude provisional points but include
   assert.match(outcomes, /Average measured \$\{horizonFilter\} outcome across \$\{outcomeMetrics\.directionalSampleCount\} open and closed theses/);
 });
 
+test("Outcome table pagination is usable at every tier and supports bounded rapid navigation", () => {
+  assert.match(outcomes, /const totalRows = sortedSnapshots\.length/);
+  assert.match(outcomes, /Browse all outcomes · 10 rows per page/);
+  assert.match(outcomes, /function movePage\(delta: number\) \{\s*setPage\(\(current\) => Math\.max\(0, Math\.min\(pageCount - 1, current \+ delta\)\)\);/);
+  assert.match(outcomes, /aria-label="Outcome table pages"/);
+  assert.match(outcomes, />\s*First\s*</);
+  assert.match(outcomes, />\s*Previous\s*</);
+  assert.match(outcomes, />\s*Next\s*</);
+  assert.match(outcomes, />\s*Last\s*</);
+  assert.doesNotMatch(outcomes, /if \(!gatePremiumTable\(\)\) return;\s*setPage/);
+});
+
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
   assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: horizonFilter \}\)/);
   assert.match(outcomes, /getOutcomeLedgerSummary\(\{ horizon: horizonFilter \}\)/);

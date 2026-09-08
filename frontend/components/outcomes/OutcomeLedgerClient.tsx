@@ -875,7 +875,7 @@ function EventsTable({
     [horizon, replacedSnapshotIds, snapshots, tableFilter],
   );
   const sortedSnapshots = useMemo(() => sortedOutcomeSnapshots(tableSnapshots, hasPremiumTable ? sort : null), [tableSnapshots, hasPremiumTable, sort]);
-  const totalRows = hasPremiumTable ? sortedSnapshots.length : Math.min(10, sortedSnapshots.length);
+  const totalRows = sortedSnapshots.length;
   const effectivePageSize = hasPremiumTable ? pageSize : 10;
   const pageCount = Math.max(1, Math.ceil(totalRows / effectivePageSize));
   const safePage = Math.min(page, pageCount - 1);
@@ -911,9 +911,12 @@ function EventsTable({
     setPageSize(nextPageSize);
   }
 
-  function handlePage(nextPage: number) {
-    if (!gatePremiumTable()) return;
+  function jumpToPage(nextPage: number) {
     setPage(Math.max(0, Math.min(pageCount - 1, nextPage)));
+  }
+
+  function movePage(delta: number) {
+    setPage((current) => Math.max(0, Math.min(pageCount - 1, current + delta)));
   }
 
   return (
@@ -933,7 +936,7 @@ function EventsTable({
             </button>
           ))}
         </div>
-        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Full table: featured tickers plus live-tracked history" : "Free preview: first 10 featured and recent events"}</p>
+        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Full table: featured tickers plus live-tracked history" : "Browse all outcomes · 10 rows per page"}</p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-xs text-slate-300">
         <span>
@@ -1037,26 +1040,42 @@ function EventsTable({
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-400">
-        <span>{hasPremiumTable ? `Page ${safePage + 1} of ${pageCount}` : "Free users are locked to one 10-row page"}</span>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-400">
+        <span aria-live="polite">Page {safePage + 1} of {pageCount}</span>
+        <nav aria-label="Outcome table pages" className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => handlePage(safePage - 1)}
-            disabled={hasPremiumTable && safePage === 0}
-            className="rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => jumpToPage(0)}
+            disabled={safePage === 0}
+            className="min-h-9 rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            First
+          </button>
+          <button
+            type="button"
+            onClick={() => movePage(-1)}
+            disabled={safePage === 0}
+            className="min-h-9 rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Previous
           </button>
           <button
             type="button"
-            onClick={() => handlePage(safePage + 1)}
-            disabled={hasPremiumTable && safePage >= pageCount - 1}
-            className="rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => movePage(1)}
+            disabled={safePage >= pageCount - 1}
+            className="min-h-9 rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Next
           </button>
-        </div>
+          <button
+            type="button"
+            onClick={() => jumpToPage(pageCount - 1)}
+            disabled={safePage >= pageCount - 1}
+            className="min-h-9 rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Last
+          </button>
+        </nav>
       </div>
     </section>
   );
