@@ -8269,6 +8269,16 @@ export type OutcomeSnapshot = {
   outcomes?: Record<string, OutcomeHorizonResult>;
   lifecycle_status?: "open" | "closed" | string;
   closed_at?: string | null;
+  live_mark?: {
+    status: "provisional" | string;
+    price_date: string;
+    price_at?: string | null;
+    return_pct: number;
+    directional_return_pct?: number | null;
+    spy_return_pct: number;
+    excess_return_pct: number;
+    directional_excess_return_pct?: number | null;
+  } | null;
   calculation_type: string;
   created_at?: string | null;
   security_id?: number;

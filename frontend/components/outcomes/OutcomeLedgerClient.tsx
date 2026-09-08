@@ -51,7 +51,12 @@ type EventOutcomePoint = {
   opened: number;
   openedLabel: string;
   targetLabel: string;
-  returnValue: number | null;
+  markLabel: string;
+  returnValue: number;
+  tickerReturn: number | null;
+  spyReturn: number | null;
+  excessReturn: number | null;
+  provisional: boolean;
 };
 type PricePathPoint = {
   date: string;
@@ -133,6 +138,27 @@ function isClosedOutcomeEvent(snapshot: OutcomeSnapshot, horizon?: string, repla
     selectedOutcome?.status === "replaced" ||
     replacedSnapshotIds?.has(snapshot.id) === true
   );
+}
+
+function matchesOutcomeTableFilter(
+  snapshot: OutcomeSnapshot,
+  filter: OutcomeTableFilterValue,
+  horizon: string,
+  replacedSnapshotIds: Set<number>,
+) {
+  if (filter === "Bullish" || filter === "Bearish") return formatDirection(snapshot.direction) === filter;
+  if (filter === "Matured") return Boolean(maturedOutcome(snapshot, horizon));
+  const isClosed = isClosedOutcomeEvent(snapshot, horizon, replacedSnapshotIds);
+  if (filter === "Open") return !isClosed;
+  if (filter === "Closed") return isClosed;
+  return true;
+}
+
+function outcomeTableFilterLabel(filter: OutcomeTableFilterValue, horizon: string) {
+  if (filter === "Matured") return `${horizon} Measured`;
+  if (filter === "Open") return "Thesis Open";
+  if (filter === "Closed") return "Thesis Closed";
+  return filter;
 }
 
 function openedDateValue(snapshot: OutcomeSnapshot) {
@@ -488,16 +514,27 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
       const outcome = outcomeFor(snapshot, horizon);
       const matured = maturedOutcome(snapshot, horizon);
       const opened = openedTime(snapshot);
-      const returnValue = numericReturn(matured?.return_pct);
+      const measuredReturn = numericReturn(matured?.directional_return_pct ?? matured?.return_pct);
+      const currentReturn = numericReturn(snapshot.live_mark?.directional_return_pct ?? snapshot.live_mark?.return_pct);
+      const provisional = measuredReturn === null;
       const isOpen = snapshot.lifecycle_status !== "closed";
-      if (!opened || (returnValue === null && !isOpen)) return null;
+      if (!opened || (provisional && (!isOpen || currentReturn === null))) return null;
       return {
         snapshot,
         outcome,
         opened,
         openedLabel: openedDate(snapshot),
         targetLabel: outcome?.target_date ? compactDate(outcome.target_date) : "-",
-        returnValue,
+        markLabel: provisional ? compactDate(snapshot.live_mark?.price_date) : compactDate(matured?.price_date),
+        returnValue: measuredReturn ?? currentReturn ?? 0,
+        tickerReturn: numericReturn(provisional ? snapshot.live_mark?.return_pct : matured?.return_pct),
+        spyReturn: numericReturn(provisional ? snapshot.live_mark?.spy_return_pct : matured?.spy_return_pct),
+        excessReturn: numericReturn(
+          provisional
+            ? snapshot.live_mark?.directional_excess_return_pct ?? snapshot.live_mark?.excess_return_pct
+            : matured?.directional_excess_return_pct ?? matured?.excess_return_pct,
+        ),
+        provisional,
       };
     })
     .filter((item): item is EventOutcomePoint => item !== null)
@@ -505,24 +542,23 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
   const minOpened = points.length ? Math.min(...points.map((point) => point.opened)) : Date.now();
   const maxOpened = points.length ? Math.max(...points.map((point) => point.opened)) : minOpened;
   const xRange = Math.max(1, maxOpened - minOpened);
-  const maturedReturns = points.flatMap((point) => point.returnValue === null ? [] : [point.returnValue]);
-  const maxAbsoluteReturn = Math.max(5, ...maturedReturns.map((value) => Math.abs(value)));
+  const maxAbsoluteReturn = Math.max(5, ...points.map((point) => Math.abs(point.returnValue)));
   const yExtent = Math.ceil(maxAbsoluteReturn / 5) * 5;
   const yScale = 72 / yExtent;
   const zeroY = 108;
   const yTicks = [yExtent, yExtent / 2, 0, -yExtent / 2, -yExtent];
-  const xTicks = points.length
-    ? [minOpened, minOpened + xRange / 2, maxOpened]
-        .map((time) => ({
-          label: compactDate(new Date(time).toISOString().slice(0, 10)),
-          x: points.length <= 1 ? 390 : 80 + ((time - minOpened) / xRange) * 620,
-        }))
-        .filter((tick, index, ticks) => ticks.findIndex((candidate) => candidate.label === tick.label) === index)
-    : [];
+  const openedTradingDays = [...new Set(points.map((point) => point.opened))].sort((a, b) => a - b);
+  const tickTimes = openedTradingDays.length <= 9
+    ? openedTradingDays
+    : Array.from({ length: 9 }, (_, index) => openedTradingDays[Math.round(index * (openedTradingDays.length - 1) / 8)]);
+  const xTicks = [...new Set(tickTimes)].map((time) => ({
+    label: compactDate(new Date(time).toISOString().slice(0, 10)),
+    x: points.length <= 1 ? 390 : 80 + ((time - minOpened) / xRange) * 620,
+  }));
 
   function pointCoordinates(point: EventOutcomePoint) {
     const x = points.length <= 1 ? 390 : 80 + ((point.opened - minOpened) / xRange) * 620;
-    const y = point.returnValue === null ? 20 : zeroY - point.returnValue * yScale;
+    const y = zeroY - point.returnValue * yScale;
     return { x, y };
   }
 
@@ -535,15 +571,15 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
       <div className="mt-3 flex flex-wrap gap-5 text-xs text-slate-300">
         <span className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-lime-500" />
-          Positive outcome
+          Measured {horizon} thesis gain
         </span>
         <span className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-red-500" />
-          Negative outcome
+          Measured {horizon} thesis loss
         </span>
         <span className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full border border-sky-300 bg-transparent" />
-          Open / awaiting {horizon}
+          <span className="h-2 w-2 rounded-full border border-slate-200 bg-transparent" />
+          Awaiting {horizon} · provisional thesis return
         </span>
       </div>
       <div className="relative mt-2 h-52 min-w-0 overflow-hidden">
@@ -558,12 +594,6 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
             );
           })}
           <line x1="40" x2="735" y1={zeroY} y2={zeroY} stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
-          {points.some((point) => point.returnValue === null) ? (
-            <>
-              <line x1="40" x2="735" y1="20" y2="20" stroke="rgba(125,211,252,0.3)" strokeDasharray="2 5" />
-              <text x="735" y="14" fill="#7dd3fc" fontSize="9" textAnchor="end">Awaiting {horizon}</text>
-            </>
-          ) : null}
           <line x1="40" x2="735" y1="190" y2="190" stroke="rgba(148,163,184,0.35)" />
           {xTicks.map(({ label, x }) => (
             <text key={`${label}-${x}`} x={x} y="212" fill="#cbd5e1" fontSize="12" textAnchor="middle">
@@ -571,15 +601,14 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
             </text>
           ))}
           <text x="15" y="120" fill="#cbd5e1" fontSize="12" transform="rotate(-90 15 120)">
-            Return (%)
+            Thesis Return (%)
           </text>
           <text x="390" y="232" fill="#cbd5e1" fontSize="12" textAnchor="middle">
-            Opened Date
+            Official Entry Date
           </text>
           {points.map((point, index) => {
             const { x, y } = pointCoordinates(point);
-            const positive = point.returnValue !== null && point.returnValue >= 0;
-            const pending = point.returnValue === null;
+            const positive = point.returnValue >= 0;
             return (
               <g
                 key={point.snapshot.id}
@@ -589,17 +618,17 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
                 onBlur={() => { setActiveIndex(null); setHoverPoint(null); }}
                 tabIndex={0}
                 role="button"
-                aria-label={pending
-                  ? `${point.snapshot.ticker} opened ${point.openedLabel}, awaiting ${horizon} outcome`
+                aria-label={point.provisional
+                  ? `${point.snapshot.ticker} opened ${point.openedLabel}, current provisional return ${formatPercent(point.returnValue)}, awaiting ${horizon}`
                   : `${point.snapshot.ticker} opened ${point.openedLabel}, return ${formatPercent(point.returnValue)}`}
               >
                 <circle
                   cx={x}
                   cy={y}
-                  r={pending ? "5" : "6"}
-                  fill={pending ? "#0f172a" : positive ? "#84cc16" : "#ef4444"}
-                  stroke={pending ? "#7dd3fc" : "none"}
-                  strokeWidth={pending ? "2" : "0"}
+                  r={point.provisional ? "5" : "6"}
+                  fill={point.provisional ? "#0f172a" : positive ? "#84cc16" : "#ef4444"}
+                  stroke={point.provisional ? (positive ? "#84cc16" : "#ef4444") : "none"}
+                  strokeWidth={point.provisional ? "2" : "0"}
                   opacity={revealed ? "0.92" : "0"}
                   className="cursor-pointer transition-opacity duration-300"
                 />
@@ -622,28 +651,32 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           >
             <p className="font-semibold text-white">{hoverPoint.snapshot.ticker}</p>
             <p>Opened {hoverPoint.openedLabel}</p>
-            <p>{horizon} target {hoverPoint.targetLabel}</p>
-            {hoverPoint.returnValue === null ? (
-              <p className="text-sky-300">Awaiting {horizon} outcome</p>
+            <p>Thesis {outcomeLifecycleStatusLabel(hoverPoint.snapshot)}</p>
+            {hoverPoint.provisional ? (
+              <>
+                <p>{horizon} measurement due {hoverPoint.targetLabel}</p>
+                <p className={pctClassName(hoverPoint.returnValue)}>Provisional thesis return {formatPercent(hoverPoint.returnValue)}</p>
+                <p className="text-slate-400">Provisional through {hoverPoint.markLabel}</p>
+              </>
             ) : (
               <>
-                <p className={pctClassName(hoverPoint.returnValue)}>Return {formatPercent(hoverPoint.returnValue)}</p>
-                <p>SPY {formatPercent(hoverPoint.outcome?.spy_return_pct)}</p>
-                <p className={pctClassName(hoverPoint.outcome?.directional_excess_return_pct ?? hoverPoint.outcome?.excess_return_pct)}>
-                  +/- {formatPercent(hoverPoint.outcome?.directional_excess_return_pct ?? hoverPoint.outcome?.excess_return_pct)}
-                </p>
+                <p>{horizon} measured {hoverPoint.markLabel}</p>
+                <p className={pctClassName(hoverPoint.returnValue)}>{horizon} thesis return {formatPercent(hoverPoint.returnValue)}</p>
               </>
             )}
+            <p>Ticker move {formatPercent(hoverPoint.tickerReturn)}</p>
+            <p>SPY {formatPercent(hoverPoint.spyReturn)}</p>
+            <p className={pctClassName(hoverPoint.excessReturn)}>Directional excess {formatPercent(hoverPoint.excessReturn)}</p>
           </div>
         ) : null}
         {!points.length ? (
           <PendingOverlay>
-            Walnut is preserving live judgments now. Points appear only after evaluation horizons mature.
+            No verified measured or provisional returns match these filters yet.
           </PendingOverlay>
         ) : null}
       </div>
       <p className="text-xs text-slate-400">
-        Filled points are measured outcomes. Outlined points are live events awaiting the selected horizon. Audit-held events are excluded.
+        X-axis = official entry date; weekends and market holidays have no entry dots. Filled dots = the selected horizon has been measured; the thesis may still be open. Outlined dots = provisional thesis return while that measurement is pending. Audit-held events are excluded.
       </p>
     </section>
   );
@@ -828,16 +861,7 @@ function EventsTable({
   const [page, setPage] = useState(0);
   const [tableGateOpen, setTableGateOpen] = useState(false);
   const tableSnapshots = useMemo(
-    () =>
-      snapshots.filter((snapshot) => {
-        const hasMaturedOutcome = Boolean(maturedOutcome(snapshot, horizon));
-        const isClosed = isClosedOutcomeEvent(snapshot, horizon, replacedSnapshotIds);
-        if (tableFilter === "Bullish" || tableFilter === "Bearish") return formatDirection(snapshot.direction) === tableFilter;
-        if (tableFilter === "Matured") return hasMaturedOutcome;
-        if (tableFilter === "Open") return !isClosed;
-        if (tableFilter === "Closed") return isClosed;
-        return true;
-      }),
+    () => snapshots.filter((snapshot) => matchesOutcomeTableFilter(snapshot, tableFilter, horizon, replacedSnapshotIds)),
     [horizon, replacedSnapshotIds, snapshots, tableFilter],
   );
   const sortedSnapshots = useMemo(() => sortedOutcomeSnapshots(tableSnapshots, hasPremiumTable ? sort : null), [tableSnapshots, hasPremiumTable, sort]);
@@ -852,6 +876,12 @@ function EventsTable({
   useEffect(() => {
     setPage(0);
   }, [snapshots.length, pageSize, sort?.key, sort?.direction, hasPremiumTable, tableFilter]);
+
+  useEffect(() => {
+    if (tableSnapshots.length && !tableSnapshots.some((snapshot) => snapshot.id === selectedSnapshotId)) {
+      onSelectSnapshot(tableSnapshots[0]);
+    }
+  }, [onSelectSnapshot, selectedSnapshotId, tableSnapshots]);
 
   function gatePremiumTable() {
     if (!hasPremiumTable) setTableGateOpen(true);
@@ -889,7 +919,7 @@ function EventsTable({
               onClick={() => setTableFilter(label)}
               className={`px-4 py-1.5 ${label === tableFilter ? "rounded bg-emerald-400/15 text-emerald-100" : "hover:text-white"}`}
             >
-              {label}
+              {outcomeTableFilterLabel(label, horizon)}
             </button>
           ))}
         </div>

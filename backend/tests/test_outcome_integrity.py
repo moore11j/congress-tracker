@@ -185,6 +185,8 @@ def test_horizon_balanced_snapshot_sample_contains_matured_and_open_events():
             _bar("SPY", matured_day + timedelta(days=7), 505),
             _bar("OPEN", pending_day, 50),
             _bar("SPY", pending_day, 510),
+            _bar("OPEN", pending_day + timedelta(days=1), 55),
+            _bar("SPY", pending_day + timedelta(days=1), 515),
         ])
         db.flush()
         matured_entry = materialize_outcome_entry(db, matured_snapshot)
@@ -198,6 +200,9 @@ def test_horizon_balanced_snapshot_sample_contains_matured_and_open_events():
         by_ticker = {item["ticker"]: item for item in payload["items"]}
         assert by_ticker["DONE"]["outcomes"]["7D"]["status"] == "matured"
         assert by_ticker["OPEN"]["outcomes"]["7D"]["status"] == "pending"
+        assert by_ticker["OPEN"]["live_mark"]["status"] == "provisional"
+        assert by_ticker["OPEN"]["live_mark"]["price_date"] == (pending_day + timedelta(days=1)).isoformat()
+        assert by_ticker["OPEN"]["live_mark"]["return_pct"] == 10.0
 
 
 def test_stock_split_does_not_create_fake_return():

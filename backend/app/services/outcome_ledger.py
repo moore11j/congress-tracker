@@ -36,7 +36,9 @@ from app.services.cross_source_divergence import (
 )
 from app.services.outcome_integrity import (
     MARKET_TZ,
+    adjusted_price,
     canonical_outcome_payload,
+    market_close_at,
     materialize_outcome_entry,
     materialize_outcome_horizons,
     persist_evidence_provenance,
@@ -61,7 +63,7 @@ OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS = 30
 OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE = 10
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v4-live-and-matured"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v5-live-marks"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -1212,6 +1214,7 @@ def _snapshot_row(
     include_internal: bool = False,
     price_rows_by_symbol: PriceRowsBySymbol | None = None,
     closed_at: date | None = None,
+    live_mark: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_entry = db.execute(
         select(OutcomeEntry).where(OutcomeEntry.snapshot_id == snapshot.id)
@@ -1241,6 +1244,7 @@ def _snapshot_row(
         "outcomes": _snapshot_outcomes(db, snapshot, price_rows_by_symbol=price_rows_by_symbol, closed_at=closed_at),
         "lifecycle_status": "closed" if closed_at is not None else "open",
         "closed_at": closed_at.isoformat() if closed_at is not None else None,
+        "live_mark": live_mark,
         "calculation_type": snapshot.calculation_type,
         "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
     }
@@ -1261,6 +1265,69 @@ def _snapshot_row(
             }
         )
     return row
+
+
+def _current_marks_for_events(
+    db: Session,
+    events: list[DirectionalOutcomeEvent],
+) -> dict[int, dict[str, Any]]:
+    """Return provisional, same-session ticker/SPY marks for verified events."""
+    if not events:
+        return {}
+    snapshot_by_id = {int(event.snapshot.id): event.snapshot for event in events}
+    entries = db.execute(
+        select(OutcomeEntry).where(OutcomeEntry.snapshot_id.in_(list(snapshot_by_id)))
+    ).scalars().all()
+    if not entries:
+        return {}
+    symbols = {entry.ticker_at_time.strip().upper() for entry in entries} | {"SPY"}
+    min_entry_date = min(entry.entry_session_date for entry in entries)
+    rows = db.execute(
+        select(PriceCache)
+        .where(
+            PriceCache.symbol.in_(symbols),
+            PriceCache.date >= min_entry_date.isoformat(),
+            PriceCache.date <= datetime.now(timezone.utc).date().isoformat(),
+        )
+        .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
+    ).scalars().all()
+    rows_by_symbol_day: dict[str, dict[date, PriceCache]] = {}
+    for row in rows:
+        row_date = _price_date(row)
+        if row_date is None:
+            continue
+        rows_by_symbol_day.setdefault(str(row.symbol).strip().upper(), {})[row_date] = row
+    spy_by_day = rows_by_symbol_day.get("SPY", {})
+    marks: dict[int, dict[str, Any]] = {}
+    for entry in entries:
+        snapshot_id = int(entry.snapshot_id)
+        snapshot = snapshot_by_id.get(snapshot_id)
+        security_by_day = rows_by_symbol_day.get(entry.ticker_at_time.strip().upper(), {})
+        common_days = [
+            row_date
+            for row_date in security_by_day.keys() & spy_by_day.keys()
+            if row_date >= entry.entry_session_date
+        ]
+        if snapshot is None or not common_days:
+            continue
+        mark_date = max(common_days)
+        security_close = adjusted_price(security_by_day[mark_date], "close")
+        spy_close = adjusted_price(spy_by_day[mark_date], "close")
+        raw_return = _price_return_pct(entry.entry_price, float(security_close) if security_close is not None else None)
+        spy_return = _price_return_pct(entry.benchmark_entry_price, float(spy_close) if spy_close is not None else None)
+        if raw_return is None or spy_return is None:
+            continue
+        marks[snapshot_id] = {
+            "status": "provisional",
+            "price_date": mark_date.isoformat(),
+            "price_at": market_close_at(mark_date).isoformat(),
+            "return_pct": raw_return,
+            "directional_return_pct": _directional_return_pct(snapshot.direction, raw_return),
+            "spy_return_pct": spy_return,
+            "excess_return_pct": round(raw_return - spy_return, 2),
+            "directional_excess_return_pct": _directional_return_pct(snapshot.direction, round(raw_return - spy_return, 2)),
+        }
+    return marks
 
 
 def _json_loads(raw: str | None, fallback: Any) -> Any:
@@ -1510,6 +1577,7 @@ def list_outcome_snapshots(
     else:
         paged_events = events[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
     rows = [event.snapshot for event in paged_events]
+    current_marks = _current_marks_for_events(db, paged_events)
     methodology_by_id = {
         row.id: row.version
         for row in db.execute(select(ConfirmationMethodologyVersion)).scalars().all()
@@ -1524,6 +1592,7 @@ def list_outcome_snapshots(
             include_internal=include_internal,
             price_rows_by_symbol=price_rows_by_symbol,
             closed_at=event.closed_at,
+            live_mark=current_marks.get(int(snapshot.id)),
         )
         item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
         items.append(item)

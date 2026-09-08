@@ -19,8 +19,9 @@ test("Outcome charts consume the exact event price-path endpoint", () => {
   assert.doesNotMatch(outcomes, /getTickerChartBundle\(selected\.ticker, 30/);
 });
 
-test("Outcome scatter plots raw API return without clipping or directional substitution", () => {
-  assert.match(outcomes, /const returnValue = numericReturn\(matured\?\.return_pct\)/);
+test("Outcome scatter plots measured or provisional thesis returns without clipping", () => {
+  assert.match(outcomes, /const measuredReturn = numericReturn\(matured\?\.directional_return_pct \?\? matured\?\.return_pct\)/);
+  assert.match(outcomes, /returnValue: measuredReturn \?\? currentReturn \?\? 0/);
   assert.match(outcomes, /const yExtent = Math\.ceil\(maxAbsoluteReturn \/ 5\) \* 5/);
   assert.doesNotMatch(outcomes, /Math\.max\(-25, Math\.min\(25, point\.returnValue\)\)/);
 });
@@ -28,8 +29,12 @@ test("Outcome scatter plots raw API return without clipping or directional subst
 test("Outcome dates use the verified entry session without date-only timezone drift", () => {
   assert.match(outcomes, /snapshot\.entry_session_date \?\? snapshot\.entry_timestamp \?\? snapshot\.reference_price_at/);
   assert.match(outcomes, /dateOnly \? `\$\{value\}T12:00:00Z` : value/);
-  assert.match(outcomes, /Open \/ awaiting \{horizon\}/);
-  assert.match(outcomes, /Filled points are measured outcomes\. Outlined points are live events awaiting the selected horizon\. Audit-held events are excluded\./);
+  assert.match(outcomes, /Awaiting \{horizon\} · provisional thesis return/);
+  assert.match(outcomes, /X-axis = official entry date; weekends and market holidays have no entry dots\. Filled dots = the selected horizon has been measured; the thesis may still be open\./);
+  assert.match(outcomes, /openedTradingDays/);
+  assert.match(outcomes, /snapshot\.live_mark\?\.return_pct/);
+  assert.match(outcomes, /if \(filter === "Matured"\) return `\$\{horizon\} Measured`/);
+  assert.match(outcomes, /if \(filter === "Open"\) return "Thesis Open"/);
 });
 
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
