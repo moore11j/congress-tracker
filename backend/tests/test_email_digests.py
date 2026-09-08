@@ -2179,6 +2179,54 @@ def test_signal_digest_uses_discovery_time_for_date_only_congress_alerts():
         db.close()
 
 
+def test_scheduled_signal_digest_catches_up_after_a_missed_close_run():
+    db = _session()
+    try:
+        user = _user(db, "missed-close-catchup@example.com")
+        watchlist = _watchlist(db, user)
+        last_delivery = datetime(2026, 9, 4, 14, 0, tzinfo=timezone.utc)
+        db.add(
+            EmailDelivery(
+                user_id=user.id,
+                to_email=user.email,
+                from_email="alerts@example.test",
+                template_key="alerts.signal_alert",
+                category="alerts",
+                subject="Earlier digest",
+                provider="test",
+                status="sent",
+                idempotency_key="digest:alerts.signal_alert:user:1:window:earlier",
+                created_at=last_delivery,
+                sent_at=last_delivery,
+            )
+        )
+        _confirmation_event(
+            db,
+            user,
+            watchlist,
+            ticker="TSM",
+            event_type="price_volume_flip",
+            ts=datetime(2026, 9, 7, 13, 3, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+        results = run_digest_job(
+            db,
+            kind="monitoring",
+            lookback_days=1,
+            dry_run=True,
+            now=datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc),
+        )
+
+        assert len(results) == 1
+        assert results[0]["status"] == "would_send"
+        assert results[0]["item_count"] == 1
+        assert results[0]["rendered_preview"]["sample_items"][0]["ticker"] == "TSM"
+        assert results[0]["window_start"] == datetime(2026, 9, 7, 20, 5, tzinfo=timezone.utc)
+    finally:
+        db.close()
+
+
 def test_signal_digest_prefers_watchlist_source_over_overlapping_saved_screen():
     db = _session()
     try:

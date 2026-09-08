@@ -151,6 +151,7 @@ WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT = 3
 # makes an enabled alert indistinguishable from a broken one.
 SIGNAL_CONTENT_ITEMS_PER_CATEGORY_LIMIT = 4
 SIGNAL_CONTENT_CATEGORIES = {"news", "press_releases"}
+DIGEST_CATCHUP_MAX_DAYS = 7
 # Evaluate the entire digest window before applying the four-per-category
 # display cap, so a high-volume category cannot hide a quieter enabled one.
 SIGNAL_QUERY_LIMIT: int | None = None
@@ -344,17 +345,19 @@ def build_signal_alert_digest(
     since: datetime,
     watchlist: Watchlist | None = None,
     window_end: datetime | None = None,
+    query_since: datetime | None = None,
 ) -> DigestBuild:
+    selection_since = _coerce_aware(query_since or since)
     # Content ingestion stores news and press releases as Event rows. Ensure
     # the daily job materializes those (and any other watchlist events) into
     # monitoring alerts for this exact window before selecting digest items.
-    _materialize_daily_watchlist_alerts(db, user, since)
+    _materialize_daily_watchlist_alerts(db, user, selection_since)
     # Fetch enough history to let each monitoring source contribute its best
     # candidates. A global "latest 10" query lets a noisy saved screen crowd
     # out watchlists and other monitoring sources before ranking even starts.
     query_end = _coerce_aware(window_end or datetime.now(timezone.utc))
-    alert_rows = _signal_monitoring_alerts(db, user, since=since, before=query_end, limit=SIGNAL_QUERY_LIMIT)
-    confirmation_rows = _signal_confirmation_events(db, user, since=since, before=query_end, watchlist=watchlist, limit=SIGNAL_QUERY_LIMIT)
+    alert_rows = _signal_monitoring_alerts(db, user, since=selection_since, before=query_end, limit=SIGNAL_QUERY_LIMIT)
+    confirmation_rows = _signal_confirmation_events(db, user, since=selection_since, before=query_end, watchlist=watchlist, limit=SIGNAL_QUERY_LIMIT)
     activity_sections = _signal_activity_sections(db, alert_rows)
     # The public Monitoring digest is a qualified ranked board. Candidates may
     # originate from MonitoringAlert rows, but broken or internal
@@ -427,7 +430,8 @@ def send_signal_alert_digest(
     template_key = "alerts.signal_alert"
     window_end = _coerce_aware(window_end or datetime.now(timezone.utc))
     since = _coerce_aware(since)
-    digest = build_signal_alert_digest(db, user, since, window_end=window_end)
+    query_since = _signal_digest_query_since(db, user, scheduled_since=since)
+    digest = build_signal_alert_digest(db, user, since, window_end=window_end, query_since=query_since)
     idempotency_key = None if force else _digest_key(template_key, user.id, None, since, window_end)
     duplicate = _duplicate_digest_result(db, idempotency_key)
     if duplicate:
@@ -925,7 +929,8 @@ def _preview_signal_alert_digest(
     force: bool = False,
 ) -> dict[str, Any]:
     template_key = "alerts.signal_alert"
-    digest = build_signal_alert_digest(db, user, since, window_end=window_end)
+    query_since = _signal_digest_query_since(db, user, scheduled_since=since)
+    digest = build_signal_alert_digest(db, user, since, window_end=window_end, query_since=query_since)
     skip = _alert_skip_reason(user, "signals")
     if skip is None and digest.items_count == 0 and not force:
         skip = "no_qualified_signals"
@@ -1020,6 +1025,28 @@ def _eligible_monitoring_digest_users(db: Session, *, limit: int) -> list[UserAc
         if any(_subscription_daily_digest_enabled(subscription) for subscription in subscriptions):
             eligible.append(user)
     return eligible
+
+
+def _signal_digest_query_since(db: Session, user: UserAccount, *, scheduled_since: datetime) -> datetime:
+    """Carry forward a bounded interval when a prior scheduled digest did not run."""
+    scheduled_start = _coerce_aware(scheduled_since)
+    latest = (
+        db.execute(
+            select(EmailDelivery)
+            .where(EmailDelivery.user_id == user.id)
+            .where(EmailDelivery.template_key == "alerts.signal_alert")
+            .where(EmailDelivery.status.in_(("sent", "log_only")))
+            .order_by(func.coalesce(EmailDelivery.sent_at, EmailDelivery.created_at).desc(), EmailDelivery.id.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    if latest is None:
+        return scheduled_start
+    delivered_at = _coerce_aware(latest.sent_at or latest.created_at)
+    catchup_floor = scheduled_start - timedelta(days=DIGEST_CATCHUP_MAX_DAYS)
+    return max(min(delivered_at, scheduled_start), catchup_floor)
 
 
 def _event_calendar_subscription(db: Session, user: UserAccount) -> NotificationSubscription | None:
