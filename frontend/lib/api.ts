@@ -8333,12 +8333,22 @@ export type OutcomeLedgerOverview = {
   default_horizon: string;
 };
 
+async function fetchOutcomePublicJson<T>(url: string, init: ApiRequestInit): Promise<T> {
+  try {
+    return await fetchPublicJson<T>(url, init);
+  } catch (error) {
+    if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return fetchPublicJson<T>(url, init);
+  }
+}
+
 export async function getOutcomeLedgerOverview(params: QueryParams = {}): Promise<OutcomeLedgerOverview> {
   const url = buildApiUrl("/api/outcomes/overview", params);
   return serverCachedJson(
     `outcome-ledger-overview:${url}`,
     () =>
-      fetchPublicJson<OutcomeLedgerOverview>(url, {
+      fetchOutcomePublicJson<OutcomeLedgerOverview>(url, {
         cache: "no-store",
         next: { revalidate: 0 },
         source: "OutcomeLedgerPage",
@@ -8352,7 +8362,7 @@ export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
   return serverCachedJson(
     `outcome-ledger-status:${url}`,
     () =>
-      fetchPublicJson<OutcomeLedgerStatus>(url, {
+      fetchOutcomePublicJson<OutcomeLedgerStatus>(url, {
         cache: "no-store",
         next: { revalidate: 0 },
         source: "OutcomeLedgerPage",
@@ -8366,7 +8376,7 @@ export async function getOutcomeLedgerSummary(params: QueryParams = {}): Promise
   return serverCachedJson(
     `outcome-ledger-summary:${url}`,
     () =>
-      fetchPublicJson<OutcomeLedgerSummary>(url, {
+      fetchOutcomePublicJson<OutcomeLedgerSummary>(url, {
         cache: "no-store",
         next: { revalidate: 0 },
         source: "OutcomeLedgerPage",
@@ -8380,7 +8390,7 @@ export async function getOutcomeSnapshots(params: QueryParams = {}): Promise<Out
   return serverCachedJson(
     `outcome-ledger-snapshots:${url}`,
     () =>
-      fetchPublicJson<OutcomeSnapshotsResponse>(url, {
+      fetchOutcomePublicJson<OutcomeSnapshotsResponse>(url, {
         cache: "no-store",
         next: { revalidate: 0 },
         source: "OutcomeLedgerPage",

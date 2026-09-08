@@ -52,7 +52,8 @@ test("Outcome headline metrics explicitly exclude provisional points but include
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
   assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: horizonFilter \}\)/);
   assert.match(outcomes, /getOutcomeLedgerSummary\(\{ horizon: horizonFilter \}\)/);
-  assert.match(api, /fetchPublicJson<OutcomeSnapshotsResponse>\(url, \{\s*cache: "no-store"/);
+  assert.match(api, /fetchOutcomePublicJson<OutcomeSnapshotsResponse>\(url, \{\s*cache: "no-store"/);
+  assert.match(api, /!\[502, 503, 504\]\.includes\(error\.status\)/);
 });
 
 test("frontend never synthesizes missing Outcome returns", () => {
