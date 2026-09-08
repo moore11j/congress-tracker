@@ -2112,14 +2112,71 @@ def test_monitoring_digest_job_skips_weekends_but_runs_on_weekday_market_holiday
         db.close()
 
 
-def test_daily_digest_window_covers_the_current_local_day_through_market_close():
+def test_daily_digest_window_covers_activity_since_the_previous_weekday_close():
     start, end = daily_digest_window(
         lookback_days=1,
         now=datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc),
     )
 
-    assert start == datetime(2026, 9, 8, 7, 0, tzinfo=timezone.utc)
+    assert start == datetime(2026, 9, 7, 20, 5, tzinfo=timezone.utc)
     assert end == datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc)
+
+
+def test_daily_digest_window_carries_weekend_activity_into_monday_close():
+    start, end = daily_digest_window(
+        lookback_days=1,
+        now=datetime(2026, 9, 7, 20, 5, tzinfo=timezone.utc),
+    )
+
+    assert start == datetime(2026, 9, 4, 20, 5, tzinfo=timezone.utc)
+    assert end == datetime(2026, 9, 7, 20, 5, tzinfo=timezone.utc)
+
+
+def test_signal_digest_uses_discovery_time_for_date_only_congress_alerts():
+    db = _session()
+    try:
+        user = _user(db, "date-only-congress-alert@example.com")
+        watchlist = _watchlist(db, user)
+        window_start = datetime(2026, 9, 7, 20, 5, tzinfo=timezone.utc)
+        window_end = datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc)
+        event = _bare_event(
+            db,
+            symbol="NVDA",
+            ts=datetime(2026, 9, 7, 0, 0, tzinfo=timezone.utc),
+            member_name="Gilbert Cisneros",
+            amount_max=15_000,
+            payload={"filing_date": "2026-09-07", "amount_range_min": 1_001},
+        )
+        alert = _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            alert_type="congress_trade",
+            event_id=event.id,
+            symbol="NVDA",
+            ts=datetime(2026, 9, 7, 0, 0, tzinfo=timezone.utc),
+            payload={
+                "event": {
+                    "event_type": "congress_trade",
+                    "ticker": "NVDA",
+                    "filing_date": "2026-09-07",
+                    "member": {"name": "Gilbert Cisneros"},
+                    "transaction_type": "purchase",
+                    "amount_range_min": 1_001,
+                    "amount_range_max": 15_000,
+                }
+            },
+        )
+        alert.created_at = datetime(2026, 9, 8, 6, 25, tzinfo=timezone.utc)
+        db.commit()
+
+        digest = build_signal_alert_digest(db, user, window_start, window_end=window_end)
+
+        assert digest.items_count == 1
+        assert "Gilbert Cisneros" in digest.context["congress_trades_text"]
+        assert "NVDA" in digest.context["congress_trades_text"]
+    finally:
+        db.close()
 
 
 def test_signal_digest_prefers_watchlist_source_over_overlapping_saved_screen():

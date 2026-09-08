@@ -9,7 +9,7 @@ from html import escape as html_escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import normalize_email
@@ -129,6 +129,14 @@ SOURCE_MONITORING_ALERT_TYPES = (
     "press_release",
     "press_releases",
     "issuer_press_release",
+)
+ACTIVITY_SECTION_ALERT_TYPES = (
+    "congress_trade",
+    "congress_trade_new",
+    "insider_trade",
+    "insider_trade_new",
+    *GOVERNMENT_CONTRACT_ALERT_TYPES,
+    *INSTITUTIONAL_ALERT_TYPES,
 )
 SUPPORT_EMAIL = "support@walnutmarkets.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
@@ -568,11 +576,15 @@ def daily_digest_window(
     current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
     local_now = current.astimezone(tz)
     days = max(int(lookback_days or 1), 1)
-    # The scheduled digest is an end-of-day report. Its primary window begins
-    # at midnight on the local report date and ends when the job runs after
-    # market close, rather than describing the prior day the following morning.
-    start_day = local_now.date() - timedelta(days=days - 1)
-    local_start = datetime.combine(start_day, time.min, tzinfo=tz)
+    # End-of-day digests cover activity discovered since the prior weekday's
+    # close. This includes overnight and weekend activity without waiting for
+    # the following morning or leaving gaps after a previous close.
+    start_day = local_now.date()
+    for _ in range(days):
+        start_day -= timedelta(days=1)
+        while start_day.weekday() >= 5:
+            start_day -= timedelta(days=1)
+    local_start = datetime.combine(start_day, local_now.time().replace(tzinfo=None), tzinfo=tz)
     return local_start.astimezone(timezone.utc), local_now.astimezone(timezone.utc)
 
 
@@ -1721,12 +1733,24 @@ def _signal_monitoring_alerts(
         "cross_source_confirmation",
         "custom_alert",
     )
+    event_window = and_(
+        MonitoringAlert.event_created_at >= since,
+        MonitoringAlert.event_created_at < before,
+    )
+    # Date-only Congress and similar source events are timestamped at UTC
+    # midnight for their displayed event date. Deliver them when Walnut first
+    # creates the alert; otherwise a Pacific-time window can discard an event
+    # that was discovered after the prior digest already ran.
+    activity_discovery_window = and_(
+        MonitoringAlert.alert_type.in_(ACTIVITY_SECTION_ALERT_TYPES),
+        MonitoringAlert.created_at >= since,
+        MonitoringAlert.created_at < before,
+    )
     query = (
         select(MonitoringAlert)
         .where(MonitoringAlert.user_id == user.id)
         .where(MonitoringAlert.dismissed_at.is_(None))
-        .where(MonitoringAlert.event_created_at >= since)
-        .where(MonitoringAlert.event_created_at < before)
+        .where(or_(event_window, activity_discovery_window))
         .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(signal_types)))
         .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
     )
