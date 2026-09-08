@@ -24,6 +24,9 @@ from app.ingest_senate import ingest_senate
 from app.models import (
     Event,
     IndexMembership,
+    OutcomeEntry,
+    OutcomeEvidenceProvenance,
+    OutcomeHorizonObservation,
     PriceCache,
     ConfirmationScoreSnapshot,
     ReplicatedPortfolioRun,
@@ -1313,12 +1316,113 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
     started = time.monotonic()
     expected_date = get_expected_latest_market_date()
     with SessionLocal() as db:
-        rows = db.execute(
-            select(ConfirmationScoreSnapshot)
+        bounded_limit = max(1, snapshot_limit)
+        entry_pairs = db.execute(
+            select(ConfirmationScoreSnapshot, OutcomeEntry)
+            .join(OutcomeEntry, OutcomeEntry.snapshot_id == ConfirmationScoreSnapshot.id)
             .where(ConfirmationScoreSnapshot.calculation_type == "live")
-            .order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc())
-            .limit(max(1, snapshot_limit))
+        ).all()
+        observed_horizons = {
+            (int(snapshot_id), int(horizon_days))
+            for snapshot_id, horizon_days in db.execute(
+                select(OutcomeHorizonObservation.snapshot_id, OutcomeHorizonObservation.horizon_days)
+            ).all()
+        }
+        due_by_horizon: dict[int, list[tuple[ConfirmationScoreSnapshot, OutcomeEntry]]] = {}
+        for days in OUTCOME_HORIZONS:
+            due_by_horizon[days] = sorted(
+                (
+                    (snapshot, entry)
+                    for snapshot, entry in entry_pairs
+                    if entry.entry_session_date + timedelta(days=days) <= expected_date
+                    and (int(snapshot.id), days) not in observed_horizons
+                ),
+                key=lambda pair: (
+                    pair[1].entry_session_date + timedelta(days=days),
+                    pair[1].entry_session_date,
+                    int(pair[0].id),
+                ),
+            )
+
+        # Round-robin due work across horizons. A permanently missing 7D price
+        # must never prevent already-due 30D (or later) observations from running.
+        due_pairs: list[tuple[ConfirmationScoreSnapshot, OutcomeEntry]] = []
+        due_ids: set[int] = set()
+        due_positions = {days: 0 for days in OUTCOME_HORIZONS}
+        while len(due_pairs) < bounded_limit:
+            added = False
+            for days in OUTCOME_HORIZONS:
+                rows_for_horizon = due_by_horizon[days]
+                position = due_positions[days]
+                while position < len(rows_for_horizon):
+                    pair = rows_for_horizon[position]
+                    position += 1
+                    due_positions[days] = position
+                    snapshot_id = int(pair[0].id)
+                    if snapshot_id not in due_ids:
+                        due_pairs.append(pair)
+                        due_ids.add(snapshot_id)
+                        added = True
+                        break
+                if len(due_pairs) >= bounded_limit:
+                    break
+            if not added:
+                break
+
+        entry_ids = select(OutcomeEntry.snapshot_id)
+        evidence_counts = (
+            select(
+                OutcomeEvidenceProvenance.snapshot_id.label("snapshot_id"),
+                func.count(func.distinct(OutcomeEvidenceProvenance.source_key)).label("source_count"),
+            )
+            .group_by(OutcomeEvidenceProvenance.snapshot_id)
+            .subquery()
+        )
+        missing_entry_base = select(ConfirmationScoreSnapshot).where(
+            ConfirmationScoreSnapshot.calculation_type == "live",
+            ConfirmationScoreSnapshot.market_date <= expected_date,
+            ConfirmationScoreSnapshot.active_source_count > 0,
+            ConfirmationScoreSnapshot.id.not_in(entry_ids),
+        ).join(
+            evidence_counts,
+            evidence_counts.c.snapshot_id == ConfirmationScoreSnapshot.id,
+        ).where(
+            evidence_counts.c.source_count == ConfirmationScoreSnapshot.active_source_count,
+        )
+        missing_entry_candidates = db.execute(
+            missing_entry_base
+            .order_by(ConfirmationScoreSnapshot.calculated_at.asc(), ConfirmationScoreSnapshot.id.asc())
         ).scalars().all()
+        due_quota = bounded_limit // 2
+        missing_quota = bounded_limit - due_quota
+        if len(missing_entry_candidates) <= missing_quota:
+            primary_missing_rows = missing_entry_candidates
+        elif missing_quota == 1:
+            primary_missing_rows = [missing_entry_candidates[-1]]
+        else:
+            last_index = len(missing_entry_candidates) - 1
+            primary_missing_rows = [
+                missing_entry_candidates[round(index * last_index / (missing_quota - 1))]
+                for index in range(missing_quota)
+            ]
+        primary_missing_ids = {int(snapshot.id) for snapshot in primary_missing_rows}
+        remaining_missing_rows = [
+            snapshot for snapshot in missing_entry_candidates if int(snapshot.id) not in primary_missing_ids
+        ]
+        selected_rows = [snapshot for snapshot, _entry in due_pairs[:due_quota]] + primary_missing_rows
+        selected_ids = {int(snapshot.id) for snapshot in selected_rows}
+        fill_rows = [snapshot for snapshot, _entry in due_pairs[due_quota:]] + remaining_missing_rows
+        for snapshot in fill_rows:
+            snapshot_id = int(snapshot.id)
+            if len(selected_rows) >= bounded_limit:
+                break
+            if snapshot_id in selected_ids:
+                continue
+            selected_rows.append(snapshot)
+            selected_ids.add(snapshot_id)
+        rows_by_id = {int(snapshot.id): snapshot for snapshot in selected_rows[:bounded_limit]}
+        rows = list(rows_by_id.values())
+        entry_by_snapshot = {int(entry.snapshot_id): entry for _snapshot, entry in entry_pairs}
 
         windows: dict[str, tuple[date, date]] = {}
 
@@ -1334,14 +1438,16 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
 
         benchmark_symbol = normalize_symbol(os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY")) or "SPY"
         for snapshot in rows:
+            existing_entry = entry_by_snapshot.get(int(snapshot.id))
+            anchor_day = existing_entry.entry_session_date if existing_entry is not None else snapshot.market_date
             matured_targets = [
-                snapshot.market_date + timedelta(days=days)
+                anchor_day + timedelta(days=days)
                 for days in OUTCOME_HORIZONS
-                if snapshot.market_date + timedelta(days=days) <= expected_date
+                if anchor_day + timedelta(days=days) <= expected_date
             ]
             end_day = min((max(matured_targets) + timedelta(days=7)) if matured_targets else expected_date, expected_date)
-            add_window(snapshot.ticker_at_time, snapshot.market_date, end_day)
-            add_window(benchmark_symbol, snapshot.market_date, end_day)
+            add_window(snapshot.ticker_at_time, anchor_day, end_day)
+            add_window(benchmark_symbol, anchor_day, end_day)
 
         hydrated_symbols = 0
         total_points = 0

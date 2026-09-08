@@ -7,6 +7,7 @@ import {
   getOutcomePricePath,
   getOutcomeLedgerOverview,
   getOutcomeLedgerSummary,
+  getOutcomeSnapshots,
   type OutcomeHorizonResult,
   type OutcomePricePath,
   type OutcomeLedgerStatus,
@@ -46,11 +47,11 @@ type CohortFilterValue = (typeof cohortFilterOptions)[number]["value"];
 type DateRangeFilterValue = (typeof dateRangeFilterOptions)[number]["value"];
 type EventOutcomePoint = {
   snapshot: OutcomeSnapshot;
-  outcome: OutcomeHorizonResult;
+  outcome: OutcomeHorizonResult | undefined;
   opened: number;
   openedLabel: string;
   targetLabel: string;
-  returnValue: number;
+  returnValue: number | null;
 };
 type PricePathPoint = {
   date: string;
@@ -75,9 +76,15 @@ function cleanError(error: unknown) {
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
-  const date = new Date(value);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = new Date(dateOnly ? `${value}T12:00:00Z` : value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(dateOnly ? { timeZone: "UTC" } : {}),
+  }).format(date);
 }
 
 function formatPrice(value?: number | null) {
@@ -104,11 +111,6 @@ function formatDirection(value?: string | null) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function statusLabel(status: OutcomeLedgerStatus | null, loading: boolean) {
-  if (status?.tracking_status) return status.tracking_status;
-  return loading ? "Loading" : "Pending";
-}
-
 function outcomeFor(snapshot: OutcomeSnapshot, horizon: string): OutcomeHorizonResult | undefined {
   return snapshot.outcomes?.[horizon];
 }
@@ -133,14 +135,18 @@ function isClosedOutcomeEvent(snapshot: OutcomeSnapshot, horizon?: string, repla
   );
 }
 
+function openedDateValue(snapshot: OutcomeSnapshot) {
+  return snapshot.entry_session_date ?? snapshot.entry_timestamp ?? snapshot.reference_price_at ?? snapshot.calculated_at ?? snapshot.created_at ?? snapshot.market_date;
+}
+
 function openedDate(snapshot: OutcomeSnapshot) {
-  return formatDate(snapshot.market_date ?? snapshot.calculated_at ?? snapshot.created_at);
+  return formatDate(openedDateValue(snapshot));
 }
 
 function openedTime(snapshot: OutcomeSnapshot) {
-  const raw = snapshot.market_date ?? snapshot.calculated_at ?? snapshot.created_at;
+  const raw = openedDateValue(snapshot);
   if (!raw) return 0;
-  const time = new Date(raw).getTime();
+  const time = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00Z` : raw).getTime();
   return Number.isFinite(time) ? time : 0;
 }
 
@@ -186,9 +192,14 @@ function replacedOutcomeSnapshotIds(snapshots: OutcomeSnapshot[]) {
 
 function compactDate(value?: string | null) {
   if (!value) return "-";
-  const date = new Date(value);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = new Date(dateOnly ? `${value}T12:00:00Z` : value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(dateOnly ? { timeZone: "UTC" } : {}),
+  }).format(date);
 }
 
 function compactDateTime(value?: string | null) {
@@ -399,20 +410,6 @@ function MetricCard({ icon, label, value, detail }: { icon: string; label: strin
   );
 }
 
-function ScoredHorizonsPill({ value, detail, className = "" }: { value: string | number; detail: string; className?: string }) {
-  return (
-    <div className={`flex h-12 min-w-[14.25rem] items-center rounded-md border border-white/10 bg-slate-900/70 px-3 shadow-inner shadow-white/[0.02] ${className}`}>
-      <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-300">Scored Horizons</p>
-        <p className="mt-0.5 truncate text-xs text-slate-300">
-          <span className="mr-2 align-middle text-xl font-semibold leading-none text-white">{value}</span>
-          {detail}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function PendingOverlay({ children }: { children: ReactNode }) {
   return (
     <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 rounded-md border border-white/10 bg-slate-950/85 p-4 text-center shadow-2xl shadow-black/30 sm:inset-x-6">
@@ -488,40 +485,44 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
   }, []);
   const points = snapshots
     .map((snapshot) => {
-      const outcome = maturedOutcome(snapshot, horizon);
+      const outcome = outcomeFor(snapshot, horizon);
+      const matured = maturedOutcome(snapshot, horizon);
       const opened = openedTime(snapshot);
-      const returnValue = numericReturn(outcome?.return_pct);
-      if (!outcome || !opened || returnValue === null) return null;
+      const returnValue = numericReturn(matured?.return_pct);
+      const isOpen = snapshot.lifecycle_status !== "closed";
+      if (!opened || (returnValue === null && !isOpen)) return null;
       return {
         snapshot,
         outcome,
         opened,
         openedLabel: openedDate(snapshot),
-        targetLabel: outcome.target_date ? compactDate(outcome.target_date) : "-",
+        targetLabel: outcome?.target_date ? compactDate(outcome.target_date) : "-",
         returnValue,
       };
     })
     .filter((item): item is EventOutcomePoint => item !== null)
     .sort((a, b) => a.opened - b.opened);
-  const minOpened = Math.min(...points.map((point) => point.opened), Date.now());
-  const maxOpened = Math.max(...points.map((point) => point.opened), minOpened);
+  const minOpened = points.length ? Math.min(...points.map((point) => point.opened)) : Date.now();
+  const maxOpened = points.length ? Math.max(...points.map((point) => point.opened)) : minOpened;
   const xRange = Math.max(1, maxOpened - minOpened);
-  const maxAbsoluteReturn = Math.max(5, ...points.map((point) => Math.abs(point.returnValue)));
+  const maturedReturns = points.flatMap((point) => point.returnValue === null ? [] : [point.returnValue]);
+  const maxAbsoluteReturn = Math.max(5, ...maturedReturns.map((value) => Math.abs(value)));
   const yExtent = Math.ceil(maxAbsoluteReturn / 5) * 5;
   const yScale = 72 / yExtent;
   const zeroY = 108;
   const yTicks = [yExtent, yExtent / 2, 0, -yExtent / 2, -yExtent];
   const xTicks = points.length
-    ? [
-        { label: compactDate(points[0]?.snapshot.market_date), x: 80 },
-        { label: compactDate(points[Math.floor((points.length - 1) / 2)]?.snapshot.market_date), x: 390 },
-        { label: compactDate(points[points.length - 1]?.snapshot.market_date), x: 700 },
-      ]
+    ? [minOpened, minOpened + xRange / 2, maxOpened]
+        .map((time) => ({
+          label: compactDate(new Date(time).toISOString().slice(0, 10)),
+          x: points.length <= 1 ? 390 : 80 + ((time - minOpened) / xRange) * 620,
+        }))
+        .filter((tick, index, ticks) => ticks.findIndex((candidate) => candidate.label === tick.label) === index)
     : [];
 
   function pointCoordinates(point: EventOutcomePoint) {
     const x = points.length <= 1 ? 390 : 80 + ((point.opened - minOpened) / xRange) * 620;
-    const y = zeroY - point.returnValue * yScale;
+    const y = point.returnValue === null ? 20 : zeroY - point.returnValue * yScale;
     return { x, y };
   }
 
@@ -540,6 +541,10 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           <span className="h-2 w-2 rounded-full bg-red-500" />
           Negative outcome
         </span>
+        <span className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full border border-sky-300 bg-transparent" />
+          Open / awaiting {horizon}
+        </span>
       </div>
       <div className="relative mt-2 h-52 min-w-0 overflow-hidden">
         <svg viewBox="0 0 760 235" className="h-full w-full overflow-visible outline-none" role="img" aria-label="Event outcomes by date and return" tabIndex={0} style={{ touchAction: "pan-y" }} onPointerLeave={(event) => { if (event.pointerType === "mouse") { setHoverPoint(null); setActiveIndex(null); } }} onKeyDown={(event) => { if (event.key === "Escape") { setHoverPoint(null); setActiveIndex(null); return; } if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" || !points.length) return; event.preventDefault(); const next = Math.max(0, Math.min(points.length - 1, (activeIndex ?? 0) + (event.key === "ArrowLeft" ? -1 : 1))); const point = points[next]; const { x, y } = pointCoordinates(point); setActiveIndex(next); setHoverPoint({ ...point, x, y }); }}>
@@ -553,6 +558,12 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
             );
           })}
           <line x1="40" x2="735" y1={zeroY} y2={zeroY} stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
+          {points.some((point) => point.returnValue === null) ? (
+            <>
+              <line x1="40" x2="735" y1="20" y2="20" stroke="rgba(125,211,252,0.3)" strokeDasharray="2 5" />
+              <text x="735" y="14" fill="#7dd3fc" fontSize="9" textAnchor="end">Awaiting {horizon}</text>
+            </>
+          ) : null}
           <line x1="40" x2="735" y1="190" y2="190" stroke="rgba(148,163,184,0.35)" />
           {xTicks.map(({ label, x }) => (
             <text key={`${label}-${x}`} x={x} y="212" fill="#cbd5e1" fontSize="12" textAnchor="middle">
@@ -567,7 +578,8 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           </text>
           {points.map((point, index) => {
             const { x, y } = pointCoordinates(point);
-            const positive = point.returnValue >= 0;
+            const positive = point.returnValue !== null && point.returnValue >= 0;
+            const pending = point.returnValue === null;
             return (
               <g
                 key={point.snapshot.id}
@@ -577,12 +589,25 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
                 onBlur={() => { setActiveIndex(null); setHoverPoint(null); }}
                 tabIndex={0}
                 role="button"
-                aria-label={`${point.snapshot.ticker} opened ${point.openedLabel}, return ${formatPercent(point.returnValue)}`}
+                aria-label={pending
+                  ? `${point.snapshot.ticker} opened ${point.openedLabel}, awaiting ${horizon} outcome`
+                  : `${point.snapshot.ticker} opened ${point.openedLabel}, return ${formatPercent(point.returnValue)}`}
               >
-                <circle cx={x} cy={y} r="6" fill={positive ? "#84cc16" : "#ef4444"} opacity={revealed ? "0.92" : "0"} className="cursor-pointer transition-opacity duration-300" />
-                <text x={x} y={y - 10} fill="#cbd5e1" fontSize="10" textAnchor="middle">
-                  {point.snapshot.ticker}
-                </text>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={pending ? "5" : "6"}
+                  fill={pending ? "#0f172a" : positive ? "#84cc16" : "#ef4444"}
+                  stroke={pending ? "#7dd3fc" : "none"}
+                  strokeWidth={pending ? "2" : "0"}
+                  opacity={revealed ? "0.92" : "0"}
+                  className="cursor-pointer transition-opacity duration-300"
+                />
+                {activeIndex === index ? (
+                  <text x={x} y={y - 10} fill="#cbd5e1" fontSize="10" textAnchor="middle">
+                    {point.snapshot.ticker}
+                  </text>
+                ) : null}
               </g>
             );
           })}
@@ -598,11 +623,17 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
             <p className="font-semibold text-white">{hoverPoint.snapshot.ticker}</p>
             <p>Opened {hoverPoint.openedLabel}</p>
             <p>{horizon} target {hoverPoint.targetLabel}</p>
-            <p className={pctClassName(hoverPoint.returnValue)}>Return {formatPercent(hoverPoint.returnValue)}</p>
-            <p>SPY {formatPercent(hoverPoint.outcome.spy_return_pct)}</p>
-            <p className={pctClassName(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}>
-              +/- {formatPercent(hoverPoint.outcome.directional_excess_return_pct ?? hoverPoint.outcome.excess_return_pct)}
-            </p>
+            {hoverPoint.returnValue === null ? (
+              <p className="text-sky-300">Awaiting {horizon} outcome</p>
+            ) : (
+              <>
+                <p className={pctClassName(hoverPoint.returnValue)}>Return {formatPercent(hoverPoint.returnValue)}</p>
+                <p>SPY {formatPercent(hoverPoint.outcome?.spy_return_pct)}</p>
+                <p className={pctClassName(hoverPoint.outcome?.directional_excess_return_pct ?? hoverPoint.outcome?.excess_return_pct)}>
+                  +/- {formatPercent(hoverPoint.outcome?.directional_excess_return_pct ?? hoverPoint.outcome?.excess_return_pct)}
+                </p>
+              </>
+            )}
           </div>
         ) : null}
         {!points.length ? (
@@ -611,7 +642,9 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           </PendingOverlay>
         ) : null}
       </div>
-      <p className="text-xs text-slate-400">Each point = matured confirmation event, including misses.</p>
+      <p className="text-xs text-slate-400">
+        Filled points are measured outcomes. Outlined points are live events awaiting the selected horizon. Audit-held events are excluded.
+      </p>
     </section>
   );
 }
@@ -1149,11 +1182,10 @@ export function OutcomeLedgerClient({
   initialSummary: OutcomeLedgerSummary | null;
   initialSnapshots: OutcomeSnapshotsResponse | null;
 }) {
-  const [status, setStatus] = useState(initialStatus);
   const [summary, setSummary] = useState(initialSummary);
   const [snapshots, setSnapshots] = useState<OutcomeSnapshotsResponse | null>(initialSnapshots);
+  const [snapshotSampleHorizon, setSnapshotSampleHorizon] = useState("30D");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!initialStatus || !initialSummary || !initialSnapshots);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
   const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
@@ -1184,20 +1216,16 @@ export function OutcomeLedgerClient({
   useEffect(() => {
     if (initialStatus && initialSummary && initialSnapshots) return;
     let alive = true;
-    setLoading(true);
-    getOutcomeLedgerOverview({ limit: 100, horizons: "30D,7D" })
+    getOutcomeLedgerOverview({ limit: 500, horizons: "30D,7D" })
       .then((overview) => {
         if (!alive) return;
-        setStatus(overview.status);
         setSummary(overview.summaries[horizonFilter] ?? overview.summaries[overview.default_horizon] ?? null);
         setSnapshots(overview.snapshots);
+        setSnapshotSampleHorizon(overview.default_horizon);
         setError(null);
       })
       .catch((nextError) => {
         if (alive) setError(cleanError(nextError));
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
       });
     return () => {
       alive = false;
@@ -1216,6 +1244,24 @@ export function OutcomeLedgerClient({
       alive = false;
     };
   }, [horizonFilter, summary?.horizon]);
+
+  useEffect(() => {
+    if (!snapshots || snapshotSampleHorizon === horizonFilter) return;
+    let alive = true;
+    getOutcomeSnapshots({ limit: 500, horizon: horizonFilter })
+      .then((nextSnapshots) => {
+        if (!alive) return;
+        setSnapshots(nextSnapshots);
+        setSnapshotSampleHorizon(horizonFilter);
+        setError(null);
+      })
+      .catch((nextError) => {
+        if (alive) setError(cleanError(nextError));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [horizonFilter, snapshotSampleHorizon, snapshots]);
 
   const snapshotItems = useMemo(() => snapshots?.items ?? [], [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {
@@ -1301,7 +1347,6 @@ export function OutcomeLedgerClient({
         averageSpyReturn: summary.average_spy_return,
         averageDirectionalExcessReturn: summary.average_directional_excess_return,
         benchmarkedEvents: summary.benchmarked_events,
-        maturedHorizonCount: summary.matured_horizon_count,
       };
     }
     const maturedForHorizon = filteredSnapshotItems
@@ -1328,15 +1373,6 @@ export function OutcomeLedgerClient({
     const averageSpyReturn = average(benchmarkedDirectionalOutcomes.map((outcome) => outcome.spy_return_pct as number));
     const averageDirectionalExcessReturn =
       averageBenchmarkedDirectionalReturn !== null && averageSpyReturn !== null ? Number((averageBenchmarkedDirectionalReturn - averageSpyReturn).toFixed(2)) : null;
-    const maturedHorizonCount = filteredSnapshotItems.reduce(
-      (total, snapshot) =>
-        total +
-        horizonColumns.filter((horizon) => {
-          const outcome = outcomeFor(snapshot, horizon);
-          return outcome?.status === "matured" && typeof outcome.return_pct === "number";
-        }).length,
-      0,
-    );
     return {
       completedEvents: maturedForHorizon.length,
       accuracy,
@@ -1346,7 +1382,6 @@ export function OutcomeLedgerClient({
       averageSpyReturn,
       averageDirectionalExcessReturn,
       benchmarkedEvents: benchmarkedDirectionalOutcomes.length,
-      maturedHorizonCount,
     };
   }, [canUseServerSummary, filteredSnapshotItems, horizonFilter, summary]);
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
@@ -1419,7 +1454,6 @@ export function OutcomeLedgerClient({
               >
                 Export CSV
               </button>
-              <ScoredHorizonsPill className="w-full" value={outcomeMetrics.maturedHorizonCount} detail={`${statusLabel(status, loading)} outcome cells`} />
               {!eventDetailOpen ? (
                 <button
                   type="button"

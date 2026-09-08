@@ -61,7 +61,7 @@ OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS = 30
 OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE = 10
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v3-audited"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v4-live-and-matured"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -1231,6 +1231,8 @@ def _snapshot_row(
         "reference_price": public_reference_price,
         "reference_price_at": public_reference_at.isoformat() if public_reference_at else None,
         "reference_price_source": public_reference_source,
+        "entry_session_date": canonical_entry.entry_session_date.isoformat() if canonical_entry is not None else None,
+        "entry_timestamp": canonical_entry.entry_price_at.isoformat() if canonical_entry is not None else None,
         "entry_price_type": canonical_entry.entry_price_type if canonical_entry is not None else None,
         "data_integrity_status": "verified" if canonical_entry is not None else "fixture" if legacy_allowed else "requires_reconstruction",
         "active_source_count": snapshot.active_source_count,
@@ -1384,6 +1386,78 @@ def _event_display_sort_key(event: DirectionalOutcomeEvent) -> tuple[int, dateti
     return is_30d_matured, event_time, event_id
 
 
+def _balanced_horizon_event_sample(
+    db: Session,
+    events: list[DirectionalOutcomeEvent],
+    *,
+    horizon_days: int,
+    limit: int,
+) -> list[DirectionalOutcomeEvent]:
+    """Return a recent mix of measured and still-open events for a chart preview."""
+    if not events or limit <= 0:
+        return []
+    event_ids = [int(event.snapshot.id) for event in events]
+    entries = db.execute(
+        select(OutcomeEntry).where(OutcomeEntry.snapshot_id.in_(event_ids))
+    ).scalars().all()
+    entry_by_snapshot = {int(entry.snapshot_id): entry for entry in entries}
+    observed_ids = set(
+        db.execute(
+            select(OutcomeHorizonObservation.snapshot_id).where(
+                OutcomeHorizonObservation.snapshot_id.in_(event_ids),
+                OutcomeHorizonObservation.horizon_days == horizon_days,
+            )
+        ).scalars().all()
+    )
+
+    def recency(event: DirectionalOutcomeEvent) -> tuple[date, datetime, int]:
+        entry = entry_by_snapshot.get(int(event.snapshot.id))
+        event_time, event_id = _snapshot_event_time(event.snapshot)
+        return entry.entry_session_date if entry is not None else event.snapshot.market_date, event_time, event_id
+
+    matured = sorted(
+        (event for event in events if int(event.snapshot.id) in observed_ids),
+        key=recency,
+        reverse=True,
+    )
+    awaiting = sorted(
+        (
+            event
+            for event in events
+            if int(event.snapshot.id) not in observed_ids
+            and int(event.snapshot.id) in entry_by_snapshot
+            and event.closed_at is None
+        ),
+        key=recency,
+        reverse=True,
+    )
+    remainder = sorted(
+        (
+            event
+            for event in events
+            if int(event.snapshot.id) not in observed_ids
+            and not (
+                int(event.snapshot.id) in entry_by_snapshot
+                and event.closed_at is None
+            )
+        ),
+        key=recency,
+        reverse=True,
+    )
+
+    matured_quota = limit // 2
+    awaiting_quota = limit - matured_quota
+    selected = awaiting[:awaiting_quota] + matured[:matured_quota]
+    selected_ids = {int(event.snapshot.id) for event in selected}
+    fill = [
+        event
+        for event in awaiting[awaiting_quota:] + matured[matured_quota:] + remainder
+        if int(event.snapshot.id) not in selected_ids
+    ]
+    selected.extend(fill[: max(0, limit - len(selected))])
+    return sorted(selected, key=recency, reverse=True)
+
+
 def list_outcome_snapshots(
     db: Session,
     *,
@@ -1395,6 +1469,7 @@ def list_outcome_snapshots(
     start_date: date | None = None,
     end_date: date | None = None,
     include_internal: bool = False,
+    balanced_horizon: str | None = None,
 ) -> dict[str, Any]:
     bounded_page = max(0, int(page or 0))
     bounded_limit = max(1, min(int(limit or 25), 5000))
@@ -1424,7 +1499,16 @@ def list_outcome_snapshots(
             if int(event.snapshot.id) in verified_ids or _legacy_outcomes_allowed(event.snapshot)
         ]
     total = len(events)
-    paged_events = events[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
+    selected_horizon = (balanced_horizon or "").strip().upper()
+    if bounded_page == 0 and selected_horizon in {f"{days}D" for days in OUTCOME_HORIZONS}:
+        paged_events = _balanced_horizon_event_sample(
+            db,
+            events,
+            horizon_days=int(selected_horizon[:-1]),
+            limit=bounded_limit,
+        )
+    else:
+        paged_events = events[bounded_page * bounded_limit : (bounded_page + 1) * bounded_limit]
     rows = [event.snapshot for event in paged_events]
     methodology_by_id = {
         row.id: row.version
@@ -1609,28 +1693,38 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) 
         )
         warmed += 1
 
-    snapshot_params = {
-        "end_date": None,
-        "calculation_type": None,
-        "limit": snapshot_limit,
-        "methodology": None,
-        "page": 0,
-        "start_date": None,
-        "ticker": None,
-    }
-    snapshot_payload = list_outcome_snapshots(db, page=0, limit=snapshot_limit, include_internal=False)
-    store_public_outcome_ledger_payload(
-        db,
-        public_outcome_ledger_cache_key("snapshots", snapshot_params),
-        snapshot_payload,
-    )
-    warmed += 1
+    snapshot_payloads: dict[str, dict[str, Any]] = {}
+    for horizon in warm_horizons:
+        snapshot_params = {
+            "end_date": None,
+            "calculation_type": None,
+            "horizon": horizon,
+            "limit": snapshot_limit,
+            "methodology": None,
+            "page": 0,
+            "start_date": None,
+            "ticker": None,
+        }
+        snapshot_payload = list_outcome_snapshots(
+            db,
+            page=0,
+            limit=snapshot_limit,
+            include_internal=False,
+            balanced_horizon=horizon,
+        )
+        snapshot_payloads[horizon] = snapshot_payload
+        store_public_outcome_ledger_payload(
+            db,
+            public_outcome_ledger_cache_key("snapshots", snapshot_params),
+            snapshot_payload,
+        )
+        warmed += 1
 
     overview_params = {"horizons": warm_horizons, "snapshot_limit": snapshot_limit}
     overview_payload = {
         "status": status_payload,
         "summaries": summary_payloads,
-        "snapshots": snapshot_payload,
+        "snapshots": snapshot_payloads[warm_horizons[0]],
         "default_horizon": warm_horizons[0] if warm_horizons else "30D",
     }
     store_public_outcome_ledger_payload(

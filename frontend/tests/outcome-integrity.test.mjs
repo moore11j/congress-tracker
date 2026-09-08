@@ -20,9 +20,21 @@ test("Outcome charts consume the exact event price-path endpoint", () => {
 });
 
 test("Outcome scatter plots raw API return without clipping or directional substitution", () => {
-  assert.match(outcomes, /const returnValue = numericReturn\(outcome\?\.return_pct\)/);
+  assert.match(outcomes, /const returnValue = numericReturn\(matured\?\.return_pct\)/);
   assert.match(outcomes, /const yExtent = Math\.ceil\(maxAbsoluteReturn \/ 5\) \* 5/);
   assert.doesNotMatch(outcomes, /Math\.max\(-25, Math\.min\(25, point\.returnValue\)\)/);
+});
+
+test("Outcome dates use the verified entry session without date-only timezone drift", () => {
+  assert.match(outcomes, /snapshot\.entry_session_date \?\? snapshot\.entry_timestamp \?\? snapshot\.reference_price_at/);
+  assert.match(outcomes, /dateOnly \? `\$\{value\}T12:00:00Z` : value/);
+  assert.match(outcomes, /Open \/ awaiting \{horizon\}/);
+  assert.match(outcomes, /Filled points are measured outcomes\. Outlined points are live events awaiting the selected horizon\. Audit-held events are excluded\./);
+});
+
+test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
+  assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: horizonFilter \}\)/);
+  assert.match(outcomes, /snapshotSampleHorizon === horizonFilter/);
 });
 
 test("frontend never synthesizes missing Outcome returns", () => {

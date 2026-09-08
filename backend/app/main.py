@@ -6544,7 +6544,13 @@ def outcomes_overview(
     payload = {
         "status": outcome_ledger_status(db),
         "summaries": {horizon: outcome_ledger_summary(db, horizon=horizon) for horizon in selected_horizons},
-        "snapshots": list_outcome_snapshots(db, page=0, limit=public_limit, include_internal=False),
+        "snapshots": list_outcome_snapshots(
+            db,
+            page=0,
+            limit=public_limit,
+            include_internal=False,
+            balanced_horizon=selected_horizons[0],
+        ),
         "default_horizon": selected_horizons[0],
     }
     store_public_outcome_ledger_payload(db, persistent_key, payload)
@@ -6608,6 +6614,7 @@ def outcomes_snapshots(
     calculation_type: str | None = Query(None, pattern="^(live|historical_reconstruction|data_correction|manual_test)$"),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
+    horizon: str | None = Query(None, pattern="^(7D|30D|90D|180D|365D)$"),
     db: Session = Depends(get_db),
 ):
     if not outcome_ledger_enabled(db):
@@ -6622,6 +6629,7 @@ def outcomes_snapshots(
         "page": page,
         "start_date": start_date,
         "ticker": ticker,
+        "horizon": horizon,
     }
     persistent_key = public_outcome_ledger_cache_key("snapshots", cache_params)
     cache_key = f"snapshots:{persistent_key}"
@@ -6642,6 +6650,7 @@ def outcomes_snapshots(
         start_date=_parse_outcome_date(start_date),
         end_date=_parse_outcome_date(end_date),
         include_internal=False,
+        balanced_horizon=horizon,
     )
     store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)

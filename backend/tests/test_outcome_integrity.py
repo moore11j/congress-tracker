@@ -24,7 +24,7 @@ from app.services.outcome_integrity import (
     materialize_outcome_entry,
     materialize_outcome_horizons,
 )
-from app.services.outcome_ledger import _project_directional_outcome_events, outcome_ledger_summary
+from app.services.outcome_ledger import _project_directional_outcome_events, _snapshot_row, list_outcome_snapshots, outcome_ledger_summary
 from app.services.price_lookup import EodPriceBar, reconstruct_adjusted_price_bars
 
 UTC = timezone.utc
@@ -58,12 +58,13 @@ def _snapshot(
     calculated_at: datetime,
     *,
     ticker: str = "CRM",
+    security_id: int = 1,
     score: int = 70,
     direction: str = "bullish",
     legacy_reference_price: float | None = None,
 ):
     snapshot = ConfirmationScoreSnapshot(
-        security_id=1,
+        security_id=security_id,
         ticker_at_time=ticker,
         calculated_at=calculated_at,
         market_date=calculated_at.astimezone(timezone(timedelta(hours=-5))).date(),
@@ -137,6 +138,66 @@ def test_market_holiday_uses_first_price_session_after_holiday():
 def test_dst_transition_uses_new_york_offset():
     assert market_open_at(date(2026, 1, 5)).hour == 14
     assert market_open_at(date(2026, 7, 6)).hour == 13
+
+
+def test_public_snapshot_exposes_canonical_entry_date_instead_of_snapshot_market_date():
+    engine = _engine()
+    with Session(engine) as db:
+        calculated_at = datetime(2026, 1, 5, 15, 0, tzinfo=UTC)
+        snapshot = _snapshot(db, calculated_at)
+        db.add_all([
+            _bar("CRM", date(2026, 1, 6), 101),
+            _bar("SPY", date(2026, 1, 6), 501),
+        ])
+        db.flush()
+        entry = materialize_outcome_entry(db, snapshot)
+        assert entry is not None
+
+        payload = _snapshot_row(db, snapshot)
+
+        assert payload["market_date"] == "2026-01-05"
+        assert payload["entry_session_date"] == "2026-01-06"
+        assert payload["entry_timestamp"] == "2026-01-06T14:30:00+00:00"
+
+
+def test_horizon_balanced_snapshot_sample_contains_matured_and_open_events():
+    engine = _engine()
+    with Session(engine) as db:
+        today = datetime.now(UTC).date()
+        matured_day = today - timedelta(days=10)
+        pending_day = today - timedelta(days=2)
+        matured_snapshot = _snapshot(
+            db,
+            datetime.combine(matured_day, datetime.min.time(), tzinfo=UTC).replace(hour=13),
+            ticker="DONE",
+            security_id=1,
+        )
+        pending_snapshot = _snapshot(
+            db,
+            datetime.combine(pending_day, datetime.min.time(), tzinfo=UTC).replace(hour=13),
+            ticker="OPEN",
+            security_id=2,
+        )
+        db.add_all([
+            _bar("DONE", matured_day, 100),
+            _bar("SPY", matured_day, 500),
+            _bar("DONE", matured_day + timedelta(days=7), 110),
+            _bar("SPY", matured_day + timedelta(days=7), 505),
+            _bar("OPEN", pending_day, 50),
+            _bar("SPY", pending_day, 510),
+        ])
+        db.flush()
+        matured_entry = materialize_outcome_entry(db, matured_snapshot)
+        pending_entry = materialize_outcome_entry(db, pending_snapshot)
+        assert matured_entry is not None and pending_entry is not None
+        assert materialize_outcome_horizons(db, matured_entry, as_of=today)
+
+        payload = list_outcome_snapshots(db, limit=2, balanced_horizon="7D")
+
+        assert {item["ticker"] for item in payload["items"]} == {"DONE", "OPEN"}
+        by_ticker = {item["ticker"]: item for item in payload["items"]}
+        assert by_ticker["DONE"]["outcomes"]["7D"]["status"] == "matured"
+        assert by_ticker["OPEN"]["outcomes"]["7D"]["status"] == "pending"
 
 
 def test_stock_split_does_not_create_fake_return():

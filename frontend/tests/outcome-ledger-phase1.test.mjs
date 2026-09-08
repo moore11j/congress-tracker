@@ -41,7 +41,7 @@ test("Outcome Ledger page uses real API data and truthful empty states", () => {
   assert.match(outcomesClient, /Event Detail/);
   assert.match(outcomesClient, /Price Path vs SPY/);
   assert.match(outcomesClient, /Outcome Set/);
-  assert.match(outcomesClient, /Scored Horizons/);
+  assert.doesNotMatch(outcomesClient, /Scored Horizons/);
   assert.match(outcomesClient, /visibleOutcomeEventKey/);
   assert.match(outcomesClient, /byVisibleEvent\.set\(key, snapshot\)/);
   assert.match(outcomesClient, /bullish\/bearish calls measured at/);

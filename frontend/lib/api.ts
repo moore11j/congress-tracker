@@ -8259,6 +8259,8 @@ export type OutcomeSnapshot = {
   reference_price?: number | null;
   reference_price_at?: string | null;
   reference_price_source?: string | null;
+  entry_session_date?: string | null;
+  entry_timestamp?: string | null;
   entry_price_type?: string | null;
   data_integrity_status?: "verified" | "requires_reconstruction" | "fixture" | string;
   active_source_count: number;
