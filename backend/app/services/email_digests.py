@@ -1443,7 +1443,7 @@ def _signal_activity_section_key(event_type: str | None) -> str | None:
 def _activity_item_from_event(event: Event) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
     return {
-        "date": _format_date(event.event_date or event.ts),
+        "date": _activity_display_date(event, payload),
         "name": _activity_actor(event, payload),
         "ticker": _normalize_ticker(event.symbol or payload.get("symbol") or payload.get("ticker")),
         "action": _activity_action(event, payload),
@@ -2096,6 +2096,27 @@ def _is_source_monitoring_item(item: dict[str, Any]) -> bool:
         "large_trade_contract",
         "large_trade_threshold",
     }
+
+
+def _activity_display_date(event: Event, payload: dict[str, Any]) -> str:
+    normalized_type = (event.event_type or "").strip().lower()
+    if normalized_type.startswith("congress_trade"):
+        date_keys = ("filing_date", "report_date", "filingDate", "reportDate")
+    elif normalized_type.startswith("insider_trade"):
+        date_keys = ("filing_date", "filingDate")
+    elif normalized_type in GOVERNMENT_CONTRACT_ALERT_TYPES:
+        date_keys = ("award_date", "awardDate")
+    else:
+        date_keys = ("report_date", "filing_date", "reportDate", "filingDate")
+    for key in date_keys:
+        raw_value = payload.get(key)
+        if raw_value is None:
+            continue
+        try:
+            return _friendly_date(date.fromisoformat(str(raw_value).strip()[:10]))
+        except (TypeError, ValueError):
+            continue
+    return _format_date(event.event_date or event.ts)
 
 
 def _is_internal_refresh_signal(item: dict[str, Any]) -> bool:

@@ -2175,6 +2175,7 @@ def test_signal_digest_uses_discovery_time_for_date_only_congress_alerts():
         assert digest.items_count == 1
         assert "Gilbert Cisneros" in digest.context["congress_trades_text"]
         assert "NVDA" in digest.context["congress_trades_text"]
+        assert "Sep 7, 2026" in digest.context["congress_trades_text"]
     finally:
         db.close()
 
