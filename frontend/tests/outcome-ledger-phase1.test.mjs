@@ -69,7 +69,7 @@ test("frontend API separates public and admin Outcome Ledger fields", () => {
   assert.match(api, /serverCachedJson\(\s*`outcome-ledger-status/);
   assert.match(api, /serverCachedJson\(\s*`outcome-ledger-summary/);
   assert.match(api, /serverCachedJson\(\s*`outcome-ledger-snapshots/);
-  assert.match(api, /next: \{ revalidate: 300 \}/);
+  assert.match(api, /cache: "no-store",\s*next: \{ revalidate: 0 \}/);
   assert.match(api, /\/api\/admin\/outcomes\/status/);
   assert.match(api, /\/api\/admin\/outcomes\/snapshots/);
 });

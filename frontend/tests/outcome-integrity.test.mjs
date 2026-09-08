@@ -34,7 +34,8 @@ test("Outcome dates use the verified entry session without date-only timezone dr
 
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
   assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: horizonFilter \}\)/);
-  assert.match(outcomes, /snapshotSampleHorizon === horizonFilter/);
+  assert.match(outcomes, /getOutcomeLedgerSummary\(\{ horizon: horizonFilter \}\)/);
+  assert.match(api, /fetchPublicJson<OutcomeSnapshotsResponse>\(url, \{\s*cache: "no-store"/);
 });
 
 test("frontend never synthesizes missing Outcome returns", () => {

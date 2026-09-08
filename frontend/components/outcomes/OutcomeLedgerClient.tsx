@@ -1184,7 +1184,6 @@ export function OutcomeLedgerClient({
 }) {
   const [summary, setSummary] = useState(initialSummary);
   const [snapshots, setSnapshots] = useState<OutcomeSnapshotsResponse | null>(initialSnapshots);
-  const [snapshotSampleHorizon, setSnapshotSampleHorizon] = useState("30D");
   const [error, setError] = useState<string | null>(null);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [exportGateOpen, setExportGateOpen] = useState(false);
@@ -1219,9 +1218,8 @@ export function OutcomeLedgerClient({
     getOutcomeLedgerOverview({ limit: 500, horizons: "30D,7D" })
       .then((overview) => {
         if (!alive) return;
-        setSummary(overview.summaries[horizonFilter] ?? overview.summaries[overview.default_horizon] ?? null);
+        setSummary(overview.summaries[overview.default_horizon] ?? null);
         setSnapshots(overview.snapshots);
-        setSnapshotSampleHorizon(overview.default_horizon);
         setError(null);
       })
       .catch((nextError) => {
@@ -1230,29 +1228,30 @@ export function OutcomeLedgerClient({
     return () => {
       alive = false;
     };
-  }, [horizonFilter, initialStatus, initialSummary, initialSnapshots]);
+  }, [initialStatus, initialSummary, initialSnapshots]);
 
   useEffect(() => {
-    if (summary?.horizon === horizonFilter) return;
     let alive = true;
     getOutcomeLedgerSummary({ horizon: horizonFilter })
       .then((nextSummary) => {
-        if (alive) setSummary(nextSummary);
+        if (!alive) return;
+        setSummary(nextSummary);
+        setError(null);
       })
-      .catch(() => undefined);
+      .catch((nextError) => {
+        if (alive) setError(cleanError(nextError));
+      });
     return () => {
       alive = false;
     };
-  }, [horizonFilter, summary?.horizon]);
+  }, [horizonFilter]);
 
   useEffect(() => {
-    if (!snapshots || snapshotSampleHorizon === horizonFilter) return;
     let alive = true;
     getOutcomeSnapshots({ limit: 500, horizon: horizonFilter })
       .then((nextSnapshots) => {
         if (!alive) return;
         setSnapshots(nextSnapshots);
-        setSnapshotSampleHorizon(horizonFilter);
         setError(null);
       })
       .catch((nextError) => {
@@ -1261,7 +1260,7 @@ export function OutcomeLedgerClient({
     return () => {
       alive = false;
     };
-  }, [horizonFilter, snapshotSampleHorizon, snapshots]);
+  }, [horizonFilter]);
 
   const snapshotItems = useMemo(() => snapshots?.items ?? [], [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {
