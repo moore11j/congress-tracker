@@ -539,25 +539,27 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
     })
     .filter((item): item is EventOutcomePoint => item !== null)
     .sort((a, b) => a.opened - b.opened);
-  const minOpened = points.length ? Math.min(...points.map((point) => point.opened)) : Date.now();
-  const maxOpened = points.length ? Math.max(...points.map((point) => point.opened)) : minOpened;
-  const xRange = Math.max(1, maxOpened - minOpened);
   const maxAbsoluteReturn = Math.max(5, ...points.map((point) => Math.abs(point.returnValue)));
   const yExtent = Math.ceil(maxAbsoluteReturn / 5) * 5;
   const yScale = 72 / yExtent;
   const zeroY = 108;
   const yTicks = [yExtent, yExtent / 2, 0, -yExtent / 2, -yExtent];
   const openedTradingDays = [...new Set(points.map((point) => point.opened))].sort((a, b) => a - b);
+  const openedTradingDayIndexes = new Map(openedTradingDays.map((time, index) => [time, index]));
+  const xForOpened = (time: number) => {
+    if (openedTradingDays.length <= 1) return 390;
+    return 80 + ((openedTradingDayIndexes.get(time) ?? 0) / (openedTradingDays.length - 1)) * 620;
+  };
   const tickTimes = openedTradingDays.length <= 9
     ? openedTradingDays
     : Array.from({ length: 9 }, (_, index) => openedTradingDays[Math.round(index * (openedTradingDays.length - 1) / 8)]);
   const xTicks = [...new Set(tickTimes)].map((time) => ({
     label: compactDate(new Date(time).toISOString().slice(0, 10)),
-    x: points.length <= 1 ? 390 : 80 + ((time - minOpened) / xRange) * 620,
+    x: xForOpened(time),
   }));
 
   function pointCoordinates(point: EventOutcomePoint) {
-    const x = points.length <= 1 ? 390 : 80 + ((point.opened - minOpened) / xRange) * 620;
+    const x = xForOpened(point.opened);
     const y = zeroY - point.returnValue * yScale;
     return { x, y };
   }
@@ -676,7 +678,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
         ) : null}
       </div>
       <p className="text-xs text-slate-400">
-        X-axis = official entry date; weekends and market holidays have no entry dots. Filled dots = the selected horizon has been measured; the thesis may still be open. Outlined dots = provisional thesis return while that measurement is pending. Audit-held events are excluded.
+        X-axis = official entry date; weekends and market holidays are not shown. Filled dots = the selected horizon has been measured; the thesis may still be open. Outlined dots = provisional thesis return while that measurement is pending. Headline accuracy and averages use measured horizons only, across both open and closed theses; provisional outlined points and audit-held events are excluded.
       </p>
     </section>
   );
@@ -1503,7 +1505,7 @@ export function OutcomeLedgerClient({
               icon="OK"
               label="Completed Events"
               value={outcomeMetrics.completedEvents}
-              detail={`${horizonFilter} matured rows loaded; mixed/neutral excluded from accuracy`}
+              detail={`${horizonFilter} measurements loaded across open and closed theses; mixed/neutral excluded from accuracy`}
             />
             <MetricCard
               icon={horizonFilter.replace("D", "")}
@@ -1519,7 +1521,7 @@ export function OutcomeLedgerClient({
                 outcomeMetrics.accuracy === null
                   ? `No bullish or bearish calls matured at ${horizonFilter}`
                   : outcomeMetrics.accuracyReliable
-                    ? `${outcomeMetrics.directionalSampleCount} bullish/bearish calls measured at ${horizonFilter}`
+                    ? `${outcomeMetrics.directionalSampleCount} measured calls across open and closed theses; provisional excluded`
                     : `${outcomeMetrics.directionalSampleCount}/${minimumHeadlineDirectionalSamples} directional samples; show percent at 30`
               }
             />
@@ -1527,7 +1529,7 @@ export function OutcomeLedgerClient({
               icon="+/-"
               label="Average Directional Return"
               value={formatPercent(outcomeMetrics.averageDirectionalReturn)}
-              detail={`Average ${horizonFilter} outcome across ${outcomeMetrics.directionalSampleCount} directional samples`}
+              detail={`Average measured ${horizonFilter} outcome across ${outcomeMetrics.directionalSampleCount} open and closed theses`}
             />
             <MetricCard
               icon="SPY"

@@ -30,11 +30,21 @@ test("Outcome dates use the verified entry session without date-only timezone dr
   assert.match(outcomes, /snapshot\.entry_session_date \?\? snapshot\.entry_timestamp \?\? snapshot\.reference_price_at/);
   assert.match(outcomes, /dateOnly \? `\$\{value\}T12:00:00Z` : value/);
   assert.match(outcomes, /Awaiting \{horizon\} · provisional thesis return/);
-  assert.match(outcomes, /X-axis = official entry date; weekends and market holidays have no entry dots\. Filled dots = the selected horizon has been measured; the thesis may still be open\./);
+  assert.match(outcomes, /X-axis = official entry date; weekends and market holidays are not shown\. Filled dots = the selected horizon has been measured; the thesis may still be open\./);
   assert.match(outcomes, /openedTradingDays/);
+  assert.match(outcomes, /openedTradingDayIndexes/);
+  assert.match(outcomes, /x: xForOpened\(time\)/);
+  assert.match(outcomes, /const x = xForOpened\(point\.opened\)/);
+  assert.doesNotMatch(outcomes, /point\.opened - minOpened/);
   assert.match(outcomes, /snapshot\.live_mark\?\.return_pct/);
   assert.match(outcomes, /if \(filter === "Matured"\) return `\$\{horizon\} Measured`/);
   assert.match(outcomes, /if \(filter === "Open"\) return "Thesis Open"/);
+});
+
+test("Outcome headline metrics explicitly exclude provisional points but include measured open and closed theses", () => {
+  assert.match(outcomes, /Headline accuracy and averages use measured horizons only, across both open and closed theses; provisional outlined points and audit-held events are excluded\./);
+  assert.match(outcomes, /measured calls across open and closed theses; provisional excluded/);
+  assert.match(outcomes, /Average measured \$\{horizonFilter\} outcome across \$\{outcomeMetrics\.directionalSampleCount\} open and closed theses/);
 });
 
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
