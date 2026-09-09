@@ -593,8 +593,14 @@ def ingest_government_contracts(
         finally:
             db.close()
 
+    if not dry_run and not enforce_guardrail:
+        schema_db = SessionLocal()
+        try:
+            ensure_government_contracts_schema(schema_db.get_bind())
+        finally:
+            schema_db.close()
+
     unmapped_counter: Counter[str] = Counter()
-    pending_rows: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
     search_space = deduped_terms or [None]
 
     def record_external_error(stage: str, identifier: str | None, exc: Exception) -> None:
@@ -609,6 +615,69 @@ def ingest_government_contracts(
                     "error": str(exc),
                 }
             )
+
+    def persist_pending_rows(
+        pending_rows: list[tuple[dict[str, Any], list[dict[str, Any]]]],
+        *,
+        recipient_search_text: str | None,
+    ) -> None:
+        if not pending_rows:
+            return
+
+        db = SessionLocal()
+        rows_since_commit = 0
+        batch_started_at = time_module.perf_counter()
+
+        def commit_batch(*, final: bool = False) -> None:
+            nonlocal rows_since_commit, batch_started_at
+            if rows_since_commit <= 0:
+                return
+            db.commit()
+            duration = time_module.perf_counter() - batch_started_at
+            logger.info(
+                "government_contracts_ingest committed batch rows=%s duration_s=%.3f final=%s recipient=%s",
+                rows_since_commit,
+                duration,
+                final,
+                recipient_search_text,
+            )
+            rows_since_commit = 0
+            batch_started_at = time_module.perf_counter()
+            if summary["sleep_ms"] > 0:
+                time_module.sleep(summary["sleep_ms"] / 1000)
+
+        try:
+            for normalized_row, action_rows in pending_rows:
+                upsert_result = _upsert_government_contract(db, normalized_row)
+                rows_since_commit += 1
+                if upsert_result == "inserted":
+                    summary["inserted_count"] += 1
+                    summary["rows_inserted"] += 1
+                elif upsert_result == "updated":
+                    summary["updated_count"] += 1
+                    summary["rows_updated"] += 1
+                else:
+                    summary["skipped_count"] += 1
+
+                for action_row in action_rows:
+                    action_result = _upsert_government_contract_action(db, action_row)
+                    rows_since_commit += 1
+                    if action_result == "inserted":
+                        summary["actions_inserted"] += 1
+                    elif action_result == "updated":
+                        summary["actions_updated"] += 1
+                    if rows_since_commit >= summary["batch_size"]:
+                        commit_batch()
+
+                if rows_since_commit >= summary["batch_size"]:
+                    commit_batch()
+
+            commit_batch(final=True)
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     for term in search_space:
         try:
@@ -630,6 +699,8 @@ def ingest_government_contracts(
             )
             continue
         summary["fetched_count"] += len(rows)
+        pending_rows: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+        pending_row_count = 0
         for raw_row in rows:
             recipient_name = _clean_text(raw_row.get("Recipient Name"))
             mapping = match_recipient_to_symbol(recipient_name, alias_map)
@@ -674,6 +745,15 @@ def ingest_government_contracts(
                         exc_info=verbose,
                     )
             pending_rows.append((normalized_row, action_rows))
+            pending_row_count += 1 + len(action_rows)
+            if pending_row_count >= summary["batch_size"]:
+                persist_pending_rows(pending_rows, recipient_search_text=term)
+                pending_rows.clear()
+                pending_row_count = 0
+
+        # Persist each recipient-alias result before fetching the next one. This
+        # keeps the working set bounded and makes progress durable on long runs.
+        persist_pending_rows(pending_rows, recipient_search_text=term)
 
     summary["last_run_at"] = now.isoformat()
     summary["unmapped_top_recipients"] = [
@@ -687,59 +767,15 @@ def ingest_government_contracts(
 
     db = SessionLocal()
     try:
-        ensure_government_contracts_schema(db.get_bind())
-        rows_since_commit = 0
-        batch_started_at = time_module.perf_counter()
-
-        def commit_batch(*, final: bool = False) -> None:
-            nonlocal rows_since_commit, batch_started_at
-            if rows_since_commit <= 0:
-                return
-            db.commit()
-            duration = time_module.perf_counter() - batch_started_at
-            logger.info(
-                "government_contracts_ingest committed batch rows=%s duration_s=%.3f final=%s",
-                rows_since_commit,
-                duration,
-                final,
-            )
-            rows_since_commit = 0
-            batch_started_at = time_module.perf_counter()
-            if summary["sleep_ms"] > 0:
-                time_module.sleep(summary["sleep_ms"] / 1000)
-
-        for normalized_row, action_rows in pending_rows:
-            upsert_result = _upsert_government_contract(db, normalized_row)
-            rows_since_commit += 1
-            if upsert_result == "inserted":
-                summary["inserted_count"] += 1
-                summary["rows_inserted"] += 1
-            elif upsert_result == "updated":
-                summary["updated_count"] += 1
-                summary["rows_updated"] += 1
-            else:
-                summary["skipped_count"] += 1
-
-            for action_row in action_rows:
-                action_result = _upsert_government_contract_action(db, action_row)
-                rows_since_commit += 1
-                if action_result == "inserted":
-                    summary["actions_inserted"] += 1
-                elif action_result == "updated":
-                    summary["actions_updated"] += 1
-                if rows_since_commit >= summary["batch_size"]:
-                    commit_batch()
-
-            if rows_since_commit >= summary["batch_size"]:
-                commit_batch()
-
         _set_setting(db, CONTRACT_INGEST_LAST_RUN_AT_KEY, summary["last_run_at"])
         _set_setting(db, CONTRACT_INGEST_LAST_SUMMARY_KEY, json.dumps(summary, sort_keys=True))
-        rows_since_commit += 2
-        commit_batch(final=True)
+        db.commit()
 
         logger.info("government_contracts_ingest summary=%s", summary)
         return summary
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

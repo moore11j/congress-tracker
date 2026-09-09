@@ -397,6 +397,46 @@ def test_targeted_symbol_mode_uses_aliases(monkeypatch):
     assert any(term and "RTX" in term.upper() for term in captured_terms)
 
 
+def test_targeted_ingest_persists_each_alias_before_fetching_the_next(monkeypatch):
+    engine = _engine()
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("app.ingest.government_contracts.SessionLocal", testing_session)
+    monkeypatch.setattr(
+        "app.ingest.government_contracts.aliases_for_symbols",
+        lambda _symbols, _aliases: {"LMT": ["FIRST ALIAS", "SECOND ALIAS"]},
+    )
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_award_transaction_history", lambda *_args, **_kwargs: [])
+    fetch_count = 0
+
+    def fake_fetch(*, recipient_search_text=None, **_kwargs):
+        nonlocal fetch_count
+        fetch_count += 1
+        if recipient_search_text == "FIRST ALIAS":
+            return [_row(award_id="AWD-STREAMED")]
+        with Session(engine) as db:
+            persisted = db.execute(select(GovernmentContract)).scalars().all()
+        assert [contract.award_id for contract in persisted] == ["AWD-STREAMED"]
+        return []
+
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_spending_by_award", fake_fetch)
+
+    result = ingest_government_contracts(
+        lookback_days=30,
+        min_award_amount=1_000_000,
+        limit=100,
+        max_pages=1,
+        symbols=["LMT"],
+        dry_run=False,
+        verbose=False,
+        enforce_guardrail=False,
+        batch_size=100,
+        sleep_ms=0,
+    )
+
+    assert fetch_count == 2
+    assert result["inserted_count"] == 1
+
+
 def test_award_search_failure_is_partial_and_continues(monkeypatch):
     engine = _engine()
     testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)

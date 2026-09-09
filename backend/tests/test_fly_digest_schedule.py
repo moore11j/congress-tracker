@@ -24,6 +24,7 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "30"
     assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "300"
     assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "240"
+    assert fly_config["env"]["INSIDER_INGEST_FEED_PNL_PROCESS_NOW_ENABLED"] == "false"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "true"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"

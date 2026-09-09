@@ -38,6 +38,7 @@ from app.models import (
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import (
     ensure_fresh_price_history,
+    get_daily_close_series_with_fallback,
     get_expected_latest_market_date,
     hydrate_split_adjusted_ohlc,
 )

@@ -22,6 +22,7 @@ from app.ingest_run import (
     _run_profile_overview_prewarm_job,
     _run_priority_ticker_prewarm_job,
     _run_recent_congress_job,
+    _warm_price_cache,
 )
 from app.models import Base, Event, IndexMembership, PriceCache, SavedScreenSnapshot, Security, WatchlistItem
 
@@ -114,6 +115,28 @@ def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:
     assert result["job"] == "recent-congress"
     assert result["congress_recent"]["events_inserted"] == 3
     assert seen == {"days": 7, "pages": 12, "limit": 50, "sleep_s": 0.0}
+
+
+def test_warm_price_cache_uses_imported_fallback_loader(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine, tables=[Event.__table__])
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr("app.ingest_run.SessionLocal", Session)
+    monkeypatch.setattr("app.ingest_run.ensure_price_cache_volume_columns", lambda _engine: None)
+    monkeypatch.setattr(
+        "app.ingest_run.get_daily_close_series_with_fallback",
+        lambda _db, symbol, start_key, end_key: calls.append((symbol, start_key, end_key)) or [(start_key, 1.0)],
+    )
+    monkeypatch.setenv("INGEST_PRICE_CACHE_SYMBOL_LIMIT", "1")
+    monkeypatch.setenv("INGEST_SIGNALS_BENCHMARK", "SPY")
+
+    result = _warm_price_cache()
+
+    assert result["warmed_symbols"] == 1
+    assert result["warmed_points"] == 1
+    assert [symbol for symbol, _start, _end in calls] == ["SPY"]
 
 
 def test_market_data_refresh_symbols_skips_old_cache_only_symbols_but_keeps_active_sources(monkeypatch) -> None:

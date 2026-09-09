@@ -26,6 +26,9 @@ destination = "/data"
   FEED_PNL_REPAIR_DAYS = "30"
   FEED_PNL_REPAIR_LIMIT = "300"
   FEED_PNL_REPAIR_MAX_SECONDS = "240"
+  # New insider events are already queued for the bounded enrichment worker.
+  # Avoid doing the same provider-heavy P&L work synchronously inside core ingest.
+  INSIDER_INGEST_FEED_PNL_PROCESS_NOW_ENABLED = "false"
   PRIORITY_TICKER_PREWARM_ENABLED = "true"
   PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT = "25"
   PRIORITY_TICKER_PREWARM_PER_USER_LIMIT = "5"
