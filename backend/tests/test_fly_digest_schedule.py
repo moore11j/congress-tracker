@@ -24,7 +24,6 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "30"
     assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "300"
     assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "240"
-    assert fly_config["env"]["INSIDER_INGEST_FEED_PNL_PROCESS_NOW_ENABLED"] == "false"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "true"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"
@@ -46,6 +45,12 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["CRON_DB_POOL_SIZE"] == "2"
     assert fly_config["env"]["CRON_DB_MAX_OVERFLOW"] == "0"
     assert fly_config["env"]["CRON_DB_POOL_TIMEOUT"] == "3"
+
+
+def test_fly_disables_synchronous_insider_pnl_refresh():
+    fly_config = tomllib.loads((BACKEND_ROOT / "fly.toml").read_text())
+
+    assert fly_config["env"]["INSIDER_INGEST_FEED_PNL_PROCESS_NOW_ENABLED"] == "false"
 
 
 def test_dockerfile_lets_fly_process_groups_override_commands():
