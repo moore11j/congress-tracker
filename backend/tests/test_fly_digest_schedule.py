@@ -53,6 +53,14 @@ def test_fly_disables_synchronous_insider_pnl_refresh():
     assert fly_config["env"]["INSIDER_INGEST_FEED_PNL_PROCESS_NOW_ENABLED"] == "false"
 
 
+def test_fly_cron_machine_has_headroom_for_ingest_jobs():
+    fly_config = tomllib.loads((BACKEND_ROOT / "fly.toml").read_text())
+    cron_vm = next(vm for vm in fly_config["vm"] if vm["processes"] == ["cron"])
+
+    assert cron_vm["memory"] == "2gb"
+    assert cron_vm["memory_mb"] == 2048
+
+
 def test_dockerfile_lets_fly_process_groups_override_commands():
     dockerfile = (BACKEND_ROOT / "Dockerfile").read_text()
 

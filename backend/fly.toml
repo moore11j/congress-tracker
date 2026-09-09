@@ -115,7 +115,7 @@ destination = "/data"
 
 [[vm]]
   processes = ["cron"]
-  memory = '1gb'
+  memory = '2gb'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 2048
   cpu_kind = 'shared'
