@@ -11,6 +11,9 @@ LINK_VARIABLES = {"verification_url", "reset_url", "statement_url", "activity_ur
 TRUSTED_HTML_VARIABLES = {
     "items_html",
     "signals_html",
+    "scoring_summary_html",
+    "watchlist_news_html",
+    "press_releases_html",
     "congress_trades_html",
     "insider_trades_html",
     "government_contracts_html",

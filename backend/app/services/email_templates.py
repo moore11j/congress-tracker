@@ -481,8 +481,14 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             "why_notable",
             "source_stack",
             "cautions",
+            "scoring_summary_text",
+            "scoring_summary_html",
             "signals_text",
             "signals_html",
+            "watchlist_news_text",
+            "watchlist_news_html",
+            "press_releases_text",
+            "press_releases_html",
             "congress_trades_text",
             "congress_trades_html",
             "insider_trades_text",
@@ -500,9 +506,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             greeting="Hello {{first_name}},",
             intro="{{signal_intro}}",
             sections=[
-                "Ticker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}",
+                "{{scoring_summary_text}}",
                 "Monitoring candidates are research inputs, not recommendations. {{cautions}}",
                 "{{signals_text}}",
+                "{{watchlist_news_text}}",
+                "{{press_releases_text}}",
                 "{{congress_trades_text}}",
                 "{{insider_trades_text}}",
                 "{{government_contracts_text}}",
@@ -520,17 +528,11 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             eyebrow="{{signal_title}}",
             title="{{signal_title}}",
             intro="Hello {{first_name}}, {{signal_intro}}",
-            content_html=walnut_metric_card(
-                [
-                    ("Ticker", "{{ticker}}"),
-                    ("Signal score", "{{signal_score}}"),
-                    ("Direction", "{{direction}}"),
-                    ("Why notable", "{{why_notable}}"),
-                    ("Source stack", "{{source_stack}}"),
-                ]
-            )
+            content_html="{{{scoring_summary_html}}}"
             + walnut_info_card("Research caution", "Monitoring candidates are research inputs, not recommendations. {{cautions}}")
             + "{{{signals_html}}}"
+            + "{{{watchlist_news_html}}}"
+            + "{{{press_releases_html}}}"
             + "{{{congress_trades_html}}}"
             + "{{{insider_trades_html}}}"
             + "{{{government_contracts_html}}}"

@@ -34,7 +34,7 @@ from app.services.email_delivery import (
     send_email,
 )
 from app.services.email_renderer import render_template_string
-from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates
+from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates, walnut_metric_card
 from app.services.event_calendar import upcoming_event_calendar_items
 from app.services.fmp_news import get_press_releases, get_stock_news
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
@@ -364,22 +364,25 @@ def build_signal_alert_digest(
     # monitoring changes are gated out before they reach public email content.
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
     raw_items = _apply_daily_signal_subscription_preferences(db, user, raw_items)
-    items, diagnostics = _qualify_signal_items(raw_items)
-    items, category_limited_count = _limit_signal_items_per_category(items)
+    qualified_items, diagnostics = _qualify_signal_items(raw_items)
+    qualified_items, category_limited_count = _limit_signal_items_per_category(qualified_items)
     if category_limited_count:
-        diagnostics["qualified_count"] = len(items)
+        diagnostics["qualified_count"] = len(qualified_items)
         diagnostics["excluded_count"] += category_limited_count
         reasons = diagnostics["excluded_reasons"]
         reasons["content_category_display_limit"] = reasons.get("content_category_display_limit", 0) + category_limited_count
-    _attach_company_names(db, items)
+    _attach_company_names(db, qualified_items)
+    scoring_items = [item for item in qualified_items if _signal_item_category(item) not in SIGNAL_CONTENT_CATEGORIES]
+    news_items = [item for item in qualified_items if _signal_item_category(item) == "news"]
+    press_release_items = [item for item in qualified_items if _signal_item_category(item) == "press_releases"]
     activity_item_count = sum(len(section_items) for section_items in activity_sections.values())
-    lead = items[0] if items else {}
-    is_single = len(items) == 1
+    lead = scoring_items[0] if scoring_items else {}
+    is_single = len(scoring_items) == 1
     ticker = str(lead.get("ticker") or "Monitoring digest")
-    signal_title = "Monitoring digest"
+    signal_title = "Daily monitoring digest"
     signal_subject = "Walnut monitoring digest"
-    signal_intro = f"Your ranked monitoring candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
-    delivery_item_count = len(items) + activity_item_count
+    signal_intro = f"Your monitoring activity for {_format_daily_digest_date(query_end)}."
+    delivery_item_count = len(qualified_items) + activity_item_count
     summary = _count_summary(delivery_item_count, "monitoring item", "monitoring items")
     upcoming_events, calendar_filters_text = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
     _attach_calendar_company_names(db, upcoming_events)
@@ -387,7 +390,7 @@ def build_signal_alert_digest(
         template_key="alerts.signal_alert",
         items_count=delivery_item_count,
         summary=summary,
-        items=items,
+        items=scoring_items,
         context={
             "monitoring_user_id": user.id,
             "first_name": _first_name(user),
@@ -401,8 +404,14 @@ def build_signal_alert_digest(
             "why_notable": str(lead.get("why_notable") or summary),
             "source_stack": str(lead.get("source_stack") or "Qualified Walnut monitoring candidates"),
             "cautions": "Review source context before acting.",
-            "signals_text": _signal_items_text(items),
-            "signals_html": _signal_items_html(items),
+            "scoring_summary_text": _signal_lead_text(lead),
+            "scoring_summary_html": _signal_lead_html(lead),
+            "signals_text": _signal_items_text(scoring_items) if scoring_items else "",
+            "signals_html": _signal_items_html(scoring_items) if scoring_items else "",
+            "watchlist_news_text": _signal_content_items_text("Watchlist news", news_items),
+            "watchlist_news_html": _signal_content_items_html("Watchlist news", news_items),
+            "press_releases_text": _signal_content_items_text("Press releases", press_release_items),
+            "press_releases_html": _signal_content_items_html("Press releases", press_release_items),
             "congress_trades_text": _activity_items_text("Congress trades", activity_sections["congress_trades"]),
             "congress_trades_html": _activity_items_html("Congress trades", activity_sections["congress_trades"]),
             "insider_trades_text": _activity_items_text("Insider trades", activity_sections["insider_trades"]),
@@ -731,6 +740,8 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
         if template_key == "alerts.signal_alert" and "calendar_alert_filters_text" not in (template.variables_json or ""):
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and "congress_trades_html" not in (template.variables_json or ""):
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and "watchlist_news_html" not in (template.variables_json or ""):
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_intraday" and template.name == "Intraday signal alert":
             template = reset_email_template_to_default(db, template_key) or template
@@ -1448,7 +1459,7 @@ def _activity_item_from_event(event: Event) -> dict[str, Any]:
         "ticker": _normalize_ticker(event.symbol or payload.get("symbol") or payload.get("ticker")),
         "action": _activity_action(event, payload),
         "value": _activity_value(event, payload),
-        "trade_price": _activity_trade_price(payload),
+        "trade_price": _activity_trade_price(event, payload),
         "sort_timestamp": _coerce_aware(event.event_date or event.ts).isoformat() if (event.event_date or event.ts) else "",
     }
 
@@ -1537,7 +1548,7 @@ def _activity_value(event: Event, payload: dict[str, Any]) -> str:
     return _amount(amount_min, amount_max)
 
 
-def _activity_trade_price(payload: dict[str, Any]) -> str:
+def _activity_trade_price(event: Event, payload: dict[str, Any]) -> str:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     value = _first_present(
         payload,
@@ -1554,6 +1565,8 @@ def _activity_trade_price(payload: dict[str, Any]) -> str:
             "sharePrice",
         ),
     )
+    if value is None and (event.event_type or "").strip().lower().startswith("insider_trade"):
+        value = _first_present(payload, raw, keys=("price",))
     if value is None:
         return "--"
     try:
@@ -2352,6 +2365,70 @@ def _signal_items_html(items: list[dict[str, Any]]) -> str:
     return _table(["Ticker", "Score", "Direction", "Why", "Source", "Link"], rows)
 
 
+def _signal_lead_text(item: dict[str, Any]) -> str:
+    if not item:
+        return ""
+    return (
+        f"Top scored candidate: {item['ticker']} | score {_score_display(item.get('signal_score'))} | "
+        f"{item['direction']} | {item['why_notable']} | {item['source_stack']}"
+    )
+
+
+def _signal_lead_html(item: dict[str, Any]) -> str:
+    if not item:
+        return ""
+    return walnut_metric_card(
+        [
+            ("Ticker", html_escape(str(item["ticker"]))),
+            ("Signal score", html_escape(_score_display(item.get("signal_score")))),
+            ("Direction", html_escape(str(item["direction"]))),
+            ("Why notable", html_escape(str(item["why_notable"]))),
+            ("Source stack", html_escape(str(item["source_stack"]))),
+        ]
+    )
+
+
+def _signal_content_title(item: dict[str, Any]) -> str:
+    title = str(item.get("why_notable") or "").strip()
+    ticker = str(item.get("ticker") or "").strip()
+    label = "News" if _signal_item_category(item) == "news" else "Press release"
+    prefix = f"{ticker} - {label} - "
+    return title[len(prefix):].strip() if title.lower().startswith(prefix.lower()) else title
+
+
+def _signal_content_items_text(title: str, items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    return "\n".join(
+        [title]
+        + [
+            f"- {item['ticker']} | {_signal_content_title(item)} | {item['source_stack']} | {item['date']} | {item['href']}"
+            for item in items
+        ]
+    )
+
+
+def _signal_content_items_html(title: str, items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    rows = "".join(
+        "<tr>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(_signal_content_title(item))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['source_stack']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#64748b;white-space:nowrap;\">{html_escape(str(item['date']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;\"><a href=\"{html_escape(str(item['href']), quote=True)}\" style=\"color:#0f766e;font-weight:700;text-decoration:none;\">View</a></td>"
+        "</tr>"
+        for item in items
+    )
+    return (
+        "<div style=\"margin-top:22px;font-family:Arial,Helvetica,sans-serif;\">"
+        f"<h3 style=\"margin:0 0 10px 0;font-size:16px;line-height:22px;color:#0f172a;\">{html_escape(title)}</h3>"
+        f"{_table(['Ticker', 'Headline', 'Source', 'Published', 'Link'], rows)}"
+        "</div>"
+    )
+
+
 def _activity_items_text(title: str, items: list[dict[str, Any]]) -> str:
     if not items:
         return ""
@@ -2546,6 +2623,11 @@ def _format_window_label(start: datetime, end: datetime) -> str:
     if local_start.date() == display_end_date:
         return f"{_friendly_date(display_end_date)} window"
     return f"{_friendly_date(local_start.date())} - {_friendly_date(display_end_date)} window"
+
+
+def _format_daily_digest_date(end: datetime) -> str:
+    local_end = _coerce_aware(end).astimezone(ZoneInfo(DEFAULT_DIGEST_TIMEZONE))
+    return _friendly_date(local_end.date())
 
 
 def _friendly_date(value: date) -> str:

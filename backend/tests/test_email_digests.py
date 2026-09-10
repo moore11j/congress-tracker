@@ -1104,10 +1104,13 @@ def test_signal_digest_includes_up_to_four_daily_news_and_press_releases():
 
         digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
 
-        assert len([item for item in digest.items if item["alert_type"] == "news_article"]) == 4
-        assert len([item for item in digest.items if item["alert_type"] == "press_release"]) == 4
-        assert "News story" in digest.context["signals_text"]
-        assert "Press release" in digest.context["signals_text"]
+        assert digest.items == []
+        assert digest.items_count == 8
+        assert digest.context["watchlist_news_html"].count("News story") == 4
+        assert digest.context["press_releases_html"].count("Press release ") == 4
+        assert "Score" not in digest.context["watchlist_news_html"]
+        assert "Direction" not in digest.context["press_releases_html"]
+        assert digest.context["signals_text"] == ""
         assert digest.diagnostics["excluded_reasons"]["content_category_display_limit"] == 2
     finally:
         db.close()
@@ -1150,8 +1153,9 @@ def test_signal_digest_materializes_a_daily_press_release_event():
         digest = build_signal_alert_digest(db, user, now - timedelta(days=1))
 
         assert digest.items_count == 1
-        assert digest.items[0]["alert_type"] == "press_release"
-        assert "Micron opens training center" in digest.context["signals_text"]
+        assert digest.items == []
+        assert "Micron opens training center" in digest.context["press_releases_text"]
+        assert digest.context["signals_text"] == ""
     finally:
         db.close()
 
@@ -1174,8 +1178,8 @@ def test_ranked_monitoring_digest_labels_confirmation_screen_and_groups_activity
             db,
             symbol="MSFT",
             event_type="insider_trade",
-            member_name="Jane CFO",
-            payload={"raw": {"reportingName": "Jane CFO", "transactionPricePerShare": "88.50"}, "direction": "bearish"},
+            member_name=None,
+            payload={"raw": {"reportingName": "Jane CFO"}, "price": 88.50, "direction": "bearish"},
             amount_max=2_500_000,
         )
         contract = _bare_event(
@@ -2120,6 +2124,26 @@ def test_daily_digest_window_covers_activity_since_the_previous_weekday_close():
 
     assert start == datetime(2026, 9, 7, 20, 5, tzinfo=timezone.utc)
     assert end == datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc)
+
+
+def test_signal_digest_labels_the_single_delivery_date():
+    db = _session()
+    try:
+        user = _user(db, "single-date-digest@example.com")
+        _watchlist(db, user)
+
+        digest = build_signal_alert_digest(
+            db,
+            user,
+            datetime(2026, 9, 8, 20, 5, tzinfo=timezone.utc),
+            window_end=datetime(2026, 9, 9, 20, 5, tzinfo=timezone.utc),
+        )
+
+        assert digest.context["signal_intro"] == "Your monitoring activity for Sep 9, 2026."
+        assert "Sep 8" not in digest.context["signal_intro"]
+        assert "window" not in digest.context["signal_intro"]
+    finally:
+        db.close()
 
 
 def test_daily_digest_window_carries_weekend_activity_into_monday_close():
