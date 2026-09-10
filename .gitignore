@@ -76,3 +76,4 @@ frontend/test-results/
 #remote-attachments
 .codex-remote-attachments
 .codex/
+.env*
