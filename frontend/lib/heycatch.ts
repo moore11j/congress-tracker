@@ -12,7 +12,7 @@ export function ensureHeyCatch(): boolean {
   if (!isProductionAnalyticsHost() || !analyticsConsent()) return false;
   if (initialized) return true;
   const projectKey = process.env.NEXT_PUBLIC_HEYCATCH_PROJECT_KEY;
-  if (!projectKey) return false;
+  if (!projectKey?.startsWith("hck_pk_")) return false;
   try {
     analytics.init({ projectKey, install: { framework: "nextjs", frameworkVersion: "15", agent: "codex" } });
     initialized = true;

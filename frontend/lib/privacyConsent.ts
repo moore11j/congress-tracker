@@ -40,23 +40,38 @@ function parseConsentCookie(raw: string | undefined): PrivacyConsent | null {
   };
 }
 
+function sharesWalnutCookies(): boolean {
+  return typeof window !== "undefined" && window.location?.protocol === "https:" &&
+    ["walnutmarkets.com", "app.walnutmarkets.com"].includes(window.location.hostname);
+}
+
 function readConsentCookie(): PrivacyConsent | null {
   if (typeof document === "undefined") return null;
-  const match = document.cookie
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${privacyConsentCookieName}=`));
-  if (!match) return null;
-  return parseConsentCookie(decodeURIComponent(match.split("=").slice(1).join("=")));
+  const choices = document.cookie.split(";").map((part) => part.trim())
+    .filter((part) => part.startsWith(`${privacyConsentCookieName}=`))
+    .map((part) => parseConsentCookie(decodeURIComponent(part.split("=").slice(1).join("="))))
+    .filter((value): value is PrivacyConsent => value !== null);
+  if (!choices.length) return null;
+  // Legacy host-only cookies may coexist with the shared cookie. An opt-out wins.
+  return { ...choices[0], analytics: choices.every((value) => value.analytics), marketing: choices.every((value) => value.marketing) };
 }
 
 function writeConsentCookie(consent: PrivacyConsent): void {
   if (typeof document === "undefined") return;
+  if (sharesWalnutCookies()) {
+    document.cookie = `${privacyConsentCookieName}=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
+    if (!consent.analytics) {
+      for (const name of ["ct_analytics_sid", "walnut_acquisition"]) {
+        document.cookie = `${name}=; Path=/; Domain=walnutmarkets.com; Max-Age=0; SameSite=Lax; Secure`;
+      }
+    }
+  }
   document.cookie = [
     `${privacyConsentCookieName}=${encodeURIComponent(consentCookieValue(consent))}`,
     "Path=/",
     `Max-Age=${consentMaxAgeSeconds}`,
     "SameSite=Lax",
+    ...(sharesWalnutCookies() ? ["Domain=walnutmarkets.com", "Secure"] : []),
   ].join("; ");
 }
 
@@ -78,8 +93,10 @@ function parseStoredConsent(raw: string | null): PrivacyConsent | null {
 
 export function readPrivacyConsent(): PrivacyConsent | null {
   if (typeof window === "undefined") return null;
+  const shared = readConsentCookie();
+  if (sharesWalnutCookies() && shared) return shared;
   const stored = parseStoredConsent(window.localStorage.getItem(privacyConsentStorageKey));
-  return stored ?? readConsentCookie();
+  return stored ?? shared;
 }
 
 export function writePrivacyConsent(input: { analytics: boolean; marketing: boolean }): PrivacyConsent {
@@ -89,11 +106,11 @@ export function writePrivacyConsent(input: { analytics: boolean; marketing: bool
     marketing: input.marketing && !browserGlobalPrivacyControl(),
     updatedAt: new Date().toISOString(),
   };
+  writeConsentCookie(consent);
   if (typeof window !== "undefined") {
     window.localStorage.setItem(privacyConsentStorageKey, JSON.stringify(consent));
     window.dispatchEvent(new Event(privacyConsentChangedEvent));
   }
-  writeConsentCookie(consent);
   return consent;
 }
 

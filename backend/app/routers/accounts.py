@@ -17,7 +17,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import String, case, cast, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -317,6 +317,7 @@ class PageViewPayload(BaseModel):
 
 
 class ProductEventPayload(BaseModel):
+    ga_context: dict[str, str] | None = None
     session_id: str | None = Field(default=None, max_length=160)
     event_id: str | None = Field(default=None, max_length=80)
     event_name: str = Field(min_length=1, max_length=120)
@@ -5752,6 +5753,8 @@ def _record_paid_funnel_event(db: Session, user: UserAccount, invoice: dict, eve
     invoice_id = str(invoice.get("id") or "")
     if not invoice_id:
         return
+    # Serialize competing invoice event types for the same account on Postgres.
+    db.execute(select(UserAccount.id).where(UserAccount.id == user.id).with_for_update()).scalar_one()
     prior = db.execute(select(PageViewEvent).where(
         PageViewEvent.user_id == user.id,
         PageViewEvent.normalized_path == "/events/subscription_completed",
@@ -5767,12 +5770,16 @@ def _record_paid_funnel_event(db: Session, user: UserAccount, invoice: dict, eve
     metadata = _analytics_metadata(checkout.metadata_json)
     properties = _safe_funnel_properties(metadata.get("properties", {}))
     properties.update({"authenticated": True, "current_plan": normalize_tier(user.entitlement_tier)})
-    db.add(PageViewEvent(user_id=user.id, session_id_hash=checkout.session_id_hash,
+    row = PageViewEvent(user_id=user.id, session_id_hash=checkout.session_id_hash,
         path="/account/billing", normalized_path="/events/subscription_completed", route_group="event",
         is_authenticated=True, plan_at_time=normalize_tier(user.entitlement_tier),
         metadata_json=json.dumps({"event_name": "subscription_completed", "invoice_id": invoice_id,
-                                  "properties": properties, "source": "stripe_webhook"}),
-        created_at=datetime.now(timezone.utc)))
+                                  "properties": properties, "source": "stripe_webhook",
+                                  "ga_context": metadata.get("ga_context", {})}),
+        created_at=datetime.now(timezone.utc))
+    db.add(row)
+    db.flush()
+    db.info.setdefault("paid_analytics_event_ids", []).append(row.id)
 
 
 def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
@@ -6207,7 +6214,7 @@ def refresh_subscription_from_stripe(request: Request, db: Session = Depends(get
 
 
 @router.post("/billing/stripe/webhook")
-async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     readiness = billing_readiness()
     _log_billing_readiness(context="webhook", readiness=readiness)
     _require_webhook_readiness(readiness)
@@ -6217,7 +6224,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         event = json.loads(payload.decode("utf-8"))
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="Invalid webhook payload.") from exc
-    return process_stripe_event(db, event)
+    result = process_stripe_event(db, event)
+    from app.paid_analytics import forward_paid_event
+    for analytics_id in db.info.pop("paid_analytics_event_ids", []):
+        background_tasks.add_task(forward_paid_event, analytics_id)
+    return result
 
 
 @router.get("/admin/reports/sales-ledger")
@@ -6387,6 +6398,9 @@ def record_product_event(payload: ProductEventPayload, request: Request, db: Ses
         "source_path": path or "/",
         "properties": _safe_funnel_properties(payload.properties) if event_name in _CANONICAL_FUNNEL_EVENTS else payload.properties,
     }
+    if event_name == "checkout_started":
+        from app.paid_analytics import safe_ga_context
+        metadata["ga_context"] = safe_ga_context(payload.ga_context)
     if event_name in _CANONICAL_FUNNEL_EVENTS:
         metadata["properties"].update({"authenticated": bool(user), "current_plan": normalize_tier(user.entitlement_tier) if user else "free"})
     row = PageViewEvent(
@@ -7454,3 +7468,22 @@ def admin_update_plan_price(
         "amount_cents": row.amount_cents,
         "currency": row.currency,
     }
+
+
+@router.post("/internal/analytics/paid/claim")
+async def claim_paid_analytics(request: Request, db: Session = Depends(get_db)):
+    from app.paid_analytics import claim_delivery, verify_bridge
+    body = await request.body()
+    if len(body) > 256 or not verify_bridge(body, request.headers.get("x-walnut-timestamp", ""),
+                                            request.headers.get("x-walnut-signature", ""), "claim"):
+        raise HTTPException(status_code=401, detail="Invalid analytics signature")
+    try:
+        event_id = json.loads(body)["event_id"]
+        if type(event_id) is not int or event_id <= 0:
+            raise ValueError()
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(status_code=400, detail="Invalid analytics event")
+    claimed = claim_delivery(db, event_id, "heycatch")
+    if claimed is None:
+        return Response(status_code=204)
+    return claimed

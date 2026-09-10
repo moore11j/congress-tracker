@@ -56,6 +56,7 @@ export function sourceLabel(value: string | null): string | null {
 
 export function acquisitionProperties(): AnalyticsProperties {
   if (!analyticsConsent()) return {};
+  analyticsSessionId(); // Rotate expired sessions before reading cached acquisition.
   if (memoryAcquisition) { saveCookie("walnut_acquisition", JSON.stringify(memoryAcquisition)); return { ...memoryAcquisition }; }
   try {
     const saved = JSON.parse(cookie("walnut_acquisition") || "null");

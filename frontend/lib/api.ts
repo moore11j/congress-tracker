@@ -1,3 +1,4 @@
+import { getGoogleAnalyticsContext, type GoogleAnalyticsContext } from "@/lib/googleAnalytics";
 import type {
   ConfirmationMonitoringEventsResponse,
   ConfirmationMonitoringClearResponse,
@@ -2886,7 +2887,7 @@ export async function createCheckoutSession(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ interval: billingInterval, plan, returnTo: returnTo || undefined }),
   });
-  if (response.url) trackEvent("checkout_started", { target_plan: plan, billing_interval: billingInterval });
+  if (response.url) trackEvent("checkout_started", { target_plan: plan, billing_interval: billingInterval }, await getGoogleAnalyticsContext());
   return response;
 }
 
@@ -3563,7 +3564,7 @@ export function recordPageView(payload: { path: string; referrer_path?: string |
   sendAnalytics("page-view", { ...payload, properties: acquisitionProperties() });
 }
 
-export function recordProductEvent(payload: { event_name: string; path?: string | null; properties?: Record<string, string | number | boolean | null> }): void {
+export function recordProductEvent(payload: { ga_context?: GoogleAnalyticsContext; event_name: string; path?: string | null; properties?: Record<string, string | number | boolean | null> }): void {
   sendAnalytics("event", { ...payload, path: payload.path ?? (typeof window !== "undefined" ? window.location.pathname : "/") });
 }
 

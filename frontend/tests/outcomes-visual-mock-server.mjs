@@ -101,7 +101,9 @@ const pathPoints = Array.from({ length: 23 }, (_, index) => {
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? "/", "http://127.0.0.1:8083");
   let payload;
-  if (url.pathname === "/api/entitlements") {
+  if (url.pathname === "/api/auth/me") {
+    payload = { user: null };
+  } else if (url.pathname === "/api/entitlements") {
     payload = { tier: "premium", effective_tier: "premium", limits: {}, features: [], upgrade_url: "/pricing" };
   } else if (url.pathname === "/api/outcomes/overview") {
     payload = { status, summaries: { "7D": summary("7D"), "30D": summary("30D") }, snapshots: { items, page: 0, limit: 100, total: items.length, has_next: false }, default_horizon: "30D" };

@@ -9,6 +9,7 @@ import { acquisitionProperties, analyticsConsent, safeAnalyticsPath, setAnalytic
 import { createVisitTracker, routeFunnelEvent } from "@/lib/funnelEvents";
 import { trackDiscoveryClick, trackEvent } from "@/lib/productAnalytics";
 import { identifyHeyCatchUser } from "@/lib/heycatch";
+import { beginAnalyticsVisit, finishAnalyticsVisit } from "@/lib/analyticsVisit";
 
 export function PageAnalyticsTracker() {
   const pathname = usePathname();
@@ -38,6 +39,7 @@ export function PageAnalyticsTracker() {
   useEffect(() => {
     const path = safeAnalyticsPath(pathname || "/");
     if (path.startsWith("/api/") || path.startsWith("/_next/")) return;
+    beginAnalyticsVisit(path);
     let cancelled = false;
     // Reuse the cached auth request; failure preserves the unknown identity.
     void Promise.race([getMe({ source: "analytics" }).catch(() => null), new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 800))]).then((session) => {
@@ -57,6 +59,7 @@ export function PageAnalyticsTracker() {
       const event = routeFunnelEvent(path, query, window.location.hostname === "walnutmarkets.com" || Boolean(document.querySelector("[data-walnut-homepage]")));
       const key = `${path}:${event?.name || "none"}`;
       if (funnelVisits.current.enter(key) && event) trackEvent(event.name, { ...event.properties, source_page: enteredFrom.current });
+      finishAnalyticsVisit(path);
     });
     return () => { cancelled = true; };
   }, [pathname, query, consentRefresh]);

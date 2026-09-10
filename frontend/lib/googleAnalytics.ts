@@ -1,8 +1,39 @@
 "use client";
 
 import { isProductionAnalyticsHost } from "@/lib/analyticsEnvironment";
+import { hasPrivacyConsent } from "@/lib/privacyConsent";
 
 export const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
+
+export type GoogleAnalyticsContext = { client_id: string; session_id: string };
+
+/** Use gtag's supported getters; never parse versioned GA cookies or invent IDs. */
+export async function getGoogleAnalyticsContext(): Promise<GoogleAnalyticsContext | undefined> {
+  try {
+    if (!isProductionAnalyticsHost() || !hasPrivacyConsent("analytics")) return undefined;
+    const gtag = (window as WindowWithGoogleAnalytics).gtag;
+    if (!gtag) return undefined;
+    return await new Promise((resolve) => {
+      const values: Partial<GoogleAnalyticsContext> = {};
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        try { resolve(hasPrivacyConsent("analytics") && values.client_id && values.session_id ? values as GoogleAnalyticsContext : undefined); }
+        catch { resolve(undefined); }
+      };
+      const timer = setTimeout(finish, 250);
+      for (const field of ["client_id", "session_id"] as const) {
+        gtag("get", GOOGLE_ANALYTICS_ID, field, (value: unknown) => {
+          const text = String(value ?? "");
+          if ((field === "client_id" ? /^[1-9]\d{0,19}\.[1-9]\d{0,19}$/ : /^[1-9]\d{0,19}$/).test(text)) values[field] = text;
+          if (values.client_id && values.session_id) finish();
+        });
+      }
+    });
+  } catch { return undefined; }
+}
 
 type WindowWithGoogleAnalytics = Window & {
   dataLayer?: unknown[];

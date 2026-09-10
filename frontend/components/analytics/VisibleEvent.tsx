@@ -6,6 +6,7 @@ import { trackEvent } from "@/lib/productAnalytics";
 import type { FunnelEvent } from "@/lib/funnelEvents";
 import type { AnalyticsProperties } from "@/lib/analyticsContext";
 import { privacyConsentChangedEvent } from "@/lib/privacyConsent";
+import { analyticsVisitReadyEvent, isAnalyticsVisitReady } from "@/lib/analyticsVisit";
 
 export function VisibleEvent({ name, properties = {}, children, className, enabled = true }: { name: FunnelEvent; properties?: AnalyticsProperties; children: ReactNode; className?: string; enabled?: boolean }) {
   const element = useRef<HTMLDivElement>(null);
@@ -19,12 +20,13 @@ export function VisibleEvent({ name, properties = {}, children, className, enabl
     const target = element.current;
     if (!enabled || !target || !window.IntersectionObserver) return;
     let visible = false;
-    const emit = () => { if (visible && !sent.current && document.visibilityState !== "hidden") sent.current = trackEvent(name, JSON.parse(serialized)); };
+    const emit = () => { if (visible && !sent.current && isAnalyticsVisitReady(pathname || "/") && document.visibilityState !== "hidden") sent.current = trackEvent(name, JSON.parse(serialized)); };
     const observer = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; emit(); }, { threshold: 0.1 });
     observer.observe(target);
     window.addEventListener(privacyConsentChangedEvent, emit);
+    window.addEventListener(analyticsVisitReadyEvent, emit);
     document.addEventListener("visibilitychange", emit);
-    return () => { observer.disconnect(); window.removeEventListener(privacyConsentChangedEvent, emit); document.removeEventListener("visibilitychange", emit); };
+    return () => { observer.disconnect(); window.removeEventListener(privacyConsentChangedEvent, emit); window.removeEventListener(analyticsVisitReadyEvent, emit); document.removeEventListener("visibilitychange", emit); };
   }, [pathname, name, serialized, enabled]);
   return <div ref={element} className={className}>{children}</div>;
 }
