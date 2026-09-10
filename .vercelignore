@@ -1,4 +1,7 @@
 .git
+.release-outcomes
+work
+.pytest_cache
 .next
 node_modules
 frontend/.next
