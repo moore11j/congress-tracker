@@ -1,3 +1,6 @@
+import { TickerDiscoveryLink } from "@/components/ticker/TickerDiscoveryLink";
+import { VisibleEvent } from "@/components/analytics/VisibleEvent";
+import { ContextualUpgrade } from "@/components/billing/ContextualUpgrade";
 ﻿import Link from "next/link";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
@@ -1386,7 +1389,7 @@ function historicalPercent(value: number | null | undefined): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSetups | null }) {
+function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHistoricalSetups | null; symbol: string }) {
   if (!setups) return null;
   const sevenDay = setups.horizons?.["7D"];
   const thirtyDay = setups.horizons?.["30D"];
@@ -1452,6 +1455,7 @@ function SimilarHistoricalSetupsCard({ setups }: { setups?: SimilarHistoricalSet
                 const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
                 return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-x-3 gap-y-1 rounded-md border border-violet-300/15 bg-violet-300/[0.035] px-2.5 py-2 text-xs sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)_auto] sm:items-center">
                   <p className="font-semibold text-slate-100"><span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-violet-400/15 text-[9px] text-violet-200">⌁</span>{match.ticker} <span className="font-normal text-slate-500">{formatDateShort(match.market_date)}</span></p>
+                  <TickerDiscoveryLink ticker={symbol} href={`/outcomes?ticker=${encodeURIComponent(match.ticker)}`} destinationType="outcome" destinationId={match.ticker}>View {match.ticker} outcome history</TickerDiscoveryLink>
                   {match.reasons?.length ? <p className="min-w-0 truncate text-[11px] text-slate-500">Similar: {match.reasons.join(" · ")}</p> : <span />}
                   <p className="font-medium text-slate-300 sm:text-right">Score <span className="text-emerald-300">{match.score}</span> · {match.direction} · {outcome?.status === "matured" ? historicalPercent(outcome.directional_return_pct) : "Pending"}</p>
                 </div>;
@@ -1502,12 +1506,12 @@ function TickerOverviewPanel({
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">30-DAY CONFIRMATION</p>
             <p className="mt-3 text-xs text-slate-500">{updated}</p>
           </div>
-          <div>
+          <VisibleEvent name="confirmation_score_viewed" properties={{ ticker: symbol }} enabled={!confirmationLocked && score !== null}>
             <p className={`text-5xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>
               {score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span>
             </p>
             <p className={`mt-2 text-2xl font-semibold ${decisionToneClass(direction)}`}>{label}</p>
-          </div>
+          </VisibleEvent>
           <div>
             <p className="text-base leading-7 text-slate-100">{layer.summary ?? displayBundle.explanation}</p>
           </div>
@@ -1518,11 +1522,7 @@ function TickerOverviewPanel({
         </div>
         {confirmationLocked && confirmationGate ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/35 p-4 backdrop-blur-[1px]">
-            <div className="max-w-sm rounded-lg border border-emerald-300/20 bg-slate-950/90 p-4 text-center shadow-2xl shadow-black/40">
-              <p className="text-sm font-semibold text-white">Premium confirmation</p>
-              <p className="mt-2 text-xs leading-5 text-slate-400">{confirmationGate.message}</p>
-              <Link href={confirmationGate.href} className="mt-4 inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20">{confirmationGate.label}</Link>
-            </div>
+            <div className="max-w-sm bg-slate-950/90"><ContextualUpgrade title="Understand the ranking" body={confirmationGate.message} feature="ticker_confirmation" compact /></div>
           </div>
         ) : null}
       </div>
@@ -1564,7 +1564,7 @@ function TickerOverviewPanel({
       {similarHistoricalSetupsLocked ? (
         <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
       ) : (
-        <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} />
+        <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} symbol={symbol} />
       )}
       <TickerResearchMemoryCard symbol={symbol} />
     </div>
@@ -2508,12 +2508,14 @@ function SourceEvidenceCard({
   source,
   body,
   support,
+  discovery,
 }: {
   title: string;
   icon: IntelligenceIconKind;
   source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey];
   body: string;
   support: string;
+  discovery?: ReactNode;
 }) {
   return (
     <div className={`rounded-lg border px-4 py-4 ${sourceCardBorderClass(source)}`}>
@@ -2528,6 +2530,7 @@ function SourceEvidenceCard({
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
+      {discovery}
     </div>
   );
 }
@@ -3351,6 +3354,7 @@ async function DeferredTickerContent({
                 source={insiderCardSource}
                 body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
                 support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
+                discovery={insiderCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href={`${hrefWithFilters(normalizedSymbol, lookback, "insider", side)}#insider-activity`} destinationType="insider_activity">Recent insider activity for {normalizedSymbol}</TickerDiscoveryLink> : null}
               />
               <SourceEvidenceCard
                 title="Congress"
@@ -3358,6 +3362,7 @@ async function DeferredTickerContent({
                 source={congressCardSource}
                 body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
                 support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+                discovery={congressCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href={`${hrefWithFilters(normalizedSymbol, lookback, "congress", side)}#congress-activity`} destinationType="congress_activity">Congress trades involving {normalizedSymbol}</TickerDiscoveryLink> : null}
               />
               <SourceEvidenceCard
                 title="Analysts"
@@ -3506,6 +3511,7 @@ async function DeferredTickerContent({
         <div className="min-w-0 space-y-6">
           {showCongress ? (
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
+              <VisibleEvent name="congress_trades_viewed" properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
               <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
                 <TickerActivityHeaderStatsClient
@@ -3582,6 +3588,7 @@ async function DeferredTickerContent({
 
           {showInsider ? (
             <section id="insider-activity" className={`${cardClassName} scroll-mt-6`}>
+              <VisibleEvent name="insider_activity_viewed" properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
               <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-start">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Insider activity</h2>
@@ -3803,6 +3810,7 @@ async function DeferredTickerContent({
 
           {showInstitutional ? (
             <section id="institutional-activity" className={`${cardClassName} scroll-mt-6`}>
+              <VisibleEvent name="institutional_activity_viewed" enabled={canViewProTickerContext} properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Institutional activity</h2>

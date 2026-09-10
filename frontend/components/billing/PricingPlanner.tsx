@@ -171,6 +171,8 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
   const [portalStatus, setPortalStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    const interval = new URLSearchParams(window.location.search).get("interval");
+    if (interval === "annual" || interval === "monthly") setBillingInterval(interval);
     setActiveConfig(config);
   }, [config]);
 
@@ -356,10 +358,10 @@ function PlanCard({
     <article className={`rounded-lg border p-4 ${highlighted ? "border-emerald-300/35 bg-emerald-300/[0.06]" : "border-white/10 bg-slate-900/70"}`}>
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-white">{plan?.name ?? tier}</h2>
-        {tier === "pro" ? <span className="rounded-md border border-cyan-300/30 px-2 py-1 text-xs font-semibold text-cyan-100">Highest limits</span> : null}
-        {tier === "premium" ? <span className="rounded-md border border-emerald-300/30 px-2 py-1 text-xs font-semibold text-emerald-100">Popular</span> : null}
+        {tier === "pro" ? <span className="rounded-md border border-cyan-300/30 px-2 py-1 text-xs font-semibold text-cyan-100">Professional datasets</span> : null}
+        {tier === "premium" ? <span className="rounded-md border border-emerald-300/30 px-2 py-1 text-xs font-semibold text-emerald-100">Recommended</span> : null}
       </div>
-      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-400">{plan?.description}</p>
+      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-400">{tier === "premium" ? "The default choice for self-directed investors exploring stocks, rankings, and historical performance." : tier === "pro" ? "Everything in Premium, plus professional-grade datasets and higher limits." : plan?.description}</p>
       <div className="mt-4 flex items-end gap-2">
         <span className="text-4xl font-semibold text-white">{formatMoney(price)}</span>
         <span className="pb-1 text-sm text-slate-500">{tier === "free" ? "forever" : billingInterval === "annual" ? "/yr" : "/mo"}</span>

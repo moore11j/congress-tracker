@@ -761,7 +761,7 @@ export default async function LandingPage() {
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
       <MarketingHeader pricingHref={pricingUrl} />
 
-      <section className="relative border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <section data-walnut-homepage className="relative border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-4xl">
             <SectionEyebrow>{homepageContent.hero.eyebrow}</SectionEyebrow>
@@ -771,12 +771,13 @@ export default async function LandingPage() {
             <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               {homepageContent.hero.description}
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <HomepageCtaLink href={`${appUrl}/screener`} eventName="open_screener_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">Open Screener</HomepageCtaLink>
               <HomepageCtaLink href={topStocksUrl} eventName="see_top_performers_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200">
                 View Leaderboards
               </HomepageCtaLink>
               <a href={`${appUrl}/strategies`} className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]">
-                Browse Strategies
+                Explore Strategies
               </a>
             </div>
             <div id="analyze-a-stock" className="scroll-mt-28">

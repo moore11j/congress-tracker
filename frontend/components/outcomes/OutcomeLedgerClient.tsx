@@ -963,8 +963,8 @@ function EventsTable({
           <thead className="border-b border-white/10 text-xs text-slate-300">
             <tr>
               {(Object.entries(outcomeSortableColumns) as [OutcomeSortKey, string][]).map(([key, label]) => (
-                <th key={key} className="px-4 py-3 font-medium">
-                  <button type="button" onClick={() => handleSort(key)} className="inline-flex items-center gap-1 rounded-sm text-left hover:text-white">
+                <th key={key} aria-sort={hasPremiumTable && sort?.key === key ? (sort.direction === "asc" ? "ascending" : "descending") : "none"} className="p-0 font-medium">
+                  <button type="button" onClick={() => handleSort(key)} className="flex min-h-11 w-full items-center gap-1 px-4 py-3 text-left hover:bg-white/5 hover:text-white focus-visible:outline focus-visible:outline-emerald-300">
                     {label}
                     <span className="text-[10px] text-slate-500">{sort?.key === key ? (sort.direction === "asc" ? "^" : "v") : hasPremiumTable ? "Sort" : "Premium"}</span>
                   </button>
@@ -1234,7 +1234,9 @@ function DetailPanel({
 export function OutcomeLedgerClient({
   initialSummary,
   initialSnapshots,
+  initialTicker,
 }: {
+  initialTicker?: string;
   initialStatus: OutcomeLedgerStatus | null;
   initialSummary: OutcomeLedgerSummary | null;
   initialSnapshots: OutcomeSnapshotsResponse | null;
@@ -1281,7 +1283,7 @@ export function OutcomeLedgerClient({
     setError(null);
     Promise.all([
       getOutcomeLedgerSummary({ horizon: requestedHorizon }),
-      getOutcomeSnapshots({ limit: 500, horizon: requestedHorizon }),
+      getOutcomeSnapshots({ limit: 500, horizon: requestedHorizon, ticker: initialTicker }),
     ])
       .then(([nextSummary, nextSnapshots]) => {
         if (!alive || requestedHorizonRef.current !== requestedHorizon) return;
@@ -1299,7 +1301,7 @@ export function OutcomeLedgerClient({
     return () => {
       alive = false;
     };
-  }, [horizonFilter, loadedHorizon, snapshots, summary]);
+  }, [horizonFilter, initialTicker, loadedHorizon, snapshots, summary]);
 
   const datasetReady = !datasetLoading && loadedHorizon === horizonFilter && Boolean(summary && snapshots);
 
@@ -1335,6 +1337,7 @@ export function OutcomeLedgerClient({
     [cohortFilter, dateRangeFilter, directionFilter, horizonFilter, methodologyFilter, scoreBandFilter, uniqueSnapshotItems],
   );
   const canUseServerSummary =
+    !initialTicker &&
     summary?.horizon === horizonFilter &&
     cohortFilter === "all" &&
     directionFilter === "All" &&
@@ -1479,6 +1482,7 @@ export function OutcomeLedgerClient({
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">OUTCOMES</p>
             <p className="text-sm font-bold uppercase tracking-[0.36em] text-white">Outcome Ledger</p>
             <p className="mt-1 text-sm text-slate-300">Track what Walnut believed at the time - and what happened next.</p>
+            {initialTicker ? <p className="mt-2 text-sm text-emerald-200">Outcomes involving {initialTicker} · <a href="/outcomes" className="underline">View all tickers</a></p> : null}
           </header>
 
           {error ? (

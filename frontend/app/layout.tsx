@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
@@ -41,7 +42,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <body className="min-h-full">
           {children}
           <AppVersionRefresh version={version} />
-          <PageAnalyticsTracker />
+          <Suspense fallback={null}><PageAnalyticsTracker /></Suspense>
           <CookieConsentManager />
         </body>
       </html>
@@ -76,7 +77,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </div>
             </div>
           </header>
-          <PageAnalyticsTracker />
+          <Suspense fallback={null}><PageAnalyticsTracker /></Suspense>
           <main className="relative z-0 w-full min-w-0 px-4 py-1.5 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
         </div>
         <AppVersionRefresh version={version} />

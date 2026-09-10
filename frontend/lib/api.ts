@@ -25,6 +25,9 @@ import type {
 import { defaultEntitlements, entitlementTierStorageKey, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 import { hasPrivacyConsent } from "@/lib/privacyConsent";
 import { isProductionAnalyticsHost } from "@/lib/analyticsEnvironment";
+import { acquisitionProperties, analyticsSessionId, setAnalyticsIdentity } from "@/lib/analyticsContext";
+import { identifyHeyCatchUser, resetHeyCatchIdentity } from "@/lib/heycatch";
+import { trackEvent } from "@/lib/productAnalytics";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
 const legacyAuthTokenStorageKey = "ct:authToken";
@@ -1303,6 +1306,7 @@ export type AuthResponse = {
   user: AccountUser;
   entitlements: Entitlements;
   return_to?: string;
+  is_new_user?: boolean;
   email_verification_required?: boolean;
   dev_verification_url?: string;
 };
@@ -2657,6 +2661,9 @@ export async function login(payload: { email: string; password?: string; name?: 
   });
   rememberAuthenticatedSession();
   rememberEntitlements(response.entitlements);
+  setAnalyticsIdentity(response.user);
+  identifyHeyCatchUser(response.user);
+  trackEvent("signin_completed", { method: "password" });
   return response;
 }
 
@@ -2693,6 +2700,9 @@ export async function register(payload: {
   });
   rememberAuthenticatedSession();
   rememberEntitlements(response.entitlements);
+  setAnalyticsIdentity(response.user);
+  identifyHeyCatchUser(response.user);
+  trackEvent("signup_completed", { method: "password" });
   return response;
 }
 
@@ -2714,6 +2724,9 @@ export async function completeGoogleSignIn(payload: {
   });
   rememberAuthenticatedSession();
   rememberEntitlements(response.entitlements);
+  setAnalyticsIdentity(response.user);
+  identifyHeyCatchUser(response.user);
+  trackEvent((response.is_new_user ? "signup_completed" : "signin_completed"), { method: "google" });
   return response;
 }
 
@@ -2727,6 +2740,8 @@ export async function getMe(options?: { force?: boolean; source?: string }): Pro
     .then((response) => {
       rememberEntitlements(response.entitlements);
       if (typeof window !== "undefined") {
+        setAnalyticsIdentity(response.user);
+        if (response.user) identifyHeyCatchUser(response.user);
         meCache = { value: response, expiresAt: Date.now() + CLIENT_CACHE_TTL_MS };
         entitlementCache.set("cookie", { value: response.entitlements, expiresAt: Date.now() + CLIENT_CACHE_TTL_MS });
       }
@@ -2745,6 +2760,8 @@ export async function logout(): Promise<void> {
     await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
   } finally {
     forgetAuthenticatedSession();
+    setAnalyticsIdentity(null);
+    resetHeyCatchIdentity();
   }
 }
 
@@ -2864,11 +2881,13 @@ export async function createCheckoutSession(
   plan: "premium" | "pro" = "premium",
   returnTo?: string | null,
 ): Promise<{ id?: string | null; url?: string | null }> {
-  return fetchJson(buildApiUrl("/api/billing/checkout-session"), {
+  const response = await fetchJson<{ id?: string | null; url?: string | null }>(buildApiUrl("/api/billing/checkout-session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ interval: billingInterval, plan, returnTo: returnTo || undefined }),
   });
+  if (response.url) trackEvent("checkout_started", { target_plan: plan, billing_interval: billingInterval });
+  return response;
 }
 
 export async function createCustomerPortalSession(): Promise<{ url?: string | null }> {
@@ -3541,61 +3560,21 @@ export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUser
 }
 
 export function recordPageView(payload: { path: string; referrer_path?: string | null; title?: string | null }): void {
-  if (typeof window === "undefined") return;
-  if (!isProductionAnalyticsHost()) return;
-  if (!hasPrivacyConsent("analytics")) return;
-  const url = buildApiUrl("/api/analytics/page-view");
-  const sessionKey = "ct:analyticsSession";
-  let sessionId = window.sessionStorage.getItem(sessionKey);
-  if (!sessionId) {
-    sessionId = window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    window.sessionStorage.setItem(sessionKey, sessionId);
-  }
-  const body = JSON.stringify({ ...payload, session_id: sessionId });
-  const headers = { type: "application/json" } as const;
-  if (navigator.sendBeacon) {
-    const blob = new Blob([body], headers);
-    if (navigator.sendBeacon(url, blob)) return;
-  }
-  clearLegacyAuthStorage();
-  void fetch(url, {
-    method: "POST",
-    body,
-    keepalive: true,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Walnut-Analytics-Session": sessionId,
-    },
-  }).catch(() => undefined);
+  sendAnalytics("page-view", { ...payload, properties: acquisitionProperties() });
 }
 
 export function recordProductEvent(payload: { event_name: string; path?: string | null; properties?: Record<string, string | number | boolean | null> }): void {
-  if (typeof window === "undefined") return;
-  if (!isProductionAnalyticsHost()) return;
-  if (!hasPrivacyConsent("analytics")) return;
-  const eventName = payload.event_name.trim();
-  if (!eventName) return;
-  const url = buildApiUrl("/api/analytics/event");
-  const body = JSON.stringify({
-    event_name: eventName,
-    path: payload.path ?? window.location.pathname,
-    properties: payload.properties ?? {},
-  });
-  if (navigator.sendBeacon) {
-    const blob = new Blob([body], { type: "application/json" });
-    if (navigator.sendBeacon(url, blob)) return;
-  }
-  clearLegacyAuthStorage();
-  void fetch(url, {
-    method: "POST",
-    body,
-    keepalive: true,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  }).catch(() => undefined);
+  sendAnalytics("event", { ...payload, path: payload.path ?? (typeof window !== "undefined" ? window.location.pathname : "/") });
+}
+
+function sendAnalytics(kind: "page-view" | "event", payload: object): void {
+  try {
+    if (typeof window === "undefined" || !isProductionAnalyticsHost() || !hasPrivacyConsent("analytics")) return;
+    const url = buildApiUrl(`/api/analytics/${kind}`);
+    const body = JSON.stringify({ ...payload, session_id: analyticsSessionId(), event_id: window.crypto.randomUUID() });
+    if (navigator.sendBeacon && navigator.sendBeacon(url, new Blob([body], { type: "application/json" }))) return;
+    void fetch(url, { method: "POST", body, keepalive: true, credentials: "include", headers: { "Content-Type": "application/json" } }).catch(() => undefined);
+  } catch { /* Analytics and optional browser storage must never block a workflow. */ }
 }
 
 export async function getAdminEmailTemplates(): Promise<{ items: AdminEmailTemplate[] }> {
@@ -8435,11 +8414,13 @@ export async function listWatchlists(authToken?: string): Promise<WatchlistSumma
 }
 
 export async function createWatchlist(name: string, authToken?: string): Promise<WatchlistSummary> {
-  return fetchJson<WatchlistSummary>(buildApiUrl("/api/watchlists"), {
+  const response = await fetchJson<WatchlistSummary>(buildApiUrl("/api/watchlists"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders(authToken) },
     body: JSON.stringify({ name }),
   });
+  trackEvent("watchlist_created", { entity_id: String(response.id) });
+  return response;
 }
 
 export async function renameWatchlist(id: number, name: string, authToken?: string): Promise<WatchlistSummary> {
@@ -8492,7 +8473,9 @@ export async function listCustomAlertRules(watchlistId: number): Promise<{ items
 }
 
 export async function createCustomAlertRule(watchlistId: number, payload: Omit<CustomAlertRulePayload, "id">): Promise<CustomAlertRule> {
-  return fetchJson<CustomAlertRule>(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const response = await fetchJson<CustomAlertRule>(buildApiUrl(`/api/watchlists/${watchlistId}/alert-rules`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  trackEvent("alert_created", { entity_id: String(response.id), ticker: response.scope.ticker });
+  return response;
 }
 
 export async function updateCustomAlertRule(watchlistId: number, ruleId: number, payload: Partial<CustomAlertRulePayload>): Promise<CustomAlertRule> {
@@ -8571,18 +8554,22 @@ export async function markWatchlistSeen(id: number, authToken?: string) {
 }
 
 export async function addToWatchlist(id: number, symbol: string, authToken?: string) {
-  return fetchJson<{ status: string; symbol: string }>(buildApiUrl(`/api/watchlists/${id}/add`, { symbol }), {
+  const response = await fetchJson<{ status: string; symbol: string }>(buildApiUrl(`/api/watchlists/${id}/add`, { symbol }), {
     method: "POST",
     headers: authHeaders(authToken),
   });
+  if (response.status === "added") trackEvent("ticker_added_to_watchlist", { ticker: symbol, entity_id: String(id) });
+  return response;
 }
 
 export async function followTicker(symbol: string): Promise<{ status: "added" | "exists"; symbol: string; watchlist: WatchlistSummary }> {
-  return fetchJson<{ status: "added" | "exists"; symbol: string; watchlist: WatchlistSummary }>(buildApiUrl("/api/watchlists/follow"), {
+  const response = await fetchJson<{ status: "added" | "exists"; symbol: string; watchlist: WatchlistSummary }>(buildApiUrl("/api/watchlists/follow"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ symbol }),
   });
+  if (response.status === "added") trackEvent("ticker_added_to_watchlist", { ticker: symbol, entity_id: String(response.watchlist.id) });
+  return response;
 }
 
 export async function addWatchlistTarget(

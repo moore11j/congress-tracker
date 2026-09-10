@@ -312,9 +312,13 @@ class PageViewPayload(BaseModel):
     referrer_path: str | None = Field(default=None, max_length=500)
     title: str | None = Field(default=None, max_length=180)
     session_id: str | None = Field(default=None, max_length=160)
+    event_id: str | None = Field(default=None, max_length=80)
+    properties: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
 
 class ProductEventPayload(BaseModel):
+    session_id: str | None = Field(default=None, max_length=160)
+    event_id: str | None = Field(default=None, max_length=80)
     event_name: str = Field(min_length=1, max_length=120)
     path: str | None = Field(default=None, max_length=500)
     properties: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
@@ -1304,7 +1308,11 @@ def _safe_analytics_path(value: str | None) -> str | None:
     raw = (value or "").strip()
     if not raw:
         return None
+    if re.match(r"^[a-zA-Z]:[\\/]", raw) or raw.lower().startswith("file:"):
+        return None
     parsed = urlparse(raw)
+    if parsed.scheme and (parsed.scheme != "https" or parsed.hostname not in {"walnutmarkets.com", "app.walnutmarkets.com"}):
+        return None
     path = parsed.path or raw.split("?", 1)[0]
     if not path.startswith("/"):
         path = f"/{path}"
@@ -4478,6 +4486,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
     if is_new_user:
         _send_welcome_email(db, user)
     auth = _auth_response_for_user(db, user, auth_response)
+    auth["is_new_user"] = is_new_user
     auth["return_to"] = _safe_app_return_path(str(parsed_state.get("return_to") or ""))
     _log_auth_diagnostic("google_callback", "authenticated", "session_created", request, user=user, set_cookie_attempted=True)
     return auth
@@ -5735,6 +5744,37 @@ def _record_stripe_webhook_failure(
         db.commit()
 
 
+def _record_paid_funnel_event(db: Session, user: UserAccount, invoice: dict, event: dict) -> None:
+    # Test-mode Stripe traffic never enters the production funnel. Billing's own
+    # durable ledger remains the source of truth for payments without consent.
+    if event.get("livemode") is not True:
+        return
+    invoice_id = str(invoice.get("id") or "")
+    if not invoice_id:
+        return
+    prior = db.execute(select(PageViewEvent).where(
+        PageViewEvent.user_id == user.id,
+        PageViewEvent.normalized_path == "/events/subscription_completed",
+    )).scalars()
+    if any(_analytics_metadata(row.metadata_json).get("invoice_id") == invoice_id for row in prior):
+        return
+    checkout = db.execute(select(PageViewEvent).where(
+        PageViewEvent.user_id == user.id,
+        PageViewEvent.normalized_path == "/events/checkout_started",
+    ).order_by(PageViewEvent.created_at.desc()).limit(1)).scalar_one_or_none()
+    if checkout is None:
+        return
+    metadata = _analytics_metadata(checkout.metadata_json)
+    properties = _safe_funnel_properties(metadata.get("properties", {}))
+    properties.update({"authenticated": True, "current_plan": normalize_tier(user.entitlement_tier)})
+    db.add(PageViewEvent(user_id=user.id, session_id_hash=checkout.session_id_hash,
+        path="/account/billing", normalized_path="/events/subscription_completed", route_group="event",
+        is_authenticated=True, plan_at_time=normalize_tier(user.entitlement_tier),
+        metadata_json=json.dumps({"event_name": "subscription_completed", "invoice_id": invoice_id,
+                                  "properties": properties, "source": "stripe_webhook"}),
+        created_at=datetime.now(timezone.utc)))
+
+
 def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
     event_id = str(event.get("id") or "")
     event_type = str(event.get("type") or "")
@@ -5807,6 +5847,14 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
             synced_user = _sync_user_subscription(db, obj=obj, status="paused")
         else:
             handled = False
+
+        if (synced_user and event_type in {"invoice.paid", "invoice.payment_succeeded", "invoice.payment.paid"}
+                and obj.get("billing_reason") == "subscription_create" and int(obj.get("amount_paid") or 0) > 0):
+            try:
+                with db.begin_nested():
+                    _record_paid_funnel_event(db, synced_user, obj, event)
+            except Exception:
+                logger.warning("Paid funnel event could not be recorded; billing processing continues")
 
         _mark_stripe_webhook_processed(claimed_event)
         db.commit()
@@ -6217,8 +6265,66 @@ def admin_sales_ledger(
     }
 
 
+_CANONICAL_FUNNEL_EVENTS = {'strategy_followed', 'signin_completed', 'ticker_added_to_watchlist', 'subscription_completed', 'upgrade_prompt_clicked', 'insider_activity_viewed', 'watchlist_created', 'ticker_related_content_viewed', 'screener_opened', 'confirmation_score_viewed', 'pricing_viewed', 'congress_trades_viewed', 'ticker_viewed', 'signup_started', 'screener_result_clicked', 'strategy_viewed', 'checkout_started', 'upgrade_prompt_viewed', 'ticker_related_content_clicked', 'leaderboard_entity_clicked', 'outcomes_viewed', 'homepage_viewed', 'signin_started', 'strategy_list_viewed', 'alert_created', 'leaderboard_viewed', 'signup_completed', 'institutional_activity_viewed'}
+
+_FUNNEL_PROPERTY_KEYS = {
+    "route", "source_page", "destination_page", "ticker", "entity_type", "entity_id",
+    "leaderboard_type", "strategy_id", "gated_feature", "current_plan", "authenticated",
+    "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "target_plan",
+    "billing_interval", "method", "placement", "destination_type", "destination_id",
+}
+
+
+def _safe_funnel_properties(properties: dict) -> dict:
+    result = {}
+    for key, value in properties.items():
+        if key not in _FUNNEL_PROPERTY_KEYS:
+            continue
+        if isinstance(value, str):
+            value = _safe_analytics_path(value) if key.endswith("page") or key == "route" else value[:120]
+            if value and ("@" in value or re.search(r"(?:token|password|secret)=", value, re.I)):
+                continue
+        result[key] = value
+    return result
+
+
+def _analytics_request_allowed(request: Request) -> bool:
+    # Production browser events require an exact first-party HTTPS origin.
+    # Local test databases remain usable without pretending to be production.
+    production = _is_production_env() or bool(os.getenv("FLY_APP_NAME"))
+    origin = request.headers.get("origin")
+    if origin and origin not in {"https://walnutmarkets.com", "https://app.walnutmarkets.com"}:
+        return False
+    if production and not origin:
+        return False
+    consent = request.cookies.get("walnut_privacy_consent", "")
+    return "a0" not in consent.split(".")
+
+
+def _analytics_metadata(raw: str | None) -> dict:
+    try:
+        value = json.loads(raw or "{}")
+        return value if isinstance(value, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _duplicate_analytics_event(db: Session, session_hash: str | None, event_id: str | None) -> bool:
+    if not session_hash or not event_id:
+        return False
+    # Exact delivery ID, not a normalized route/time window: AAPL → MSFT and
+    # back navigation are distinct visits. Restrict the scan to this session.
+    rows = db.execute(select(PageViewEvent.metadata_json).where(
+        PageViewEvent.session_id_hash == session_hash,
+        PageViewEvent.created_at >= datetime.now(timezone.utc) - timedelta(hours=1),
+    )).scalars()
+    return any(_analytics_metadata(raw).get("event_id") == event_id for raw in rows)
+
+
 @router.post("/analytics/page-view", status_code=204)
 def record_page_view(payload: PageViewPayload, request: Request, db: Session = Depends(get_db)):
+    if not _analytics_request_allowed(request):
+        return Response(status_code=204)
     path = _safe_analytics_path(payload.path)
     if not path:
         return Response(status_code=204)
@@ -6233,29 +6339,13 @@ def record_page_view(payload: PageViewPayload, request: Request, db: Session = D
     user_agent = request.headers.get("user-agent", "")
     now = datetime.now(timezone.utc)
 
-    if user:
-        duplicate_query = (
-            select(PageViewEvent)
-            .where(PageViewEvent.user_id == user.id)
-            .where(PageViewEvent.normalized_path == normalized_path)
-            .where(PageViewEvent.created_at >= now - timedelta(seconds=20))
-            .limit(1)
-        )
-    else:
-        session_hash = _analytics_session_hash(request, payload.session_id)
-        duplicate_query = (
-            select(PageViewEvent)
-            .where(PageViewEvent.session_id_hash == session_hash)
-            .where(PageViewEvent.normalized_path == normalized_path)
-            .where(PageViewEvent.created_at >= now - timedelta(seconds=20))
-            .limit(1)
-        ) if session_hash else None
-    if duplicate_query is not None and db.execute(duplicate_query).scalar_one_or_none():
+    session_hash = _analytics_session_hash(request, payload.session_id)
+    if _duplicate_analytics_event(db, session_hash, payload.event_id):
         return Response(status_code=204)
 
     row = PageViewEvent(
         user_id=user.id if user else None,
-        session_id_hash=None if user else _analytics_session_hash(request, payload.session_id),
+        session_id_hash=session_hash,
         path=path,
         normalized_path=normalized_path,
         route_group=_analytics_route_group(normalized_path),
@@ -6264,7 +6354,7 @@ def record_page_view(payload: PageViewPayload, request: Request, db: Session = D
         device_type=_device_type(user_agent),
         is_authenticated=bool(user),
         plan_at_time=normalize_tier(user.entitlement_tier if user else None) if user else "anonymous",
-        metadata_json=json.dumps({"title": payload.title[:120]}, sort_keys=True) if payload.title else None,
+        metadata_json=json.dumps({"event_id": payload.event_id, "properties": _safe_funnel_properties(payload.properties)}, sort_keys=True),
         created_at=now,
     )
     db.add(row)
@@ -6274,11 +6364,13 @@ def record_page_view(payload: PageViewPayload, request: Request, db: Session = D
 
 @router.post("/analytics/event", status_code=204)
 def record_product_event(payload: ProductEventPayload, request: Request, db: Session = Depends(get_db)):
+    if not _analytics_request_allowed(request) or payload.event_name.strip() == "subscription_completed":
+        return Response(status_code=204)
     event_name = payload.event_name.strip()
     if not event_name:
         return Response(status_code=204)
     path = _safe_analytics_path(payload.path)
-    if path and path.startswith("/api/"):
+    if not path or path.startswith("/api/"):
         return Response(status_code=204)
     try:
         user = current_user(db, request, required=False)
@@ -6286,14 +6378,20 @@ def record_product_event(payload: ProductEventPayload, request: Request, db: Ses
         user = None
     user_agent = request.headers.get("user-agent", "")
     safe_event_name = re.sub(r"[^a-zA-Z0-9_.:-]+", "_", event_name)[:120]
+    session_hash = _analytics_session_hash(request, payload.session_id)
+    if _duplicate_analytics_event(db, session_hash, payload.event_id):
+        return Response(status_code=204)
     metadata = {
+        "event_id": payload.event_id,
         "event_name": event_name,
         "source_path": path or "/",
-        "properties": payload.properties,
+        "properties": _safe_funnel_properties(payload.properties) if event_name in _CANONICAL_FUNNEL_EVENTS else payload.properties,
     }
+    if event_name in _CANONICAL_FUNNEL_EVENTS:
+        metadata["properties"].update({"authenticated": bool(user), "current_plan": normalize_tier(user.entitlement_tier) if user else "free"})
     row = PageViewEvent(
         user_id=user.id if user else None,
-        session_id_hash=None,
+        session_id_hash=session_hash,
         path=path or "/",
         normalized_path=f"/events/{safe_event_name}",
         route_group="event",
@@ -6302,7 +6400,7 @@ def record_product_event(payload: ProductEventPayload, request: Request, db: Ses
         device_type=_device_type(user_agent),
         is_authenticated=bool(user),
         plan_at_time=normalize_tier(user.entitlement_tier if user else None) if user else "anonymous",
-        metadata_json=json.dumps(metadata, sort_keys=True, default=str)[:4000],
+        metadata_json=json.dumps(metadata, sort_keys=True, default=str),
         created_at=datetime.now(timezone.utc),
     )
     db.add(row)

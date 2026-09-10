@@ -79,16 +79,16 @@ test("google analytics defaults analytics on while keeping marketing storage den
 test("analytics runs by default and stops after an explicit opt out", () => {
   assert.match(api, /import \{ hasPrivacyConsent \} from "@\/lib\/privacyConsent";/);
   assert.match(api, /import \{ isProductionAnalyticsHost \} from "@\/lib\/analyticsEnvironment";/);
-  assert.match(api, /export function recordPageView[\s\S]*if \(!isProductionAnalyticsHost\(\)\) return;[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*window\.sessionStorage\.getItem\(sessionKey\)/);
-  assert.match(api, /export function recordProductEvent[\s\S]*if \(!isProductionAnalyticsHost\(\)\) return;[\s\S]*if \(!hasPrivacyConsent\("analytics"\)\) return;[\s\S]*const eventName = payload\.event_name\.trim\(\)/);
+  assert.match(api, /function sendAnalytics/);
+  assert.match(api, /!isProductionAnalyticsHost\(\) \|\| !hasPrivacyConsent\("analytics"\)/);
+  assert.match(api, /session_id: analyticsSessionId\(\)/);
   assert.match(consent, /if \(!consent\) return category === "analytics";/);
-  assert.match(manager, /sendInitialPageView: analyticsGranted/);
+  assert.match(manager, /sendInitialPageView: false/);
   assert.match(manager, /updateGoogleAnalyticsConsent\(analyticsGranted, marketingGranted\)/);
   assert.match(manager, /\(consent\?\.analytics \?\? true\) && !stored\.analytics/);
   assert.match(tracker, /privacyConsentChangedEvent/);
   assert.match(tracker, /recordGoogleAnalyticsPageView/);
-  assert.match(tracker, /initialGoogleAnalyticsPath/);
-  assert.match(tracker, /initialGoogleAnalyticsPath\.current !== path && !recordGoogleAnalyticsPageView/);
+  assert.match(tracker, /visits.current.enter\(path\)/);
   assert.match(tracker, /setConsentRefresh\(\(current\) => current \+ 1\)/);
 });
 

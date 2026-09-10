@@ -8,6 +8,7 @@ import {
   getStrategySubscription,
   updateStrategySubscription,
 } from "@/lib/api";
+import { trackEvent } from "@/lib/productAnalytics";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { defaultEntitlements, hasEntitlement, type Entitlements } from "@/lib/entitlements";
 
@@ -77,6 +78,7 @@ export function StrategyFollowButton({ slug, compact = false, panel = false }: P
       setFollowing(Boolean(result.subscription.isActive));
       setEmailEnabled(Boolean(result.subscription.emailEnabled));
       setEventTypes(result.subscription.eventTypes);
+      if (!following && result.subscription.isActive) trackEvent("strategy_followed", { strategy_id: slug });
       setMessage("Daily alert settings saved.");
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 402)) setUpgradeOpen(true);

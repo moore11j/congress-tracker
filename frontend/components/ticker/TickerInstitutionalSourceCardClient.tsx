@@ -1,5 +1,6 @@
 "use client";
 
+import { TickerDiscoveryLink } from "./TickerDiscoveryLink";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getTickerSignalsSummary } from "@/lib/api";
 import type { ConfirmationScoreSource } from "@/lib/types";
@@ -202,6 +203,7 @@ export function TickerInstitutionalSourceCardClient({
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{loading ? "Checking Institutional Activity" : bodyForSource(source, canViewInstitutional)}</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{loading ? contextWindowLabel(lookbackDays) : supportForSource(source, lookbackDays, canViewInstitutional)}</p>
+      {canViewInstitutional && source.present && !loading ? <TickerDiscoveryLink ticker={symbol} href={`/ticker/${encodeURIComponent(symbol)}?source=institutional&lookback=${lookbackDays}&side=${side}#institutional-activity`} destinationType="institutional_activity">Review {symbol} institutional activity</TickerDiscoveryLink> : null}
     </div>
   );
 }

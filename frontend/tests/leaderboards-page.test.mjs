@@ -21,7 +21,8 @@ test("leaderboards analytics and cached API contract are explicit", () => {
   for (const eventName of ["leaderboards_view", "leaderboard_section_view", "leaderboard_sort_change", "leaderboard_stock_filter_change", "leaderboard_stock_click", "leaderboard_member_click", "leaderboard_institution_click"]) assert.match(dashboard, new RegExp(eventName));
   assert.match(dashboard, /aria-haspopup="menu"/);
   assert.match(dashboard, /one-year trade outcomes/);
-  assert.match(dashboard, /Upgrade to \{tier\}/);
+  assert.match(dashboard, /ContextualUpgrade/);
+  assert.match(dashboard, /See the full ranking/);
   assert.match(dashboard, /canViewTopStocks/);
   assert.match(page, /token\s*\?\s*await getLeaderboardDashboard/);
   assert.match(api, /CachedLeaderboardSection/);

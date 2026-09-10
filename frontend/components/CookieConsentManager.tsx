@@ -56,7 +56,7 @@ function applyConsent(consent: PrivacyConsent | null): void {
   ensureGoogleAnalytics({
     analyticsGranted,
     marketingGranted,
-    sendInitialPageView: analyticsGranted,
+    sendInitialPageView: false,
   });
   updateGoogleAnalyticsConsent(analyticsGranted, marketingGranted);
   removeGoogleLinkerParams();

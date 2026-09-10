@@ -1,66 +1,65 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import { recordPageView } from "@/lib/api";
+import { usePathname, useSearchParams } from "next/navigation";
+import { getMe, recordPageView } from "@/lib/api";
 import { recordGoogleAnalyticsPageView } from "@/lib/googleAnalytics";
-import { hasPrivacyConsent, privacyConsentChangedEvent } from "@/lib/privacyConsent";
-
-function safePath(value: string | null | undefined) {
-  const raw = (value || "").trim();
-  if (!raw) return "/";
-  try {
-    const parsed = new URL(raw, window.location.origin);
-    return parsed.pathname || "/";
-  } catch {
-    return raw.split("?", 1)[0] || "/";
-  }
-}
-
-function shouldTrack(path: string) {
-  return Boolean(path) && !path.startsWith("/_next/") && !path.startsWith("/api/") && !path.includes(".");
-}
+import { privacyConsentChangedEvent } from "@/lib/privacyConsent";
+import { acquisitionProperties, analyticsConsent, safeAnalyticsPath, setAnalyticsIdentity } from "@/lib/analyticsContext";
+import { createVisitTracker, routeFunnelEvent } from "@/lib/funnelEvents";
+import { trackDiscoveryClick, trackEvent } from "@/lib/productAnalytics";
+import { identifyHeyCatchUser } from "@/lib/heycatch";
 
 export function PageAnalyticsTracker() {
   const pathname = usePathname();
+  const query = useSearchParams().toString();
+  const visits = useRef(createVisitTracker());
+  const funnelVisits = useRef(createVisitTracker());
   const previousPath = useRef<string | null>(null);
-  const initialGoogleAnalyticsPath = useRef<string | null>(null);
+  const enteredFrom = useRef("/");
   const [consentRefresh, setConsentRefresh] = useState(0);
 
   useEffect(() => {
     const refresh = () => setConsentRefresh((current) => current + 1);
+    const identify = () => { void getMe({ source: "analytics" }).then(({ user }) => { setAnalyticsIdentity(user); if (user) identifyHeyCatchUser(user); }).catch(() => undefined); };
+    const click = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const anchor = event.target.closest("a[href]");
+      if (anchor) trackDiscoveryClick(anchor.getAttribute("href") || "");
+    };
+    acquisitionProperties();
+    identify();
     window.addEventListener(privacyConsentChangedEvent, refresh);
-    return () => window.removeEventListener(privacyConsentChangedEvent, refresh);
+    window.addEventListener("ct:auth-updated", identify);
+    document.addEventListener("click", click);
+    return () => { window.removeEventListener(privacyConsentChangedEvent, refresh); window.removeEventListener("ct:auth-updated", identify); document.removeEventListener("click", click); };
   }, []);
 
   useEffect(() => {
-    const path = safePath(pathname);
-    if (!shouldTrack(path)) return;
-    const referrer = previousPath.current || safePath(document.referrer);
-    previousPath.current = path;
-    let retryTimer: number | null = null;
-    const timer = window.setTimeout(() => {
-      const title = document.title || null;
-      recordPageView({
-        path,
-        referrer_path: referrer && referrer !== path ? referrer : null,
-        title,
-      });
-      if (initialGoogleAnalyticsPath.current === null) {
-        initialGoogleAnalyticsPath.current = path;
+    const path = safeAnalyticsPath(pathname || "/");
+    if (path.startsWith("/api/") || path.startsWith("/_next/")) return;
+    let cancelled = false;
+    // Reuse the cached auth request; failure preserves the unknown identity.
+    void Promise.race([getMe({ source: "analytics" }).catch(() => null), new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 800))]).then((session) => {
+      if (cancelled) return;
+      if (!analyticsConsent()) {
+        if (process.env.NEXT_PUBLIC_ANALYTICS_DEBUG === "1") console.info("[Walnut analytics] skipped: analytics consent disabled");
         return;
       }
-      if (hasPrivacyConsent("analytics") && initialGoogleAnalyticsPath.current !== path && !recordGoogleAnalyticsPageView(path, title)) {
-        retryTimer = window.setTimeout(() => {
-          if (hasPrivacyConsent("analytics") && initialGoogleAnalyticsPath.current !== path) recordGoogleAnalyticsPageView(path, title);
-        }, 750);
+      if (session) { setAnalyticsIdentity(session.user); if (session.user) identifyHeyCatchUser(session.user); }
+      const source = previousPath.current || safeAnalyticsPath(document.referrer || "/");
+      if (visits.current.enter(path)) {
+        enteredFrom.current = source;
+        recordPageView({ path, referrer_path: source !== path ? source : null, title: document.title || null });
+        recordGoogleAnalyticsPageView(path, document.title || null);
+        previousPath.current = path;
       }
-    }, 250);
-    return () => {
-      window.clearTimeout(timer);
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
-    };
-  }, [pathname, consentRefresh]);
+      const event = routeFunnelEvent(path, query, window.location.hostname === "walnutmarkets.com" || Boolean(document.querySelector("[data-walnut-homepage]")));
+      const key = `${path}:${event?.name || "none"}`;
+      if (funnelVisits.current.enter(key) && event) trackEvent(event.name, { ...event.properties, source_page: enteredFrom.current });
+    });
+    return () => { cancelled = true; };
+  }, [pathname, query, consentRefresh]);
 
   return null;
 }

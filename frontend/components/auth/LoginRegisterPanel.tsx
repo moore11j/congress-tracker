@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import { ApiError, getGoogleAuthUrl, getMe, login, recordProductEvent, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
 import { selectClassName } from "@/lib/styles";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 import { campaignParamKeys } from "@/lib/campaignAttribution";
-import { identifyHeyCatchUser, trackHeyCatchEvent } from "@/lib/heycatch";
+import { trackEvent } from "@/lib/productAnalytics";
 
 type Mode = "login" | "register";
 
@@ -92,6 +92,7 @@ export function LoginRegisterPanel({
   const resolvedReactivated = reactivated ?? searchParams.get("reactivated") === "1";
   const requestedMode: Mode = searchParams.get("mode") === "register" ? "register" : "login";
   const nextPath = safeAppReturnPath(resolvedReturnTo, resolvedReactivated ? reactivatedBillingPath : defaultPostLoginPath);
+  const startedModes = useRef(new Set<Mode>());
   const [mode, setMode] = useState<Mode>(requestedMode);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -132,6 +133,15 @@ export function LoginRegisterPanel({
   useEffect(() => {
     setMode(requestedMode);
   }, [requestedMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMe().then(({ user }) => {
+      if (cancelled || user || startedModes.current.has(mode)) return;
+      if (trackEvent(mode === "register" ? "signup_started" : "signin_started", { destination_page: nextPath })) startedModes.current.add(mode);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [mode, nextPath]);
 
   const headline = useMemo(
     () => (mode === "register" ? "Create your Walnut account." : "Welcome back."),
@@ -211,10 +221,6 @@ export function LoginRegisterPanel({
       setLoadingLabel("Verifying session...");
       setStatus("Verifying your session...");
       const session = await verifyAuthenticatedSession(mode === "register" ? "RegisterPanel" : "LoginPanel");
-      if (session.user) identifyHeyCatchUser(session.user);
-      if (mode === "register") {
-        trackHeyCatchEvent("signup_completed");
-      }
       setLoadingLabel(`Opening ${destinationLabel}...`);
       setStatus(`You're in. Opening the ${destinationLabel}...`);
       router.replace(destination);

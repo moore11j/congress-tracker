@@ -118,9 +118,9 @@ test("landing page uses canonical performance positioning and the Top Stocks pat
   assert.match(landingPage, /<SectionEyebrow>\{homepageContent\.hero\.eyebrow\}<\/SectionEyebrow>/);
   assert.match(landingPage, /\{homepageContent\.hero\.title\}/);
   assert.match(landingPage, /\{homepageContent\.hero\.description\}/);
-  assert.match(homepageContent, /Build Your Next Winning Portfolio\./);
+  assert.match(homepageContent, /Find top-ranked stocks\. See what performed\./);
   assert.match(homepageContent, /STOCK ANALYSIS · ALTERNATIVE DATA · MARKET INTELLIGENCE/i);
-  assert.match(homepageContent, /stocks, insiders, and backtested strategies with a history of market outperformance/);
+  assert.match(homepageContent, /Find stocks that rank highly now/);
   assert.doesNotMatch(homepageContent, /Before You Buy Your Next Stock|Keep Following It/);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);

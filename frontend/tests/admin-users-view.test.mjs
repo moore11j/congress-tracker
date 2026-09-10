@@ -137,9 +137,9 @@ test("admin provider usage uses Enterprise 500 calls per minute assumption", () 
 
 test("page analytics tracker strips query strings and sends route events", () => {
   assert.match(pageAnalyticsTracker, /usePathname/);
-  assert.match(pageAnalyticsTracker, /parsed\.pathname/);
+  assert.match(pageAnalyticsTracker, /safeAnalyticsPath/);
   assert.match(pageAnalyticsTracker, /recordPageView\(/);
-  assert.doesNotMatch(pageAnalyticsTracker, /searchParams/);
+  assert.match(pageAnalyticsTracker, /recordPageView\(\{ path,/);
 });
 
 test("admin panel refresh forwards active Users tab refresh token", () => {

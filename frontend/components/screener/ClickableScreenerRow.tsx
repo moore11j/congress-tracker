@@ -1,5 +1,6 @@
 "use client";
 
+import { trackDiscoveryClick } from "@/lib/productAnalytics";
 import { useRouter } from "next/navigation";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 
@@ -22,6 +23,7 @@ export function ClickableScreenerRow({ href, label, children }: Props) {
   const router = useRouter();
 
   const navigate = () => {
+    trackDiscoveryClick(href);
     router.push(href);
   };
 

@@ -6,9 +6,9 @@
 export const homepageContent = {
   hero: {
     eyebrow: "Stock Analysis · Alternative Data · Market Intelligence",
-    title: "Build Your Next Winning Portfolio.",
+    title: "Find top-ranked stocks. See what performed.",
     description:
-      "See the stocks, insiders, and backtested strategies with a history of market outperformance—then use Walnut’s Confirmation Score, fundamentals, technicals, Congress activity, institutional holdings, government contracts, analyst ratings, and more to find what could outperform next.",
+      "Find stocks that rank highly now, see which market participants have performed, and explore strategies with historical results. Understand the rankings, then track what happened next.",
   },
   metadata: {
     title: "Walnut Markets | Stock Analysis, Alternative Data & Strategies",

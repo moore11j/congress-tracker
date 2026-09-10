@@ -290,7 +290,7 @@ test("logged out ticker context keeps public sources visible and paid sources lo
   assert.match(tickerPage, /signals: meta\("signals", "premium", true, "premium_locked"\)/);
   assert.match(tickerPage, /institutional_activity: meta\("institutional_activity", "pro", true, "pro_locked"\)/);
   assert.match(tickerPage, /options_flow: meta\("options_flow", "pro", true, "pro_locked"\)/);
-  assert.match(tickerPage, /Premium confirmation/);
+  assert.match(tickerPage, /feature="ticker_confirmation"/);
   assert.match(tickerPage, /30-DAY CONFIRMATION/);
   assert.doesNotMatch(tickerPage, /function RequiresLoginSourceCard/);
   assert.doesNotMatch(tickerPage, /Sign in to view 30D confirmation/);

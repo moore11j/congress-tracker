@@ -85,7 +85,11 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
       : labelForAction(planAction, tier);
   const pricingPath = `${pathname || "/pricing"}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   const returnTo = safeAppReturnPath(searchParams.get("returnTo") ?? searchParams.get("return_to"), "");
-  const loginHref = `/login?return_to=${encodeURIComponent(pricingPath)}`;
+  const signupQuery = new URLSearchParams(searchParams.toString());
+  signupQuery.set("plan", tier);
+  signupQuery.set("interval", billingInterval);
+  const signupReturn = `${pathname || "/pricing"}?${signupQuery.toString()}`;
+  const loginHref = `/login?mode=register&return_to=${encodeURIComponent(signupReturn)}`;
 
   const runAction = async () => {
     if (user?.email_verification_required || user?.email_verified === false) {

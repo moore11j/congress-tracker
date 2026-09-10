@@ -35,7 +35,7 @@ export function ensureGoogleAnalytics(options: GoogleAnalyticsOptions = {}): boo
   if (typeof window === "undefined" || !isProductionAnalyticsHost()) return false;
   const analyticsGranted = options.analyticsGranted ?? true;
   const marketingGranted = options.marketingGranted ?? false;
-  const sendInitialPageView = options.sendInitialPageView ?? analyticsGranted;
+  const sendInitialPageView = false; // PageAnalyticsTracker owns every pageview.
   const win = window as WindowWithGoogleAnalytics;
   if (!win.gtag) {
     win.dataLayer = win.dataLayer || [];

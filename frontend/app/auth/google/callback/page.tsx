@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { completeGoogleSignIn, verifyAuthenticatedSession } from "@/lib/api";
 import { identifyHeyCatchUser } from "@/lib/heycatch";
@@ -10,7 +10,10 @@ export default function GoogleCallbackPage() {
   const [status, setStatus] = useState("Finishing Google sign-in...");
   const [returnTo, setReturnTo] = useState(defaultPostLoginPath);
 
+  const started = useRef(false);
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const state = params.get("state");

@@ -62,7 +62,7 @@ test("Outcome table pagination is usable at every tier and supports bounded rapi
 });
 
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
-  assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon \}\)/);
+  assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon, ticker: initialTicker \}\)/);
   assert.match(outcomes, /getOutcomeLedgerSummary\(\{ horizon: requestedHorizon \}\)/);
   assert.match(api, /fetchOutcomePublicJson<OutcomeSnapshotsResponse>\(url, \{\s*cache: "no-store"/);
   assert.match(api, /!\[502, 503, 504\]\.includes\(error\.status\)/);
@@ -70,7 +70,7 @@ test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
 
 test("Outcome horizon changes hide stale data and commit summary and snapshots together", () => {
   assert.match(outcomes, /setDatasetLoading\(true\);\s*setError\(null\);\s*setHorizonFilter\(nextHorizon\);/);
-  assert.match(outcomes, /Promise\.all\(\[\s*getOutcomeLedgerSummary\(\{ horizon: requestedHorizon \}\),\s*getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon \}\),\s*\]\)/);
+  assert.match(outcomes, /Promise\.all\(\[\s*getOutcomeLedgerSummary\(\{ horizon: requestedHorizon \}\),\s*getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon, ticker: initialTicker \}\),\s*\]\)/);
   assert.match(outcomes, /setSummary\(nextSummary\);\s*setSnapshots\(nextSnapshots\);\s*setLoadedHorizon\(requestedHorizon\);\s*setDatasetLoading\(false\);/);
   assert.match(outcomes, /const datasetReady = !datasetLoading && loadedHorizon === horizonFilter/);
   assert.match(outcomes, /Loading \$\{horizonFilter\} outcomes/);
