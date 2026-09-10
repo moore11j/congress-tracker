@@ -107,3 +107,12 @@ The original historical baseline was not rerun unnecessarily. Current changes we
 ## 9. Release recommendation
 
 **NO-GO for a fully verified analytics release at this point.** No new regression was found, and the implementation is ready for review. Remaining release evidence is production provider configuration, real custom-event recognition, actual shared-cookie inspection, and an isolated safe signup/checkout test. Some receipt/cookie checks necessarily require an approved rollout of these fixes; they are explicitly pending rather than reported as completed. Await approval before any deployment.
+
+
+## Approved release follow-up — September 10 UTC
+
+The user subsequently authorized commit and deployment. Implementation commit `3e2947ff` was pushed to `main` and deployed to Vercel and Fly. Both public hosts returned that exact revision from `/api/app-version`; backend `/ready` returned HTTP 200 with database status OK. The deployed guest homepage, leaderboard, and pricing were checked in Chrome.
+
+A new random private `ANALYTICS_FORWARDING_SECRET` was configured on both production services without exposing its value or storing it in the repository. The existing production HeyCatch project key remains configured. `GA4_API_SECRET` is confirmed absent on Fly, so GA4 paid forwarding remains inactive until that stream-specific credential is supplied. HeyCatch dashboard mapping and actual paid-event receipt remain to be confirmed using a legitimate conversion.
+
+The signed bridge smoke check exposed a PostgreSQL integer-range edge case for an oversized nonexistent event ID. The follow-up bounds the lookup to the database INTEGER range and treats out-of-range IDs as absent records before querying. Regression coverage verifies signed oversized requests return no event and never query the database. The focused backend analytics suite passes all 14 tests. This check creates no payment or analytics row.

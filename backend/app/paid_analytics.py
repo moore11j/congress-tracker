@@ -69,6 +69,10 @@ def verify_bridge(body: bytes, timestamp: str, signature: str, scope: str) -> bo
 
 def claim_delivery(db: Session, event_id: int, provider: str) -> dict | None:
     """Compare-and-swap also protects against concurrent bridge replays."""
+    # PageViewEvent.id is a PostgreSQL INTEGER. A signed, otherwise valid
+    # JavaScript integer can exceed that range; it cannot identify a real row.
+    if not 0 < event_id <= 2_147_483_647:
+        return None
     row = db.get(PageViewEvent, event_id)
     if row is None or row.normalized_path != PAID_PATH or not row.user_id:
         return None

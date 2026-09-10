@@ -90,6 +90,16 @@ def test_claim_endpoint_rejects_unsigned_and_consumes_signed_replays(monkeypatch
         signed = paid.bridge_signature(body, stamp, "claim")
         assert asyncio.run(api.claim_paid_analytics(request(signed), db))["user_id"]
         assert asyncio.run(api.claim_paid_analytics(request(signed), db)).status_code == 204
+        body = b'{"event_id":9007199254740991}'
+        signed = paid.bridge_signature(body, stamp, "claim")
+        assert asyncio.run(api.claim_paid_analytics(request(signed), db)).status_code == 204
+
+
+def test_out_of_range_claim_never_queries_the_database():
+    db = Mock()
+    for event_id in (0, -1, 2_147_483_648, 9_007_199_254_740_991):
+        assert paid.claim_delivery(db, event_id, "heycatch") is None
+    db.get.assert_not_called()
 
 
 def test_provider_timeout_does_not_retry_or_affect_committed_payment(monkeypatch):
