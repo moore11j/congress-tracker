@@ -4,7 +4,7 @@ import { ContextualUpgrade } from "@/components/billing/ContextualUpgrade";
 ﻿import Link from "next/link";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type CrossSourceDivergenceSource, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
@@ -59,8 +59,9 @@ import {
 import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
-import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
-import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, noindexFollowMetadata } from "@/lib/seoQuality";
+import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { hasNonCanonicalSearchParams, tickerHasIndexableContent } from "@/lib/seoQuality";
+import { hasResolvedTickerProfile, usablePublicTickerSnapshot, tickerSeoTitle, tickerSeoDescription } from "@/lib/tickerSeo";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -268,77 +269,83 @@ function canonicalTickerUrlForSymbol(symbol: string): string {
   return appCanonicalUrl(canonicalTickerPathForSymbol(symbol));
 }
 
-function publicTickerMetadataTitle(symbol: string, companyName?: string | null): string {
-  return `${symbol} Stock Analysis & Research | Walnut Markets`;
-}
+// React cache shares the anonymous render result with metadata within this request.
+// The underlying API retains its existing delayed public cache and auth partition.
+const loadTickerPageContext = cache(async (
+  normalizedSymbol: string, side: string, lookbackDays: number,
+  authToken: string | null, activeTickerSsrRequest: boolean, publicStalePageCache: boolean,
+) => withinTickerLoadBudget(getTickerContextBundle(normalizedSymbol, {
+        side,
+        limit: 3,
+        lookback_days: lookbackDays,
+        authToken: authToken ?? undefined,
+        activeUser: activeTickerSsrRequest,
+        stalePageCache: publicStalePageCache,
+        source: "TickerContextBundle",
+        requestSource: "ssr",
+      }), TICKER_CONTEXT_SSR_TIMEOUT_MS)
+        .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
+        .catch((error) => {
+          if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+          if (isRecoverableTickerProfileError(error)) {
+            console.error("[ticker-context-bundle] shell fallback", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return withinTickerLoadBudget(
+              getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback", stalePageCache: publicStalePageCache }),
+              TICKER_PROFILE_FALLBACK_TIMEOUT_MS,
+            )
+              .then((profile) => ({
+                bundle: null as TickerContextBundle | null,
+                profile,
+                fallbackMessage: "Some current research data is temporarily unavailable. Showing available ticker data.",
+              }))
+              .catch((profileError) => {
+                if (profileError instanceof ApiError && profileError.status === 404) {
+                  return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+                }
+                return {
+                  bundle: null as TickerContextBundle | null,
+                  profile: fallbackTickerProfile(normalizedSymbol),
+                  fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+                };
+              });
+          }
+          throw error;
+        }));
 
-function publicTickerMetadataDescription(symbol: string, companyName?: string | null): string {
-  const cleanedCompanyName = formatCompanyName(companyName);
-  const identity = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase()
-    ? `${cleanedCompanyName} (${symbol})`
-    : symbol;
-  return `Research ${identity} with fundamentals, technicals, Congress trades, insider activity, institutional filings and Walnut's Confirmation Score.`;
-}
+const loadPublicTickerSnapshot = cache(async (symbol: string) =>
+  getSeoSnapshot("ticker", symbol, { source: "TickerMetadataSnapshot", signal: AbortSignal.timeout(2500) })
+    .then((response) => response.snapshot)
+    .catch(() => null),
+);
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { symbol } = await params;
   const sp = (await searchParams) ?? {};
   const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
   const canonicalPath = canonicalTickerPathForSymbol(normalizedSymbol);
-  const canonicalUrl = appCanonicalUrl(canonicalPath);
-  const snapshot = await getSeoSnapshot("ticker", normalizedSymbol, { source: "TickerMetadataSnapshot" })
-    .then((response) => response.snapshot)
-    .catch(() => null);
-  const companyName = typeof snapshot?.payload?.company_name === "string" ? snapshot.payload.company_name : null;
-  const fallbackTitle = publicTickerMetadataTitle(normalizedSymbol, companyName);
-  const fallbackDescription = publicTickerMetadataDescription(normalizedSymbol, companyName);
-
-  const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
-  const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
-  if (!snapshot?.indexable || hasNonCanonicalSearchParams(sp)) {
-    return {
-      ...noindexFollowMetadata(title, description),
-      metadataBase: new URL(WALNUT_APP_URL),
-      alternates: {
-        canonical: canonicalUrl,
-      },
-    };
-  }
-
-  return {
-    metadataBase: new URL(WALNUT_APP_URL),
-    title,
-    description,
-    alternates: {
-      canonical: canonicalUrl,
-    },
-    openGraph: {
-      type: "website",
-      title,
-      description,
-      url: canonicalUrl,
-      siteName: "Walnut Markets",
-      images: [
-        {
-          url: WALNUT_SOCIAL_IMAGE_URL,
-          width: 1200,
-          height: 630,
-          alt: WALNUT_SOCIAL_IMAGE_ALT,
-        },
-      ],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: [
-        {
-          url: WALNUT_SOCIAL_IMAGE_URL,
-          alt: WALNUT_SOCIAL_IMAGE_ALT,
-        },
-      ],
-    },
-  };
+  const [snapshot, context] = await Promise.all([
+    loadPublicTickerSnapshot(normalizedSymbol),
+    loadTickerPageContext(normalizedSymbol, clampSide(one(sp, "side")), Number(clampLookback(one(sp, "lookback"))), null, false, true),
+  ]);
+  const resolved = hasResolvedTickerProfile(context.profile);
+  const snapshotOnly = !resolved && Boolean(context.profile) && usablePublicTickerSnapshot(snapshot, normalizedSymbol);
+  const companyName = resolved
+    ? tickerCompanyName(context.profile!.ticker, context.bundle?.identity)
+    : typeof snapshot?.payload.company_name === "string" ? snapshot.payload.company_name : null;
+  const indexable = resolved
+    ? Boolean(snapshot?.indexable && tickerHasIndexableContent(context.profile))
+    : snapshotOnly;
+  return appPageMetadata(canonicalPath, {
+    title: resolved || snapshotOnly ? tickerSeoTitle(normalizedSymbol, snapshotOnly) : `${normalizedSymbol} Stock Research Unavailable | Walnut`,
+    description: resolved || snapshotOnly
+      ? tickerSeoDescription(normalizedSymbol, companyName, snapshotOnly)
+      : `Stock research for ${normalizedSymbol} is currently unavailable. Try again later or search for another ticker on Walnut Markets.`,
+    robots: { index: indexable && !hasNonCanonicalSearchParams(sp), follow: true },
+  });
 }
 
 function isRecoverableTickerProfileError(error: unknown): boolean {
@@ -4142,50 +4149,33 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
         profile: fallbackTickerProfile(normalizedSymbol),
         fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
       }
-    : await withinTickerLoadBudget(getTickerContextBundle(normalizedSymbol, {
-        side,
-        limit: 3,
-        lookback_days: lookbackDays,
-        authToken: authToken ?? undefined,
-        activeUser: activeTickerSsrRequest,
-        stalePageCache: publicStalePageCache,
-        source: "TickerContextBundle",
-        requestSource: "ssr",
-      }), TICKER_CONTEXT_SSR_TIMEOUT_MS)
-        .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
-        .catch((error) => {
-          if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
-          if (isRecoverableTickerProfileError(error)) {
-            console.error("[ticker-context-bundle] shell fallback", {
-              symbol: normalizedSymbol,
-              status: error instanceof ApiError ? error.status : null,
-              name: error instanceof Error ? error.name : "unknown",
-            });
-            return withinTickerLoadBudget(
-              getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback", stalePageCache: publicStalePageCache }),
-              TICKER_PROFILE_FALLBACK_TIMEOUT_MS,
-            )
-              .then((profile) => ({
-                bundle: null as TickerContextBundle | null,
-                profile,
-                fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
-              }))
-              .catch((profileError) => {
-                if (profileError instanceof ApiError && profileError.status === 404) {
-                  return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
-                }
-                return {
-                  bundle: null as TickerContextBundle | null,
-                  profile: fallbackTickerProfile(normalizedSymbol),
-                  fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
-                };
-              });
-          }
-          throw error;
-        });
+    : await loadTickerPageContext(normalizedSymbol, side, lookbackDays, authToken, activeTickerSsrRequest, publicStalePageCache);
   const [entitlements, relatedResearch] = await Promise.all([entitlementsRequest, relatedResearchRequest]);
   const profile = contextBundleResult.profile;
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
+  if (!useAnonymousTickerSsrShell && !hasResolvedTickerProfile(profile)) {
+    const snapshot = await loadPublicTickerSnapshot(normalizedSymbol);
+    const available = usablePublicTickerSnapshot(snapshot, normalizedSymbol);
+    return (
+      <div className="space-y-5 py-6">
+        <h1 className="break-words text-2xl font-semibold text-white">{normalizedSymbol} Stock Research</h1>
+        <p className="text-sm text-slate-300">Current ticker research is temporarily unavailable. Please try again shortly.</p>
+        {available && snapshot ? (
+          <section className={cardClassName}>
+            <h2 className="text-xl font-semibold text-white">{String(snapshot.payload.company_name)}</h2>
+            <p className="mt-2 text-sm text-slate-400">Public data as of {formatDateShort(snapshot.data_as_of!)}. This is a historical snapshot, not a live quote.</p>
+            {snapshot.payload.sections?.filter((section) => section.heading && section.body).map((section) => (
+              <div key={section.heading} className="mt-4">
+                <h3 className="font-semibold text-slate-200">{section.heading}</h3>
+                <p className="mt-1 text-sm text-slate-400">{section.body}</p>
+              </div>
+            ))}
+          </section>
+        ) : <p className="text-sm text-slate-400">No public research snapshot is currently available for this ticker.</p>}
+        <Link href="/screener" className={ghostButtonClassName}>Open Screener</Link>
+      </div>
+    );
+  }
   const contextBundle = contextBundleResult.bundle;
   const shellFallbackMessage = contextBundleResult.fallbackMessage;
 

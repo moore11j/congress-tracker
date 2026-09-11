@@ -118,9 +118,9 @@ test("landing page uses canonical performance positioning and the Top Stocks pat
   assert.match(landingPage, /<SectionEyebrow>\{homepageContent\.hero\.eyebrow\}<\/SectionEyebrow>/);
   assert.match(landingPage, /\{homepageContent\.hero\.title\}/);
   assert.match(landingPage, /\{homepageContent\.hero\.description\}/);
-  assert.match(homepageContent, /Find top-ranked stocks\. See what performed\./);
+  assert.match(homepageContent, /Find Top-Ranked Stocks\. See Who Actually Outperformed\./);
   assert.match(homepageContent, /STOCK ANALYSIS · ALTERNATIVE DATA · MARKET INTELLIGENCE/i);
-  assert.match(homepageContent, /Find stocks that rank highly now/);
+  assert.match(homepageContent, /See which stocks rank highest now/);
   assert.doesNotMatch(homepageContent, /Before You Buy Your Next Stock|Keep Following It/);
   assert.match(landingPage, /label: "NVDA — NVIDIA Corporation"/);
   assert.match(landingPage, /href: "\/ticker\/NVDA"/);
@@ -131,7 +131,7 @@ test("landing page uses canonical performance positioning and the Top Stocks pat
   assert.match(landingSearch, /Search tickers, companies, Congress members, insiders, institutions, departments\.\.\./);
   assert.match(landingPage, /View Leaderboards/);
   assert.match(landingPage, /eventName="see_top_performers_click"/);
-  assert.match(landingPage, /Build Your Next Winning Portfolio\./);
+  assert.match(landingPage, /Don&apos;t follow a signal\. Follow the evidence\./);
   assert.match(landingPage, /heroEvidenceSources\.map/);
   assert.match(landingPage, /&middot;/);
   assert.match(landingPage, /Fundamentals", "Technicals", "Congress", "Insiders", "Institutions", "Contracts", "Analysts", "Macro"/);
@@ -141,7 +141,7 @@ test("landing page uses canonical performance positioning and the Top Stocks pat
   assert.match(homepageContent, /Most platforms give you one slice of the market\./);
   assert.doesNotMatch(landingPage, /<section id="how-it-works"/);
   assert.doesNotMatch(landingPage, /Walnut brings the key data into one view/);
-  assert.match(landingPage, /What&apos;s Working on Walnut\./);
+  assert.match(landingPage, /Start With What Has Worked/);
   assert.doesNotMatch(landingPage, /outcomeSummary\.completed_events/);
   assert.doesNotMatch(landingPage, /eventName="outcomes_click"/);
   assert.match(landingPage, /Historical Outcomes are being recalculated using Walnut&apos;s updated point-in-time methodology\./);
@@ -193,8 +193,8 @@ test("landing metadata reflects research and monitoring positioning", () => {
   assert.match(marketingMetadata, /import \{ homepageContent \} from "@\/lib\/homepageContent"/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = homepageContent\.metadata\.title/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_DESCRIPTION = homepageContent\.metadata\.description/);
-  assert.match(homepageContent, /title: "Walnut Markets \| Stock Analysis, Alternative Data & Strategies"/);
-  assert.match(homepageContent, /Find top-ranked stocks, track insiders and Congress trades, explore backtested strategies/);
+  assert.match(homepageContent, /title: "Stock Analysis, Congress Trades & Insider Data \| Walnut Markets"/);
+  assert.match(homepageContent, /Research ranked stocks with fundamentals, technicals, Congress trades, insider data/);
   assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
   assert.match(marketingMetadata, /openGraph:/);
   assert.match(marketingMetadata, /twitter:/);
@@ -204,12 +204,12 @@ test("landing page adds real product proof and withholds uncertified outcomes", 
   assert.match(landingPage, /const nvdaProductScreenshot = "\/landing\/nvda-ticker-intelligence\.png"/);
   assert.match(landingPage, /<SectionEyebrow>Ticker Intelligence<\/SectionEyebrow>/);
   assert.match(landingPage, /Every Result, Backed by the Data\./);
-  assert.match(landingPage, /fundamentals, technicals, insiders, Congress, institutions, government contracts, analysts, macro, options where available/);
-  assert.match(landingPage, /65 out of 100 Strong Bullish confirmation score/);
+  assert.match(landingPage, /Understand each stock ranking with fundamentals, technical analysis, analyst consensus and macro context/);
+  assert.match(landingPage, /Walnut NVDA stock analysis showing the Confirmation Score, price chart, catalysts and risks/);
   assert.match(landingPage, /<SectionEyebrow>How Walnut ranks opportunities<\/SectionEyebrow>/);
   assert.match(landingPage, /\{homepageContent\.confirmationScore\.description\}/);
   assert.match(landingPage, /\{homepageContent\.confirmationScore\.disclaimer\}/);
-  assert.match(homepageContent, /proprietary Confirmation Score to identify stocks where the current setup is strongest/);
+  assert.match(homepageContent, /proprietary Confirmation Score built from fundamentals, technical analysis, disclosures/);
   assert.match(homepageContent, /not a probability of future returns, a guaranteed prediction, or a recommendation/);
   assert.match(landingPage, /Historical Outcomes are being recalculated using Walnut&apos;s updated point-in-time methodology\./);
   assert.match(landingPage, /<SectionEyebrow>Research Memory - Coming Soon<\/SectionEyebrow>/);
@@ -232,7 +232,7 @@ test("landing page adds real product proof and withholds uncertified outcomes", 
 test("landing includes compact watchlist and alert proof", () => {
   assert.match(landingPage, /Follow what changes/);
   assert.match(landingPage, /\{homepageContent\.monitoring\.title\}/);
-  assert.match(landingPage, /Finding an opportunity is only the start\./);
+  assert.match(landingPage, /After researching a stock, track what happens next\./);
   assert.match(landingPage, /Watchlists · Monitoring · Alerts · Custom logical alerts/);
   assert.match(landingPage, /href=\{`\$\{appUrl\}\/watchlists`\}/);
   assert.match(homepageContent, /Save tickers to watchlists and get alerted when meaningful disclosures, news, press releases, institutional activity/);
@@ -242,7 +242,7 @@ test("landing adds follow activity showcase before the Outcomes recalculation no
   assert.match(landingPage, /const followActivityCards = \[/);
   assert.match(landingPage, /<SectionEyebrow>People and profiles<\/SectionEyebrow>/);
   assert.match(landingPage, /See Who&apos;s Beating the Market\./);
-  assert.match(landingPage, /Disclosed activity is research context, not a recommendation\./);
+  assert.match(landingPage, /Who performed\? What are they doing now\? Does the rest of the data confirm it\?/);
   assert.match(landingPage, /title: "Congress Members"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=congress`/);
   assert.match(landingPage, /title: "Corporate Insiders"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=insider`/);
   assert.match(landingPage, /title: "Institutions"[\s\S]*href: `\$\{appUrl\}\/feed\?mode=institutional`/);

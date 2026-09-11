@@ -553,24 +553,25 @@ function landingJsonLd(config: PlanConfig | null) {
   const organization = {
     "@context": "https://schema.org",
     "@type": "Organization",
+    "@id": `${WALNUT_MARKETING_URL}/#organization`,
     name: "Walnut Markets",
     legalName: "Walnut Intelligence Inc.",
     alternateName: "Walnut Markets",
     url: WALNUT_MARKETING_URL,
     logo: `${WALNUT_MARKETING_URL}/walnut-intel-logo-mark.png`,
-    description: "Stock research and stock analysis software for technicals, fundamentals, public disclosures, alternative data, and confirmation-score context.",
+    description: WALNUT_MARKETING_DESCRIPTION,
     sameAs: WALNUT_SOCIAL_URLS,
   };
 
   const website = {
     "@context": "https://schema.org",
     "@type": "WebSite",
+    "@id": `${WALNUT_MARKETING_URL}/#website`,
     name: "Walnut Markets",
-    url: appUrl,
-    description: "Stock research and stock analysis software for technicals, fundamentals, public disclosures, alternative data, and confirmation-score context.",
+    url: `${WALNUT_MARKETING_URL}/`,
+    description: WALNUT_MARKETING_DESCRIPTION,
     publisher: {
-      "@type": "Organization",
-      name: "Walnut Intelligence Inc.",
+      "@id": `${WALNUT_MARKETING_URL}/#organization`,
     },
     potentialAction: {
       "@type": "SearchAction",
@@ -582,6 +583,7 @@ function landingJsonLd(config: PlanConfig | null) {
   const application = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
+    "@id": `${WALNUT_MARKETING_URL}/#application`,
     name: "Walnut Market Terminal",
     brand: {
       "@type": "Brand",
@@ -593,8 +595,7 @@ function landingJsonLd(config: PlanConfig | null) {
     image: WALNUT_SOCIAL_IMAGE_URL,
     description: WALNUT_MARKETING_DESCRIPTION,
     publisher: {
-      "@type": "Organization",
-      name: "Walnut Intelligence Inc.",
+      "@id": `${WALNUT_MARKETING_URL}/#organization`,
     },
     offers: landingPlanOffers(config),
   };
@@ -802,16 +803,16 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div>
             <div className="max-w-3xl">
-              <SectionEyebrow>OUTPERFORMING THE MARKET</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">What&apos;s Working on Walnut.</h2>
-              <p className="mt-4 text-base leading-7 text-slate-400">Explore Walnut&apos;s research tools and published strategy records with their methodology and benchmark context kept visible.</p>
+              <SectionEyebrow>Historical performance</SectionEyebrow>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start With What Has Worked</h2>
+              <p className="mt-4 text-base leading-7 text-slate-400">Start with the participants and backtested strategies that outperformed their benchmarks historically. Check their track records, discover what ranks highly now, inspect the data, then monitor what changes.</p>
             </div>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-slate-950/85 p-5 sm:p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">People and participants</p>
               <h3 className="mt-4 text-xl font-semibold text-white">Track Who Has Performed Best.</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-400">Explore Congress members, corporate insiders, institutions, and government departments through their disclosed activity and history. Where Walnut has sufficient data, profile pages surface historical performance context.</p>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Compare historical performance for Congress members, corporate insiders and institutions where sufficient data is available. Review their disclosed activity to see what they are doing now.</p>
               <HomepageCtaLink href={`${appUrl}/profiles`} eventName="insider_profile_click" className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100">Explore profiles <span aria-hidden="true">&rarr;</span></HomepageCtaLink>
             </article>
             <article className="rounded-lg border border-white/10 bg-slate-950/85 p-5 sm:p-6">
@@ -849,13 +850,15 @@ export default async function LandingPage() {
           <div className="mb-8 max-w-3xl">
             <SectionEyebrow>Ticker Intelligence</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Every Result, Backed by the Data.</h2>
-            <p className="mt-4 text-base leading-7 text-slate-400">Go beyond a single score with fundamentals, technicals, insiders, Congress, institutions, government contracts, analysts, macro, options where available, catalysts, risks, and market context.</p>
+            <p className="mt-4 text-base leading-7 text-slate-400">Understand each stock ranking with fundamentals, technical analysis, analyst consensus and macro context. Review <a href="/congress-trades" className="underline underline-offset-4 hover:text-emerald-100">Congress stock trades</a>, <a href="/insider-trading-tracker" className="underline underline-offset-4 hover:text-emerald-100">insider buying and SEC Form 4 filings</a>, <a href="/institutional-filings" className="underline underline-offset-4 hover:text-emerald-100">institutional holdings from 13F filings</a> and <a href="/government-contracts" className="underline underline-offset-4 hover:text-emerald-100">government contracts</a> alongside catalysts and risks.</p>
           </div>
           <figure className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/90 p-2 shadow-2xl shadow-black/40">
             <div className="overflow-x-auto [scrollbar-width:thin]">
               <img
                 src={nvdaProductScreenshot}
-                alt="Walnut Markets NVDA ticker intelligence page showing a 65 out of 100 Strong Bullish confirmation score with What Changed, Catalysts, Risks, What to Watch Next, price volume, fundamentals, insiders, Congress, analysts, macro positioning, and valuation."
+                alt="Walnut NVDA stock analysis showing the Confirmation Score, price chart, catalysts and risks."
+                loading="lazy"
+                decoding="async"
                 width={1511}
                 height={773}
                 className="h-auto min-w-[920px] rounded-md border border-white/10 lg:min-w-0 lg:w-full"
@@ -873,7 +876,7 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
           <div>
             <SectionEyebrow>How Walnut ranks opportunities</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find What Could Outperform Next.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Understand Why a Stock Ranks Highly.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">{homepageContent.confirmationScore.description}</p>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
               {homepageContent.confirmationScore.disclaimer}
@@ -917,7 +920,7 @@ export default async function LandingPage() {
             <SectionEyebrow>People and profiles</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See Who&apos;s Beating the Market.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Explore Congress members, corporate insiders, institutions, and government departments to see the activity behind the stocks—and, where historical performance data is available, inspect the results in context. Disclosed activity is research context, not a recommendation.
+              See which Congress members, insiders and institutions outperformed historically, where Walnut has sufficient data. Who performed? What are they doing now? Does the rest of the data confirm it? Review their track records and disclosures, then follow the companies involved.
             </p>
           </div>
           <div className="mt-9 grid gap-4 lg:grid-cols-4">
@@ -988,7 +991,7 @@ export default async function LandingPage() {
           <div>
             <SectionEyebrow>Follow what changes</SectionEyebrow>
             <h2 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">{homepageContent.monitoring.title}</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">Finding an opportunity is only the start. Follow the stocks you care about and get alerted when the data, Confirmation Score, disclosures, or other important activity changes.</p>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">After researching a stock, track what happens next. Save it to a watchlist and get alerted when disclosures, the Confirmation Score or other monitored data changes.</p>
             <p className="mt-3 text-xs leading-5 text-slate-400">Watchlists · Monitoring · Alerts · Custom logical alerts</p>
           </div>
           <a href={`${appUrl}/watchlists`} className="mt-5 inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-emerald-200 hover:text-emerald-100 sm:mt-1"><span>Explore watchlists</span><span aria-hidden="true">&rarr;</span></a>
@@ -1148,7 +1151,7 @@ export default async function LandingPage() {
           <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
             <div>
               <SectionEyebrow>Start with the evidence</SectionEyebrow>
-              <h2 className="mt-3 max-w-3xl text-3xl font-semibold text-white sm:text-4xl">Build Your Next Winning Portfolio.</h2>
+              <h2 className="mt-3 max-w-3xl text-3xl font-semibold text-white sm:text-4xl">Don&apos;t follow a signal. Follow the evidence.</h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Explore the historical record, inspect the current evidence, and decide for yourself.</p>
             </div>
             <div className="flex shrink-0 flex-col gap-3 sm:flex-row">

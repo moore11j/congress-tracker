@@ -333,7 +333,7 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
   assert.doesNotMatch(sourceStringLiterals(card), /FMP|provider|cache|402|heavy-route|budget/);
 });
 
-test("ticker page catches temporary profile failures and renders a shell fallback", () => {
+test("ticker page catches temporary failures and renders dated public data or honest unavailability", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(tickerPage, /function fallbackTickerProfile/);
@@ -341,11 +341,15 @@ test("ticker page catches temporary profile failures and renders a shell fallbac
   assert.match(tickerPage, /error\.status === 503 \|\| error\.status >= 500/);
   assert.match(tickerPage, /Ticker data is loading\. Try refreshing shortly\./);
   assert.match(tickerPage, /profile: fallbackTickerProfile\(normalizedSymbol\)/);
+  assert.match(tickerPage, /!useAnonymousTickerSsrShell && !hasResolvedTickerProfile\(profile\)/);
+  assert.match(tickerPage, /usablePublicTickerSnapshot\(snapshot, normalizedSymbol\)/);
+  assert.match(tickerPage, /No public research snapshot is currently available/);
+  assert.match(tickerPage, /This is a historical snapshot, not a live quote/);
   assert.match(tickerPage, /\[ticker-congress-activity\] unavailable/);
   assert.match(tickerPage, /\[ticker-insider-activity\] unavailable/);
   const fallbackSource = tickerPage.slice(
     tickerPage.indexOf("function fallbackTickerProfile"),
-    tickerPage.indexOf("function one"),
+    tickerPage.indexOf("function normalizedTickerSymbolForRoute"),
   );
   assert.doesNotMatch(fallbackSource, /heavy_route_saturated|Heavy endpoint|FMP|provider|cache/);
 });

@@ -162,6 +162,11 @@ function withNoindex(response: NextResponse): NextResponse {
 }
 
 function robotsTxtResponse(host: string): NextResponse {
+  if (!isProductionSeoHost(host)) {
+    return new NextResponse("User-agent: *\nDisallow: /\n", {
+      headers: { "content-type": "text/plain; charset=utf-8", "x-robots-tag": "noindex, nofollow" },
+    });
+  }
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
   const sitemap = publicLandingHosts.has(host)
     ? "Sitemap: https://walnutmarkets.com/sitemap.xml"
@@ -310,7 +315,19 @@ function rewriteAnonymousPublicRender(request: NextRequest, pathname: string): N
   return response;
 }
 
+function isProductionSeoHost(host: string): boolean {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") return false;
+  return publicLandingHosts.has(host) || host === appHost;
+}
+
 export async function middleware(request: NextRequest) {
+  const response = await routeRequest(request);
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(":")[0]?.toLowerCase();
+  if (!isProductionSeoHost(host)) response.headers.set("x-robots-tag", "noindex, nofollow");
+  return response;
+}
+
+async function routeRequest(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(":")[0]?.toLowerCase();
   const requestHeaders = new Headers(request.headers);
@@ -362,6 +379,12 @@ export async function middleware(request: NextRequest) {
 
   if (pathname === "/robots.txt") {
     return robotsTxtResponse(host);
+  }
+
+  if (pathname === "/landing" && publicLandingHosts.has(host)) {
+    const canonicalUrl = request.nextUrl.clone();
+    canonicalUrl.pathname = "/";
+    return NextResponse.redirect(canonicalUrl, 308);
   }
 
   // Public pages load live data through the shared API rewrite. Do not send

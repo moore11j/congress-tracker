@@ -6,16 +6,16 @@
 export const homepageContent = {
   hero: {
     eyebrow: "Stock Analysis · Alternative Data · Market Intelligence",
-    title: "Find top-ranked stocks. See what performed.",
+    title: "Find Top-Ranked Stocks. See Who Actually Outperformed.",
     description:
-      "Find stocks that rank highly now, see which market participants have performed, and explore strategies with historical results. Understand the rankings, then track what happened next.",
+      "See which stocks rank highest now, how Congress members, insiders and institutions performed historically, and which backtested strategies beat their benchmarks. Then see the data behind every result.",
   },
   metadata: {
-    title: "Walnut Markets | Stock Analysis, Alternative Data & Strategies",
+    title: "Stock Analysis, Congress Trades & Insider Data | Walnut Markets",
     description:
-      "Find top-ranked stocks, track insiders and Congress trades, explore backtested strategies, and analyze market data with Walnut Markets.",
+      "Research ranked stocks with fundamentals, technicals, Congress trades, insider data, institutional holdings, contracts and analysts. Compare backtested strategies.",
     socialDescription:
-      "Research stocks across multiple data sources, follow the evidence, and get alerted when it changes. Built for research. Not investment advice.",
+      "Find top-ranked stocks, compare historical performers and backtested strategies, then review fundamentals, technicals, Congress trades, insiders and institutions.",
   },
   differentiation: {
     description:
@@ -23,7 +23,7 @@ export const homepageContent = {
   },
   confirmationScore: {
     description:
-      "Walnut combines multiple independent data sources into a proprietary Confirmation Score to identify stocks where the current setup is strongest. The score summarizes current evidence alignment and strength, not a probability of future return.",
+      "Walnut ranks stocks with a proprietary Confirmation Score built from fundamentals, technical analysis, disclosures and other available data. Inspect which sources support the ranking, which conflict, and when they last changed.",
     disclaimer:
       "It is not a probability of future returns, a guaranteed prediction, or a recommendation. Its purpose is to summarize the strength and alignment of available evidence.",
   },
