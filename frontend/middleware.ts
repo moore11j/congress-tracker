@@ -114,6 +114,7 @@ function isApprovedTickerPilotPath(pathname: string): boolean {
 function isPublicMarketingAsset(pathname: string): boolean {
   const normalized = (pathname || "/").toLowerCase();
   return normalized === "/sitemap.xml"
+    || normalized === "/sitemap-research.xml"
     || normalized.startsWith("/og/")
     || normalized.startsWith("/ad-thumbnails/")
     || normalized === "/walnut-intel-logo-mark.png"
@@ -169,7 +170,7 @@ function robotsTxtResponse(host: string): NextResponse {
   }
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
   const sitemap = publicLandingHosts.has(host)
-    ? "Sitemap: https://walnutmarkets.com/sitemap.xml"
+    ? "Sitemap: https://walnutmarkets.com/sitemap.xml\nSitemap: https://walnutmarkets.com/sitemap-research.xml"
     : host === appHost
       ? "Sitemap: https://app.walnutmarkets.com/sitemap-index.xml"
       : "";

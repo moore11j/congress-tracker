@@ -6,13 +6,19 @@ import { sitemapUrlset, type SeoPilotPage } from "@/lib/seoQuality";
 const MARKETING_URL = "https://walnutmarkets.com";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 1800;
+export const revalidate = 0;
 
 export async function GET() {
   const staticBriefs = getPublishedResearchBriefs();
-  const generatedBriefs = await getGeneratedResearchBriefCards()
-    .then((response) => response.items)
-    .catch(() => []);
+  // Never cache a partial static-only sitemap after a transient API failure.
+  let generatedBriefs;
+  try {
+    generatedBriefs = (await getGeneratedResearchBriefCards()).items;
+  } catch {
+    return new NextResponse("Research sitemap temporarily unavailable", {
+      status: 503, headers: { "cache-control": "no-store", "retry-after": "60" },
+    });
+  }
   const pagesByPath = new Map<string, SeoPilotPage>();
 
   for (const brief of [...staticBriefs, ...generatedBriefs]) {
@@ -29,7 +35,7 @@ export async function GET() {
   return new NextResponse(sitemapUrlset(MARKETING_URL, [...pagesByPath.values()]), {
     headers: {
       "content-type": "application/xml; charset=utf-8",
-      "cache-control": "public, max-age=3600, s-maxage=86400",
+      "cache-control": "public, max-age=0, s-maxage=60, must-revalidate",
     },
   });
 }

@@ -7331,6 +7331,27 @@ export async function getAdminResearchKeywordOpportunities(status?: string): Pro
   });
 }
 
+export type DailySeoConfig = {
+  enabled: boolean; draft_time: string; timezone: string; topics: string;
+  tickers: string[]; minimum_score: number;
+};
+export type DailySeoStatus = {
+  config: DailySeoConfig; review_email: string; drafts_per_day: number; metric_note: string; worker_note: string;
+  runs: Array<{ day: string; status: string; campaign_id?: string; updated_at: string; draft_id?: string; email_status?: string; article_status?: string;
+    detail: { note?: string; error?: string; selected?: { target_keyword: string; priority_score: number; selection_reason: string } } }>;
+};
+export function getDailyResearchSeo(): Promise<DailySeoStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/daily-seo"), { cache: "no-store", source: "DailyResearchSeo" });
+}
+export function saveDailyResearchSeo(config: DailySeoConfig): Promise<DailySeoStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/daily-seo"), {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config), source: "DailyResearchSeo",
+  });
+}
+export function runDailyResearchSeo(): Promise<DailySeoStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/daily-seo/run"), { method: "POST", source: "DailyResearchSeo" });
+}
+
 export async function discoverAdminResearchKeywordOpportunities(payload: { seed_topics?: string[]; tickers?: string[]; theme?: string; max_candidates?: number }): Promise<AdminResearchKeywordDiscovery> {
   return fetchJson<AdminResearchKeywordDiscovery>(buildApiUrl("/api/admin/research-briefs/keyword-opportunities/discover"), {
     method: "POST",

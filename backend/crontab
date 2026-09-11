@@ -2,6 +2,8 @@ SHELL=/bin/sh
 PATH=/usr/local/bin:/usr/bin:/bin
 PYTHONPATH=/app
 CRON_TZ=America/Los_Angeles
+# Opt-in Daily SEO planner. Database day claims prevent duplicate paid runs.
+*/5 * * * * cd /app && python -m app.jobs.run_research_seo
 
 5 13 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
 # Retry the same report identity after transient failures; sent recipients skip.

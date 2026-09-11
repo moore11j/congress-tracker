@@ -62,6 +62,36 @@ from app.services.research_briefs import (
 router = APIRouter(tags=["admin-research-briefs"])
 
 
+class DailySeoSettingsPayload(BaseModel):
+    enabled: bool = False
+    draft_time: str = Field(default="07:00", max_length=5)
+    timezone: str = Field(default="America/Los_Angeles", max_length=80)
+    topics: str = Field(default="Institutional ownership, insider activity, congressional trades, stock research", max_length=1200)
+    tickers: list[str] = Field(default_factory=list, max_length=12)
+    minimum_score: int = Field(default=70, ge=50, le=100)
+
+
+@router.get("/admin/research-briefs/daily-seo")
+def admin_daily_seo(request: Request, db: Session = Depends(get_db)):
+    from app.services.research_seo import get_status
+    require_admin_user(db, request)
+    return get_status(db)
+
+
+@router.put("/admin/research-briefs/daily-seo", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_save_daily_seo(payload: DailySeoSettingsPayload, request: Request, db: Session = Depends(get_db)):
+    from app.services.research_seo import save_settings
+    admin = require_admin_user(db, request)
+    return save_settings(db, admin, payload.model_dump())
+
+
+@router.post("/admin/research-briefs/daily-seo/run", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_run_daily_seo(request: Request, db: Session = Depends(get_db)):
+    from app.services.research_seo import request_today
+    require_admin_user(db, request)
+    return request_today(db)
+
+
 class ResearchBriefGeneratePayload(BaseModel):
     ticker: str = Field(min_length=1, max_length=20)
     research_question: str = Field(min_length=12, max_length=3000)

@@ -44,6 +44,7 @@ import {
   type AdminResearchPublishingHealth,
 } from "@/lib/api";
 import { normalizeTickerSymbol } from "@/lib/ticker";
+import DailyResearchSeo from "./DailyResearchSeo";
 
 type Toast = (message: string, tone?: "success" | "error" | "info") => void;
 type ResearchBriefOptions = {
@@ -558,7 +559,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [comparisonTickerInput, setComparisonTickerInput] = useState("");
   const [comparisonTickerErrors, setComparisonTickerErrors] = useState<Record<string, string>>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [activePane, setActivePane] = useState<"create" | "scheduled" | "drafts" | "published" | "campaigns" | "settings">("create");
+  const [activePane, setActivePane] = useState<"create" | "scheduled" | "drafts" | "published" | "campaigns" | "daily seo" | "settings">("create");
   const [preflightReadiness, setPreflightReadiness] = useState<Record<string, unknown> | null>(null);
   const [campaigns, setCampaigns] = useState<AdminResearchCampaign[]>([]);
   const [keywordOpportunities, setKeywordOpportunities] = useState<AdminResearchKeywordOpportunity[]>([]);
@@ -1371,7 +1372,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(["create", "scheduled", "drafts", "published", "campaigns", "settings"] as const).map((pane) => (
+            {(["create", "scheduled", "drafts", "published", "campaigns", "daily seo", "settings"] as const).map((pane) => (
               <button
                 key={pane}
                 type="button"
@@ -1380,7 +1381,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                   activePane === pane ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-300"
                 }`}
               >
-                {pane === "create" ? "Create Brief" : pane}
+                {pane === "create" ? "Create Brief" : pane === "daily seo" ? "Daily SEO" : pane}
               </button>
             ))}
           </div>
@@ -1749,6 +1750,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           </div>
         </section>
       ) : null}
+
+      {activePane === "daily seo" ? <DailyResearchSeo /> : null}
 
       {activePane === "settings" ? (
         <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
