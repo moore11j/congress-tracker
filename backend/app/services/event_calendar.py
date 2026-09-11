@@ -260,8 +260,14 @@ def upcoming_event_calendar_items(
     scope: CalendarScope = "watchlist",
     limit: int = 12,
     kinds: tuple[CalendarEventKind, ...] | None = None,
+    allow_live_fetch: bool = True,
 ) -> CalendarFetchResult:
-    result = fetch_event_calendar(db, user, start=start, end=end, scope=scope, source="scheduled_job", allow_live_fetch=True)
+    if allow_live_fetch:
+        result = fetch_event_calendar(db, user, start=start, end=end, scope=scope, source="scheduled_job", allow_live_fetch=True)
+    else:
+        symbols = watchlist_provider_symbols_for_user(db, user.id)
+        cache_key = _calendar_cache_key(user.id, scope, start, end, symbols)
+        result = _load_calendar_cache(db, cache_key, start=start, end=end) or CalendarFetchResult(items=[], errors=[])
     items = result.items
     if kinds is not None:
         enabled_kinds = set(kinds)

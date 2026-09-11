@@ -729,3 +729,43 @@ def test_postmark_non_2xx_marks_delivery_failed(monkeypatch):
         assert "Sender signature not found" in (row.error or "")
     finally:
         db.close()
+
+
+def test_failed_delivery_can_retry_without_resending_success(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    calls = []
+
+    def fake_send(**kwargs):
+        calls.append(kwargs["provider_idempotency_key"])
+        if len(calls) == 1:
+            raise ValueError("Provider returned HTTP 503: temporarily unavailable")
+        return "recovered-message"
+
+    monkeypatch.setattr("app.services.email_delivery._send_with_provider", fake_send)
+    db = _session()
+    try:
+        kwargs = dict(to_email="reader@example.com", template_key="account.password_reset",
+                      context=_reset_context(), category="account", idempotency_key="report:2026-09-10",
+                      provider_idempotency_key="report:2026-09-10", retry_failed=True)
+        failed = send_email(db, **kwargs)
+        recovered = send_email(db, **kwargs)
+        duplicate = send_email(db, **kwargs)
+        assert failed["status"] == "failed"
+        assert recovered["status"] == duplicate["status"] == "sent"
+        assert failed["id"] == recovered["id"] == duplicate["id"]
+        assert len(db.execute(select(EmailDelivery)).scalars().all()) == 1
+        assert calls == ["report:2026-09-10", "report:2026-09-10"]
+        def ambiguous_send(**kwargs):
+            calls.append("ambiguous")
+            raise TimeoutError("Provider outcome unknown")
+
+        monkeypatch.setattr("app.services.email_delivery._send_with_provider", ambiguous_send)
+        kwargs["idempotency_key"] = "report:2026-09-11"
+        kwargs["provider_idempotency_key"] = "report:2026-09-11"
+        assert send_email(db, **kwargs)["status"] == "failed"
+        assert send_email(db, **kwargs)["status"] == "failed"
+        assert calls.count("ambiguous") == 1
+    finally:
+        db.close()

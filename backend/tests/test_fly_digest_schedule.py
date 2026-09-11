@@ -74,6 +74,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
 
     assert "CRON_TZ=America/Los_Angeles" in crontab
     assert "5 13 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
+    assert "20,35,50 13 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "run_email_digest_schedule.sh watchlist_activity" not in crontab
     assert "run_email_digest_schedule.sh signals" not in crontab
     assert "1-56/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh" in crontab

@@ -271,6 +271,7 @@ def watchlist_candidate_events(
     descending: bool = False,
     limit: int | None = None,
     use_effective_activity: bool = True,
+    discovery_window: bool = False,
 ) -> list[Event]:
     symbols = set(watchlist_symbols(db, watchlist_id))
     targets = watchlist_targets(db, watchlist_id)
@@ -283,6 +284,10 @@ def watchlist_candidate_events(
         if use_effective_activity
         else func.coalesce(Event.event_date, Event.ts)
     )
+    if discovery_window:
+        # Email delivery follows ingestion, including late filings. This also
+        # avoids casting JSON dates across the entire historical event table.
+        freshness_ts = Event.created_at
     predicates = []
     if symbols:
         predicates.append(Event.symbol.is_not(None) & func.upper(Event.symbol).in_(symbols))
@@ -556,6 +561,7 @@ def refresh_watchlist_alerts(
     lookback_days: int = 7,
     force_lookback: bool = False,
     since: datetime | None = None,
+    discovery_window: bool = False,
 ) -> int:
     # News and releases are fetched by the existing ticker-content ingestion
     # pipeline. Materialize that durable cache before matching Events so the
@@ -582,7 +588,7 @@ def refresh_watchlist_alerts(
         )
         return 0
 
-    events = _watchlist_candidate_events(
+    events = watchlist_candidate_events(
         db,
         watchlist_id=watchlist.id,
         event_types=_event_types_from_visibility(
@@ -591,6 +597,7 @@ def refresh_watchlist_alerts(
         ),
         since=since,
         strict_since=True,
+        discovery_window=discovery_window,
     )
 
     created = _ensure_alerts_for_events(

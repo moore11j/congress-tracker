@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 from dataclasses import dataclass
@@ -465,6 +466,13 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         "alert_url": watchlist_url if is_custom_alert else f"{_frontend_base_url()}/ticker/{ticker}" if ticker != "UNKNOWN" else f"{_frontend_base_url()}/signals",
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat(),
     }
+    if is_custom_price_alert and (payload.get("daily_price_rule") or rule_name in DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES):
+        # Price values/alert row IDs change across repeated observations. The
+        # user's ticker, condition and market date identify the actual alert.
+        conditions = [(item.get("condition"), item.get("target")) for item in payload.get("conditions", [])]
+        identity = hashlib.sha256(json.dumps(conditions, sort_keys=True).encode()).hexdigest()[:24]
+        session_date = _coerce_aware(alert.event_created_at).astimezone(ZoneInfo("America/New_York")).date()
+        context["price_session_identity"] = f"{ticker}:{session_date}:{identity}"
     return IntradayAlertCandidate(
         source="custom_alert" if is_custom_alert else "signal",
         user=user,
@@ -662,6 +670,8 @@ def _skip_result(candidate: IntradayAlertCandidate, reason: str) -> dict[str, An
 
 
 def _intraday_key(candidate: IntradayAlertCandidate) -> str:
+    if candidate.context.get("price_session_identity"):
+        return f"intraday:{candidate.template_key}:user:{candidate.user.id}:price-session:{candidate.context['price_session_identity']}"
     watchlist_part = f":watchlist:{candidate.watchlist_id}" if candidate.watchlist_id is not None else ""
     return f"intraday:{candidate.template_key}:user:{candidate.user.id}{watchlist_part}:{candidate.event_key}"
 

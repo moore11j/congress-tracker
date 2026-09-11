@@ -11,7 +11,7 @@ There are two user-facing notification modes:
 
 The repository schedules daily digest delivery with a separate Fly `cron` process group in `backend/fly.toml`. The web `app` process serves requests only; it does not run email jobs in request threads.
 
-Fly Machines scheduled jobs were considered, but Fly's built-in scheduled Machine interval is coarse (`hourly`, `daily`, `weekly`, or `monthly`) rather than a precise Pacific wall-clock time. The checked-in schedule uses Supercronic in a single `cron` Machine so the 7:00/7:05 AM Pacific times are explicit and deployable with the app image.
+The checked-in schedule uses Supercronic in a single `cron` Machine. Daily monitoring digests run at 1:05 PM Pacific (4:05 PM Eastern) on weekdays, with retries at 1:20, 1:35, and 1:50 PM. Activity is consolidated into one daily report per subscribed user.
 
 Scheduled digest sends are gated by `EMAIL_DIGEST_SCHEDULE_ENABLED=1`. Without that Fly secret, the cron Machine logs a disabled message and exits without calling the digest CLI. Use the admin run-now endpoint or CLI dry-runs before enabling scheduled sends.
 
@@ -19,7 +19,9 @@ Intraday alert sends are separately gated by `EMAIL_ALERT_INTRADAY_ENABLED=false
 
 ## Daily Windows
 
-Scheduled digest jobs use the previous midnight-to-midnight window in America/Los_Angeles. A run at 7:00 AM Pacific on June 5 sends the June 4 00:00 through June 5 00:00 Pacific window.
+Scheduled digest jobs use a fixed 1:05 PM cutoff in America/Los_Angeles. A September 10 report covers September 9 at 1:05 PM through September 10 at 1:05 PM. Monday starts at Friday's cutoff; bounded catch-up can include missed activity. Late runs and retries retain this fixed cutoff, not their execution time. Activity after the cutoff is included in the following report.
+
+Monitoring digest identity is `digest:v2:alerts.signal_alert:user:<id>:report:<Pacific date>`. Never use UTC execution-date pairs: a September 9 evening run after midnight UTC previously collided with September 10's key and suppressed that report.
 
 ## CLI Commands
 
@@ -27,7 +29,6 @@ Dry-run first:
 
 ```powershell
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind monitoring --lookback-days 1 --limit 100 --dry-run"
-flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind watchlist_activity --lookback-days 1 --limit 100 --dry-run"
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_intraday_email_alerts --lookback-minutes 60 --limit 100 --dry-run"
 ```
 
@@ -35,15 +36,13 @@ Send:
 
 ```powershell
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind monitoring --lookback-days 1 --limit 100"
-flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind watchlist_activity --lookback-days 1 --limit 100"
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_intraday_email_alerts --lookback-minutes 60 --limit 100"
 ```
 
-Suggested external schedule:
+Do not add a second external schedule:
 
-- `monitoring`: ranked monitoring candidates daily around 7:00 AM Pacific.
-- `watchlist_activity`: daily around 7:05 AM Pacific.
-- intraday sweep: every 30 minutes during market hours on weekdays.
+- `monitoring`: consolidated daily activity after market close, as scheduled above.
+- Intraday sweeps: approximately every 15 minutes during market hours; separately enabled custom immediate rules do not become daily-only when the watchlist monitoring matrix is daily.
 
 ## Admin Endpoint
 
@@ -53,7 +52,7 @@ Admins can run the same bounded job engine:
 
 ```json
 {
-  "kind": "watchlist_activity",
+  "kind": "monitoring",
   "lookback_days": 1,
   "limit": 100,
   "force": false,
@@ -82,14 +81,15 @@ Review `candidate_count`, `sent_count`, `skipped_count`, and `skip_reasons` befo
 
 The production schedule lives in `backend/crontab`:
 
-- `monitoring`: `0 7 * * *` Pacific.
-- `watchlist_activity`: `5 7 * * *` Pacific.
+- `monitoring`: `5 13 * * 1-5` Pacific; retries `20,35,50 13 * * 1-5`.
 - AI Growth X drafts: every 5 minutes from 6:00 through 10:59 Pacific through `scripts/run_ai_growth_campaigns.sh`. The campaign scheduler is idempotent per local day, and the wrapper prevents overlapping runs, so the wider window lets a restarted cron Machine catch up after a missed early-morning start.
-- intraday sweep: every 30 minutes during market hours on weekdays.
+- intraday sweep: every 15 minutes during market hours on weekdays.
 
-Each scheduled command calls `scripts/run_email_digest_schedule.sh`, which validates the digest kind and then calls `python -m app.jobs.send_email_digests` with `--lookback-days 1 --limit 100` by default. The digest engine remains idempotent for the midnight-to-midnight Pacific window, and the per-run limit bounds sends if a large backlog appears.
+Each scheduled command calls `scripts/run_email_digest_schedule.sh`, which validates the digest kind and then calls `python -m app.jobs.send_email_digests` with `--lookback-days 1 --limit 100` by default. Sent reports skip on retry. Recipient failures are isolated and the CLI exits nonzero when any recipient fails. Explicit Postmark rejections can retry; ambiguous timeouts must be reconciled with provider records before resending, because Postmark does not implement the Resend idempotency header.
 
-The intraday schedule calls `scripts/run_email_intraday_alert_sweep.sh`, which validates `EMAIL_ALERT_SWEEP_LOOKBACK_MINUTES` and `EMAIL_ALERT_SWEEP_LIMIT`, then calls `python -m app.jobs.send_intraday_email_alerts`. The intraday engine uses event-level idempotency keys so duplicate sweeps do not resend the same alert.
+The intraday schedule calls `scripts/run_email_intraday_alert_sweep.sh`, which validates `EMAIL_ALERT_SWEEP_LOOKBACK_MINUTES` and `EMAIL_ALERT_SWEEP_LIMIT`, then calls `python -m app.jobs.send_intraday_email_alerts`. General events use event-level idempotency. One-day percentage-price rules additionally deduplicate by ticker/rule/market date during evaluation, and by recipient/ticker/condition/market date during delivery, including overlapping watchlists. Missing quotes do not reset threshold state. An actual reset/re-cross on the same day also does not resend a daily percentage-price alert.
+
+Digest assembly uses newly ingested Event rows for discovery and cached calendar enrichment only. A missing optional calendar cache must not hold up the report behind live provider requests.
 
 Suggested intraday defaults:
 

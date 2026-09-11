@@ -4,6 +4,8 @@ PYTHONPATH=/app
 CRON_TZ=America/Los_Angeles
 
 5 13 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
+# Retry the same report identity after transient failures; sent recipients skip.
+20,35,50 13 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
 1-56/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh
 # Publishing is a time-sensitive queue and must catch up immediately after a
 # deploy or worker restart. Keep generation inside the daytime window, but

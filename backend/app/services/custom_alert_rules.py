@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -460,7 +461,17 @@ def evaluate_rule(db: Session, rule: WatchlistAlertRule, ticker: str, state: Wat
     # crossing rules are already protected by their false -> true state, so a
     # fresh transition must receive a fresh identity after it has re-armed.
     fingerprint = "|".join(sorted(fingerprints)) if fingerprints else f"transition:{now.isoformat()}:{'|'.join(f'{item['value']}:{item['target']}' for item in results)}"
+    if _is_daily_price_rule(conditions):
+        fingerprint = f"price-session:{now.astimezone(ZoneInfo('America/New_York')).date()}:{rule.conditions_json}"
     return Evaluation(matched=matched, condition_results=results, values=values, dedupe_key=hashlib.sha256(f"{rule.id}:{ticker}:{fingerprint}".encode()).hexdigest()[:40])
+
+
+def _is_daily_price_rule(conditions: list[dict[str, Any]]) -> bool:
+    return bool(conditions) and all(
+        item.get("metric") == "price_change_pct"
+        and item.get("time_window") == {"value": 1, "unit": "day"}
+        for item in conditions
+    )
 
 
 def _watchlist_tickers(db: Session, watchlist_id: int) -> list[str]:
@@ -483,7 +494,8 @@ def evaluate_watchlist_custom_alerts(
     )
     if rule_names is not None:
         rules_query = rules_query.where(WatchlistAlertRule.name.in_(rule_names))
-    rules = db.execute(rules_query).scalars().all()
+    # Serialize competing evaluators before reading per-ticker state.
+    rules = db.execute(rules_query.order_by(WatchlistAlertRule.id).with_for_update()).scalars().all()
     tickers = _watchlist_tickers(db, watchlist_id)
     states = {(state.rule_id, state.ticker): state for state in db.execute(select(WatchlistAlertRuleState).where(WatchlistAlertRuleState.rule_id.in_([rule.id for rule in rules] or [-1]))).scalars().all()}
     evaluated = triggered = initialized = 0
@@ -495,6 +507,10 @@ def evaluate_watchlist_custom_alerts(
             state = states.get((rule.id, ticker))
             result = evaluate_rule(db, rule, ticker, state, current)
             evaluated += 1
+            # Missing observations are unknown, not a reset below threshold.
+            # Retain the last valid state until prices become available again.
+            if not result.matched and any(item["value"] is None for item in result.condition_results):
+                continue
             # A missing or stale state is a fresh baseline, not a historical
             # transition. This also prevents a Pro re-upgrade from replaying
             # alerts that could have occurred while evaluation was suspended.
@@ -515,7 +531,18 @@ def evaluate_watchlist_custom_alerts(
             state.previous_result, state.current_result, state.last_evaluated_at, state.values_json = state.current_result, result.matched, current, json.dumps(result.values)
             if not should_trigger:
                 continue
-            trigger = WatchlistAlertRuleTrigger(user_id=user_id, rule_id=rule.id, watchlist_id=watchlist_id, ticker=ticker, dedupe_key=result.dedupe_key, title=f"Custom Alert - {rule.name}", body=f"{ticker}: " + "; ".join(item["condition"] for item in result.condition_results if item["matched"]), conditions_json=json.dumps(result.condition_results))
+            if _is_daily_price_rule(conditions):
+                session_tz = ZoneInfo("America/New_York")
+                session_start = current.astimezone(session_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+                already_triggered = db.execute(select(WatchlistAlertRuleTrigger.id).where(
+                    WatchlistAlertRuleTrigger.rule_id == rule.id,
+                    WatchlistAlertRuleTrigger.ticker == ticker,
+                    WatchlistAlertRuleTrigger.created_at >= session_start,
+                    WatchlistAlertRuleTrigger.created_at < session_start + timedelta(days=1),
+                ).limit(1)).scalar_one_or_none()
+                if already_triggered is not None:
+                    continue
+            trigger = WatchlistAlertRuleTrigger(user_id=user_id, rule_id=rule.id, watchlist_id=watchlist_id, ticker=ticker, dedupe_key=result.dedupe_key, title=f"Custom Alert - {rule.name}", body=f"{ticker}: " + "; ".join(item["condition"] for item in result.condition_results if item["matched"]), conditions_json=json.dumps(result.condition_results), created_at=current)
             db.add(trigger)
             db.flush()
             state.last_triggered_at, state.dedupe_key = current, result.dedupe_key
@@ -540,6 +567,7 @@ def evaluate_watchlist_custom_alerts(
                 "conditions": result.condition_results,
                 "price_alert": matched_price_condition,
                 "trigger_price": trigger_price,
+                "daily_price_rule": _is_daily_price_rule(conditions),
                 "href": f"/watchlists/{watchlist_id}",
             }
             # Negative IDs live in a distinct namespace from canonical Event IDs.

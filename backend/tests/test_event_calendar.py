@@ -34,6 +34,19 @@ def _session():
     return Session()
 
 
+def test_digest_calendar_cache_miss_performs_no_provider_requests(monkeypatch):
+    def unexpected_fetch(*args, **kwargs):
+        raise AssertionError("Digest attempted a live calendar request")
+    monkeypatch.setattr("app.services.event_calendar.request_fmp_json", unexpected_fetch)
+    db = _session()
+    try:
+        user = _user(db, "cached-calendar@example.test")
+        result = upcoming_event_calendar_items(db, user, start=date(2026, 9, 10), end=date(2026, 9, 17), allow_live_fetch=False)
+        assert result.items == []
+    finally:
+        db.close()
+
+
 def _user(db, email: str, *, tier: str = "premium") -> UserAccount:
     user = UserAccount(email=email, entitlement_tier=tier)
     db.add(user)

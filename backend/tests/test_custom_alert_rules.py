@@ -151,3 +151,22 @@ def test_one_day_price_move_uses_fresh_quote_against_prior_close() -> None:
         condition = json.loads(alert.payload_json)["conditions"][0]
         assert round(condition["value"], 2) == 7.48
         assert json.loads(alert.payload_json)["trigger_price"] == 226.39
+
+        # A stale quote is unknown; it must not reset the matched state.
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=50))["triggered"] == 0
+        quote.asof_ts = (now + timedelta(minutes=55)).replace(tzinfo=None)
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=55))["triggered"] == 0
+        # Even a real second crossing of the same daily threshold is one alert.
+        quote.price = 210.63
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=60))["triggered"] == 0
+        quote.price = 226.39
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=65))["triggered"] == 0
+        # The same rule may trigger again in the next market session.
+        tomorrow = now + timedelta(days=1)
+        quote.price = 210.63
+        quote.asof_ts = tomorrow.replace(tzinfo=None)
+        evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=tomorrow)
+        quote.price = 226.39
+        quote.asof_ts = (tomorrow + timedelta(minutes=5)).replace(tzinfo=None)
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=tomorrow + timedelta(minutes=5))["triggered"] == 1

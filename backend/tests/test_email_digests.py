@@ -29,6 +29,48 @@ from app.services.email_templates import seed_default_email_templates
 from app.services.event_calendar import CalendarFetchResult
 
 
+def test_late_digest_run_cannot_claim_next_report_day():
+    from app.services.email_digests import _digest_key
+
+    # Actual incident: Sep 9 at 6:43pm Pacific is Sep 10 UTC.
+    late_start, late_end = daily_digest_window(now=datetime(2026, 9, 10, 1, 43, tzinfo=timezone.utc))
+    today_start, today_end = daily_digest_window(now=datetime(2026, 9, 10, 20, 5, tzinfo=timezone.utc))
+    retry_start, retry_end = daily_digest_window(now=datetime(2026, 9, 10, 20, 50, tzinfo=timezone.utc))
+    assert late_end == datetime(2026, 9, 9, 20, 5, tzinfo=timezone.utc)
+    assert (retry_start, retry_end) == (today_start, today_end)
+    assert _digest_key("alerts.signal_alert", 1, None, late_start, late_end).endswith("report:2026-09-09")
+    assert _digest_key("alerts.signal_alert", 1, None, today_start, today_end).endswith("report:2026-09-10")
+
+
+def test_repeated_daily_price_rows_share_one_delivery_identity():
+    from app.services.email_intraday import _intraday_key
+
+    user = UserAccount(id=1, email="price-identity@example.test")
+    keys = []
+    for alert_id, hour, watchlist_id in [(7034, 16, 1), (7037, 18, 1), (7040, 19, 2)]:
+        alert = MonitoringAlert(id=alert_id, user_id=1, source_type="watchlist", source_id=str(watchlist_id), alert_type="custom_alert", symbol="NBIS", event_created_at=datetime(2026, 9, 10, hour, 48, tzinfo=timezone.utc), payload_json=json.dumps({"rule_name": "5% Price Decrease", "price_alert": True, "conditions": [{"condition": "Price % change decreases by 5% over 1 day", "target": 5.0, "value": -5.245, "matched": True}]}))
+        keys.append(_intraday_key(_signal_alert_candidate(user, alert, {"NBIS"})))
+    assert len(set(keys)) == 1
+
+
+def test_digest_failure_for_one_user_does_not_skip_other_users(monkeypatch):
+    import app.services.email_digests as service
+
+    db = _session()
+    try:
+        users = [_user(db, "first-digest@example.test"), _user(db, "second-digest@example.test")]
+        monkeypatch.setattr(service, "_eligible_monitoring_digest_users", lambda *a, **k: users)
+        def preview(db, user, *args, **kwargs):
+            if user.id == users[0].id:
+                raise RuntimeError("transient database failure")
+            return {"user_id": user.id, "status": "would_send"}
+        monkeypatch.setattr(service, "_preview_signal_alert_digest", preview)
+        results = run_digest_job(db, kind="monitoring", dry_run=True, now=datetime(2026, 9, 10, 20, 5, tzinfo=timezone.utc))
+        assert [r["status"] for r in results] == ["failed", "would_send"]
+    finally:
+        db.close()
+
+
 class FakePostmarkResponse:
     status_code = 200
 
@@ -751,7 +793,8 @@ def test_signal_digest_excludes_raw_watchlist_trade_events(monkeypatch):
 def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monkeypatch):
     captured = {}
 
-    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
+    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None, allow_live_fetch=True):
+        assert allow_live_fetch is False
         captured.update({"start": start, "end": end, "scope": scope, "limit": limit, "kinds": kinds})
         return CalendarFetchResult(
             items=[
@@ -793,7 +836,8 @@ def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monk
 
 
 def test_monitoring_digest_ipo_calendar_detail_prefers_company_name(monkeypatch):
-    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
+    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None, allow_live_fetch=True):
+        assert allow_live_fetch is False
         return CalendarFetchResult(
             items=[
                 {
@@ -830,7 +874,8 @@ def test_monitoring_digest_ipo_calendar_detail_prefers_company_name(monkeypatch)
 
 
 def test_monitoring_digest_filters_calendar_dates_by_saved_event_kinds(monkeypatch):
-    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
+    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None, allow_live_fetch=True):
+        assert allow_live_fetch is False
         assert kinds == ("earnings",)
         return CalendarFetchResult(
             items=[

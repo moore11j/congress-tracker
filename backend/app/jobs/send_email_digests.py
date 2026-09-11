@@ -37,6 +37,8 @@ def main() -> None:
             default=str,
         )
     )
+    if any(item.get("status") == "failed" for item in results):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

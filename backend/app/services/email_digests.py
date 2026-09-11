@@ -505,17 +505,20 @@ def run_digest_job(
     if not force and not monitoring_email_send_day(now=now):
         return []
     results: list[dict[str, Any]] = []
-    if kind == "signals":
+    if kind in {"signals", "monitoring"}:
         users = _eligible_monitoring_digest_users(db, limit=limit)
-        if dry_run:
-            return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
-        return [send_signal_alert_digest(db, user, since, window_end=window_end, force=force) for user in users]
-
-    if kind == "monitoring":
-        users = _eligible_monitoring_digest_users(db, limit=limit)
-        if dry_run:
-            return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
-        return [send_signal_alert_digest(db, user, since, window_end=window_end, force=force) for user in users]
+        for user in users:
+            user_id = user.id
+            try:
+                results.append(
+                    _preview_signal_alert_digest(db, user, since, window_end, force=force)
+                    if dry_run else send_signal_alert_digest(db, user, since, window_end=window_end, force=force)
+                )
+            except Exception:
+                db.rollback()
+                logger.exception("monitoring_digest_user_failed user_id=%s", user_id)
+                results.append({"user_id": user_id, "status": "failed", "error": "digest_build_failed"})
+        return results
 
     subscriptions = (
         db.execute(
@@ -588,6 +591,7 @@ def daily_digest_window(
     current = now or datetime.now(timezone.utc)
     current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
     local_now = current.astimezone(tz)
+    local_end = datetime.combine(local_now.date(), time(13, 5), tzinfo=tz)
     days = max(int(lookback_days or 1), 1)
     # End-of-day digests cover activity discovered since the prior weekday's
     # close. This includes overnight and weekend activity without waiting for
@@ -597,8 +601,8 @@ def daily_digest_window(
         start_day -= timedelta(days=1)
         while start_day.weekday() >= 5:
             start_day -= timedelta(days=1)
-    local_start = datetime.combine(start_day, local_now.time().replace(tzinfo=None), tzinfo=tz)
-    return local_start.astimezone(timezone.utc), local_now.astimezone(timezone.utc)
+    local_start = datetime.combine(start_day, time(13, 5), tzinfo=tz)
+    return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
 def monitoring_email_send_day(*, now: datetime | None = None, timezone_name: str = DEFAULT_DIGEST_TIMEZONE) -> bool:
@@ -682,6 +686,8 @@ def _send_digest(db: Session, *, user: UserAccount, digest: DigestBuild, categor
         user_id=user.id,
         category=category,
         idempotency_key=idempotency_key,
+        provider_idempotency_key=idempotency_key,
+        retry_failed=True,
     )
 
 
@@ -1126,6 +1132,7 @@ def _upcoming_calendar_events_for_digest(
             scope="watchlist",
             limit=CALENDAR_ITEMS_PER_KIND_LIMIT * len(enabled_kinds),
             kinds=enabled_kinds,
+            allow_live_fetch=False,
         )
     except Exception:
         return [], _calendar_filter_label(enabled_kinds)
@@ -1821,7 +1828,7 @@ def _materialize_daily_watchlist_alerts(db: Session, user: UserAccount, since: d
         watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
         if watchlist is None or watchlist.owner_user_id != user.id:
             continue
-        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, since=since)
+        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, since=since, discovery_window=True)
 
 
 def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> bool:
@@ -2529,6 +2536,9 @@ def _provider_name() -> str:
 
 def _digest_key(template_key: str, user_id: int, watchlist_id: int | None, start: datetime, end: datetime) -> str:
     watchlist_part = f":watchlist:{watchlist_id}" if watchlist_id is not None else ""
+    if template_key == "alerts.signal_alert":
+        report_date = _coerce_aware(end).astimezone(ZoneInfo(DEFAULT_DIGEST_TIMEZONE)).date()
+        return f"digest:v2:{template_key}:user:{user_id}{watchlist_part}:report:{report_date}"
     start_key, end_key = _window_key(start, end)
     return f"digest:{template_key}:user:{user_id}{watchlist_part}:window:{start_key}:{end_key}"
 

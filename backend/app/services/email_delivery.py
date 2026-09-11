@@ -47,20 +47,32 @@ def send_email(
     reply_to: str | None = None,
     attachments: list[dict[str, Any]] | None = None,
     provider_idempotency_key: str | None = None,
+    retry_failed: bool = False,
 ) -> dict[str, Any]:
     normalized_to = normalize_email(to_email)
     if not normalized_to or "@" not in normalized_to:
         raise HTTPException(status_code=422, detail="A valid recipient email is required.")
 
+    existing = None
     if idempotency_key:
         existing = db.execute(select(EmailDelivery).where(EmailDelivery.idempotency_key == idempotency_key)).scalar_one_or_none()
-        if existing:
+        # Postmark has no provider idempotency support. Retry explicit rejections,
+        # but never automatically resend an ambiguous timeout/connection failure.
+        can_retry = existing is not None and retry_failed and existing.status == "failed" and (
+            existing.provider == "resend" or (existing.error or "").startswith("Provider returned HTTP ")
+        )
+        if existing and not can_retry:
             return _delivery_result(existing)
 
     template = _get_template(db, template_key)
     sender = resolve_sender_for_template(template)
     _log_sender_resolution(template.template_key, sender)
     reply_to_value = reply_to or _reply_to_for_template(template)
+    if existing is not None and (
+        not template.enabled or force_log_only or not email_delivery_enabled()
+        or not _provider_api_key(_provider_name())
+    ):
+        return _delivery_result(existing)
     if not template.enabled:
         delivery = _create_delivery(
             db,
@@ -135,7 +147,7 @@ def send_email(
         )
         return {**_delivery_result(delivery), **rendered}
 
-    delivery = _create_delivery(
+    delivery = existing if existing is not None else _create_delivery(
         db,
         to_email=normalized_to,
         from_email=sender.from_email,
@@ -148,6 +160,10 @@ def send_email(
         context=context,
         user_id=user_id,
     )
+    if existing is not None:
+        delivery.status = "queued"
+        delivery.error = None
+        db.commit()
 
     try:
         provider_message_id = _send_with_provider(
