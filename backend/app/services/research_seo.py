@@ -215,6 +215,7 @@ def run_daily_plan(db, *, now=None):
             "source_opportunity_ids": [selected["id"]], "article_count": 1,
             "publish_start_at": (now + timedelta(days=1)).isoformat(),
             "editorial_brief": selected["walnut_angle"],
+            "review_first": True,
         }, campaign_id=campaign_id)
         _finish(db, day, "generating", detail)
         result = briefs.run_due_research_campaign_generation(db, campaign_id=campaign["id"], limit=1)

@@ -2696,6 +2696,7 @@ def _normalize_campaign_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "source_opportunity_ids": source_opportunity_ids,
         "planned_articles": planned_articles,
         "editorial_brief": str(payload.get("editorial_brief") or "").strip()[:2000],
+        "review_first": bool(payload.get("review_first", False)),
     }
 
 
@@ -3185,7 +3186,7 @@ def _generate_research_campaign_item(db: Session, row: Any) -> dict[str, Any]:
         draft = _generate_non_ticker_campaign_stub(db, admin, item, campaign_config)
     else:
         config = _campaign_item_generation_config(item, campaign_config)
-        draft, correction_notes = _generate_campaign_brief_with_corrections(db, admin, config)
+        draft, correction_notes = _generate_campaign_brief_with_corrections(db, admin, config, review_first=bool(campaign_config.get("review_first")))
         if correction_notes:
             draft["quality_gate_correction_note"] = correction_notes[-1]
     draft = _mark_draft_scheduled_review(draft, item, campaign_config)
@@ -3360,6 +3361,8 @@ def _generate_campaign_brief_with_corrections(
     db: Session,
     admin: UserAccount,
     config: dict[str, Any],
+    *,
+    review_first: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """Generate a review draft, revising only the rejected copy and fact pack.
 
@@ -3367,6 +3370,14 @@ def _generate_campaign_brief_with_corrections(
     be replaced with a generic deterministic article that looks ready to
     publish.
     """
+    if review_first:
+        # Daily SEO is an editorial inbox, not auto-publication. Retain the real
+        # model output using the manual editor's existing warning-preserving path.
+        # Provider/parse failures still raise; never substitute template copy.
+        draft = generate_research_brief(db, admin, config, quality_repair_limit=1)
+        validation = draft.get("validation") or {}
+        notes = [_quality_gate_repair_note(validation)] if validation.get("status") == "failed" else []
+        return draft, notes
     initial_config = deepcopy(config)
     correction_notes: list[str] = []
     result: dict[str, Any] | None = None
@@ -5524,6 +5535,7 @@ def generate_research_brief(
     progress_callback: Any | None = None,
     *,
     return_quality_gate_candidate: bool = False,
+    quality_repair_limit: int | None = None,
 ) -> dict[str, Any]:
     normalized_config = validate_config(config)
     normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
@@ -5566,6 +5578,8 @@ def generate_research_brief(
         repair_notes: list[str] = []
         if validation.get("status") == "failed" and not use_deterministic_draft and os.getenv(MOCK_ENV) != "1":
             max_repairs = _quality_repair_attempts()
+            if quality_repair_limit is not None:
+                max_repairs = min(max_repairs, max(0, quality_repair_limit))
             for attempt in range(max_repairs):
                 repair_note = _quality_gate_repair_note(validation)
                 repair_notes.append(repair_note)

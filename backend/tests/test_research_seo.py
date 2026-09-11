@@ -111,6 +111,7 @@ def test_selected_topic_reaches_real_campaign_and_never_approves(db, monkeypatch
     run = seo.get_status(db)["runs"][0]
     campaign = seo.briefs.get_research_campaign(db, run["campaign_id"])
     assert campaign["config"]["editorial_brief"] == selected["walnut_angle"]
+    assert campaign["config"]["review_first"] is True
     assert campaign["config"]["target_keyword"] == selected["target_keyword"]
     assert campaign["approved_count"] == 0
     assert campaign["published_count"] == 0
@@ -169,3 +170,27 @@ def test_revoked_admin_is_blocked_before_discovery(db, monkeypatch):
     db.commit()
     monkeypatch.setattr(seo.briefs, "discover_research_keyword_opportunities", lambda *_: pytest.fail("Revoked owner"))
     assert seo.run_daily_plan(db, now=NOW)["status"] == "failed"
+
+
+def test_daily_generation_retains_real_draft_warnings_with_one_correction(monkeypatch):
+    calls = []
+    draft = {"status": "draft", "article": {"title": "Actual model output"},
+             "validation": {"status": "failed", "warnings": [{"code": "numeric_claim", "message": "Verify the cited amount", "blocking": True}]}}
+    def generate(db, admin, config, **kwargs):
+        calls.append(kwargs)
+        return draft
+    monkeypatch.setattr(seo.briefs, "generate_research_brief", generate)
+    result, notes = seo.briefs._generate_campaign_brief_with_corrections(None, None, {}, review_first=True)
+    assert result is draft
+    assert result["validation"]["status"] == "failed"
+    assert result["status"] == "draft"
+    assert notes
+    assert calls == [{"quality_repair_limit": 1}]
+
+
+def test_daily_generation_does_not_replace_api_failure_with_a_draft(monkeypatch):
+    def fail(*args, **kwargs):
+        raise HTTPException(502, "Provider failed")
+    monkeypatch.setattr(seo.briefs, "generate_research_brief", fail)
+    with pytest.raises(HTTPException):
+        seo.briefs._generate_campaign_brief_with_corrections(None, None, {}, review_first=True)
