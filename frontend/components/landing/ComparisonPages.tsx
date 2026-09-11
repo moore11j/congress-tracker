@@ -35,7 +35,7 @@ const footerResearchLinks = [
 
 const footerCompanyLinks = [
   { label: "About", href: `${appUrl}/about` },
-  { label: "FAQ", href: `${appUrl}/faq` },
+  { label: "FAQ", href: "https://walnutmarkets.com/faq" },
   { label: "Contact", href: "mailto:support@walnutmarkets.com" },
   { label: "Terms", href: `${appUrl}/terms` },
   { label: "Privacy", href: `${appUrl}/privacy` },

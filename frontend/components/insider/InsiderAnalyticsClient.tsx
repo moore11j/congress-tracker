@@ -650,7 +650,7 @@ export function InsiderAnalyticsClient({
               {REFRESHING_COPY}
             </p>
           ) : null}
-          <Link href="/faq" className="mt-2 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200">How we calculate</Link>
+          <Link href="https://walnutmarkets.com/faq" className="mt-2 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200">How we calculate</Link>
         </section>
       </div>
 

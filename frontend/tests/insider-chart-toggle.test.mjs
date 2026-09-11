@@ -91,7 +91,8 @@ test("insider page offers expanded lookback windows", () => {
 
 test("insider activity trend is fixed at 1Y and performance owns return horizons", () => {
   assert.match(insiderPage, /query\.set\("lookback", lookback\)/);
-  assert.match(insiderPage, /query\.set\("chart", "stock"\)/);
+  assert.doesNotMatch(insiderPage, /query\.set\("chart", "stock"\)/);
+  assert.match(insiderPage, /query\.append\(key, entry\)/);
   assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
   assert.match(insiderPage, /if \(chartSymbol\) query\.set\("symbol", chartSymbol\)/);
   assert.match(insiderAnalyticsClient, /ACTIVITY_TREND_LOOKBACK_DAYS = 365/);
@@ -159,7 +160,8 @@ test("insider tabs point to real sections and ownership is derived from direct F
 
 test("insider profile optional sections fall back instead of throwing the route", () => {
   assert.match(insiderPage, /async function loadInsiderSection/);
-  assert.match(insiderPage, /fallbackInsiderSummary/);
+  assert.match(insiderPage, /publicProfile\.status !== "ready"/);
+  assert.match(insiderPage, /Insider profile unavailable/);
   assert.match(insiderAnalyticsClient, /fallbackInsiderAlphaSummary/);
   assert.match(insiderAnalyticsClient, /fallbackInsiderTrades/);
   assert.match(insiderAnalyticsClient, /setAlphaUnavailable\(true\)/);

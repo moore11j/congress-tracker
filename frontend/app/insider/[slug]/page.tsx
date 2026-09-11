@@ -3,23 +3,19 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades, getSeoSnapshot } from "@/lib/api";
+import { getInsiderAlphaSummary, getInsiderTrades } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { InsiderProfileHeaderClient } from "@/components/insider/InsiderProfileHeaderClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import {
-  getInsiderDisplayName,
-  insiderDisplayNameFromSlug,
-  insiderSlug,
   reportingCikFromInsiderSlug,
-  shouldRedirectToCanonicalInsiderSlug,
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
-import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
-import { conciseSeoDescription, conciseSeoTitle, hasNonCanonicalSearchParams, insiderHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
+import { WALNUT_APP_URL } from "@/lib/marketingMetadata";
+import { insiderCanonicalSlug, insiderProfileMetadata, loadPublicInsiderProfile, resolvedInsiderName as publicInsiderName } from "@/lib/insiderSeo";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,7 +26,6 @@ type Props = {
 };
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
-type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
 type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
 
 const LOOKBACK_OPTIONS = [
@@ -87,27 +82,6 @@ async function loadInsiderSection<T>(
     });
     return { data: fallback, unavailable: true };
   }
-}
-
-function fallbackInsiderSummary(reportingCik: string, lookbackDays: number, issuer: string | undefined, slug: string): InsiderSummaryData {
-  return {
-    reporting_cik: reportingCik,
-    insider_name: insiderDisplayNameFromSlug(slug),
-    primary_company_name: null,
-    primary_role: null,
-    primary_symbol: issuer ?? null,
-    role_contexts: [],
-    lookback_days: lookbackDays,
-    total_trades: 0,
-    buy_count: 0,
-    sell_count: 0,
-    unique_tickers: 0,
-    gross_buy_value: 0,
-    gross_sell_value: 0,
-    net_flow: 0,
-    latest_filing_date: null,
-    latest_transaction_date: null,
-  };
 }
 
 function firstText(...values: Array<string | null | undefined>): string | null {
@@ -176,10 +150,6 @@ function buildInsiderSharePath(
   return `/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`;
 }
 
-function cleanInsiderCanonicalPath(canonicalSlug: string) {
-  return `/insider/${encodeURIComponent(canonicalSlug)}`;
-}
-
 function initialsForName(name: string) {
   const parts = name.split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "I";
@@ -228,57 +198,15 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
   const reportingCik = reportingCikFromInsiderSlug(slug);
-  if (!reportingCik) {
-    return {
-      metadataBase: new URL(WALNUT_APP_URL),
-      title: "Insider Trading Activity | Walnut Markets",
-      robots: { index: false, follow: true },
-    };
-  }
+  if (!reportingCik) notFound();
 
-  const [snapshot, summary] = await Promise.all([
-    getSeoSnapshot("insider", reportingCik, { source: "InsiderMetadataSnapshot" })
-      .then((response) => response.snapshot)
-      .catch(() => null),
-    getInsiderSummary(reportingCik, 365, undefined, { source: "InsiderMetadataSummary", stalePageCache: true })
-      .catch(() => null),
-  ]);
-  const insiderName =
-    typeof snapshot?.payload?.insider_name === "string"
-      ? snapshot.payload.insider_name
-      : (getInsiderDisplayName(summary?.insider_name, insiderDisplayNameFromSlug(slug)) ?? "Insider");
-  const canonicalPath = snapshot?.canonical_path ?? cleanInsiderCanonicalPath(insiderSlug(insiderName, reportingCik) ?? slug);
-  const company = summary?.primary_company_name?.trim() || "";
-  const fallbackTitle = `${insiderName} Insider Trades & Form 4 Activity | Walnut Markets`;
-  const fallbackDescription = company
-    ? `Track ${insiderName}'s disclosed ${company} insider transactions, Form 4 filings, buy/sell activity, and trading history with Walnut Markets.`
-    : `Track ${insiderName}'s disclosed insider transactions, Form 4 filings, buy/sell activity, and trading history with Walnut Markets.`;
-  const title = conciseSeoTitle(snapshot?.title, fallbackTitle);
-  const description = conciseSeoDescription(snapshot?.meta_description, fallbackDescription);
-  const indexable = snapshot?.indexable ?? insiderHasIndexableContent(summary);
-  if (!indexable || hasNonCanonicalSearchParams(sp)) {
-    return {
-      ...noindexFollowMetadata(title, description),
-      metadataBase: new URL(WALNUT_APP_URL),
-      alternates: {
-        canonical: appCanonicalUrl(canonicalPath),
-      },
-    };
-  }
-
-  return appPageMetadata(canonicalPath, {
-    title,
-    description,
-    alternates: {
-      canonical: appCanonicalUrl(canonicalPath),
-    },
-    openGraph: {
-      type: "profile",
-      title,
-      description,
-      url: appCanonicalUrl(canonicalPath),
-    },
-  });
+  const profile = await loadPublicInsiderProfile(
+    reportingCik, Number(clampLookback(one(sp, "lookback"))),
+    one(sp, "issuer").trim().toUpperCase() || undefined,
+    clampPage(one(sp, "recent_trades_page")), true,
+  );
+  if (profile.status === "missing") notFound();
+  return insiderProfileMetadata(slug, sp, profile);
 }
 
 export default async function InsiderPage({ params, searchParams }: Props) {
@@ -298,26 +226,29 @@ export default async function InsiderPage({ params, searchParams }: Props) {
 
   const lookbackDays = Number(lookback);
   const normalizedIssuer = issuer || undefined;
-  const summaryResult = await loadInsiderSection(
-    { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "summary" },
-    () => getInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, { source: "InsiderSummary", stalePageCache: publicStalePageCache }),
-    fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
-  );
-  const summary = summaryResult.data;
-  const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
-  const fallbackSlugName = insiderDisplayNameFromSlug(slug);
-  const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
-  const canonicalSlug = insiderSlug(resolvedInsiderName, reportingCik) ?? reportingCik;
+  const publicProfile = await loadPublicInsiderProfile(reportingCik, lookbackDays, normalizedIssuer, recentTradesPage, publicStalePageCache);
+  if (publicProfile.status === "missing") notFound();
+  const summary = publicProfile.summary;
+  const resolvedInsiderName = publicInsiderName(summary);
+  if (publicProfile.status !== "ready" || !summary || !resolvedInsiderName) {
+    return (
+      <div className="space-y-4 py-6">
+        <h1 className="text-2xl font-semibold text-white">Insider profile unavailable</h1>
+        <p className="text-sm text-slate-300">Public identity and disclosure details could not be resolved for CIK {reportingCik}. Try again later or search for another insider.</p>
+        <Link href="/insiders" className="inline-flex text-sm font-semibold text-emerald-300">Explore insiders</Link>
+      </div>
+    );
+  }
+  const insiderName = resolvedInsiderName;
+  const canonicalSlug = insiderCanonicalSlug(slug, publicProfile);
   const shareInsiderPath = buildInsiderSharePath(canonicalSlug, lookback, issuer, chartSymbol, recentTradesPage);
   const shareInsiderUrl = new URL(shareInsiderPath, getSiteUrl()).toString();
 
-  if (shouldRedirectToCanonicalInsiderSlug(slug, canonicalSlug)) {
+  if (slug !== canonicalSlug) {
     const query = new URLSearchParams();
-    if (lookback !== "90") query.set("lookback", lookback);
-    query.set("chart", "stock");
-    if (issuer) query.set("issuer", issuer);
-    if (chartSymbol) query.set("symbol", chartSymbol);
-    if (recentTradesPage > 0) query.set("recent_trades_page", String(recentTradesPage));
+    for (const [key, value] of Object.entries(sp)) {
+      for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value]) query.append(key, entry);
+    }
     const suffix = query.toString();
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
@@ -344,23 +275,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     role: roleText,
     symbol: stockSymbol,
   });
-  const [initialAlphaSummaryResult, initialTradesResult] = await Promise.allSettled([
-    getInsiderAlphaSummary(reportingCik, {
-      lookback_days: lookbackDays,
-      issuer: normalizedIssuer,
-      source: "InsiderProfileInitialAlpha",
-      stalePageCache: publicStalePageCache,
-    }),
-    getInsiderTrades(reportingCik, lookbackDays, 20, normalizedIssuer, {
-      page: recentTradesPage,
-      source: "InsiderProfileInitialTrades",
-      stalePageCache: publicStalePageCache,
-    }),
-  ]);
-  const initialAlphaSummary =
-    initialAlphaSummaryResult.status === "fulfilled" ? initialAlphaSummaryResult.value : undefined;
-  const initialTrades =
-    initialTradesResult.status === "fulfilled" ? initialTradesResult.value : undefined;
+  const initialAlphaSummary = await getInsiderAlphaSummary(reportingCik, {
+    lookback_days: lookbackDays,
+    issuer: normalizedIssuer,
+    source: "InsiderProfileInitialAlpha",
+    stalePageCache: publicStalePageCache,
+  }).catch(() => undefined);
+  const initialTrades = publicProfile.trades ?? undefined;
   const initialBuyCount = initialTrades?.items.filter((trade) => {
     const value = (trade.trade_type ?? trade.tradeType ?? "").toLowerCase();
     return value === "p" || value.includes("buy") || value.includes("purchase") || value.includes("acquire");
@@ -425,11 +346,6 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               />
             </div>
         </div>
-        {summaryResult.unavailable ? (
-          <p className="mt-4 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-            Insider profile details are loading from the latest available disclosures.
-          </p>
-        ) : null}
         <nav className="flex gap-7 overflow-x-auto border-t border-white/10 pt-2 text-sm font-medium text-slate-400">
           {INSIDER_NAV_ITEMS.map((item) => (
             <a

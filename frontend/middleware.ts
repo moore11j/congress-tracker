@@ -28,7 +28,7 @@ const publicStaticPaths = new Set([
 // These pages are part of the terminal experience. Keep the public marketing
 // site focused on acquisition pages and send requests for app-owned content
 // straight to the app host.
-const appHostedPaths = new Set(["/about", "/pricing", "/terms", "/privacy", "/faq", "/contact"]);
+const appHostedPaths = new Set(["/about", "/pricing", "/terms", "/privacy", "/contact"]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -342,6 +342,17 @@ async function routeRequest(request: NextRequest) {
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   const requestProto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
   const isHttpCanonicalMarketingRequest = host === canonicalMarketingHost && requestProto === "http";
+
+  // FAQ has one marketing canonical. Keep its existing page shell while
+  // sending www, app and legacy aliases directly to the preferred URL.
+  if (pathname === "/faq" && (publicLandingHosts.has(host) || legacyMarketingHosts.has(host) || host === appHost || legacyAppHosts.has(host))) {
+    if (host === canonicalMarketingHost && !isHttpCanonicalMarketingRequest) return NextResponse.next();
+    const faqUrl = request.nextUrl.clone();
+    faqUrl.protocol = "https:";
+    faqUrl.hostname = canonicalMarketingHost;
+    faqUrl.port = "";
+    return NextResponse.redirect(faqUrl, 308);
+  }
 
   if (pathname === "/market-intelligence-terminal") {
     const canonicalUrl = request.nextUrl.clone();

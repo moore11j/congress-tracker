@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSeoSnapshotIndex } from "@/lib/api";
 import { sitemapUrlset } from "@/lib/seoQuality";
+import { insiderSitemapPages } from "@/lib/insiderSeo";
 
 const APP_URL = "https://app.walnutmarkets.com";
 
@@ -9,12 +10,7 @@ export const revalidate = 1800;
 
 export async function GET() {
   const pages = await getSeoSnapshotIndex("insider", { source: "InsiderSitemap" })
-    .then((response) => response.items.map((item) => ({
-      type: "insider" as const,
-      path: item.canonical_path,
-      lastmod: (item.data_as_of ?? item.updated_at ?? new Date().toISOString()).slice(0, 10),
-      rationale: "Indexable cached insider profile page.",
-    })))
+    .then((response) => insiderSitemapPages(response.items))
     .catch(() => []);
   return new NextResponse(sitemapUrlset(APP_URL, pages), {
     headers: {

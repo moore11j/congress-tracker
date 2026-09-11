@@ -85,9 +85,9 @@ test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pag
   assert.match(memberPage, /getMemberProfileBySlug/);
   assert.match(memberPage, /memberHasIndexableContent\(profile\)/);
   assert.doesNotMatch(memberPage, /getSeoSnapshot\("member"/);
-  assert.match(insiderPage, /getSeoSnapshot\("insider"/);
-  assert.match(insiderPage, /getInsiderSummary\(reportingCik, 365/);
-  assert.match(insiderPage, /insiderHasIndexableContent\(summary\)/);
+  assert.doesNotMatch(insiderPage, /getSeoSnapshot/);
+  assert.match(insiderPage, /loadPublicInsiderProfile/);
+  assert.match(insiderPage, /insiderProfileMetadata\(slug, sp, profile\)/);
   assert.match(institutionPage, /institutionHasIndexableContent\(profile\)/);
   assert.match(institutionPage, /stalePageCache: true/);
   assert.match(departmentPage, /departmentHasIndexableContent\(department\)/);
@@ -109,7 +109,7 @@ test("canonical entity metadata does not index query-state variants", () => {
   for (const routePath of [
     "app/ticker/[symbol]/page.tsx",
     "app/member/[slug]/page.tsx",
-    "app/insider/[slug]/page.tsx",
+    "lib/insiderSeo.ts",
     "app/institution/[cik]/page.tsx",
     "app/compare/[left]/[right]/page.tsx",
   ]) {

@@ -96,7 +96,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.match(marketingHeader, /\{ label: "Leaderboards", href: `\$\{appUrl\}\/leaderboards` \}/);
   assert.match(marketingHeader, /<LandingNavLink href=\{pricingHref\} label="Pricing" \/>/);
   assert.match(marketingHeader, /const profilesNavLinks = \[[\s\S]*\{ label: "Overview", href: `\$\{appUrl\}\/profiles`[\s\S]*\{ label: "Congress", href: `\$\{appUrl\}\/members`[\s\S]*\{ label: "Insiders", href: `\$\{appUrl\}\/insiders`[\s\S]*\{ label: "Institutions", href: `\$\{appUrl\}\/institutions`[\s\S]*\{ label: "Departments", href: `\$\{appUrl\}\/departments`/);
-  assert.match(marketingHeader, /const companyNavLinks = \[[\s\S]*\{ label: "About", href: `\$\{appUrl\}\/about`[\s\S]*\{ label: "FAQ", href: `\$\{appUrl\}\/faq`[\s\S]*\{ label: "Contact", href: `\$\{appUrl\}\/contact`[\s\S]*\{ label: "Terms", href: `\$\{appUrl\}\/terms`[\s\S]*\{ label: "Privacy", href: `\$\{appUrl\}\/privacy`/);
+  assert.match(marketingHeader, /const companyNavLinks = \[[\s\S]*\{ label: "About", href: `\$\{appUrl\}\/about`[\s\S]*\{ label: "FAQ", href: "https:\/\/walnutmarkets\.com\/faq"[\s\S]*\{ label: "Contact", href: `\$\{appUrl\}\/contact`[\s\S]*\{ label: "Terms", href: `\$\{appUrl\}\/terms`[\s\S]*\{ label: "Privacy", href: `\$\{appUrl\}\/privacy`/);
   assert.match(marketingHeader, /<span>\{label\}<\/span>[\s\S]*&#9662;/);
   assert.match(marketingHeader, /<NavMenuItems items=\{companyNavLinks\} mobile \/>/);
   assert.doesNotMatch(landingPage, /\["Congress", "#congress"\]|\["Insiders", "#insiders"\]|\["Stock Comparisons", "#compare"\]|\["Stock Screener", "#screener"\]/);
@@ -278,7 +278,7 @@ test("landing macro rows resolve Core CPI by label variants", () => {
 });
 
 test("landing navigation sends app-owned information pages to the app host", () => {
-  assert.match(marketingHeader, /\{ label: "FAQ", href: `\$\{appUrl\}\/faq`/);
+  assert.match(marketingHeader, /\{ label: "FAQ", href: "https:\/\/walnutmarkets\.com\/faq"/);
   assert.match(marketingHeader, /\{ label: "Contact", href: `\$\{appUrl\}\/contact`/);
   assert.match(marketingHeader, /pricingHref = `\$\{appUrl\}\/pricing`/);
   assert.doesNotMatch(legalShell, /MarketingHeader|chrome\?: "public" \| "embedded"/);
@@ -294,7 +294,7 @@ test("landing navigation sends app-owned information pages to the app host", () 
   for (const route of ["/landing", "/congress-trades", "/insider-trading-tracker"]) {
     assert.match(middleware, new RegExp(`"${route}"`));
   }
-  assert.match(middleware, /const appHostedPaths = new Set\(\["\/about", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/contact"\]\)/);
+  assert.match(middleware, /const appHostedPaths = new Set\(\["\/about", "\/pricing", "\/terms", "\/privacy", "\/contact"\]\)/);
   assert.match(middleware, /\(publicLandingHosts\.has\(host\) \|\| legacyMarketingHosts\.has\(host\)\) && appHostedPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.hostname = appHost/);
   assert.match(middleware, /return NextResponse\.redirect\(appUrl, 308\)/);

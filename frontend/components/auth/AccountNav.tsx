@@ -231,7 +231,7 @@ export function AccountNav() {
             Subscriptions & Billing
           </Link>
           <Link
-            href="/faq"
+            href="https://walnutmarkets.com/faq"
             prefetch={false}
             onClick={() => setMenuOpen(false)}
             className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.06] hover:text-white"

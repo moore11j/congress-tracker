@@ -38,7 +38,9 @@ export function insiderHref(name?: string | null, reportingCik?: string | null):
 
 export function reportingCikFromInsiderSlug(slug?: string | null): string | null {
   if (!slug) return null;
-  const cleaned = decodeURIComponent(slug).trim().toLowerCase().replace(/\/+$/, "");
+  let decoded: string;
+  try { decoded = decodeURIComponent(slug); } catch { return null; }
+  const cleaned = decoded.trim().toLowerCase().replace(/\/+$/, "");
   if (!cleaned) return null;
   if (CIK_PATTERN.test(cleaned)) return cleaned;
   const match = cleaned.match(/-(\d{10})$/);

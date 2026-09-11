@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { MemberProfile, TickerProfile } from "@/lib/types";
-import type { DepartmentProfileResponse, InsiderSummary, InstitutionProfileResponse } from "@/lib/api";
+import type { DepartmentProfileResponse, InsiderSummary, InsiderTrade, InstitutionProfileResponse } from "@/lib/api";
 
 export type SeoEntityType = "ticker" | "member" | "insider" | "institution" | "department" | "research" | "comparison" | "screener" | "market";
 
@@ -157,9 +157,22 @@ export function memberHasIndexableContent(profile: MemberProfile | null | undefi
   return (profile.trades?.length ?? 0) > 0 || (profile.top_tickers?.length ?? 0) > 0;
 }
 
-export function insiderHasIndexableContent(summary: InsiderSummary | null | undefined): boolean {
-  if (!summary?.reporting_cik || !summary.insider_name) return false;
-  return (summary.total_trades ?? 0) > 0 || (summary.role_contexts?.length ?? 0) > 0 || Boolean(summary.primary_symbol);
+export function insiderHasIndexableContent(summary: InsiderSummary | null | undefined, trades?: readonly InsiderTrade[]): boolean {
+  if (!summary || !/^\d{10}$/.test(summary.reporting_cik) || /^0+$/.test(summary.reporting_cik)) return false;
+  const name = summary.insider_name?.trim();
+  if (!name || /^(insider|unknown(?: insider)?|loading|unavailable|n\/a)$/i.test(name)) return false;
+  const status = (summary as InsiderSummary & { status?: string }).status;
+  if (status && /loading|unavailable|error|unresolved|missing/i.test(status)) return false;
+  const dated = (value: string | null | undefined) => Boolean(value && Number.isFinite(Date.parse(value)));
+  const issuer = (value: string | null | undefined) => Boolean(value && /^[A-Z][A-Z0-9.-]*$/.test(value));
+  const datedSummary = summary.total_trades > 0 && summary.unique_tickers > 0
+    && dated(summary.latest_filing_date ?? summary.latest_transaction_date);
+  const filingRelationship = summary.role_contexts?.some((context) => issuer(context.symbol)
+    && Boolean(context.company_name?.trim() && context.role?.trim()) && Number(context.filings) > 0
+    && dated(context.latest_filing_date ?? context.latest_transaction_date));
+  const disclosedTrades = trades?.some((trade) => issuer(trade.symbol) && Boolean(trade.trade_type?.trim())
+    && dated(trade.filing_date ?? trade.transaction_date));
+  return Boolean(datedSummary || filingRelationship || disclosedTrades);
 }
 
 export function institutionHasIndexableContent(profile: InstitutionProfileResponse | null | undefined): boolean {

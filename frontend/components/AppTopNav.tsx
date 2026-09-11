@@ -41,7 +41,7 @@ const toolsNavGroups = [
 
 const companyNavItems = [
   { href: "/about", label: "About", icon: "•", description: "Who operates Walnut Markets" },
-  { href: "/faq", label: "FAQ", icon: "•", description: "Answers about data, billing, privacy, and support" },
+  { href: "https://walnutmarkets.com/faq", label: "FAQ", icon: "•", description: "Answers about data, billing, privacy, and support" },
   { href: "/contact", label: "Contact", icon: "•", description: "Feedback, bug reports, feature requests, and inquiries" },
   { href: "/terms", label: "Terms", icon: "•", description: "Terms of Use" },
   { href: "/privacy", label: "Privacy", icon: "•", description: "Privacy Policy" },
@@ -50,7 +50,7 @@ const companyNavItems = [
 function isActiveNavLink(pathname: string | null, href: string) {
   const path = pathname || "/";
   if (href === "/?mode=all") return path === "/";
-  const basePath = href.split("?")[0] || href;
+  const basePath = href.startsWith("https://") ? new URL(href).pathname : href.split("?")[0] || href;
   if (basePath === "/leaderboards") return path === basePath || path.startsWith("/leaderboards/");
   if (basePath === "/compare") return path === "/compare" || path.startsWith("/compare/");
   return path === basePath || path.startsWith(`${basePath}/`);

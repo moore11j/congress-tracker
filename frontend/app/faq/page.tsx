@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
-import { appPageMetadata } from "@/lib/marketingMetadata";
+import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
 const lastUpdated = "July 31, 2026";
 
@@ -284,7 +284,7 @@ const faqJsonLd = {
   ),
 };
 
-export const metadata: Metadata = appPageMetadata("/faq", {
+export const metadata: Metadata = marketingPageMetadata("/faq", {
   title: "Frequently Asked Questions | Walnut Markets",
   description:
     "Answers about data sources, disclosures, billing, privacy, security, and how Walnut Intelligence Inc. operates Walnut Market Terminal.",

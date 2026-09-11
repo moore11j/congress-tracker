@@ -31,7 +31,7 @@ test("top nav no longer exposes Watchlists while account dropdown does below Inb
   assert.doesNotMatch(layout, /href="\/watchlists"[\s\S]*?Watchlists/);
   assert.match(accountNav, /href="\/monitoring"[\s\S]*?<span>Inbox<\/span>[\s\S]*?href="\/watchlists"[\s\S]*?Watchlists[\s\S]*?href="\/account\/settings"[\s\S]*?Account Settings/);
   assert.match(accountNav, /href="\/account\/billing"[\s\S]*?Subscriptions & Billing/);
-  assert.match(accountNav, /href="\/faq"[\s\S]*?FAQ/);
+  assert.match(accountNav, /href="https:\/\/walnutmarkets\.com\/faq"[\s\S]*?FAQ/);
   assert.match(accountNav, /href="\/admin\/settings"[\s\S]*?Admin/);
   assert.match(appTopNav, /href: "\/pricing", label: "Pricing"/);
   assert.doesNotMatch(accountNav, /href="\/pricing"[\s\S]*?Pricing/);

@@ -91,7 +91,7 @@ const researchDataFooterLinks = [
 
 const companyFooterLinks = [
   { label: "About", href: `${appUrl}/about` },
-  { label: "FAQ", href: `${appUrl}/faq` },
+  { label: "FAQ", href: "https://walnutmarkets.com/faq" },
   { label: "Contact", href: `${appUrl}/contact` },
   { label: "Terms", href: `${appUrl}/terms` },
   { label: "Privacy", href: `${appUrl}/privacy` },

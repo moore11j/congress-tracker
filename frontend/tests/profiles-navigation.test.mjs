@@ -35,7 +35,7 @@ test("top nav adds Company dropdown after Pricing with matching arrows", () => {
 
   assert.match(nav, /Tools <span aria-hidden="true">&#9662;<\/span>/);
   assert.match(nav, /Company <span aria-hidden="true">&#9662;<\/span>/);
-  assert.match(nav, /const companyNavItems = \[[\s\S]*href: "\/about", label: "About"[\s\S]*href: "\/faq", label: "FAQ"[\s\S]*href: "\/contact", label: "Contact"[\s\S]*href: "\/terms", label: "Terms"[\s\S]*href: "\/privacy", label: "Privacy"/);
+  assert.match(nav, /const companyNavItems = \[[\s\S]*href: "\/about", label: "About"[\s\S]*href: "https:\/\/walnutmarkets\.com\/faq", label: "FAQ"[\s\S]*href: "\/contact", label: "Contact"[\s\S]*href: "\/terms", label: "Terms"[\s\S]*href: "\/privacy", label: "Privacy"/);
   assert.match(nav, /href="\/pricing"[\s\S]*Pricing[\s\S]*Company <span aria-hidden="true">&#9662;<\/span>/);
   assert.match(nav, /aria-label="Company"/);
   assert.match(nav, /data-company-link/);

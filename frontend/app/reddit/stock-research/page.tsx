@@ -335,7 +335,7 @@ export default async function RedditStockResearchPage({ searchParams }: PageProp
             <a href={`${WALNUT_APP_URL}/pricing`} className="hover:text-slate-300">Pricing</a>
             <a href={`${WALNUT_APP_URL}/privacy`} className="hover:text-slate-300">Privacy</a>
             <a href={`${WALNUT_APP_URL}/terms`} className="hover:text-slate-300">Terms</a>
-            <a href={`${WALNUT_APP_URL}/faq`} className="hover:text-slate-300">Disclosures</a>
+            <a href="https://walnutmarkets.com/faq" className="hover:text-slate-300">Disclosures</a>
           </div>
         </div>
       </footer>
