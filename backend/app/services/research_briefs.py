@@ -6349,7 +6349,7 @@ def article_schema() -> dict[str, Any]:
             "paywall_copy": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["heading", "description", "cta_label"],
+                "required": ["heading", "description", "cta_label", "secondary_cta_label"],
                 "properties": {
                     "heading": {"type": "string"},
                     "description": {"type": "string"},
