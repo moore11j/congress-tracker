@@ -1,5 +1,6 @@
 import { INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type EventItem } from "@/lib/api";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
+import { institutionDisplayName } from "@/lib/institution";
 import type { FeedItem } from "@/lib/types";
 
 export type FeedSortBy = "filed_after" | "amount" | "pnl" | "signal";
@@ -185,7 +186,7 @@ function institutionalDisplayName(value: unknown): string | null {
   if (!text) return null;
   const normalized = text.toLowerCase();
   if (normalized === "institutional activity" || normalized === "institutional" || normalized === "institution" || normalized === "13f filing") return null;
-  return text;
+  return institutionDisplayName(text);
 }
 
 function institutionalTransactionLabel(eventType: string, payload: Record<string, any>, tradeType?: string | null): string {

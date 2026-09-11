@@ -9,7 +9,7 @@ import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchli
 import { formatCurrencyRange, formatDateShort, formatTransactionLabel } from "@/lib/format";
 import { formatCompanyName } from "@/lib/companyName";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
-import { institutionHref } from "@/lib/institution";
+import { institutionHref, institutionDisplayName } from "@/lib/institution";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 
@@ -125,7 +125,7 @@ function entityLabel(item: FeedItem): string {
     );
   }
   if (isInstitutional(item)) {
-    return item.member?.name?.trim() || displayName(payload.institution_name) || displayName(payload.holder_name) || "Multiple Institutions";
+    return institutionDisplayName(item.member?.name?.trim() || displayName(payload.institution_name) || displayName(payload.holder_name)) || "Multiple Institutions";
   }
   if (isGovernmentContract(item)) {
     return item.member?.name?.trim() || displayName(payload.department) || displayName(payload.agency) || "Agency unavailable";

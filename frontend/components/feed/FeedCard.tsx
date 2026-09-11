@@ -16,7 +16,7 @@ import {
   transactionTone,
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
-import { institutionHref } from "@/lib/institution";
+import { institutionHref, institutionDisplayName } from "@/lib/institution";
 import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
 import { formatCompanyName } from "@/lib/companyName";
@@ -954,11 +954,11 @@ export function FeedCard({
                     prefetch={false}
                     className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
                   >
-                    {item.member?.name ?? "Multiple Institutions"}
+                    {institutionDisplayName(item.member?.name) ?? "Multiple Institutions"}
                   </Link>
                 ) : (
                   <span className="min-w-0 truncate text-lg font-semibold text-white">
-                    {item.member?.name ?? "Multiple Institutions"}
+                    {institutionDisplayName(item.member?.name) ?? "Multiple Institutions"}
                   </span>
                 )
               ) : (

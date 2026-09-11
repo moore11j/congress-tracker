@@ -17,7 +17,7 @@ import {
 import { HoldingsAllocationChart } from "@/components/institution/HoldingsAllocationChart";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
-import { normalizeInstitutionCik } from "@/lib/institution";
+import { normalizeInstitutionCik, institutionDisplayName } from "@/lib/institution";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { withServerTimeout } from "@/lib/serverTimeout";
 import { tickerHref } from "@/lib/ticker";
@@ -49,7 +49,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const canonicalPath = `/institution/${encodeURIComponent(cik)}`;
   try {
     const profile = await getInstitutionProfile(cik, { source: "InstitutionMetadata", stalePageCache: true });
-    const name = profile.holder_name ?? "Institution";
+    const name = institutionDisplayName(profile.holder_name) ?? "Institution";
     const fallbackTitle = `${name} Holdings | Walnut Markets`;
     const fallbackDescription = `Research ${name} 13F holdings, portfolio changes, filing history and public-company exposure in Walnut Markets.`;
     const title = conciseSeoTitle(fallbackTitle, "Institutional Holdings | Walnut Markets");
@@ -92,7 +92,7 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
     12000,
   ).catch(() => unavailableInstitutionProfile(cik));
   if (profile.locked) {
-    return <LockedInstitutionProfile cik={cik} holderName={profile.holder_name ?? null} />;
+    return <LockedInstitutionProfile cik={cik} holderName={institutionDisplayName(profile.holder_name)} />;
   }
 
   const [holdings, activity, filings, performance] = await Promise.all([
@@ -126,7 +126,7 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
   ]);
 
   const unavailable = profile.availability_status === "unavailable" || profile.status === "no_data";
-  const name = profile.holder_name ?? "Institution unavailable";
+  const name = institutionDisplayName(profile.holder_name) ?? "Institution unavailable";
   const canonicalInstitutionPath = `/institution/${encodeURIComponent(cik)}`;
   const canonicalInstitutionUrl = new URL(canonicalInstitutionPath, getSiteUrl()).toString();
   const reportPeriod = profile.latest_report_year && profile.latest_report_quarter

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { TickerOwnershipHolder, TickerOwnershipPoint, TickerOwnershipResponse } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
+import { institutionDisplayName } from "@/lib/institution";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
 type ChartPoint = TickerOwnershipPoint & {
@@ -42,7 +43,7 @@ function formatNumber(value: number | null | undefined): string {
 }
 
 function displayHolderName(holder: TickerOwnershipHolder): string {
-  const name = holder.holder_name?.trim();
+  const name = institutionDisplayName(holder.holder_name);
   if (name && name.toLowerCase() !== "institution") return name;
   return holder.cik ? `CIK ${holder.cik}` : "Unknown holder";
 }

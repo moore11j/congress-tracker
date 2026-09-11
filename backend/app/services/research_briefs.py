@@ -48,6 +48,7 @@ from app.services.confirmation_score import get_confirmation_score_bundles_for_t
 from app.services.email_delivery import send_email
 from app.services.openai_request_audit import audited_openai_request
 from app.utils.symbols import normalize_symbol
+from app.utils.institution_names import institution_display_name, normalize_article_institution_names
 
 RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v7_structured_packet"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
@@ -965,6 +966,7 @@ def sanitize_research_brief_article(
     sanitized = _apply_walnut_call_metadata(sanitized)
     sanitized = _apply_research_access_metadata(sanitized, config)
     sanitized = _humanize_research_article_dates(sanitized)
+    sanitized = normalize_article_institution_names(sanitized, context or {})
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
         sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
@@ -4181,7 +4183,7 @@ def _institutional_ownership_detail(db: Session, symbol: str) -> dict[str, Any]:
 
         def compact_change(item: Any) -> dict[str, Any]:
             return {
-                "holder_name": str(item.holder_name or "").strip(),
+                "holder_name": institution_display_name(item.holder_name) or "",
                 "change_type": str(item.change_type or "").strip(),
                 "shares_delta": item.shares_delta,
                 "shares_delta_pct": item.shares_delta_pct,
@@ -4235,7 +4237,7 @@ def _institutional_ownership_detail(db: Session, symbol: str) -> dict[str, Any]:
         )
         top_holders = [
             {
-                "holder_name": str(holder_name or position.issuer_name or "").strip(),
+                "holder_name": institution_display_name(holder_name or position.issuer_name) or "",
                 "shares": position.shares,
                 "reported_value_usd": position.value_usd,
                 "filing_date": _iso(position.filing_date),
@@ -7772,6 +7774,8 @@ def _draft_with_comparison_tickers(draft: dict[str, Any]) -> dict[str, Any]:
     article = draft.get("article")
     if isinstance(article, dict) and not isinstance(article.get("comparison_tickers"), list):
         article["comparison_tickers"] = comparison_tickers
+    if isinstance(article, dict):
+        draft["article"] = normalize_article_institution_names(article, draft.get("research_context") or {})
     return draft
 
 
@@ -8208,6 +8212,7 @@ def _preview_research_article(article: dict[str, Any]) -> dict[str, Any]:
 def _research_payload_for_entitlements(draft: dict[str, Any], entitlements: Any | None) -> dict[str, Any]:
     payload = deepcopy(draft)
     article = payload.get("article") if isinstance(payload.get("article"), dict) else {}
+    article = normalize_article_institution_names(article, draft.get("research_context") or {})
     access = _research_access_payload(article, entitlements)
     if access["premium_required"] and not access["full_article_visible"]:
         payload["article"] = _preview_research_article(article)

@@ -1,5 +1,6 @@
 import { TickerDiscoveryLink } from "@/components/ticker/TickerDiscoveryLink";
 import { VisibleEvent } from "@/components/analytics/VisibleEvent";
+import { institutionDisplayName } from "@/lib/institution";
 import { ContextualUpgrade } from "@/components/billing/ContextualUpgrade";
 ﻿import Link from "next/link";
 import { headers } from "next/headers";
@@ -518,10 +519,10 @@ function payloadNumber(payload: Record<string, unknown>, key: string): number | 
 
 function institutionalHolderName(event: EventsResponse["items"][number]): string {
   const payload = eventPayload(event);
-  return event.member_name?.trim()
+  return institutionDisplayName(event.member_name?.trim()
     || payloadString(payload, "holder_name")
     || payloadString(payload, "institution_name")
-    || "Institution";
+    || "Institution") || "Institution";
 }
 
 function institutionalActionLabel(event: EventsResponse["items"][number]): string {

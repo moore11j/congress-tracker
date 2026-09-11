@@ -28,6 +28,7 @@ from app.services.institutional_activity import (
     normalize_cik,
 )
 from app.utils.symbols import normalize_symbol
+from app.utils.institution_names import institution_display_name
 
 router = APIRouter(tags=["institutional"])
 
@@ -99,7 +100,7 @@ def _locked_institution_payload(cik: str, db: Session | None = None) -> dict[str
         "message": "Institutional profiles are available on Pro.",
         # Public filing identity only. Holdings, activity, and other Pro data
         # remain unavailable to anonymous and Free visitors.
-        "holder_name": holder.holder_name if holder else None,
+        "holder_name": institution_display_name(holder.holder_name) if holder else None,
         "latest_filing_date": holder.latest_filing_date.isoformat() if holder and holder.latest_filing_date else None,
         "items": [],
     }
@@ -196,7 +197,7 @@ def public_institution_index(db: Session = Depends(get_db)) -> dict[str, Any]:
         "items": [
             {
                 "cik": normalize_cik(cik),
-                "holder_name": holder_name,
+                "holder_name": institution_display_name(holder_name),
                 "latest_filing_date": latest_filing_date.isoformat() if latest_filing_date else None,
             }
             for cik, holder_name, latest_filing_date in rows

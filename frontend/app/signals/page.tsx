@@ -8,7 +8,7 @@ import { chamberBadge } from "@/lib/format";
 import { getEntitlements, getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
 import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
-import { institutionHref } from "@/lib/institution";
+import { institutionHref, institutionDisplayName } from "@/lib/institution";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
@@ -550,9 +550,9 @@ async function SignalsResultsSection({
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="inline-flex shrink-0"><Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge></span>
                           {institutionProfileHref ? (
-                            <Link href={institutionProfileHref} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{it.who ?? "Institution unavailable"}</Link>
+                            <Link href={institutionProfileHref} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{institutionDisplayName(it.who) ?? "Institution unavailable"}</Link>
                           ) : (
-                            <span className="min-w-0 truncate text-slate-100">{it.who ?? "Institutional holders"}</span>
+                            <span className="min-w-0 truncate text-slate-100">{institutionDisplayName(it.who) ?? "Institutional holders"}</span>
                           )}
                         </div>
                       ) : (
@@ -677,9 +677,9 @@ async function SignalsResultsSection({
                         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                           <span className="inline-flex shrink-0 align-middle"><Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge></span>
                           {institutionProfileHref ? (
-                            <Link href={institutionProfileHref} prefetch={false} className="truncate hover:underline">{it.who ?? "Institution unavailable"}</Link>
+                            <Link href={institutionProfileHref} prefetch={false} className="truncate hover:underline">{institutionDisplayName(it.who) ?? "Institution unavailable"}</Link>
                           ) : (
-                            <span className="truncate">{it.who ?? "Institutional holders"}</span>
+                            <span className="truncate">{institutionDisplayName(it.who) ?? "Institutional holders"}</span>
                           )}
                         </div>
                       ) : (

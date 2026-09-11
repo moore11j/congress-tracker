@@ -27,6 +27,7 @@ from app.models import (
     QuoteCache,
 )
 from app.utils.symbols import normalize_symbol
+from app.utils.institution_names import institution_display_name, normalize_article_institution_names
 
 INSTITUTIONAL_SOURCE_LABEL = "Institutional Activity"
 INSTITUTIONAL_EVENT_SOURCE = "institutional_13f"
@@ -1371,7 +1372,7 @@ def ticker_ownership_payload(
             cik,
             {
                 "cik": cik,
-                "holder_name": holder_names.get(cik) or cik_names.get(cik) or "Institution",
+                "holder_name": institution_display_name(holder_names.get(cik) or cik_names.get(cik)) or "Institution",
                 "ownership_pct": 0.0,
                 "value_usd": 0.0,
                 "shares": 0.0,
@@ -1686,15 +1687,18 @@ def unavailable_ticker_ownership_payload(symbol: str | None = None, *, status: s
 
 
 def institutional_activity_event_payload(row: InstitutionalActivityEvent) -> dict[str, Any]:
+    copy = normalize_article_institution_names(
+        {"title": row.title, "summary": row.summary}, {"holder_name": row.holder_name}
+    )
     return {
         "id": row.id,
         "symbol": row.symbol,
         "cik": row.cik,
-        "holder_name": row.holder_name,
+        "holder_name": institution_display_name(row.holder_name),
         "event_type": row.event_type,
         "direction": row.direction,
-        "title": row.title,
-        "summary": row.summary,
+        "title": copy["title"],
+        "summary": copy["summary"],
         "filing_date": row.filing_date.isoformat() if row.filing_date else None,
         "report_year": row.report_year,
         "report_quarter": row.report_quarter,
@@ -1748,7 +1752,7 @@ def list_institutional_holders(
 def holder_payload(holder: InstitutionalHolder) -> dict[str, Any]:
     return {
         "cik": holder.cik,
-        "holder_name": holder.holder_name,
+        "holder_name": institution_display_name(holder.holder_name),
         "holder_type": holder.holder_type,
         "is_passive_like": holder.is_passive_like,
         "quality_score": holder.quality_score,
@@ -1760,13 +1764,13 @@ def holder_payload(holder: InstitutionalHolder) -> dict[str, Any]:
 
 def _holder_display_name(db: Session, cik: str, holder_name: str | None = None) -> str | None:
     if holder_name and holder_name.strip():
-        return holder_name.strip()
+        return institution_display_name(holder_name)
     normalized = normalize_cik(cik)
     if not normalized:
         return None
     meta = db.get(CikMeta, normalized)
     if meta and meta.company_name and meta.company_name.strip():
-        return meta.company_name.strip()
+        return institution_display_name(meta.company_name)
     return None
 
 
@@ -2438,7 +2442,7 @@ def cached_holder_performance_summary(db: Session, cik: str, *, max_age_days: in
         "status": "ok",
         "cache_status": "hit",
         "cik": normalized,
-        "holder_name": first.holder_name or profile.get("holder_name"),
+        "holder_name": institution_display_name(first.holder_name or profile.get("holder_name")),
         "report_period": first.report_period,
         "report_period_end": first.report_period_end.isoformat() if first.report_period_end else None,
         "basis": first.basis,
@@ -3271,7 +3275,7 @@ def _activity_id_from_feed_source_filing_id(value: str | None) -> int | None:
 
 
 def _copy_for_change(change: InstitutionalPositionChange) -> tuple[str, str]:
-    holder = change.holder_name or "Institution"
+    holder = institution_display_name(change.holder_name) or "Institution"
     symbol = change.normalized_symbol or change.symbol or "ticker"
     report = f"Q{change.report_quarter} {change.report_year}"
     filing = change.filing_date.isoformat() if change.filing_date else "unavailable"
@@ -3409,7 +3413,7 @@ def _top_change_rows(changes: list[InstitutionalPositionChange], *, direction: s
     return [
         {
             "cik": change.cik,
-            "holder_name": change.holder_name,
+            "holder_name": institution_display_name(change.holder_name),
             "symbol": change.normalized_symbol,
             "change_type": change.change_type,
             "reported_value_usd": change.curr_value_usd if change.change_type != "exit" else change.prev_value_usd,
@@ -3713,7 +3717,7 @@ def _provider_holder_analytics(
         holders.append(
             {
                 "cik": _first_text(row, "cik"),
-                "holder_name": _first_text(row, "investorName", "holderName", "name") or "Institution",
+                "holder_name": institution_display_name(_first_text(row, "investorName", "holderName", "name")) or "Institution",
                 "ownership_pct": ownership_pct,
                 "ownership_pct_source": "shares_over_float" if ownership_pct is not None and float_shares else "provider_holder_analytics",
                 "value_usd": _first_number(row, "marketValue", "valueUsd", "totalValue"),
