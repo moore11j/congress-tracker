@@ -123,7 +123,7 @@ def render_product_video(creative, captures, audio, read_asset):
         output = root / "video.mp4"
         cmd = [ffmpeg,"-y","-v","error","-f","rawvideo","-pix_fmt","rgb24","-s",f"{WIDTH}x{HEIGHT}","-r",str(FPS),"-i","pipe:0",
                "-i",str(audio_path),"-c:v","libx264","-preset","veryfast","-crf","19","-threads","2","-pix_fmt","yuv420p",
-               "-c:a","aac","-b:a","192k","-af","loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur=0.45","-t",str(duration),"-movflags","+faststart",str(output)]
+               "-c:a","aac","-b:a","192k","-ar","48000","-af","loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur=0.45","-t",str(duration),"-movflags","+faststart",str(output)]
         with (root / "ffmpeg.log").open("wb") as errors:
             process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors)
             started = time.monotonic()

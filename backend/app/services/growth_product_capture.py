@@ -63,7 +63,10 @@ def capture_product_shot(shot, *, owner_id=None):
             target.wait_for(state="visible", timeout=45000)
         consent = page.get_by_role("button", name="Reject optional", exact=True)
         if consent.count() and consent.is_visible():
-            consent.click()
+            # The animated consent tray can keep Chromium's stability check pending
+            # on the shared worker. It is already verified visible and is a fixed
+            # non-destructive choice; dispatch the real click without that wait.
+            consent.click(force=True, timeout=10000)
         page.evaluate("document.fonts.ready")
         target.scroll_into_view_if_needed()
         page.wait_for_timeout(2000)
@@ -100,6 +103,7 @@ def capture_product_shot(shot, *, owner_id=None):
                 page.wait_for_timeout(250)
         else:
             for _ in range(18):
+                page.mouse.wheel(0, 6)
                 page.wait_for_timeout(250)
         page.wait_for_timeout(1000)
         video = page.video
