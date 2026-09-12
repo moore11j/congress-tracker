@@ -1,4 +1,10 @@
 .git
+.env
+.env.*
+frontend/.env
+frontend/.env.*
+backend/.env
+backend/.env.*
 .release-outcomes
 work
 .pytest_cache

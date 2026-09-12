@@ -2,6 +2,8 @@ fly.toml
 .git/
 __pycache__/
 .envrc
+.env
+.env.*
 .venv/
 .venv*/
 .pytest_cache/
