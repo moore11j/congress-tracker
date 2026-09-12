@@ -350,6 +350,8 @@ def _opportunity_or_404(db: Session, opportunity_id: int) -> AiMarketingOpportun
     opportunity = db.get(AiMarketingOpportunity, opportunity_id)
     if not opportunity:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
+    if opportunity.source_provider == "walnut_video":
+        raise HTTPException(status_code=409, detail="Use the AI Growth video review controls for this draft.")
     return opportunity
 
 
@@ -456,7 +458,9 @@ def admin_ai_marketing_opportunities(
     limit: int = Query(default=50, ge=1, le=200),
 ):
     require_admin_user(db, request)
-    query = select(AiMarketingOpportunity)
+    query = select(AiMarketingOpportunity).where(
+        (AiMarketingOpportunity.source_provider.is_(None)) | (AiMarketingOpportunity.source_provider != "walnut_video")
+    )
     if status and status.lower() != "all":
         statuses = [part.strip().lower() for part in status.split(",") if part.strip()]
         invalid = sorted(set(statuses) - OPPORTUNITY_STATUSES)

@@ -1,0 +1,4 @@
+# Install on the video worker / API for private object-store signed URLs.
+-r requirements.txt
+playwright==1.55.0
+mutagen==1.47.0

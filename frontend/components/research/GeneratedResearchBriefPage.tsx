@@ -222,10 +222,10 @@ export function GeneratedResearchBriefPage({
             <img src="/walnut-intel-logo-mark.png" alt="" className="h-6 w-6" />
             Walnut Research
           </Link>
-          <div className="mt-10 max-w-3xl">
+          <div className="mt-10 max-w-3xl" data-growth-capture="research-header">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{article.category || "Research Brief"}</p>
             <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{cleanInlineText(article.title)}</h1>
-            <p className="mt-5 text-lg leading-8 text-slate-300">{cleanInlineText(article.subtitle || article.summary)}</p>
+            <p className="mt-5 text-lg leading-8 text-slate-300" data-growth-capture="research-summary">{cleanInlineText(article.subtitle || article.summary)}</p>
             <p className="mt-6 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
           </div>
           {heroImage ? <ResearchHeroImage src={heroImage} title={article.title} /> : results.length ? <StoredSignalsHeroGraphic results={results} /> : null}

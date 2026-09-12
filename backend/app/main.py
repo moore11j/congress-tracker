@@ -166,6 +166,7 @@ from app.routers.institutional_ingest_admin import router as institutional_inges
 from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
 from app.routers.ai_marketing import router as ai_marketing_router
+from app.routers.growth_video import router as growth_video_router
 from app.routers.research_briefs import router as research_briefs_router
 from app.routers.research_claim_matching import router as research_claim_matching_router
 from app.routers.research_evidence import router as research_evidence_router
@@ -15296,6 +15297,7 @@ app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
 app.include_router(strategies_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
+app.include_router(growth_video_router, prefix="/api")
 app.include_router(reddit_ads_assistant_router, prefix="/api")
 app.include_router(research_briefs_router, prefix="/api")
 app.include_router(research_claim_matching_router, prefix="/api")

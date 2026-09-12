@@ -27,6 +27,14 @@ RUN set -eux; \
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
+# Opt-in browser runtime for the existing cron process. API-only builds stay small.
+ARG INSTALL_GROWTH_VIDEO_WORKER=false
+COPY requirements-video.txt .
+RUN if [ "$INSTALL_GROWTH_VIDEO_WORKER" = "true" ]; then \
+      python -m pip install --no-cache-dir -r requirements-video.txt && \
+      python -m playwright install --with-deps chromium; \
+    fi
+
 # Copy app
 COPY . .
 # Git working trees on Windows can carry CRLF into the Docker build context.

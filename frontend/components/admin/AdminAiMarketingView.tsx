@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import { AdminRedditAdsAssistantView } from "@/components/admin/AdminRedditAdsAssistantView";
+import { GrowthVideoView } from "@/components/admin/GrowthVideoView";
 import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
@@ -41,6 +42,10 @@ type AdminAiMarketingViewProps = {
 };
 
 type TabKey =
+  | "video_opportunities"
+  | "growth_brief"
+  | "growth_memory"
+  | "video_settings"
   | "dashboard"
   | "drafts"
   | "assets"
@@ -81,6 +86,10 @@ const DRAFT_QUEUE_STATUSES: AdminAiMarketingStatus[] = [
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
+  { key: "video_opportunities", label: "Content Opportunities" },
+  { key: "growth_brief", label: "Growth Brief" },
+  { key: "growth_memory", label: "Growth Memory" },
+  { key: "video_settings", label: "Video Settings" },
   { key: "article_reactive_x", label: "Article-Reactive X" },
   { key: "manual_x_draft", label: "Manual X Draft" },
   { key: "scheduled_x_campaigns", label: "Scheduled X Campaigns" },
@@ -1075,6 +1084,8 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       ) : null}
 
       {activeTab === "drafts" ? (
+        <>
+        <GrowthVideoView view="queue" />
         <DraftsView
           drafts={drafts}
           busy={busy}
@@ -1094,7 +1105,13 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           onCardRequest={updateCardRequest}
           onRegenerate={regenerateDraft}
         />
+        </>
       ) : null}
+
+      {activeTab === "video_opportunities" ? <GrowthVideoView view="opportunities" /> : null}
+      {activeTab === "growth_brief" ? <GrowthVideoView view="brief" /> : null}
+      {activeTab === "growth_memory" ? <GrowthVideoView view="memory" /> : null}
+      {activeTab === "video_settings" ? <GrowthVideoView view="settings" /> : null}
 
       {activeTab === "assets" ? <AssetsView drafts={drafts} busy={busy} onDeleteAsset={deleteDraftAsset} /> : null}
 

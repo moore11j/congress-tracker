@@ -3407,6 +3407,16 @@ export async function getAdminAiMarketingCampaigns(): Promise<AdminAiMarketingCa
   });
 }
 
+/** Uses the same session-aware API transport as all other internal Growth tools. */
+export async function growthVideoRequest<T>(path = "", method = "GET", payload?: unknown): Promise<T> {
+  return fetchJson<T>(buildApiUrl(`/api/admin/ai-growth/video${path}`), {
+    method,
+    cache: "no-store",
+    source: "AdminAiMarketing",
+    ...(payload === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+  });
+}
+
 export async function getAdminAiMarketingSettings(): Promise<AdminAiMarketingSettingsResponse> {
   return fetchJson<AdminAiMarketingSettingsResponse>(buildApiUrl("/api/admin/ai-marketing/settings"), {
     cache: "no-store",

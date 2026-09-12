@@ -11,3 +11,4 @@ pypdf==6.13.3
 pdf2image==1.17.0
 Pillow==10.4.0
 pytesseract==0.3.13
+boto3==1.40.18

@@ -5215,6 +5215,8 @@ def post_approved_draft_to_x(
     *,
     suggestion: AiMarketingSuggestion | None = None,
 ) -> dict[str, Any]:
+    if opportunity.source_provider == "walnut_video":
+        raise ValueError("Video approval is handled only by the video review workflow.")
     content_type = _normalize_content_type(opportunity.content_type, campaign_type=opportunity.campaign_type, platform=opportunity.platform)
     if content_type != "x_post":
         opportunity.status = "approved"
@@ -5485,7 +5487,10 @@ def mark_opportunity_posted(db: Session, opportunity: AiMarketingOpportunity) ->
 
 def clear_ai_growth_draft_history(db: Session) -> dict[str, Any]:
     rows = db.execute(
-        select(AiMarketingOpportunity).where(AiMarketingOpportunity.status != "dismissed")
+        select(AiMarketingOpportunity).where(
+            AiMarketingOpportunity.status != "dismissed",
+            (AiMarketingOpportunity.source_provider.is_(None)) | (AiMarketingOpportunity.source_provider != "walnut_video"),
+        )
     ).scalars().all()
     now = datetime.now(timezone.utc)
     for row in rows:
@@ -6019,7 +6024,9 @@ def _digest_opportunities(
     statuses: list[str] | None,
     limit: int,
 ) -> list[AiMarketingOpportunity]:
-    query = select(AiMarketingOpportunity)
+    query = select(AiMarketingOpportunity).where(
+        (AiMarketingOpportunity.source_provider.is_(None)) | (AiMarketingOpportunity.source_provider != "walnut_video")
+    )
     if opportunity_ids:
         query = query.where(AiMarketingOpportunity.id.in_(opportunity_ids))
     else:
