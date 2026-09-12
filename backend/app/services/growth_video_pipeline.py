@@ -192,7 +192,13 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
                 raise ValueError("Creatomate render failed. Review the provider dashboard and template configuration.")
             if result.get("status") == "succeeded":
                 if result.get("width") != 1080 or result.get("height") != 1920:
-                    raise ValueError("Creatomate output is not the required 1080×1920 vertical format.")
+                    # Keep a trial preview for review without accepting it as the final asset.
+                    storage = storage or AssetStore()
+                    data["preview_video"] = storage.put(db, job_id, "preview", renderer.fetch_asset(result), "video/mp4",
+                        {"provider": "creatomate", "render_id": data["render_id"], "duration": result.get("duration"),
+                         "width": result.get("width"), "height": result.get("height")})
+                    data["render_provider_failed"] = True
+                    raise ValueError("Creatomate output is below the required 1080×1920 format. A preview is saved, but approval is blocked. Check the provider plan before retrying the render.")
                 storage = storage or AssetStore()
                 content = renderer.fetch_asset(result)
                 data["video"] = storage.put(db, job_id, "render", content, "video/mp4",

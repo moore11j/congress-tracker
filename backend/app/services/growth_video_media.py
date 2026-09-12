@@ -121,9 +121,11 @@ class CreatomateVideoRenderer:
         if response.status_code >= 400:
             raise ValueError(f"Creatomate returned HTTP {response.status_code}. Check provider dashboard before retrying.")
         data = response.json()
-        if not isinstance(data, list) or len(data) != 1 or not data[0].get("id"):
+        # API v2 returns one render object; accept the legacy singleton array too.
+        render = data[0] if isinstance(data, list) and len(data) == 1 else data
+        if not isinstance(render, dict) or not isinstance(render.get("id"), str) or not render["id"].strip():
             raise ValueError("Creatomate submission outcome is uncertain. Check the provider dashboard before retrying.")
-        return data[0]["id"]
+        return render["id"]
 
     def get_render_status(self, render_id):
         response = requests.get(self.endpoint + "/" + render_id, headers=self._headers(), timeout=(10, 30))

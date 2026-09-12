@@ -200,7 +200,8 @@ def media(job_id: str, download: bool = False, db=Depends(get_db)):
     assets = item["payload"]
     try:
         storage = AssetStore()
-        return {"video_url": storage.url(assets["video"], download=download) if assets.get("video") else None,
+        video = assets.get("video") or (assets.get("preview_video") if not download else None)
+        return {"video_url": storage.url(video, download=download) if video else None,
                 "thumbnail_url": storage.url(assets["thumbnail"]) if assets.get("thumbnail") else None}
     except (ValueError, ImportError):
         raise HTTPException(503, "Private asset storage is not configured on this server.") from None

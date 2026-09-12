@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -106,6 +106,25 @@ def render_to_review(db,item):
         stages.append(pipeline.advance(db,item["id"],storage=storage,capture=capture,narrator=narrator,renderer=renderer))
     assert stages == ["CAPTURE_READY","AUDIO_PENDING","AUDIO_READY","RENDER_PENDING","RENDERING","READY_FOR_REVIEW"]
     return store.job(db,item["id"]),storage,narrator,renderer
+
+
+def test_trial_resolution_keeps_preview_but_blocks_approval(db, monkeypatch):
+    item,*_=prepared(db,monkeypatch)
+    item,storage,narrator,renderer=render_to_review(db,item)
+    item["status"]="RENDERING"
+    item["payload"].pop("video")
+    store.save_job(db,item)
+    monkeypatch.setattr(renderer,"get_render_status",lambda render_id: {"status":"succeeded","width":270,"height":480,"duration":25})
+    assert pipeline.advance(db,item["id"],storage=storage,renderer=renderer)=="FAILED"
+    result=store.job(db,item["id"])
+    assert result["payload"]["preview_video"]["width"]==270
+    assert "video" not in result["payload"]
+    assert result["payload"]["render_provider_failed"] is True
+    assert result["payload"]["failed_stage"]=="RENDERING"
+    with pytest.raises(HTTPException) as exc:
+        api.decision(item["id"],api.Decision(action="approve"),db.get(UserAccount,1),db)
+    assert exc.value.status_code==409
+    assert renderer.submissions==1
 
 
 def test_transparent_score_rewards_real_demand_freshness_and_novelty():
@@ -253,11 +272,12 @@ def test_caption_timing_and_render_spec_are_deterministic(db,monkeypatch):
     assert timed_captions("one two",1,{"characters":list("one two"),"character_start_times_seconds":[i/10 for i in range(7)],"character_end_times_seconds":[(i+1)/10 for i in range(7)]})[0]["end"]==.7
 
 
-def test_creatomate_contract_and_ssrf_rejection(monkeypatch):
+@pytest.mark.parametrize("provider_response", [{"id":"render-test"}, [{"id":"render-test"}]])
+def test_creatomate_contract_and_ssrf_rejection(monkeypatch, provider_response):
     from app.services import growth_video_media as media
     calls=[]
     monkeypatch.setenv("CREATOMATE_API_KEY","unit-test-placeholder")
-    monkeypatch.setattr(media.requests,"post",lambda url,**kwargs: calls.append((url,kwargs)) or SimpleNamespace(status_code=200,json=lambda:[{"id":"render-test"}]))
+    monkeypatch.setattr(media.requests,"post",lambda url,**kwargs: calls.append((url,kwargs)) or SimpleNamespace(status_code=200,json=lambda:provider_response))
     renderer=CreatomateVideoRenderer()
     spec={"elements":[],"duration":25}
     assert renderer.create_render(spec,"","content-test")=="render-test"
@@ -266,6 +286,15 @@ def test_creatomate_contract_and_ssrf_rejection(monkeypatch):
     assert calls[1][1]["json"]["modifications"]["Content.elements"]==[]
     for url in ["http://localhost/video.mp4","https://evil.test/file.mp4","https://creatomate.com.evil.test/file"]:
         with pytest.raises(ValueError): renderer.fetch_asset({"url":url})
+
+
+@pytest.mark.parametrize("provider_response", [[], [{"id":"one"},{"id":"two"}], {}, {"id":None}, {"id":""}, "unexpected"])
+def test_creatomate_ambiguous_submission_is_not_accepted(monkeypatch, provider_response):
+    from app.services import growth_video_media as media
+    monkeypatch.setenv("CREATOMATE_API_KEY","unit-test-placeholder")
+    monkeypatch.setattr(media.requests,"post",lambda *args,**kwargs: SimpleNamespace(status_code=200,json=lambda:provider_response))
+    with pytest.raises(ValueError, match="submission outcome is uncertain"):
+        CreatomateVideoRenderer().create_render({"elements":[],"duration":25},"","content-test")
 
 
 def test_api_session_authorization_and_real_http_workflow(db,monkeypatch):

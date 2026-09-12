@@ -134,11 +134,6 @@ missing targets fail instead of substituting unrelated footage.
   installing missing Pillow; the 151-test affected regression run is clean. Other
   full-suite failures were not changed or all individually classified by this task.
 
-Fly secret-name inspection confirms existing OpenAI access. Creatomate,
-ElevenLabs, the asset bucket and the worker flag are not configured. No secrets
-were fetched or printed. No live paid render or voiceover was generated, no social
-content was published, and this implementation has not been deployed.
-
 ### Provider setup follow-up — September 12, 2026
 
 With explicit user approval, created the `Walnut AI Growth` ElevenLabs key with
@@ -146,20 +141,42 @@ Text to Speech access only, a 10,000-credit limit per refresh period, and automa
 disable-if-leaked enabled. Saved that key and the existing Creatomate project key
 as `ELEVENLABS_API_KEY` and `CREATOMATE_API_KEY` in `congress-tracker-api` Fly secrets.
 Both were verified as staged, then applied by the approved storage provisioning
-rollout. Secret values were not printed or
-written to repository files. No provider purchase or live render was performed.
+rollout. Secret values were not printed or written to repository files.
 
 The existing private Tigris bucket is attached to `congress-tracker-pg-production`;
 Separate private video storage `walnut-ai-growth-assets` was provisioned with explicit
 user approval, and Fly installed its server credentials. The original bucket is unchanged.
 ElevenLabs now shows the Starter plan following the user's upgrade. Fly configuration
 retains the Chromium build argument and video-worker/bucket settings for future releases.
-Runtime deployment and a live render remain pending.
+The backend and frontend were deployed. The production cron machine successfully
+launched Chromium 140 and accessed the private bucket. ElevenLabs voice
+`JBFqnCBsd6RMkjVDRZzb` is configured in Video Settings.
 
-The first live acceptance run still needs deployed credentials, an ElevenLabs voice,
-private bucket access, and the Chromium-enabled worker build. Validate MP4 playback,
-caption/voice synchronization, mobile legibility, approved download and persistence
-across API replicas with an actual paid render before declaring production V1 complete.
+The first live job `gv_fd6a1a70a11e4f00a3f343babe988260` uses the published NVIDIA
+Q2-filings brief. Astra generated a validated five-scene, 35-second storyboard,
+followed by three real page captures and five ElevenLabs narration clips. The
+source adapter currently supports the dated quote fact ($219.05 on September 11),
+not a verified claim about institutional buying. Search signals were absent for
+this source; its score must not be presented as measured search momentum.
+
+An initial Astra response exhausted its output budget. Prompt version
+`walnut-video-v2` requests compact JSON with low reasoning effort and saves response
+status, incomplete details and usage before parsing. A controlled retry succeeded
+with 289 output tokens. The focused suite passed after this fix.
+
+Creatomate render `ba2d7c4e-599d-4e99-8223-2d204b47bcd5` succeeded in 4.68 seconds
+and used 1.36 trial credits. Its free trial limits output to 270×480 despite the
+requested 1080×1920. The user chose to keep the trial preview and declined a paid
+Creatomate upgrade. No second render was submitted. The adapter now accepts the
+v2 render-object response as well as a legacy singleton array; ambiguous responses
+still stop for reconciliation. Lower-resolution results are retained as private
+previews while the final-video approval and download gates remain closed.
+
+Full-resolution acceptance, detailed caption/audio synchronization review and
+approved download remain pending. The trial preview is a pipeline demonstration,
+not a publishing-ready or conversion-validated creative. No social content was
+published. Future work should improve source-backed storytelling and mobile
+legibility before scaling video production.
 
 Provider contracts checked against:
 
