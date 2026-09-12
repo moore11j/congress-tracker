@@ -320,10 +320,32 @@ def test_astra_strict_output_contract_and_relevant_prompt_context(db,monkeypatch
     assert pipeline.advance(db,item["id"])=="CREATIVE_READY"
     payload=requests[0]["payload"]
     assert payload["text"]["format"]["strict"] is True
+    assert payload["reasoning"] == {"effort": "low"}
     context=json.loads(payload["input"][1]["content"])
     assert "competitors" not in context["growth_brief"]
     assert context["growth_brief"]["brand_voice"]=="Investigative"
     assert store.job(db,item["id"])["payload"]["model_metadata"]["response_id"]=="response-test"
+
+
+@pytest.mark.parametrize("status,content,expected", [
+    ("incomplete", '{"format":"research_finding"' + ' ' * 1000, "incomplete storyboard"),
+    ("completed", "", "complete JSON storyboard"),
+    ("completed", '{"format":', "complete JSON storyboard"),
+])
+def test_unusable_openai_response_preserves_audit_and_never_advances(db,monkeypatch,status,content,expected):
+    opp,_=seed(db,monkeypatch)
+    item=store.create_job(db,opp["id"],1,"instagram","research_finding")
+    monkeypatch.setattr(pipeline,"resolved_setting_value",lambda *a:"test-placeholder")
+    monkeypatch.setattr(pipeline,"_record_openai_usage_cost",lambda *a,**k:None)
+    monkeypatch.setattr(pipeline,"audited_openai_request",lambda **k:SimpleNamespace(status_code=200,json=lambda:{
+        "id":"incomplete-response-test","status":status,"incomplete_details":{"reason":"max_output_tokens"} if status=="incomplete" else None,
+        "usage":{"output_tokens":6000},"output":[{"content":[{"type":"output_text","text":content}]}]}))
+    assert pipeline.advance(db,item["id"])=="FAILED"
+    saved=store.job(db,item["id"])["payload"]
+    assert expected in saved["failure_reason"]
+    assert saved["model_metadata"]["response_id"]=="incomplete-response-test"
+    assert saved["model_metadata"]["usage"]["output_tokens"]==6000
+    assert saved["creative"] is None and not saved["captures"] and not saved["audio"]
 
 
 def test_partial_audio_failure_resumes_without_resynthesizing_completed_scenes(db,monkeypatch):
