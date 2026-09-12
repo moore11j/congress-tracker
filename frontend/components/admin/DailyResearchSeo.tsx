@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import SearchConsolePanel from "./SearchConsolePanel";
+import KeywordPlannerPanel from "./KeywordPlannerPanel";
 import { getDailyResearchSeo, saveDailyResearchSeo, runDailyResearchSeo, type DailySeoStatus, type DailySeoConfig } from "@/lib/api";
 
 export default function DailyResearchSeo() {
@@ -57,6 +58,7 @@ export default function DailyResearchSeo() {
       {dirty ? <p className="mt-2 text-xs text-amber-200">Save your settings before requesting a draft.</p> : null}
       {message ? <p role="status" className="mt-3 text-sm text-emerald-200">{message}</p> : null}
       {status?.search_console ? <SearchConsolePanel status={status.search_console} onChange={value => setStatus(current => current ? { ...current, search_console: value } : current)} /> : null}
+      {status?.keyword_planner ? <KeywordPlannerPanel status={status.keyword_planner} onChange={value => setStatus(current => current ? { ...current, keyword_planner: value } : current)} /> : null}
       <h4 className="mt-6 font-semibold">Editorial run history</h4>
       <p className="mt-1 text-xs text-slate-400">Queued runs start on the next five-minute worker check. A run stuck in planning or generating needs attention; it will not silently restart paid work.</p>
       <div className="mt-3 space-y-3">{status?.runs.map(run => <article key={run.day} className="rounded-lg border border-white/10 p-3">

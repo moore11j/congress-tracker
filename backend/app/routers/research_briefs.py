@@ -94,6 +94,37 @@ def disconnect_search_console(request: Request, db: Session = Depends(get_db)):
     return disconnect(db)
 
 
+@router.post("/admin/research-briefs/keyword-planner/connect", dependencies=[Depends(rate_limit_admin_mutation)])
+def connect_keyword_planner(request: Request, db: Session = Depends(get_db)):
+    from app.services.keyword_planner import start_connection
+    return start_connection(db, require_admin_user(db, request))
+
+
+@router.post("/admin/research-briefs/keyword-planner/callback", dependencies=[Depends(rate_limit_admin_mutation)])
+def complete_keyword_planner(payload: SearchConsoleCallbackPayload, request: Request, db: Session = Depends(get_db)):
+    from app.services.keyword_planner import complete_connection
+    return complete_connection(db, require_admin_user(db, request), payload.code, payload.state)
+
+
+class KeywordMetricsPayload(BaseModel):
+    keywords: list[str] = Field(min_length=1, max_length=50)
+
+
+@router.post("/admin/research-briefs/keyword-planner/lookup", dependencies=[Depends(rate_limit_admin_mutation)])
+def lookup_keyword_metrics(payload: KeywordMetricsPayload, request: Request, db: Session = Depends(get_db)):
+    from app.services.keyword_planner import lookup, get_status
+    require_admin_user(db, request)
+    lookup(db, payload.keywords)
+    return get_status(db)
+
+
+@router.delete("/admin/research-briefs/keyword-planner", dependencies=[Depends(rate_limit_admin_mutation)])
+def disconnect_keyword_planner(request: Request, db: Session = Depends(get_db)):
+    from app.services.keyword_planner import disconnect
+    require_admin_user(db, request)
+    return disconnect(db)
+
+
 class DailySeoSettingsPayload(BaseModel):
     enabled: bool = False
     draft_time: str = Field(default="07:00", max_length=5)

@@ -103,9 +103,13 @@ def rank_candidates(candidates, interest, recent, minimum_score, google=None):
         google_impressions = sum(r["impressions"] for r in matches)
         # A small measured-demand bonus, only after the editorial threshold.
         score = min(100, score + min(10, int(google_impressions // 25)))
+        from app.services.keyword_planner import priority_bonus
+        score = min(100, score + priority_bonus(candidate))
+        volume = (candidate.get("keyword_metrics") or {}).get("avg_monthly_searches")
         ranked.append({**candidate, "priority_score": score, "customer_searches_30d": searches,
                        "selection_reason": f"Editorial score {base}/100; {searches} matching on-site search events in 30 days. "
                        + (f"{google_impressions:g} Google impressions for this exact query in the synced 28-day period. " if matches else "")
+                       + (f"Google Keyword Planner: approximately {volume:,} monthly US searches including close variants. " if volume is not None else "")
                        + str(candidate.get("rationale") or "")})
     return sorted(ranked, key=lambda row: (-row["priority_score"], row["target_keyword"]))
 
@@ -129,10 +133,11 @@ def _runs(db):
 
 def get_status(db):
     from app.services.search_console import get_status as google_status
+    from app.services.keyword_planner import get_status as keyword_status
     ensure_schema(db)
     config, _ = _config(db)
-    return {"config": config, "runs": _runs(db), "search_console": google_status(db), "review_email": os.getenv("RESEARCH_BRIEF_REVIEW_EMAIL", "jarod@walnutmarkets.com"),
-            "drafts_per_day": 1, "metric_note": "On-site ticker search events and directional web signals, not verified Google search volume.",
+    return {"config": config, "runs": _runs(db), "search_console": google_status(db), "keyword_planner": keyword_status(db), "review_email": os.getenv("RESEARCH_BRIEF_REVIEW_EMAIL", "jarod@walnutmarkets.com"),
+            "drafts_per_day": 1, "metric_note": "Editorial quality, on-site ticker demand and Search Console performance guide selection. Connected Keyword Planner adds Google search-volume estimates; missing volume is never invented.",
             "worker_note": "Daily SEO requires the research SEO cron worker. Draft time starts generation; review email follows successful generation."}
 
 
@@ -203,7 +208,9 @@ def run_daily_plan(db, *, now=None):
             "search_console": google,
             "ticker_articles_only": True,
         })
-        ranked = rank_candidates(discovery["items"], interest, recent, config["minimum_score"], google)
+        from app.services.keyword_planner import enrich_candidates
+        candidates = enrich_candidates(db, discovery["items"])
+        ranked = rank_candidates(candidates, interest, recent, config["minimum_score"], google)
         detail = {"candidates": ranked, "customer_interest": interest, "market_note": discovery.get("market_note", "")}
         if not ranked:
             _finish(db, day, "skipped", {**detail, "note": "No distinct, sourced opportunity cleared the quality threshold. No draft generated."})

@@ -29,7 +29,7 @@ export default function SearchConsolePanel({ status, onChange }: { status: Searc
     <h4 className="font-semibold text-white">Google Search Console</h4>
     <p className="mt-2 text-sm text-slate-300">{status.connected ? `Connected: ${status.email} · ${status.property}` : "Connect Google to use measured search performance in daily topic selection."}</p>
     <p className="mt-2 text-xs leading-5 text-slate-400">Read-only access. Walnut reads only walnutmarkets.com, stores its connection encrypted, and syncs daily. Google’s permission covers the Search Console properties your account can access; Walnut limits its requests to this property. No Gmail or Drive access.</p>
-    <p className="mt-2 text-xs text-slate-400">{status.note} Keyword Planner search volumes: not connected.</p>
+    <p className="mt-2 text-xs text-slate-400">{status.note} Keyword Planner volumes are managed separately below.</p>
     <div className="mt-3 flex flex-wrap gap-3">
       <button className={button} disabled={busy || !status.configured} onClick={() => action("connect")}>{status.connected ? "Reconnect Google" : "Connect Google Search Console"}</button>
       {status.connected ? <><button className={button} disabled={busy} onClick={() => action("sync")}>Sync performance now</button><button className={button} disabled={busy} onClick={() => action("disconnect")}>Disconnect</button></> : null}

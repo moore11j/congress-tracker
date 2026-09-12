@@ -113,4 +113,39 @@ query matches receive a bounded ranking bonus after clearing the editorial
 threshold. Low CTR, declining clicks and positions 5–20 produce explicit review
 suggestions for existing research pages, never automatic rewrites. Daily draft
 and approval limits remain unchanged. These are measured property performance
-metrics, not keyword search volumes. Keyword Planner remains unconnected.
+metrics, not keyword search volumes. Keyword Planner has its own connector below.
+
+## Google Keyword Planner
+
+Daily SEO now includes a separate Connect Google Keyword Planner action. It uses
+the existing registered Google callback with an admin-bound, single-use `gads_`
+state and S256 PKCE. Tokens use a different encryption domain and separate tables
+from Search Console. Google requires the broad `adwords` OAuth scope; the UI must
+disclose that this includes management permission even though our transport only
+allows account identity queries and historical keyword metrics. No ad, budget or
+campaign mutation endpoint is implemented. Disconnect removes the local grant and
+cache without revoking the shared Google sign-in client.
+
+Cloud project `walnut-intel` must have Google Ads API Basic access and published,
+verified branding. No developer token is sent (Google sunset tokens September 9,
+2026). The connection validates account 453-375-9595 and actually probes keyword
+service access before marking itself connected. OAuth credentials remain in the
+existing server environment; never commit or log tokens. No new credentials needed.
+
+Targeting is explicitly US / English / Google Search. `v24` historical metrics are
+cached 30 days per normalized phrase; at most 50 phrases per batch, 80 characters
+and ten words each. No visitor histories, emails or URLs are submitted. One atomic
+connection-level five-minute claim bounds parallel lookups and failed retries.
+Disconnection/reconnection prevents stale in-flight requests repopulating the cache.
+Provider errors keep the last good cache; only fresh metrics can affect ranking.
+
+After daily discovery and before selection, primary and up to three secondary
+keywords per candidate are checked. Primary-keyword demand adds at most ten points
+only after the editorial threshold is met. Secondary volumes are not summed into
+ranking because close variants can overlap. The run history retains provenance,
+Google grouping, targeting and monthly history. Missing metrics are null, not zero.
+These are Google estimates, not exact counts, organic difficulty or guaranteed
+traffic. Existing one-draft-per-day and explicit review/approval rules are unchanged.
+
+References: https://developers.google.com/google-ads/api/docs/keyword-planning/generate-historical-metrics
+and https://developers.google.com/google-ads/api/docs/api-policy/developer-token

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { completeGoogleSignIn, completeSearchConsole, verifyAuthenticatedSession } from "@/lib/api";
+import { completeGoogleSignIn, completeSearchConsole, completeKeywordPlanner, verifyAuthenticatedSession } from "@/lib/api";
 import { identifyHeyCatchUser } from "@/lib/heycatch";
 import { defaultPostLoginPath, safeAppReturnPath } from "@/lib/returnPaths";
 
@@ -17,6 +17,20 @@ export default function GoogleCallbackPage() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const state = params.get("state");
+    if (state?.startsWith("gads_")) {
+      window.history.replaceState(null, "", window.location.pathname);
+      setReturnTo("/admin/research-briefs");
+      if (!code || params.has("error")) {
+        setStatus("Keyword Planner was not connected. Return to Daily SEO and try Connect again.");
+        return;
+      }
+      setStatus("Connecting Google Keyword Planner...");
+      completeKeywordPlanner(code, state).then(result => {
+        setStatus(result.error ? `Keyword Planner connected, but initial lookup needs attention: ${result.error}`
+          : "Keyword Planner connected. Google search-volume estimates are now available for daily topic ranking. Open Daily SEO to review the data.");
+      }).catch(error => setStatus(error instanceof Error ? error.message : "Keyword Planner could not be connected."));
+      return;
+    }
     if (state?.startsWith("gsc_")) {
       // Reuse the registered callback, but never turn this admin connection into
       // a public login or expose its code in the visible URL after handling.

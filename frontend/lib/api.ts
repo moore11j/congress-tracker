@@ -7336,6 +7336,7 @@ export type DailySeoConfig = {
   tickers: string[]; minimum_score: number;
 };
 export type DailySeoStatus = {
+  keyword_planner?: KeywordPlannerStatus;
   search_console: SearchConsoleStatus;
   config: DailySeoConfig; review_email: string; drafts_per_day: number; metric_note: string; worker_note: string;
   runs: Array<{ day: string; status: string; campaign_id?: string; updated_at: string; draft_id?: string; email_status?: string; article_status?: string;
@@ -7351,6 +7352,29 @@ export function saveDailyResearchSeo(config: DailySeoConfig): Promise<DailySeoSt
 }
 export function runDailyResearchSeo(): Promise<DailySeoStatus> {
   return fetchJson(buildApiUrl("/api/admin/research-briefs/daily-seo/run"), { method: "POST", source: "DailyResearchSeo" });
+}
+
+export type KeywordMetric = {
+  keyword: string; google_keyword?: string | null; close_variants: string[];
+  avg_monthly_searches: number | null; fetched_at: string; stale: boolean;
+  advertising_competition?: string; monthly_searches: Array<{year: number; month: string; searches: number | null}>;
+};
+export type KeywordPlannerStatus = {
+  configured: boolean; connected: boolean; customer_id: string; email?: string | null;
+  targeting: {country: string; language: string; network: string}; note: string;
+  last_sync_at?: string | null; error?: string | null; metrics: KeywordMetric[];
+};
+export function connectKeywordPlanner(): Promise<{authorization_url: string}> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/keyword-planner/connect"), {method: "POST", source: "KeywordPlanner"});
+}
+export function completeKeywordPlanner(code: string, state: string): Promise<KeywordPlannerStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/keyword-planner/callback"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({code, state}), source: "KeywordPlanner"});
+}
+export function lookupKeywordMetrics(keywords: string[]): Promise<KeywordPlannerStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/keyword-planner/lookup"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({keywords}), source: "KeywordPlanner"});
+}
+export function disconnectKeywordPlanner(): Promise<KeywordPlannerStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/keyword-planner"), {method: "DELETE", source: "KeywordPlanner"});
 }
 
 export type SearchConsoleMetric = { query?: string; page?: string; clicks: number; impressions: number; ctr: number; position: number; recommendation?: string; previous_clicks?: number | null };
