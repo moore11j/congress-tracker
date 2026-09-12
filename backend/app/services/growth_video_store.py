@@ -254,7 +254,7 @@ def save_job(db, item, *, token=None):
     item["updated_at"] = params["at"]
 
 
-def create_job(db, opportunity_id, actor, platform, video_format, *, parent=None, feedback="", storyboard=None):
+def create_job(db, opportunity_id, actor, platform, video_format, *, parent=None, feedback="", storyboard=None, reviewed_product=None):
     if platform not in {"tiktok", "instagram"} or video_format not in FORMATS:
         raise ValueError("Unsupported platform or video format.")
     if storyboard and storyboard.get("format") != video_format:
@@ -275,8 +275,17 @@ def create_job(db, opportunity_id, actor, platform, video_format, *, parent=None
                  "utm_medium": "organic_social", "utm_campaign": "walnut_research_video", "utm_content": job_id,
                  "published_at": None, "external_post_id": None, "performance": None}}
     payload["experiment"]["tracked_url"] = opp["destination_url"] + "?" + urlencode({key: value for key, value in payload["experiment"].items() if key.startswith("utm_")})
-    db.execute(text("INSERT INTO growth_video_jobs (id,draft_id,opportunity_id,owner_id,status,revision,parent_id,created_at,updated_at,payload_json) VALUES (:id,:draft,:opp,:actor,'OPPORTUNITY_CREATED',:revision,:parent,:at,:at,:payload)"),
-               {"id": job_id, "draft": row.id, "opp": opportunity_id, "actor": actor,
+    initial_status = "OPPORTUNITY_CREATED"
+    if reviewed_product:
+        payload.update(reviewed_product)
+        from app.services.growth_product_ad import validate
+        validate({"payload": payload})
+        initial_status = "CREATIVE_READY"
+        payload["experiment"].update({"campaign": payload["campaign_id"], "utm_campaign": payload["campaign_id"],
+            "hook_variant": payload["product_hook"], "renderer": "walnut_native", "renderer_template_version": 2})
+        payload["experiment"]["tracked_url"] = opp["destination_url"] + "?" + urlencode({key: value for key, value in payload["experiment"].items() if key.startswith("utm_")})
+    db.execute(text("INSERT INTO growth_video_jobs (id,draft_id,opportunity_id,owner_id,status,revision,parent_id,created_at,updated_at,payload_json) VALUES (:id,:draft,:opp,:actor,:status,:revision,:parent,:at,:at,:payload)"),
+               {"id": job_id, "draft": row.id, "opp": opportunity_id, "actor": actor, "status": initial_status,
                 "revision": (parent["revision"] + 1) if parent else 1, "parent": parent["id"] if parent else None, "at": now(), "payload": dumps(payload)})
     db.commit()
     return job(db, job_id)

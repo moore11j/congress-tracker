@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { growthVideoRequest } from "@/lib/api";
 
 type Opportunity = {
+  opportunity_type?: string;
   id: string;
   topic: string;
   score: number;
@@ -61,6 +62,8 @@ type VideoJob = {
   created_at: string;
   lease_until: string | null;
   payload: {
+    campaign_id?: string;
+    actual_duration?: number;
     platform: string;
     format: string;
     opportunity?: Opportunity;
@@ -71,6 +74,7 @@ type VideoJob = {
     model_metadata?: unknown;
     video?: unknown;
     thumbnail?: unknown;
+    captures?: Record<string, { page_url?: string; captured_at?: string; source_text?: string }>;
     experiment: unknown;
   };
 };
@@ -139,6 +143,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
   const [filter, setFilter] = useState("all");
   const [platform, setPlatform] = useState("instagram");
   const [format, setFormat] = useState("research_finding");
+  const [productHook, setProductHook] = useState("opinion");
 
   const refresh = useCallback(async (initialize = false) => {
     const next = await growthVideoRequest<State>();
@@ -237,6 +242,21 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
 
       {view === "opportunities" && (
         <>
+          <section className={`${card} space-y-3 border-amber-300/25`}>
+            <h3 className="font-semibold text-amber-100">Walnut product ad · Show me why</h3>
+            <p className="text-sm text-slate-300">A coherent NVIDIA walkthrough with real moving product screens, a continuous male voiceover, original lifestyle imagery, and a free-account CTA. Rendered at 1080×1920 on Walnut’s worker.</p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-sm text-slate-300">Opening angle
+                <select className={input} value={productHook} onChange={(e)=>setProductHook(e.target.value)}>
+                  <option value="opinion">Everyone has an NVIDIA opinion</option>
+                  <option value="score">Show me what is behind the score</option>
+                  <option value="accountability">What happened to the last call?</option>
+                </select>
+              </label>
+              <button className={button} disabled={busy} onClick={()=>void run(()=>growthVideoRequest("/product-ad","POST",{platform,hook:productHook}),"Product ad draft ready. Review its script in Draft Queue before rendering.")}>Create product ad draft</button>
+            </div>
+            <p className="text-xs text-slate-400">Uses reviewed editorial copy and product capabilities. No invented returns or market forecasts. Final approval stays with you.</p>
+          </section>
           <div className="flex flex-wrap gap-3">
             <button
               className={button}
@@ -290,7 +310,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
               retained quote values and dates. Missing evidence is skipped.
             </p>
           )}
-          {state.opportunities.map((o) => (
+          {state.opportunities.filter((o)=>o.opportunity_type!=="product_campaign").map((o) => (
             <section key={o.id} className={card}>
               <div className="flex justify-between gap-4">
                 <h3 className="font-semibold text-white">{o.topic}</h3>
@@ -689,8 +709,7 @@ function VideoCard({
       </div>
       <p className="text-xs text-slate-400">
         {item.payload.platform} · {label(item.payload.format)} ·{" "}
-        {creative?.target_duration_seconds || "—"} seconds · Score{" "}
-        {opportunity?.score ?? "—"}
+        {item.payload.actual_duration?.toFixed(1) || creative?.target_duration_seconds || "—"} seconds · {item.payload.campaign_id ? "Product campaign · Continuous voiceover" : `Score ${opportunity?.score ?? "—"}`}
       </p>
       {item.payload.failure_reason && (
         <p className="rounded bg-rose-400/10 p-3 text-sm text-rose-200">
@@ -714,7 +733,7 @@ function VideoCard({
       )}
       {media.video_url ? (
         <video
-          className="mx-auto max-h-[600px] max-w-full rounded-lg"
+          className="mx-auto aspect-[9/16] max-h-[600px] max-w-full rounded-lg bg-black object-contain"
           controls
           playsInline
           preload="metadata"
@@ -755,10 +774,17 @@ function VideoCard({
                 Data as of {opportunity?.factual_data_timestamp}
               </p>
               <p>Alternate hooks: {creative.alternate_hooks.join(" / ")}</p>
-              <button className={button} onClick={() => void run(loadEvidence)}>
-                Load supporting evidence
-              </button>
-              <EvidenceList evidence={facts} />
+              {creative.warnings?.map((warning)=><p key={warning} className="text-xs text-amber-100">{warning}</p>)}
+              {item.payload.campaign_id ? Object.entries(item.payload.captures ?? {}).map(([shot, capture]) => (
+                <details key={shot} className="rounded border border-white/10 p-2">
+                  <summary className="cursor-pointer">{shot} · captured {capture.captured_at ?? "pending"}</summary>
+                  <a href={capture.page_url} target="_blank" rel="noreferrer" className="text-emerald-200">Actual product source</a>
+                  <p className="mt-2 whitespace-pre-wrap text-xs text-slate-400">{capture.source_text}</p>
+                </details>
+              )) : <>
+                <button className={button} onClick={() => void run(loadEvidence)}>Load supporting evidence</button>
+                <EvidenceList evidence={facts} />
+              </>}
             </div>
           </details>
           <details>
@@ -840,10 +866,10 @@ function VideoCard({
             disabled={busy}
             onClick={() => void act("regenerate")}
           >
-            Regenerate
+            {item.payload.campaign_id ? "Create another take" : "Regenerate"}
           </button>
         )}
-        {creative && !active(item.status) && (
+        {creative && !item.payload.campaign_id && !active(item.status) && (
           <button
             className={button}
             disabled={busy}

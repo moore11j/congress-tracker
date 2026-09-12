@@ -77,13 +77,16 @@ def timed_captions(script, duration, alignment=None):
 
 
 class ElevenLabsNarration:
-    def generate(self, script, voice, model):
+    def generate(self, script, voice, model, *, continuous=False):
         key = os.getenv("ELEVENLABS_API_KEY", "")
         if not key or not voice:
             raise ValueError("Configure ELEVENLABS_API_KEY and an ElevenLabs voice. Captures remain saved.")
+        payload = {"text": script, "model_id": model}
+        if continuous:
+            payload["voice_settings"] = {"stability": .5}
         response = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps",
             headers={"xi-api-key": key}, params={"output_format": "mp3_44100_128"},
-            json={"text": script, "model_id": model}, timeout=(10, 90))
+            json=payload, timeout=(10, 120))
         if response.status_code >= 400:
             raise ValueError(f"ElevenLabs returned HTTP {response.status_code}. Check provider configuration.")
         result = response.json()
@@ -91,10 +94,11 @@ class ElevenLabsNarration:
         # Read the real MP3 duration; never truncate audio to a guessed word count.
         from mutagen.mp3 import MP3
         duration = MP3(io.BytesIO(content)).info.length
-        if not 0 < duration <= 25:
+        if not 0 < duration <= (60 if continuous else 25):
             raise ValueError("Narration duration is outside the supported scene range.")
         return content, {"script": script, "provider": "elevenlabs", "voice": voice, "model": model,
             "duration": duration, "captions": timed_captions(script, duration, result.get("alignment")),
+            "alignment": result.get("alignment"), "continuous": continuous,
             "generated_at": now(), "script_hash": digest(script)}
 
 

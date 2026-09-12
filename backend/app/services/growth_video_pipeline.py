@@ -92,6 +92,10 @@ def board_only(creative):
 
 
 def validate_job(db, item):
+    if item["payload"].get("campaign_id"):
+        from app.services.growth_product_ad import validate
+        validate(item)
+        return store.opportunity(db,item["opportunity_id"]), []
     opp = store.opportunity(db, item["opportunity_id"])
     evidence = store.evidence_for(db, opp["id"])
     if item["payload"].get("creative"):
@@ -117,8 +121,15 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
     data = item["payload"]
     try:
         owner = db.get(UserAccount, item["owner_id"])
-        if not owner or owner.role != "admin" or owner.deleted_at:
+        if not owner or owner.role != "admin" or owner.deleted_at or owner.is_suspended:
             raise ValueError("Video job owner must be an active administrator.")
+        if data.get("campaign_id"):
+            from app.services.growth_product_pipeline import advance_stage
+            advance_stage(db,item,stage,token,storage=storage,capture=capture,narrator=narrator,render=renderer)
+            data.pop("failure_reason",None)
+            data.pop("failed_stage",None)
+            store.save_job(db,item,token=token)
+            return item["status"]
         opp, evidence = validate_job(db, item)
         cfg = store.config(db)
         data.setdefault("stage_history", []).append({"stage": stage, "at": now()})

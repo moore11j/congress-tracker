@@ -36,6 +36,11 @@ class Generate(Strict):
     format: Literal["research_finding", "product_investigation", "search_explanation"] = "research_finding"
 
 
+class ProductAd(Strict):
+    platform: Literal["tiktok", "instagram"] = "instagram"
+    hook: Literal["opinion", "score", "accountability"] = "opinion"
+
+
 class Decision(Strict):
     action: Literal["render", "approve", "reject", "regenerate", "edit", "retry"]
     feedback: str = Field(default="", max_length=1500)
@@ -137,6 +142,12 @@ def generate(payload: Generate, user=Depends(admin), db=Depends(get_db)):
     return safe_call(store.create_job, db, payload.opportunity_id, user.id, payload.platform, payload.format)
 
 
+@router.post("/product-ad", dependencies=MUTATION)
+def product_ad(payload: ProductAd, user=Depends(admin), db=Depends(get_db)):
+    from app.services.growth_product_ad import create_job
+    return safe_call(create_job,db,user.id,payload.platform,payload.hook)
+
+
 @router.post("/jobs/{job_id}/decision", dependencies=MUTATION)
 def decision(job_id: str, payload: Decision, user=Depends(admin), db=Depends(get_db)):
     item = store.job(db, job_id)
@@ -146,6 +157,13 @@ def decision(job_id: str, payload: Decision, user=Depends(admin), db=Depends(get
     if action in {"edit", "regenerate"}:
         if item["status"] in RUNNABLE or item["status"] in {"CREATIVE_GENERATING", "CAPTURING"}:
             raise HTTPException(409, "Wait for the active draft to finish before creating a revision.")
+        if item["payload"].get("campaign_id"):
+            if action=="edit":
+                raise HTTPException(422,"Product campaigns use reviewed scripts. Choose a hook in Content Opportunities to create another direction.")
+            from app.services.growth_product_ad import create_job
+            child=safe_call(create_job,db,user.id,item["payload"]["platform"],item["payload"]["product_hook"],parent=item,feedback=payload.feedback)
+            store.remember(db,item,user.id,action,payload.feedback)
+            return child
         raw = payload.storyboard.model_dump() if payload.storyboard else None
         if action == "edit":
             if raw is None:
