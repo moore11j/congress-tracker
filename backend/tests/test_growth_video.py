@@ -284,8 +284,21 @@ def test_creatomate_contract_and_ssrf_rejection(monkeypatch, provider_response):
     assert calls[0][1]["json"]=={**spec,"metadata":"content-test"}
     renderer.create_render(spec,"remote-template","content-test")
     assert calls[1][1]["json"]["modifications"]["Content.elements"]==[]
-    for url in ["http://localhost/video.mp4","https://evil.test/file.mp4","https://creatomate.com.evil.test/file"]:
+    for url in ["http://localhost/video.mp4","https://evil.test/file.mp4","https://creatomate.com.evil.test/file",
+                "https://f002.backblazeb2.com/file/other-bucket/video.mp4",
+                "https://f002.backblazeb2.com/file/creatomate-c8xg3hsxdu-evil/video.mp4"]:
         with pytest.raises(ValueError): renderer.fetch_asset({"url":url})
+
+
+def test_creatomate_verified_b2_delivery_bucket(monkeypatch):
+    from app.services import growth_video_media as media
+    from contextlib import nullcontext
+    content=b"0000ftypverified-video"
+    response=SimpleNamespace(status_code=200,iter_content=lambda chunk_size:iter([content]))
+    requests=[]
+    monkeypatch.setattr(media.requests,"get",lambda url,**kwargs: requests.append(kwargs) or nullcontext(response))
+    assert CreatomateVideoRenderer().fetch_asset({"url":"https://f002.backblazeb2.com/file/creatomate-c8xg3hsxdu/video.mp4"})==content
+    assert requests[0]["allow_redirects"] is False
 
 
 @pytest.mark.parametrize("provider_response", [[], [{"id":"one"},{"id":"two"}], {}, {"id":None}, {"id":""}, "unexpected"])

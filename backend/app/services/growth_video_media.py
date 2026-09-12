@@ -137,7 +137,10 @@ class CreatomateVideoRenderer:
         url = result.get("url", "")
         parsed = urlsplit(url)
         host = parsed.hostname or ""
-        if parsed.scheme != "https" or parsed.username or parsed.port not in (443, None) or not any(host.endswith(suffix) for suffix in (".creatomate.com", ".amazonaws.com")):
+        # This exact B2 bucket is used by Creatomate's live v2 render delivery.
+        verified_b2 = host == "f002.backblazeb2.com" and parsed.path.startswith("/file/creatomate-c8xg3hsxdu/")
+        provider_host = any(host.endswith(suffix) for suffix in (".creatomate.com", ".amazonaws.com"))
+        if parsed.scheme != "https" or parsed.username or parsed.port not in (443, None) or not (provider_host or verified_b2):
             raise ValueError("Unexpected render asset host. Download blocked.")
         with requests.get(url, stream=True, allow_redirects=False, timeout=(10, 60)) as response:
             if response.status_code != 200:
