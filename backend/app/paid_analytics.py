@@ -99,7 +99,7 @@ def claim_delivery(db: Session, event_id: int, provider: str) -> dict | None:
     # Only properties sanitized by the authoritative insertion are retained.
     props = {k: v for k, v in data.get("properties", {}).items()
              if k in {"authenticated", "current_plan", "target_plan", "billing_interval",
-                      "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "source_page", "route"}
+                      "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "utm_content", "source_page", "route"}
              and isinstance(v, (str, int, float, bool))}
     props["event_id"] = hashlib.sha256(("paid:" + data["invoice_id"]).encode()).hexdigest()
     props["route"] = "/account/billing"

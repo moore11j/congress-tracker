@@ -22,7 +22,7 @@ def paid_row(db):
     request = _request_for_user(user)
     request.scope["headers"].append((b"origin", b"https://app.walnutmarkets.com"))
     api.record_product_event(api.ProductEventPayload(event_name="checkout_started", path="/pricing", session_id="qa-session",
-        properties={"acquisition_source": "reddit"}, ga_context={"client_id": "123.456", "session_id": "1789010000"}),
+        properties={"acquisition_source": "reddit", "utm_content": "nbis_post_1"}, ga_context={"client_id": "123.456", "session_id": "1789010000"}),
         request, db)
     api._record_paid_funnel_event(db, user, {"id": "in_provider_fixture"}, {"livemode": True})
     db.commit()
@@ -40,6 +40,7 @@ def test_paid_claim_is_durable_one_time_per_provider_and_keeps_ga_identity():
         payload = paid.ga4_payload(first)
         assert payload["events"][0]["name"] == "subscription_completed"
         assert payload["events"][0]["params"]["acquisition_source"] == "reddit"
+        assert payload["events"][0]["params"]["utm_content"] == "nbis_post_1"
         assert payload["events"][0]["params"]["engagement_time_msec"] == 0
         assert "provider-fixture" not in json.dumps(payload)
         assert payload["consent"]["ad_user_data"] == "DENIED"

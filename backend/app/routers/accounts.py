@@ -6281,7 +6281,7 @@ _CANONICAL_FUNNEL_EVENTS = {'strategy_followed', 'signin_completed', 'ticker_add
 _FUNNEL_PROPERTY_KEYS = {
     "route", "source_page", "destination_page", "ticker", "entity_type", "entity_id",
     "leaderboard_type", "strategy_id", "gated_feature", "current_plan", "authenticated",
-    "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "target_plan",
+    "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "utm_content", "target_plan",
     "billing_interval", "method", "placement", "destination_type", "destination_id",
 }
 

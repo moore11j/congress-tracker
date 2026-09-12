@@ -7,7 +7,7 @@ import { isProductionAnalyticsHost } from "./analyticsEnvironment";
 import { acquisitionProperties, analyticsConsent, analyticsIdentity, safeAnalyticsPath, type AnalyticsProperties } from "./analyticsContext";
 import { funnelEvents, type FunnelEvent } from "./funnelEvents";
 
-const allowedProperties = new Set(["route", "source_page", "destination_page", "ticker", "entity_type", "entity_id", "leaderboard_type", "strategy_id", "gated_feature", "current_plan", "authenticated", "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "target_plan", "billing_interval", "method", "placement", "destination_type", "destination_id"]);
+const allowedProperties = new Set(["route", "source_page", "destination_page", "ticker", "entity_type", "entity_id", "leaderboard_type", "strategy_id", "gated_feature", "current_plan", "authenticated", "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "utm_content", "target_plan", "billing_interval", "method", "placement", "destination_type", "destination_id"]);
 
 export function trackEvent(name: FunnelEvent, properties: AnalyticsProperties = {}, gaContext?: GoogleAnalyticsContext): boolean {
   try {

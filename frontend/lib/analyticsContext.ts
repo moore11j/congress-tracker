@@ -61,7 +61,7 @@ export function acquisitionProperties(): AnalyticsProperties {
   try {
     const saved = JSON.parse(cookie("walnut_acquisition") || "null");
     if (saved && typeof saved === "object" && sourceLabel(saved.acquisition_source)) {
-      memoryAcquisition = Object.fromEntries(["acquisition_source", "utm_source", "utm_medium", "utm_campaign"].map((key) => [key, typeof saved[key] === "string" ? sourceLabel(saved[key]) : null]));
+      memoryAcquisition = Object.fromEntries(["acquisition_source", "utm_source", "utm_medium", "utm_campaign", "utm_content"].map((key) => [key, typeof saved[key] === "string" ? sourceLabel(saved[key]) : null]));
       return { ...memoryAcquisition };
     }
   } catch { /* Ignore invalid optional storage. */ }
@@ -69,8 +69,11 @@ export function acquisitionProperties(): AnalyticsProperties {
   let referrerHost = "";
   try { referrerHost = new URL(document.referrer).hostname.toLowerCase(); } catch { /* Direct entry. */ }
   const utmSource = sourceLabel(params.get("utm_source"));
-  const source = utmSource || (/(^|\.)reddit\.com$/.test(referrerHost) ? "reddit" : /(^|\.)google\.[a-z.]+$/.test(referrerHost) ? "google_organic" : /(^|\.)rankpilot\./.test(referrerHost) ? "rankpilot" : referrerHost && !["walnutmarkets.com", "app.walnutmarkets.com", window.location.hostname].includes(referrerHost) ? "referral" : "direct");
-  memoryAcquisition = { acquisition_source: source, utm_source: utmSource, utm_medium: sourceLabel(params.get("utm_medium")), utm_campaign: sourceLabel(params.get("utm_campaign")) };
+  // Authentication returns are part of the existing journey, not new search
+  // acquisition. A shared first-touch cookie above takes precedence when present.
+  const internalReferrer = ["accounts.google.com", "walnutmarkets.com", "app.walnutmarkets.com", window.location.hostname].includes(referrerHost);
+  const source = utmSource || (internalReferrer ? "direct" : /(^|\.)reddit\.com$/.test(referrerHost) ? "reddit" : /^(www\.)?google\.[a-z]+(?:\.[a-z]+)?$/.test(referrerHost) ? "google_organic" : /(^|\.)rankpilot\./.test(referrerHost) ? "rankpilot" : referrerHost ? "referral" : "direct");
+  memoryAcquisition = { acquisition_source: source, utm_source: utmSource, utm_medium: sourceLabel(params.get("utm_medium")), utm_campaign: sourceLabel(params.get("utm_campaign")), utm_content: sourceLabel(params.get("utm_content")) };
   saveCookie("walnut_acquisition", JSON.stringify(memoryAcquisition));
   return { ...memoryAcquisition };
 }

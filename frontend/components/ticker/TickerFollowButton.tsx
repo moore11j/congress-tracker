@@ -9,6 +9,8 @@ import { defaultEntitlements, type Entitlements } from "@/lib/entitlements";
 import { recordGoogleAnalyticsEvent } from "@/lib/googleAnalytics";
 import { hasPrivacyConsent } from "@/lib/privacyConsent";
 import { normalizeTickerSymbol } from "@/lib/ticker";
+import { tickerFollowReturnPath } from "@/lib/returnPaths";
+import { acquisitionProperties } from "@/lib/analyticsContext";
 import type { WatchlistSummary } from "@/lib/types";
 
 type Props = {
@@ -41,20 +43,21 @@ export function TickerFollowButton({ symbol }: Props) {
   const completionTrackedRef = useRef(false);
 
   const followIntent = searchParams.get("follow") === "1";
-  const authReturnTo = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`;
+  const authReturnTo = tickerFollowReturnPath(pathname, searchParamsString);
 
   const track = useCallback(
     (eventName: string, source: Entitlements) => {
       if (!hasPrivacyConsent("analytics")) return;
-      const params = new URLSearchParams(searchParamsString);
+      const acquisition = acquisitionProperties();
       recordGoogleAnalyticsEvent(eventName, {
         ticker: normalizedSymbol,
         pathname,
         source_page_type: "ticker",
         auth_state: source.user ? "authenticated" : "anonymous",
         plan: planForAnalytics(source),
-        acquisition_source: params.get("utm_source") ?? undefined,
-        acquisition_medium: params.get("utm_medium") ?? undefined,
+        ...acquisition,
+        acquisition_source: acquisition.acquisition_source,
+        acquisition_medium: acquisition.utm_medium,
         follow_method: eventName === "ticker_follow_complete" ? "ticker_header" : undefined,
       });
     },
