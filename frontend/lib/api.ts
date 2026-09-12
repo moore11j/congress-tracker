@@ -7336,6 +7336,7 @@ export type DailySeoConfig = {
   tickers: string[]; minimum_score: number;
 };
 export type DailySeoStatus = {
+  search_console: SearchConsoleStatus;
   config: DailySeoConfig; review_email: string; drafts_per_day: number; metric_note: string; worker_note: string;
   runs: Array<{ day: string; status: string; campaign_id?: string; updated_at: string; draft_id?: string; email_status?: string; article_status?: string;
     detail: { note?: string; error?: string; selected?: { target_keyword: string; priority_score: number; selection_reason: string } } }>;
@@ -7350,6 +7351,28 @@ export function saveDailyResearchSeo(config: DailySeoConfig): Promise<DailySeoSt
 }
 export function runDailyResearchSeo(): Promise<DailySeoStatus> {
   return fetchJson(buildApiUrl("/api/admin/research-briefs/daily-seo/run"), { method: "POST", source: "DailyResearchSeo" });
+}
+
+export type SearchConsoleMetric = { query?: string; page?: string; clicks: number; impressions: number; ctr: number; position: number; recommendation?: string; previous_clicks?: number | null };
+export type SearchConsoleStatus = {
+  configured: boolean; connected: boolean; property: string; note: string; keyword_volume_connected: boolean;
+  email?: string; last_sync_at?: string; last_attempt_at?: string; stale?: boolean; error?: string;
+  period?: { start: string; end: string }; row_cap_reached?: boolean;
+  queries?: SearchConsoleMetric[]; recommendations?: SearchConsoleMetric[]; sync_result?: string;
+};
+export function connectSearchConsole(): Promise<{ authorization_url: string }> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/search-console/connect"), { method: "POST", source: "SearchConsole" });
+}
+export function completeSearchConsole(code: string, state: string): Promise<SearchConsoleStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/search-console/callback"), {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({code, state}), source: "SearchConsole",
+  });
+}
+export function syncSearchConsole(): Promise<SearchConsoleStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/search-console/sync"), { method: "POST", source: "SearchConsole" });
+}
+export function disconnectSearchConsole(): Promise<SearchConsoleStatus> {
+  return fetchJson(buildApiUrl("/api/admin/research-briefs/search-console"), { method: "DELETE", source: "SearchConsole" });
 }
 
 export async function discoverAdminResearchKeywordOpportunities(payload: { seed_topics?: string[]; tickers?: string[]; theme?: string; max_candidates?: number }): Promise<AdminResearchKeywordDiscovery> {

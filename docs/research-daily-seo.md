@@ -38,9 +38,9 @@ It is opt-in under Research Briefs → Daily SEO. Existing campaigns are unchang
   generator before enabling it here.
 - Search events are not unique users or Google demand. Scores are editorial estimates,
   not keyword volume, keyword difficulty, ranking promises, or predicted revenue.
-- Google Search Console, a licensed keyword volume provider, conversion attribution,
-  backlink acquisition, and automatic refresh of underperforming articles are not
-  part of this first version. Those would close the measured SEO feedback loop.
+- Google Search Console provides measured query demand and review suggestions as
+  described below. Keyword volumes, conversion attribution, backlink acquisition,
+  and automatic rewrites remain outside this version.
 
 ## Deployment and operation
 
@@ -76,3 +76,41 @@ end-to-end email delivery require a separate controlled live check.
 - No production setting changed, no paid generation run, no live email sent.
 - Local tests used an isolated Python 3.14 environment and mocked provider calls;
   production runtime/email smoke verification remains outstanding.
+# Search Console performance connection
+
+Daily SEO now has an admin-only Google Search Console connection. It reuses the
+existing Google web client and registered `/auth/google/callback` URI; ordinary
+Google login still requests only its existing identity scopes. Search Console
+asks separately for `openid email` and `webmasters.readonly`, with offline access,
+PKCE, and a ten-minute single-use server nonce bound to the current admin.
+
+Enable `searchconsole.googleapis.com` on the existing OAuth project. The connector
+requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a strong `APP_SESSION_SECRET`.
+Refresh tokens and temporary PKCE verifiers are Fernet encrypted using a
+domain-separated key derived from the server session secret. Rotating that secret
+requires reconnecting Google. Tokens and provider error bodies are never returned
+to the browser or written to application logs. No new OAuth client is required.
+
+Connect from Daily SEO while logged into Walnut as an administrator, then select
+the Google account owning `sc-domain:walnutmarkets.com`. Google grants this scope
+across accessible properties, but the backend uses a fixed walnutmarkets.com
+property. No Gmail, Drive, Ads, or Search Console write scope is requested.
+Apps in Google's Testing state may receive expiring refresh grants; reconnect or
+complete Google's production/verification requirements if Google requests it.
+
+The existing five-minute research SEO worker imports once per Pacific calendar
+day, even if draft generation is disabled. Manual sync is limited to once per five
+minutes. It fetches finalized web query and page rows over a 28-day window ending
+three days ago, and page rows for the prior 28 days. Pagination is bounded at
+50,000 rows per report. Google returns top rows, not an exhaustive query census.
+The last good snapshot survives failures, but failed or >3-day-old snapshots are
+excluded from automated topic selection. Disconnected or revoked-admin connections
+cannot sync. Disconnect removes the local credential and snapshot; it does not
+revoke the shared Google login grant. Users can revoke it in Google account access.
+
+Fresh aggregate queries with at least ten impressions can guide discovery. Exact
+query matches receive a bounded ranking bonus after clearing the editorial
+threshold. Low CTR, declining clicks and positions 5–20 produce explicit review
+suggestions for existing research pages, never automatic rewrites. Daily draft
+and approval limits remain unchanged. These are measured property performance
+metrics, not keyword search volumes. Keyword Planner remains unconnected.

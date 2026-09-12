@@ -1,4 +1,5 @@
 # Python
+/.venv-gsc/
 .codex_py314_deps/
 backend/.venv*/
 backend/**/__pycache__/

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { completeGoogleSignIn, verifyAuthenticatedSession } from "@/lib/api";
+import { completeGoogleSignIn, completeSearchConsole, verifyAuthenticatedSession } from "@/lib/api";
 import { identifyHeyCatchUser } from "@/lib/heycatch";
 import { defaultPostLoginPath, safeAppReturnPath } from "@/lib/returnPaths";
 
@@ -17,6 +17,21 @@ export default function GoogleCallbackPage() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const state = params.get("state");
+    if (state?.startsWith("gsc_")) {
+      // Reuse the registered callback, but never turn this admin connection into
+      // a public login or expose its code in the visible URL after handling.
+      window.history.replaceState(null, "", window.location.pathname);
+      setReturnTo("/admin/research-briefs");
+      if (!code || params.has("error")) {
+        setStatus("Search Console was not connected. Return to Daily SEO and try Connect again.");
+        return;
+      }
+      setStatus("Connecting Search Console...");
+      completeSearchConsole(code, state).then(() => {
+        setStatus("Search Console connected. Daily sync is enabled. Open Daily SEO to sync now or review performance.");
+      }).catch(error => setStatus(error instanceof Error ? error.message : "Search Console could not be connected."));
+      return;
+    }
     if (!code || !state) {
       setStatus("Google did not return a complete sign-in response.");
       return;

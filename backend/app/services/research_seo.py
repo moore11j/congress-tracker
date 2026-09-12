@@ -79,7 +79,7 @@ def _same_topic(candidate, old):
     return SequenceMatcher(None, _query_key(candidate.get("target_keyword")), _query_key(old)).ratio() >= 0.85
 
 
-def rank_candidates(candidates, interest, recent, minimum_score):
+def rank_candidates(candidates, interest, recent, minimum_score, google=None):
     demand = {row["ticker"]: row["searches"] for row in interest}
     ranked = []
     for candidate in candidates:
@@ -99,8 +99,13 @@ def rank_candidates(candidates, interest, recent, minimum_score):
         score = min(100, base + bonus)
         if score < minimum_score:
             continue
+        matches = [r for r in (google or {}).get("queries", []) if _query_key(r["query"]) == key]
+        google_impressions = sum(r["impressions"] for r in matches)
+        # A small measured-demand bonus, only after the editorial threshold.
+        score = min(100, score + min(10, int(google_impressions // 25)))
         ranked.append({**candidate, "priority_score": score, "customer_searches_30d": searches,
                        "selection_reason": f"Editorial score {base}/100; {searches} matching on-site search events in 30 days. "
+                       + (f"{google_impressions:g} Google impressions for this exact query in the synced 28-day period. " if matches else "")
                        + str(candidate.get("rationale") or "")})
     return sorted(ranked, key=lambda row: (-row["priority_score"], row["target_keyword"]))
 
@@ -123,9 +128,10 @@ def _runs(db):
 
 
 def get_status(db):
+    from app.services.search_console import get_status as google_status
     ensure_schema(db)
     config, _ = _config(db)
-    return {"config": config, "runs": _runs(db), "review_email": os.getenv("RESEARCH_BRIEF_REVIEW_EMAIL", "jarod@walnutmarkets.com"),
+    return {"config": config, "runs": _runs(db), "search_console": google_status(db), "review_email": os.getenv("RESEARCH_BRIEF_REVIEW_EMAIL", "jarod@walnutmarkets.com"),
             "drafts_per_day": 1, "metric_note": "On-site ticker search events and directional web signals, not verified Google search volume.",
             "worker_note": "Daily SEO requires the research SEO cron worker. Draft time starts generation; review email follows successful generation."}
 
@@ -184,6 +190,8 @@ def run_daily_plan(db, *, now=None):
             _finish(db, day, "skipped", {"note": "Seven Daily SEO articles await review. Review those before generating more."})
             return {"status": "skipped"}
         interest = customer_interest(db, now)
+        from app.services.search_console import planning_signals
+        google = planning_signals(db)
         recent = [dict(row) for row in db.execute(text("""SELECT ticker, target_keyword FROM research_campaign_items
             WHERE created_at >= :since UNION SELECT primary_ticker AS ticker, target_keyword FROM research_brief_drafts
             WHERE status = 'published' OR updated_at >= :since"""), {"since": (now-timedelta(days=90)).isoformat()}).mappings()
@@ -192,9 +200,10 @@ def run_daily_plan(db, *, now=None):
             "seed_topics": [topic.strip()[:120] for topic in config["topics"].split(",") if topic.strip()][:12],
             "tickers": config["tickers"] or [row["ticker"] for row in interest], "max_candidates": 5,
             "customer_interest": interest, "excluded_queries": recent[-100:],
+            "search_console": google,
             "ticker_articles_only": True,
         })
-        ranked = rank_candidates(discovery["items"], interest, recent, config["minimum_score"])
+        ranked = rank_candidates(discovery["items"], interest, recent, config["minimum_score"], google)
         detail = {"candidates": ranked, "customer_interest": interest, "market_note": discovery.get("market_note", "")}
         if not ranked:
             _finish(db, day, "skipped", {**detail, "note": "No distinct, sourced opportunity cleared the quality threshold. No draft generated."})

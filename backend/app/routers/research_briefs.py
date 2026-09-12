@@ -62,6 +62,38 @@ from app.services.research_briefs import (
 router = APIRouter(tags=["admin-research-briefs"])
 
 
+class SearchConsoleCallbackPayload(BaseModel):
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=20, max_length=256)
+
+
+@router.post("/admin/research-briefs/search-console/connect", dependencies=[Depends(rate_limit_admin_mutation)])
+def connect_search_console(request: Request, db: Session = Depends(get_db)):
+    from app.services.search_console import start_connection
+    return start_connection(db, require_admin_user(db, request))
+
+
+@router.post("/admin/research-briefs/search-console/callback", dependencies=[Depends(rate_limit_admin_mutation)])
+def complete_search_console(payload: SearchConsoleCallbackPayload, request: Request, db: Session = Depends(get_db)):
+    from app.services.search_console import complete_connection
+    return complete_connection(db, require_admin_user(db, request), payload.code, payload.state)
+
+
+@router.post("/admin/research-briefs/search-console/sync", dependencies=[Depends(rate_limit_admin_mutation)])
+def sync_search_console(request: Request, db: Session = Depends(get_db)):
+    from app.services.search_console import sync, get_status
+    require_admin_user(db, request)
+    result = sync(db, force=True)
+    return {**get_status(db), "sync_result": result["status"]}
+
+
+@router.delete("/admin/research-briefs/search-console", dependencies=[Depends(rate_limit_admin_mutation)])
+def disconnect_search_console(request: Request, db: Session = Depends(get_db)):
+    from app.services.search_console import disconnect
+    require_admin_user(db, request)
+    return disconnect(db)
+
+
 class DailySeoSettingsPayload(BaseModel):
     enabled: bool = False
     draft_time: str = Field(default="07:00", max_length=5)
