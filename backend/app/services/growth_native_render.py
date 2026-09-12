@@ -104,7 +104,7 @@ def render_product_video(creative, captures, audio, read_asset):
         frames = {}
         # Decode short crops to temporary files; never hold an entire video in RAM.
         for shot, asset in captures.items():
-            clip = root / f"{shot}.webm"
+            clip = root / (shot + (".mp4" if asset.get("content_type") == "video/mp4" else ".webm"))
             clip.write_bytes(read_asset(asset))
             crop = asset["crop"]
             w = 820

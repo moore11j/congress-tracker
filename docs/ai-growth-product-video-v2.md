@@ -30,12 +30,12 @@ No video can be promised to go viral. Compare initial hold, watch time, completi
 
 ## Implementation
 
-- Real Playwright recordings of the NVIDIA and Outcomes product pages, with the owner's authorized short-lived admin session. Credentials remain in memory, expire after five minutes and are never stored in job assets. Capture navigation is fixed; unrelated APIs, mutations and tracking requests are blocked.
+- Real Playwright browser frames of the NVIDIA and Outcomes product pages, encoded after the page is ready, with the owner's authorized short-lived admin session. Credentials remain in memory, expire after fifteen minutes and are never stored in job assets. Capture navigation is fixed; unrelated APIs, mutations and tracking requests are blocked.
 - Product sections are cropped; no generated UI, redrawn numbers or account/admin panels appear in the final composition. Gated or empty captures fail rather than become substitute slides. Source text, timestamps and hashes accompany captures.
 - A single ElevenLabs narration supplies character timing for shot boundaries and short phrase captions. Audio is normalized in the final encode.
 - The existing worker renders 1080×1920 H.264/AAC using FFmpeg. This avoids a Creatomate upgrade; existing hosting, storage and narration usage still apply.
 - Original lifestyle background, restrained gold/navy typography, motion inside product shots and subtle background movement. The backdrop conveys a premium setting without claiming investment-related wealth.
-- Existing job leases, quotas, retry handling, private storage and manual review/download gates remain in force. No automatic social publishing.
+- Each product capture runs in its own worker pass and lease. Existing quotas, retry handling, private storage and manual review/download gates remain in force. No automatic social publishing.
 - Founder brief summaries live in `backend/app/assets/growth/brief-v2.json` and are imported into the versioned Growth Brief. Treat supplied audience quotes as projections and competitor comparisons as unverified until researched.
 
 ## Original background asset
@@ -47,3 +47,5 @@ Generation prompt: Create a single premium editorial photograph in vertical 9:16
 ## Verification
 
 Focused tests cover reviewed-copy integrity, one narration call, actual timing alignment, job ownership, stage transitions and review/download gates. Frontend TypeScript validation covers the new campaign and hook selector. Real capture and encoded-output checks are required before treating a job as review-ready; final production job details are recorded after rendering.
+
+The first V2 draft used local recovery for the risk and Outcomes captures because Chromium struggled on the shared worker. Recovery used a 15-minute admin session held only in memory; no session or signing secret was written into artifacts. Local live checks completed the chart in 43 seconds, risks in 40 seconds and Outcomes in 26 seconds. The revised engine captures only prepared browser frames, then encodes the movement; it does not record the loading sequence.

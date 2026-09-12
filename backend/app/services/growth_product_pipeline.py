@@ -22,11 +22,15 @@ def advance_stage(db, item, stage, token, *, storage=None, capture=None, narrato
             if not scene["walnut_url"] or shot in data["captures"]:
                 continue
             footage,thumbnail,metadata=capture(shot) if capture else capture_product_shot(shot, owner_id=item["owner_id"])
-            data["captures"][shot]=storage.put(db,item["id"],"capture",footage,"video/webm",metadata)
+            data["captures"][shot]=storage.put(db,item["id"],"capture",footage,metadata.get("media_type","video/webm"),metadata)
             if not data.get("thumbnail"):
                 data["thumbnail"]=storage.put(db,item["id"],"thumbnail",thumbnail,"image/png",metadata)
             store.save_job(db,item,token=token)
-        item["status"]="CAPTURE_READY"
+            # Each live browser capture gets its own lease and cron pass. A slow
+            # page cannot exhaust the lease for the entire four-shot campaign.
+            break
+        expected={s["shot"] for s in board["storyboard"] if s["walnut_url"]}
+        item["status"]="CAPTURE_READY" if expected.issubset(data["captures"]) else "CAPTURE_PENDING"
     elif stage=="CAPTURE_READY":
         item["status"]="AUDIO_PENDING"
     elif stage=="AUDIO_PENDING":

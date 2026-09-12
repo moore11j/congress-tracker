@@ -50,8 +50,8 @@ def test_product_stages_use_one_voice_and_preserve_review_gate(db, monkeypatch):
         timeline(board,audio)
         return b"0000ftypvideo",{"duration":31.45,"width":1080,"height":1920}
     item=api.decision(item["id"],api.Decision(action="render"),db.get(UserAccount,1),db)
-    statuses=[pipeline.advance(db,item["id"],storage=storage,capture=capture,narrator=Narrator(),renderer=render) for _ in range(5)]
-    assert statuses==["CAPTURE_READY","AUDIO_PENDING","AUDIO_READY","RENDER_PENDING","READY_FOR_REVIEW"]
+    statuses=[pipeline.advance(db,item["id"],storage=storage,capture=capture,narrator=Narrator(),renderer=render) for _ in range(8)]
+    assert statuses==["CAPTURE_PENDING","CAPTURE_PENDING","CAPTURE_PENDING","CAPTURE_READY","AUDIO_PENDING","AUDIO_READY","RENDER_PENDING","READY_FOR_REVIEW"]
     assert len(calls)==1 and calls[0][2] is True
     assert storage.calls.count("audio")==1
     assert pipeline.advance(db,item["id"],storage=storage)=="READY_FOR_REVIEW"
