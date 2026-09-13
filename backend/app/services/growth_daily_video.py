@@ -33,7 +33,8 @@ def excerpt(source):
     visible = [s.get("body_markdown", "") for s in article.get("sections", []) if isinstance(s, dict)]
     if article.get("judgment") or not article.get("subtitle"):
         visible.append(article.get("summary", ""))
-    visible = [v.replace("**", "") for v in visible if isinstance(v, str)]
+    visible = [re.sub(r"\[([^\]\n]+)\]\((?:https?://|/)[^)]+\)", r"\1", v.replace("**", ""))
+               for v in visible if isinstance(v, str)]
     # key_points are retained in the API but aren't rendered by the website.
     # Use them only when the same words also appear in a visible paragraph.
     candidates = [v for v in article.get("key_points", []) if isinstance(v, str) and any(v in body for body in visible)]
@@ -45,9 +46,11 @@ def excerpt(source):
         if not isinstance(value, str):
             continue
         value = re.sub(r"\s+", " ", value).strip()
-        if 8 <= len(value.split()) <= 42 and not re.search(r"https?://|[<>\[\]*]", value):
+        dependent = re.match(r"^(Together|Those|These|This|That|They|Their|It|Its|Both|However|But|Also|Meanwhile)\b", value, re.I)
+        if (8 <= len(value.split()) <= 65 and not dependent and not value.endswith("?")
+                and not re.search(r"https?://|[<>\[\]*|]", value) and value[0].isalpha()):
             return value
-    raise ValueError("The brief needs a concise complete takeaway (8–42 words) for narration.")
+    raise ValueError("The brief needs a self-contained takeaway (8–65 words) for narration.")
 
 
 def creative(source):
@@ -63,8 +66,9 @@ def creative(source):
         raise ValueError("Research title is missing or too long.")
     ticker_url = f"https://app.walnutmarkets.com/ticker/{ticker}"
     as_of = str(source.get("data_as_of") or (source.get("research_context") or {}).get("generated_at") or source.get("published_at") or source.get("created_at") or "")[:10]
+    hook = title if len(title.split()) <= 20 else f"Walnut's latest research on {ticker}."
     beats = [
-        ("daily_search", f"Researching {ticker}? Search {ticker} in Walnut and open the ticker.", f"Researching {ticker}?", f"Search → {ticker}", ticker_url),
+        ("daily_search", f"{hook} Search {ticker} in Walnut and open the ticker.", f"Researching {ticker}?", f"Search → {ticker}", ticker_url),
         ("daily_insights", "Click Insights, then scroll to Research Briefs.", "Find the research.", "Insights → Research Briefs", INSIGHTS_URL),
         ("daily_brief", "Open the brief. Here's its takeaway.", "Read the brief.", f"{ticker} · Published research", url),
         ("daily_takeaway", takeaway, "The brief's takeaway", f"{ticker} · Research snapshot {as_of}", url),

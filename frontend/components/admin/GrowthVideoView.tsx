@@ -538,6 +538,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
       {view === "settings" && cfg && (
         <section className={`${card} space-y-4`}>
           <AutomationSettings value={state.automation} run={run} busy={busy} />
+          <p className="text-xs text-slate-400">Daily videos use the continuous founder voice and Walnut’s native HD renderer. The model, voice and Creatomate settings below apply to the older manual generator; daily videos share the creative and render limits.</p>
           <div className="grid gap-2 sm:grid-cols-3">
             {Object.entries(state.readiness)
               .filter(([k]) => k !== "note")

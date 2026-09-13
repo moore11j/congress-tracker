@@ -219,3 +219,13 @@ def test_review_email_renders_without_sending(db):
         "video_message": "Review before publishing.", "activity_url": "https://app.walnutmarkets.com/admin/ai-marketing?growth_tab=drafts"})
     assert "NVDA &lt;research&gt;" in result["body_html"]
     assert "growth_tab=drafts" in result["body_text"]
+
+
+def test_takeaway_has_context_and_hook_uses_research_question(db, monkeypatch):
+    item = source(db, monkeypatch)
+    item["article"]["title"] = "Which companies are winning NASA contracts?"
+    item["article"]["key_points"] = []
+    item["article"]["sections"] = [{"body_markdown": "Together they represent about 94% of the linked NASA value.\n\nBoeing and Lockheed Martin account for most of the tracked NASA contract value."}]
+    board = daily.creative(item)
+    assert board["source_excerpt"].startswith("Boeing and Lockheed")
+    assert board["narration"].startswith(item["article"]["title"])

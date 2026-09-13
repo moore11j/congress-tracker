@@ -219,7 +219,13 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    page.get_by_role('heading',level=1,name=source_title,exact=True).wait_for(timeout=60000)
    takeaway=page.get_by_text(daily['source_excerpt'],exact=False).filter(visible=True).first
    takeaway.wait_for(timeout=30000);r.hold(3);r.scroll_to(takeaway,top=210,steps=22)
-   r.move(takeaway);r.hold(20);source_text.append(takeaway.inner_text())
+   r.move(takeaway);r.hold(6);source_text.append(takeaway.inner_text())
+   last_position=-1
+   for link in takeaway.get_by_role('link').all()[:4]:
+    phrase=link.inner_text().strip();position_in_voice=daily['source_excerpt'].find(phrase)
+    if phrase and position_in_voice>last_position:
+     r.mark(phrase);r.circle(link);last_position=position_in_voice
+   r.hold(10)
    b=r.box(takeaway);r.camera={'x':max(0,b['x']-20),'y':max(0,b['y']-70),'width':min(1000,b['width']+40),'height':min(700,b['height']+180)};r.hold(12)
   elif shot=='v4_search':
    r.hold(8);r.mark('Search')
