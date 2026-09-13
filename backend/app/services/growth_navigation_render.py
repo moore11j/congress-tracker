@@ -68,13 +68,13 @@ def navigation_crop(shot,index,asset):
  return target
 
 
-def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='cinematic_v1'):
+def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='cinematic_v2'):
  import imageio_ffmpeg
- if presentation not in {'classic','cinematic_v1'}:raise ValueError('Unknown navigation presentation.')
+ if presentation not in {'classic','cinematic_v1','cinematic_v2'}:raise ValueError('Unknown navigation presentation.')
  cinema=None
- if presentation=='cinematic_v1':
-  from app.services.growth_cinematic_style import CinematicStyle,entrance_offset
-  cinema=CinematicStyle((W,H))
+ if presentation.startswith('cinematic_'):
+  from app.services.growth_cinematic_style import CinematicStyle,entrance_offset,tight_caption
+  cinema=CinematicStyle((W,H),brightness=.45 if presentation=='cinematic_v2' else 1.0)
  ffmpeg=imageio_ffmpeg.get_ffmpeg_exe();scenes,captions,duration=timeline(creative,audio)
  expected={s['shot'] for s in scenes if s['walnut_url']}
  if not expected.issubset(captures):raise ValueError('Missing navigation footage.')
@@ -144,10 +144,12 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       centered(d,'NVIDIA links in the comments',1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
      if caption:
-      if cinema:
+      if presentation=='cinematic_v2':
+       tight_caption(d,caption['text'],brand_font(52,True))
+      elif cinema:
        d.rounded_rectangle((52,1520,1028,1646),radius=20,fill='#08121f',outline='#253c40',width=1)
        d.line((76,1544,76,1584),fill=MINT,width=3)
-      centered(d,caption['text'],1540,brand_font(52,True),WHITE,max_width=900 if cinema else 940)
+      if presentation!='cinematic_v2':centered(d,caption['text'],1540,brand_font(52,True),WHITE,max_width=900 if cinema else 940)
      gap=14;bar=(952-gap*(len(scenes)-1))/len(scenes)
      for i in range(len(scenes)):
       x=64+i*(bar+gap);d.rounded_rectangle((x,1674,x+bar,1678),radius=2,fill=MINT if i<scene['sequence'] else '#1e293b')
@@ -163,4 +165,6 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
    'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':4,'font':Path(brand_font(24).path).name,
    'brand_accent':MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
    'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
-   'presentation':presentation,'background_asset':'walnut-cinematic-atrium-v1.png' if cinema else None,'background_is_illustrative':bool(cinema)}
+   'presentation':presentation,'background_brightness':.45 if presentation=='cinematic_v2' else 1.0,
+   'caption_box':'text_bounds_16x10_padding' if presentation=='cinematic_v2' else 'fixed',
+   'background_asset':'walnut-cinematic-atrium-v1.png' if cinema else None,'background_is_illustrative':bool(cinema)}

@@ -18,8 +18,8 @@ and the existing genuine product recordings. No reference video assets are reuse
 - Original footage order, pointer trace and narration/action alignment are retained.
 - 1080x1920, 24 fps, H.264/AAC, 48 kHz audio at 128 kbps.
 
-`render_navigation_video` defaults to `cinematic_v1`; `presentation='classic'`
-retains the previous layout. Existing stored MP4s are not replaced. The render
+`render_navigation_video` now defaults to `cinematic_v2`; `presentation='classic'`
+retains the previous layout, and `cinematic_v1` retains the first cinematic cut. Existing stored MP4s are not replaced. The render
 metadata records the presentation and illustrative background. This is a visual
 revision, not new research: the existing numerical obscuration and source QA
 limitations still apply. No new narrator request or generative video subscription.
@@ -51,3 +51,13 @@ Review job: `gv_7ffde05d836d4caea7258ada8e7b55fb`, revision 4, ready for review.
 Captures and narration were copied into the child job's private asset prefix,
 verified by hash, and passed through the normal render budget and review stages.
 No video, caption or comment was published.
+
+## V6 refinement
+
+The owner requested a background at least 50% dimmer and a much tighter caption
+box. `cinematic_v2` applies 45% brightness to the completed background only (55%
+dimmer than V5), before adding product footage, logos and text. Caption borders
+follow measured glyph bounds with 16px horizontal and 10px vertical padding,
+including wrapped phrases; there is no full-row panel or decorative side bar.
+Existing narration, timings, captured product screens and numerical masks remain.
+Output: `backend/artifacts/product-ad-v6/walnut-nvda-cinematic-v6.mp4`.

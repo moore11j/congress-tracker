@@ -7,8 +7,9 @@ BACKGROUND = Path(__file__).parents[1] / 'assets/growth/walnut-cinematic-atrium-
 
 
 class CinematicStyle:
-    def __init__(self, size):
+    def __init__(self, size, brightness=1.0):
         self.w, self.h = size
+        self.brightness = brightness
         self.plate = ImageOps.fit(Image.open(BACKGROUND).convert('RGB'),
                                  (self.w + 100, self.h + 160), method=Image.Resampling.LANCZOS)
         self.veil = Image.new('RGBA', size, (2, 6, 23, 95))
@@ -37,7 +38,10 @@ class CinematicStyle:
             for xx in (30, self.w - 30):
                 d.line((xx, yy - 65, xx, yy + 65), fill=(110, 231, 183, alpha), width=3)
             image = Image.alpha_composite(image, light)
-        return image.convert('RGB')
+        image = image.convert('RGB')
+        if self.brightness != 1.0:
+            image = image.point([round(v*self.brightness) for v in range(256)]*3)
+        return image
 
     def panel(self, image, pic, xy):
         x, y = xy
@@ -56,3 +60,21 @@ def entrance_offset(elapsed):
     """An eased arrival without concealing, delaying or skipping UI actions."""
     u = max(0, min(1, elapsed / .24))
     return round(18 * (1-u)**3)
+
+
+def tight_caption(draw, text, font, *, y=1540, width=1080, max_width=900):
+    """Fit the outline to the rendered phrase, including wrapped lines."""
+    lines=[];line=''
+    for word in text.split():
+        candidate=(line+' '+word).strip()
+        if line and draw.textlength(candidate,font=font)>max_width:
+            lines.append(line);line=word
+        else:line=candidate
+    if line:lines.append(line)
+    if not lines:return
+    step=round(font.size*1.16)
+    boxes=[draw.textbbox((width/2,y+i*step),line,font=font,anchor='mt') for i,line in enumerate(lines)]
+    bounds=(min(b[0] for b in boxes)-16,min(b[1] for b in boxes)-10,
+            max(b[2] for b in boxes)+16,max(b[3] for b in boxes)+10)
+    draw.rounded_rectangle(bounds,radius=12,fill='#08121f',outline='#253c40',width=1)
+    for i,line in enumerate(lines):draw.text((width/2,y+i*step),line,font=font,fill='#f1f5f9',anchor='mt')
