@@ -143,7 +143,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
   const [filter, setFilter] = useState("all");
   const [platform, setPlatform] = useState("instagram");
   const [format, setFormat] = useState("research_finding");
-  const [productHook, setProductHook] = useState("opinion");
+  const [productHook, setProductHook] = useState("ownership");
 
   const refresh = useCallback(async (initialize = false) => {
     const next = await growthVideoRequest<State>();
@@ -242,12 +242,13 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
 
       {view === "opportunities" && (
         <>
-          <section className={`${card} space-y-3 border-amber-300/25`}>
-            <h3 className="font-semibold text-amber-100">Walnut product ad · Show me why</h3>
-            <p className="text-sm text-slate-300">A coherent NVIDIA walkthrough with real moving product screens, a continuous male voiceover, original lifestyle imagery, and a free-account CTA. Rendered at 1080×1920 on Walnut’s worker.</p>
+          <section className={`${card} space-y-3 border-emerald-300/25`}>
+            <h3 className="font-semibold text-emerald-100">Walnut research videos</h3>
+            <p className="text-sm text-slate-300">Turn the NVIDIA ownership brief into a walkthrough of real holder records, institutional activity and filing history. Walnut branding, continuous narration and a 1080×1920 export.</p>
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm text-slate-300">Opening angle
                 <select className={input} value={productHook} onChange={(e)=>setProductHook(e.target.value)}>
+                  <option value="ownership">Who's buying NVIDIA? — Research walkthrough</option>
                   <option value="opinion">Everyone has an NVIDIA opinion</option>
                   <option value="score">Show me what is behind the score</option>
                   <option value="accountability">What happened to the last call?</option>

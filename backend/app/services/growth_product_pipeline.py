@@ -21,7 +21,13 @@ def advance_stage(db, item, stage, token, *, storage=None, capture=None, narrato
             shot=scene["shot"]
             if not scene["walnut_url"] or shot in data["captures"]:
                 continue
-            footage,thumbnail,metadata=capture(shot) if capture else capture_product_shot(shot, owner_id=item["owner_id"])
+            if capture:
+                footage,thumbnail,metadata=capture(shot)
+            elif board["schema_version"] == 3:
+                from app.services.growth_research_capture import capture_research_shot
+                footage,thumbnail,metadata=capture_research_shot(shot, owner_id=item["owner_id"])
+            else:
+                footage,thumbnail,metadata=capture_product_shot(shot, owner_id=item["owner_id"])
             data["captures"][shot]=storage.put(db,item["id"],"capture",footage,metadata.get("media_type","video/webm"),metadata)
             if not data.get("thumbnail"):
                 data["thumbnail"]=storage.put(db,item["id"],"thumbnail",thumbnail,"image/png",metadata)

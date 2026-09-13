@@ -64,6 +64,9 @@ def creative(hook="opinion"):
 
 def validate(item):
     p = item["payload"]
+    if p.get("campaign_id") == "nvda_ownership_research_v3":
+        from app.services.growth_research_ad import validate as validate_research
+        return validate_research(item)
     expected = creative(p.get("product_hook", "opinion"))
     if p.get("campaign_id") != CAMPAIGN or p.get("creative") != expected:
         raise ValueError("Product ad differs from its reviewed campaign. Create a new campaign revision.")
@@ -75,6 +78,9 @@ def validate(item):
 def create_job(db, actor, platform="instagram", hook="opinion", parent=None, feedback=""):
     if platform not in {"instagram", "tiktok"}:
         raise ValueError("Unsupported video platform.")
+    if hook == "ownership":
+        from app.services.growth_research_ad import create_job as create_research
+        return create_research(db, actor, platform, parent, feedback)
     board = creative(hook)
     store.consume_budget(db, "creatives", store.config(db)["creative_limit"])
     source_key = CAMPAIGN
