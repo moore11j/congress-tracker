@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { growthVideoRequest } from "@/lib/api";
 import { GrowthDisclosure } from "@/components/admin/GrowthDisclosure";
+import { formatVideoSchedule, localVideoScheduleInput, parseVideoSchedule } from "@/lib/videoSchedule";
 
 type Opportunity = {
   opportunity_type?: string;
@@ -122,7 +123,7 @@ type State = {
   copy_library: Record<string, string>;
   formats: string[];
 };
-type Publication = {job_id: string; platform: string; status: string; caption: string; post_id?: string; external_url?: string; error?: string};
+type Publication = {job_id: string; platform: string; status: string; caption: string; post_id?: string; external_url?: string; error?: string; scheduled_at?: string | null; schedule_timezone?: string | null; buffer_due_at?: string | null};
 type AutomationState = {
   config: {enabled: boolean; enabled_at?: string};
   buffer_key_configured: boolean;
@@ -185,7 +186,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
     void refresh(true).catch((e) => setError(String(e.message || e)));
   }, [refresh]);
   useEffect(() => {
-    if (!state?.jobs.some((j) => active(j.status)) && !state?.automation.publications.some(p => ["QUEUED", "SUBMITTING", "SUBMITTED"].includes(p.status))) return;
+    if (!state?.jobs.some((j) => active(j.status)) && !state?.automation.publications.some(p => ["QUEUED", "SUBMITTING", "SUBMITTED", "SCHEDULED"].includes(p.status))) return;
     const timer = window.setInterval(() => {
       void refresh().catch((e) => setError(String(e.message || e)));
     }, 8000);
@@ -433,6 +434,8 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
               "Rendering",
               "Ready for Review",
               "Approved",
+              "Scheduled",
+              "Published",
               "Rejected",
               "Failed",
             ].map((f) => (
@@ -448,10 +451,12 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
             </p>
           )}
           {state.jobs
-            .filter(j => showOlder || latestIds.has(j.id) || j.id === selectedVideo || ["Rejected", "Approved", "Failed"].includes(filter))
+            .filter(j => showOlder || latestIds.has(j.id) || j.id === selectedVideo || ["Rejected", "Approved", "Scheduled", "Published", "Failed"].includes(filter))
             .filter(
               (j) =>
                 filter === "all" ||
+                (filter === "Scheduled" && state.automation.publications.some(p => p.job_id === j.id && Boolean(p.scheduled_at) && ["QUEUED", "SUBMITTING", "SUBMITTED", "SCHEDULED"].includes(p.status))) ||
+                (filter === "Published" && state.automation.publications.some(p => p.job_id === j.id && p.status === "PUBLISHED")) ||
                 (
                   {
                     CREATIVE_READY: "Draft",
@@ -772,7 +777,7 @@ function VideoCard({
           {item.payload.opportunity?.topic || opportunity?.topic || creative?.hook || "Research video"}
         </h3>
         <span className="rounded bg-slate-800 px-2 py-1 text-xs">
-          {label(item.status)} · Version {item.revision}{latest ? " · Latest" : " · Earlier"} · {expanded ? "Close" : "Review"}
+          {publications.length ? publications.map(p => `${p.platform === "instagram" ? "Instagram" : "TikTok"}: ${p.status === "SCHEDULED" ? `Scheduled ${formatVideoSchedule(p.buffer_due_at || p.scheduled_at!, p.schedule_timezone)}` : p.scheduled_at && p.status === "QUEUED" ? "Schedule pending" : label(p.status)}`).join(" · ") : label(item.status)} · Version {item.revision}{latest ? " · Latest" : " · Earlier"} · {expanded ? "Close" : "Review"}
         </span>
       </button>
       <div id={`video-body-${item.id}`} hidden={!expanded} className="space-y-4">
@@ -1164,7 +1169,7 @@ function AutomationSettings({value, run, busy}: {value: AutomationState; run: Ru
       setConnection(result.channels.map(c => `${c.service}: ${c.name}`).join(" · "));
     }, "Buffer connections verified.")}>Check Buffer connection</button>
     {connection && <p className="text-sm text-emerald-200">{connection}</p>}
-    <p className="text-xs text-slate-400">Buffer Free: the optional first comment is added manually. Approved videos publish immediately through Buffer using your channel settings. No social posts are sent by enabling daily drafts.</p>
+    <p className="text-xs text-slate-400">Approved videos publish now or at your chosen time through Buffer. The optional first comment is added manually. Enabling daily drafts does not publish posts.</p>
     <GrowthDisclosure title="Automation history and skipped briefs">
     {value.last_pass?.status && <p className="text-xs text-slate-400">Last worker result: {label(value.last_pass.status)}</p>}
     {value.last_pass?.skipped?.map(s => <p className="text-xs text-amber-100" key={s.brief_id}>{s.reason}</p>)}
@@ -1181,11 +1186,21 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
   const [reviewed, setReviewed] = useState(false);
   const [postIds, setPostIds] = useState<Record<string,string>>({});
   const [noPost, setNoPost] = useState<Record<string,boolean>>({});
+  const [timing, setTiming] = useState("now");
+  const [schedule, setSchedule] = useState("");
+  const [timeZone, setTimeZone] = useState("");
+  const [retryTimes, setRetryTimes] = useState<Record<string,string>>({});
+  useEffect(() => setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone), []);
+  const parsed = parseVideoSchedule(schedule);
+  const scheduled = timing === "schedule";
+  const schedulingValid = !scheduled || Boolean(parsed.iso && timeZone);
+  const scheduleLabel = parsed.iso ? formatVideoSchedule(parsed.iso, timeZone) : "the selected time";
   if (publications.length) return <div className="space-y-2 rounded border border-white/15 p-3">
     <h4 className="font-semibold">Publishing</h4>
     <details className="text-sm"><summary>Approved caption</summary><p className="mt-2 whitespace-pre-wrap">{publications[0].caption}</p></details>
     {publications.map(p => <div className="space-y-2 text-sm" key={p.platform}>
       <p>{p.platform}: {label(p.status)} {p.external_url && <a className="text-emerald-200 underline" href={p.external_url} target="_blank" rel="noreferrer">View post</a>}</p>
+      {p.scheduled_at && <p className="text-emerald-200">{p.status === "SCHEDULED" ? "Confirmed in Buffer" : p.status === "QUEUED" || p.status === "SUBMITTING" ? "Sending schedule to Buffer" : "Selected time"}: {formatVideoSchedule(p.buffer_due_at || p.scheduled_at, p.schedule_timezone)}</p>}
       {p.error && <p className="text-rose-200">{p.error}</p>}
       {["FAILED","UNCERTAIN"].includes(p.status) && <div>
         <label className="text-xs">If the post exists in Buffer, paste its Buffer post ID to reconcile:
@@ -1193,26 +1208,43 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
         </label>
         <button className={button} disabled={busy || !postIds[p.platform]} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/reconcile`, "POST", {platform:p.platform, post_id:postIds[p.platform]}), "Existing Buffer post linked; no new post created.")}>Link existing post</button>
         {!p.post_id && <div className="mt-3 space-y-2">
+          {p.scheduled_at && <label className="block text-xs">New scheduled time ({timeZone || "device timezone"})
+            <input type="datetime-local" className={`${input} [color-scheme:dark]`} value={retryTimes[p.platform] || ""} onChange={e => {setRetryTimes({...retryTimes,[p.platform]:e.target.value});setNoPost({...noPost,[p.platform]:false});}} />
+            {retryTimes[p.platform] && <span>{parseVideoSchedule(retryTimes[p.platform]).error || formatVideoSchedule(parseVideoSchedule(retryTimes[p.platform]).iso!, timeZone)}</span>}
+          </label>}
           <label className="flex gap-2 text-xs"><input type="checkbox" checked={noPost[p.platform] || false} onChange={e => setNoPost({...noPost,[p.platform]:e.target.checked})} />I checked the Buffer queue and sent posts. This video was not posted or queued on {p.platform}.</label>
-          <button className={button} disabled={busy || !noPost[p.platform]} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/retry-publish`, "POST", {platform:p.platform, confirmed_no_buffer_post:true}), "Publishing retry queued for this destination only.")}>Retry this destination</button>
+          <button className={button} disabled={busy || !noPost[p.platform] || Boolean(p.scheduled_at && !parseVideoSchedule(retryTimes[p.platform] || "").iso)} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/retry-publish`, "POST", {platform:p.platform, confirmed_no_buffer_post:true, ...(p.scheduled_at ? {scheduled_at:parseVideoSchedule(retryTimes[p.platform] || "").iso,schedule_timezone:timeZone} : {})}), "Publishing retry queued for this destination only.")}>Retry this destination</button>
         </div>}
       </div>}
     </div>)}
-    <a className="text-sm text-emerald-200" href="https://publish.buffer.com/" target="_blank" rel="noreferrer">Open Buffer to inspect or manage posts</a>
+    <a className="text-sm text-emerald-200" href="https://publish.buffer.com/" target="_blank" rel="noreferrer">Open Buffer to reschedule, cancel or inspect posts</a>
   </div>;
   return <div className="space-y-3 rounded-lg border border-emerald-300/25 p-4">
     <h4 className="font-semibold text-emerald-100">Publish video</h4>
     <p className="text-sm text-slate-300">Your video and caption post directly through Buffer. No download needed.</p>
     <label className="block text-sm">Post caption<textarea className={`${input} mt-1`} rows={3} maxLength={2200} value={text} onChange={e => {setText(e.target.value);setReviewed(false);}} /></label>
     <div className="flex gap-4">{["instagram","tiktok"].map(p => <label key={p} className="text-sm capitalize"><input type="checkbox" checked={platforms.includes(p)} onChange={e => {setPlatforms(e.target.checked ? [...platforms,p] : platforms.filter(x => x !== p));setReviewed(false);}} /> {p}</label>)}</div>
-    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={!previewLoaded} onChange={e => setReviewed(e.target.checked)} />I reviewed this video, its claims and caption, and approve publishing now to the selected Walnut accounts using their Buffer audience, interaction and commercial-content settings. AI assistance will be disclosed.</label>
+    <fieldset className="space-y-2"><legend className="text-sm font-medium">When to publish</legend>
+      <div className="flex gap-4">{[["now","Now"],["schedule","Schedule"]].map(([value,title]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name={`publish-timing-${item.id}`} checked={timing === value} onChange={() => {setTiming(value);setReviewed(false);}} />{title}</label>)}</div>
+      {scheduled && <div className="max-w-md space-y-2">
+        <label className="block text-sm">Date and time<input type="datetime-local" className={`${input} mt-1 [color-scheme:dark]`} value={schedule} min={localVideoScheduleInput(new Date(Date.now()+11*60_000))} onChange={e => {setSchedule(e.target.value);setReviewed(false);}} /></label>
+        <p className="text-xs text-slate-400">Time zone: {timeZone || "your device timezone"} (this device). Choose at least 10 minutes ahead.</p>
+        {schedule && (parsed.error ? <p role="alert" className="text-sm text-amber-100">{parsed.error}</p> : <p className="text-sm text-emerald-200">Publish {scheduleLabel}</p>)}
+        <p className="text-xs text-slate-400">Buffer will publish at this time once it confirms the schedule. Buffer Free allows 10 queued posts per channel.</p>
+      </div>}
+    </fieldset>
+    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={!previewLoaded || !schedulingValid} onChange={e => setReviewed(e.target.checked)} />I reviewed this video, its claims and caption, and approve publishing {scheduled ? `on ${scheduleLabel}` : "now"} to the selected Walnut accounts using their Buffer audience, interaction and commercial-content settings. AI assistance will be disclosed.</label>
     {!bufferReady && <p className="text-sm text-amber-100">Configure the Buffer API key before publishing.</p>}
     {!previewLoaded && <p className="text-xs text-slate-400">Load and watch the preview above first.</p>}
-    <p className="text-xs text-slate-400">Your optional first comment is a manual step on Buffer Free. Review any “links in comments” promise before publishing.</p>
+    <p className="text-xs text-slate-400">Links in the caption post with the video. Optional comments must be added manually.</p>
     {previewLoaded && !reviewed && <p className="text-sm text-emerald-200">After reviewing, check the approval box above to enable publishing.</p>}
     {!platforms.length && <p className="text-sm text-amber-100">Choose at least one account.</p>}
     {!text.trim() && <p className="text-sm text-amber-100">Add a caption before publishing.</p>}
-    <button className="rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40" disabled={busy || !bufferReady || !reviewed || !platforms.length || !text.trim()} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/publish`, "POST", {platforms,caption:text,reviewed_video_and_caption:reviewed,confirm_buffer_channel_settings:reviewed}), "Approved for publishing. Delivery status will appear here.")}>{busy ? "Working…" : `Publish now${platforms.length ? ` to ${platforms.map(p => p === "instagram" ? "Instagram" : "TikTok").join(" & ")}` : ""}`}</button>
+    <button className="rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40" disabled={busy || !bufferReady || !reviewed || !schedulingValid || !platforms.length || !text.trim()} onClick={() => void run(() => {
+      const current = parseVideoSchedule(schedule);
+      if (scheduled && !current.iso) throw new Error(current.error);
+      return growthVideoRequest(`/jobs/${item.id}/publish`, "POST", {platforms,caption:text,reviewed_video_and_caption:reviewed,confirm_buffer_channel_settings:reviewed, ...(scheduled ? {scheduled_at:current.iso,schedule_timezone:timeZone} : {})});
+    }, scheduled ? "Schedule requested. Confirmation from Buffer will appear here." : "Approved for publishing. Delivery status will appear here.")}>{busy ? "Working…" : `${scheduled ? "Schedule post" : "Publish now"}${platforms.length ? ` to ${platforms.map(p => p === "instagram" ? "Instagram" : "TikTok").join(" & ")}` : ""}`}</button>
   </div>;
 }
 

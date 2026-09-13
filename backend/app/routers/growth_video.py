@@ -67,6 +67,8 @@ class Publish(Strict):
     caption: str = Field(min_length=1, max_length=2200)
     reviewed_video_and_caption: bool = False
     confirm_buffer_channel_settings: bool = False
+    scheduled_at: str | None = Field(default=None, max_length=50)
+    schedule_timezone: str | None = Field(default=None, max_length=100)
 
 
 class Reconcile(Strict):
@@ -77,6 +79,8 @@ class Reconcile(Strict):
 class RetryPublish(Strict):
     platform: Literal["instagram", "tiktok"]
     confirmed_no_buffer_post: bool = False
+    scheduled_at: str | None = Field(default=None, max_length=50)
+    schedule_timezone: str | None = Field(default=None, max_length=100)
 
 
 class MemoryEdit(Strict):
@@ -163,8 +167,9 @@ def publish(job_id: str, payload: Publish, user=Depends(admin), db=Depends(get_d
     if not payload.reviewed_video_and_caption or not payload.confirm_buffer_channel_settings:
         raise HTTPException(422, "Review the finished video, caption and Buffer channel publishing settings before approval.")
     item = store.job(db, job_id)
-    result = safe_call(buffer.approve_publish, db, item, user.id, payload.platforms, payload.caption)
-    store.remember(db, item, user.id, "approve", "Approved video and caption for Buffer publishing.")
+    result = safe_call(buffer.approve_publish, db, item, user.id, payload.platforms, payload.caption,
+                       scheduled_at=payload.scheduled_at, schedule_timezone=payload.schedule_timezone)
+    store.remember(db, item, user.id, "approve", "Approved video and caption for Buffer scheduling." if payload.scheduled_at else "Approved video and caption for Buffer publishing.")
     return result
 
 
@@ -189,12 +194,23 @@ def retry_publish(job_id: str, payload: RetryPublish, db=Depends(get_db)):
     if not payload.confirmed_no_buffer_post:
         raise HTTPException(422, "Check the Buffer queue and sent posts, then confirm no post exists before retrying.")
     safe_call(validate_job, db, store.job(db, job_id))
-    result = db.execute(text("""UPDATE growth_video_publications SET status='QUEUED',error=NULL,updated_at=:at
-        WHERE job_id=:job AND platform=:platform AND status IN ('FAILED','UNCERTAIN') AND post_id IS NULL"""),
-        {"job": job_id, "platform": payload.platform, "at": store.now()})
-    db.commit()
-    if not result.rowcount:
+    row = next((p for p in buffer.publications(db, job_id) if p["platform"] == payload.platform), None)
+    if not row or row["status"] not in {"FAILED", "UNCERTAIN"} or row["post_id"]:
         raise HTTPException(409, "This post cannot be resubmitted. Manage confirmed Buffer posts in Buffer.")
+    due, zone = safe_call(buffer.validate_schedule, payload.scheduled_at or row["scheduled_at"],
+                         payload.schedule_timezone or row["schedule_timezone"])
+    result = db.execute(text("""UPDATE growth_video_publications SET status='QUEUED',error=NULL,updated_at=:at
+        WHERE job_id=:job AND platform=:platform AND status IN ('FAILED','UNCERTAIN') AND post_id IS NULL AND updated_at=:old"""),
+        {"job": job_id, "platform": payload.platform, "at": store.now(), "old": row["updated_at"]})
+    if not result.rowcount:
+        db.rollback()
+        raise HTTPException(409, "This post cannot be resubmitted. Manage confirmed Buffer posts in Buffer.")
+    if due:
+        db.execute(text("""INSERT INTO growth_video_publication_schedules(job_id,platform,scheduled_at,schedule_timezone)
+            VALUES (:job,:platform,:due,:zone) ON CONFLICT(job_id,platform) DO UPDATE SET
+            scheduled_at=:due,schedule_timezone=:zone,buffer_due_at=NULL"""),
+            {"job": job_id, "platform": payload.platform, "due": due, "zone": zone})
+    db.commit()
     return buffer.publications(db, job_id)
 
 

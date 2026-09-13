@@ -136,10 +136,12 @@ def notify_ready(db, *, sender=None):
 def run_once(db):
     from app.services.growth_video_pipeline import run_pending
     from app.services.growth_buffer import run_pending as publish_pending
+    # Hand approved posts to Buffer before capture/render work can occupy this
+    # shared worker. Once confirmed, Buffer owns the selected publishing time.
+    published = publish_pending(db, limit=2)
     daily = create_daily(db)
     store.set_setting(db, "GROWTH_VIDEO_LAST_PASS", {"at": store.now(), **daily})
     db.commit()
     rendered = run_pending(db, limit=2)
     notices = notify_ready(db)
-    published = publish_pending(db, limit=2)
     return {"daily": daily, "video_jobs": rendered, "notifications": notices, "publications": published}
