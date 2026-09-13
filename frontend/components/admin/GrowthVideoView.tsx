@@ -786,6 +786,8 @@ function VideoCard({
         </p>
       )}
       {item.payload.budget_message && <p className="rounded bg-emerald-300/10 p-3 text-sm">{item.payload.budget_message} Next attempt: {item.payload.retry_at ? new Date(item.payload.retry_at).toLocaleString() : "next quota window"}.</p>}
+      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
+      <div className="space-y-3">
       {Boolean(item.payload.video || item.payload.thumbnail) && (
         <button
           className={button}
@@ -818,6 +820,8 @@ function VideoCard({
           alt="Actual Walnut research capture"
         />
       ) : null}
+      </div>
+      <div className="min-w-0 space-y-4">
       {creative && (
         <>
           <p className="font-semibold text-emerald-100">{creative.hook}</p>
@@ -898,6 +902,8 @@ function VideoCard({
       {creative && ["READY_FOR_REVIEW", "APPROVED"].includes(item.status) && (
         <PublishVideo item={item} caption={creative.caption} publications={publications} bufferReady={bufferReady} previewLoaded={Boolean(media.video_url)} run={run} busy={busy} />
       )}
+      </div>
+      </div>
       <GrowthDisclosure title="Changes, history and download" open={item.status === "CREATIVE_READY" || item.status === "FAILED"}>
       <label className="block text-sm text-slate-300">
         Review feedback
@@ -1230,6 +1236,8 @@ function MemoryCard({
         {item.payload.previous_hook}{" "}
         {item.payload.duration ? `· ${item.payload.duration}s` : ""}
       </p>
+      <p className="mb-3 whitespace-pre-wrap text-sm text-slate-300">{item.payload.feedback}</p>
+      <GrowthDisclosure title="Edit or exclude feedback">
       <textarea
         aria-label="Memory feedback"
         className={input}
@@ -1267,6 +1275,7 @@ function MemoryCard({
           {item.active ? "Exclude lesson" : "Restore lesson"}
         </button>
       </div>
+      </GrowthDisclosure>
     </section>
   );
 }

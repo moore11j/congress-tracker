@@ -1935,11 +1935,12 @@ function ScheduledXCampaignsView({
             {selected ? <Button disabled={Boolean(busy)} onClick={onSubmit}>{busy === "scheduled_x_campaign" ? "Saving..." : "Save campaign"}</Button> : null}
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <GrowthDisclosure title="Start from a template" className="mt-4">
+        <div className="flex flex-wrap gap-2">
           {SCHEDULED_X_TEMPLATES.map((template) => (
             <Button key={template.name} disabled={Boolean(busy)} onClick={() => onTemplate(template)}>{template.name}</Button>
           ))}
-        </div>
+        </div></GrowthDisclosure>
       </section>
 
       <FormShell title={selected ? `Editing: ${selected.name}` : "Create Scheduled X Campaign"} id="scheduled-x-campaign-form">
@@ -2313,7 +2314,8 @@ function SettingsView({
           </label>
         </div>
         <TextareaField label="Saved characteristics" value={voiceCharacteristics} onChange={setVoiceCharacteristics} rows={8} />
-        <div className="mt-3 space-y-2">
+        <GrowthDisclosure title="Remove individual voice characteristics" className="mt-3">
+        <div className="space-y-2">
           {characteristicLines.length ? characteristicLines.map((line) => (
             <div key={line} className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-900/70 px-3 py-2">
               <span className="text-sm text-slate-200">{line}</span>
@@ -2328,7 +2330,7 @@ function SettingsView({
               </button>
             </div>
           )) : <p className="text-sm text-slate-400">No voice characteristics saved.</p>}
-        </div>
+        </div></GrowthDisclosure>
       </section>
       <div className="mt-4 flex flex-wrap gap-3">
         <ConnectionResult result={settingsTest.openai} />
