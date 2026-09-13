@@ -25,7 +25,7 @@ def brand_font(size,bold=False):
   if path and Path(path).is_file():return ImageFont.truetype(path,size)
  raise ValueError('No system UI font available for branded video.')
 
-def render_research_video(creative,captures,audio,read_asset):
+def render_research_video(creative,captures,audio,read_asset,*,frame_observer=None):
  import imageio_ffmpeg
  ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
  scenes,captions,duration=timeline(creative,audio)
@@ -75,8 +75,10 @@ def render_research_video(creative,captures,audio,read_asset):
    ImageDraw.Draw(im).rounded_rectangle((x-2,y-2,x+size[0]+2,y+size[1]+2),radius=12,outline='#334155',width=2)
    im.paste(pic,(x,y))
   output=root/'video.mp4'
+  # Independent video frames preserve static brand elements across cuts. The
+  # inter-frame export showed missing overlay blocks during decoded-frame QA.
   command=[ffmpeg,'-y','-v','error','-f','rawvideo','-pix_fmt','rgb24','-s',f'{W}x{H}','-r',str(FPS),'-i','pipe:0','-i',str(voice),
-   '-c:v','libx264','-preset','veryfast','-crf','18','-threads','2','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-ar','48000',
+   '-c:v','libx264','-preset','veryfast','-crf','18','-threads','2','-g','1','-bf','0','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-ar','48000',
    '-af','loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur=0.45','-t',str(duration),'-movflags','+faststart',str(output)]
   with (root/'ffmpeg.log').open('wb') as errors:
    process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=errors);started=time.monotonic()
@@ -111,12 +113,15 @@ def render_research_video(creative,captures,audio,read_asset):
      d=ImageDraw.Draw(im)
      for i in range(len(scenes)):
       x=64+i*121;d.rounded_rectangle((x,1620,x+101,1624),radius=2,fill=MINT if i<s['sequence'] else '#1e293b')
+     if frame_observer:frame_observer(n,im)
      process.stdin.write(im.tobytes())
     process.stdin.close()
     if process.wait(timeout=120):raise ValueError('Research video encode failed.')
    finally:
     if process.poll() is None:process.kill();process.wait()
-  return output.read_bytes(),{'provider':'walnut_native','width':W,'height':H,'duration':duration,'frame_rate':FPS,
+  content=output.read_bytes()
+  if content[4:8]!=b'ftyp' or len(content)>200*1024*1024:raise ValueError('Invalid research video output.')
+  return content,{'provider':'walnut_native','width':W,'height':H,'duration':duration,'frame_rate':FPS,'encoding':'h264_intra',
    'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':3,
    'font':Path(brand_font(24).path).name,'brand_accent':MINT,'logo_asset':LOGO.name,
    'research_brief_id':creative['source_research_brief_id'],'focused_real_browser_pixels':True}

@@ -34,3 +34,7 @@ Application: start with the specific research question and real chart immediatel
 56 focused backend tests passed, one browser-specific test skipped. Frontend TypeScript validation passed. Tests cover research provenance/tamper rejection, six captures, a single narration request, manual review, and existing video behavior. Live source captures and final encoded frames are checked separately. Existing V2 jobs remain supported.
 
 The first V3 export uses authorized local capture/render recovery with a short-lived admin session held only in memory. No new subscription or automatic social publishing is introduced. The shared Fly worker's unattended capture throughput remains unproven.
+
+## First V3 draft
+
+Draft `gv_cb5f3f7ca14c4517baa53e2bfdc468c2` has one 25.89-second narration, eight scenes and 19 phrase captions. Final export: 26.34 seconds, 1080×1920, 24 fps, H.264 with independent frames and 48 kHz AAC, approximately 26 MB. Decoded samples from all eight scenes passed a comparison of persistent branding; the first encode's missing-overlay defect was corrected before delivery. The nine product/research tests passed again after the capture correction. No second narration request was needed for re-encoding.
