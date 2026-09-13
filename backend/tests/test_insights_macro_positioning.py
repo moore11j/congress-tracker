@@ -660,5 +660,5 @@ def test_ticker_macro_positioning_repairs_legacy_zero_impacts_from_driver_biases
 
     impacts = {driver["factor"]: driver["impact_score"] for driver in payload["drivers"]}
     assert impacts == {"NASDAQ_100_FUTURES": 2, "US_DOLLAR": -2, "US_10Y_YIELD": 2}
-    assert payload["counts"] == {"tailwinds": 2, "headwinds": 1, "neutral": 0}
+    assert payload["counts"] == {"tailwinds": 3, "headwinds": 0, "neutral": 0}
     assert payload["overall_state"] == "MODERATELY SUPPORTIVE"

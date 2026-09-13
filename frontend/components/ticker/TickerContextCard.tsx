@@ -117,22 +117,31 @@ const SCROLL_REGION_CLASS = [
   "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60]",
 ].join(" ");
 
-function macroBiasTextClass(bias: string | null | undefined) {
+function macroBiasClasses(bias: string | null | undefined) {
   const normalized = (bias ?? "").toLowerCase();
-  if (normalized === "bullish") return "text-emerald-300";
-  if (normalized === "bearish") return "text-rose-300";
-  return "text-slate-500";
-}
-
-function macroImpactClasses(impact: string | null | undefined) {
-  const value = (impact ?? "").toUpperCase();
-  if (value.includes("TAILWIND")) return "border-emerald-300/30 bg-emerald-300/10 text-emerald-200";
-  if (value.includes("HEADWIND")) return "border-rose-300/30 bg-rose-300/10 text-rose-200";
+  if (normalized === "bullish") return "border-emerald-300/30 bg-emerald-300/10 text-emerald-200";
+  if (normalized === "bearish") return "border-rose-300/30 bg-rose-300/10 text-rose-200";
   return "border-slate-300/20 bg-slate-300/10 text-slate-200";
 }
 
-function macroImpactText(impact: string | null | undefined) {
-  return (impact ?? "NEUTRAL").replaceAll("_", " ");
+function macroBiasLabel(bias: string | null | undefined) {
+  const normalized = (bias ?? "neutral").toLowerCase();
+  if (normalized === "bullish") return "Bullish";
+  if (normalized === "bearish") return "Bearish";
+  return "Neutral";
+}
+
+function macroFactorCounts(drivers: MacroPositioningDriver[]) {
+  return drivers.reduce(
+    (counts, driver) => {
+      const bias = (driver.bias ?? "neutral").toLowerCase();
+      if (bias === "bullish") counts.tailwinds += 1;
+      else if (bias === "bearish") counts.headwinds += 1;
+      else counts.neutral += 1;
+      return counts;
+    },
+    { tailwinds: 0, headwinds: 0, neutral: 0 },
+  );
 }
 
 function macroFactorMark(factor: string | null | undefined) {
@@ -141,86 +150,46 @@ function macroFactorMark(factor: string | null | undefined) {
   return "↗";
 }
 
-function macroDriverFallback(driver: MacroPositioningDriver, symbol: string) {
-  const factor = (driver.factor ?? "").toUpperCase();
-  const name = (driver.name ?? "").toLowerCase();
-  const bias = (driver.bias ?? "neutral").toLowerCase();
-  const isNasdaq = factor === "NASDAQ_100_FUTURES" || name.includes("nasdaq");
-  const isDollar = factor === "US_DOLLAR" || name.includes("dollar") || name.includes("usd");
-  const isTreasury = factor === "US_10Y_YIELD" || name.includes("treasury") || name.includes("10-year");
+function macroPositioningContext(drivers: MacroPositioningDriver[], symbol: string) {
+  const counts = macroFactorCounts(drivers);
+  const bullish = drivers.filter((driver) => (driver.bias ?? "").toLowerCase() === "bullish").map((driver) => driver.name);
+  const bearish = drivers.filter((driver) => (driver.bias ?? "").toLowerCase() === "bearish").map((driver) => driver.name);
+  const neutral = drivers.filter((driver) => (driver.bias ?? "").toLowerCase() === "neutral").map((driver) => driver.name);
+  const names = (items: string[]) => items.length <= 2 ? items.join(" and ") : `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 
-  if (isNasdaq) {
-    const why = bias === "bullish"
-      ? "Bullish Nasdaq futures positioning signals that institutions are leaning into growth-equity risk."
-      : bias === "bearish"
-        ? "Bearish Nasdaq futures positioning signals that institutions are leaning away from growth-equity risk."
-        : "Nasdaq futures positioning is balanced, signalling neither a clear risk-on nor risk-off regime.";
-    const readthrough = bias === "bullish"
-      ? `A risk-on Nasdaq backdrop can support ${symbol}'s valuation multiple and flows into AI and semiconductor equities. It is a sentiment input, not a revenue forecast.`
-      : bias === "bearish"
-        ? `A defensive Nasdaq backdrop can pressure ${symbol}'s valuation multiple and flows into AI and semiconductor equities. It is a sentiment input, not a revenue forecast.`
-        : `The balanced Nasdaq backdrop is not currently providing a directional valuation signal for ${symbol}.`;
-    return { why, readthrough };
-  }
-  if (isDollar) {
-    const why = bias === "bullish"
-      ? "Bullish dollar futures positioning points to a strengthening-dollar regime."
-      : bias === "bearish"
-        ? "Bearish dollar futures positioning points to a weakening-dollar regime."
-        : "Dollar futures positioning is balanced, pointing to a range-bound dollar regime.";
-    const readthrough = bias === "bullish"
-      ? `A stronger dollar can make ${symbol}'s products less affordable abroad and reduce the translated value of overseas sales, creating a potential headwind.`
-      : bias === "bearish"
-        ? `A weaker dollar can improve overseas affordability and lift the translated value of ${symbol}'s foreign sales, creating a potential tailwind.`
-        : `A stable dollar is not currently providing a directional currency read-through for ${symbol}.`;
-    return { why, readthrough };
-  }
-  if (isTreasury) {
-    const why = bias === "bullish"
-      ? "Bullish Treasury futures positioning is read as easing Treasury yields."
-      : bias === "bearish"
-        ? "Bearish Treasury futures positioning is read as rising Treasury yields."
-        : "Treasury futures positioning points to broadly stable yields.";
-    const readthrough = bias === "bullish"
-      ? `Easing yields lower the discount rate applied to ${symbol}'s future cash flows, which can support long-duration technology valuations.`
-      : bias === "bearish"
-        ? `Rising yields raise the discount rate applied to ${symbol}'s future cash flows, which can pressure long-duration technology valuations.`
-        : `Stable yields are not currently providing a directional discount-rate read-through for ${symbol}.`;
-    return { why, readthrough };
-  }
-  return {
-    why: "The latest institutional positioning data defines this macro regime.",
-    readthrough: `This macro factor is monitored for its potential effect on ${symbol}.`,
-  };
+  const why = bullish.length && bearish.length
+    ? `Latest institutional futures positioning is mixed: ${names(bullish)} are bullish, while ${names(bearish)} are bearish.`
+    : bullish.length
+      ? `Latest institutional futures positioning is bullish across ${names(bullish)}.`
+      : bearish.length
+        ? `Latest institutional futures positioning is bearish across ${names(bearish)}.`
+        : neutral.length
+          ? `Latest institutional futures positioning is neutral across ${names(neutral)}.`
+          : "No macro factors are currently available.";
+  const direction = counts.tailwinds > counts.headwinds ? "supportive" : counts.headwinds > counts.tailwinds ? "challenging" : "mixed";
+  const meaning = direction === "supportive"
+    ? `For ${symbol}, this is a supportive market backdrop for risk appetite and valuation. It is a sentiment input, not a revenue forecast.`
+    : direction === "challenging"
+      ? `For ${symbol}, this is a challenging market backdrop for risk appetite and valuation. It is a sentiment input, not a revenue forecast.`
+      : `For ${symbol}, the macro backdrop is mixed and is not currently providing a clear directional valuation signal.`;
+  return { why, meaning };
 }
 
-function MacroFactorCard({ driver, symbol, index }: { driver: MacroPositioningDriver; symbol: string; index: number }) {
-  const fallback = macroDriverFallback(driver, symbol);
+function MacroFactorCard({ driver }: { driver: MacroPositioningDriver }) {
   return (
-    <article className={`rounded-xl border border-white/10 bg-slate-950/55 p-3.5 ${index === 2 ? "lg:col-span-2" : ""}`}>
+    <article className="rounded-xl border border-white/10 bg-slate-950/55 p-3.5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-sm font-semibold text-emerald-200">{macroFactorMark(driver.factor)}</span>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">{driver.category ?? "MACRO FACTOR"}</p>
             <p className="text-base font-semibold text-slate-100">{driver.name}</p>
-            <p className={`text-xs font-medium ${macroBiasTextClass(driver.bias)}`}>{driver.regime_label ?? driver.bias}</p>
+            <p className="text-xs text-slate-400">{driver.regime_label ?? `${macroBiasLabel(driver.bias)} positioning`}</p>
           </div>
         </div>
-        <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${macroImpactClasses(driver.ticker_impact)}`}>{macroImpactText(driver.ticker_impact)}</span>
-      </div>
-      <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Why this is happening</p>
-          <p className="mt-1 text-xs leading-5 text-slate-300">{driver.why_macro || fallback.why}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">What it means for {symbol}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-300">{driver.ticker_readthrough || fallback.readthrough}</p>
-        </div>
+        <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${macroBiasClasses(driver.bias)}`}>{macroBiasLabel(driver.bias)}</span>
       </div>
       <div className="mt-3 flex items-center gap-5 border-t border-white/10 pt-2 text-xs text-slate-400">
-        <span>Impact <strong className={driver.impact_score && driver.impact_score > 0 ? "ml-1 text-emerald-300" : driver.impact_score && driver.impact_score < 0 ? "ml-1 text-rose-300" : "ml-1 text-slate-200"}>{typeof driver.impact_score === "number" && driver.impact_score > 0 ? "+" : ""}{driver.impact_score ?? 0}</strong></span>
         <span>Confidence <strong className={driver.confidence === "HIGH" ? "ml-1 text-emerald-300" : driver.confidence === "MEDIUM" ? "ml-1 text-amber-300" : "ml-1 text-slate-200"}>{driver.confidence ?? "Medium"}</strong></span>
       </div>
     </article>
@@ -1164,6 +1133,11 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     }
   };
 
+  const macroDrivers = macroPositioning?.drivers ?? [];
+  const macroCounts = macroDrivers.length > 0 ? macroFactorCounts(macroDrivers) : (macroPositioning?.counts ?? { tailwinds: 0, headwinds: 0, neutral: 0 });
+  const macroContext = macroPositioning ? macroPositioningContext(macroDrivers, symbol) : null;
+  const macroState = macroPositioning?.overall ?? macroPositioning?.overall_state ?? "neutral";
+
   return (
     <section className={`${cardClassName} min-w-0 max-w-full overflow-hidden !rounded-lg !p-0 ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
       <div className="overflow-x-auto border-b border-white/10 bg-slate-950/55 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1418,23 +1392,35 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
                           <p className="text-sm text-slate-400">How the current market environment affects {symbol}.</p>
                         </div>
                       </div>
-                      <span className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${macroImpactClasses(macroPositioning.overall_state ?? macroPositioning.overall)}`}>
-                        {macroPositioning.overall_state ?? macroPositioning.overall ?? "Neutral"}
+                      <span className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${macroBiasClasses(macroState)}`}>
+                        {macroBiasLabel(macroState)}
                       </span>
                     </div>
                     <p className="mt-3 max-w-4xl text-sm leading-5 text-slate-200">{macroPositioning.summary ?? "Macro positioning is active for this ticker."}</p>
                     <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-white/10 pt-3 text-xs text-slate-400">
-                      <span><strong className="text-lg font-medium text-emerald-300">{macroPositioning.counts?.tailwinds ?? 0}</strong> Tailwinds</span>
-                      <span><strong className="text-lg font-medium text-rose-300">{macroPositioning.counts?.headwinds ?? 0}</strong> Headwind{(macroPositioning.counts?.headwinds ?? 0) === 1 ? "" : "s"}</span>
-                      <span><strong className="text-lg font-medium text-slate-200">{macroPositioning.counts?.neutral ?? 0}</strong> Neutral</span>
+                      <span><strong className="text-lg font-medium text-emerald-300">{macroCounts.tailwinds}</strong> Bullish factor{macroCounts.tailwinds === 1 ? "" : "s"}</span>
+                      <span><strong className="text-lg font-medium text-rose-300">{macroCounts.headwinds}</strong> Bearish factor{macroCounts.headwinds === 1 ? "" : "s"}</span>
+                      <span><strong className="text-lg font-medium text-slate-200">{macroCounts.neutral}</strong> Neutral factor{macroCounts.neutral === 1 ? "" : "s"}</span>
                       {macroPositioning.updated ? <span className="ml-auto">Data as of {formatDateShort(macroPositioning.updated)}</span> : null}
                       {macroPositioning.generated_at ? <span>Refreshed {formatDateShort(macroPositioning.generated_at)}</span> : null}
                     </div>
+                    {macroContext ? (
+                      <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 md:grid-cols-2">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Why this is happening</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-300">{macroContext.why}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">What it means for {symbol}</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-300">{macroContext.meaning}</p>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {(macroPositioning.drivers ?? []).map((driver, index) => (
-                      <MacroFactorCard key={`${driver.factor ?? driver.name}-${driver.bias}`} driver={driver} symbol={symbol} index={index} />
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {macroDrivers.map((driver) => (
+                      <MacroFactorCard key={`${driver.factor ?? driver.name}-${driver.bias}`} driver={driver} />
                     ))}
                   </div>
 

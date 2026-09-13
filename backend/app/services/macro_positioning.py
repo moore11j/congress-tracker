@@ -1196,9 +1196,13 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
             payload["overall_state"] = macro_overall_state(aggregate)
             payload["aggregate_score"] = aggregate
             payload["counts"] = {
-                "tailwinds": sum(1 for driver in rich_factors if int(driver.get("impact_score") or 0) > 0),
-                "headwinds": sum(1 for driver in rich_factors if int(driver.get("impact_score") or 0) < 0),
-                "neutral": sum(1 for driver in rich_factors if int(driver.get("impact_score") or 0) == 0),
+                # These are market-regime counts shown beside each factor's
+                # bullish/bearish/neutral state. Keep them in the same
+                # vocabulary as the factor cards rather than mixing them with
+                # the separate ticker-impact calculation.
+                "tailwinds": sum(1 for driver in rich_factors if _bias_value(driver.get("bias")) == "bullish"),
+                "headwinds": sum(1 for driver in rich_factors if _bias_value(driver.get("bias")) == "bearish"),
+                "neutral": sum(1 for driver in rich_factors if _bias_value(driver.get("bias")) == "neutral"),
             }
             payload["watch_items"] = [str(driver.get("watch_condition")) for driver in rich_factors if isinstance(driver.get("watch_condition"), str) and driver.get("watch_condition")][:3]
     return payload
