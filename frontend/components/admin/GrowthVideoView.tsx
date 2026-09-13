@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { growthVideoRequest } from "@/lib/api";
 
 type Opportunity = {
@@ -106,6 +106,7 @@ type Config = {
   default_cta: string;
 };
 type State = {
+  automation: AutomationState;
   opportunities: Opportunity[];
   jobs: VideoJob[];
   memory: Memory[];
@@ -116,6 +117,15 @@ type State = {
   readiness: Record<string, boolean | string>;
   copy_library: Record<string, string>;
   formats: string[];
+};
+type Publication = {job_id: string; platform: string; status: string; caption: string; post_id?: string; external_url?: string; error?: string};
+type AutomationState = {
+  config: {enabled: boolean; enabled_at?: string};
+  buffer_key_configured: boolean;
+  email_enabled: boolean;
+  last_pass?: {status?: string; skipped?: Array<{brief_id: string; reason: string}>};
+  runs: Array<{day: string; status: string; error?: string; job_id?: string}>;
+  publications: Publication[];
 };
 type View = "opportunities" | "queue" | "brief" | "memory" | "settings";
 const card = "rounded-xl border border-white/10 bg-slate-950/50 p-5";
@@ -146,6 +156,14 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
   const [platform, setPlatform] = useState("instagram");
   const [format, setFormat] = useState("research_finding");
   const [productHook, setProductHook] = useState("navigation");
+  const openedVideo = useRef(false);
+  useEffect(() => {
+    if (!state || openedVideo.current) return;
+    const id = new URLSearchParams(window.location.search).get("video");
+    if (!id) return;
+    const element = document.getElementById(`video-${id}`);
+    if (element) { element.scrollIntoView({block:"start"}); openedVideo.current = true; }
+  }, [state]);
 
   const refresh = useCallback(async (initialize = false) => {
     const next = await growthVideoRequest<State>();
@@ -159,12 +177,12 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
     void refresh(true).catch((e) => setError(String(e.message || e)));
   }, [refresh]);
   useEffect(() => {
-    if (!state?.jobs.some((j) => active(j.status))) return;
+    if (!state?.jobs.some((j) => active(j.status)) && !state?.automation.publications.some(p => ["QUEUED", "SUBMITTING", "SUBMITTED"].includes(p.status))) return;
     const timer = window.setInterval(() => {
       void refresh().catch((e) => setError(String(e.message || e)));
     }, 8000);
     return () => window.clearInterval(timer);
-  }, [state?.jobs, refresh]);
+  }, [state?.jobs, state?.automation.publications, refresh]);
   const run = async (fn: () => Promise<unknown>, success = "Saved.") => {
     setBusy(true);
     setError("");
@@ -438,6 +456,8 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
                 copy={state.copy_library}
                 busy={busy}
                 run={run}
+                publications={state.automation.publications.filter(p => p.job_id === j.id)}
+                bufferReady={state.automation.buffer_key_configured}
               />
             ))}
         </>
@@ -517,6 +537,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
 
       {view === "settings" && cfg && (
         <section className={`${card} space-y-4`}>
+          <AutomationSettings value={state.automation} run={run} busy={busy} />
           <div className="grid gap-2 sm:grid-cols-3">
             {Object.entries(state.readiness)
               .filter(([k]) => k !== "note")
@@ -665,12 +686,16 @@ function VideoCard({
   copy,
   busy,
   run,
+  publications,
+  bufferReady,
 }: {
   item: VideoJob;
   opportunity?: Opportunity;
   copy: Record<string, string>;
   busy: boolean;
   run: Run;
+  publications: Publication[];
+  bufferReady: boolean;
 }) {
   opportunity = opportunity || item.payload.opportunity;
   const creative = item.payload.creative;
@@ -702,7 +727,7 @@ function VideoCard({
     setFacts(result.evidence);
   };
   return (
-    <section className={`${card} space-y-3`}>
+    <section id={`video-${item.id}`} className={`${card} space-y-3`}>
       <div className="flex flex-wrap justify-between gap-2">
         <h3 className="font-semibold">
           {item.payload.opportunity?.topic || opportunity?.topic || creative?.hook || "Research video"}
@@ -839,6 +864,10 @@ function VideoCard({
           placeholder="What should the next version improve?"
         />
       </label>
+      {creative && ["READY_FOR_REVIEW", "APPROVED"].includes(item.status) && (
+        <PublishVideo item={item} caption={creative.caption} publications={publications} bufferReady={bufferReady} previewLoaded={Boolean(media.video_url)} run={run} busy={busy} />
+      )}
+      {!publications.length && <>
       <div className="flex flex-wrap gap-2">
         {item.status === "CREATIVE_READY" && (
           <button
@@ -855,7 +884,7 @@ function VideoCard({
             disabled={busy}
             onClick={() => void act("approve")}
           >
-            Approve
+            Approve for download only
           </button>
         )}
         {["CREATIVE_READY", "READY_FOR_REVIEW", "APPROVED", "FAILED"].includes(
@@ -1067,8 +1096,68 @@ function VideoCard({
           </button>
         </div>
       )}
+      </>}
     </section>
   );
+}
+
+function AutomationSettings({value, run, busy}: {value: AutomationState; run: Run; busy: boolean}) {
+  const [connection, setConnection] = useState("");
+  return <div className="space-y-3 rounded-lg border border-emerald-300/25 p-4">
+    <h3 className="font-semibold">Daily research videos</h3>
+    <p className="text-sm text-slate-300">One new published brief per Pacific day becomes a video draft. You receive an email, watch the video and approve its caption before publishing. Existing briefs are not backfilled when enabled.</p>
+    <p className="text-sm">Daily drafts: {value.config.enabled ? "enabled" : "paused"} · Email: {value.email_enabled ? "enabled" : "not enabled"} · Buffer API: {value.buffer_key_configured ? "configured" : "not configured"}</p>
+    <button className={button} disabled={busy} onClick={() => void run(() => growthVideoRequest("/automation", "PUT", {enabled: !value.config.enabled}), value.config.enabled ? "Daily creation paused. Existing jobs remain in the queue." : "Daily creation enabled for newly published briefs.")}>{value.config.enabled ? "Pause daily drafts" : "Enable daily drafts"}</button>{" "}
+    <button className={button} disabled={busy || !value.buffer_key_configured} onClick={() => void run(async () => {
+      const result = await growthVideoRequest<{channels: Array<{name: string; service: string}>}>("/buffer-status");
+      setConnection(result.channels.map(c => `${c.service}: ${c.name}`).join(" · "));
+    }, "Buffer connections verified.")}>Check Buffer connection</button>
+    {connection && <p className="text-sm text-emerald-200">{connection}</p>}
+    <p className="text-xs text-slate-400">Buffer Free: the optional first comment is added manually. Approved videos publish immediately through Buffer using your channel settings. No social posts are sent by enabling daily drafts.</p>
+    {value.last_pass?.status && <p className="text-xs text-slate-400">Last worker result: {label(value.last_pass.status)}</p>}
+    {value.last_pass?.skipped?.map(s => <p className="text-xs text-amber-100" key={s.brief_id}>{s.reason}</p>)}
+    {value.runs.map(r => <p className="text-xs" key={r.day}>{r.day}: {r.status}{r.error ? ` — ${r.error}` : ""}</p>)}
+  </div>;
+}
+
+function PublishVideo({item, caption, publications, bufferReady, previewLoaded, run, busy}: {
+  item: VideoJob; caption: string; publications: Publication[]; bufferReady: boolean; previewLoaded: boolean; run: Run; busy: boolean;
+}) {
+  const [text, setText] = useState(caption);
+  const [platforms, setPlatforms] = useState(["instagram", "tiktok"]);
+  const [reviewed, setReviewed] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [postIds, setPostIds] = useState<Record<string,string>>({});
+  const [noPost, setNoPost] = useState<Record<string,boolean>>({});
+  if (publications.length) return <div className="space-y-2 rounded border border-white/15 p-3">
+    <h4 className="font-semibold">Publishing</h4>
+    {publications.map(p => <div className="space-y-2 text-sm" key={p.platform}>
+      <p>{p.platform}: {label(p.status)} {p.external_url && <a className="text-emerald-200 underline" href={p.external_url} target="_blank" rel="noreferrer">View post</a>}</p>
+      {p.error && <p className="text-rose-200">{p.error}</p>}
+      {["FAILED","UNCERTAIN"].includes(p.status) && <div>
+        <label className="text-xs">If the post exists in Buffer, paste its Buffer post ID to reconcile:
+          <input className={input} value={postIds[p.platform] || ""} onChange={e => setPostIds({...postIds,[p.platform]:e.target.value})} />
+        </label>
+        <button className={button} disabled={busy || !postIds[p.platform]} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/reconcile`, "POST", {platform:p.platform, post_id:postIds[p.platform]}), "Existing Buffer post linked; no new post created.")}>Link existing post</button>
+        {!p.post_id && <div className="mt-3 space-y-2">
+          <label className="flex gap-2 text-xs"><input type="checkbox" checked={noPost[p.platform] || false} onChange={e => setNoPost({...noPost,[p.platform]:e.target.checked})} />I checked the Buffer queue and sent posts. This video was not posted or queued on {p.platform}.</label>
+          <button className={button} disabled={busy || !noPost[p.platform]} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/retry-publish`, "POST", {platform:p.platform, confirmed_no_buffer_post:true}), "Publishing retry queued for this destination only.")}>Retry this destination</button>
+        </div>}
+      </div>}
+    </div>)}
+    <a className="text-sm text-emerald-200" href="https://publish.buffer.com/" target="_blank" rel="noreferrer">Open Buffer to inspect or manage posts</a>
+  </div>;
+  return <div className="space-y-3 rounded-lg border border-emerald-300/25 p-4">
+    <h4 className="font-semibold">Approve and publish</h4>
+    <label className="block text-sm">Post caption<textarea className={`${input} mt-1`} rows={6} maxLength={2200} value={text} onChange={e => {setText(e.target.value);setReviewed(false);}} /></label>
+    <div className="flex gap-4">{["instagram","tiktok"].map(p => <label key={p} className="text-sm capitalize"><input type="checkbox" checked={platforms.includes(p)} onChange={e => {setPlatforms(e.target.checked ? [...platforms,p] : platforms.filter(x => x !== p));setReviewed(false);}} /> {p}</label>)}</div>
+    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={!previewLoaded} onChange={e => setReviewed(e.target.checked)} />I watched the preview and approve this video, its research claims and caption.</label>
+    <label className="flex gap-2 text-sm"><input type="checkbox" checked={settings} onChange={e => setSettings(e.target.checked)} />I approve publishing now to these Walnut accounts using the audience, interaction and commercial-content settings configured in Buffer. AI assistance will be disclosed.</label>
+    {!bufferReady && <p className="text-sm text-amber-100">Configure the Buffer API key before publishing.</p>}
+    {!previewLoaded && <p className="text-xs text-slate-400">Load and watch the preview above first.</p>}
+    <p className="text-xs text-slate-400">Your optional first comment is a manual step on Buffer Free. Review any “links in comments” promise before publishing.</p>
+    <button className={button} disabled={busy || !bufferReady || !reviewed || !settings || !platforms.length || !text.trim()} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/publish`, "POST", {platforms,caption:text,reviewed_video_and_caption:reviewed,confirm_buffer_channel_settings:settings}), "Approved for publishing. Delivery status will appear here.")}>Approve and publish now</button>
+  </div>;
 }
 
 function MemoryCard({

@@ -15298,6 +15298,8 @@ app.include_router(saved_screens_router, prefix="/api")
 app.include_router(strategies_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
 app.include_router(growth_video_router, prefix="/api")
+from app.routers.growth_video import public_router as growth_video_public_router
+app.include_router(growth_video_public_router, prefix="/api")
 app.include_router(reddit_ads_assistant_router, prefix="/api")
 app.include_router(research_briefs_router, prefix="/api")
 app.include_router(research_claim_matching_router, prefix="/api")

@@ -226,6 +226,14 @@ def walnut_email_text(
 
 DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
+        "template_key": "growth.video_review", "name": "AI Growth video review", "category": "admin",
+        "from_name": "Walnut", "from_email": SUPPORT_EMAIL, "reply_to": SUPPORT_EMAIL,
+        "subject": "Walnut video: {{video_status}}", "preheader": "{{video_title}}",
+        "variables": ["video_title", "video_status", "video_message", "activity_url"],
+        "body_text": "{{video_status}}\n\n{{video_title}}\n\n{{video_message}}\n\nReview in Walnut: {{activity_url}}",
+        "body_html": '<h2>{{video_status}}</h2><p>{{video_title}}</p><p>{{video_message}}</p><p><a href="{{activity_url}}">Review video in Walnut</a></p>',
+    },
+    {
         "template_key": "account.verify_email",
         "name": "Verify your email",
         "category": "account",

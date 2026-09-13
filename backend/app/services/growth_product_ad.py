@@ -64,6 +64,9 @@ def creative(hook="opinion"):
 
 def validate(item):
     p = item["payload"]
+    if p.get("campaign_id") == "daily_research_v1":
+        from app.services.growth_daily_video import validate as validate_daily
+        return validate_daily(item)
     if p.get("campaign_id") == "nvda_navigation_v4":
         from app.services.growth_navigation_ad import validate as validate_navigation
         return validate_navigation(item)

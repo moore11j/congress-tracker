@@ -8,6 +8,9 @@ from app.services.growth_video_media import AssetStore, ElevenLabsNarration
 
 def advance_stage(db, item, stage, token, *, storage=None, capture=None, narrator=None, render=None):
     board=validate(item)
+    if board.get("schema_version") == 5:
+        from app.services.growth_daily_video import validate as validate_daily
+        board = validate_daily(item, db)
     data=item["payload"]
     storage=storage or AssetStore()
     data.setdefault("stage_history",[]).append({"stage":stage,"at":store.now()})
@@ -23,9 +26,9 @@ def advance_stage(db, item, stage, token, *, storage=None, capture=None, narrato
                 continue
             if capture:
                 footage,thumbnail,metadata=capture(shot)
-            elif board["schema_version"] == 4:
+            elif board["schema_version"] in {4, 5}:
                 from app.services.growth_navigation_capture import capture_navigation_shot
-                footage,thumbnail,metadata=capture_navigation_shot(shot, owner_id=item["owner_id"])
+                footage,thumbnail,metadata=capture_navigation_shot(shot, owner_id=item["owner_id"], daily=board if board["schema_version"] == 5 else None)
             elif board["schema_version"] == 3:
                 from app.services.growth_research_capture import capture_research_shot
                 footage,thumbnail,metadata=capture_research_shot(shot, owner_id=item["owner_id"])

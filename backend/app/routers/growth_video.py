@@ -1,4 +1,4 @@
-"""Admin-only video workflow inside AI Growth. No publishing endpoints."""
+"""Admin video review and publishing, plus an approved-asset delivery route."""
 from __future__ import annotations
 
 import importlib.util
@@ -18,11 +18,13 @@ from app.services.growth_video_domain import BRIEF_FIELDS, COPY, FORMATS, Strict
 from app.services.growth_video_media import AssetStore
 from app.services.growth_video_pipeline import RUNNABLE, validate_job
 from app.services.ai_marketing import OPENAI_API_KEY, resolved_setting_value
+from app.services import growth_video_automation as automation, growth_buffer as buffer
 
 
 def admin(request: Request, db=Depends(get_db)):
     user = require_admin_user(db, request)
     store.ensure_schema(db)
+    automation.ensure_schema(db)
     return user
 
 
@@ -54,6 +56,27 @@ class BriefEdit(Strict):
 
 class ConfigEdit(Strict):
     config: dict
+
+
+class AutomationEdit(Strict):
+    enabled: bool
+
+
+class Publish(Strict):
+    platforms: list[Literal["instagram", "tiktok"]] = Field(min_length=1, max_length=2)
+    caption: str = Field(min_length=1, max_length=2200)
+    reviewed_video_and_caption: bool = False
+    confirm_buffer_channel_settings: bool = False
+
+
+class Reconcile(Strict):
+    platform: Literal["instagram", "tiktok"]
+    post_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")
+
+
+class RetryPublish(Strict):
+    platform: Literal["instagram", "tiktok"]
+    confirmed_no_buffer_post: bool = False
 
 
 class MemoryEdit(Strict):
@@ -92,6 +115,7 @@ def state(db=Depends(get_db)):
         memory.append({**{k: v for k, v in r.items() if k != "payload_json"}, "payload": json.loads(r["payload_json"])})
     versions = [dict(r) for r in db.execute(text("SELECT id,created_at,actor_id FROM growth_brief_versions ORDER BY created_at DESC LIMIT 20")).mappings()]
     return {"opportunities": opportunities, "jobs": jobs, "memory": memory, "brief": store.brief(db),
+            "automation": automation.state(db),
             "brief_fields": BRIEF_FIELDS, "brief_versions": versions, "config": store.config(db), "readiness": readiness(db), "copy_library": COPY, "formats": FORMATS}
 
 
@@ -123,6 +147,57 @@ def configure(payload: ConfigEdit, db=Depends(get_db)):
     return safe_call(store.save_config, db, payload.config)
 
 
+@router.put("/automation", dependencies=MUTATION)
+def configure_automation(payload: AutomationEdit, user=Depends(admin), db=Depends(get_db)):
+    return safe_call(automation.configure, db, user.id, payload.enabled)
+
+
+@router.get("/buffer-status")
+def buffer_status(db=Depends(get_db)):
+    client = safe_call(buffer.BufferClient, db)
+    return {"channels": [safe_call(client.channel, platform) for platform in buffer.CHANNELS]}
+
+
+@router.post("/jobs/{job_id}/publish", dependencies=MUTATION)
+def publish(job_id: str, payload: Publish, user=Depends(admin), db=Depends(get_db)):
+    if not payload.reviewed_video_and_caption or not payload.confirm_buffer_channel_settings:
+        raise HTTPException(422, "Review the finished video, caption and Buffer channel publishing settings before approval.")
+    item = store.job(db, job_id)
+    result = safe_call(buffer.approve_publish, db, item, user.id, payload.platforms, payload.caption)
+    store.remember(db, item, user.id, "approve", "Approved video and caption for Buffer publishing.")
+    return result
+
+
+@router.post("/jobs/{job_id}/reconcile", dependencies=MUTATION)
+def reconcile(job_id: str, payload: Reconcile, db=Depends(get_db)):
+    row = next((p for p in buffer.publications(db, job_id) if p["platform"] == payload.platform), None)
+    if not row or row["status"] not in {"UNCERTAIN", "FAILED"}:
+        raise HTTPException(409, "Only an uncertain or failed submission can be reconciled.")
+    client = safe_call(buffer.BufferClient, db)
+    post = safe_call(client.post, payload.post_id)
+    full = safe_call(client.query, "query($input:PostInput!){post(input:$input){text}}", {"input": {"id": payload.post_id}})["post"]
+    if full["text"] != row["caption"]:
+        raise HTTPException(422, "This Buffer post's caption does not match the approved caption.")
+    if post["channelId"] != buffer.CHANNELS[payload.platform]:
+        raise HTTPException(422, "This post belongs to a different channel.")
+    buffer.update(db, row, buffer.post_status(post), post=post)
+    return buffer.publications(db, job_id)
+
+
+@router.post("/jobs/{job_id}/retry-publish", dependencies=MUTATION)
+def retry_publish(job_id: str, payload: RetryPublish, db=Depends(get_db)):
+    if not payload.confirmed_no_buffer_post:
+        raise HTTPException(422, "Check the Buffer queue and sent posts, then confirm no post exists before retrying.")
+    safe_call(validate_job, db, store.job(db, job_id))
+    result = db.execute(text("""UPDATE growth_video_publications SET status='QUEUED',error=NULL,updated_at=:at
+        WHERE job_id=:job AND platform=:platform AND status IN ('FAILED','UNCERTAIN') AND post_id IS NULL"""),
+        {"job": job_id, "platform": payload.platform, "at": store.now()})
+    db.commit()
+    if not result.rowcount:
+        raise HTTPException(409, "This post cannot be resubmitted. Manage confirmed Buffer posts in Buffer.")
+    return buffer.publications(db, job_id)
+
+
 @router.put("/memory/{memory_id}", dependencies=MUTATION)
 def memory_edit(memory_id: str, payload: MemoryEdit, user=Depends(admin), db=Depends(get_db)):
     row = db.execute(text("SELECT payload_json FROM growth_memory WHERE id=:id"), {"id": memory_id}).first()
@@ -150,16 +225,25 @@ def product_ad(payload: ProductAd, user=Depends(admin), db=Depends(get_db)):
 
 @router.post("/jobs/{job_id}/decision", dependencies=MUTATION)
 def decision(job_id: str, payload: Decision, user=Depends(admin), db=Depends(get_db)):
+    buffer.ensure_schema(db)
     item = store.job(db, job_id)
     if item["lease_token"]:
         raise HTTPException(409, "This draft is processing. Wait for its current stage to finish.")
     action = payload.action
+    if buffer.publications(db, job_id):
+        raise HTTPException(409, "Publishing has started. Manage or cancel the post in Buffer; this approved asset is retained for delivery.")
     if action in {"edit", "regenerate"}:
         if item["status"] in RUNNABLE or item["status"] in {"CREATIVE_GENERATING", "CAPTURING"}:
             raise HTTPException(409, "Wait for the active draft to finish before creating a revision.")
         if item["payload"].get("campaign_id"):
             if action=="edit":
                 raise HTTPException(422,"Product campaigns use reviewed scripts. Choose a hook in Content Opportunities to create another direction.")
+            if item["payload"]["campaign_id"] == "daily_research_v1":
+                from app.services.growth_daily_video import create_job
+                source = safe_call(store.research_source, db, item["payload"]["research_source"]["id"])
+                child = safe_call(create_job, db, source, user.id, parent=item, feedback=payload.feedback)
+                store.remember(db, item, user.id, action, payload.feedback)
+                return child
             from app.services.growth_product_ad import create_job
             child=safe_call(create_job,db,user.id,item["payload"]["platform"],item["payload"]["product_hook"],parent=item,feedback=payload.feedback)
             store.remember(db,item,user.id,action,payload.feedback)
@@ -223,3 +307,47 @@ def media(job_id: str, download: bool = False, db=Depends(get_db)):
                 "thumbnail_url": storage.url(assets["thumbnail"]) if assets.get("thumbnail") else None}
     except (ValueError, ImportError):
         raise HTTPException(503, "Private asset storage is not configured on this server.") from None
+
+
+# Buffer fetches only the final, explicitly approved video. Captures, audio and
+# thumbnails remain private. The bucket itself is never made public.
+public_router = APIRouter(tags=["growth-video-delivery"])
+
+
+@public_router.api_route("/growth-video-media/{token}", methods=["GET", "HEAD"])
+def public_media(token: str, request: Request, db=Depends(get_db)):
+    import re
+    from fastapi.responses import Response, StreamingResponse
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+        raise HTTPException(404, "Media unavailable.")
+    try:
+        asset = buffer.media_asset(db, token)
+    except ValueError:
+        raise HTTPException(404, "Media unavailable.") from None
+    storage = AssetStore()
+    size = asset["bytes"]
+    headers = {"Accept-Ranges": "bytes", "Content-Type": "video/mp4", "Cache-Control": "private, no-store",
+               "X-Robots-Tag": "noindex, nofollow", "Content-Disposition": 'inline; filename="walnut-video.mp4"'}
+    start, end, status = 0, size - 1, 200
+    value = request.headers.get("range")
+    if value:
+        match = re.fullmatch(r"bytes=(\d*)-(\d*)", value)
+        if not match or not any(match.groups()):
+            raise HTTPException(416, "Invalid range.", headers={"Content-Range": f"bytes */{size}"})
+        left, right = match.groups()
+        start = int(left) if left else max(0, size - int(right))
+        end = min(int(right), size - 1) if left and right else size - 1
+        if start > end or start >= size:
+            raise HTTPException(416, "Invalid range.", headers={"Content-Range": f"bytes */{size}"})
+        status = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    headers["Content-Length"] = str(end - start + 1)
+    if request.method == "HEAD":
+        return Response(status_code=status, headers=headers)
+    result = storage.client.get_object(Bucket=storage.bucket, Key=asset["object_key"], Range=f"bytes={start}-{end}")
+    def chunks():
+        try:
+            yield from result["Body"].iter_chunks(chunk_size=1024 * 1024)
+        finally:
+            result["Body"].close()
+    return StreamingResponse(chunks(), status_code=status, headers=headers, media_type="video/mp4")

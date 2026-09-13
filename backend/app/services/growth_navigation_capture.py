@@ -139,14 +139,21 @@ class Recorder:
    raise ValueError(f"Scroll did not reveal {loc.inner_text()[:70]} (y={round(landed['y'])}).")
 
 
-def capture_navigation_shot(shot,*,owner_id,session_token=None):
+def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  from playwright.sync_api import sync_playwright
  import imageio_ffmpeg
- if shot not in SHOTS or owner_id is None:raise ValueError('Authorized navigation capture required.')
+ shots={'daily_search','daily_insights','daily_brief','daily_takeaway'} if daily else SHOTS
+ if shot not in shots or owner_id is None:raise ValueError('Authorized navigation capture required.')
+ ticker=daily['ticker'] if daily else 'NVDA'
+ ticker_url=f'https://app.walnutmarkets.com/ticker/{ticker}' if daily else TICKER_URL
+ brief_url=daily['target_url'] if daily else BRIEF_URL
+ brief_path=urlsplit(brief_url).path
+ source_title=daily['source_research_title'] if daily else SOURCE_TITLE
  if session_token is None:
   from app.auth import sign_session_payload
   session_token=sign_session_payload({'uid':owner_id,'exp':int(time.time())+900})
  initial=INSIGHTS_URL if shot in {'v4_search','v4_brief'} else INSTITUTION_URL if shot in {'v4_filings','v4_insights'} else TICKER_URL
+ if daily:initial=INSIGHTS_URL if shot in {'daily_search','daily_brief'} else ticker_url if shot=='daily_insights' else brief_url
  with tempfile.TemporaryDirectory(prefix='walnut-navigation-') as folder,sync_playwright() as pw:
   root=Path(folder);browser=pw.chromium.launch(headless=True)
   context=browser.new_context(viewport=VIEWPORT,device_scale_factor=1,color_scheme='dark',locale='en-US',timezone_id='UTC')
@@ -154,16 +161,20 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None):
   context.add_cookies([{'name':name,'value':value,'domain':host,'path':'/','secure':True} for host in ['app.walnutmarkets.com','walnutmarkets.com'] for name,value in [('ct_auth_hint','1'),('walnut_privacy_consent','v1.a0.m0')]])
   page=context.new_page();search_requests=[]
   page.on('response',lambda response:search_requests.append({'path':urlsplit(response.url).path,'status':response.status}) if 'search' in urlsplit(response.url).path else None)
-  allowed_paths={urlsplit(u).path for u in [TICKER_URL,INSTITUTION_URL,INSIGHTS_URL,BRIEF_URL]}
+  allowed_paths={urlsplit(u).path for u in [ticker_url,INSTITUTION_URL,INSIGHTS_URL,brief_url]}
   def guard(route):
    p=urlsplit(route.request.url)
    if p.scheme in {'http','https'}:
     if p.hostname not in {'app.walnutmarkets.com','walnutmarkets.com','api.walnutmarkets.com','congress-tracker-api.fly.dev','fonts.googleapis.com','fonts.gstatic.com'}:return route.abort()
     if route.request.method not in {'GET','HEAD','OPTIONS'}:return route.abort()
-    if p.path.startswith('/api/') and not (p.path in {'/api/auth/me','/api/entitlements','/api/events'} or p.path.startswith(('/api/tickers/NVDA','/api/ticker/NVDA','/api/tickers/SPY','/api/institutions/0001462245','/api/search/','/api/research/','/api/insights/','/api/market','/api/macro'))):return route.abort()
+    if p.path.startswith('/api/') and not (p.path in {'/api/auth/me','/api/entitlements','/api/events'} or p.path.startswith((f'/api/tickers/{ticker}',f'/api/ticker/{ticker}','/api/tickers/SPY','/api/institutions/0001462245','/api/search/','/api/research/','/api/insights/','/api/market','/api/macro'))):return route.abort()
    if route.request.is_navigation_request() and route.request.frame==page.main_frame and p.path not in allowed_paths:return route.abort()
    route.continue_()
   page.route('**/*',guard)
+  if daily:
+   identity=context.request.get('https://api.walnutmarkets.com/api/auth/me',timeout=30000)
+   user=(identity.json().get('user') or {}) if identity.status==200 else {}
+   if user.get('id')!=owner_id or user.get('role')!='admin':raise ValueError('Admin capture session could not be verified.')
   response=page.goto(initial,wait_until='domcontentloaded',timeout=60000)
   if not response or response.status!=200:raise ValueError('Navigation source is unavailable.')
   page.get_by_role('combobox',name='Global search').wait_for(timeout=60000)
@@ -186,8 +197,31 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None):
    loc.evaluate("(e,top)=>window.scrollTo({top:window.scrollY+e.getBoundingClientRect().top-top,behavior:'instant'})",top)
    page.wait_for_timeout(350)
   def ready_briefs():
-   briefs.locator('a[href$="'+BRIEF_PATH+'"]').wait_for(timeout=60000)
-  if shot=='v4_search':
+   briefs.locator('a[href$="'+brief_path+'"]').wait_for(timeout=60000)
+  if shot=='daily_search':
+   r.hold(4);r.mark('Search')
+   search=page.get_by_role('combobox',name='Global search');r.click(search,'Global search')
+   search.fill(ticker);r.hold(5)
+   result=page.get_by_role('option').filter(has_text=re.compile(r'\b'+re.escape(ticker)+r'\b')).first
+   result.wait_for(timeout=30000);r.click(result,'Open '+ticker)
+   page.get_by_role('heading',level=1).filter(has_text=ticker).wait_for(timeout=60000)
+   page.wait_for_timeout(1200);r.hold(15)
+  elif shot=='daily_insights':
+   r.hold(3);r.mark('Click Insights');r.click(page.get_by_role('link',name='Insights',exact=True),'Insights')
+   ready_briefs();page.wait_for_timeout(900);r.hold(3);r.mark('scroll');r.scroll_to(briefs,steps=26)
+   r.circle(briefs.get_by_role('heading',name=re.compile('^Research Briefs$',re.I)))
+  elif shot=='daily_brief':
+   ready_briefs();position(briefs);r.hold(3);r.mark('Open the brief')
+   r.click(briefs.locator('a[href$="'+brief_path+'"]'),'Published research brief')
+   heading=page.get_by_role('heading',level=1,name=source_title,exact=True);heading.wait_for(timeout=60000)
+   page.wait_for_timeout(700);r.hold(15);source_text.append(heading.inner_text())
+  elif shot=='daily_takeaway':
+   page.get_by_role('heading',level=1,name=source_title,exact=True).wait_for(timeout=60000)
+   takeaway=page.get_by_text(daily['source_excerpt'],exact=False).filter(visible=True).first
+   takeaway.wait_for(timeout=30000);r.hold(3);r.scroll_to(takeaway,top=210,steps=22)
+   r.move(takeaway);r.hold(20);source_text.append(takeaway.inner_text())
+   b=r.box(takeaway);r.camera={'x':max(0,b['x']-20),'y':max(0,b['y']-70),'width':min(1000,b['width']+40),'height':min(700,b['height']+180)};r.hold(12)
+  elif shot=='v4_search':
    r.hold(8);r.mark('Search')
    search=page.get_by_role('combobox',name='Global search');r.click(search,'Global search')
    for char in 'NVDA':search.press_sequentially(char);r.hold(2)

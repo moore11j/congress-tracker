@@ -11,9 +11,10 @@ class CinematicStyle:
     def __init__(self, size, brightness=1.0, background=BACKGROUND):
         self.w, self.h = size
         self.brightness = brightness
-        self.background = Path(background)
-        self.plate = ImageOps.fit(Image.open(self.background).convert('RGB'),
+        self.background = Path(background) if background else None
+        self.plate = (ImageOps.fit(Image.open(self.background).convert('RGB'),
                                  (self.w + 100, self.h + 160), method=Image.Resampling.LANCZOS)
+                      if self.background else Image.new('RGB', (self.w + 100, self.h + 160), '#102327'))
         self.veil = Image.new('RGBA', size, (2, 6, 23, 95))
         draw = ImageDraw.Draw(self.veil)
         for y in range(1480, self.h):

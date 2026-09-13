@@ -47,6 +47,7 @@ def navigation_crop(shot,index,asset):
  explicit=frame['camera']
  if explicit['height']!=asset['viewport']['height']:return explicit
  full={'x':0,'y':0,'width':1040,'height':1000}
+ if shot.startswith('daily_'):return full
  if shot=='v4_search':
   if '/ticker/NVDA' in frame['page_url']:return {'x':0,'y':0,'width':880,'height':846}
   return {'x':700,'y':0,'width':340,'height':310}
@@ -76,6 +77,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
  if presentation.startswith('cinematic_'):
   from app.services.growth_cinematic_style import BACKGROUND,NVIDIA_BACKGROUND,CinematicStyle,entrance_offset,tight_caption
   background=NVIDIA_BACKGROUND if presentation=='cinematic_v3' and creative.get('campaign_id')=='nvda_navigation_v4' else BACKGROUND
+  if creative.get('schema_version')==5:background=NVIDIA_BACKGROUND if creative.get('ticker')=='NVDA' else None
   cinema=CinematicStyle((W,H),brightness=.45 if refined else 1.0,background=background)
  ffmpeg=imageio_ffmpeg.get_ffmpeg_exe();scenes,captions,duration=timeline(creative,audio)
  expected={s['shot'] for s in scenes if s['walnut_url']}
@@ -138,12 +140,12 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       else:im.paste(pic,(px,py))
       d=ImageDraw.Draw(im)
       if not cinema:d.rounded_rectangle((px-2,py-2,px+dw+2,py+dh+2),radius=8,outline='#334155',width=2)
-      centered(d,'Actual Walnut navigation · Selected figures obscured',1479,brand_font(19),MUTED)
+      centered(d,'Actual Walnut navigation · Published research' if creative.get('schema_version')==5 else 'Actual Walnut navigation · Selected figures obscured',1479,brand_font(19),MUTED)
      else:
       centered(d,'Walnut Markets',335,brand_font(68,True),WHITE)
       im.paste(logo.resize((280,280),Image.Resampling.LANCZOS),(400,640));d=ImageDraw.Draw(im)
       centered(d,creative['brand_tagline'].replace('. ','.\n',1),1020,brand_font(61,True),WHITE,max_width=820)
-      centered(d,'NVIDIA links in the comments',1220,brand_font(31),MINT)
+      centered(d,creative['cta'] if creative.get('schema_version')==5 else 'NVIDIA links in the comments',1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
      if caption:
       if refined:
@@ -169,4 +171,4 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
    'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
    'presentation':presentation,'background_brightness':.45 if refined else 1.0,
    'caption_box':'text_bounds_16x10_padding' if refined else 'fixed',
-   'background_asset':cinema.background.name if cinema else None,'background_is_illustrative':bool(cinema)}
+   'background_asset':cinema.background.name if cinema and cinema.background else None,'background_is_illustrative':bool(cinema)}

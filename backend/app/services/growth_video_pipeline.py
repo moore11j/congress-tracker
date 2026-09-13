@@ -92,6 +92,10 @@ def board_only(creative):
 
 
 def validate_job(db, item):
+    if item["payload"].get("campaign_id") == "daily_research_v1":
+        from app.services.growth_daily_video import validate
+        validate(item, db)
+        return store.opportunity(db, item["opportunity_id"]), []
     if item["payload"].get("campaign_id"):
         from app.services.growth_product_ad import validate
         validate(item)

@@ -237,6 +237,10 @@ function emptyRedditThreadForm() {
 
 export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  useEffect(() => {
+    const target = new URLSearchParams(window.location.search).get("growth_tab");
+    if (target === "drafts" || target === "video_settings") setActiveTab(target);
+  }, []);
   const [drafts, setDrafts] = useState<AdminAiMarketingOpportunity[]>([]);
   const [campaigns, setCampaigns] = useState<AdminAiMarketingCampaign[]>([]);
   const [config, setConfig] = useState<AdminAiMarketingConfig | null>(null);

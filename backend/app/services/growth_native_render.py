@@ -89,7 +89,7 @@ def centered(draw, text, y, fnt, fill, *, max_width=900, line_height=None):
 
 
 def render_product_video(creative, captures, audio, read_asset):
-    if creative.get("schema_version") == 4:
+    if creative.get("schema_version") in {4, 5}:
         from app.services.growth_navigation_render import render_navigation_video
         return render_navigation_video(creative, captures, audio, read_asset)
     if creative.get("schema_version") == 3:
