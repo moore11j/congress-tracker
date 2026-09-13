@@ -17,9 +17,12 @@ export type InsiderPublicProfile = {
 export const loadPublicInsiderProfile = cache(async (
   reportingCik: string, lookbackDays: number, issuer: string | undefined, page: number, stalePageCache: boolean,
 ): Promise<InsiderPublicProfile> => {
+  // Cold public reads can legitimately exceed the interactive 4.5-second
+  // budget. Let the persistent cache fill instead of discarding valid identity.
+  const read = <T,>(promise: Promise<T>, label: string) => stalePageCache ? promise : withServerTimeout(promise, label);
   const [summary, trades] = await Promise.allSettled([
-    withServerTimeout(getInsiderSummary(reportingCik, lookbackDays, issuer, { source: "InsiderPublicProfile", stalePageCache }), "Insider summary"),
-    withServerTimeout(getInsiderTrades(reportingCik, lookbackDays, 20, issuer, { page, source: "InsiderPublicTrades", stalePageCache }), "Insider trades"),
+    read(getInsiderSummary(reportingCik, lookbackDays, issuer, { source: "InsiderPublicProfile", stalePageCache }), "Insider summary"),
+    read(getInsiderTrades(reportingCik, lookbackDays, 20, issuer, { page, source: "InsiderPublicTrades", stalePageCache }), "Insider trades"),
   ]);
   if (summary.status === "rejected") {
     const missing = summary.reason instanceof ApiError && summary.reason.status === 404;

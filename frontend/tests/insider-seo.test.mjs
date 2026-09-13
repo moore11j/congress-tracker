@@ -19,7 +19,7 @@ const publicSummary = {
 };
 const trade = { symbol: "WHF", trade_type: "Purchase", filing_date: "2026-08-01", transaction_date: "2026-07-30" };
 
-function harness({ summary = publicSummary, trades = [trade], failure, auth = false, env = "production" } = {}) {
+function harness({ summary = publicSummary, trades = [trade], failure, auth = false, env = "production", shortTimeout = false } = {}) {
   const calls = [];
   class ApiError extends Error { constructor(status) { super(`HTTP ${status}`); this.status = status; } }
   const api = {
@@ -38,6 +38,7 @@ function harness({ summary = publicSummary, trades = [trade], failure, auth = fa
       exports, console, URL, URLSearchParams, Headers, setTimeout, clearTimeout, process: { env: { VERCEL_ENV: env } },
       require(name) {
         if (name === "@/lib/api") return api;
+        if (name === "@/lib/serverTimeout" && shortTimeout) return { withServerTimeout: async () => { throw new Error("Interactive timeout"); } };
         if (name === "next/headers") return { headers: async () => new Headers() };
         if (name === "next/navigation") return { notFound: () => { throw new Error("NEXT_NOT_FOUND"); }, redirect: (url) => { throw new Error(`NEXT_REDIRECT:${url}`); } };
         if (name === "next/link") return { default: ({ children, href }) => React.createElement("a", { href }, children) };
@@ -68,6 +69,14 @@ async function html(element) {
   });
 }
 const canonical = `https://app.walnutmarkets.com/insider/${slug}`;
+
+test("public identity reads are not discarded by the short interactive timeout", async () => {
+  const { load } = harness({ shortTimeout: true });
+  const metadata = await load("app/insider/[slug]/page.tsx").generateMetadata(props());
+  assert.equal(metadata.robots.index, true);
+  const interactive = await load("lib/insiderSeo.ts").loadPublicInsiderProfile(cik, 90, undefined, 0, false);
+  assert.equal(interactive.retryable, true);
+});
 
 test("substantive clean insider metadata uses the resolved public profile and self canonical", async () => {
   const { load } = harness();
