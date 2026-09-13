@@ -52,8 +52,14 @@ def render_research_video(creative,captures,audio,read_asset):
    decoded[shot]=(raw,w,h,size,count)
   def footage(shot,phase):
    raw,w,h,size,count=decoded[shot]
+   index=min(count-1,int(phase*(count-1)))
    with raw.open('rb') as f:
-    f.seek(min(count-1,int(phase*(count-1)))*size);im=Image.frombytes('RGB',(w,h),f.read(size))
+    f.seek(index*size);im=Image.frombytes('RGB',(w,h),f.read(size))
+   cursor=captures[shot].get('cursor_path',[])
+   if cursor:
+    # Browser screenshots omit the pointer; restore its recorded coordinates.
+    x,y=cursor[min(index,len(cursor)-1)];d=ImageDraw.Draw(im)
+    d.polygon([(x,y),(x+2,y+23),(x+8,y+17),(x+15,y+28),(x+20,y+25),(x+13,y+14),(x+23,y+13)],fill='#f8fafc',outline='#020617',width=2)
    panels=captures[shot]['focus_panels'];pieces=[]
    for p in panels:pieces.append(im.crop((p['x'],p['y'],p['x']+p['width'],p['y']+p['height'])))
    if len(pieces)==1:return pieces[0]

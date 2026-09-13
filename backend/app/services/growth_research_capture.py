@@ -63,6 +63,11 @@ def capture_research_shot(shot, *, owner_id, session_token=None):
   page.evaluate('window.scrollBy(0,-100)')
   page.evaluate('Promise.race([document.fonts.ready,new Promise(r=>setTimeout(r,3000))])')
   page.wait_for_timeout(1500)
+  if shot=='v3_history':
+   # The preceding holdings table can expand during hydration. Position again
+   # after it settles so the actual filing row stays inside the source window.
+   target.evaluate("e=>e.scrollIntoView({block:'end'})")
+   page.wait_for_timeout(500)
   source=target.inner_text()
   if re.search(r'Unlock with|Sign in to unlock',source,re.I):raise ValueError('Research capture is gated.')
   def box(locator):
@@ -86,19 +91,22 @@ def capture_research_shot(shot, *, owner_id, session_token=None):
   elif shot=='v3_profile':
    panels=[{'x':b['x'],'y':b['y'],'width':min(b['width'],950),'height':118}]
   else:
-   panels=[{'x':b['x'],'y':b['y'],'width':b['width'],'height':min(b['height'],760)}]
+   panels=[{'x':b['x'],'y':b['y'],'width':min(b['width'],630) if shot=='v3_history' else b['width'],'height':min(b['height'],760)}]
+  if shot=='v3_history' and b['y']+b['height']>VIEWPORT['height']+2:
+   raise ValueError('Filing history row is outside the recording viewport.')
   panels=[{k:int(v) for k,v in p.items()} for p in panels]
   for p in panels:
    p['x']=max(0,p['x']);p['y']=max(0,p['y']);p['width']=min(p['width'],1040-p['x']);p['height']=min(p['height'],1100-p['y']-20)
    if min(p['width'],p['height'])<50:raise ValueError('Research focus does not fit viewport.')
   thumb=page.screenshot(animations='disabled')
-  deadline=time.monotonic()+240
+  deadline=time.monotonic()+240;cursor_path=[]
   for frame in range(72):
    if time.monotonic()>deadline:raise ValueError('Research recording exceeded time budget.')
    if shot=='v3_chart':
     c=box(target.locator('canvas').first);page.mouse.move(c['x']+c['width']*(.15+.7*frame/72),c['y']+c['height']*.4)
    else:
-    p=panels[0];page.mouse.move(p['x']+p['width']*.6,p['y']+min(p['height']*.75,55+frame*1.8))
+    p=panels[0];cx=p['x']+p['width']*.6;cy=p['y']+min(p['height']*.75,55+frame*1.8)
+    page.mouse.move(cx,cy);cursor_path.append([cx,cy])
     if shot=='v3_ownership' and frame>15 and frame<45:page.mouse.wheel(0,1)
    page.screenshot(path=str(root/f'frame-{frame:03}.png'),animations='disabled',timeout=20000)
   context.close();browser.close()
@@ -106,6 +114,6 @@ def capture_research_shot(shot, *, owner_id, session_token=None):
   subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-y','-v','error','-framerate','12','-i',str(root/'frame-%03d.png'),'-c:v','libx264','-crf','16','-preset','veryfast','-pix_fmt','yuv420p',str(output)],check=True,capture_output=True,timeout=120)
   return output.read_bytes(),thumb,{'page_url':url,'page_title':'NVIDIA' if url==TICKER_URL else 'Hightower Advisors, LLC',
    'component':shot,'captured_at':now(),'viewport':VIEWPORT,'crop':{'x':0,'y':0,**VIEWPORT},'focus_panels':panels,
-   'media_type':'video/mp4','trim_start':0,'frame_rate':12,'clip_duration':6,'capture_method':'real_browser_frames',
+   'media_type':'video/mp4','trim_start':0,'frame_rate':12,'clip_duration':6,'capture_method':'real_browser_frames','cursor_path':cursor_path,
    'source_text':source[:16000],'source_hash':digest(source),'authorized_product_demo':True,'public_context':False,
    'focus_note':'Original browser pixels magnified. Dollar/share fields excluded due to source QA; no values rewritten.'}
