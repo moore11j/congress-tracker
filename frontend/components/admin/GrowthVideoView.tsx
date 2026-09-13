@@ -51,7 +51,7 @@ type Creative = Board & {
   target_url: string;
   target_duration_seconds: number;
   warnings: string[];
-  alternate_hooks: string[];
+  alternate_hooks?: string[];
   storyboard: Array<Scene & { narration: string; evidence_ids: string[] }>;
 };
 type VideoJob = {
@@ -774,7 +774,7 @@ function VideoCard({
               <p className="text-xs text-slate-400">
                 Data as of {opportunity?.factual_data_timestamp}
               </p>
-              <p>Alternate hooks: {creative.alternate_hooks.join(" / ")}</p>
+              {creative.alternate_hooks?.length ? <p>Alternate hooks: {creative.alternate_hooks.join(" / ")}</p> : null}
               {creative.warnings?.map((warning)=><p key={warning} className="text-xs text-amber-100">{warning}</p>)}
               {item.payload.campaign_id ? Object.entries(item.payload.captures ?? {}).map(([shot, capture]) => (
                 <details key={shot} className="rounded border border-white/10 p-2">
