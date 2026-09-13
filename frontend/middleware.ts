@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isBioguideId, nameToSlug } from "./lib/memberSlug";
 import { isApprovedSeoPilotPath } from "./lib/seoQuality";
+import { departmentHref } from "./lib/departments";
 
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
@@ -496,6 +497,16 @@ async function routeRequest(request: NextRequest) {
     marketingUrl.hostname = canonicalMarketingHost;
     marketingUrl.port = "";
     return NextResponse.redirect(marketingUrl, 307);
+  }
+
+  const departmentMatch = pathname.match(/^\/departments\/([A-Za-z0-9_-]+)\/?$/);
+  if (host === appHost && departmentMatch) {
+    const canonicalPath = departmentHref(departmentMatch[1]);
+    if (canonicalPath && canonicalPath !== pathname) {
+      const target = request.nextUrl.clone();
+      target.pathname = canonicalPath;
+      return NextResponse.redirect(target, 308);
+    }
   }
 
   if (publicLandingHosts.has(host) && !publicStaticPaths.has(pathname) && !isPublicResearchRoute(pathname) && !isPublicComparisonRoute(pathname) && !publicAccountPaths.has(pathname)) {

@@ -111,6 +111,17 @@ test("FAQ aliases permanently redirect in one hop and its marketing destination 
   assert.doesNotMatch(await robots.text(), /Disallow: \/(?:faq)?\s*$/m);
 });
 
+test("department underscore aliases receive a real permanent redirect before rendering", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const origin = "https://app.walnutmarkets.com";
+  for (const ua of ["Googlebot", "Mozilla/5.0 Chrome/130.0.0.0"]) {
+    const response = await middleware(new NextRequest(`${origin}/departments/national_science_foundation?utm_source=test`, { headers: { host: "app.walnutmarkets.com", "user-agent": ua } }));
+    assert.equal(response.status, 308);
+    assert.equal(response.headers.get("location"), `${origin}/departments/national-science-foundation?utm_source=test`);
+  }
+});
+
 test("marketing hostname normalization remains consistent without moving other app-owned pages", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");
