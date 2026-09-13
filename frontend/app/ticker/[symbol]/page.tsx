@@ -318,9 +318,13 @@ const loadTickerPageContext = cache(async (
         }));
 
 const loadPublicTickerSnapshot = cache(async (symbol: string) =>
-  getSeoSnapshot("ticker", symbol, { source: "TickerMetadataSnapshot", signal: AbortSignal.timeout(2500) })
+  getSeoSnapshot("ticker", symbol, { source: "TickerMetadataSnapshot", stalePageCache: true })
     .then((response) => response.snapshot)
-    .catch(() => null),
+    .catch((error) => {
+      if (error instanceof ApiError && error.status === 404) return null;
+      // A slow API is not evidence that a listed ticker should be de-indexed.
+      throw error;
+    }),
 );
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {

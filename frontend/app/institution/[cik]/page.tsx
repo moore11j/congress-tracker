@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
+  ApiError,
   getInstitutionActivity,
   getInstitutionFilings,
   getInstitutionHoldings,
@@ -67,13 +68,10 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
       alternates: { canonical: appCanonicalUrl(canonicalPath) },
       openGraph: { type: "profile", title, description, url: appCanonicalUrl(canonicalPath) },
     });
-  } catch {
-    const title = "Institutional Holdings & Portfolio Changes | Walnut Markets";
-    return {
-      ...noindexFollowMetadata(title, "Research reported 13F holdings, filing history, and institutional portfolio changes in Walnut Markets."),
-      metadataBase: new URL(WALNUT_APP_URL),
-      alternates: { canonical: appCanonicalUrl(canonicalPath) },
-    };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    // Availability failures must not become a cached de-indexing directive.
+    throw error;
   }
 }
 

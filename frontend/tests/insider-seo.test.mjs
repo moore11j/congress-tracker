@@ -92,7 +92,7 @@ test("thin, unresolved, mismatched and unavailable profiles cannot inherit index
     { summary: { ...publicSummary, total_trades: 0, unique_tickers: 0, latest_filing_date: null, latest_transaction_date: null }, trades: [] },
     { summary: { ...publicSummary, insider_name: "Unknown Insider" } },
     { summary: { ...publicSummary, reporting_cik: "0000000001" } },
-    { summary: { ...publicSummary, status: "loading" } }, { failure: 503 },
+    { summary: { ...publicSummary, status: "loading" } },
   ]) {
     const metadata = await harness(options).load("app/insider/[slug]/page.tsx").generateMetadata(props());
     assert.equal(metadata.robots.index, false); assert.equal(metadata.robots.follow, true);
@@ -101,6 +101,7 @@ test("thin, unresolved, mismatched and unavailable profiles cannot inherit index
 });
 
 test("invalid routes and genuine API 404s use missing handling while outages remain unavailable", async () => {
+  await assert.rejects(harness({ failure: 503 }).load("app/insider/[slug]/page.tsx").generateMetadata(props()), /metadata temporarily unavailable/);
   await assert.rejects(harness().load("app/insider/[slug]/page.tsx").generateMetadata(props({}, "not-a-cik")), /NEXT_NOT_FOUND/);
   await assert.rejects(harness({ failure: 404 }).load("app/insider/[slug]/page.tsx").generateMetadata(props()), /NEXT_NOT_FOUND/);
   await assert.rejects(harness().load("app/insider/[slug]/page.tsx").default(props({}, "not-a-cik")), /NEXT_NOT_FOUND/);

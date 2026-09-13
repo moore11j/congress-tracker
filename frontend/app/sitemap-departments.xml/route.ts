@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDepartments } from "@/lib/api";
-import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
+import { sitemapUrlset } from "@/lib/seoQuality";
+import { departmentHref } from "@/lib/departments";
 
 const APP_URL = "https://app.walnutmarkets.com";
 const DEFAULT_LASTMOD = "2026-08-01";
@@ -14,11 +15,15 @@ export async function GET() {
       .filter((item) => item.slug && item.contractCount > 0 && item.linkedTickerCount > 0)
       .map((item) => ({
         type: "department" as const,
-        path: `/departments/${encodeURIComponent(item.slug)}`,
+        path: departmentHref(item.name)!,
         lastmod: safeDepartmentLastmod(item.latestAwardDate),
         rationale: "Public department profile with mapped government-contract exposure.",
       })))
-    .catch(() => seoPilotPages.departments);
+    .catch(() => null);
+
+  if (!pages) return new NextResponse("Department sitemap temporarily unavailable", {
+    status: 503, headers: { "cache-control": "no-store", "retry-after": "300" },
+  });
 
   return new NextResponse(sitemapUrlset(APP_URL, pages), {
     headers: {

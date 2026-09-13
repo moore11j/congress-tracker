@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { MemberAnalyticsClient } from "@/components/member/MemberAnalyticsClient";
 import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import {
+  ApiError,
   getMemberAlphaSummary,
   getMemberProfile,
   getMemberProfileBySlug,
@@ -204,11 +205,19 @@ function VerifiedBadge() {
   );
 }
 
+const loadPublicMemberProfile = cache(async (slug: string) => {
+  try {
+    return await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberPublicProfile", stalePageCache: true });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
+});
+
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
-  const profile = await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberMetadataProfile", stalePageCache: true })
-    .catch(() => null);
+  const profile = await loadPublicMemberProfile(slug);
   const memberName = profileMemberName(profile?.member?.name, slug);
   const canonicalSlug = nameToSlug(memberName);
   const canonicalPath = `/member/${encodeURIComponent(canonicalSlug)}`;
@@ -254,7 +263,9 @@ export default async function MemberPage({ params, searchParams }: Props) {
     redirect(`/member/${cleanSlug}${query ? `?${query}` : ""}`);
   }
 
-  const data = await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberProfile", stalePageCache: publicStalePageCache });
+  const data = publicStalePageCache
+    ? await loadPublicMemberProfile(slug)
+    : await getMemberProfileBySlug(slug, { include_trades: true, source: "MemberProfile", stalePageCache: publicStalePageCache });
   const memberName = profileMemberName(data.member.name, slug);
   const canonicalSlug = nameToSlug(memberName);
   if (slug !== canonicalSlug) {

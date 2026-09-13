@@ -9,6 +9,7 @@ export type InsiderPublicProfile = {
   status: "ready" | "unavailable" | "missing";
   summary: InsiderSummary | null;
   trades: Awaited<ReturnType<typeof getInsiderTrades>> | null;
+  retryable?: boolean;
 };
 
 // Share exactly the public data used in the rendered profile with metadata.
@@ -21,7 +22,8 @@ export const loadPublicInsiderProfile = cache(async (
     withServerTimeout(getInsiderTrades(reportingCik, lookbackDays, 20, issuer, { page, source: "InsiderPublicTrades", stalePageCache }), "Insider trades"),
   ]);
   if (summary.status === "rejected") {
-    return { status: summary.reason instanceof ApiError && summary.reason.status === 404 ? "missing" : "unavailable", summary: null, trades: null };
+    const missing = summary.reason instanceof ApiError && summary.reason.status === 404;
+    return { status: missing ? "missing" : "unavailable", summary: null, trades: null, retryable: !missing };
   }
   if (summary.value.reporting_cik !== reportingCik) return { status: "unavailable", summary: null, trades: null };
   const availability = summary.value as InsiderSummary & { locked?: boolean; status?: string; availability_status?: string };
@@ -47,6 +49,7 @@ export function insiderCanonicalSlug(slug: string, profile: InsiderPublicProfile
 }
 
 export function insiderProfileMetadata(slug: string, sp: Record<string, string | string[] | undefined>, profile: InsiderPublicProfile) {
+  if (profile.retryable) throw new Error("Public insider metadata temporarily unavailable");
   const cik = reportingCikFromInsiderSlug(slug);
   const name = profile.status === "ready" && profile.summary?.reporting_cik === cik ? resolvedInsiderName(profile.summary) : null;
   const substantive = Boolean(name && insiderHasIndexableContent(profile.summary, profile.trades?.items));

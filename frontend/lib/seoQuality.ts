@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { sitemapCorrections } from "@/lib/sitemapCorrections";
 import type { MemberProfile, TickerProfile } from "@/lib/types";
 import type { DepartmentProfileResponse, InsiderSummary, InsiderTrade, InstitutionProfileResponse } from "@/lib/api";
 
@@ -192,6 +193,18 @@ export function departmentHasIndexableContent(profile: DepartmentProfileResponse
 }
 
 export function sitemapUrlset(appUrl: string, pages: readonly SeoPilotPage[]) {
+  const canonicalPages = new Map<string, SeoPilotPage>();
+  for (const page of pages) {
+    const url = new URL(page.path, appUrl).toString();
+    const correction = sitemapCorrections[url];
+    if (correction?.exclude) continue;
+    const canonical = new URL(correction?.canonical ?? url);
+    if (canonical.origin !== new URL(appUrl).origin || canonical.search || canonical.hash) continue;
+    if (sitemapCorrections[canonical.toString()]?.exclude) continue;
+    const existing = canonicalPages.get(canonical.pathname);
+    if (!existing || existing.lastmod < page.lastmod) canonicalPages.set(canonical.pathname, { ...page, path: canonical.pathname });
+  }
+  pages = [...canonicalPages.values()];
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${pages.map((page) => `  <url><loc>${appUrl}${page.path}</loc><lastmod>${page.lastmod}</lastmod></url>`).join("\n")}

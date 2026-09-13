@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { cache, type ReactNode } from "react";
 import {
   ApiError,
   getDepartmentProfile,
@@ -16,7 +16,7 @@ import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import { tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
-import { departmentHref } from "@/lib/departments";
+import { departmentHref, departmentSlug } from "@/lib/departments";
 import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
 import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
@@ -40,49 +40,49 @@ function departmentSeoName(name: string): string {
   return name;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params;
-  const fallbackCanonicalPath = `/departments/${encodeURIComponent(slug)}`;
-  try {
-    const department = await getDepartmentProfile(slug, { limit: 1, stalePageCache: true, source: "DepartmentMetadata" });
-    const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
-    const fallbackTitle = `${departmentSeoName(department.name)} Contracts | Walnut Markets`;
-    const fallbackDescription = `Research ${department.name} contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.`;
-    const title = conciseSeoTitle(fallbackTitle, "Government Contracts | Walnut Markets");
-    const description = conciseSeoDescription(fallbackDescription, "Research government contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.");
-    if (!departmentHasIndexableContent(department)) {
-      return {
-        ...noindexFollowMetadata(title, description),
-        metadataBase: new URL(WALNUT_APP_URL),
-        alternates: { canonical: appCanonicalUrl(canonicalPath) },
-      };
-    }
-    return appPageMetadata(canonicalPath, {
-      title,
-      description,
-      alternates: { canonical: appCanonicalUrl(canonicalPath) },
-      openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
-    });
-  } catch {
-    const title = "Government Department Contracts by Public Company | Walnut Markets";
-    const description = "Research government department contract awards, linked public companies, and ticker exposure in Walnut Markets.";
-    return {
-      ...noindexFollowMetadata(title, description),
-      metadataBase: new URL(WALNUT_APP_URL),
-      alternates: { canonical: appCanonicalUrl(fallbackCanonicalPath) },
-    };
-  }
-}
-
-export default async function DepartmentPage({ params }: Props) {
-  const { slug } = await params;
+// Metadata and visible content must use the same successful response. A
+// transient API failure is an error, not a durable instruction to de-index.
+const loadDepartment = cache(async (slug: string) => {
+  const normalizedSlug = departmentSlug(slug) ?? slug;
   let department: DepartmentProfileResponse;
   try {
-    department = await getDepartmentProfile(slug, { limit: 15, stalePageCache: true, source: "DepartmentProfilePage" });
+    department = await getDepartmentProfile(normalizedSlug, { limit: 15, stalePageCache: true, source: "DepartmentPublicProfile" });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
+  const canonicalPath = departmentHref(department.name);
+  if (canonicalPath && canonicalPath !== `/departments/${encodeURIComponent(slug)}`) permanentRedirect(canonicalPath);
+  return department;
+});
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const fallbackCanonicalPath = `/departments/${encodeURIComponent(slug)}`;
+  const department = await loadDepartment(slug);
+  const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
+  const fallbackTitle = `${departmentSeoName(department.name)} Contracts | Walnut Markets`;
+  const fallbackDescription = `Research ${department.name} contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.`;
+  const title = conciseSeoTitle(fallbackTitle, "Government Contracts | Walnut Markets");
+  const description = conciseSeoDescription(fallbackDescription, "Research government contract awards, linked public companies, ticker exposure and award timing in Walnut Markets.");
+  if (!departmentHasIndexableContent(department)) {
+    return {
+      ...noindexFollowMetadata(title, description),
+      metadataBase: new URL(WALNUT_APP_URL),
+      alternates: { canonical: appCanonicalUrl(canonicalPath) },
+    };
+  }
+  return appPageMetadata(canonicalPath, {
+    title,
+    description,
+    alternates: { canonical: appCanonicalUrl(canonicalPath) },
+    openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
+  });
+}
+
+export default async function DepartmentPage({ params }: Props) {
+  const { slug } = await params;
+  const department = await loadDepartment(slug);
 
   const summary = department.summary;
   const topRecipient = summary.topTicker

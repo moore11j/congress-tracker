@@ -11,6 +11,7 @@ function load(file, env = { ...process.env, VERCEL_ENV: "production" }) {
   const source = fs.readFileSync(file, "utf8");
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(js, { exports, process: { env }, URL, URLSearchParams, Headers, console, require: (name) => {
+    if (name.startsWith("@/")) return load(`${name.slice(2)}.ts`);
     if (name.startsWith("./lib/")) return load(`${name.slice(2)}.ts`);
     return require(name);
   } });

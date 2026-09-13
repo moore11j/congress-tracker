@@ -6704,10 +6704,9 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
   );
 }
 
-export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKey: string, options?: { source?: string; signal?: AbortSignal }): Promise<SeoSnapshotResponse> {
+export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKey: string, options?: { source?: string; signal?: AbortSignal; stalePageCache?: boolean }): Promise<SeoSnapshotResponse> {
   return fetchJson<SeoSnapshotResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`), {
-    cache: "no-store",
-    next: { revalidate: 0 },
+    ...publicStalePageFetchInit(options?.stalePageCache),
     signal: options?.signal,
     source: options?.source ?? "SeoSnapshot",
     requestSource: "ssr",
@@ -7771,7 +7770,8 @@ export async function requestTickerHydration(symbol: string, params?: { reason?:
 
 export async function getDepartmentProfile(slug: string, params?: { limit?: number; stalePageCache?: boolean; source?: string }): Promise<DepartmentProfileResponse> {
   return fetchJson<DepartmentProfileResponse>(
-    buildApiUrl(`/api/departments/${slug}`, { limit: params?.limit }),
+    // Retire cached empty profiles from the punctuation-matching bug.
+    buildApiUrl(`/api/departments/${slug}`, { limit: params?.limit, profile_version: 2 }),
     {
       ...publicStalePageFetchInit(params?.stalePageCache),
       source: params?.source ?? "DepartmentProfile",
