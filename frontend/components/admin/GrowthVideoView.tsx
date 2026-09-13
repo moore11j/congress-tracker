@@ -47,6 +47,8 @@ type Creative = Board & {
   hook: string;
   narration: string;
   caption: string;
+  first_comment?: string;
+  posting_notes?: string;
   cta: string;
   target_url: string;
   target_duration_seconds: number;
@@ -143,7 +145,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
   const [filter, setFilter] = useState("all");
   const [platform, setPlatform] = useState("instagram");
   const [format, setFormat] = useState("research_finding");
-  const [productHook, setProductHook] = useState("ownership");
+  const [productHook, setProductHook] = useState("navigation");
 
   const refresh = useCallback(async (initialize = false) => {
     const next = await growthVideoRequest<State>();
@@ -244,11 +246,12 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
         <>
           <section className={`${card} space-y-3 border-emerald-300/25`}>
             <h3 className="font-semibold text-emerald-100">Walnut research videos</h3>
-            <p className="text-sm text-slate-300">Turn the NVIDIA ownership brief into a walkthrough of real holder records, institutional activity and filing history. Walnut branding, continuous narration and a 1080×1920 export.</p>
+            <p className="text-sm text-slate-300">Show the actual clicks from NVIDIA search to ownership, institutional filings and the published brief in Insights. Narration follows the navigation. Includes a caption and first-comment draft.</p>
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm text-slate-300">Opening angle
                 <select className={input} value={productHook} onChange={(e)=>setProductHook(e.target.value)}>
-                  <option value="ownership">Who's buying NVIDIA? — Research walkthrough</option>
+                  <option value="navigation">Who's buying NVIDIA? — Follow the clicks</option>
+                  <option value="ownership">V3 — Research walkthrough</option>
                   <option value="opinion">Everyone has an NVIDIA opinion</option>
                   <option value="score">Show me what is behind the score</option>
                   <option value="accountability">What happened to the last call?</option>
@@ -760,6 +763,11 @@ function VideoCard({
               <p>
                 <strong>Caption:</strong> {creative.caption}
               </p>
+              {creative.first_comment ? <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 p-3">
+                <strong>First comment draft:</strong>
+                <p className="mt-2 whitespace-pre-wrap break-words">{creative.first_comment}</p>
+              </div> : null}
+              {creative.posting_notes ? <p className="text-xs text-slate-400">{creative.posting_notes}</p> : null}
               <p>
                 <strong>CTA:</strong> {creative.cta}
               </p>

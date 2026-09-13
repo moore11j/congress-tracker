@@ -64,6 +64,9 @@ def creative(hook="opinion"):
 
 def validate(item):
     p = item["payload"]
+    if p.get("campaign_id") == "nvda_navigation_v4":
+        from app.services.growth_navigation_ad import validate as validate_navigation
+        return validate_navigation(item)
     if p.get("campaign_id") == "nvda_ownership_research_v3":
         from app.services.growth_research_ad import validate as validate_research
         return validate_research(item)
@@ -78,6 +81,9 @@ def validate(item):
 def create_job(db, actor, platform="instagram", hook="opinion", parent=None, feedback=""):
     if platform not in {"instagram", "tiktok"}:
         raise ValueError("Unsupported video platform.")
+    if hook == "navigation":
+        from app.services.growth_navigation_ad import create_job as create_navigation
+        return create_navigation(db, actor, platform, parent, feedback)
     if hook == "ownership":
         from app.services.growth_research_ad import create_job as create_research
         return create_research(db, actor, platform, parent, feedback)

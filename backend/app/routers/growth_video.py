@@ -38,7 +38,7 @@ class Generate(Strict):
 
 class ProductAd(Strict):
     platform: Literal["tiktok", "instagram"] = "instagram"
-    hook: Literal["opinion", "score", "accountability", "ownership"] = "ownership"
+    hook: Literal["opinion", "score", "accountability", "ownership", "navigation"] = "navigation"
 
 
 class Decision(Strict):

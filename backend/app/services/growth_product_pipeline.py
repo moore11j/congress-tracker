@@ -23,6 +23,9 @@ def advance_stage(db, item, stage, token, *, storage=None, capture=None, narrato
                 continue
             if capture:
                 footage,thumbnail,metadata=capture(shot)
+            elif board["schema_version"] == 4:
+                from app.services.growth_navigation_capture import capture_navigation_shot
+                footage,thumbnail,metadata=capture_navigation_shot(shot, owner_id=item["owner_id"])
             elif board["schema_version"] == 3:
                 from app.services.growth_research_capture import capture_research_shot
                 footage,thumbnail,metadata=capture_research_shot(shot, owner_id=item["owner_id"])
