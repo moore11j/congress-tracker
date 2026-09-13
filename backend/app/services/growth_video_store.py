@@ -273,6 +273,49 @@ def save_job(db, item, *, token=None):
     item["updated_at"] = params["at"]
 
 
+TRASHABLE_STATUSES = {"CREATIVE_READY", "READY_FOR_REVIEW", "APPROVED", "REJECTED", "FAILED"}
+
+
+def trash_job(db, job_id, actor):
+    from app.services import growth_buffer
+    growth_buffer.ensure_schema(db)
+    item = job(db, job_id)
+    if item["status"] == "DELETED":
+        return {"ok": True}
+    if item["lease_token"] or item["status"] not in TRASHABLE_STATUSES:
+        raise HTTPException(409, "This video is processing. Wait for it to finish before deleting it.")
+    if growth_buffer.publications(db, job_id):
+        raise HTTPException(409, "Publishing has started. Manage the post in Buffer; its video and delivery history must be retained.")
+    # Claim atomically against worker changes and publication approval, including
+    # approval of an already-APPROVED draft within the same clock tick.
+    item["payload"]["trash"] = {"previous_status": item["status"], "deleted_at": now(), "actor_id": actor}
+    result = db.execute(text("""UPDATE growth_video_jobs SET status='DELETED',payload_json=:payload,updated_at=:at
+        WHERE id=:id AND status=:status AND updated_at=:old AND lease_token IS NULL
+        AND NOT EXISTS (SELECT 1 FROM growth_video_publications WHERE job_id=:id)"""),
+        {"id": job_id, "status": item["status"], "old": item["updated_at"], "at": now(), "payload": dumps(item["payload"])})
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, "This video changed or publishing started. Refresh before deleting it.")
+    draft = db.get(AiMarketingOpportunity, item["draft_id"])
+    if draft:
+        draft.status = "rejected"
+    db.commit()
+    return {"ok": True}
+
+
+def restore_job(db, job_id, actor):
+    item = job(db, job_id)
+    if item["status"] != "DELETED":
+        return {"ok": True}
+    previous = item["payload"].get("trash", {}).get("previous_status")
+    if previous not in TRASHABLE_STATUSES:
+        raise HTTPException(409, "This video's previous review state is unavailable.")
+    item["payload"]["trash"].update({"restored_at": now(), "restored_by": actor})
+    item["status"] = previous
+    save_job(db, item)
+    return {"ok": True}
+
+
 def create_job(db, opportunity_id, actor, platform, video_format, *, parent=None, feedback="", storyboard=None, reviewed_product=None):
     if platform not in {"tiktok", "instagram"} or video_format not in FORMATS:
         raise ValueError("Unsupported platform or video format.")

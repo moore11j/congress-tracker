@@ -110,7 +110,7 @@ def readiness(db):
 def state(db=Depends(get_db)):
     opportunities = [json.loads(r[0]) for r in db.execute(text("SELECT payload_json FROM growth_content_opportunities ORDER BY score DESC,created_at DESC LIMIT 50"))]
     jobs = []
-    for row in db.execute(text("SELECT id FROM growth_video_jobs ORDER BY created_at DESC LIMIT 50")):
+    for row in db.execute(text("SELECT id FROM growth_video_jobs WHERE status <> 'DELETED' ORDER BY created_at DESC LIMIT 50")):
         item = store.job(db, row[0])
         item.pop("lease_token", None)
         jobs.append(item)
@@ -118,7 +118,12 @@ def state(db=Depends(get_db)):
     for r in db.execute(text("SELECT * FROM growth_memory ORDER BY created_at DESC LIMIT 50")).mappings():
         memory.append({**{k: v for k, v in r.items() if k != "payload_json"}, "payload": json.loads(r["payload_json"])})
     versions = [dict(r) for r in db.execute(text("SELECT id,created_at,actor_id FROM growth_brief_versions ORDER BY created_at DESC LIMIT 20")).mappings()]
-    return {"opportunities": opportunities, "jobs": jobs, "memory": memory, "brief": store.brief(db),
+    deleted_jobs = []
+    for row in db.execute(text("SELECT id FROM growth_video_jobs WHERE status = 'DELETED' ORDER BY updated_at DESC LIMIT 50")):
+        item = store.job(db, row[0])
+        item.pop("lease_token", None)
+        deleted_jobs.append(item)
+    return {"opportunities": opportunities, "jobs": jobs, "deleted_jobs": deleted_jobs, "memory": memory, "brief": store.brief(db),
             "automation": automation.state(db), "development_override": store.development_draft_override(db),
             "brief_fields": BRIEF_FIELDS, "brief_versions": versions, "config": store.config(db), "readiness": readiness(db), "copy_library": COPY, "formats": FORMATS}
 
@@ -171,6 +176,16 @@ def publish(job_id: str, payload: Publish, user=Depends(admin), db=Depends(get_d
                        scheduled_at=payload.scheduled_at, schedule_timezone=payload.schedule_timezone)
     store.remember(db, item, user.id, "approve", "Approved video and caption for Buffer scheduling." if payload.scheduled_at else "Approved video and caption for Buffer publishing.")
     return result
+
+
+@router.delete("/jobs/{job_id}", dependencies=MUTATION)
+def delete_video(job_id: str, user=Depends(admin), db=Depends(get_db)):
+    return safe_call(store.trash_job, db, job_id, user.id)
+
+
+@router.post("/jobs/{job_id}/restore", dependencies=MUTATION)
+def restore_video(job_id: str, user=Depends(admin), db=Depends(get_db)):
+    return safe_call(store.restore_job, db, job_id, user.id)
 
 
 @router.post("/jobs/{job_id}/reconcile", dependencies=MUTATION)
@@ -243,6 +258,8 @@ def product_ad(payload: ProductAd, user=Depends(admin), db=Depends(get_db)):
 def decision(job_id: str, payload: Decision, user=Depends(admin), db=Depends(get_db)):
     buffer.ensure_schema(db)
     item = store.job(db, job_id)
+    if item["status"] == "DELETED":
+        raise HTTPException(409, "Restore this video from Trash before editing or publishing it.")
     if item["lease_token"]:
         raise HTTPException(409, "This draft is processing. Wait for its current stage to finish.")
     action = payload.action

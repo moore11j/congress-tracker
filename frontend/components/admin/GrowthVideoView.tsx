@@ -114,6 +114,7 @@ type State = {
   automation: AutomationState;
   opportunities: Opportunity[];
   jobs: VideoJob[];
+  deleted_jobs?: VideoJob[];
   memory: Memory[];
   brief: { version_id: string | null; sections: Record<string, string> };
   brief_fields: string[];
@@ -444,6 +445,14 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
           </select>
           <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showOlder} onChange={e => setShowOlder(e.target.checked)} />Show older versions</label>
           <p className="text-xs text-slate-400">Newest versions shown first. Select a video to review it; expand history to find an earlier take.</p>
+          <details className={card}>
+            <summary className="cursor-pointer text-sm">Trash ({state.deleted_jobs?.length || 0})</summary>
+            <p className="mt-2 text-xs text-slate-400">Deleted drafts leave the queue. Restore a version here to review it again.</p>
+            {state.deleted_jobs?.map(j => <div key={j.id} className="mt-3 flex items-center justify-between gap-3 text-sm">
+              <span>{j.payload.opportunity?.topic || j.payload.creative?.hook || "Research video"} · Version {j.revision}</span>
+              <button className={button} disabled={busy} onClick={() => void run(() => growthVideoRequest(`/jobs/${j.id}/restore`, "POST"), "Video restored. Turn on Show older versions to find an earlier revision.")}>Restore</button>
+            </div>)}
+          </details>
           {!state.jobs.length && (
             <p className={card}>
               Generate a storyboard from Content Opportunities to start a video
@@ -780,6 +789,12 @@ function VideoCard({
           {publications.length ? publications.map(p => `${p.platform === "instagram" ? "Instagram" : "TikTok"}: ${p.status === "SCHEDULED" ? `Scheduled ${formatVideoSchedule(p.buffer_due_at || p.scheduled_at!, p.schedule_timezone)}` : p.scheduled_at && p.status === "QUEUED" ? "Schedule pending" : label(p.status)}`).join(" · ") : label(item.status)} · Version {item.revision}{latest ? " · Latest" : " · Earlier"} · {expanded ? "Close" : "Review"}
         </span>
       </button>
+      <div className="flex items-center gap-3">
+        <button type="button" className={`${button} shrink-0`} disabled={busy || active(item.status) || publications.length > 0}
+          aria-label={`Delete version ${item.revision} of ${opportunity?.topic || creative?.hook || "Research video"}`}
+          onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}`, "DELETE"), "Video moved to Trash. You can restore it from Trash above.")}>Delete</button>
+        <span className="text-xs text-slate-400">{publications.length ? "Sent to Buffer. Manage the post in Buffer; delivery history is retained." : active(item.status) ? "Available when processing finishes." : "Moves only this version to Trash."}</span>
+      </div>
       <div id={`video-body-${item.id}`} hidden={!expanded} className="space-y-4">
       <p className="text-xs text-slate-400">
         {item.payload.platform} · {label(item.payload.format)} ·{" "}
@@ -1178,7 +1193,7 @@ function AutomationSettings({value, run, busy}: {value: AutomationState; run: Ru
   </div>;
 }
 
-function PublishVideo({item, caption, publications, bufferReady, previewLoaded, run, busy}: {
+export function PublishVideo({item, caption, publications, bufferReady, previewLoaded, run, busy}: {
   item: VideoJob; caption: string; publications: Publication[]; bufferReady: boolean; previewLoaded: boolean; run: Run; busy: boolean;
 }) {
   const [text, setText] = useState(caption);
@@ -1186,7 +1201,7 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
   const [reviewed, setReviewed] = useState(false);
   const [postIds, setPostIds] = useState<Record<string,string>>({});
   const [noPost, setNoPost] = useState<Record<string,boolean>>({});
-  const [timing, setTiming] = useState("now");
+  const [timing, setTiming] = useState("schedule");
   const [schedule, setSchedule] = useState("");
   const [timeZone, setTimeZone] = useState("");
   const [retryTimes, setRetryTimes] = useState<Record<string,string>>({});
@@ -1227,17 +1242,17 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
     <fieldset className="space-y-2"><legend className="text-sm font-medium">When to publish</legend>
       <div className="flex gap-4">{[["now","Now"],["schedule","Schedule"]].map(([value,title]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name={`publish-timing-${item.id}`} checked={timing === value} onChange={() => {setTiming(value);setReviewed(false);}} />{title}</label>)}</div>
       {scheduled && <div className="max-w-md space-y-2">
-        <label className="block text-sm">Date and time<input type="datetime-local" className={`${input} mt-1 [color-scheme:dark]`} value={schedule} min={localVideoScheduleInput(new Date(Date.now()+11*60_000))} onChange={e => {setSchedule(e.target.value);setReviewed(false);}} /></label>
+        <label className="block text-sm">Date and time<input type="datetime-local" className={`${input} mt-1 [color-scheme:dark]`} value={schedule} min={localVideoScheduleInput(new Date(Date.now()+11*60_000))} aria-invalid={Boolean(schedule && parsed.error)} aria-describedby={`schedule-help-${item.id}`} onChange={e => setSchedule(e.target.value)} /></label>
         <p className="text-xs text-slate-400">Time zone: {timeZone || "your device timezone"} (this device). Choose at least 10 minutes ahead.</p>
-        {schedule && (parsed.error ? <p role="alert" className="text-sm text-amber-100">{parsed.error}</p> : <p className="text-sm text-emerald-200">Publish {scheduleLabel}</p>)}
+        <p id={`schedule-help-${item.id}`} aria-live="polite" className={`text-sm ${parsed.error ? "text-amber-100" : "text-emerald-200"}`}>{parsed.error || `Publish ${scheduleLabel}`}</p>
         <p className="text-xs text-slate-400">Buffer will publish at this time once it confirms the schedule. Buffer Free allows 10 queued posts per channel.</p>
       </div>}
     </fieldset>
-    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={!previewLoaded || !schedulingValid} onChange={e => setReviewed(e.target.checked)} />I reviewed this video, its claims and caption, and approve publishing {scheduled ? `on ${scheduleLabel}` : "now"} to the selected Walnut accounts using their Buffer audience, interaction and commercial-content settings. AI assistance will be disclosed.</label>
+    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={busy || !previewLoaded} onChange={e => setReviewed(e.target.checked)} />I reviewed this video, its claims and caption, and approve publishing to the selected Walnut accounts using their Buffer audience, interaction and commercial-content settings. AI assistance will be disclosed.</label>
     {!bufferReady && <p className="text-sm text-amber-100">Configure the Buffer API key before publishing.</p>}
     {!previewLoaded && <p className="text-xs text-slate-400">Load and watch the preview above first.</p>}
     <p className="text-xs text-slate-400">Links in the caption post with the video. Optional comments must be added manually.</p>
-    {previewLoaded && !reviewed && <p className="text-sm text-emerald-200">After reviewing, check the approval box above to enable publishing.</p>}
+    {previewLoaded && !reviewed && <p className="text-sm text-emerald-200">After reviewing, check the approval box above. Then {scheduled ? "choose a valid time and click Schedule post" : "click Publish now"}.</p>}
     {!platforms.length && <p className="text-sm text-amber-100">Choose at least one account.</p>}
     {!text.trim() && <p className="text-sm text-amber-100">Add a caption before publishing.</p>}
     <button className="rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40" disabled={busy || !bufferReady || !reviewed || !schedulingValid || !platforms.length || !text.trim()} onClick={() => void run(() => {

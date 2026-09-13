@@ -162,7 +162,7 @@ def approve_publish(db, item, actor, platforms, caption, *, scheduled_at=None, s
             raise BufferError("The Walnut channel is paused in Buffer. Resume its queue before scheduling.")
     # Claim the job before adding destinations. This serializes concurrent
     # approvals and rejects, so they cannot authorize different assets/captions.
-    locked = db.execute(text("UPDATE growth_video_jobs SET updated_at=:at WHERE id=:id AND updated_at=:old AND lease_token IS NULL"),
+    locked = db.execute(text("UPDATE growth_video_jobs SET updated_at=:at WHERE id=:id AND updated_at=:old AND lease_token IS NULL AND status IN ('READY_FOR_REVIEW','APPROVED')"),
                         {"id": item["id"], "old": item["updated_at"], "at": store.now()})
     if locked.rowcount != 1:
         db.rollback()
