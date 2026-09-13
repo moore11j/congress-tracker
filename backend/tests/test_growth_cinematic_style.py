@@ -9,7 +9,7 @@ def test_cinematic_background_moves_but_keeps_caption_floor_dark():
     assert max(ImageStat.Stat(later.crop((0,1740,1080,1920))).mean) < 30
 
 
-def test_panel_preserves_product_interior_and_arrival_settles():
+def test_panel_preserves_product_interior_without_entrance_motion():
     style = CinematicStyle((1080,1920))
     base = style.frame(0,1)
     product = Image.new('RGB',(500,400),'#ca381b')
@@ -18,5 +18,4 @@ def test_panel_preserves_product_interior_and_arrival_settles():
     # must remain exact, with no tint, blur, vignette or background overlay.
     assert base.crop((128,558,612,942)).tobytes() == product.crop((8,8,492,392)).tobytes()
     offsets=[entrance_offset(t/100) for t in range(40)]
-    assert offsets[0]==18 and offsets[-1]==0
-    assert all(a>=b for a,b in zip(offsets,offsets[1:]))
+    assert set(offsets)=={0}

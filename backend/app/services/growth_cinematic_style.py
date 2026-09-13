@@ -60,9 +60,8 @@ class CinematicStyle:
 
 
 def entrance_offset(elapsed):
-    """An eased arrival without concealing, delaying or skipping UI actions."""
-    u = max(0, min(1, elapsed / .24))
-    return round(18 * (1-u)**3)
+    """Keep headlines and footage fixed across clean scene cuts."""
+    return 0
 
 
 def tight_caption(draw, text, font, *, y=1540, width=1080, max_width=900):

@@ -145,7 +145,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       centered(d,'Walnut Markets',335,brand_font(68,True),WHITE)
       im.paste(logo.resize((280,280),Image.Resampling.LANCZOS),(400,640));d=ImageDraw.Draw(im)
       centered(d,creative['brand_tagline'].replace('. ','.\n',1),1020,brand_font(61,True),WHITE,max_width=820)
-      centered(d,creative['cta'] if creative.get('schema_version')==5 else 'NVIDIA links in the comments',1220,brand_font(31),MINT)
+      centered(d,creative['cta'],1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
      if caption:
       if refined:
@@ -170,5 +170,5 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
    'brand_accent':MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
    'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
    'presentation':presentation,'background_brightness':.45 if refined else 1.0,
-   'caption_box':'text_bounds_16x10_padding' if refined else 'fixed',
+   'caption_box':'text_bounds_16x10_padding' if refined else 'fixed','scene_transition':'cut','foreground_motion':'none',
    'background_asset':cinema.background.name if cinema and cinema.background else None,'background_is_illustrative':bool(cinema)}

@@ -24,7 +24,7 @@ def test_navigation_preserves_published_source_and_review_gate(db):
    calls.append(script);assert continuous;return b'audio',aligned(script)
  def capture(shot):return b'footage',b'png',{'component':shot,'media_type':'video/mp4'}
  def render(board,captures,audio,read):
-  assert len(captures)==7 and board['first_comment'].count('https://')==3
+  assert len(captures)==7 and board['caption'].count('https://')==3
   return b'0000ftypvideo',{'duration':33,'width':1080,'height':1920}
  item=api.decision(item['id'],api.Decision(action='render'),db.get(UserAccount,1),db)
  for _ in range(11):status=pipeline.advance(db,item['id'],storage=Storage(),capture=capture,narrator=Narrator(),renderer=render)
@@ -71,5 +71,19 @@ def test_social_copy_and_brand_are_reviewable():
  assert board['brand_tagline']=="Don't follow a signal. Follow the evidence."
  assert 'Your research starts here' not in str(board)
  assert 'clickable' not in board['cta'].lower()
- assert '#NVDA' in board['caption'] and nav.TICKER_URL in board['first_comment']
+ assert '#NVDA' in board['caption'] and nav.TICKER_URL in board['caption']
+ assert nav.BRIEF_URL in board['caption'] and 'NVIDIA links below.' in board['narration']
+ assert 'links in the comments' not in str(board)
+ assert len(board['caption'])<=2200
  assert '$' not in board['narration'] and '%' not in board['narration']
+
+
+def test_existing_navigation_drafts_remain_valid_after_copy_revision(db):
+ seed(db)
+ item=product.create_job(db,1,hook='navigation')
+ legacy=nav.creative(1)
+ item['payload']['creative']=legacy
+ item['payload']['campaign_hash']=nav.digest(legacy)
+ assert product.validate(item)==legacy
+ item['payload']['creative']['cta']='Tampered'
+ with pytest.raises(ValueError,match='reviewed campaign'):product.validate(item)

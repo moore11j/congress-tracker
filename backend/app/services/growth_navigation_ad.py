@@ -23,7 +23,7 @@ BEATS = [
 ]
 
 
-def creative():
+def _legacy_creative():
  scenes=[]
  for i,(shot,voice,title,subhead,url) in enumerate(BEATS,1):
   scenes.append({'sequence':i,'shot':shot,'narration':voice,'on_screen_text':title,'subhead':subhead,
@@ -49,8 +49,27 @@ def creative():
   'brand':{'font_stack':'ui-sans-serif, system-ui, sans-serif','windows_font':'Segoe UI','background':'#020617','accent':'#6ee7b7','text':'#f1f5f9','logo':LOGO.name}}
 
 
+def creative(revision=2):
+ """Version social copy so existing reviewed drafts remain verifiable."""
+ board=_legacy_creative()
+ if revision==1:return board
+ if revision!=2:raise ValueError('Unknown navigation campaign revision.')
+ board['campaign_revision']=2
+ board['storyboard'][-1]['narration']="Don't follow a signal. Follow the evidence. NVIDIA links below."
+ board['storyboard'][-1]['duration_seconds']=max(3,round(len(board['storyboard'][-1]['narration'].split())/2.5))
+ board['narration']=' '.join(scene['narration'] for scene in board['storyboard'])
+ board['target_duration_seconds']=sum(scene['duration_seconds'] for scene in board['storyboard'])
+ board['cta']='NVIDIA links below.'
+ board['caption']=("Who's buying NVIDIA? Follow the steps in Walnut: search NVDA, open Ownership, check Institutional activity, then inspect a manager's filings. Find the written research under Insights → Research Briefs.\n\n"
+  f"NVIDIA links below:\nNVIDIA ticker: {TICKER_URL}\nNVIDIA research brief: {BRIEF_URL}\nMore research: {INSIGHTS_URL}#research-briefs\n\n"
+  "Save this walkthrough for your next research session. Research only, not investment advice. Institutional tools shown require a paid plan. 13F filings report delayed quarter-end holdings.\n\n#NVIDIA #NVDA #StockResearch #WalnutMarkets")
+ board['first_comment']='Which stock should we walk through next?'
+ board['posting_notes']='Links are included in the caption. Review the video and caption before publishing. The first comment is optional; no posting or pinning is required. URLs are written out without promising they are clickable.'
+ return board
+
+
 def validate(item):
- p=item['payload'];expected=creative();source=p.get('research_source',{})
+ p=item['payload'];expected=creative(p.get('creative',{}).get('campaign_revision',1));source=p.get('research_source',{})
  if p.get('creative')!=expected or p.get('campaign_hash')!=digest(expected):
   raise ValueError('Navigation ad differs from its reviewed campaign.')
  if source.get('id')!=SOURCE_ID or source.get('status')!='published' or p.get('research_source_hash')!=digest(source):
