@@ -49,7 +49,7 @@ def navigation_crop(shot,index,asset):
  full={'x':0,'y':0,'width':1040,'height':1000}
  if shot=='v4_search':
   if '/ticker/NVDA' in frame['page_url']:return {'x':0,'y':0,'width':880,'height':846}
-  return {'x':530,'y':0,'width':510,'height':650}
+  return {'x':700,'y':0,'width':340,'height':310}
  if shot=='v4_brief':return {'x':0,'y':80,'width':800,'height':770}
  events=asset['navigation_events']
  scrolls=[e['frame'] for e in events if e['type']=='wheel_scroll']
@@ -59,6 +59,8 @@ def navigation_crop(shot,index,asset):
  target=asset.get('final_focus') if shot in {'v4_manager','v4_filings'} and index>=settled-5 else None
  target=target or {'x':0,'y':65 if index>=settled else 0,'width':720,'height':690}
  if shot=='v4_filings':target=asset.get('final_focus') or target
+ if shot in {'v4_manager','v4_filings'} and target.get('height',1000)<350:
+  target={**target,'width':min(target['width'],690)}
  if shot=='v4_filings':return target
  if index>=settled-5:
   u=max(0,min(1,(index-settled+5)/12));u=u*u*(3-2*u)
@@ -126,7 +128,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
      else:
       centered(d,'Walnut Markets',335,brand_font(68,True),WHITE)
       im.paste(logo.resize((280,280),Image.Resampling.LANCZOS),(400,640));d=ImageDraw.Draw(im)
-      centered(d,creative['brand_tagline'],1020,brand_font(61,True),WHITE,max_width=820)
+      centered(d,creative['brand_tagline'].replace('. ','.\n',1),1020,brand_font(61,True),WHITE,max_width=820)
       centered(d,'NVIDIA links in the comments',1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
      if caption:centered(d,caption['text'],1540,brand_font(52,True),WHITE,max_width=940)

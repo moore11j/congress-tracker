@@ -67,3 +67,17 @@ require a separate correction before producing a numerical investment thesis ad.
 
 No social approval, publishing, comment posting, new subscription, or plan upgrade
 is part of this revision.
+
+## Review draft
+
+Job `gv_fead5f65959844e4a4559202eac6e244` is the V4 child of V3. The export is
+29.21 seconds, 1080×1920 at 24 fps, with one continuous 28.76-second ElevenLabs
+Chris take and 19 phrase captions. Local output:
+`backend/artifacts/product-ad-v4/final/walnut-nvda-navigation-v4.mp4`.
+
+All seven live recordings completed and were inspected. Final framing follows
+the search control, widens for wheel scrolling, and settles on the actual section.
+The filing close-up keeps its date and form type visible at the bottom of the
+document. The CTA uses the site's two complete sentences with a deliberate line
+break. Five focused V4 tests passed after the timing corrections; the preceding
+full video check passed 60 tests with one opt-in browser test skipped.
