@@ -288,6 +288,9 @@ const loadTickerPageContext = cache(async (
         .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
         .catch((error) => {
           if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+          if (publicStalePageCache && error instanceof ApiError && error.detail === "public_context_cache_miss") {
+            return { bundle: null as TickerContextBundle | null, profile: fallbackTickerProfile(normalizedSymbol), fallbackMessage: "Showing the available public research snapshot." };
+          }
           if (isRecoverableTickerProfileError(error)) {
             console.error("[ticker-context-bundle] shell fallback", {
               symbol: normalizedSymbol,

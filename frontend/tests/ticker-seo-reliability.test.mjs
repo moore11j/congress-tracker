@@ -19,3 +19,14 @@ test('ticker metadata uses the persistent public cache without the 2.5 second de
  const snapshot={indexable:true};
  assert.equal(await load(async(type,symbol,options)=>{assert.equal(type,'ticker');assert.equal(symbol,'AAPL');assert.equal(options.stalePageCache,true);assert.equal(options.signal,undefined);return {snapshot};})('AAPL'),snapshot);
 });
+
+test('a cold public context uses the snapshot without starting a profile rebuild',async()=>{
+ const error=new ApiError(503);error.detail='public_context_cache_miss';
+ const section=source.slice(source.indexOf('const loadTickerPageContext ='),source.indexOf('const loadPublicTickerSnapshot ='));
+ const context={cache:fn=>fn,ApiError,TICKER_CONTEXT_SSR_TIMEOUT_MS:2500,withinTickerLoadBudget:p=>p,
+  getTickerContextBundle:async()=>{throw error;},getTickerProfile:()=>assert.fail('must not rebuild'),
+  fallbackTickerProfile:symbol=>({ticker:{symbol,identity_status:'loading'}})};
+ vm.runInNewContext(ts.transpileModule(section+'\nglobalThis.loadContext=loadTickerPageContext;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+ const result=await context.loadContext('NVDA','all',365,null,false,true);
+ assert.equal(result.profile.ticker.identity_status,'loading');assert.equal(result.bundle,null);
+});

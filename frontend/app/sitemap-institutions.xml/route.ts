@@ -17,7 +17,11 @@ export async function GET() {
         lastmod: item.latest_filing_date!.slice(0, 10),
         rationale: "Public institutional profile identity with a reported 13F filing.",
       })))
-    .catch(() => []);
+    .catch(() => null);
+
+  if (!pages) return new NextResponse("Sitemap temporarily unavailable", {
+    status: 503, headers: { "cache-control": "no-store", "retry-after": "300" },
+  });
 
   return new NextResponse(sitemapUrlset(APP_URL, pages), {
     headers: {

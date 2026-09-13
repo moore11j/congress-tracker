@@ -24,7 +24,11 @@ export async function GET() {
       }
       return [...pagesByPath.values()];
     })
-    .catch(() => []);
+    .catch(() => null);
+  if (!pages) return new NextResponse("Sitemap temporarily unavailable", {
+    status: 503, headers: { "cache-control": "no-store", "retry-after": "300" },
+  });
+
   return new NextResponse(sitemapUrlset(APP_URL, pages), {
     headers: {
       "content-type": "application/xml; charset=utf-8",

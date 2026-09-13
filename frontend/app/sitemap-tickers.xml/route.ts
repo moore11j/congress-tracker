@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSeoSnapshotIndex } from "@/lib/api";
-import { seoPilotPages, sitemapUrlset } from "@/lib/seoQuality";
+import { sitemapUrlset } from "@/lib/seoQuality";
 
 const APP_URL = "https://app.walnutmarkets.com";
 
@@ -15,7 +15,11 @@ export async function GET() {
       lastmod: (item.data_as_of ?? item.updated_at ?? new Date().toISOString()).slice(0, 10),
       rationale: "Indexable cached ticker profile page.",
     })))
-    .catch(() => seoPilotPages.tickers);
+    .catch(() => null);
+  if (!pages) return new NextResponse("Sitemap temporarily unavailable", {
+    status: 503, headers: { "cache-control": "no-store", "retry-after": "300" },
+  });
+
   return xmlResponse(sitemapUrlset(APP_URL, pages));
 }
 

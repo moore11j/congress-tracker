@@ -5378,6 +5378,7 @@ export async function getTickerContextBundle(
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
     context_version: TICKER_CONTEXT_BUNDLE_CACHE_VERSION,
+    cached_only: params?.stalePageCache && !params?.authToken && !params?.activeUser ? "true" : undefined,
   });
   const headers = authHeaders(params?.authToken);
   if (params?.activeUser) headers["X-Walnut-Active-User"] = "browser";
