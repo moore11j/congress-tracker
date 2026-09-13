@@ -19,7 +19,7 @@ import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemo
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
-import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
+import { TickerParticipantLeaderboards } from "@/components/ticker/TickerParticipantLeaderboards";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { TickerInstitutionalSourceCardClient } from "@/components/ticker/TickerInstitutionalSourceCardClient";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
@@ -115,20 +115,6 @@ type ActivityPageMeta = {
   total: number | null;
   hasNext: boolean;
 };
-type ParticipantStats = {
-  name: string;
-  memberId?: string | null;
-  trades: number;
-  buys: number;
-  sells: number;
-  netFlow: number;
-  href?: string;
-  reportingCik?: string;
-  chamber?: string | null;
-  party?: string | null;
-  state?: string | null;
-  role?: string | null;
-};
 type SignalGateReason = "auth" | "upgrade" | "unavailable";
 type SignalGateState = {
   reason: SignalGateReason;
@@ -208,8 +194,6 @@ type TickerActivityData = {
   insiderBuys: number;
   insiderSells: number;
   topSignal: SignalItem | undefined;
-  topCongressParticipants: ParticipantStats[];
-  topInsiderParticipants: ParticipantStats[];
 };
 
 function MissingTickerSearchFallback({ symbol }: { symbol: string }) {
@@ -1056,14 +1040,6 @@ function buildCrossSourceSummary({
   return parts.join(" ");
 }
 
-function formatCompactUsd(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return value.toFixed(0);
-}
-
 function formatPnl(value: number): string {
   const marker = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${marker} ${Math.abs(value).toFixed(1)}%`;
@@ -1073,19 +1049,6 @@ function pnlClass(value: number): string {
   if (value > 0) return "text-emerald-300";
   if (value < 0) return "text-rose-300";
   return "text-slate-300";
-}
-
-function biasLabel(buys: number, sells: number): { label: string; tone: "pos" | "neg" | "neutral" } {
-  if (buys === 0 && sells === 0) return { label: "No side data", tone: "neutral" };
-  if (buys > sells) return { label: "BUY LEANING", tone: "pos" };
-  if (sells > buys) return { label: "SELL LEANING", tone: "neg" };
-  return { label: "Balanced", tone: "neutral" };
-}
-
-function biasTextClass(tone: "pos" | "neg" | "neutral"): string {
-  if (tone === "pos") return "text-emerald-300";
-  if (tone === "neg") return "text-rose-300";
-  return "text-slate-400";
 }
 
 function formatSignalStrengthText(band?: string | null): string {
@@ -3048,60 +3011,6 @@ async function resolveTickerActivityData({
   const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const topSignal = [...confirmationSignals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
-  const congressParticipantEvents = side === "all"
-    ? congressEvents
-    : congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === side);
-  const insiderParticipantEvents = side === "all"
-    ? insiderEvents
-    : insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === side);
-  const congressParticipantMap = new Map<string, ParticipantStats>();
-  const insiderParticipantMap = new Map<string, ParticipantStats>();
-
-  for (const event of congressParticipantEvents) {
-    const who = (event.member_name ?? "Unknown Member").trim();
-    const memberId = asTrimmedString(event.member_bioguide_id);
-    const participantKey = memberId ? `member:${memberId}` : `name:${who.toLowerCase()}`;
-    const sideValue = normalizeTradeSide(event.trade_type);
-    const amount = Number(event.amount_max ?? event.amount_min ?? 0);
-    const existing = congressParticipantMap.get(participantKey) ?? { name: who, memberId, trades: 0, buys: 0, sells: 0, netFlow: 0 };
-    existing.trades += 1;
-    if (sideValue === "buy") existing.buys += 1;
-    if (sideValue === "sell") existing.sells += 1;
-    if (Number.isFinite(amount) && amount > 0) {
-      existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
-    }
-    if (!existing.memberId && memberId) existing.memberId = memberId;
-    if (!existing.chamber) existing.chamber = resolveCongressChamber(event);
-    if (!existing.party) existing.party = resolveCongressParty(event);
-    if (!existing.state) existing.state = resolveCongressState(event);
-    const safeHref = memberHref({ name: event.member_name ?? undefined, memberId: event.member_bioguide_id ?? undefined });
-    if (safeHref && safeHref !== "/member/UNKNOWN" && !existing.href) existing.href = safeHref;
-    congressParticipantMap.set(participantKey, existing);
-  }
-
-  for (const event of insiderParticipantEvents) {
-    const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
-    const who = display.insiderName || resolveInsiderName(event);
-    const reportingCik = display.reportingCik ?? resolveInsiderReportingCik(event);
-    const role = display.role ?? resolveInsiderRole(event);
-    const participantKey = reportingCik ? `cik:${reportingCik}` : `name:${who.toLowerCase()}`;
-    const sideValue = normalizeTradeSide(event.trade_type);
-    const amount = Number(event.amount_max ?? event.amount_min ?? 0);
-    const existing = insiderParticipantMap.get(participantKey) ?? { name: who, trades: 0, buys: 0, sells: 0, netFlow: 0 };
-    existing.trades += 1;
-    if (sideValue === "buy") existing.buys += 1;
-    if (sideValue === "sell") existing.sells += 1;
-    if (Number.isFinite(amount) && amount > 0) {
-      existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
-    }
-    if (reportingCik && !existing.reportingCik) existing.reportingCik = reportingCik;
-    if (!existing.role) existing.role = role;
-    insiderParticipantMap.set(participantKey, existing);
-  }
-
-  const topCongressParticipants = [...congressParticipantMap.values()].sort((a, b) => b.trades - a.trades);
-  const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades);
-
   return {
     events: filteredEvents,
     signals,
@@ -3147,8 +3056,6 @@ async function resolveTickerActivityData({
     insiderBuys,
     insiderSells,
     topSignal,
-    topCongressParticipants,
-    topInsiderParticipants,
   };
 }
 
@@ -3161,7 +3068,6 @@ async function DeferredTickerContent({
   side,
   activityDetailsDeferred,
   signalsAuthPending,
-  topMembers,
   confirmationScoreBundle,
   crossSourceDivergence,
   similarHistoricalSetups,
@@ -3184,7 +3090,6 @@ async function DeferredTickerContent({
   side: SideFilter;
   activityDetailsDeferred: boolean;
   signalsAuthPending: boolean;
-  topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   crossSourceDivergence?: CrossSourceDivergence | null;
   similarHistoricalSetups?: SimilarHistoricalSetups | null;
@@ -3240,8 +3145,6 @@ async function DeferredTickerContent({
     effectiveWindowDays,
     summaryInsiders,
     summaryCongress,
-    topCongressParticipants,
-    topInsiderParticipants,
   } = await activityPromise;
   const selectedLookbackDays = Number(lookback);
   const effectiveLookbackDays = effectiveWindowDays ?? SIGNAL_WINDOW_DAYS;
@@ -3915,125 +3818,13 @@ async function DeferredTickerContent({
           ) : null}
         </div>
 
-        <div className="min-w-0 space-y-5">
-          <ExpandableTickerSection
-            id="top-congress-traders"
-            title="Top Congress traders"
-            className={cardClassName}
-            emptyState={<InlineEmptyState message="No Congress participants in current window." />}
-          >
-            {topCongressParticipants.map((participant) => {
-                  const match = topMembers.find((member) => {
-                    if (participant.memberId && (member.bioguide_id === participant.memberId || member.member_id === participant.memberId)) return true;
-                    return member.name === participant.name;
-                  });
-                  const resolvedHref = participant.href ?? (match ? memberHref({ name: match.name, memberId: match.bioguide_id }) : undefined);
-                  const bias = biasLabel(participant.buys, participant.sells);
-                  const chamberValue = participant.chamber ?? match?.chamber ?? null;
-                  const partyValue = participant.party ?? match?.party ?? null;
-                  const state = participant.state ?? match?.state ?? null;
-                  const chamber = chamberBadge(chamberValue);
-                  const affiliation = formatCongressAffiliationText(partyValue, state);
-                  const rowClassName = `${compactInteractiveSurfaceClassName} block px-3 py-2.5 text-sm`;
-
-                  const content = (
-                    <>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                            {chamberValue ? <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge> : null}
-                            {affiliation ? <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{affiliation}</span> : null}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-sm font-semibold tabular-nums text-slate-200">{participant.trades}</span>
-                          <p className="text-[11px] text-slate-500">Trades</p>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-                        <span className={`font-semibold tabular-nums ${biasTextClass(bias.tone)}`}>{bias.label}</span>
-                        <span className={`font-semibold tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                          {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
-                        </span>
-                      </div>
-                    </>
-                  );
-
-                  if (resolvedHref) {
-                    return (
-                      <Link key={participant.memberId ?? participant.name} href={resolvedHref} prefetch={false} className={rowClassName}>
-                        {content}
-                      </Link>
-                    );
-                  }
-
-                  return (
-                    <div key={participant.memberId ?? participant.name} className={rowClassName}>
-                      {content}
-                    </div>
-                  );
-                })}
-          </ExpandableTickerSection>
-
-          <ExpandableTickerSection
-            id="top-insiders"
-            title="Top insiders"
-            className={cardClassName}
-            emptyState={<InlineEmptyState message="No insiders in current window." />}
-          >
-            {topInsiderParticipants.map((participant) => {
-                  const bias = biasLabel(participant.buys, participant.sells);
-                  const href = insiderHref(participant.name, participant.reportingCik);
-                  const roleBadge = resolveInsiderRoleBadge(participant.role);
-                  const roleTone = insiderRoleBadgeTone(roleBadge);
-                  const content = (
-                    <>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <span className={`block truncate font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                            <Badge tone={roleTone} className="px-2 py-0.5 text-[10px]">{roleBadge}</Badge>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-sm font-semibold tabular-nums text-slate-200">{participant.trades}</span>
-                          <p className="text-[11px] text-slate-500">Trades</p>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-                        <span className={`font-semibold tabular-nums ${biasTextClass(bias.tone)}`}>{bias.label}</span>
-                        <span className={`font-semibold tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                          {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
-                        </span>
-                      </div>
-                    </>
-                  );
-
-                  if (href) {
-                    return (
-                      <Link
-                        key={participant.reportingCik ?? participant.name}
-                        href={href}
-                        prefetch={false}
-                        className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
-                      >
-                        {content}
-                      </Link>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={participant.reportingCik ?? participant.name}
-                      className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
-                    >
-                      {content}
-                    </div>
-                  );
-                })}
-          </ExpandableTickerSection>
-        </div>
+        <TickerParticipantLeaderboards
+          symbol={normalizedSymbol}
+          lookbackDays={selectedLookbackDays}
+          side={side}
+          initialCongressEvents={congressEvents}
+          initialInsiderEvents={insiderEvents}
+        />
       </div>
     </>
   );
@@ -4445,7 +4236,6 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           side={side}
           activityDetailsDeferred={deferTickerActivityDetails}
           signalsAuthPending={signalActivityAuthPending}
-          topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
           crossSourceDivergence={contextBundle?.cross_source_divergence ?? null}
           similarHistoricalSetups={contextBundle?.similar_historical_setups ?? null}

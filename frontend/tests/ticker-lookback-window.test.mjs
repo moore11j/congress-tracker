@@ -10,6 +10,7 @@ const tickerPage = read("app/ticker/[symbol]/page.tsx");
 const chartLoader = read("components/ticker/TickerChartLoader.tsx");
 const tickerContextCard = read("components/ticker/TickerContextCard.tsx");
 const tickerSignalActivityClient = read("components/ticker/TickerSignalActivityClient.tsx");
+const participantLeaderboards = read("components/ticker/TickerParticipantLeaderboards.tsx");
 const api = read("lib/api.ts");
 
 test("ticker page keeps confirmation on 30D while chart uses selected URL range", () => {
@@ -40,6 +41,17 @@ test("ticker activity filters keep small controls compact", () => {
   assert.match(tickerPage, /lg:grid-cols-\[minmax\(28rem,1fr\)_max-content_max-content\]/);
   assert.match(tickerPage, /lg:w-\[25rem\]/);
   assert.match(tickerPage, /lg:w-\[17rem\]/);
+});
+
+test("ticker participant leaderboards rank the live activity tapes by trades and net flow", () => {
+  assert.match(tickerPage, /<TickerParticipantLeaderboards/);
+  assert.match(participantLeaderboards, /const RANKING_LIMIT = 100/);
+  assert.match(participantLeaderboards, /right\.trades - left\.trades/);
+  assert.match(participantLeaderboards, /Math\.abs\(right\.netFlow\) - Math\.abs\(left\.netFlow\)/);
+  assert.match(participantLeaderboards, /Ranked by trade count · net flow breaks ties/);
+  assert.match(participantLeaderboards, /<th className="px-2 py-2\.5">#<\/th>/);
+  assert.match(participantLeaderboards, /Net flow<\/th>/);
+  assert.match(participantLeaderboards, /request\("congress"\), request\("insider"\)/);
 });
 
 test("ticker chart helper forwards selected days to chart-bundle", () => {
