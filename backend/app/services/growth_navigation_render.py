@@ -68,12 +68,17 @@ def navigation_crop(shot,index,asset):
  return target
 
 
-def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None):
+def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='cinematic_v1'):
  import imageio_ffmpeg
+ if presentation not in {'classic','cinematic_v1'}:raise ValueError('Unknown navigation presentation.')
+ cinema=None
+ if presentation=='cinematic_v1':
+  from app.services.growth_cinematic_style import CinematicStyle,entrance_offset
+  cinema=CinematicStyle((W,H))
  ffmpeg=imageio_ffmpeg.get_ffmpeg_exe();scenes,captions,duration=timeline(creative,audio)
  expected={s['shot'] for s in scenes if s['walnut_url']}
  if not expected.issubset(captures):raise ValueError('Missing navigation footage.')
- base=Image.new('RGB',(W,H),BG);logo=Image.open(LOGO).convert('RGB')
+ base=Image.new('RGBA' if cinema else 'RGB',(W,H),(0,0,0,0) if cinema else BG);logo=Image.open(LOGO).convert('RGB')
  base.paste(logo.resize((100,100),Image.Resampling.LANCZOS),(64,125));d=ImageDraw.Draw(base)
  d.text((184,144),'Walnut',font=brand_font(43,True),fill=WHITE)
  d.text((186,195),'Market Terminal',font=brand_font(22),fill=MINT)
@@ -95,7 +100,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
    decoded[shot]=(raw,w,h,size,count);knots[shot]=action_knots(scene,a,audio,creative['narration'])
   output=root/'video.mp4'
   command=[ffmpeg,'-y','-v','error','-f','rawvideo','-pix_fmt','rgb24','-s',f'{W}x{H}','-r',str(FPS),'-i','pipe:0','-i',str(voice),
-   '-c:v','libx264','-preset','veryfast','-crf','18','-threads','2','-g','1','-bf','0','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-ar','48000',
+   '-c:v','libx264','-preset','veryfast','-crf','18','-threads','2','-g','1','-bf','0','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k' if cinema else '192k','-ar','48000',
    '-af','loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur=0.45','-t',str(duration),'-movflags','+faststart',str(output)]
   with (root/'encode.log').open('wb') as log:
    process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=log);started=time.monotonic()
@@ -103,9 +108,13 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
     for n in range(math.ceil(duration*FPS)):
      if time.monotonic()-started>900:raise ValueError('Navigation render exceeded time budget.')
      t=n/FPS;scene=scenes[max(0,bisect.bisect_right([s['start'] for s in scenes],t)-1)];shot=scene['shot']
-     im=base.copy();d=ImageDraw.Draw(im)
+     elapsed=t-scene['start']
+     if cinema:
+      im=cinema.frame(t,elapsed,shot not in decoded);im.paste(base,(0,0),base)
+     else:im=base.copy()
+     d=ImageDraw.Draw(im)
      if shot in decoded:
-      centered(d,scene['on_screen_text'],295,brand_font(66,True),WHITE,max_width=952)
+      centered(d,scene['on_screen_text'],295+(entrance_offset(elapsed) if cinema else 0),brand_font(66,True),WHITE,max_width=952)
       centered(d,scene['subhead'],460,brand_font(26),MINT,max_width=956)
       raw,w,h,size,count=decoded[shot];a=captures[shot];f=source_frame_at(knots[shot],t-scene['start']);index=min(count-1,int(f));fraction=f-index
       with raw.open('rb') as stream:stream.seek(index*size);pic=Image.frombytes('RGB',(w,h),stream.read(size))
@@ -121,9 +130,12 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       pd.polygon([(x,y),(x+2,y+23),(x+8,y+17),(x+15,y+28),(x+20,y+25),(x+13,y+14),(x+23,y+13)],fill='#f8fafc',outline=BG,width=2)
       c=navigation_crop(shot,f,a);pic=pic.crop((int(c['x']),int(c['y']),int(c['x']+c['width']),int(c['y']+c['height'])))
       scale=min(968/pic.width,914/pic.height);dw,dh=round(pic.width*scale),round(pic.height*scale)
-      px=(W-dw)//2;py=542+(914-dh)//2
-      im.paste(pic.resize((dw,dh),Image.Resampling.LANCZOS),(px,py));d=ImageDraw.Draw(im)
-      d.rounded_rectangle((px-2,py-2,px+dw+2,py+dh+2),radius=8,outline='#334155',width=2)
+      px=(W-dw)//2;py=542+(914-dh)//2+(entrance_offset(elapsed) if cinema else 0)
+      pic=pic.resize((dw,dh),Image.Resampling.LANCZOS)
+      if cinema:cinema.panel(im,pic,(px,py))
+      else:im.paste(pic,(px,py))
+      d=ImageDraw.Draw(im)
+      if not cinema:d.rounded_rectangle((px-2,py-2,px+dw+2,py+dh+2),radius=8,outline='#334155',width=2)
       centered(d,'Actual Walnut navigation · Selected figures obscured',1479,brand_font(19),MUTED)
      else:
       centered(d,'Walnut Markets',335,brand_font(68,True),WHITE)
@@ -131,7 +143,11 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       centered(d,creative['brand_tagline'].replace('. ','.\n',1),1020,brand_font(61,True),WHITE,max_width=820)
       centered(d,'NVIDIA links in the comments',1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
-     if caption:centered(d,caption['text'],1540,brand_font(52,True),WHITE,max_width=940)
+     if caption:
+      if cinema:
+       d.rounded_rectangle((52,1520,1028,1646),radius=20,fill='#08121f',outline='#253c40',width=1)
+       d.line((76,1544,76,1584),fill=MINT,width=3)
+      centered(d,caption['text'],1540,brand_font(52,True),WHITE,max_width=900 if cinema else 940)
      gap=14;bar=(952-gap*(len(scenes)-1))/len(scenes)
      for i in range(len(scenes)):
       x=64+i*(bar+gap);d.rounded_rectangle((x,1674,x+bar,1678),radius=2,fill=MINT if i<scene['sequence'] else '#1e293b')
@@ -146,4 +162,5 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
   return content,{'provider':'walnut_native','width':W,'height':H,'duration':duration,'frame_rate':FPS,'encoding':'h264_intra',
    'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':4,'font':Path(brand_font(24).path).name,
    'brand_accent':MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
-   'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click'}
+   'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
+   'presentation':presentation,'background_asset':'walnut-cinematic-atrium-v1.png' if cinema else None,'background_is_illustrative':bool(cinema)}
