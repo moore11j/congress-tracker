@@ -60,7 +60,12 @@ def audit_url(url, robots):
             issues.append('redirect')
         if any('noindex' in value.lower() or value.lower().strip() == 'none' for value in directives):
             issues.append('noindex')
-        if parser.canonicals != [url]:
+        # A bare origin and origin + '/' identify the same homepage URL.
+        # Keep every other path/query distinction and require exactly one tag.
+        def comparable(value):
+            parts = urlsplit(value or '')
+            return parts._replace(path=parts.path or '/').geturl()
+        if [comparable(value) for value in parser.canonicals] != [comparable(url)]:
             issues.append('canonical')
         parts = urlsplit(url)
         robot = robots.get(f'{parts.scheme}://{parts.netloc}')
