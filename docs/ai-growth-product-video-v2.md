@@ -49,3 +49,9 @@ Generation prompt: Create a single premium editorial photograph in vertical 9:16
 Focused tests cover reviewed-copy integrity, one narration call, actual timing alignment, job ownership, stage transitions and review/download gates. Frontend TypeScript validation covers the new campaign and hook selector. Real capture and encoded-output checks are required before treating a job as review-ready; final production job details are recorded after rendering.
 
 The first V2 draft used local recovery for the risk and Outcomes captures because Chromium struggled on the shared worker. Recovery used a 15-minute admin session held only in memory; no session or signing secret was written into artifacts. Local live checks completed the chart in 43 seconds, risks in 40 seconds and Outcomes in 26 seconds. The revised engine captures only prepared browser frames, then encodes the movement; it does not record the loading sequence.
+
+## First revised ad
+
+Draft `gv_b10c9f1fedb24b9d8369c68134990fbe` uses one 22.44-second Chris / Eleven v3 narration, seven scenes and four real product shots. The 22.9-second export is H.264, 1080×1920 at 24 fps with 48 kHz AAC audio. Captions are grouped within each scene so phrases do not spill onto the next product screen. Final assembly used authorized local recovery, then returns through the existing private asset and review workflow. No social post or subscription upgrade is part of this change.
+
+Validation: 53 focused backend tests passed after the per-shot workflow change; the six product tests passed again after adding caption-boundary assertions. Frontend TypeScript validation passed. Live source frames and the encoded output were inspected. The shared worker remains slow for complex product captures; local recovery was required for this first revised ad, so unattended worker throughput is not yet established.

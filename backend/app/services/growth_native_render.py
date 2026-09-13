@@ -47,21 +47,25 @@ def timeline(creative, audio):
         raise ValueError("Invalid narration timing.")
     if any(b < a for a, b in zip(starts, starts[1:])) or any(b < a for a, b in zip(starts, ends)):
         raise ValueError("Narration alignment is not monotonic.")
-    scenes, cursor = [], 0
+    scenes, spans, cursor = [], [], 0
     for scene in creative["storyboard"]:
         index = script.find(scene["narration"], cursor)
         if index < 0:
             raise ValueError("A product scene is missing from the continuous narration.")
         scenes.append({**scene, "start": starts[index]})
+        spans.append((index, len(scene["narration"])))
         cursor = index + len(scene["narration"])
     scenes[0]["start"] = 0
     for i, scene in enumerate(scenes):
         scene["end"] = scenes[i+1]["start"] if i+1 < len(scenes) else duration + .45
-    words = list(re.finditer(r"\S+", script))
     captions = []
-    for i in range(0, len(words), 4):
-        chunk = words[i:i+4]
-        captions.append({"text": " ".join(w.group() for w in chunk), "start": starts[chunk[0].start()], "end": ends[chunk[-1].end()-1]})
+    for scene, (offset, length) in zip(scenes, spans):
+        words = list(re.finditer(r"\S+", script[offset:offset+length]))
+        for i in range(0, len(words), 4):
+            chunk = words[i:i+4]
+            captions.append({"text": " ".join(w.group() for w in chunk),
+                "start": starts[offset+chunk[0].start()],
+                "end": min(scene["end"], ends[offset+chunk[-1].end()-1])})
     return scenes, captions, duration + .45
 
 

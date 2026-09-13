@@ -72,6 +72,10 @@ def test_continuous_voice_drives_shots_and_caption_timing():
     assert scenes[-1]["end"]==duration
     assert " ".join(c["text"] for c in captions)==board["narration"]
     assert all(0<=c["start"]<c["end"]<=duration for c in captions)
+    for caption in captions:
+        scene=next(s for s in scenes if s["start"]<=caption["start"]<s["end"])
+        assert caption["text"] in scene["narration"]
+        assert caption["end"]<=scene["end"]
     audio["alignment"]["characters"][0]="x"
     with pytest.raises(ValueError,match="does not match"):
         timeline(board,audio)
