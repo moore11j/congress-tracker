@@ -44,6 +44,8 @@ def test_navigation_actions_follow_spoken_phrase_timing():
  assert source_frame_at(knots,spoken_scroll)==18
  frames=[source_frame_at(knots,i/24) for i in range(145)]
  assert all(a<=b for a,b in zip(frames,frames[1:])) and frames[-1]==71
+ asset['action_markers'][0]['frame']=5
+ assert source_frame_at(action_knots(scene,asset,audio,script),0)==5
  asset['action_markers'][1]['phrase']='unspoken action'
  with pytest.raises(ValueError,match='matching narration'):action_knots(scene,asset,audio,script)
 
@@ -53,6 +55,15 @@ def test_pointer_arrives_quickly_curves_and_settles():
  distances=[math.dist(a,b) for a,b in zip([(0,0),*points],points)]
  assert distances[0]>distances[-1]*5
  assert any(abs(y-x*.25)>1 for x,y in points[:-1])
+
+
+def test_intro_words_hold_the_first_frame_until_the_scroll_instruction():
+ script='Next, scroll down.'
+ scene={'narration':script,'start':0,'end':3}
+ audio={'alignment':{'character_start_times_seconds':[i*.1 for i in range(len(script))]}}
+ asset={'frames':[{} for _ in range(40)],'action_markers':[{'phrase':'scroll down','frame':0}]}
+ knots=action_knots(scene,asset,audio,script)
+ assert source_frame_at(knots,.3)==0 and source_frame_at(knots,.7)>0
 
 
 def test_social_copy_and_brand_are_reviewable():

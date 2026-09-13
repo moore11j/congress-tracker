@@ -24,8 +24,11 @@ def action_knots(scene,asset,audio,script):
   t=max(0,alignment['character_start_times_seconds'][start+index]-scene['start'])
   frame=marker['frame']
   if not 0<=frame<count:raise ValueError('Action marker exceeds footage.')
-  if t==0 and frame==0:continue
-  if t<=knots[-1][0] or frame<=knots[-1][1]:raise ValueError('Action markers are out of order.')
+  if t==0:
+   # Trim a short pre-action hold when the instruction starts on the first word.
+   if len(knots)!=1:raise ValueError('Action markers are out of order.')
+   knots[0]=(0.,float(frame));continue
+  if t<=knots[-1][0] or frame<knots[-1][1]:raise ValueError('Action markers are out of order.')
   knots.append((t,float(frame)))
  if knots[-1][0]>=duration or knots[-1][1]>=count-1:raise ValueError('No room for action completion.')
  knots.append((duration,float(count-1)))
@@ -36,6 +39,29 @@ def source_frame_at(knots,t):
  i=max(0,min(len(knots)-2,bisect.bisect_right([k[0] for k in knots],t)-1))
  a,b=knots[i],knots[i+1];u=max(0,min(1,(t-a[0])/(b[0]-a[0])))
  return a[1]+(b[1]-a[1])*u
+
+
+def navigation_crop(shot,index,asset):
+ """Widen during page travel, then magnify the real control/section at rest."""
+ frame=asset['frames'][min(len(asset['frames'])-1,int(index))]
+ explicit=frame['camera']
+ if explicit['height']!=asset['viewport']['height']:return explicit
+ full={'x':0,'y':0,'width':1040,'height':1000}
+ if shot=='v4_search':
+  if '/ticker/NVDA' in frame['page_url']:return {'x':0,'y':0,'width':880,'height':846}
+  return {'x':530,'y':0,'width':510,'height':650}
+ if shot=='v4_brief':return {'x':0,'y':80,'width':800,'height':770}
+ events=asset['navigation_events']
+ scrolls=[e['frame'] for e in events if e['type']=='wheel_scroll']
+ circles=[e['frame'] for e in events if e['type']=='circle']
+ settled=circles[-1] if circles else len(asset['frames'])-17
+ if scrolls and scrolls[0]<=index<settled-5:return full
+ target={'x':0,'y':65 if index>=settled else 0,'width':720,'height':690}
+ if shot=='v4_filings':return target
+ if index>=settled-5:
+  u=max(0,min(1,(index-settled+5)/12));u=u*u*(3-2*u)
+  return {k:full[k]+(target[k]-full[k])*u for k in full}
+ return target
 
 
 def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None):
@@ -89,7 +115,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
        cx,cy=a['frames'][recent]['cursor'];radius=13+(index-recent+fraction)*4
        pd.ellipse((cx-radius,cy-radius,cx+radius,cy+radius),outline=MINT,width=2)
       pd.polygon([(x,y),(x+2,y+23),(x+8,y+17),(x+15,y+28),(x+20,y+25),(x+13,y+14),(x+23,y+13)],fill='#f8fafc',outline=BG,width=2)
-      c=current['camera'];pic=pic.crop((int(c['x']),int(c['y']),int(c['x']+c['width']),int(c['y']+c['height'])))
+      c=navigation_crop(shot,f,a);pic=pic.crop((int(c['x']),int(c['y']),int(c['x']+c['width']),int(c['y']+c['height'])))
       scale=min(968/pic.width,914/pic.height);dw,dh=round(pic.width*scale),round(pic.height*scale)
       px=(W-dw)//2;py=542+(914-dh)//2
       im.paste(pic.resize((dw,dh),Image.Resampling.LANCZOS),(px,py));d=ImageDraw.Draw(im)
