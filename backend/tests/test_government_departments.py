@@ -32,6 +32,21 @@ def test_department_aliases_are_canonical_and_slugged():
     assert department_slug("Department of Defense") == "department-of-defense"
 
 
+def test_punctuated_department_in_index_has_matching_profile():
+    from app.services.government_departments import list_departments
+    db = _db()
+    name = "U.S. International Development Finance Corporation"
+    db.add(GovernmentContract(award_id="DFC-SEO", dedupe_key="DFC-SEO", symbol="MSFT",
+        recipient_name="Microsoft", raw_recipient_name="Microsoft", award_amount=1000,
+        award_date=date(2026, 8, 1), awarding_agency=name, source="local"))
+    db.commit()
+    item = next(row for row in list_departments(db)["items"] if row["name"] == name)
+    profile = get_department_profile(db, item["slug"])
+    assert item["contractCount"] == profile["summary"]["contractCount"] == 1
+    assert item["linkedTickerCount"] == profile["summary"]["linkedTickerCount"] == 1
+    assert profile["summary"]["totalAwarded"] == 1000
+
+
 def test_department_profile_aggregates_tickers_and_actions():
     db = _db()
     db.add(Security(symbol="LMT", name="Lockheed Martin Corporation", asset_class="stock", sector="Industrials"))

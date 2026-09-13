@@ -352,7 +352,10 @@ def _department_action_rows(db: Session, canonical: str) -> list[GovernmentContr
 def _department_clause(model: Any, canonical: str, *, include_funding: bool):
     aliases = set(DEPARTMENT_ALIASES.get(canonical, (canonical,)))
     aliases.add(canonical)
-    lowered = {_normalize_department_key(alias).lower() for alias in aliases if alias}
+    # Database agency names retain punctuation (for example "U.S."). Match
+    # those stored names as well as normalized aliases used by older imports.
+    lowered = {variant for alias in aliases if alias for variant in
+               (alias.strip().lower(), _normalize_department_key(alias).lower())}
     fields = [model.awarding_agency]
     if include_funding and hasattr(model, "funding_agency"):
         fields.append(model.funding_agency)
