@@ -31,8 +31,8 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /const selectedLookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /normalizeOptionsFlowSummary\(optionsFlowSummary, normalizedSymbol, effectiveLookbackDays\)/);
   assert.match(tickerPage, /optionsFlow = \{ \.\.\.optionsFlow, lookback_days: effectiveLookbackDays \}/);
-  assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} \/>/);
-  assert.doesNotMatch(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{lookbackDays\} \/>/);
+  assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} deferLoad=\{deferHeavyTickerLoads\} \/>/);
+  assert.doesNotMatch(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{lookbackDays\}/);
   assert.doesNotMatch(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: SIGNAL_WINDOW_DAYS/);
 });
 

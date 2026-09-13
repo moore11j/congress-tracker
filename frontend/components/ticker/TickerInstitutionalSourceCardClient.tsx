@@ -203,7 +203,7 @@ export function TickerInstitutionalSourceCardClient({
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{loading ? "Checking Institutional Activity" : bodyForSource(source, canViewInstitutional)}</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{loading ? contextWindowLabel(lookbackDays) : supportForSource(source, lookbackDays, canViewInstitutional)}</p>
-      {canViewInstitutional && source.present && !loading ? <TickerDiscoveryLink ticker={symbol} href={`/ticker/${encodeURIComponent(symbol)}?source=institutional&lookback=${lookbackDays}&side=${side}#institutional-activity`} destinationType="institutional_activity">Review {symbol} institutional activity</TickerDiscoveryLink> : null}
+      {canViewInstitutional && source.present && !loading ? <TickerDiscoveryLink ticker={symbol} href="#institutional-activity" destinationType="institutional_activity">Review {symbol} institutional activity</TickerDiscoveryLink> : null}
     </div>
   );
 }

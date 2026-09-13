@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, getTickerSignalsSummary, type SignalItem, type TickerSignalsSummaryResponse } from "@/lib/api";
 import type { ConfirmationScoreSource } from "@/lib/types";
+import { TickerDiscoveryLink } from "./TickerDiscoveryLink";
 
 type SignalCardSource = ConfirmationScoreSource & {
   locked?: boolean;
@@ -307,6 +308,7 @@ export function TickerSignalsSourceCardClient({
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{state.body}</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{state.support}</p>
+      {state.source.present && !state.loading ? <TickerDiscoveryLink ticker={symbol} href="#signals-activity" destinationType="signals_activity">Review {symbol} signal activity</TickerDiscoveryLink> : null}
     </div>
   );
 }

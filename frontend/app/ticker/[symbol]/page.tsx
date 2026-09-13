@@ -1468,9 +1468,12 @@ function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHisto
             <div className="mt-2 grid gap-1.5">
               {(setups.top_matches ?? []).slice(0, 3).map((match) => {
                 const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
-                return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-x-3 gap-y-1 rounded-md border border-violet-300/15 bg-violet-300/[0.035] px-2.5 py-2 text-xs sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)_auto] sm:items-center">
-                  <p className="font-semibold text-slate-100"><span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-violet-400/15 text-[9px] text-violet-200">⌁</span>{match.ticker} <span className="font-normal text-slate-500">{formatDateShort(match.market_date)}</span></p>
-                  <TickerDiscoveryLink ticker={symbol} href={`/outcomes?ticker=${encodeURIComponent(match.ticker)}`} destinationType="outcome" destinationId={match.ticker}>View {match.ticker} outcome history</TickerDiscoveryLink>
+                return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-x-3 gap-y-1 rounded-md border border-violet-300/15 bg-violet-300/[0.035] px-2.5 py-2 text-xs sm:grid-cols-[minmax(13rem,0.75fr)_minmax(0,1.35fr)_auto] sm:items-center">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <p className="font-semibold text-slate-100"><span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-violet-400/15 text-[9px] text-violet-200">⌁</span>{match.ticker}</p>
+                    <span className="text-slate-500">{formatDateShort(match.market_date)}</span>
+                    <TickerDiscoveryLink compact ticker={symbol} href={`/outcomes?ticker=${encodeURIComponent(match.ticker)}`} destinationType="outcome" destinationId={match.ticker}>Outcome history</TickerDiscoveryLink>
+                  </div>
                   {match.reasons?.length ? <p className="min-w-0 truncate text-[11px] text-slate-500">Similar: {match.reasons.join(" · ")}</p> : <span />}
                   <p className="font-medium text-slate-300 sm:text-right">Score <span className="text-emerald-300">{match.score}</span> · {match.direction} · {outcome?.status === "matured" ? historicalPercent(outcome.directional_return_pct) : "Pending"}</p>
                 </div>;
@@ -3369,7 +3372,7 @@ async function DeferredTickerContent({
                 source={insiderCardSource}
                 body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
                 support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
-                discovery={insiderCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href={`${hrefWithFilters(normalizedSymbol, lookback, "insider", side)}#insider-activity`} destinationType="insider_activity">Recent insider activity for {normalizedSymbol}</TickerDiscoveryLink> : null}
+                discovery={insiderCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#insider-activity" destinationType="insider_activity">Recent insider activity for {normalizedSymbol}</TickerDiscoveryLink> : null}
               />
               <SourceEvidenceCard
                 title="Congress"
@@ -3377,7 +3380,7 @@ async function DeferredTickerContent({
                 source={congressCardSource}
                 body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
                 support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
-                discovery={congressCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href={`${hrefWithFilters(normalizedSymbol, lookback, "congress", side)}#congress-activity`} destinationType="congress_activity">Congress trades involving {normalizedSymbol}</TickerDiscoveryLink> : null}
+                discovery={congressCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#congress-activity" destinationType="congress_activity">Congress trades involving {normalizedSymbol}</TickerDiscoveryLink> : null}
               />
               <SourceEvidenceCard
                 title="Analysts"

@@ -142,10 +142,16 @@ test("ticker discoveries are backed by activity or actual comparable tickers and
   const page = fs.readFileSync("app/ticker/[symbol]/page.tsx", "utf8");
   assert.match(page, /insiderCardSource.present \? <TickerDiscoveryLink/);
   assert.match(page, /congressCardSource.present \? <TickerDiscoveryLink/);
+  assert.match(page, /href="#insider-activity"/);
+  assert.match(page, /href="#congress-activity"/);
   assert.match(page, /outcomes\?ticker=\$\{encodeURIComponent\(match.ticker\)\}/);
+  assert.match(page, /TickerDiscoveryLink compact ticker=\{symbol\}/);
   assert.match(page, /enabled=\{!confirmationLocked && score !== null\}/);
   const institutional = fs.readFileSync("components/ticker/TickerInstitutionalSourceCardClient.tsx", "utf8");
   assert.match(institutional, /canViewInstitutional && source.present && !loading/);
+  assert.match(institutional, /href="#institutional-activity"/);
+  const signals = fs.readFileSync("components/ticker/TickerSignalsSourceCardClient.tsx", "utf8");
+  assert.match(signals, /href="#signals-activity"/);
   const gate = fs.readFileSync("components/billing/ContextualUpgrade.tsx", "utf8");
   assert.match(gate, /name="upgrade_prompt_viewed"/);
   assert.match(gate, /trackEvent\("upgrade_prompt_clicked"/);
