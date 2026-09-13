@@ -4,13 +4,15 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 BACKGROUND = Path(__file__).parents[1] / 'assets/growth/walnut-cinematic-atrium-v1.png'
+NVIDIA_BACKGROUND = BACKGROUND.with_name('walnut-nvidia-server-room-v1.png')
 
 
 class CinematicStyle:
-    def __init__(self, size, brightness=1.0):
+    def __init__(self, size, brightness=1.0, background=BACKGROUND):
         self.w, self.h = size
         self.brightness = brightness
-        self.plate = ImageOps.fit(Image.open(BACKGROUND).convert('RGB'),
+        self.background = Path(background)
+        self.plate = ImageOps.fit(Image.open(self.background).convert('RGB'),
                                  (self.w + 100, self.h + 160), method=Image.Resampling.LANCZOS)
         self.veil = Image.new('RGBA', size, (2, 6, 23, 95))
         draw = ImageDraw.Draw(self.veil)
