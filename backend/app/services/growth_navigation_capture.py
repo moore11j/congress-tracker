@@ -202,7 +202,9 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    r.hold(4);r.mark('Search')
    search=page.get_by_role('combobox',name='Global search');r.click(search,'Global search')
    search.fill(ticker);r.hold(5)
-   result=page.get_by_role('option').filter(has_text=re.compile(r'\b'+re.escape(ticker)+r'\b')).first
+   # Company labels may omit the symbol while insider results include it.
+   # Select the ticker category, then verify the actual destination heading.
+   result=page.get_by_role('option').filter(has=page.get_by_text('Ticker',exact=True)).first
    result.wait_for(timeout=30000);r.click(result,'Open '+ticker)
    page.get_by_role('heading',level=1).filter(has_text=ticker).wait_for(timeout=60000)
    page.wait_for_timeout(1200);r.hold(15)
