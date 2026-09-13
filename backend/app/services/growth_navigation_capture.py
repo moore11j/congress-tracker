@@ -43,8 +43,8 @@ class Recorder:
 
  def frame(self):
   if time.monotonic()>self.deadline:raise ValueError('Navigation capture exceeded its time budget.')
-  # The page stays unmodified. Obscure account identity and suspect numbers in
-  # captured pixels only; never replace a value with an invented number.
+  # The page stays unmodified. Mask personal account identity in captured
+  # pixels only; paid product data remains exactly as displayed.
   masks=self.page.evaluate('''() => {
    const out=[];
    const add=e=>{
@@ -55,14 +55,7 @@ class Recorder:
     }
     if(r>l&&d>t&&d>0&&t<1000)out.push({x:l,y:t,width:r-l,height:d-t});
    };
-   document.querySelectorAll('button').forEach(e=>{if(/Hello,|Following NVDA|Follow NVDA/.test(e.textContent||''))add(e);});
-   document.querySelectorAll('table').forEach(table=>{
-    const label=table.getAttribute('aria-label')||'';
-    const head=(table.querySelector('thead')?.textContent||'').toLowerCase();
-    table.querySelectorAll('tbody tr').forEach(row=>Array.from(row.querySelectorAll('td')).forEach((td,i)=>{
-     if((head.includes('holder')&&i>0)||(label==='Institutional activity'&&(i===1||i===3))||(/^\\s*[$€£]/.test(td.textContent||'')))add(td);
-    }));
-   });
+   document.querySelectorAll('button').forEach(e=>{if(/Hello,/.test(e.textContent||''))add(e);});
    return out;
   }''')
   im=Image.open(io.BytesIO(self.page.screenshot(animations='disabled',timeout=20000))).convert('RGB')
@@ -171,10 +164,9 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    if route.request.is_navigation_request() and route.request.frame==page.main_frame and p.path not in allowed_paths:return route.abort()
    route.continue_()
   page.route('**/*',guard)
-  if daily:
-   identity=context.request.get('https://congress-tracker-api.fly.dev/api/auth/me',timeout=30000,max_redirects=0)
-   user=(identity.json().get('user') or {}) if identity.status==200 else {}
-   if user.get('id')!=owner_id or user.get('role')!='admin':raise ValueError('Admin capture session could not be verified.')
+  identity=context.request.get('https://congress-tracker-api.fly.dev/api/auth/me',timeout=30000,max_redirects=0)
+  user=(identity.json().get('user') or {}) if identity.status==200 else {}
+  if user.get('id')!=owner_id or user.get('role')!='admin':raise ValueError('Admin capture session could not be verified.')
   response=page.goto(initial,wait_until='domcontentloaded',timeout=60000)
   if not response or response.status!=200:raise ValueError('Navigation source is unavailable.')
   page.get_by_role('combobox',name='Global search').wait_for(timeout=60000)
@@ -291,5 +283,5 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    'viewport':VIEWPORT,'crop':{'x':0,'y':0,**VIEWPORT},'focus_panels':[{'x':0,'y':0,**VIEWPORT}],
    'media_type':'video/mp4','trim_start':0,'frame_rate':12,'clip_duration':len(r.frames)/12,
    'capture_method':'actual_browser_clicks_and_wheel_scrolls','frames':r.frames,'action_markers':r.markers,'navigation_events':r.events,'final_focus':final_focus,
-   'source_text':source[:16000],'source_hash':digest(source),'authorized_product_demo':True,'public_context':False,
-   'focus_note':'Real navigation. Account identity and suspect numeric fields obscured in captured pixels. Loading waits shortened; narration-matched action markers retained.'}
+   'source_text':source[:16000],'source_hash':digest(source),'authorized_product_demo':True,'public_context':False,'admin_session_verified':True,'financial_data_visible':True,'mask_policy':'account_identity_only',
+   'focus_note':'Real navigation. Account identity obscured in captured pixels; paid financial data shown as displayed by Walnut. Loading waits shortened; narration-matched action markers retained.'}

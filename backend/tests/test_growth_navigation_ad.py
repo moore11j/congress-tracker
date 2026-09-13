@@ -78,10 +78,11 @@ def test_social_copy_and_brand_are_reviewable():
  assert '$' not in board['narration'] and '%' not in board['narration']
 
 
-def test_existing_navigation_drafts_remain_valid_after_copy_revision(db):
+@pytest.mark.parametrize("revision", [1, 2])
+def test_existing_navigation_drafts_remain_valid_after_copy_revision(db, revision):
  seed(db)
  item=product.create_job(db,1,hook='navigation')
- legacy=nav.creative(1)
+ legacy=nav.creative(revision)
  item['payload']['creative']=legacy
  item['payload']['campaign_hash']=nav.digest(legacy)
  assert product.validate(item)==legacy

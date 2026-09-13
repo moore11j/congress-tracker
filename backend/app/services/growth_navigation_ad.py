@@ -49,12 +49,12 @@ def _legacy_creative():
   'brand':{'font_stack':'ui-sans-serif, system-ui, sans-serif','windows_font':'Segoe UI','background':'#020617','accent':'#6ee7b7','text':'#f1f5f9','logo':LOGO.name}}
 
 
-def creative(revision=2):
+def creative(revision=3):
  """Version social copy so existing reviewed drafts remain verifiable."""
  board=_legacy_creative()
  if revision==1:return board
- if revision!=2:raise ValueError('Unknown navigation campaign revision.')
- board['campaign_revision']=2
+ if revision not in {2,3}:raise ValueError('Unknown navigation campaign revision.')
+ board['campaign_revision']=revision
  board['storyboard'][-1]['narration']="Don't follow a signal. Follow the evidence. NVIDIA links below."
  board['storyboard'][-1]['duration_seconds']=max(3,round(len(board['storyboard'][-1]['narration'].split())/2.5))
  board['narration']=' '.join(scene['narration'] for scene in board['storyboard'])
@@ -64,6 +64,8 @@ def creative(revision=2):
   f"NVIDIA links below:\nNVIDIA ticker: {TICKER_URL}\nNVIDIA research brief: {BRIEF_URL}\nMore research: {INSIGHTS_URL}#research-briefs\n\n"
   "Save this walkthrough for your next research session. Research only, not investment advice. Institutional tools shown require a paid plan. 13F filings report delayed quarter-end holdings.\n\n#NVIDIA #NVDA #StockResearch #WalnutMarkets")
  board['first_comment']='Which stock should we walk through next?'
+ if revision==3:
+  board['warnings'][1]='Paid financial data is shown as displayed by Walnut. Cross-surface institutional values remain inconsistent; no figures are rewritten or narrated.'
  board['posting_notes']='Links are included in the caption. Review the video and caption before publishing. The first comment is optional; no posting or pinning is required. URLs are written out without promising they are clickable.'
  return board
 

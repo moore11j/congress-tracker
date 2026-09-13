@@ -140,7 +140,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       else:im.paste(pic,(px,py))
       d=ImageDraw.Draw(im)
       if not cinema:d.rounded_rectangle((px-2,py-2,px+dw+2,py+dh+2),radius=8,outline='#334155',width=2)
-      centered(d,'Actual Walnut navigation · Published research' if creative.get('schema_version')==5 else 'Actual Walnut navigation · Selected figures obscured',1479,brand_font(19),MUTED)
+      centered(d,'Actual Walnut navigation · Published research' if creative.get('schema_version')==5 else 'Actual Walnut navigation · Paid research tools',1479,brand_font(19),MUTED)
      else:
       centered(d,'Walnut Markets',335,brand_font(68,True),WHITE)
       im.paste(logo.resize((280,280),Image.Resampling.LANCZOS),(400,640));d=ImageDraw.Draw(im)
