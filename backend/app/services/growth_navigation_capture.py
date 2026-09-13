@@ -236,6 +236,11 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None):
    b=r.box(heading);r.camera={'x':0,'y':max(0,b['y']-60),'width':1040,'height':min(1000-b['y']+60,b['height']+170)}
    r.hold(20);source_text.append(heading.inner_text())
   r.hold(6)
+  final_focus=None
+  if shot in {'v4_manager','v4_filings'}:
+   b=r.box(history.locator('xpath=ancestor::section[1]'))
+   y=max(0,b['y']-35)
+   final_focus={'x':max(0,b['x']-8),'y':y,'width':min(760,1040-b['x']),'height':min(1000-y,b['height']+60)}
   end_url=page.url;thumb=(root/'frame-000.png').read_bytes()
   context.close();browser.close();output=root/'capture.mp4'
   subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-y','-v','error','-framerate','12','-i',str(root/'frame-%03d.png'),'-c:v','libx264','-crf','16','-preset','veryfast','-pix_fmt','yuv420p',str(output)],check=True,capture_output=True,timeout=120)
@@ -243,6 +248,6 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None):
   return output.read_bytes(),thumb,{'page_url':end_url,'initial_url':initial,'component':shot,'captured_at':now(),
    'viewport':VIEWPORT,'crop':{'x':0,'y':0,**VIEWPORT},'focus_panels':[{'x':0,'y':0,**VIEWPORT}],
    'media_type':'video/mp4','trim_start':0,'frame_rate':12,'clip_duration':len(r.frames)/12,
-   'capture_method':'actual_browser_clicks_and_wheel_scrolls','frames':r.frames,'action_markers':r.markers,'navigation_events':r.events,
+   'capture_method':'actual_browser_clicks_and_wheel_scrolls','frames':r.frames,'action_markers':r.markers,'navigation_events':r.events,'final_focus':final_focus,
    'source_text':source[:16000],'source_hash':digest(source),'authorized_product_demo':True,'public_context':False,
    'focus_note':'Real navigation. Account identity and suspect numeric fields obscured in captured pixels. Loading waits shortened; narration-matched action markers retained.'}

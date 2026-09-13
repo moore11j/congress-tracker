@@ -56,7 +56,9 @@ def navigation_crop(shot,index,asset):
  circles=[e['frame'] for e in events if e['type']=='circle']
  settled=circles[-1] if circles else len(asset['frames'])-17
  if scrolls and scrolls[0]<=index<settled-5:return full
- target={'x':0,'y':65 if index>=settled else 0,'width':720,'height':690}
+ target=asset.get('final_focus') if shot in {'v4_manager','v4_filings'} and index>=settled-5 else None
+ target=target or {'x':0,'y':65 if index>=settled else 0,'width':720,'height':690}
+ if shot=='v4_filings':target=asset.get('final_focus') or target
  if shot=='v4_filings':return target
  if index>=settled-5:
   u=max(0,min(1,(index-settled+5)/12));u=u*u*(3-2*u)
