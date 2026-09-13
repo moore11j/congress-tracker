@@ -101,6 +101,10 @@ def save_brief(db, actor, sections):
     return version
 
 
+class BudgetExceeded(ValueError):
+    """The next quota window can safely resume work; no provider call was made."""
+
+
 def consume_budget(db, kind, limit):
     if kind not in {"opportunities", "creatives", "renders"}:
         raise ValueError("Invalid quota category.")
@@ -109,7 +113,7 @@ def consume_budget(db, kind, limit):
     row = db.execute(text(f"UPDATE growth_video_budget SET {kind}={kind}+1 WHERE day=:day AND {kind}<:limit"), {"day": day, "limit": limit})
     db.commit()
     if row.rowcount != 1:
-        raise ValueError(f"Daily {kind} limit reached; review settings or wait until tomorrow UTC.")
+        raise BudgetExceeded(f"Daily {kind} limit reached; work can resume tomorrow UTC.")
 
 
 def research_source(db, source_id):

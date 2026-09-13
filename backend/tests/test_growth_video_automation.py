@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from test_growth_video import db, seed
 from app.db import get_db
+from app.models import AiMarketingOpportunity
 from app.routers import growth_video as api
 from app.services import growth_buffer as buffer, growth_daily_video as daily
 from app.services import growth_video_automation as automation, growth_video_store as store
@@ -87,6 +88,7 @@ def test_no_implicit_publishing_and_repeated_approval_is_idempotent(db, monkeypa
     client = Buffer()
     assert not buffer.run_pending(db, client=client)
     buffer.approve_publish(db, item, 1, ["instagram", "tiktok"], "Reviewed caption", client=client)
+    assert db.get(AiMarketingOpportunity, item["draft_id"]).status == "approved"
     item = store.job(db, item["id"])
     buffer.approve_publish(db, item, 1, ["instagram", "tiktok"], "Reviewed caption", client=client)
     assert not client.calls  # Approval commits an outbox; no HTTP mutation here.
@@ -229,3 +231,44 @@ def test_takeaway_has_context_and_hook_uses_research_question(db, monkeypatch):
     board = daily.creative(item)
     assert board["source_excerpt"].startswith("Boeing and Lockheed")
     assert board["narration"].startswith(item["article"]["title"])
+
+
+def test_render_budget_waits_without_capture_and_resumes_when_due(db, monkeypatch):
+    item = daily.create_job(db, source(db, monkeypatch), 1)
+    store.consume_budget(db, "renders", 1)
+    db.execute(text("UPDATE growth_video_budget SET renders=999"))
+    db.commit()
+    assert pipeline.advance(db, item["id"], storage=object(),
+        capture=lambda *_: pytest.fail("Over-budget capture must not run")) == "BUDGET_WAITING"
+    waiting = store.job(db, item["id"])
+    assert waiting["payload"]["resume_stage"] == "CAPTURE_PENDING"
+    assert not waiting["lease_token"]
+    assert not waiting["payload"].get("render_budget_reserved")
+    calls = []
+    monkeypatch.setattr(pipeline, "advance", lambda db, job_id: calls.append(job_id) or "CAPTURE_PENDING")
+    assert pipeline.run_pending(db) == []
+    waiting["payload"]["retry_at"] = "2000-01-01T00:00:00+00:00"
+    store.save_job(db, waiting)
+    pipeline.run_pending(db)
+    resumed = store.job(db, item["id"])
+    assert calls == [item["id"]]
+    assert resumed["status"] == "CAPTURE_PENDING"
+    assert "budget_message" not in resumed["payload"]
+
+
+def test_buffer_quota_before_submission_stays_queued(db, monkeypatch):
+    item = ready(db, monkeypatch)
+    client = Buffer()
+    buffer.approve_publish(db, item, 1, ["instagram"], "caption", client=client)
+    def quota(*args):
+        raise buffer.BufferQuota("API budget reached before HTTP request")
+    monkeypatch.setattr(client, "create", quota)
+    buffer.run_pending(db, client=client)
+    assert buffer.publications(db)[0]["status"] == "QUEUED"
+    assert not client.calls
+
+
+def test_human_source_date_is_not_truncated(db, monkeypatch):
+    item = source(db, monkeypatch)
+    item["data_as_of"] = "August 31, 2026"
+    assert "August 31, 2026" in json.dumps(daily.creative(item)["storyboard"])

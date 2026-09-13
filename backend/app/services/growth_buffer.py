@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import requests
 from sqlalchemy import text
+from app.models import AiMarketingOpportunity
 
 from app.services import growth_video_store as store
 from app.services.growth_video_domain import digest
@@ -17,6 +18,10 @@ POST_FIELDS = "id channelId status externalLink sentAt schedulingType error { me
 
 
 class BufferError(ValueError):
+    pass
+
+
+class BufferQuota(BufferError):
     pass
 
 
@@ -90,7 +95,7 @@ def reserve_request(db):
         used = db.execute(text("UPDATE growth_buffer_api_budget SET requests=requests+1 WHERE window_key=:key AND requests<:limit"), {"key": key, "limit": limit})
         if used.rowcount != 1:
             db.rollback()
-            raise BufferError("Walnut's Buffer API request budget is exhausted. Wait for the next quota window.")
+            raise BufferQuota("Walnut's Buffer API request budget is exhausted. Waiting for the next quota window.")
     db.commit()
 
 
@@ -143,6 +148,9 @@ def approve_publish(db, item, actor, platforms, caption, *, client=None):
                         "action": "approve_and_publish"}
     db.execute(text("UPDATE growth_video_jobs SET status='APPROVED',payload_json=:payload WHERE id=:id"),
                {"id": item["id"], "payload": store.dumps(data)})
+    draft = db.get(AiMarketingOpportunity, item["draft_id"])
+    if draft:
+        draft.status = "approved"
     db.commit()
     return publications(db, item["id"])
 
@@ -226,6 +234,10 @@ def run_pending(db, *, client=None, limit=2):
                 post = client.create(row["platform"], row["caption"], "https://api.walnutmarkets.com/api/growth-video-media/" + row["token"])
                 update(db, row, post_status(post), post=post)
             output.append({"job_id": row["job_id"], "platform": row["platform"], "checked": True})
+        except BufferQuota as exc:
+            db.rollback()
+            if row["status"] != "SUBMITTED":
+                update(db, row, "QUEUED", error=str(exc))
         except Exception:
             db.rollback()
             if row["status"] != "SUBMITTED":

@@ -222,6 +222,13 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
         data.pop("failure_reason", None)
         data.pop("failed_stage", None)
         store.save_job(db, item, token=token)
+    except store.BudgetExceeded as exc:
+        db.rollback()
+        item["status"] = "BUDGET_WAITING"
+        data["resume_stage"] = stage
+        data["retry_at"] = (datetime.now(timezone.utc) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        data["budget_message"] = str(exc)
+        store.save_job(db, item, token=token)
     except Exception as exc:
         logger.warning("growth_video_stage_failed job=%s stage=%s error_type=%s", job_id, stage, type(exc).__name__)
         db.rollback()
@@ -252,5 +259,12 @@ def recover_expired(db):
 def run_pending(db, limit=3):
     store.ensure_schema(db)
     recover_expired(db)
+    for row in db.execute(text("SELECT id FROM growth_video_jobs WHERE status='BUDGET_WAITING' AND lease_token IS NULL")).all():
+        item = store.job(db, row[0])
+        if item["payload"].get("retry_at", "9999") <= now() and item["payload"].get("resume_stage") in RUNNABLE:
+            item["status"] = item["payload"].pop("resume_stage")
+            item["payload"].pop("retry_at", None)
+            item["payload"].pop("budget_message", None)
+            store.save_job(db, item)
     rows = db.execute(text("SELECT id FROM growth_video_jobs WHERE status IN ('OPPORTUNITY_CREATED','CAPTURE_PENDING','CAPTURE_READY','AUDIO_PENDING','AUDIO_READY','RENDER_PENDING','RENDERING') AND lease_token IS NULL ORDER BY updated_at LIMIT :limit"), {"limit": limit}).all()
     return [{"id": row[0], "status": advance(db, row[0])} for row in rows]

@@ -413,7 +413,7 @@ def test_daily_render_budget_is_reserved_before_tts(db,monkeypatch):
     store.consume_budget(db,"renders",1)
     item["status"]="CAPTURE_PENDING";store.save_job(db,item)
     storage=Storage()
-    assert pipeline.advance(db,item["id"],storage=storage,capture=capture)=="FAILED"
+    assert pipeline.advance(db,item["id"],storage=storage,capture=capture)=="BUDGET_WAITING"
     assert not storage.calls
 
 

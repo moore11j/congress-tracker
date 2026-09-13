@@ -65,7 +65,8 @@ def creative(source):
     if not isinstance(title, str) or not 5 <= len(title) <= 180:
         raise ValueError("Research title is missing or too long.")
     ticker_url = f"https://app.walnutmarkets.com/ticker/{ticker}"
-    as_of = str(source.get("data_as_of") or (source.get("research_context") or {}).get("generated_at") or source.get("published_at") or source.get("created_at") or "")[:10]
+    as_of = str(source.get("data_as_of") or (source.get("research_context") or {}).get("generated_at") or source.get("published_at") or source.get("created_at") or "")
+    as_of = as_of[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", as_of) else as_of[:32]
     hook = title if len(title.split()) <= 20 else f"Walnut's latest research on {ticker}."
     beats = [
         ("daily_search", f"{hook} Search {ticker} in Walnut and open the ticker.", f"Researching {ticker}?", f"Search → {ticker}", ticker_url),

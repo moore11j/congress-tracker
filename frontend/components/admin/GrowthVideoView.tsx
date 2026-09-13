@@ -71,6 +71,8 @@ type VideoJob = {
     opportunity?: Opportunity;
     creative?: Creative;
     failure_reason?: string;
+    budget_message?: string;
+    retry_at?: string;
     failed_stage?: string;
     retry_count: number;
     model_metadata?: unknown;
@@ -746,6 +748,7 @@ function VideoCard({
           {item.payload.failed_stage}: {item.payload.failure_reason}
         </p>
       )}
+      {item.payload.budget_message && <p className="rounded bg-emerald-300/10 p-3 text-sm">{item.payload.budget_message} Next attempt: {item.payload.retry_at ? new Date(item.payload.retry_at).toLocaleString() : "next quota window"}.</p>}
       {Boolean(item.payload.video || item.payload.thumbnail) && (
         <button
           className={button}
@@ -1132,6 +1135,7 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
   const [noPost, setNoPost] = useState<Record<string,boolean>>({});
   if (publications.length) return <div className="space-y-2 rounded border border-white/15 p-3">
     <h4 className="font-semibold">Publishing</h4>
+    <details className="text-sm"><summary>Approved caption</summary><p className="mt-2 whitespace-pre-wrap">{publications[0].caption}</p></details>
     {publications.map(p => <div className="space-y-2 text-sm" key={p.platform}>
       <p>{p.platform}: {label(p.status)} {p.external_url && <a className="text-emerald-200 underline" href={p.external_url} target="_blank" rel="noreferrer">View post</a>}</p>
       {p.error && <p className="text-rose-200">{p.error}</p>}
