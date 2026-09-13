@@ -115,7 +115,7 @@ def state(db=Depends(get_db)):
         memory.append({**{k: v for k, v in r.items() if k != "payload_json"}, "payload": json.loads(r["payload_json"])})
     versions = [dict(r) for r in db.execute(text("SELECT id,created_at,actor_id FROM growth_brief_versions ORDER BY created_at DESC LIMIT 20")).mappings()]
     return {"opportunities": opportunities, "jobs": jobs, "memory": memory, "brief": store.brief(db),
-            "automation": automation.state(db),
+            "automation": automation.state(db), "development_override": store.development_draft_override(db),
             "brief_fields": BRIEF_FIELDS, "brief_versions": versions, "config": store.config(db), "readiness": readiness(db), "copy_library": COPY, "formats": FORMATS}
 
 

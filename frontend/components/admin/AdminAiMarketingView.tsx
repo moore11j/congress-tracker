@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import { AdminRedditAdsAssistantView } from "@/components/admin/AdminRedditAdsAssistantView";
 import { GrowthVideoView } from "@/components/admin/GrowthVideoView";
+import { GrowthDisclosure } from "@/components/admin/GrowthDisclosure";
 import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
@@ -100,6 +101,20 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "assets", label: "Assets" },
   { key: "settings", label: "Settings" },
 ];
+
+const WORKSPACES: Array<{ label: string; tabs: TabKey[] }> = [
+  { label: "Overview", tabs: ["dashboard"] },
+  { label: "Create", tabs: ["video_opportunities", "manual_x_draft", "article_reactive_x", "scheduled_x_campaigns", "x_reply_campaigns", "reddit_threads", "reddit_ads_assistant"] },
+  { label: "Review", tabs: ["drafts", "assets"] },
+  { label: "Settings", tabs: ["growth_brief", "growth_memory", "video_settings", "settings"] },
+];
+const TAB_NAMES: Partial<Record<TabKey, string>> = {
+  dashboard: "Overview", video_opportunities: "Videos", manual_x_draft: "X post",
+  article_reactive_x: "News campaigns", scheduled_x_campaigns: "Scheduled posts",
+  x_reply_campaigns: "Reply campaigns", reddit_threads: "Reddit threads", reddit_ads_assistant: "Reddit ads",
+  drafts: "Drafts to review", assets: "Image library", growth_brief: "Brand & audience",
+  growth_memory: "Saved feedback", video_settings: "Video automation", settings: "Connections & voice",
+};
 
 const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: string }> = [
   { value: "all", label: "All" },
@@ -238,9 +253,23 @@ function emptyRedditThreadForm() {
 export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   useEffect(() => {
-    const target = new URLSearchParams(window.location.search).get("growth_tab");
-    if (target === "drafts" || target === "video_settings") setActiveTab(target);
+    const sync = () => {
+      const target = new URLSearchParams(window.location.search).get("growth_tab");
+      setActiveTab(TABS.some(tab => tab.key === target) ? target as TabKey : "dashboard");
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
   }, []);
+  const navigate = (tab: TabKey) => {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("growth_tab", tab);
+    if (tab !== "drafts") url.searchParams.delete("video");
+    window.history.pushState({}, "", url);
+  };
+  const workspace = WORKSPACES.find(group => group.tabs.includes(activeTab))!;
+  const [reviewType, setReviewType] = useState<"videos" | "posts">("videos");
   const [drafts, setDrafts] = useState<AdminAiMarketingOpportunity[]>([]);
   const [campaigns, setCampaigns] = useState<AdminAiMarketingCampaign[]>([]);
   const [config, setConfig] = useState<AdminAiMarketingConfig | null>(null);
@@ -1051,29 +1080,28 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         </section>
       ) : null}
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            className={`shrink-0 rounded-md border px-3 py-2 text-sm font-semibold ${
-              activeTab === tab.key
-                ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100"
-                : "border-white/10 text-slate-300"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <nav aria-label="AI Growth workspace" className="space-y-3 rounded-xl border border-white/10 bg-slate-950/50 p-3">
+        <div className="grid grid-cols-4 gap-2">
+          {WORKSPACES.map(group => <button key={group.label} type="button" aria-current={workspace === group ? "page" : undefined}
+            onClick={() => navigate(group.tabs[0])}
+            className={`rounded-lg px-3 py-3 text-sm font-semibold ${workspace === group ? "bg-emerald-300 text-slate-950" : "text-slate-300 hover:bg-white/5"}`}>{group.label}</button>)}
+        </div>
+        {workspace.tabs.length > 1 && <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
+          {workspace.tabs.map(key => <button key={key} type="button" onClick={() => navigate(key)} aria-current={activeTab === key ? "page" : undefined}
+            className={`rounded-lg px-3 py-2 text-sm ${activeTab === key ? "bg-emerald-300/10 text-emerald-200" : "text-slate-400 hover:text-white"}`}>{TAB_NAMES[key] || TABS.find(tab => tab.key === key)?.label}</button>)}
+        </div>}
+      </nav>
 
       {loadStatus ? (
         <p className="rounded-lg border border-white/10 bg-slate-950/50 p-3 text-sm text-slate-300">{loadStatus}</p>
       ) : null}
 
       {activeTab === "dashboard" ? (
-        <Dashboard
+        <><div className="flex flex-wrap gap-3">
+          <Button onClick={() => navigate("drafts")}>Review drafts</Button>
+          <Button onClick={() => navigate("video_opportunities")}>Create content</Button>
+          <Button onClick={() => navigate("video_settings")}>Manage daily videos</Button>
+        </div><Dashboard
           config={config}
           pendingReviewCount={pendingReviewCount}
           highFitCount={highFitCount}
@@ -1084,13 +1112,16 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           recentAssetsPage={recentAssetsPage}
           onRecentAssetsPage={setRecentAssetsPage}
           onClearGeneratedAssetHistory={() => void clearGeneratedAssetHistory()}
-        />
+        /></>
       ) : null}
 
       {activeTab === "drafts" ? (
         <>
-        <GrowthVideoView view="queue" />
-        <DraftsView
+        <div className="flex flex-wrap gap-2" aria-label="Content to review">
+          {(["videos", "posts"] as const).map(type => <button key={type} type="button" aria-pressed={reviewType === type} onClick={() => setReviewType(type)} className={`rounded-lg border px-4 py-2 text-sm ${reviewType === type ? "border-emerald-300 text-emerald-200" : "border-white/10 text-slate-400"}`}>{type === "videos" ? "Videos · Instagram & TikTok" : "Posts · X & Reddit"}</button>)}
+        </div>
+        <div hidden={reviewType !== "videos"}><GrowthVideoView view="queue" /></div>
+        <div hidden={reviewType !== "posts"}><DraftsView
           drafts={drafts}
           busy={busy}
           statusFilter={statusFilter}
@@ -1108,7 +1139,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           onChangeRequest={updateChangeRequest}
           onCardRequest={updateCardRequest}
           onRegenerate={regenerateDraft}
-        />
+        /></div>
         </>
       ) : null}
 
@@ -1267,16 +1298,20 @@ function Dashboard({
   return (
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
+        <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
+        <MetricCard label="Recent assets" value={String(assetCount)} />
+        <MetricCard label="High-fit drafts" value={String(highFitCount)} tone={highFitCount ? "good" : "muted"} />
+      </div>
+      <GrowthDisclosure title="Connection health and usage">
+      <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} detail={openAiCredits.detail} />
         <MetricCard label="X API" value={statusLabel(config?.x_status, "missing")} tone={config?.x_oauth_configured ? "good" : "warn"} />
         <MetricCard label="Reddit API" value={statusLabel(config?.reddit_status, "missing")} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
-        <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
-        <MetricCard label="Recent assets" value={String(assetCount)} />
-        <MetricCard label="High-fit drafts" value={String(highFitCount)} tone={highFitCount ? "good" : "muted"} />
         <MetricCard label="Posting" value={config?.x_connected ? "Auto on approval" : "Approval only"} tone={config?.x_connected ? "good" : "warn"} />
       </div>
+      </GrowthDisclosure>
 
       {config?.warnings.length ? (
         <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
@@ -1297,9 +1332,9 @@ function Dashboard({
             <h3 className="text-base font-semibold text-white">Recent generated assets</h3>
             <p className="mt-1 text-sm text-slate-400">Showing up to 5 per page.</p>
           </div>
-          <Button disabled={!generatedAssets.length || busy === "clear-assets"} onClick={onClearGeneratedAssetHistory}>
-            {busy === "clear-assets" ? "Clearing..." : "Clear All"}
-          </Button>
+          <GrowthDisclosure title="Manage history"><Button disabled={!generatedAssets.length || busy === "clear-assets"} onClick={onClearGeneratedAssetHistory}>
+            {busy === "clear-assets" ? "Clearing..." : "Clear all generated history"}
+          </Button></GrowthDisclosure>
         </div>
         <div className="mt-3 space-y-2">
           {recent.length ? recent.map((draft) => (
@@ -1471,7 +1506,7 @@ function DraftsView({
         </div>
       </div>
 
-      <div className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 p-3">
+      <GrowthDisclosure title={`Bulk actions${selectedDrafts.length ? ` · ${selectedDrafts.length} selected` : ""}`} className="mt-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <Button disabled={selectionDisabled || allVisibleSelected || !pageDrafts.length} onClick={checkAllVisible}>Check all</Button>
@@ -1496,6 +1531,7 @@ function DraftsView({
             </Button>
           </div>
         </div>
+      </GrowthDisclosure>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
           <span>Page {currentPage} of {totalPages}</span>
           <div className="flex gap-2">
@@ -1503,8 +1539,6 @@ function DraftsView({
             <Button disabled={selectionDisabled || currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</Button>
           </div>
         </div>
-      </div>
-
       <div className="mt-5 space-y-4">
         {busy === "load" ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-5 text-sm text-slate-400">Loading AI Growth drafts...</div>
@@ -1673,6 +1707,12 @@ function DraftCard({
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <Button onClick={() => onStatus(draft, "approved")} disabled={Boolean(busy)}>Approve draft</Button>
+        <Button onClick={() => onCopy(draft, "Primary post", fullDraft)} disabled={Boolean(busy)}>Copy post</Button>
+        <Button onClick={() => onEmail(draft)} disabled={Boolean(busy)}>Email for review</Button>
+      </div>
+      <GrowthDisclosure title="Copy alternatives and links" className="mt-3">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button onClick={() => onCopy(draft, "Primary post", fullDraft)} disabled={Boolean(busy)}>Copy primary post</Button>
         <Button onClick={() => onCopy(draft, "Short version", shortVersion)} disabled={Boolean(busy)}>Copy short version</Button>
         <Button onClick={() => onCopy(draft, "Direct version", directVersion)} disabled={Boolean(busy)}>Copy direct version</Button>
@@ -1681,6 +1721,8 @@ function DraftCard({
         <Button onClick={() => onCopy(draft, "Article URL", articleUrl)} disabled={Boolean(busy)}>Copy article URL</Button>
       </div>
 
+      </GrowthDisclosure>
+      <GrowthDisclosure title="Request changes · text and image">
       <div className="mt-4 rounded-lg border border-white/10 bg-slate-900/50 p-3">
         <p className="text-sm font-semibold text-white">Card render</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1719,11 +1761,12 @@ function DraftCard({
         </Button>
       </div>
 
+      </GrowthDisclosure>
+      <GrowthDisclosure title="Status, archive and delete">
       <div className="mt-3 flex flex-wrap gap-2">
         <Button onClick={() => onEmail(draft)} disabled={Boolean(busy)}>
           {busy === `email:${draft.id}` ? "Emailing..." : "Email to Jarod"}
         </Button>
-        <Button onClick={() => onStatus(draft, "approved")} disabled={Boolean(busy)}>Approve</Button>
         <Button onClick={() => onMarkCopied(draft)} disabled={Boolean(busy)}>
           {busy === `mark-copied:${draft.id}` ? "Marking..." : "Mark copied"}
         </Button>
@@ -1734,6 +1777,7 @@ function DraftCard({
         <Button onClick={() => onAction(draft, "archive")} disabled={Boolean(busy)}>Archive</Button>
         <Button onClick={() => onAction(draft, "delete")} disabled={Boolean(busy)}>Delete</Button>
       </div>
+      </GrowthDisclosure>
     </article>
   );
 }
@@ -1804,6 +1848,9 @@ function ArticleReactiveCampaignsView({
           <TextField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} />
           <SelectField label="Max drafts per day" value={form.max_drafts_per_day} onChange={(value) => setForm({ ...form, max_drafts_per_day: value })} options={["1", "2"]} />
           <TextField label="Recipient email" value={form.recipient_email} onChange={(value) => setForm({ ...form, recipient_email: value })} />
+        </div>
+        <GrowthDisclosure title="More options · style, links and filters">
+        <div className="grid gap-4 md:grid-cols-2">
           <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["professional", "sharp", "educational", "market-native"]} />
           <SelectField label="Hashtag mode" value={form.hashtag_mode} onChange={(value) => setForm({ ...form, hashtag_mode: value })} options={["none", "minimal", "ticker/theme only"]} />
           <SelectField label="CTA mode" value={form.cta_mode} onChange={(value) => setForm({ ...form, cta_mode: value })} options={["none", "soft", "direct"]} />
@@ -1818,7 +1865,8 @@ function ArticleReactiveCampaignsView({
           <CheckboxPill label="Source tag" checked={form.include_source_tag} onChange={(value) => setForm({ ...form, include_source_tag: value })} />
           <CheckboxPill label="Walnut URL" checked={form.include_walnut_url} onChange={(value) => setForm({ ...form, include_walnut_url: value })} />
         </div>
-        <SubmitButton busy={busy === "article_campaign"} onClick={onSubmit} label="Save campaign" busyLabel="Saving..." />
+        </GrowthDisclosure>
+      <SubmitButton busy={busy === "article_campaign"} onClick={onSubmit} label="Save campaign" busyLabel="Saving..." />
       </FormShell>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -1832,24 +1880,7 @@ function ArticleReactiveCampaignsView({
                   {campaign.status ?? "active"} · {campaign.weekdays_only ? "weekdays only" : "daily"} · {campaign.run_time ?? "scheduled"} {campaign.timezone ?? ""}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge label={`max ${campaign.max_drafts_per_day ?? 1}/day`} />
-                <Button disabled={Boolean(busy) || campaign.status === "active"} onClick={() => onSetStatus(campaign, "active")}>
-                  {busy === `campaign-status:${campaign.id}:active` ? "Starting..." : "Start"}
-                </Button>
-                <Button disabled={Boolean(busy) || campaign.status === "paused"} onClick={() => onSetStatus(campaign, "paused")}>
-                  {busy === `campaign-status:${campaign.id}:paused` ? "Pausing..." : "Pause"}
-                </Button>
-                <Button disabled={Boolean(busy) || campaign.status === "stopped"} onClick={() => onSetStatus(campaign, "stopped")}>
-                  {busy === `campaign-status:${campaign.id}:stopped` ? "Stopping..." : "Stop"}
-                </Button>
-                <Button disabled={Boolean(busy) || campaign.status !== "active"} onClick={() => onRun(campaign)}>
-                  {busy === `run-campaign:${campaign.id}` ? "Running..." : "Run now"}
-                </Button>
-                <Button disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>
-                  {busy === `delete-campaign:${campaign.id}` ? "Deleting..." : "Delete"}
-                </Button>
-              </div>
+              <CampaignActions campaign={campaign} busy={busy} onRun={onRun} onSetStatus={onSetStatus} onDelete={onDelete}  />
             </div>
           )) : (
             <p className="text-sm text-slate-400">No Article-Reactive X campaigns saved yet.</p>
@@ -1923,6 +1954,9 @@ function ScheduledXCampaignsView({
           <TextField label="Recipient email" value={form.recipient_email} onChange={(value) => setForm({ ...form, recipient_email: value })} />
           <SelectField label="Source type" value={form.source_type} onChange={(value) => setForm({ ...form, source_type: value })} options={[...SCHEDULED_X_SOURCE_TYPES]} />
           <TextField label="Source selector" value={form.source_reference_id} onChange={(value) => setForm({ ...form, source_reference_id: value })} placeholder={sourceSelectorPlaceholder(form.source_type)} />
+        </div>
+        <GrowthDisclosure title="More options · style, links and filters">
+        <div className="grid gap-4 md:grid-cols-2">
           <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["market-native", "sharp", "educational", "contrarian", "professional"]} />
           <SelectField label="CTA mode" value={form.cta_mode} onChange={(value) => setForm({ ...form, cta_mode: value })} options={["none", "soft", "direct"]} />
           <SelectField label="Hashtag mode" value={form.hashtag_mode} onChange={(value) => setForm({ ...form, hashtag_mode: value })} options={["none", "minimal", "ticker/theme only"]} />
@@ -1938,7 +1972,8 @@ function ScheduledXCampaignsView({
           <CheckboxPill label="Source tag" checked={form.include_source_tag} onChange={(value) => setForm({ ...form, include_source_tag: value })} />
           <CheckboxPill label="Walnut URL" checked={form.include_walnut_url} onChange={(value) => setForm({ ...form, include_walnut_url: value })} />
         </div>
-        <SubmitButton busy={busy === "scheduled_x_campaign"} onClick={onSubmit} label={selected ? "Save campaign" : "Create campaign"} busyLabel="Saving..." />
+        </GrowthDisclosure>
+      <SubmitButton busy={busy === "scheduled_x_campaign"} onClick={onSubmit} label={selected ? "Save campaign" : "Create campaign"} busyLabel="Saving..." />
       </FormShell>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -1952,15 +1987,7 @@ function ScheduledXCampaignsView({
                   <p className="mt-1 text-sm text-slate-400">{campaign.source_type ?? "watchlist"} - {campaign.status ?? "active"} - {campaignScheduleLabel(campaign)}</p>
                   <p className="mt-1 text-xs text-slate-500">Next run: {formatDateTime(campaign.next_run_at)} - Last run: {formatDateTime(campaign.last_run_at)} - Last status: {campaign.last_status ?? "none"}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge label={`max ${campaign.max_drafts_per_day ?? 1}/day`} />
-                  <Button disabled={Boolean(busy) || campaign.status === "active"} onClick={() => onSetStatus(campaign, "active")}>Start</Button>
-                  <Button disabled={Boolean(busy) || campaign.status === "paused"} onClick={() => onSetStatus(campaign, "paused")}>Pause</Button>
-                  <Button disabled={Boolean(busy) || campaign.status === "stopped"} onClick={() => onSetStatus(campaign, "stopped")}>Stop</Button>
-                  <Button disabled={Boolean(busy) || campaign.status !== "active"} onClick={() => onRun(campaign)}>{busy === `run-campaign:${campaign.id}` ? "Running..." : "Run now"}</Button>
-                  <Button disabled={Boolean(busy)} onClick={() => onEdit(campaign)}>Edit</Button>
-                  <Button disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>{busy === `delete-campaign:${campaign.id}` ? "Deleting..." : "Delete"}</Button>
-                </div>
+                <CampaignActions campaign={campaign} busy={busy} onRun={onRun} onSetStatus={onSetStatus} onDelete={onDelete} onEdit={onEdit} />
               </div>
             </div>
           )) : (
@@ -2032,6 +2059,9 @@ function XReplyCampaignsView({
           <TextField label="Target handles" value={form.target_handles} onChange={(value) => setForm({ ...form, target_handles: value })} placeholder="@zerohedge, @unusual_whales" />
           <TextField label="Handles to ignore" value={form.ignore_handles} onChange={(value) => setForm({ ...form, ignore_handles: value })} placeholder="@WalnutMarkets" />
           <TextField label="Keywords / cashtags" value={form.keywords} onChange={(value) => setForm({ ...form, keywords: value })} placeholder="$SPY, $QQQ, earnings, insider buying" />
+        </div>
+        <GrowthDisclosure title="More options · style, links and filters">
+        <div className="grid gap-4 md:grid-cols-2">
           <SelectField label="Minimum candidate score" value={form.minimum_candidate_score} onChange={(value) => setForm({ ...form, minimum_candidate_score: value })} options={["0", "25", "50", "60", "70", "80", "90"]} />
           <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["market-native", "sharp", "educational", "contrarian", "professional"]} />
         </div>
@@ -2046,7 +2076,8 @@ function XReplyCampaignsView({
             Include ticker link when useful
           </label>
         </div>
-        <SubmitButton busy={busy === "x_reply_campaign"} onClick={onSubmit} label={selected ? "Save campaign" : "Create campaign"} busyLabel="Saving..." />
+        </GrowthDisclosure>
+      <SubmitButton busy={busy === "x_reply_campaign"} onClick={onSubmit} label={selected ? "Save campaign" : "Create campaign"} busyLabel="Saving..." />
       </FormShell>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -2060,15 +2091,7 @@ function XReplyCampaignsView({
                   <p className="mt-1 text-sm text-slate-400">{campaign.source_type ?? "home_feed"} - {campaign.status ?? "active"} - {campaignScheduleLabel(campaign)}</p>
                   <p className="mt-1 text-xs text-slate-500">Next run: {formatDateTime(campaign.next_run_at)} - Last run: {formatDateTime(campaign.last_run_at)} - Last status: {campaign.last_status ?? "none"}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge label={`max ${campaign.max_drafts_per_day ?? 5}/day`} />
-                  <Button disabled={Boolean(busy) || campaign.status === "active"} onClick={() => onSetStatus(campaign, "active")}>Start</Button>
-                  <Button disabled={Boolean(busy) || campaign.status === "paused"} onClick={() => onSetStatus(campaign, "paused")}>Pause</Button>
-                  <Button disabled={Boolean(busy) || campaign.status === "stopped"} onClick={() => onSetStatus(campaign, "stopped")}>Stop</Button>
-                  <Button disabled={Boolean(busy) || campaign.status !== "active"} onClick={() => onRun(campaign)}>{busy === `run-campaign:${campaign.id}` ? "Running..." : "Run now"}</Button>
-                  <Button disabled={Boolean(busy)} onClick={() => onEdit(campaign)}>Edit</Button>
-                  <Button disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>{busy === `delete-campaign:${campaign.id}` ? "Deleting..." : "Delete"}</Button>
-                </div>
+                <CampaignActions campaign={campaign} busy={busy} onRun={onRun} onSetStatus={onSetStatus} onDelete={onDelete} onEdit={onEdit} />
               </div>
             </div>
           )) : (
@@ -2101,6 +2124,9 @@ function XChartDropForm({
         <TextField label="Ticker or theme" value={form.ticker_theme} onChange={(value) => setForm({ ...form, ticker_theme: value })} />
         <TextField label="Timeframe" value={form.timeframe} onChange={(value) => setForm({ ...form, timeframe: value })} />
         <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["sharp", "educational", "contrarian", "professional"]} />
+        </div>
+        <GrowthDisclosure title="More options · style, links and filters">
+        <div className="grid gap-4 md:grid-cols-2">
         <TextField label="Suggested destination URL" value={form.destination_url} onChange={(value) => setForm({ ...form, destination_url: value })} />
         <TextField label="Chart/image URL optional" value={form.asset_url} onChange={(value) => setForm({ ...form, asset_url: value })} />
         <TextField label="Image/chart caption optional" value={form.asset_caption} onChange={(value) => setForm({ ...form, asset_caption: value })} />
@@ -2132,6 +2158,7 @@ function XChartDropForm({
         <CheckboxPill label="Source tag" checked={form.include_source_tag} onChange={(value) => setForm({ ...form, include_source_tag: value })} />
         <CheckboxPill label="Walnut URL" checked={form.include_walnut_url} onChange={(value) => setForm({ ...form, include_walnut_url: value })} />
       </div>
+      </GrowthDisclosure>
       <SubmitButton busy={busy === "manual_x_draft"} onClick={onSubmit} label="Generate X draft" busyLabel="Generating..." />
     </FormShell>
   );
@@ -2156,8 +2183,10 @@ function RedditThreadForm({
         <SelectField label="Post type" value={form.post_type} onChange={(value) => setForm({ ...form, post_type: value })} options={["case study", "backtest write-up", "research guide", "data walkthrough", "tool comparison"]} />
         <TextField label="Disclosure style" value={form.disclosure_style} onChange={(value) => setForm({ ...form, disclosure_style: value })} />
       </div>
+      <GrowthDisclosure title="Community rules and extra context">
       <TextareaField label="Pasted subreddit rule notes optional" value={form.rule_notes} onChange={(value) => setForm({ ...form, rule_notes: value })} rows={4} />
       <TextareaField label="Manual pasted URL/text/context optional" value={form.pasted_context} onChange={(value) => setForm({ ...form, pasted_context: value })} rows={6} />
+      </GrowthDisclosure>
       <SubmitButton busy={busy === "reddit_threads"} onClick={onSubmit} label="Generate Reddit thread draft" busyLabel="Generating..." />
     </FormShell>
   );
@@ -2255,9 +2284,11 @@ function SettingsView({
         <MetricCard label="Recipient" value={config?.recipient ?? "jarod@walnutmarkets.com"} />
         <MetricCard label="Posting" value={config?.x_connected ? "Auto on approval" : "Approval only"} tone={config?.x_connected ? "good" : "warn"} />
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <GrowthDisclosure title="Technical connection details" className="mt-4">
+      <div className="grid gap-4 lg:grid-cols-2">
         {SETTING_KEYS.map((key) => <SettingField key={key} settingKey={key} item={settings.find((setting) => setting.key === key)} />)}
       </div>
+      </GrowthDisclosure>
       <section className="mt-5 border-t border-white/10 pt-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -2307,11 +2338,32 @@ function SettingsView({
   );
 }
 
+function CampaignActions({campaign, busy, onRun, onSetStatus, onDelete, onEdit}: {
+  campaign: AdminAiMarketingCampaign; busy: string | null;
+  onRun: (campaign: AdminAiMarketingCampaign) => void;
+  onSetStatus: (campaign: AdminAiMarketingCampaign, status: "active" | "paused" | "stopped") => void;
+  onDelete: (campaign: AdminAiMarketingCampaign) => void;
+  onEdit?: (campaign: AdminAiMarketingCampaign) => void;
+}) {
+  return <div className="flex flex-wrap items-start gap-2">
+    <Button disabled={Boolean(busy)} onClick={() => onSetStatus(campaign, campaign.status === "active" ? "paused" : "active")}>{campaign.status === "active" ? "Pause" : "Start"}</Button>
+    <Button disabled={Boolean(busy) || campaign.status !== "active"} onClick={() => onRun(campaign)}>{busy === `run-campaign:${campaign.id}` ? "Running…" : "Run now"}</Button>
+    <GrowthDisclosure title="Manage campaign">
+      <p className="text-xs text-slate-400">Up to {campaign.max_drafts_per_day ?? 1} drafts per day</p>
+      <div className="flex flex-wrap gap-2">
+        {onEdit && <Button disabled={Boolean(busy)} onClick={() => onEdit(campaign)}>Edit</Button>}
+        {campaign.status === "stopped" && <Button disabled={Boolean(busy)} onClick={() => onSetStatus(campaign, "paused")}>Keep paused</Button>}
+        <Button disabled={Boolean(busy) || campaign.status === "stopped"} onClick={() => onSetStatus(campaign, "stopped")}>Stop</Button>
+        <Button disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>Delete</Button>
+      </div>
+    </GrowthDisclosure>
+  </div>;
+}
+
 function RunHistoryPanel({ title, campaigns }: { title: string; campaigns: AdminAiMarketingCampaign[] }) {
   const runs = campaigns.flatMap((campaign) => (campaign.recent_runs ?? []).map((run) => ({ ...run, campaignName: campaign.name })));
   return (
-    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-      <h3 className="text-lg font-semibold text-white">{title}</h3>
+    <GrowthDisclosure title={title}>
       <div className="mt-4 space-y-2">
         {runs.length ? runs.map((run) => (
           <div key={`${run.campaign_id}-${run.id}`} className="grid gap-2 rounded-md border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300 md:grid-cols-6">
@@ -2326,7 +2378,7 @@ function RunHistoryPanel({ title, campaigns }: { title: string; campaigns: Admin
           <p className="text-sm text-slate-400">No recent campaign runs yet.</p>
         )}
       </div>
-    </section>
+    </GrowthDisclosure>
   );
 }
 

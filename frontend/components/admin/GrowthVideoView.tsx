@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { growthVideoRequest } from "@/lib/api";
+import { GrowthDisclosure } from "@/components/admin/GrowthDisclosure";
 
 type Opportunity = {
   opportunity_type?: string;
@@ -108,6 +109,7 @@ type Config = {
   default_cta: string;
 };
 type State = {
+  development_override?: {expires_at: string} | null;
   automation: AutomationState;
   opportunities: Opportunity[];
   jobs: VideoJob[];
@@ -155,6 +157,9 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
   const [sections, setSections] = useState<Record<string, string>>({});
   const [cfg, setCfg] = useState<Config | null>(null);
   const [filter, setFilter] = useState("all");
+  const [showOlder, setShowOlder] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
+  const [briefSection, setBriefSection] = useState("");
   const [platform, setPlatform] = useState("instagram");
   const [format, setFormat] = useState("research_finding");
   const [productHook, setProductHook] = useState("navigation");
@@ -163,9 +168,10 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
     if (!state || openedVideo.current) return;
     const id = new URLSearchParams(window.location.search).get("video");
     if (!id) return;
+    setSelectedVideo(id);
     const element = document.getElementById(`video-${id}`);
     if (element) { element.scrollIntoView({block:"start"}); openedVideo.current = true; }
-  }, [state]);
+  }, [state, selectedVideo]);
 
   const refresh = useCallback(async (initialize = false) => {
     const next = await growthVideoRequest<State>();
@@ -211,6 +217,13 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+  const latestIds = new Set<string>();
+  const seenFamilies = new Set<string>();
+  for (const job of state?.jobs || []) {
+    const family = `${job.opportunity_id}:${job.payload.platform}`;
+    if (!seenFamilies.has(family)) { seenFamilies.add(family); latestIds.add(job.id); }
+  }
+  const focusId = selectedVideo ?? state?.jobs.find(job => latestIds.has(job.id) && job.status === "READY_FOR_REVIEW")?.id ?? state?.jobs[0]?.id;
   if (!state)
     return (
       <div className={card}>{error || "Loading Walnut video workspace…"}</div>
@@ -233,8 +246,11 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
                 )}
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            Real Walnut research and screens. Every video requires review.
-            Approved videos are downloadable.
+            {view === "queue" ? "Watch the video, check its caption, then publish to your connected Instagram and TikTok accounts."
+              : view === "brief" ? "Keep the product, audience and brand guidance used in your content up to date."
+              : view === "memory" ? "Review the feedback that guides future drafts."
+              : view === "settings" ? "Manage daily drafts, connected accounts and generation settings."
+              : "Choose a research topic or product walkthrough to turn into a video."}
           </p>
         </div>
         <button
@@ -255,6 +271,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
           {notice}
         </p>
       )}
+      {state.development_override && <p role="status" className="rounded-lg bg-emerald-300/10 p-3 text-sm text-emerald-100">Development today: video draft limit lifted until {new Date(state.development_override.expires_at).toLocaleString()}. Render limits still apply.</p>}
       {!state.readiness.worker_enabled && (
         <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200">
           Video worker is not enabled. Opportunities and edits can be saved;
@@ -422,6 +439,8 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
               <option key={f}>{f}</option>
             ))}
           </select>
+          <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showOlder} onChange={e => setShowOlder(e.target.checked)} />Show older versions</label>
+          <p className="text-xs text-slate-400">Newest versions shown first. Select a video to review it; expand history to find an earlier take.</p>
           {!state.jobs.length && (
             <p className={card}>
               Generate a storyboard from Content Opportunities to start a video
@@ -429,6 +448,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
             </p>
           )}
           {state.jobs
+            .filter(j => showOlder || latestIds.has(j.id) || j.id === selectedVideo || ["Rejected", "Approved", "Failed"].includes(filter))
             .filter(
               (j) =>
                 filter === "all" ||
@@ -460,6 +480,9 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
                 run={run}
                 publications={state.automation.publications.filter(p => p.job_id === j.id)}
                 bufferReady={state.automation.buffer_key_configured}
+                expanded={focusId === j.id}
+                onExpand={() => setSelectedVideo(focusId === j.id ? "" : j.id)}
+                latest={latestIds.has(j.id)}
               />
             ))}
         </>
@@ -471,13 +494,16 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
             Paste your growth plan into these sections. Each save creates a
             version. Creative prompts use selected relevant sections.
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <label className="mb-4 block text-sm text-slate-300">Section
+            <select className={`${input} mt-1 max-w-sm`} value={briefSection || state.brief_fields[0]} onChange={e => setBriefSection(e.target.value)}>{state.brief_fields.map(key => <option key={key} value={key}>{label(key)}</option>)}</select>
+          </label>
+          <div>
             {state.brief_fields.map((key) => (
-              <label key={key} className="text-sm capitalize text-slate-300">
+              <label key={key} hidden={key !== (briefSection || state.brief_fields[0])} className="text-sm capitalize text-slate-300">
                 {label(key)}
                 <textarea
                   className={`${input} mt-1`}
-                  rows={4}
+                  rows={12}
                   maxLength={12000}
                   value={sections[key] || ""}
                   onChange={(e) =>
@@ -540,6 +566,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
       {view === "settings" && cfg && (
         <section className={`${card} space-y-4`}>
           <AutomationSettings value={state.automation} run={run} busy={busy} />
+          <GrowthDisclosure title="Advanced generation settings · limits, voice and templates">
           <p className="text-xs text-slate-400">Daily videos use the continuous founder voice and Walnut’s native HD renderer. The model, voice and Creatomate settings below apply to the older manual generator; daily videos share the creative and render limits.</p>
           <div className="grid gap-2 sm:grid-cols-3">
             {Object.entries(state.readiness)
@@ -653,6 +680,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
           >
             Save Video Settings
           </button>
+          </GrowthDisclosure>
         </section>
       )}
     </div>
@@ -691,7 +719,13 @@ function VideoCard({
   run,
   publications,
   bufferReady,
+  expanded,
+  onExpand,
+  latest,
 }: {
+  expanded: boolean;
+  onExpand: () => void;
+  latest: boolean;
   item: VideoJob;
   opportunity?: Opportunity;
   copy: Record<string, string>;
@@ -711,6 +745,8 @@ function VideoCard({
     thumbnail_url?: string;
   }>({});
   const [retryAcknowledged, setRetryAcknowledged] = useState(false);
+  const player = useRef<HTMLVideoElement>(null);
+  useEffect(() => { if (!expanded) player.current?.pause(); }, [expanded]);
   const act = (action: string, extra = {}) =>
     run(
       () =>
@@ -731,21 +767,22 @@ function VideoCard({
   };
   return (
     <section id={`video-${item.id}`} className={`${card} space-y-3`}>
-      <div className="flex flex-wrap justify-between gap-2">
+      <button type="button" aria-expanded={expanded} aria-controls={`video-body-${item.id}`} onClick={onExpand} className="flex w-full flex-wrap items-center justify-between gap-3 text-left">
         <h3 className="font-semibold">
           {item.payload.opportunity?.topic || opportunity?.topic || creative?.hook || "Research video"}
         </h3>
         <span className="rounded bg-slate-800 px-2 py-1 text-xs">
-          {label(item.status)} · Revision {item.revision}
+          {label(item.status)} · Version {item.revision}{latest ? " · Latest" : " · Earlier"} · {expanded ? "Close" : "Review"}
         </span>
-      </div>
+      </button>
+      <div id={`video-body-${item.id}`} hidden={!expanded} className="space-y-4">
       <p className="text-xs text-slate-400">
         {item.payload.platform} · {label(item.payload.format)} ·{" "}
         {item.payload.actual_duration?.toFixed(1) || creative?.target_duration_seconds || "—"} seconds · {item.payload.campaign_id ? "Product campaign · Continuous voiceover" : `Score ${opportunity?.score ?? "—"}`}
       </p>
       {item.payload.failure_reason && (
         <p className="rounded bg-rose-400/10 p-3 text-sm text-rose-200">
-          {item.payload.failed_stage}: {item.payload.failure_reason}
+          Could not finish this version. {item.payload.failure_reason}
         </p>
       )}
       {item.payload.budget_message && <p className="rounded bg-emerald-300/10 p-3 text-sm">{item.payload.budget_message} Next attempt: {item.payload.retry_at ? new Date(item.payload.retry_at).toLocaleString() : "next quota window"}.</p>}
@@ -761,12 +798,13 @@ function VideoCard({
             )
           }
         >
-          Load preview
+          {media.video_url ? "Reload preview" : "Watch preview"}
         </button>
       )}
       {media.video_url ? (
         <video
-          className="mx-auto aspect-[9/16] max-h-[600px] max-w-full rounded-lg bg-black object-contain"
+          ref={player}
+          className="mx-auto aspect-[9/16] max-h-[440px] max-w-full rounded-lg bg-black object-contain"
           controls
           playsInline
           preload="metadata"
@@ -857,6 +895,10 @@ function VideoCard({
           </details>
         </>
       )}
+      {creative && ["READY_FOR_REVIEW", "APPROVED"].includes(item.status) && (
+        <PublishVideo item={item} caption={creative.caption} publications={publications} bufferReady={bufferReady} previewLoaded={Boolean(media.video_url)} run={run} busy={busy} />
+      )}
+      <GrowthDisclosure title="Changes, history and download" open={item.status === "CREATIVE_READY" || item.status === "FAILED"}>
       <label className="block text-sm text-slate-300">
         Review feedback
         <textarea
@@ -868,9 +910,6 @@ function VideoCard({
           placeholder="What should the next version improve?"
         />
       </label>
-      {creative && ["READY_FOR_REVIEW", "APPROVED"].includes(item.status) && (
-        <PublishVideo item={item} caption={creative.caption} publications={publications} bufferReady={bufferReady} previewLoaded={Boolean(media.video_url)} run={run} busy={busy} />
-      )}
       {!publications.length && <>
       <div className="flex flex-wrap gap-2">
         {item.status === "CREATIVE_READY" && (
@@ -1101,6 +1140,8 @@ function VideoCard({
         </div>
       )}
       </>}
+      </GrowthDisclosure>
+      </div>
     </section>
   );
 }
@@ -1118,9 +1159,11 @@ function AutomationSettings({value, run, busy}: {value: AutomationState; run: Ru
     }, "Buffer connections verified.")}>Check Buffer connection</button>
     {connection && <p className="text-sm text-emerald-200">{connection}</p>}
     <p className="text-xs text-slate-400">Buffer Free: the optional first comment is added manually. Approved videos publish immediately through Buffer using your channel settings. No social posts are sent by enabling daily drafts.</p>
+    <GrowthDisclosure title="Automation history and skipped briefs">
     {value.last_pass?.status && <p className="text-xs text-slate-400">Last worker result: {label(value.last_pass.status)}</p>}
     {value.last_pass?.skipped?.map(s => <p className="text-xs text-amber-100" key={s.brief_id}>{s.reason}</p>)}
     {value.runs.map(r => <p className="text-xs" key={r.day}>{r.day}: {r.status}{r.error ? ` — ${r.error}` : ""}</p>)}
+    </GrowthDisclosure>
   </div>;
 }
 
@@ -1130,7 +1173,6 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
   const [text, setText] = useState(caption);
   const [platforms, setPlatforms] = useState(["instagram", "tiktok"]);
   const [reviewed, setReviewed] = useState(false);
-  const [settings, setSettings] = useState(false);
   const [postIds, setPostIds] = useState<Record<string,string>>({});
   const [noPost, setNoPost] = useState<Record<string,boolean>>({});
   if (publications.length) return <div className="space-y-2 rounded border border-white/15 p-3">
@@ -1153,15 +1195,18 @@ function PublishVideo({item, caption, publications, bufferReady, previewLoaded, 
     <a className="text-sm text-emerald-200" href="https://publish.buffer.com/" target="_blank" rel="noreferrer">Open Buffer to inspect or manage posts</a>
   </div>;
   return <div className="space-y-3 rounded-lg border border-emerald-300/25 p-4">
-    <h4 className="font-semibold">Approve and publish</h4>
-    <label className="block text-sm">Post caption<textarea className={`${input} mt-1`} rows={6} maxLength={2200} value={text} onChange={e => {setText(e.target.value);setReviewed(false);}} /></label>
+    <h4 className="font-semibold text-emerald-100">Publish video</h4>
+    <p className="text-sm text-slate-300">Your video and caption post directly through Buffer. No download needed.</p>
+    <label className="block text-sm">Post caption<textarea className={`${input} mt-1`} rows={3} maxLength={2200} value={text} onChange={e => {setText(e.target.value);setReviewed(false);}} /></label>
     <div className="flex gap-4">{["instagram","tiktok"].map(p => <label key={p} className="text-sm capitalize"><input type="checkbox" checked={platforms.includes(p)} onChange={e => {setPlatforms(e.target.checked ? [...platforms,p] : platforms.filter(x => x !== p));setReviewed(false);}} /> {p}</label>)}</div>
-    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={!previewLoaded} onChange={e => setReviewed(e.target.checked)} />I watched the preview and approve this video, its research claims and caption.</label>
-    <label className="flex gap-2 text-sm"><input type="checkbox" checked={settings} onChange={e => setSettings(e.target.checked)} />I approve publishing now to these Walnut accounts using the audience, interaction and commercial-content settings configured in Buffer. AI assistance will be disclosed.</label>
+    <label className="flex gap-2 text-sm"><input type="checkbox" checked={reviewed} disabled={!previewLoaded} onChange={e => setReviewed(e.target.checked)} />I reviewed this video, its claims and caption, and approve publishing now to the selected Walnut accounts using their Buffer audience, interaction and commercial-content settings. AI assistance will be disclosed.</label>
     {!bufferReady && <p className="text-sm text-amber-100">Configure the Buffer API key before publishing.</p>}
     {!previewLoaded && <p className="text-xs text-slate-400">Load and watch the preview above first.</p>}
     <p className="text-xs text-slate-400">Your optional first comment is a manual step on Buffer Free. Review any “links in comments” promise before publishing.</p>
-    <button className={button} disabled={busy || !bufferReady || !reviewed || !settings || !platforms.length || !text.trim()} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/publish`, "POST", {platforms,caption:text,reviewed_video_and_caption:reviewed,confirm_buffer_channel_settings:settings}), "Approved for publishing. Delivery status will appear here.")}>Approve and publish now</button>
+    {previewLoaded && !reviewed && <p className="text-sm text-emerald-200">After reviewing, check the approval box above to enable publishing.</p>}
+    {!platforms.length && <p className="text-sm text-amber-100">Choose at least one account.</p>}
+    {!text.trim() && <p className="text-sm text-amber-100">Add a caption before publishing.</p>}
+    <button className="rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40" disabled={busy || !bufferReady || !reviewed || !platforms.length || !text.trim()} onClick={() => void run(() => growthVideoRequest(`/jobs/${item.id}/publish`, "POST", {platforms,caption:text,reviewed_video_and_caption:reviewed,confirm_buffer_channel_settings:reviewed}), "Approved for publishing. Delivery status will appear here.")}>{busy ? "Working…" : `Publish now${platforms.length ? ` to ${platforms.map(p => p === "instagram" ? "Instagram" : "TikTok").join(" & ")}` : ""}`}</button>
   </div>;
 }
 

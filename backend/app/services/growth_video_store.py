@@ -105,12 +105,27 @@ class BudgetExceeded(ValueError):
     """The next quota window can safely resume work; no provider call was made."""
 
 
+def development_draft_override(db):
+    """A server-set, expiring override for creative drafts only. Usage is still counted."""
+    value = setting(db, "GROWTH_VIDEO_DEVELOPMENT_OVERRIDE", {})
+    try:
+        expires = datetime.fromisoformat(value["expires_at"])
+        if expires.tzinfo is not None and datetime.fromisoformat(now()) < expires:
+            return {"expires_at": expires.isoformat()}
+    except (KeyError, TypeError, ValueError):
+        pass
+    return None
+
+
 def consume_budget(db, kind, limit):
     if kind not in {"opportunities", "creatives", "renders"}:
         raise ValueError("Invalid quota category.")
     day = now()[:10]
     db.execute(text("INSERT INTO growth_video_budget (day) VALUES (:day) ON CONFLICT(day) DO NOTHING"), {"day": day})
-    row = db.execute(text(f"UPDATE growth_video_budget SET {kind}={kind}+1 WHERE day=:day AND {kind}<:limit"), {"day": day, "limit": limit})
+    # Draft development never lifts render, discovery, or publishing limits.
+    bypass = kind == "creatives" and development_draft_override(db) is not None
+    condition = "" if bypass else f" AND {kind}<:limit"
+    row = db.execute(text(f"UPDATE growth_video_budget SET {kind}={kind}+1 WHERE day=:day" + condition), {"day": day, "limit": limit})
     db.commit()
     if row.rowcount != 1:
         raise BudgetExceeded(f"Daily {kind} limit reached; work can resume tomorrow UTC.")

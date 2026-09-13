@@ -28,7 +28,7 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   assert.match(viewSource, /Last response/);
   assert.match(viewSource, /Spent/);
   assert.match(viewSource, /Generated \{formatDateTime/);
-  assert.match(viewSource, /Clear All/);
+  assert.match(viewSource, /Clear all generated history/);
   assert.match(viewSource, /recentAssetsPage/);
   assert.match(apiSource, /openai_credits_left_usd/);
   assert.match(apiSource, /clearAdminAiGrowthDraftHistory/);

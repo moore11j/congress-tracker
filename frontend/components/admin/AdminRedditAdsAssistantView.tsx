@@ -1,5 +1,7 @@
 "use client";
 
+import { GrowthDisclosure } from "@/components/admin/GrowthDisclosure";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
@@ -199,12 +201,16 @@ export function AdminRedditAdsAssistantView({ showToast }: Props) {
           <Select label="Geography" value={form.geography} options={options.geographies} onChange={(value) => setForm({ ...form, geography: value })} />
           <Select label="Product angle" value={form.product_angle} options={options.product_angles} onChange={(value) => setForm({ ...form, product_angle: value })} />
           <Select label="Plan" value={form.plan} options={options.plans} onChange={(value) => setForm({ ...form, plan: value })} />
+        </div>
+        <GrowthDisclosure title="More options · tone, links and tickers" className="mt-4">
+        <div className="grid gap-3 md:grid-cols-3">
           <Select label="Tone" value={form.tone} options={options.tones} onChange={(value) => setForm({ ...form, tone: value })} />
           <Select label="Destination" value={form.destination} options={options.destinations} onChange={(value) => setForm({ ...form, destination: value })} />
           <Field label="Destination URL" value={form.destination_url ?? ""} onChange={(value) => setForm({ ...form, destination_url: value })} />
           <Field label="Tickers" value={(form.ticker_symbols ?? []).join(", ")} onChange={(value) => setForm({ ...form, ticker_symbols: splitList(value).map((item) => item.toUpperCase()) })} />
         </div>
 
+        </GrowthDisclosure>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
@@ -213,7 +219,7 @@ export function AdminRedditAdsAssistantView({ showToast }: Props) {
               onChange={(event) => setForm({ ...form, generate: event.target.checked })}
               className="h-4 w-4 rounded border-white/20 bg-slate-950"
             />
-            Generate with approved backend OpenAI integration
+            Generate draft with AI
           </label>
           <button
             type="button"
@@ -223,7 +229,7 @@ export function AdminRedditAdsAssistantView({ showToast }: Props) {
           >
             New campaign draft
           </button>
-          <span className="text-xs text-slate-500">Official logo: {options.official_logo.sha256.slice(0, 12)}</span>
+          <GrowthDisclosure title="Brand asset details"><span className="text-xs text-slate-500">Official logo: {options.official_logo.sha256.slice(0, 12)}</span></GrowthDisclosure>
         </div>
 
         {extensionToken ? (
@@ -282,8 +288,10 @@ export function AdminRedditAdsAssistantView({ showToast }: Props) {
               <div className="flex flex-wrap gap-2">
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-100" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(selected.final_draft, null, 2))}>Copy fields</button>
                 <a className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-100" href={selected.reddit_ads_manager_url ?? options.reddit_ads_manager_url} target="_blank" rel="noreferrer">Open Reddit Ads Manager</a>
+                <GrowthDisclosure title="More draft actions"><div className="flex flex-wrap gap-2">
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-100" onClick={() => act("duplicate")}>Duplicate variation</button>
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-100" onClick={() => act("regenerate")}>Regenerate</button>
+                </div></GrowthDisclosure>
               </div>
             </div>
 
@@ -317,9 +325,9 @@ export function AdminRedditAdsAssistantView({ showToast }: Props) {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-100" onClick={saveSelected} disabled={busy === "save"}>Edit</button>
+              <button className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-100" onClick={saveSelected} disabled={busy === "save"}>Save changes</button>
               <button className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950" onClick={approveSelected} disabled={busy === "approve"}>Approve Draft</button>
-              <button className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-100" onClick={() => act("reject")}>Rejected drafts</button>
+              <button className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-100" onClick={() => act("reject")}>Reject</button>
               <button className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-100" onClick={() => act("archive")}>Archive</button>
             </div>
           </div>
