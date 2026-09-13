@@ -59,6 +59,9 @@ def navigation_crop(shot,index,asset):
  if scrolls and scrolls[0]<=index<settled-5:return full
  target=asset.get('final_focus') if shot in {'v4_manager','v4_filings'} and index>=settled-5 else None
  target=target or {'x':0,'y':65 if index>=settled else 0,'width':720,'height':690}
+ if asset.get('financial_data_visible') and shot in {'v4_ownership','v4_activity'}:
+  # Keep the rightmost shares/ownership and action columns in the demo.
+  target={'x':0,'y':100 if index>=settled else 0,'width':1040,'height':840}
  if shot=='v4_filings':target=asset.get('final_focus') or target
  if shot in {'v4_manager','v4_filings'} and target.get('height',1000)<350:
   target={**target,'width':min(target['width'],690)}

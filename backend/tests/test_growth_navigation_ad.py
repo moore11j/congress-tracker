@@ -88,3 +88,14 @@ def test_existing_navigation_drafts_remain_valid_after_copy_revision(db, revisio
  assert product.validate(item)==legacy
  item['payload']['creative']['cta']='Tampered'
  with pytest.raises(ValueError,match='reviewed campaign'):product.validate(item)
+
+
+def test_visible_financial_tables_keep_their_rightmost_columns():
+ from app.services.growth_navigation_render import navigation_crop
+ asset={'financial_data_visible':True,'viewport':{'height':1000},
+  'frames':[{'camera':{'height':1000}} for _ in range(90)],
+  'navigation_events':[{'type':'wheel_scroll','frame':10},{'type':'circle','frame':50}]}
+ for shot in ['v4_ownership','v4_activity']:
+  crop=navigation_crop(shot,80,asset)
+  assert crop['x']==0 and crop['width']==1040
+  assert crop['y']+crop['height']<=1000
