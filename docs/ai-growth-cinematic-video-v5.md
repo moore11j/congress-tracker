@@ -43,3 +43,11 @@ Tests verify the background changes over time, the lower text area remains dark,
 panel styling preserves the supplied product pixels, and scene arrival settles
 without delaying or skipping the captured UI actions. Existing navigation tests
 continue to cover phrase timing, source provenance and the manual review gate.
+
+Seven focused tests passed. All 701 encoded frames decoded successfully; eight
+scene checks had mean RGB error below 2/255 compared with their raw frames.
+The final file is 59,330,892 bytes, 29.21 seconds, 1080x1920 at 24 fps.
+Review job: `gv_7ffde05d836d4caea7258ada8e7b55fb`, revision 4, ready for review.
+Captures and narration were copied into the child job's private asset prefix,
+verified by hash, and passed through the normal render budget and review stages.
+No video, caption or comment was published.

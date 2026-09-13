@@ -705,7 +705,7 @@ function VideoCard({
     <section className={`${card} space-y-3`}>
       <div className="flex flex-wrap justify-between gap-2">
         <h3 className="font-semibold">
-          {opportunity?.topic || creative?.hook || "Research video"}
+          {item.payload.opportunity?.topic || opportunity?.topic || creative?.hook || "Research video"}
         </h3>
         <span className="rounded bg-slate-800 px-2 py-1 text-xs">
           {label(item.status)} · Revision {item.revision}
