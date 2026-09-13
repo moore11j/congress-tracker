@@ -527,7 +527,9 @@ def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandi
     elif created:
         filing.is_amendment = candidate.is_amendment
     if created or candidate.accession_number or candidate.form_type or candidate.filing_url or not filing.raw_metadata_json:
-        filing.raw_metadata_json = json.dumps(candidate.raw, sort_keys=True, default=str)
+        previous_metadata = json.loads(filing.raw_metadata_json or "{}")
+        metadata = {**candidate.raw, **{key: value for key, value in previous_metadata.items() if key.startswith("_walnut_position_")}}
+        filing.raw_metadata_json = json.dumps(metadata, sort_keys=True, default=str)
     filing.updated_at = datetime.now(timezone.utc)
     db.flush()
     apply_institutional_filing_supersession(db, filing)
@@ -540,6 +542,15 @@ def upsert_positions_for_filing(
     filing: InstitutionalFiling,
     rows: list[dict[str, Any]],
 ) -> dict[str, int]:
+    metadata = json.loads(filing.raw_metadata_json or "{}")
+    exact_sec_rows = bool(rows) and all(row.get("source") == "sec_edgar" and row.get("accessionNumber") == filing.accession_number for row in rows)
+    if metadata.get("_walnut_position_source") == "sec_edgar" and not exact_sec_rows:
+        raise ValueError("Verified SEC positions require the exact canonical accession; provider extracts cannot overwrite them.")
+    if any(row.get("source") == "sec_edgar" and row.get("accessionNumber") not in {None, filing.accession_number} for row in rows):
+        raise ValueError("SEC position accession does not match the destination filing.")
+    if exact_sec_rows:
+        metadata.update(_walnut_position_source="sec_edgar", _walnut_position_accession=filing.accession_number)
+        filing.raw_metadata_json = json.dumps(metadata, sort_keys=True, default=str)
     inserted = updated = skipped = 0
     payloads_by_key: dict[tuple[str, str, str], InstitutionalPositionPayload] = {}
     fingerprints_by_key: dict[tuple[str, str, str], set[str]] = {}
@@ -578,8 +589,8 @@ def upsert_positions_for_filing(
             inserted += 1
         else:
             updated += 1
-        existing.symbol = payload.symbol
-        existing.normalized_symbol = payload.normalized_symbol
+        existing.symbol = payload.symbol or existing.symbol
+        existing.normalized_symbol = payload.normalized_symbol or existing.normalized_symbol
         existing.cusip = payload.cusip
         existing.issuer_name = payload.issuer_name
         existing.shares = payload.shares
@@ -1425,10 +1436,16 @@ def ticker_ownership_payload(
         if use_provider_total
         else []
     )
+    if provider_holders and (provider_report_year, provider_report_quarter) == (latest.report_year, latest.report_quarter):
+        verified_ciks = {
+            cik for cik, raw in db.execute(select(InstitutionalFiling.cik, InstitutionalFiling.raw_metadata_json).where(InstitutionalFiling.id.in_(active_filing_ids))).all()
+            if json.loads(raw or "{}").get("_walnut_position_source") == "sec_edgar"
+        }
+        provider_holders = _prefer_verified_sec_holders(provider_holders, holders_by_cik, verified_ciks)
     float_based_institutional_pct = None
     if float_shares and float_shares > 0 and total_institutional_shares > 0:
         float_based_institutional_pct = _ownership_pct((total_institutional_shares / float_shares) * 100)
-        for holder in ([] if provider_holders else holders_by_cik.values()):
+        for holder in (provider_holders or holders_by_cik.values()):
             holder_shares = float(holder.get("shares") or 0.0)
             holder["ownership_pct"] = (holder_shares / float_shares) * 100 if holder_shares > 0 else None
             holder["ownership_pct_source"] = "shares_over_float"
@@ -1970,6 +1987,8 @@ def _reported_action_label(change_type: str | None, value_delta_usd: float | Non
         return "Reported Reduction"
     if normalized == "increase":
         return "Reported Increase"
+    if normalized == "unchanged":
+        return "Unchanged"
     if value_delta_usd is not None:
         if value_delta_usd < 0:
             return "Reported Reduction"
@@ -2117,18 +2136,8 @@ def _derived_activity_payload(
     value_delta = _delta(curr_value, prev_value)
     if not _positiveish(shares_delta) and not _positiveish(value_delta):
         return None
-    if current is None:
-        change_type = "exit"
-        direction = "bearish"
-    elif prior is None:
-        change_type = "new_position"
-        direction = "bullish"
-    elif float(value_delta or 0.0) < 0:
-        change_type = "decrease"
-        direction = "bearish"
-    else:
-        change_type = "increase"
-        direction = "bullish"
+    change_type = _change_type(prev_shares, curr_shares, prev_value, curr_value)
+    direction = _direction_for_change(change_type)
     current_weight = (float(curr_value) / current_total) * 100.0 if curr_value is not None and current_total > 0 else None
     prior_weight = (float(prev_value) / prior_total) * 100.0 if prev_value is not None and prior_total > 0 else None
     report_price = _per_share_value(curr_value, curr_shares)
@@ -3682,6 +3691,13 @@ def _provider_shares_float_snapshot(symbol: str) -> dict[str, Any] | None:
             "provider_date": _first_text(row, "date", "asOfDate", "reportedDate"),
         }
     return None
+
+
+def _prefer_verified_sec_holders(provider_holders, local_holders, verified_ciks):
+    """Do not reintroduce a superseded holding through provider rankings."""
+    return [row for row in provider_holders if normalize_cik(row.get("cik")) not in verified_ciks] + [
+        dict(row) for cik, row in local_holders.items() if cik in verified_ciks
+    ]
 
 
 def _provider_holder_analytics(

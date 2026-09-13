@@ -197,6 +197,7 @@ def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict
                         "none": _number(_text(item, "{*}votingAuthority/{*}None")),
                     },
                     "source": "sec_edgar",
+                    "accessionNumber": accession_number,
                 }
             )
         if rows:

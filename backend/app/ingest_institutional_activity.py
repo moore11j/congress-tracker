@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -210,11 +211,7 @@ def ingest_latest_institutional_filings(
                             counts["skipped"] = int(counts["skipped"]) + 1
                             continue
 
-                    extract_rows = fetch_institutional_filing_extract(
-                        cik=candidate.cik,
-                        year=candidate.report_year,
-                        quarter=candidate.report_quarter,
-                    )
+                    extract_rows = _fetch_positions_for_canonical_filing(filing)
                     if not extract_rows:
                         metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
                         db.commit()
@@ -261,6 +258,14 @@ def ingest_latest_institutional_filings(
     finally:
         db.close()
     return counts
+
+
+def _fetch_positions_for_canonical_filing(filing):
+    """A primary-source correction must not regress to a period-only extract."""
+    metadata = json.loads(filing.raw_metadata_json or "{}")
+    if metadata.get("_walnut_position_source") == "sec_edgar":
+        return fetch_13f_information_table(cik=filing.cik, accession_number=filing.accession_number)
+    return fetch_institutional_filing_extract(cik=filing.cik, year=filing.report_year, quarter=filing.report_quarter)
 
 
 def ingest_institutional_filing(
@@ -322,7 +327,7 @@ def ingest_institutional_filing(
                 "positions_only": 1,
             }
 
-        extract_rows = fetch_institutional_filing_extract(cik=candidate.cik, year=candidate.report_year, quarter=candidate.report_quarter)
+        extract_rows = _fetch_positions_for_canonical_filing(filing)
         if not extract_rows:
             metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
             db.commit()
@@ -404,7 +409,7 @@ def ingest_institutional_filing_from_sec(
                 db.commit()
                 return {"status": "ok", "processed_filings": 0, "skipped": 1}
 
-        extract_rows = fetch_13f_information_table(cik=candidate.cik, accession_number=candidate.accession_number)
+        extract_rows = fetch_13f_information_table(cik=filing.cik, accession_number=filing.accession_number)
         if not extract_rows:
             metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
             db.commit()
