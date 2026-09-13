@@ -74,6 +74,16 @@ the research URL and the video does not promise an automatically posted comment.
 No paid Buffer features, licensed music or paid Creatomate rendering are required.
 Existing ElevenLabs, storage and Fly usage still apply.
 
+The owner configured five renders per UTC day. A draft that reaches the cap waits
+until the next UTC day before capture or narration starts. Increasing this cap
+does not increase the daily discovery cadence of one published brief. Local
+Buffer request-budget exhaustion also leaves unsent publications queued.
+
+Authenticated capture preflight and approved media delivery use the existing
+production backend, `https://congress-tracker-api.fly.dev`. The capture preflight
+does not follow redirects. The `api.walnutmarkets.com` hostname is not configured
+as this backend and must not be used for either purpose.
+
 ## Validation
 
 Focused tests cover day/source deduplication, source changes, unsafe/unrendered

@@ -231,7 +231,7 @@ def run_pending(db, *, client=None, limit=2):
                 if not claimed.rowcount:
                     continue
                 row["status"] = "SUBMITTING"
-                post = client.create(row["platform"], row["caption"], "https://api.walnutmarkets.com/api/growth-video-media/" + row["token"])
+                post = client.create(row["platform"], row["caption"], "https://congress-tracker-api.fly.dev/api/growth-video-media/" + row["token"])
                 update(db, row, post_status(post), post=post)
             output.append({"job_id": row["job_id"], "platform": row["platform"], "checked": True})
         except BufferQuota as exc:

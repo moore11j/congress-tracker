@@ -157,7 +157,7 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  with tempfile.TemporaryDirectory(prefix='walnut-navigation-') as folder,sync_playwright() as pw:
   root=Path(folder);browser=pw.chromium.launch(headless=True)
   context=browser.new_context(viewport=VIEWPORT,device_scale_factor=1,color_scheme='dark',locale='en-US',timezone_id='UTC')
-  context.add_cookies([{'name':'ct_session','value':session_token,'domain':host,'path':'/','secure':True,'httpOnly':True,'sameSite':'None','expires':time.time()+900} for host in ['app.walnutmarkets.com','walnutmarkets.com','api.walnutmarkets.com','congress-tracker-api.fly.dev']])
+  context.add_cookies([{'name':'ct_session','value':session_token,'domain':host,'path':'/','secure':True,'httpOnly':True,'sameSite':'None','expires':time.time()+900} for host in ['app.walnutmarkets.com','walnutmarkets.com','congress-tracker-api.fly.dev']])
   context.add_cookies([{'name':name,'value':value,'domain':host,'path':'/','secure':True} for host in ['app.walnutmarkets.com','walnutmarkets.com'] for name,value in [('ct_auth_hint','1'),('walnut_privacy_consent','v1.a0.m0')]])
   page=context.new_page();search_requests=[]
   page.on('response',lambda response:search_requests.append({'path':urlsplit(response.url).path,'status':response.status}) if 'search' in urlsplit(response.url).path else None)
@@ -165,14 +165,14 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
   def guard(route):
    p=urlsplit(route.request.url)
    if p.scheme in {'http','https'}:
-    if p.hostname not in {'app.walnutmarkets.com','walnutmarkets.com','api.walnutmarkets.com','congress-tracker-api.fly.dev','fonts.googleapis.com','fonts.gstatic.com'}:return route.abort()
+    if p.hostname not in {'app.walnutmarkets.com','walnutmarkets.com','congress-tracker-api.fly.dev','fonts.googleapis.com','fonts.gstatic.com'}:return route.abort()
     if route.request.method not in {'GET','HEAD','OPTIONS'}:return route.abort()
     if p.path.startswith('/api/') and not (p.path in {'/api/auth/me','/api/entitlements','/api/events'} or p.path.startswith((f'/api/tickers/{ticker}',f'/api/ticker/{ticker}','/api/tickers/SPY','/api/institutions/0001462245','/api/search/','/api/research/','/api/insights/','/api/market','/api/macro'))):return route.abort()
    if route.request.is_navigation_request() and route.request.frame==page.main_frame and p.path not in allowed_paths:return route.abort()
    route.continue_()
   page.route('**/*',guard)
   if daily:
-   identity=context.request.get('https://api.walnutmarkets.com/api/auth/me',timeout=30000)
+   identity=context.request.get('https://congress-tracker-api.fly.dev/api/auth/me',timeout=30000,max_redirects=0)
    user=(identity.json().get('user') or {}) if identity.status==200 else {}
    if user.get('id')!=owner_id or user.get('role')!='admin':raise ValueError('Admin capture session could not be verified.')
   response=page.goto(initial,wait_until='domcontentloaded',timeout=60000)

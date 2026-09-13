@@ -95,6 +95,7 @@ def test_no_implicit_publishing_and_repeated_approval_is_idempotent(db, monkeypa
     buffer.run_pending(db, client=client)
     buffer.run_pending(db, client=client)
     assert len(client.calls) == 2
+    assert all(call[2].startswith("https://congress-tracker-api.fly.dev/api/growth-video-media/") for call in client.calls)
     assert len(buffer.publications(db, item["id"])) == 2
     assert all("token" not in row for row in buffer.publications(db))
     assert all(p["status"] == "SUBMITTED" for p in buffer.publications(db))
