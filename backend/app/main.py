@@ -2907,6 +2907,7 @@ def _normalized_ticker_context_bundle_public_query(request: Request) -> list[tup
     if side not in {"all", "buy", "sell", "buy_or_sell", "award", "inkind", "exempt"}:
         side = "all"
     return [
+        ("cached_only", _normalized_public_bool(params.get("cached_only"), default=False)),
         ("side", side),
         ("limit", str(_normalized_public_int(params.get("limit"), default=3, minimum=1, maximum=3))),
         ("lookback_days", str(_normalized_public_int(params.get("lookback_days"), default=30, minimum=1, maximum=365))),
@@ -7347,6 +7348,7 @@ def _ticker_context_bundle_cached_or_live_response(
     limit: int,
     lookback_days: int,
     reason: str,
+    cached_only: bool = False,
 ) -> Any:
     started_at = perf_counter()
     normalized_symbol = normalize_symbol(symbol) or symbol
@@ -7373,6 +7375,10 @@ def _ticker_context_bundle_cached_or_live_response(
             (perf_counter() - started_at) * 1000,
         )
         return projected
+    if cached_only:
+        # Anonymous page rendering must not fan out into a full research build.
+        # The frontend can render the dated public SEO snapshot on a cache miss.
+        raise HTTPException(status_code=503, detail="public_context_cache_miss", headers={"Retry-After": "60"})
     logger.info(
         "api_live_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
         normalized_symbol,
@@ -7852,11 +7858,17 @@ def ticker_context_bundle(
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     limit: int = Query(3, ge=1, le=3),
     lookback_days: int = Query(30, ge=1, le=365),
+    cached_only: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     prefetch_response = _api_prefetch_response(request, endpoint="ticker_context_bundle")
     if prefetch_response is not None:
         return prefetch_response
+    if cached_only is True:
+        return _ticker_context_bundle_cached_or_live_response(
+            request, db, symbol=symbol, side=side, limit=limit,
+            lookback_days=lookback_days, reason="public_render", cached_only=True,
+        )
     if _is_inactive_logged_out_api_request(request):
         return _ticker_context_bundle_cached_or_live_response(
             request,
