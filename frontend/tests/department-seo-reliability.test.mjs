@@ -24,6 +24,16 @@ function page(fetchProfile){
  });
 }
 const profile={name:'National Science Foundation',summary:{contractCount:1,linkedTickerCount:1},tickers:[],trend:[],categoryBreakdown:[],typeBreakdown:[],topPrograms:[],recentContracts:[],largestContracts:[]};
+
+for (const status of [404, 503]) test(`research metadata distinguishes missing articles from HTTP ${status} failures`,async()=>{
+ const mod=load('app/research/[slug]/page.tsx',{
+  react:{cache:fn=>fn},'@/lib/api':{ApiError,getGeneratedResearchBrief:async()=>{throw new ApiError(status);}},
+  '@/lib/marketingMetadata':{marketingPageMetadata:(p,m)=>m},
+ });
+ const result=mod.generateMetadata({params:Promise.resolve({slug:'published-brief'})});
+ if(status===503) await assert.rejects(result,e=>e.status===503);
+ else assert.equal((await result).robots.index,false);
+});
 test('department metadata propagates outages instead of issuing noindex',async()=>{
  const mod=page(async()=>{throw new ApiError(503);});
  await assert.rejects(mod.generateMetadata({params:Promise.resolve({slug:'national-science-foundation'})}),e=>e.status===503);

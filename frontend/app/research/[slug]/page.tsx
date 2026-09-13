@@ -1,5 +1,6 @@
 import { GeneratedResearchBriefPage } from "@/components/research/GeneratedResearchBriefPage";
-import { getGeneratedResearchBrief } from "@/lib/api";
+import { ApiError, getGeneratedResearchBrief } from "@/lib/api";
+import { cache } from "react";
 import { marketingCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMetadata";
 import { buildReturnTo, optionalPageAuthToken } from "@/lib/serverAuth";
 import type { Metadata } from "next";
@@ -13,18 +14,19 @@ const RESEARCH_BRIEF_REDIRECTS: Record<string, string> = {
   "cohr-stock-overvalued-after-q2-2026-earnings": "cohr-stock-overvalued-after-q4-2026-earnings",
 };
 
-async function loadGeneratedResearchBrief(slug: string, authToken?: string | null) {
+const loadGeneratedResearchBrief = cache(async (slug: string, authToken: string | null) => {
   try {
     return await getGeneratedResearchBrief(slug, { authToken, source: "ResearchBrief" });
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
   }
-}
+});
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const canonicalSlug = RESEARCH_BRIEF_REDIRECTS[slug] || slug;
-  const draft = await loadGeneratedResearchBrief(canonicalSlug);
+  const draft = await loadGeneratedResearchBrief(canonicalSlug, null);
   if (!draft) {
     return marketingPageMetadata(`/research/${canonicalSlug}`, {
       title: "Research brief unavailable | Walnut Markets",
@@ -69,7 +71,7 @@ export default async function GeneratedResearchPage({
   const canonicalSlug = RESEARCH_BRIEF_REDIRECTS[slug];
   if (canonicalSlug) redirect(`/research/${canonicalSlug}`);
   const authToken = await optionalPageAuthToken();
-  const draft = await loadGeneratedResearchBrief(slug, authToken);
+  const draft = await loadGeneratedResearchBrief(slug, authToken ?? null);
   if (!draft) notFound();
   return <GeneratedResearchBriefPage draft={draft} returnTo={buildReturnTo(`/research/${draft.article.slug || slug}`, sp)} authenticated={Boolean(authToken)} />;
 }
