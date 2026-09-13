@@ -611,11 +611,17 @@ def _activity_feed_source_prefix(activity_id: int) -> str:
 def _delete_feed_events_for_activity_ids(db: Session, activity_ids: list[int]) -> int:
     if not activity_ids:
         return 0
-    rows = db.execute(
-        select(Event).where(
-            Event.source_provider == INSTITUTIONAL_EVENT_SOURCE,
-            or_(*[Event.source_filing_id.like(f"{_activity_feed_source_prefix(activity_id)}%") for activity_id in activity_ids]),
+    if db.get_bind().dialect.name == "postgresql":
+        # Large restatements can replace thousands of events. A long OR of
+        # LIKE predicates is costly to plan and scan; compare the ID segment.
+        source_filter = and_(
+            Event.source_filing_id.like("institutional:%"),
+            func.split_part(Event.source_filing_id, ":", 2).in_([str(value) for value in activity_ids]),
         )
+    else:
+        source_filter = or_(*[Event.source_filing_id.like(f"{_activity_feed_source_prefix(activity_id)}%") for activity_id in activity_ids])
+    rows = db.execute(
+        select(Event).where(Event.source_provider == INSTITUTIONAL_EVENT_SOURCE, source_filter)
     ).scalars().all()
     for row in rows:
         db.delete(row)

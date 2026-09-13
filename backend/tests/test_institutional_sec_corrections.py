@@ -49,3 +49,16 @@ def test_provider_rankings_do_not_reintroduce_superseded_sec_values():
     corrected={'cik':'0001081019','shares':35021490,'value_usd':7007449934}
     assert s._prefer_verified_sec_holders([bad,other],{'0001081019':corrected},{'0001081019'})==[other,corrected]
     assert s._prefer_verified_sec_holders([bad,other],{}, {'0001081019'})==[other]
+
+def test_large_postgres_event_cleanup_uses_bounded_id_membership():
+    from sqlalchemy.dialects import postgresql
+    class DB:
+        def get_bind(self):return type('Bind',(),{'dialect':postgresql.dialect()})()
+        def execute(self,query):
+            sql=str(query.compile(dialect=postgresql.dialect()))
+            assert 'split_part' in sql and ' OR ' not in sql
+            assert len(sql)<5000
+            return self
+        def scalars(self):return self
+        def all(self):return []
+    assert s._delete_feed_events_for_activity_ids(DB(),list(range(3002)))==0
