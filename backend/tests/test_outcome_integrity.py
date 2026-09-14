@@ -32,6 +32,76 @@ from app.services.price_lookup import EodPriceBar, is_market_trading_day, recons
 UTC = timezone.utc
 
 
+def test_public_horizon_repair_batches_over_100_anchors_and_ignores_internal_versions(monkeypatch):
+    from app.services import outcome_horizon_repair as repair
+    from app.models import OutcomeEntry
+
+    engine = _engine()
+    with Session(engine) as db:
+        day = date(2026, 1, 5)
+        db.add_all([_bar("CRM", day, 100), _bar("SPY", day, 500)])
+        for i in range(105):
+            snapshot = _snapshot(db, datetime(2026, 1, 5, 13, tzinfo=UTC), security_id=i + 1)
+            assert materialize_outcome_entry(db, snapshot)
+        # An internal scoring upgrade has its own entry but is not a new public event.
+        db.add_all([_bar("CRM", date(2026, 1, 6), 102), _bar("SPY", date(2026, 1, 6), 501)])
+        internal = _snapshot(db, datetime(2026, 1, 6, 13, tzinfo=UTC), security_id=1, methodology_version_id=2)
+        assert materialize_outcome_entry(db, internal)
+        db.commit()
+        calls = []
+
+        def hydrate(session, symbol, start, end):
+            calls.append((symbol, start, end))
+            session.merge(_bar(symbol, date(2026, 1, 12), 110 if symbol == "CRM" else 505))
+            session.commit()
+            return 1
+
+        monkeypatch.setattr(repair, "hydrate_split_adjusted_ohlc", hydrate)
+        result = repair.repair_public_outcome_horizons(db, as_of=date(2026, 1, 13))
+        assert result["due_observations"] == 105
+        assert result["observations_created"] == 105
+        assert calls == [("SPY", "2026-01-12", "2026-01-12"), ("CRM", "2026-01-12", "2026-01-12")]
+        assert db.scalar(select(OutcomeHorizonObservation).where(OutcomeHorizonObservation.snapshot_id == internal.id)) is None
+        calls.clear()
+        assert repair.repair_public_outcome_horizons(db, as_of=date(2026, 1, 13))["observations_created"] == 0
+        assert calls == []
+        assert len(db.scalars(select(OutcomeEntry)).all()) == 106
+
+
+def test_public_horizon_repair_rotates_past_failed_symbols_between_runs(monkeypatch):
+    from app.services import outcome_horizon_repair as repair
+
+    engine = _engine()
+    with Session(engine) as db:
+        for i, symbol in enumerate(["AAA", "BBB"]):
+            db.merge(_bar("SPY", date(2026, 1, 5), 500))
+            db.add(_bar(symbol, date(2026, 1, 5), 100))
+            snapshot = _snapshot(db, datetime(2026, 1, 5, 13, tzinfo=UTC), ticker=symbol, security_id=i + 1)
+            assert materialize_outcome_entry(db, snapshot)
+        db.commit()
+        clock = [0]
+        calls = []
+        monkeypatch.setattr(repair.time, "monotonic", lambda: clock[0])
+
+        def hydrate(session, symbol, start, end):
+            calls.append(symbol)
+            clock[0] += 1 if symbol == "SPY" else 10
+            if symbol == "AAA":
+                raise RuntimeError("provider has no usable price")
+            session.merge(_bar(symbol, date(2026, 1, 12), 110 if symbol == "BBB" else 505))
+            session.commit()
+            return 1
+
+        monkeypatch.setattr(repair, "hydrate_split_adjusted_ohlc", hydrate)
+        first = repair.repair_public_outcome_horizons(db, as_of=date(2026, 1, 13), max_seconds=10)
+        assert first["attempted_symbols"] == 1 and first["observations_created"] == 0
+        assert calls == ["SPY", "AAA"]
+        calls.clear()
+        second = repair.repair_public_outcome_horizons(db, as_of=date(2026, 1, 13), max_seconds=10)
+        assert calls == ["SPY", "BBB"]
+        assert second["observations_created"] == 1
+
+
 def _engine():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)

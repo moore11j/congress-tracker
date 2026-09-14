@@ -52,6 +52,7 @@ from app.services.confirmation_score import confirmation_active_source_count, ge
 from app.services.institutional_ingest_job import run_scheduled_latest_once
 from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled, outcome_leaderboard_symbols, warm_public_outcome_ledger_cache
 from app.services.outcome_integrity import materialize_cached_outcome_horizons, materialize_outcome_entry, materialize_outcome_horizons
+from app.services.outcome_horizon_repair import repair_public_outcome_horizons
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
@@ -1327,6 +1328,9 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
     started = time.monotonic()
     expected_date = get_expected_latest_market_date()
     with SessionLocal() as db:
+        # Public continuous events get the provider budget before internal score
+        # snapshots. The repair queue persists progress across bounded runs.
+        public_repair = repair_public_outcome_horizons(db, as_of=expected_date, max_seconds=max_seconds)
         cached_repair = materialize_cached_outcome_horizons(db, as_of=expected_date)
         db.commit()
         bounded_limit = max(1, snapshot_limit)
@@ -1513,6 +1517,7 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
 
     result = {
         "job": "outcome-ledger-price-hydrator",
+        "public_horizon_repair": public_repair,
         "cached_observations_created": cached_repair["observations_created"] + after_hydration_repair["observations_created"],
         "status": "ok",
         "snapshot_count": len(rows),
