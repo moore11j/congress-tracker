@@ -1,7 +1,6 @@
 """Published research -> durable video draft events and review notifications."""
 import json
 import os
-from datetime import datetime, timezone
 
 from sqlalchemy import text
 
@@ -153,10 +152,14 @@ def reconcile_publish_events(db, *, limit=50):
     through = store.now()
     since = checkpoint.get("through")
     if not since:
-        # Deployment must not turn historical published research into a backlog.
-        store.set_setting(db, RECONCILE_KEY, {"through": through})
-        db.commit()
-        return {"status": "initialized", "enqueued": []}
+        # On upgrade, recover only since the last successful worker pass when one
+        # exists. Otherwise initialize at now rather than creating a historical backlog.
+        last_pass = store.setting(db, "GROWTH_VIDEO_LAST_PASS", {})
+        since = last_pass.get("at")
+        if not since:
+            store.set_setting(db, RECONCILE_KEY, {"through": through})
+            db.commit()
+            return {"status": "initialized", "enqueued": []}
     rows = db.execute(text("""SELECT id,published_at FROM research_brief_drafts
         WHERE status='published' AND published_at IS NOT NULL
           AND published_at > :since AND published_at <= :through
@@ -250,10 +253,23 @@ def process_publish_events(db, *, limit=10):
 
 
 def create_daily(db):
-    """Backward-compatible entry point; now processes per-publish events, not one/day."""
+    """Legacy operator/test shape over the new per-publish event workflow."""
     recovery = reconcile_publish_events(db)
     events = process_publish_events(db)
-    return {"status": events.get("status"), "reconciliation": recovery, **events}
+    base = {"reconciliation": recovery,
+            "created": events.get("created", []),
+            "skipped": events.get("skipped", []),
+            "failed": events.get("failed", [])}
+    if events.get("status") in {"disabled", "blocked"}:
+        return {**base, **{k: v for k, v in events.items() if k not in base}}
+    if base["created"]:
+        return {**base, "status": "created", "job_id": base["created"][0]["job_id"]}
+    prior = db.execute(text(
+        "SELECT job_id FROM growth_video_brief_events WHERE status='CREATED' ORDER BY updated_at DESC LIMIT 1"
+    )).first()
+    if prior:
+        return {**base, "status": "already_created", "job_id": prior[0]}
+    return {**base, "status": "waiting_for_published_brief"}
 
 
 def _review_recipient():
