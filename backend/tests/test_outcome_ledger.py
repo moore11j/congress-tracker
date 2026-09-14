@@ -142,6 +142,34 @@ def test_daily_warmer_matches_page_request_and_survives_weekend(monkeypatch):
         assert response.headers["X-Walnut-Outcome-Cache"] == "persistent"
 
 
+def test_refresh_retires_older_ticker_caches_after_preparing_overview():
+    engine = _engine()
+    with Session(engine) as db:
+        search_key = public_outcome_ledger_cache_key("snapshots", {"ticker": "TSM"})
+        outcome_ledger_module.store_public_outcome_ledger_payload(db, search_key, {"items": []})
+        outcome_ledger_module.store_public_outcome_ledger_payload(db, "unrelated-cache", {"keep": True})
+        result = warm_public_outcome_ledger_cache(db)
+        assert result["retired"] == 1
+        assert cached_public_outcome_ledger_payload(db, search_key) is None
+        assert cached_public_outcome_ledger_payload(db, "unrelated-cache")["keep"] is True
+        overview_key = public_outcome_ledger_cache_key("overview", {"horizons": ["30D", "7D"], "snapshot_limit": 500})
+        assert cached_public_outcome_ledger_payload(db, overview_key) is not None
+
+
+def test_failed_refresh_retains_existing_ticker_caches(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        search_key = public_outcome_ledger_cache_key("snapshots", {"ticker": "TSM"})
+        store = outcome_ledger_module.store_public_outcome_ledger_payload
+        store(db, search_key, {"items": []})
+        def fail_summary_write(db, key, payload):
+            return payload if ":summary:" in key else store(db, key, payload)
+        monkeypatch.setattr(outcome_ledger_module, "store_public_outcome_ledger_payload", fail_summary_write)
+        with pytest.raises(RuntimeError, match="not fully persisted"):
+            warm_public_outcome_ledger_cache(db)
+        assert cached_public_outcome_ledger_payload(db, search_key) is not None
+
+
 def test_methodology_seed_and_single_current_version():
     engine = _engine()
     with Session(engine) as db:

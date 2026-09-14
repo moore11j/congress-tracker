@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timezone, timedelta
 from typing import Any, Callable, TypeVar
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1866,6 +1866,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 500) 
     started_at = datetime.now(timezone.utc)
     status_payload = outcome_ledger_status(db)
     status_key = public_outcome_ledger_cache_key("status")
+    prepared_keys = {status_key}
     store_public_outcome_ledger_payload(db, status_key, status_payload)
     warmed = 1
 
@@ -1888,6 +1889,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 500) 
         }
         summary_payload = outcome_ledger_summary(db, horizon=horizon)
         summary_payloads[horizon] = summary_payload
+        prepared_keys.add(public_outcome_ledger_cache_key("summary", params))
         store_public_outcome_ledger_payload(
             db,
             public_outcome_ledger_cache_key("summary", params),
@@ -1915,6 +1917,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 500) 
             balanced_horizon=horizon,
         )
         snapshot_payloads[horizon] = snapshot_payload
+        prepared_keys.add(public_outcome_ledger_cache_key("snapshots", snapshot_params))
         store_public_outcome_ledger_payload(
             db,
             public_outcome_ledger_cache_key("snapshots", snapshot_params),
@@ -1924,6 +1927,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 500) 
 
     overview_horizons = [horizon for horizon in ("30D", "7D") if horizon in warm_horizons] or warm_horizons
     overview_params = {"horizons": overview_horizons, "snapshot_limit": snapshot_limit}
+    prepared_keys.add(public_outcome_ledger_cache_key("overview", overview_params))
     overview_payload = {
         "status": status_payload,
         "summaries": {horizon: summary_payloads[horizon] for horizon in overview_horizons},
@@ -1937,9 +1941,25 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 500) 
     )
     warmed += 1
 
+    # Retire older search/filter caches only after the complete prepared ledger
+    # is durable. Otherwise a ticker lookup can lag behind daily measurements
+    # for the full fallback-retention period.
+    persisted_keys = set(db.execute(select(TickerContextBundleCache.cache_key).where(
+        TickerContextBundleCache.cache_key.in_(prepared_keys),
+        TickerContextBundleCache.generated_at >= started_at,
+    )).scalars())
+    if persisted_keys != prepared_keys:
+        raise RuntimeError("Outcome cache refresh was not fully persisted; previous caches retained")
+    retired = db.execute(delete(TickerContextBundleCache).where(
+        TickerContextBundleCache.cache_key.like(f"{OUTCOME_LEDGER_CACHE_PREFIX}:%"),
+        TickerContextBundleCache.generated_at < started_at,
+    )).rowcount
+    db.commit()
+
     return {
         "status": "ok",
         "warmed": warmed,
+        "retired": retired,
         "horizons": warm_horizons,
         "snapshot_limit": snapshot_limit,
         "duration_ms": round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 1),

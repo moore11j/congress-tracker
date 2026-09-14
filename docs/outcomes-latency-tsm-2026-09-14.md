@@ -50,3 +50,11 @@ After deploying the backend, run the existing `outcome-ledger-price-hydrator` jo
 A local SQLite replay imported the actual TSM snapshots, entries, and observations, then hydrated the independently verified September 8 TSM/SPY OHLC. The production materializer created exactly one missing observation: TSM 30D +7.193436538555453%, versus SPY -0.5517975617039509%, excess +7.745234100259403%. Rerunning created zero observations. This validates the repair; production was not changed.
 
 Final read-only production projection audit: 4,087 previous public events become 3,062 continuous verified events, with 2,110 open events and zero duplicate open security/calculation-type keys. Coverage increases from 2,454 to 2,455 securities; no previously visible ticker is lost. TSM has exactly one open event, snapshot 579. These counts are an audit of the new code against stored history, not a production deployment.
+
+## Authorized production rollout
+
+Commit `fac963f6` was pushed to main and deployed successfully to Vercel and all Fly API/cron machines. The public app-version endpoint returned the exact commit; backend readiness reported database OK. The production price-repair job completed in 34.785 seconds, hydrated 90 symbols / 776 points with zero provider failures, processed 77 canonical entries / 66 horizon results, and created 23 additional cached-price observations. These job counters include existing results and must not be summed as new observations.
+
+The production API subsequently returned one TSM event, snapshot 579, entry August 6 at $409.54, with the September 8 official-close 30D result +7.193436538555453%. Effective production freshness is 43,200 seconds and retention 345,600 seconds. The deployed scheduler contains both trading-day-only refresh commands.
+
+A release follow-up retires older ticker/filter cache keys only after all prepared caches have been verified durable. This prevents filtered requests from retaining pre-refresh measurements for the four-day fallback period; a failed warm preserves existing caches. Focused refresh/cache tests: 10 passed.
