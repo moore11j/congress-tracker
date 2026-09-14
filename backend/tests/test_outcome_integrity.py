@@ -102,6 +102,38 @@ def test_public_horizon_repair_rotates_past_failed_symbols_between_runs(monkeypa
         assert second["observations_created"] == 1
 
 
+def test_public_horizon_repair_refreshes_mutable_prices_without_expiring_all_snapshots(monkeypatch):
+    from sqlalchemy import update
+    from app.services import outcome_horizon_repair as repair
+
+    with Session(_engine()) as db:
+        db.add_all([_bar("CRM", date(2026, 1, 5), 100), _bar("SPY", date(2026, 1, 5), 500)])
+        snapshot = _snapshot(db, datetime(2026, 1, 5, 13, tzinfo=UTC))
+        entry = materialize_outcome_entry(db, snapshot)
+        stale_price = _bar("CRM", date(2026, 1, 12), 90)
+        stale_price.adjustment_status = None
+        db.add_all([stale_price, _bar("SPY", date(2026, 1, 12), 500)])
+        db.commit()
+        assert stale_price.close == 90
+
+        def hydrate(session, symbol, start, end):
+            assert session.expire_on_commit is False
+            price = 110 if symbol == "CRM" else 505
+            session.execute(update(PriceCache).where(
+                PriceCache.symbol == symbol, PriceCache.date == "2026-01-12",
+            ).values(close=price, adjusted_close=price, raw_close=price, adjustment_status="split_adjusted_price_return")
+                .execution_options(synchronize_session=False))
+            session.commit()
+            return 1
+
+        monkeypatch.setattr(repair, "hydrate_split_adjusted_ohlc", hydrate)
+        assert repair.repair_public_outcome_horizons(db, as_of=date(2026, 1, 12))["observations_created"] == 1
+        assert db.expire_on_commit is True
+        observation = db.scalar(select(OutcomeHorizonObservation).where(OutcomeHorizonObservation.entry_id == entry.id))
+        assert observation.security_return_pct == pytest.approx(10)
+        assert observation.benchmark_return_pct == pytest.approx(1)
+
+
 def _engine():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)

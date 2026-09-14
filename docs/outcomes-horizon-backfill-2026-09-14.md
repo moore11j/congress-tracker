@@ -10,12 +10,12 @@ The former provider job selected at most 100 scoring snapshots, including intern
 
 ## Change
 
-The scheduled price job now first repairs the original anchors of continuous public events. It batches all due targets for each ticker, hydrates the shared benchmark first, and creates immutable horizon observations immediately after ticker hydration. Existing entry prices and completed observations are preserved. The provider phase is bounded by the existing job time budget, rather than the 100-snapshot reconstruction limit.
+The scheduled price job now first repairs the original anchors of continuous public events. It batches all due targets for each ticker, hydrates the shared benchmark first, and creates immutable horizon observations immediately after ticker hydration. Existing entry prices and completed observations are preserved. The provider phase is bounded by the existing job time budget, rather than the 100-snapshot reconstruction limit. Immutable ORM objects remain loaded across per-ticker commits to avoid repeated full-ledger expiration; mutable prices are explicitly refreshed in a single query before grading. The caller's session expiration policy is restored afterward.
 
 Attempt timestamps persist independently of public response caches. Unattempted tickers precede retries, so unavailable data cannot permanently block later symbols. Production allows up to 15 minutes for this background job to cover daily maturities. Internal snapshot reconstruction remains available after the public phase if time remains. Exact market-session and verified split-adjusted price requirements are unchanged.
 
 ## Validation
 
-70 Outcomes tests passed, with the two previously documented baseline tests deselected. All 38 scheduler tests passed; one needed an explicit local SQLite test database instead of the production Linux default path. New regression cases cover more than 100 public anchors in one symbol batch, exclusion of internal scoring-version entries, idempotency, and advancing past a failing provider symbol across bounded runs.
+The focused suite covers 71 Outcomes tests and 38 scheduler tests, with the two previously documented baseline tests deselected. Local tests use an explicit SQLite test database instead of the production Linux default path. New regression cases cover more than 100 public anchors in one symbol batch, exclusion of internal scoring-version entries, idempotency, advancing past a failing provider symbol across bounded runs, and refreshing stale price objects while keeping immutable snapshots loaded.
 
 The user explicitly approved a production backfill for the 218 overdue 7D and 1,122 overdue 30D measurements, followed by refreshing the public caches. Raw audit evidence is retained locally under `frontend/test-results/outcomes-7d-repair/` (ignored by Git).

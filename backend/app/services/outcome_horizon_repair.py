@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ConfirmationScoreSnapshot, OutcomeEntry, OutcomeHorizonObservation, TickerContextBundleCache
+from app.models import ConfirmationScoreSnapshot, OutcomeEntry, OutcomeHorizonObservation, PriceCache, TickerContextBundleCache
 from app.services.outcome_integrity import OUTCOME_HORIZONS, materialize_cached_outcome_horizons, materialize_outcome_horizons
 from app.services.outcome_ledger import _project_directional_outcome_events
 from app.services.price_lookup import hydrate_split_adjusted_ohlc, is_market_trading_day
@@ -25,6 +25,19 @@ def repair_public_outcome_horizons(db: Session, *, as_of: date, max_seconds: flo
     Attempt times survive runs so a missing provider symbol cannot monopolize
     the bounded job. Existing entry prices and observations are never replaced.
     """
+    # Thousands of immutable snapshots/entries stay loaded for this pass.
+    # Expiring all of them on each per-ticker commit makes the job quadratic.
+    # Price rows, which are mutable, are explicitly refreshed after hydration.
+    previous_expiration = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        return _repair_public_outcome_horizons(db, as_of=as_of, max_seconds=max_seconds)
+    finally:
+        db.expire_on_commit = previous_expiration
+        db.expire_all()
+
+
+def _repair_public_outcome_horizons(db: Session, *, as_of: date, max_seconds: float) -> dict:
     started = time.monotonic()
     cached = materialize_cached_outcome_horizons(db, as_of=as_of)
     db.commit()
@@ -91,12 +104,18 @@ def repair_public_outcome_horizons(db: Session, *, as_of: date, max_seconds: flo
         try:
             days = targets[symbol]
             result["price_points"] += hydrate_split_adjusted_ohlc(db, symbol, min(days).isoformat(), max(days).isoformat())
+            price_symbols = {symbol} | {entry.benchmark_symbol for entry in work[symbol]}
+            prices = db.scalars(select(PriceCache).where(
+                PriceCache.symbol.in_(price_symbols),
+                PriceCache.date.in_({day.isoformat() for day in days}),
+            ).execution_options(populate_existing=True)).all()
+            prices_by_key = {(row.symbol, row.date): row for row in prices}
             # Grade immediately after hydration, before another cache writer can
             # change the price basis. Keep the immutable observation as evidence.
             created = 0
             for entry in work[symbol]:
                 before = observed[entry.id]
-                rows = materialize_outcome_horizons(db, entry, as_of=as_of, existing_observations=before)
+                rows = materialize_outcome_horizons(db, entry, as_of=as_of, existing_observations=before, price_rows_by_key=prices_by_key)
                 created += len(rows) - len(before)
             db.commit()
             result["observations_created"] += created
