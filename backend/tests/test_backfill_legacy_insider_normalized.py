@@ -6,7 +6,7 @@ from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.backfill_legacy_insider_normalized import backfill_legacy_insider_normalized
+from app.backfill_legacy_insider_normalized import backfill_legacy_insider_normalized, sync_insider_transaction_normalized
 from app.db import Base
 from app.models import InsiderTransaction, InsiderTransactionNormalized, SecForm4Filing
 
@@ -131,3 +131,28 @@ def test_backfill_legacy_insider_normalized_filters_id_range(monkeypatch):
     with SessionLocal() as db:
         row = db.query(InsiderTransactionNormalized).one()
         assert row.accession_number == "0001046179-26-000286"
+
+
+def test_live_sync_does_not_duplicate_backfilled_trade(monkeypatch):
+    factory = _session_factory(monkeypatch)
+    with factory() as db:
+        db.add(_legacy_row())
+        db.commit()
+    backfill_legacy_insider_normalized(apply=True)
+    with factory() as db:
+        assert sync_insider_transaction_normalized(db, db.get(InsiderTransaction, 1)) is False
+        db.commit()
+        assert db.query(InsiderTransactionNormalized).count() == 1
+
+
+def test_backfill_does_not_duplicate_live_synced_trade(monkeypatch):
+    factory = _session_factory(monkeypatch)
+    with factory() as db:
+        row = _legacy_row()
+        db.add(row)
+        db.flush()
+        assert sync_insider_transaction_normalized(db, row) is True
+        db.commit()
+    report = backfill_legacy_insider_normalized(apply=True)
+    assert report["inserted_transactions"] == 0
+    assert report["skipped_existing"] == 1

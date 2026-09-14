@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.clients.fmp import FMPClientError, fetch_insider_trades
+from app.backfill_legacy_insider_normalized import sync_insider_transaction_normalized
 from app.db import SessionLocal
 from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event, InsiderTransaction
@@ -175,7 +176,7 @@ def _event_ts(transaction_date: date | None, filing_date: date | None) -> dateti
 
 def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int = 200) -> dict[str, Any]:
     cutoff = date.today() - timedelta(days=days)
-    scanned = inserted_raw = inserted_events = skipped = 0
+    scanned = inserted_raw = inserted_events = inserted_normalized = skipped = 0
     feed_pnl_refresh_reports: list[dict[str, Any]] = []
     feed_cache_epoch_reports: list[dict[str, Any]] = []
 
@@ -200,6 +201,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     select(InsiderTransaction).where(InsiderTransaction.external_id == external_id)
                 ).scalar_one_or_none()
                 if existing_raw:
+                    inserted_normalized += int(sync_insider_transaction_normalized(db, existing_raw))
                     skipped += 1
                     continue
 
@@ -224,6 +226,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                 db.add(insider)
                 db.flush()
                 inserted_raw += 1
+                inserted_normalized += int(sync_insider_transaction_normalized(db, insider))
 
                 raw_trade_type = (
                     _as_str(row.get("transactionType"))
@@ -303,6 +306,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
             "scanned": scanned,
             "inserted_raw": inserted_raw,
             "inserted_events": inserted_events,
+            "inserted_normalized": inserted_normalized,
             "skipped": skipped,
             "feed_pnl_refresh": _summarize_feed_pnl_refresh(feed_pnl_refresh_reports),
             "feed_cache_epoch": feed_cache_epoch_reports[-1] if feed_cache_epoch_reports else {"status": "skipped", "reason": "no_new_events"},

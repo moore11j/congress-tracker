@@ -227,6 +227,29 @@ def _get_or_create_filing(db, filing_payload: dict[str, Any], *, apply: bool) ->
     return filing
 
 
+def sync_insider_transaction_normalized(db, row: InsiderTransaction) -> bool:
+    """Stage the profile record in the caller's transaction, without committing.
+
+    Share the backfill's stable hash so importing an existing raw trade repairs
+    missing profile data without duplicating previously backfilled records.
+    """
+    filing_payload, normalized_payload = _build_normalized_payload(row)
+    if not normalized_payload["ticker_normalized"]:
+        return False
+    existing = db.execute(
+        select(InsiderTransactionNormalized.id).where(
+            InsiderTransactionNormalized.normalized_hash == normalized_payload["normalized_hash"]
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return False
+    filing = _get_or_create_filing(db, filing_payload, apply=True)
+    db.add(InsiderTransactionNormalized(form4_filing_id=filing.id, **normalized_payload))
+    # Ingest sessions disable autoflush; repeated rows in one page must see this.
+    db.flush()
+    return True
+
+
 def backfill_legacy_insider_normalized(
     *,
     apply: bool,
