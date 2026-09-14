@@ -4,7 +4,7 @@ import csv
 import logging
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from io import StringIO
 from math import isfinite
@@ -552,8 +552,9 @@ def build_screener_rows(
     *,
     requested_rows: int | None = None,
     entitlements: TierEntitlements | None = None,
+    apply_confirmation_filters: bool = True,
 ) -> list[dict[str, Any]]:
-    dataset = _build_screener_dataset(db, params, requested_rows=requested_rows, entitlements=entitlements)
+    dataset = _build_screener_dataset(db, params, requested_rows=requested_rows, entitlements=entitlements, apply_confirmation_filters=apply_confirmation_filters)
     return dataset["rows"]
 
 
@@ -563,6 +564,7 @@ def _build_screener_dataset(
     *,
     requested_rows: int | None = None,
     entitlements: TierEntitlements | None = None,
+    apply_confirmation_filters: bool = True,
 ) -> dict[str, Any]:
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
@@ -740,7 +742,12 @@ def _build_screener_dataset(
                 reason="missing_technical_cache",
                 priority=60,
             )
-    rows = [row for row in rows if _row_matches_filters(row, params, overlay_availability=overlay_availability)]
+    # Top Stocks must discover the same cached universe, then qualify it only
+    # after applying the ticker scoring path. Keep discovery parameters intact.
+    row_filter_params = params if apply_confirmation_filters else replace(
+        params, confirmation_score_min=None, confirmation_direction=None, confirmation_band=None
+    )
+    rows = [row for row in rows if _row_matches_filters(row, row_filter_params, overlay_availability=overlay_availability)]
     if _has_technical_filters(params) and not rows:
         logger.info("screener_technical_filter_no_results diagnostics=%s", technical_diagnostics)
     if params.government_contracts_active is not None:

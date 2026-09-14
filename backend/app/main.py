@@ -270,7 +270,7 @@ from app.services.historical_similarity import (
     similar_historical_setups_enabled,
 )
 from app.services.options_flow import unavailable_options_flow_summary
-from app.services.confirmation_context import build_confirmation_score_context
+from app.services.confirmation_context import build_confirmation_score_context, build_ticker_confirmation_context
 from app.services.macro_positioning import (
     get_macro_positioning_feed,
     get_insights_macro_positioning,
@@ -6746,7 +6746,7 @@ def admin_ticker_cross_source_divergence(symbol: str, request: Request, response
     }
 
 
-_TICKER_CONTEXT_BUNDLE_VERSION = 7
+_TICKER_CONTEXT_BUNDLE_VERSION = 8
 _TICKER_CONTEXT_BUNDLE_INFLIGHT_LOCK = threading.Lock()
 _TICKER_CONTEXT_BUNDLE_INFLIGHT: dict[str, dict[str, Any]] = {}
 _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK = threading.Lock()
@@ -9361,7 +9361,9 @@ def build_ticker_signals_summary_contexts_from_cache(
         )
 
     rows = signal_rows if signal_rows is not None else []
-    fundamentals_row = _cached_ticker_fundamentals_row(db, normalized_symbol)
+    # Scoring must not hydrate an incomplete row or enqueue provider work.
+    # The foreground ticker/profile hydration path handles missing data.
+    fundamentals_row = _latest_fundamentals_row(db, normalized_symbol)
     try:
         macro_positioning = get_macro_positioning_summary(db, normalized_symbol)
     except Exception:
@@ -9402,11 +9404,7 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
     try:
-        context = build_confirmation_score_context(
-            db,
-            [normalized_symbol],
-            lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
-        )
+        context = build_ticker_confirmation_context(db, [normalized_symbol])
         bundles = context.get("bundles") if isinstance(context.get("bundles"), dict) else {}
         options_flow_summaries = (
             context.get("options_flow_summaries")
@@ -9442,13 +9440,6 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             institutional_activity_summary,
             {"institutional_activity": {"locked": False}},
         )
-        try:
-            bundle = _merge_fresh_public_contexts_into_confirmation_bundle(
-                bundle,
-                build_ticker_signals_summary_contexts_from_cache(normalized_symbol, db=db),
-            )
-        except Exception:
-            logger.info("ticker_confirmation_fresh_context_merge_failed symbol=%s", normalized_symbol, exc_info=True)
         try:
             capture_live_confirmation_score_snapshot(db, normalized_symbol, bundle)
         except Exception:
@@ -10903,6 +10894,10 @@ def _merge_authorized_signal_context_into_confirmation_bundle(
     signal_context: dict[str, Any] | None,
     source_entitlements: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    # A filtered/paginated signal card must not replace the shared scoring
+    # evidence after scoring (or change Premium scores during redaction).
+    if isinstance(bundle, dict) and bundle.get("score_context_version"):
+        return bundle
     if not isinstance(bundle, dict) or not isinstance(signal_context, dict):
         return bundle
     if bool((source_entitlements.get("signals") or {}).get("locked")):
@@ -10956,6 +10951,8 @@ def _merge_fresh_public_contexts_into_confirmation_bundle(
     bundle: dict[str, Any],
     source_contexts: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    if isinstance(bundle, dict) and bundle.get("score_context_version"):
+        return bundle
     if not isinstance(bundle, dict) or not isinstance(source_contexts, dict):
         return bundle
     fresh_bundle = confirmation_score_bundle_from_source_contexts(

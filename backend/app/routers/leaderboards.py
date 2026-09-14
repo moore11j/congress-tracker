@@ -45,16 +45,17 @@ def leaderboard_preview(response: Response, db: Session = Depends(get_db)):
 def leaderboard_dashboard(request: Request, response: Response, db: Session = Depends(get_db)):
     """Serve the complete dashboard from prepared snapshots in one request.
 
-    Ranking calculations are performed by the daily refresh job, never here.
+    Score calculations are performed by the daily refresh job or ticker cache
+    builder. Top Stocks orders the prepared scores without recalculating them.
     Keeping the entitlement check and all snapshot reads together avoids a
     page-load waterfall of individually authenticated API requests.
     """
     entitlements = current_entitlements(request, db)
     can_view_performance = entitlements.has_feature("leaderboards")
     can_view_institutions = entitlements.has_feature("institutional_feed")
-    response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=3600"
+    response.headers["Cache-Control"] = "private, no-store"
     return {
-        "top_stocks": build_top_stocks_response(db),
+        "top_stocks": build_top_stocks_response(db, entitlements=entitlements),
         "congress": read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY) if can_view_performance else None,
         "insiders": read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY) if can_view_performance else None,
         "institutions": read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY) if can_view_institutions else None,
@@ -68,8 +69,8 @@ def leaderboard_section(section: str, request: Request, response: Response, db: 
     normalized = (section or "").strip().lower()
     response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=3600"
     if normalized == "top-stocks":
-        response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
-        return build_top_stocks_response(db)
+        response.headers["Cache-Control"] = "private, no-store"
+        return build_top_stocks_response(db, entitlements=current_entitlements(request, db))
     if normalized in {CONGRESS_LEADERBOARD_KEY, INSIDER_LEADERBOARD_KEY}:
         require_feature(current_entitlements(request, db), "leaderboards", message="Leaderboards are included with Premium.")
     elif normalized == INSTITUTION_LEADERBOARD_KEY:

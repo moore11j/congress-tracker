@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,38 @@ from app.services.intelligence_overlays import (
 )
 from app.services.macro_positioning import get_macro_positioning_summaries_for_symbols
 from app.utils.symbols import normalize_symbol
+
+
+def build_ticker_confirmation_context(db: Session, symbols: list[str]) -> dict[str, Any]:
+    """The shared 30-day scoring path for ticker pages and Top Stocks jobs.
+
+    The existing card input readers live in main; import them lazily to avoid
+    a module initialization cycle. These readers use cached data only. History
+    capture and HTTP/tier projection remain the caller's responsibility.
+    """
+    from app.main import (
+        _mark_institutional_unavailable_in_confirmation_bundle,
+        _merge_fresh_public_contexts_into_confirmation_bundle,
+        build_ticker_signals_summary_contexts_from_cache,
+    )
+
+    context = build_confirmation_score_context(db, symbols, lookback_days=30)
+    for symbol, bundle in context["bundles"].items():
+        bundle = _mark_institutional_unavailable_in_confirmation_bundle(
+            bundle,
+            context["institutional_activity_summaries"].get(symbol),
+            {"institutional_activity": {"locked": False}},
+        )
+        try:
+            bundle = _merge_fresh_public_contexts_into_confirmation_bundle(
+                bundle, build_ticker_signals_summary_contexts_from_cache(symbol, db=db)
+            )
+        except Exception:
+            logging.getLogger(__name__).exception("ticker_confirmation_inputs_failed symbol=%s", symbol)
+            bundle = {**bundle, "inputs_incomplete": True}
+        bundle["score_context_version"] = "ticker_confirmation_30d_v1"
+        context["bundles"][symbol] = bundle
+    return context
 
 
 def build_confirmation_score_context(

@@ -18,6 +18,7 @@ from app.entitlements import ENTITLEMENTS
 from app.main import _ticker_profiles_response, ticker_signals_summary
 from app.models import DataEnrichmentJob, Event, FundamentalsCache, GovernmentContract, PriceCache, TickerContextBundleCache, TickerMeta
 from app.services.confirmation_context import build_confirmation_score_context
+from app.services import confirmation_context as confirmation_context_module
 from app.services.confirmation_score import confirmation_score_bundle_from_source_contexts, slim_confirmation_score_bundle
 
 
@@ -633,6 +634,7 @@ def _seed_score_contract_fixture(db: Session) -> None:
 
 
 def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
+    monkeypatch.setattr(main_module, "_latest_fundamentals_row", lambda *_args: None)
     captured: dict[str, object] = {}
     query_calls: list[dict[str, object]] = []
 
@@ -681,7 +683,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        main_module,
+        confirmation_context_module,
         "build_confirmation_score_context",
         lambda db, tickers, **kwargs: captured.update(
             {
@@ -792,6 +794,7 @@ def test_ticker_signals_summary_coalesces_identical_inflight_requests(monkeypatc
 
 
 def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_paid_sources(monkeypatch):
+    monkeypatch.setattr(main_module, "_latest_fundamentals_row", lambda *_args: None)
     _mock_logged_out_signal_context(monkeypatch)
     monkeypatch.setattr(
         main_module,
@@ -1410,7 +1413,7 @@ def test_ticker_confirmation_context_merges_fresh_public_context(monkeypatch):
         "government_contracts": {"status": "inactive", "direction": "neutral", "contract_count": 0},
     }
     monkeypatch.setattr(
-        main_module,
+        confirmation_context_module,
         "build_confirmation_score_context",
         lambda *_args, **_kwargs: {
             "bundles": {"TSM": stale_bundle},
@@ -1630,7 +1633,7 @@ def test_ticker_confirmation_context_marks_absent_institutional_provider_unavail
     inactive_bundle = confirmation_score_bundle_from_source_contexts("NVDA", source_contexts={})
 
     monkeypatch.setattr(
-        main_module,
+        confirmation_context_module,
         "build_confirmation_score_context",
         lambda db, tickers, **kwargs: {
             "bundles": {"NVDA": inactive_bundle},
@@ -1654,7 +1657,7 @@ def test_ticker_confirmation_context_keeps_available_no_institutional_activity_i
     inactive_bundle = confirmation_score_bundle_from_source_contexts("NVDA", source_contexts={})
 
     monkeypatch.setattr(
-        main_module,
+        confirmation_context_module,
         "build_confirmation_score_context",
         lambda db, tickers, **kwargs: {
             "bundles": {"NVDA": inactive_bundle},

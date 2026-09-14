@@ -1079,6 +1079,7 @@ def test_screener_csv_export_uses_shared_rows_and_human_headers(monkeypatch):
 
 
 def test_directional_confirmation_filters_reject_opposite_and_inactive_states(monkeypatch):
+    from app.services.screener import build_screener_rows
     monkeypatch.setattr(
         "app.services.screener.fetch_company_screener",
         lambda *, filters, limit: [
@@ -1106,9 +1107,15 @@ def test_directional_confirmation_filters_reject_opposite_and_inactive_states(mo
             db,
             ScreenerParams(confirmation_direction="bearish", confirmation_score_min=60, sort="confirmation_score"),
         )
+        candidates = build_screener_rows(
+            db,
+            ScreenerParams(confirmation_direction="bullish", confirmation_score_min=60, sort="confirmation_score"),
+            apply_confirmation_filters=False,
+        )
 
     assert [row["symbol"] for row in bullish["items"]] == ["BULL"]
     assert [row["symbol"] for row in bearish["items"]] == ["BEAR"]
+    assert {row["symbol"] for row in candidates} == {"BULL", "BEAR", "IDLE"}
 
 
 def test_screener_government_contract_filters_and_row_fields(monkeypatch):

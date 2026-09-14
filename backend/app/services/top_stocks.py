@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import JSON, cast, select, type_coerce
 from sqlalchemy.orm import Session
 
-from app.models import LeaderboardSnapshot
-from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows
+from app.models import LeaderboardSnapshot, TickerContextBundleCache
+from app.services.confirmation_context import build_ticker_confirmation_context
+from app.services.confirmation_score import SOURCE_LABELS
+from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, matches_confirmation_filters
 
 TOP_STOCKS_LEADERBOARD_KEY = "top_stocks"
 TOP_STOCKS_PARAMS = ScreenerParams(
@@ -34,59 +37,121 @@ TOP_STOCKS_FILTERS = {
 }
 
 
-def build_top_stocks_response(db: Session) -> dict[str, Any]:
-    """Read the daily Top Stocks snapshot; this path is intentionally read-only."""
+def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, Any]:
+    """Read prepared scores, using newer canonical ticker caches when available.
+
+    No scoring, provider hydration, or database writes occur on page loads.
+    Keep the entire candidate universe so a refreshed score can enter or leave
+    the top ten and every filter is ranked from the same evidence.
+    """
     snapshot = db.execute(
         select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)
     ).scalar_one_or_none()
     if snapshot is None:
         return _empty_response()
     payload = _payload(snapshot.payload_json)
-    return payload if payload is not None else _empty_response()
+    if payload is None:
+        return _empty_response()
+    candidates = payload.pop("candidate_rows", None)
+    if not isinstance(candidates, list):
+        # Old snapshots have neither the common score inputs nor a complete
+        # candidate universe. Do not present their incompatible scores.
+        return _empty_response()
+    symbols = [row["symbol"] for row in candidates]
+    from app.main import _TICKER_CONTEXT_BUNDLE_VERSION, _redact_locked_ticker_confirmation_sources, _ticker_context_source_entitlements
+
+    json_payload = (
+        cast(TickerContextBundleCache.payload_json, JSON)
+        if db.get_bind().dialect.name == "postgresql"
+        else type_coerce(TickerContextBundleCache.payload_json, JSON)
+    )
+    caches = db.execute(
+        select(
+            TickerContextBundleCache.symbol,
+            TickerContextBundleCache.generated_at,
+            json_payload["confirmation_score_bundle"].label("bundle"),
+        )
+        .where(TickerContextBundleCache.symbol.in_(symbols))
+        .where(TickerContextBundleCache.user_segment == "canonical")
+        .where(TickerContextBundleCache.cache_key.like(f"ticker-context-bundle:v{_TICKER_CONTEXT_BUNDLE_VERSION}:%:30:all:3:canonical"))
+        .where(TickerContextBundleCache.expires_at > datetime.now(timezone.utc))
+        .order_by(TickerContextBundleCache.generated_at.desc())
+    ).all() if symbols else []
+    latest = {}
+    for cache in caches:
+        bundle = cache.bundle
+        if cache.symbol not in latest and isinstance(bundle, dict) and bundle.get("lookback_days") == 30:
+            latest[cache.symbol] = (bundle, _iso(cache.generated_at))
+    source_entitlements = _ticker_context_source_entitlements(entitlements) if entitlements is not None else None
+    for row in candidates:
+        bundle = row.pop("confirmation_bundle", {})
+        update = latest.get(row["symbol"])
+        # An unexpired ticker cache is exactly what the ticker page displays,
+        # even when the daily discovery job ran after that cache was built.
+        if update:
+            bundle, row["updated_at"] = update
+        if source_entitlements is not None:
+            bundle = _redact_locked_ticker_confirmation_sources(bundle, source_entitlements)
+        row["confirmation"] = bundle
+    return _ranked_payload(candidates, generated_at=payload.get("generated_at"))
 
 
 def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
-    """Build the once-daily cache from the canonical Bullish Confirmation screener.
+    """Score the cached screener universe with the exact ticker calculation.
 
     The public API/page never invokes this builder: score assembly, cached source
     reads, and any enrichment work remain confined to the scheduled job.
     """
     generated_at = _utc(now or datetime.now(timezone.utc))
-    rows = build_screener_rows(db, TOP_STOCKS_PARAMS, requested_rows=MAX_FETCH_ROWS)
-    filter_rows = {
-        key: [
-            _item_from_screener_row(row, rank=index, updated_at=_iso(generated_at))
-            for index, row in enumerate(_rows_for_filter(rows, key)[:10], start=1)
-        ]
-        for key in TOP_STOCKS_FILTERS
-    }
-    top_rows = filter_rows["all"]
-    payload = {
-        "items": top_rows,
-        "filter_items": filter_rows,
-        "filters": TOP_STOCKS_FILTERS,
-        "returned": len(top_rows),
-        "generated_at": _iso(generated_at),
-        "source": "bullish_confirmation_screener_daily_cache",
-        "qualification": _qualification(),
-    }
+    rows = build_screener_rows(db, TOP_STOCKS_PARAMS, requested_rows=MAX_FETCH_ROWS, apply_confirmation_filters=False)
+    bundles = build_ticker_confirmation_context(db, [row["symbol"] for row in rows])["bundles"]
+    candidates = []
+    for original in rows:
+        row = deepcopy(original)
+        # Never fall back to the old screener score if canonical scoring failed.
+        bundle = bundles.get(row["symbol"])
+        if not isinstance(bundle, dict) or bundle.get("inputs_incomplete"):
+            raise ValueError(f"Missing ticker confirmation for {row['symbol']}")
+        row["confirmation"] = bundle
+        row["confirmation_bundle"] = bundle
+        row["updated_at"] = _iso(generated_at)
+        candidates.append(row)
+    payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
+    stored_payload = {**payload, "candidate_rows": candidates}
     snapshot = db.execute(
         select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)
     ).scalar_one_or_none()
-    serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    serialized = json.dumps(stored_payload, separators=(",", ":"), sort_keys=True)
     if snapshot is None:
-        db.add(
-            LeaderboardSnapshot(
-                leaderboard_key=TOP_STOCKS_LEADERBOARD_KEY,
-                generated_at=generated_at,
-                payload_json=serialized,
-            )
-        )
+        db.add(LeaderboardSnapshot(leaderboard_key=TOP_STOCKS_LEADERBOARD_KEY, generated_at=generated_at, payload_json=serialized))
     else:
         snapshot.generated_at = generated_at
         snapshot.payload_json = serialized
     db.commit()
     return payload
+
+
+def _ranked_payload(candidates: list[dict[str, Any]], *, generated_at: str | None) -> dict[str, Any]:
+    rows = [row for row in candidates if matches_confirmation_filters(row, TOP_STOCKS_PARAMS)]
+    rows.sort(key=lambda row: (row["confirmation"].get("score", 0), _market_cap(row), row["symbol"]), reverse=True)
+    filter_rows = {
+        key: [
+            _item_from_screener_row(row, rank=index, updated_at=row.get("updated_at") or generated_at)
+            for index, row in enumerate(_rows_for_filter(rows, key)[:10], start=1)
+        ]
+        for key in TOP_STOCKS_FILTERS
+    }
+    top_rows = filter_rows["all"]
+    return {
+        "items": top_rows,
+        "filter_items": filter_rows,
+        "filters": TOP_STOCKS_FILTERS,
+        "returned": len(top_rows),
+        "generated_at": max((row.get("updated_at") or generated_at or "" for row in candidates), default=generated_at),
+        "universe_generated_at": generated_at,
+        "source": "canonical_ticker_confirmation_cache",
+        "qualification": _qualification(),
+    }
 
 
 def _item_from_screener_row(
@@ -156,7 +221,7 @@ def _empty_response() -> dict[str, Any]:
         "filters": TOP_STOCKS_FILTERS,
         "returned": 0,
         "generated_at": None,
-        "source": "bullish_confirmation_screener_daily_cache",
+        "source": "canonical_ticker_confirmation_cache",
         "qualification": _qualification(),
     }
 
@@ -171,23 +236,16 @@ def _qualification() -> dict[str, Any]:
 
 
 def _drivers_from_screener_row(row: dict[str, Any]) -> list[str]:
-    """Use the same cached screener outputs that qualified this row, without re-scoring it."""
-    drivers: list[str] = []
-    if isinstance(row.get("analyst_consensus"), dict) and row["analyst_consensus"].get("active") is True:
-        drivers.append("Analysts")
-    if row.get("government_contracts_active") is True:
-        drivers.append("Government contracts")
-    if row.get("institutional_activity_active") is True:
-        drivers.append("Institutions")
-    if row.get("options_flow_active") is True:
-        drivers.append("Options flow")
-    if isinstance(row.get("congress_activity"), dict) and row["congress_activity"].get("present") is True:
-        drivers.append("Congress")
-    if isinstance(row.get("insider_activity"), dict) and row["insider_activity"].get("present") is True:
-        drivers.append("Insiders")
-    if not drivers:
-        drivers.append("Confirmation Score")
-    return drivers[:4]
+    """Drivers must describe the same tier-visible evidence as the score."""
+    confirmation = row.get("confirmation") or {}
+    sources = confirmation.get("sources") or {}
+    drivers = [
+        label for key, label in SOURCE_LABELS.items()
+        if isinstance(sources.get(key), dict)
+        and sources[key].get("present") is True
+        and sources[key].get("direction") == confirmation.get("direction")
+    ]
+    return drivers[:4] or ["Confirmation Score"]
 
 
 def _payload(raw: str | None) -> dict[str, Any] | None:
