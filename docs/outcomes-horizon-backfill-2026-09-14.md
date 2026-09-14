@@ -12,7 +12,7 @@ The former provider job selected at most 100 scoring snapshots, including intern
 
 The scheduled price job now first repairs the original anchors of continuous public events. It batches all due targets for each ticker, hydrates the shared benchmark first, and creates immutable horizon observations immediately after ticker hydration. Existing entry prices and completed observations are preserved. The provider phase is bounded by the existing job time budget, rather than the 100-snapshot reconstruction limit.
 
-Attempt timestamps persist independently of public response caches. Unattempted tickers precede retries, so unavailable data cannot permanently block later symbols. Internal snapshot reconstruction remains available after the public phase if time remains. Exact market-session and verified split-adjusted price requirements are unchanged.
+Attempt timestamps persist independently of public response caches. Unattempted tickers precede retries, so unavailable data cannot permanently block later symbols. Production allows up to 15 minutes for this background job to cover daily maturities. Internal snapshot reconstruction remains available after the public phase if time remains. Exact market-session and verified split-adjusted price requirements are unchanged.
 
 ## Validation
 
