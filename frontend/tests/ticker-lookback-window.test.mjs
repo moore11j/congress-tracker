@@ -50,7 +50,11 @@ test("ticker participant leaderboards rank the live activity tapes by trades and
   assert.match(participantLeaderboards, /Math\.abs\(right\.netFlow\) - Math\.abs\(left\.netFlow\)/);
   assert.match(participantLeaderboards, /Ranked by trade count · net flow breaks ties/);
   assert.match(participantLeaderboards, /<th className="px-2 py-2\.5">#<\/th>/);
+  assert.match(participantLeaderboards, />Chamber<\/th>/);
+  assert.match(participantLeaderboards, />Party<\/th>/);
+  assert.match(participantLeaderboards, />Role<\/th>/);
   assert.match(participantLeaderboards, /Net flow<\/th>/);
+  assert.doesNotMatch(participantLeaderboards, /<Badge/);
   assert.match(participantLeaderboards, /request\("congress"\), request\("insider"\)/);
 });
 

@@ -68,8 +68,8 @@ test("ticker deferred SSR renders section placeholders and hydrates details on v
   assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="congress-activity-status" canViewPremiumMetrics=\{canViewPremiumMetrics\} \/>/);
   assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="insider-activity-status" canViewPremiumMetrics=\{canViewPremiumMetrics\} \/>/);
   assert.match(page, /const canViewPremiumMetrics = hasAuthForEntitlementDisplay && entitlements/);
-  assert.match(page, /<LockedSmartSignalPill band=\{signal\.band\} size="compact" \/>/);
-  assert.match(page, /<LockedSmartSignalPill band=\{display\.signal\.band\} size="compact" \/>/);
+  assert.match(page, /<TickerActivitySignalScore score=\{signal\.score\} band=\{signal\.band\} unlocked=\{canViewPremiumMetrics\} \/>/);
+  assert.match(page, /<TickerActivitySignalScore score=\{display\.signal\.score\} band=\{display\.signal\.band\} unlocked=\{canViewPremiumMetrics\} \/>/);
   assert.match(page, /activityDetailsDeferred \? "Loading government contract activity\." : "No government contracts in selected window\."/);
   assert.match(refresher, /"use client"/);
   assert.match(refresher, /IntersectionObserver/);
@@ -79,8 +79,7 @@ test("ticker deferred SSR renders section placeholders and hydrates details on v
   assert.match(detailClient, /requestSource: "visibility"/);
   assert.match(detailClient, /routeFamily: "ticker"/);
   assert.match(detailClient, /source: kind === "congress" \? "congress-detail" : "insider-detail"/);
-  assert.match(detailClient, /canViewPremiumMetrics \? \(/);
-  assert.match(detailClient, /<LockedSmartSignalPill band=\{smartSignal\.band\} size="compact" \/>/);
+  assert.match(detailClient, /<TickerActivitySignalScore score=\{smartSignal\.score\} band=\{smartSignal\.band\} unlocked=\{canViewPremiumMetrics\} \/>/);
   assert.match(detailClient, /No Congress trades in the selected window\./);
   assert.match(detailClient, /No insider trades in the selected window\./);
 });

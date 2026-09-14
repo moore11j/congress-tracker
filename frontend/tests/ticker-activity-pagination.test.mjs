@@ -86,18 +86,22 @@ test("ticker trade activity tables disclose price and preserve participant summa
   const page = read("app/ticker/[symbol]/page.tsx");
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
   const signalClient = read("components/ticker/TickerSignalActivityClient.tsx");
+  const participantLeaderboards = read("components/ticker/TickerParticipantLeaderboards.tsx");
+  const activityText = read("components/ticker/TickerActivityText.tsx");
   const tradeDisplay = read("lib/tradeDisplay.ts");
 
   assert.match(page, /import \{ resolveCongressActivityPrice, resolveInsiderActivityDisplay \} from "@\/lib\/tradeDisplay"/);
   assert.match(tradeDisplay, /export function resolveCongressActivityPrice\(record: Record<string, unknown>\)/);
   assert.match(tradeDisplay, /"transactionPricePerShare"/);
   assert.match(tradeDisplay, /"trade_price",\s*"tradePrice"/);
-  assert.match(page, /const congressParticipantEvents = side === "all"[\s\S]*\? congressEvents/);
-  assert.match(page, /const insiderParticipantEvents = side === "all"[\s\S]*\? insiderEvents/);
-  assert.match(page, /for \(const event of congressParticipantEvents\)/);
-  assert.match(page, /for \(const event of insiderParticipantEvents\)/);
+  assert.match(page, /initialCongressEvents=\{congressEvents\}/);
+  assert.match(page, /initialInsiderEvents=\{insiderEvents\}/);
+  assert.match(participantLeaderboards, /function rankParticipants\(kind: ActivityKind, events: EventItem\[\]\)/);
+  assert.match(participantLeaderboards, /for \(const event of events\)/);
   assert.match(page, /<TickerActivityTable ariaLabel="Congress activity"/);
   assert.match(page, /<TickerActivityTable ariaLabel="Insider activity"/);
+  assert.match(page, /headers=\{\["Trader", "Chamber", "Party", "Signal weight", "Dates", "Price", "Trade value", "Side", "Score"\]\}/);
+  assert.match(page, /headers=\{\["Insider", "Role", "Signal weight", "Filed", "Price", "Trade value", "Side", "Score"\]\}/);
   assert.match(page, />\{displayPrice !== null \? formatCurrency\(displayPrice\) : "-"\}</);
   assert.match(page, />\{formatActivityPrice\(display\.displayPrice\)\}</);
   assert.match(page, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \?\? undefined \}\)/);
@@ -108,13 +112,16 @@ test("ticker trade activity tables disclose price and preserve participant summa
 
   assert.match(detailClient, /import \{ resolveCongressActivityPrice, resolveInsiderActivityDisplay \} from "@\/lib\/tradeDisplay"/);
   assert.match(detailClient, /resolveCongressActivityPrice\(event as Record<string, unknown>\)/);
-  assert.match(detailClient, /<TickerActivityTable ariaLabel=\{`\$\{kind === "congress"/);
+  assert.match(detailClient, /<TickerActivityTable[\s\S]*ariaLabel=\{`\$\{kind === "congress"/);
   assert.match(detailClient, />\{formatPrice\(price\)\}</);
-  assert.match(detailClient, /SmartSignalPill score=\{smartSignal\.score\}/);
-  assert.match(detailClient, /LockedSmartSignalPill band=\{smartSignal\.band\}/);
+  assert.match(detailClient, /TickerActivitySignalScore score=\{smartSignal\.score\} band=\{smartSignal\.band\} unlocked=\{canViewPremiumMetrics\}/);
   assert.match(detailClient, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \}\)/);
-  assert.match(detailClient, /formatSignalStrengthText\(signal\.band\)/);
-  assert.match(detailClient, /formatSignalStrengthText\(display\.signal\.band\)/);
+  assert.match(detailClient, /formatSignalStrengthText\(smartSignal\.band\)/);
+  assert.match(activityText, /function tradeTypeTextClassName/);
+  assert.match(activityText, /function chamberTextClassName/);
+  assert.match(activityText, /function partyTextClassName/);
+  assert.match(activityText, /function insiderRoleTextClassName/);
+  assert.doesNotMatch(detailClient, /<Badge|SmartSignalPill|LockedSmartSignalPill/);
   assert.match(tradeDisplay, /"trade_price", "tradePrice", "reported_price", "reportedPrice"/);
 
   assert.match(signalClient, /SmartSignalPill score=\{signal\.smart_score \?\? null\}/);

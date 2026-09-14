@@ -14,6 +14,14 @@ import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerActivityHeaderStatsClient } from "@/components/ticker/TickerActivityHeaderStatsClient";
 import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
+import {
+  chamberTextClassName,
+  insiderRoleTextClassName,
+  partyTextClassName,
+  signalWeightTextClassName,
+  TickerActivitySignalScore,
+  tradeTypeTextClassName,
+} from "@/components/ticker/TickerActivityText";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
@@ -3452,14 +3460,16 @@ async function DeferredTickerContent({
                   <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
                 ) : (
                   <>
-                    <TickerActivityTable ariaLabel="Congress activity" headers={["Trader", "Dates", "Price", "Trade value", "Side", "Signal"]}>
+                    <TickerActivityTable ariaLabel="Congress activity" minWidthClassName="min-w-[74rem]" headers={["Trader", "Chamber", "Party", "Signal weight", "Dates", "Price", "Trade value", "Side", "Score"]}>
                       {congressEvents.map((event) => {
                         const memberName = event.member_name ?? "Unknown";
                         const memberLink = memberName.trim() && memberName !== "Unknown"
                           ? memberHref({ name: memberName, memberId: event.member_bioguide_id ?? undefined })
                           : null;
-                        const chamber = chamberBadge(resolveCongressChamber(event));
-                        const affiliation = formatCongressAffiliationText(resolveCongressParty(event), resolveCongressState(event));
+                        const chamberValue = resolveCongressChamber(event);
+                        const chamber = chamberBadge(chamberValue);
+                        const partyValue = resolveCongressParty(event);
+                        const party = partyBadge(partyValue);
                         const signal = resolveSmartSignalValue(event as Record<string, unknown>);
                         const strengthLabel = formatSignalStrengthText(signal.band);
                         const displayPrice = resolveCongressTradePrice(event);
@@ -3467,27 +3477,23 @@ async function DeferredTickerContent({
 
                         return (
                           <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
-                            <td className={`${tickerActivityCellClassName} min-w-[14rem]`}>
-                              <div className="flex flex-wrap items-center gap-2">
-                                  {memberLink ? (
-                                    <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                      {memberName}
-                                    </Link>
-                                  ) : (
-                                    <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                                  )}
-                                  <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                                  {affiliation ? <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{affiliation}</span> : null}
-                                  <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
-                              </div>
+                            <td className={`${tickerActivityCellClassName} min-w-[12rem]`}>
+                              {memberLink ? (
+                                <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {memberName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                              )}
                             </td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase ${chamberTextClassName(chamberValue)}`}>{chamber.label}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-bold ${partyTextClassName(partyValue)}`}>{party.label}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-medium ${signalWeightTextClassName(signal.band)}`}>{strengthLabel}</td>
                             <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs text-slate-400`}><CongressDateLabel disclosedDate={resolveCongressReportDate(event)} tradeDate={resolveCongressTradeDate(event)} /></td>
                             <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{displayPrice !== null ? formatCurrency(displayPrice) : "-"}</td>
                             <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
-                            <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge></td>
-                            <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
-                              {canViewPremiumMetrics ? <SmartSignalPill score={signal.score} band={signal.band} size="compact" /> : <LockedSmartSignalPill band={signal.band} size="compact" />}
-                            </td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] ${tradeTypeTextClassName(event.trade_type)}`}>{formatTransactionLabel(event.trade_type)}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><TickerActivitySignalScore score={signal.score} band={signal.band} unlocked={canViewPremiumMetrics} /></td>
                           </tr>
                         );
                       })}
@@ -3534,37 +3540,32 @@ async function DeferredTickerContent({
                   <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
                 ) : (
                   <>
-                    <TickerActivityTable ariaLabel="Insider activity" headers={["Insider", "Filed", "Price", "Trade value", "Side", "Signal"]}>
+                    <TickerActivityTable ariaLabel="Insider activity" minWidthClassName="min-w-[68rem]" headers={["Insider", "Role", "Signal weight", "Filed", "Price", "Trade value", "Side", "Score"]}>
                       {insiderEvents.map((event) => {
                         const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
                         const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
                         const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
                         const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
-                        const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
                         const strengthLabel = formatSignalStrengthText(display.signal.band);
 
                         return (
                         <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
-                          <td className={`${tickerActivityCellClassName} min-w-[14rem]`}>
-                            <div className="flex flex-wrap items-center gap-2">
-                                {insiderProfileHref ? (
-                                  <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                    {display.insiderName}
-                                  </Link>
-                                ) : (
-                                  <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
-                                )}
-                                <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
-                                <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
-                            </div>
+                          <td className={`${tickerActivityCellClassName} min-w-[12rem]`}>
+                            {insiderProfileHref ? (
+                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {display.insiderName}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
+                            )}
                           </td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase ${insiderRoleTextClassName(insiderRoleBadge)}`}>{insiderRoleBadge}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-medium ${signalWeightTextClassName(display.signal.band)}`}>{strengthLabel}</td>
                           <td className={`${tickerActivityCellClassName} whitespace-nowrap text-slate-400`}>{formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</td>
                           <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatActivityPrice(display.displayPrice)}</td>
                           <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
-                          <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge></td>
-                          <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
-                            {canViewPremiumMetrics ? <SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" /> : <LockedSmartSignalPill band={display.signal.band} size="compact" />}
-                          </td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] ${tradeTypeTextClassName(event.trade_type)}`}>{formatTransactionLabel(event.trade_type)}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><TickerActivitySignalScore score={display.signal.score} band={display.signal.band} unlocked={canViewPremiumMetrics} /></td>
                         </tr>
                         );
                       })}
