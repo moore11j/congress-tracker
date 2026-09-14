@@ -8403,12 +8403,15 @@ export type OutcomeLedgerOverview = {
 };
 
 async function fetchOutcomePublicJson<T>(url: string, init: ApiRequestInit): Promise<T> {
+  // Next uses force-cache for the prepared server render. In browsers it can
+  // reuse expired HTTP responses indefinitely, hiding newly measured returns.
+  const requestInit: ApiRequestInit = typeof window === "undefined" ? init : { ...init, cache: "default" };
   try {
-    return await fetchPublicJson<T>(url, init);
+    return await fetchPublicJson<T>(url, requestInit);
   } catch (error) {
     if (!(error instanceof ApiError) || ![502, 503, 504].includes(error.status)) throw error;
     await new Promise((resolve) => setTimeout(resolve, 300));
-    return fetchPublicJson<T>(url, init);
+    return fetchPublicJson<T>(url, requestInit);
   }
 }
 

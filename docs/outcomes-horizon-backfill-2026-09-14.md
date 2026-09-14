@@ -26,6 +26,8 @@ The public event count remains 3,075. Verified 7D measurements increased from 2,
 
 The refreshed public overview and 500-row 7D snapshot cache expose these results. DECK now has a 7D return of -5.7185%, DT -5.9297%, ONC -1.4081%, and WELL +0.3511%. All six score bands have been covered; the sole remaining overdue 7D is LEG in the 65–69 band.
 
+Browser verification also exposed a separate stale-table cause: `fetch(..., {cache: "force-cache"})` could keep using an expired browser HTTP response after the server refreshed. Outcome browser requests now use the default HTTP cache policy; Next server requests retain `force-cache` and their five-minute revalidation. Two execution tests cover both environments and the retry path, in addition to the 16 existing frontend Outcome tests.
+
 Five missing measurements require corporate-action handling rather than an old-symbol close that does not exist:
 
 - LEG, 7D target September 1: [Somnigroup completed the acquisition August 26](https://www.sec.gov/Archives/edgar/data/1206264/000120626426000121/sgi-20260826.htm); each LEG share became 0.1455 SGI shares.
