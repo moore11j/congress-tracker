@@ -21,7 +21,7 @@ const seo = load("lib/tickerSeo.ts");
 const content = load("lib/homepageContent.ts").homepageContent;
 
 test("homepage metadata fits snippets and keeps the requested positioning", () => {
-  assert.equal(content.hero.title, "Find Top-Ranked Stocks. See Who Actually Outperformed.");
+  assert.equal(content.hero.title, "Build Your Next Winning Portfolio");
   assert.equal(content.metadata.title, "Stock Analysis, Congress Trades & Insider Data | Walnut Markets");
   assert.ok(content.metadata.title.length <= 65);
   assert.ok(content.metadata.description.length <= 165);

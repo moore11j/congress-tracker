@@ -6,9 +6,9 @@
 export const homepageContent = {
   hero: {
     eyebrow: "Stock Analysis · Alternative Data · Market Intelligence",
-    title: "Find Top-Ranked Stocks. See Who Actually Outperformed.",
+    title: "Build Your Next Winning Portfolio",
     description:
-      "See which stocks rank highest now, how Congress members, insiders and institutions performed historically, and which backtested strategies beat their benchmarks. Then see the data behind every result.",
+      "Use top-ranked stocks, historically strong market participants, and backtested strategies to find ideas, understand the evidence, and build a portfolio you can keep monitoring.",
   },
   metadata: {
     title: "Stock Analysis, Congress Trades & Insider Data | Walnut Markets",
