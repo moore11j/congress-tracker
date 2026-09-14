@@ -437,10 +437,10 @@ function MetricCard({ icon, label, value, detail }: { icon: string; label: strin
   );
 }
 
-function PendingOverlay({ children }: { children: ReactNode }) {
+function PendingOverlay({ children, title = "Outcome measurements pending" }: { children: ReactNode; title?: string }) {
   return (
     <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 rounded-md border border-white/10 bg-slate-950/85 p-4 text-center shadow-2xl shadow-black/30 sm:inset-x-6">
-      <p className="text-sm font-semibold text-white">Outcome measurements pending</p>
+      <p className="text-sm font-semibold text-white">{title}</p>
       <p className="mt-2 text-xs leading-5 text-slate-300">{children}</p>
     </div>
   );
@@ -686,7 +686,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
           </div>
         ) : null}
         {!points.length ? (
-          <PendingOverlay>
+          <PendingOverlay title={omittedCount > 0 ? "Returns outside chart range" : undefined}>
             {omittedCount > 0
               ? "All matching returns are outside the chart range. Inspect these events in the table below."
               : "No verified measured or provisional returns match these filters yet."}

@@ -63,5 +63,6 @@ test("a ticker with only extreme returns gets an explicit chart message, not a f
   const html = renderToStaticMarkup(React.createElement(ScatterPanel, { snapshots: [snapshot(1, "GOSS", -8051.16)], horizon: "7D" }));
   assert.doesNotMatch(html, /<circle /);
   assert.match(html, /All matching returns are outside the chart range/);
+  assert.doesNotMatch(html, /Outcome measurements pending/);
   assert.match(html, /1 return outside ±100%/);
 });
