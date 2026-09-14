@@ -38,10 +38,23 @@ def _install_publish_trigger(db):
             END"""))
         return "database_trigger"
     if dialect == "postgresql":
+        exists = db.execute(text(
+            "SELECT 1 FROM pg_trigger WHERE tgname=:name AND NOT tgisinternal"
+        ), {"name": EVENT_TRIGGER_NAME}).first()
+        if exists:
+            return "database_trigger"
         db.execute(text(f"""CREATE OR REPLACE FUNCTION {EVENT_FUNCTION_NAME}() RETURNS trigger AS $$
         BEGIN
-          IF NEW.status = 'published' THEN
-            IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM 'published') THEN
+          IF TG_OP = 'INSERT' THEN
+            IF NEW.status = 'published' THEN
+              INSERT INTO growth_video_brief_events
+                (brief_id,status,trigger_source,published_at,created_at,updated_at,attempts)
+              VALUES (NEW.id,'PENDING','research_brief_publish',NEW.published_at,
+                      CAST(CURRENT_TIMESTAMP AS TEXT),CAST(CURRENT_TIMESTAMP AS TEXT),0)
+              ON CONFLICT (brief_id) DO NOTHING;
+            END IF;
+          ELSIF TG_OP = 'UPDATE' THEN
+            IF NEW.status = 'published' AND OLD.status IS DISTINCT FROM 'published' THEN
               INSERT INTO growth_video_brief_events
                 (brief_id,status,trigger_source,published_at,created_at,updated_at,attempts)
               VALUES (NEW.id,'PENDING','research_brief_publish',NEW.published_at,
@@ -52,13 +65,9 @@ def _install_publish_trigger(db):
           RETURN NEW;
         END;
         $$ LANGUAGE plpgsql"""))
-        exists = db.execute(text(
-            "SELECT 1 FROM pg_trigger WHERE tgname=:name AND NOT tgisinternal"
-        ), {"name": EVENT_TRIGGER_NAME}).first()
-        if not exists:
-            db.execute(text(f"""CREATE TRIGGER {EVENT_TRIGGER_NAME}
-                AFTER INSERT OR UPDATE ON research_brief_drafts
-                FOR EACH ROW EXECUTE FUNCTION {EVENT_FUNCTION_NAME}()"""))
+        db.execute(text(f"""CREATE TRIGGER {EVENT_TRIGGER_NAME}
+            AFTER INSERT OR UPDATE ON research_brief_drafts
+            FOR EACH ROW EXECUTE FUNCTION {EVENT_FUNCTION_NAME}()"""))
         return "database_trigger"
     # Reconciliation remains a safe fallback for unsupported local/test dialects.
     return "reconciliation_only"
