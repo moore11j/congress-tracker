@@ -17,6 +17,7 @@ import {
   type OutcomeSnapshotsResponse,
 } from "@/lib/api";
 import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/lib/entitlements";
+import { outcomeChartReturnLimit, selectOutcomeChartPoints } from "@/lib/outcome-chart";
 
 const scoreBands = ["0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+"];
 const horizonColumns = ["7D", "30D", "90D", "180D", "365D"];
@@ -509,7 +510,11 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
     const frame = requestAnimationFrame(() => setRevealed(true));
     return () => cancelAnimationFrame(frame);
   }, []);
-  const points = snapshots
+  useEffect(() => {
+    setHoverPoint(null);
+    setActiveIndex(null);
+  }, [snapshots, horizon]);
+  const candidates = snapshots
     .map((snapshot) => {
       const outcome = outcomeFor(snapshot, horizon);
       const matured = maturedOutcome(snapshot, horizon);
@@ -539,6 +544,7 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
     })
     .filter((item): item is EventOutcomePoint => item !== null)
     .sort((a, b) => a.opened - b.opened);
+  const { points, omittedCount } = selectOutcomeChartPoints(candidates);
   const maxAbsoluteReturn = Math.max(5, ...points.map((point) => Math.abs(point.returnValue)));
   const yExtent = Math.ceil(maxAbsoluteReturn / 5) * 5;
   const yScale = 72 / yExtent;
@@ -598,13 +604,13 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
             const y = zeroY - tick * yScale;
             return (
               <g key={tick}>
-                <line x1="40" x2="735" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
-                <text x="36" y={y + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{formatPercent(tick, { signed: false })}</text>
+                <line x1="68" x2="735" y1={y} y2={y} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" />
+                <text x="62" y={y + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{formatPercent(tick, { signed: false })}</text>
               </g>
             );
           })}
-          <line x1="40" x2="735" y1={zeroY} y2={zeroY} stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
-          <line x1="40" x2="735" y1="190" y2="190" stroke="rgba(148,163,184,0.35)" />
+          <line x1="68" x2="735" y1={zeroY} y2={zeroY} stroke="rgba(226,232,240,0.48)" strokeDasharray="3 4" />
+          <line x1="68" x2="735" y1="190" y2="190" stroke="rgba(148,163,184,0.35)" />
           {xTicks.map(({ label, x }) => (
             <text key={`${label}-${x}`} x={x} y="212" fill="#cbd5e1" fontSize="12" textAnchor="middle">
               {label}
@@ -681,10 +687,17 @@ function ScatterPanel({ snapshots, horizon }: { snapshots: OutcomeSnapshot[]; ho
         ) : null}
         {!points.length ? (
           <PendingOverlay>
-            No verified measured or provisional returns match these filters yet.
+            {omittedCount > 0
+              ? "All matching returns are outside the chart range. Inspect these events in the table below."
+              : "No verified measured or provisional returns match these filters yet."}
           </PendingOverlay>
         ) : null}
       </div>
+      {omittedCount > 0 ? (
+        <p className="mb-2 text-xs text-slate-400" role="status">
+          {omittedCount} {omittedCount === 1 ? "return" : "returns"} outside ±{outcomeChartReturnLimit}% omitted from this chart. Events remain in the table and summary metrics.
+        </p>
+      ) : null}
       <p className="text-xs text-slate-400">
         X-axis = official entry date; weekends and market holidays are not shown. The month appears on the first displayed date, followed by day numbers. Filled dots = the selected horizon has been measured; the thesis may still be open. Outlined dots = provisional thesis return while that measurement is pending. Headline accuracy and averages use measured horizons only, across both open and closed theses; provisional outlined points and audit-held events are excluded.
       </p>
