@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Form from "next/form";
+import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import {
   ApiError,
   getEntitlements,
@@ -1123,7 +1124,7 @@ function DetailPanel({
   }, [canViewPremium, horizon, selected?.data_integrity_status, selected?.id]);
 
   return (
-    <aside className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 p-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
+    <aside className="min-w-0 self-start rounded-md border border-white/10 bg-slate-900/60 p-5 xl:sticky xl:top-20">
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
         <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-white">Event Detail</h2>
         <button type="button" onClick={onClose} className="rounded-md border border-transparent px-2 py-1 text-xl leading-none text-slate-300 hover:border-white/10 hover:bg-white/5" aria-label="Close event detail">
@@ -1479,7 +1480,7 @@ export function OutcomeLedgerClient({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] overflow-x-hidden px-4 py-5 text-slate-100 sm:px-6">
+    <div className="mx-auto w-full max-w-[1500px] overflow-x-clip px-4 py-5 text-slate-100 sm:px-6">
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
       <div className={`grid min-w-0 gap-4 ${eventDetailOpen && datasetReady ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
         <main className="min-w-0 space-y-4" aria-busy={datasetLoading}>
@@ -1494,13 +1495,14 @@ export function OutcomeLedgerClient({
             <div className="rounded-md border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">{error}</div>
           ) : null}
 
-          <Form action="/outcomes" className="flex flex-wrap items-end gap-2">
-            <label className="min-w-0 flex-1 text-xs font-semibold text-slate-300">
-              Search all ledger tickers
-              <input name="ticker" type="search" defaultValue={initialTicker ?? ""} placeholder="Ticker, e.g. TSM"
-                pattern="[A-Za-z0-9.\^\-]{1,15}" maxLength={15} aria-label="Search all ledger tickers"
+          <Form id="outcomes-ticker-search" action="/outcomes" className="flex flex-wrap items-end gap-2">
+            <div className="relative min-w-0 flex-1">
+              <label htmlFor="outcomes-ticker" className="text-xs font-semibold text-slate-300">Search all ledger tickers</label>
+              <input id="outcomes-ticker" name="ticker" type="search" defaultValue={initialTicker ?? ""} placeholder="Ticker or company, e.g. TSM"
+                pattern="[A-Za-z0-9.\^\-]{1,15}" maxLength={80} autoComplete="off" aria-label="Search all ledger tickers"
                 className="mt-1 block h-11 w-full rounded-md border border-white/15 bg-slate-900 px-3 text-sm uppercase text-white placeholder:normal-case focus:border-emerald-300 focus:outline-none" />
-            </label>
+              <FeedSymbolAutosuggestEnhancer formId="outcomes-ticker-search" inputName="ticker" mode="all" includeDepartments={false} />
+            </div>
             <button type="submit" className="h-11 rounded-md border border-emerald-300/30 bg-emerald-400/10 px-4 text-sm font-semibold text-emerald-200">Search</button>
             {initialTicker ? <a href="/outcomes" className="flex h-11 items-center px-3 text-sm text-slate-300 underline">Clear</a> : null}
           </Form>

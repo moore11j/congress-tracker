@@ -9,12 +9,13 @@ type FeedSymbolAutosuggestEnhancerProps = {
   inputName: string;
   mode: FeedMode;
   selectValue?: "symbol" | "label";
+  includeDepartments?: boolean;
 };
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 100;
 
-export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectValue = "symbol" }: FeedSymbolAutosuggestEnhancerProps) {
+export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectValue = "symbol", includeDepartments = true }: FeedSymbolAutosuggestEnhancerProps) {
   const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -78,7 +79,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectV
       setLoading(true);
 
       try {
-        const response = await suggestSymbols(query, mode, 10, { includeDepartments: true, signal: controller.signal, source: "FeedSymbolAutosuggest" });
+        const response = await suggestSymbols(query, mode, 10, { includeDepartments, signal: controller.signal, source: "FeedSymbolAutosuggest" });
         if (requestIdRef.current !== requestId) return;
 
         const next = Array.isArray(response.items) ? response.items : [];
@@ -100,6 +101,9 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectV
 
     const onInput = () => {
       const value = input.value;
+      abortRef.current?.abort();
+      requestIdRef.current += 1;
+      clearDropdown();
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
 
       if (value.trim().length < MIN_QUERY_LENGTH) {
@@ -200,7 +204,21 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectV
       abortRef.current?.abort();
       if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
     };
-  }, [formId, inputName, mode, selectValue]);
+  }, [formId, inputName, mode, selectValue, includeDepartments]);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-expanded", String(open));
+    input.setAttribute("aria-controls", listboxId);
+    if (open && highlightedIndex >= 0) {
+      input.setAttribute("aria-activedescendant", `${listboxId}-${highlightedIndex}`);
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
+  }, [open, highlightedIndex, listboxId]);
 
   const onSuggestionMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -237,6 +255,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectV
           <button
             key={`${suggestion.type ?? "ticker"}-${suggestion.id ?? suggestion.symbol}-${index}`}
             type="button"
+            id={`${listboxId}-${index}`}
             role="option"
             aria-selected={index === highlightedIndex}
             className={`block w-full px-3 py-2 text-left text-sm ${

@@ -49,7 +49,7 @@ test("Outcome Ledger page uses real API data and truthful empty states", () => {
 });
 
 test("ticker search queries the full ledger and explains preview coverage", () => {
-  assert.match(outcomesClient, /<Form action="\/outcomes"/);
+  assert.match(outcomesClient, /<Form[^>]*action="\/outcomes"/);
   assert.match(outcomesClient, /name="ticker" type="search"/);
   assert.match(outcomesClient, /Search checks the full ledger/);
   assert.match(outcomesClient, /Open Confirmations/);
