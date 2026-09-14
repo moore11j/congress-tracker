@@ -16,6 +16,24 @@ Attempt timestamps persist independently of public response caches. Unattempted 
 
 ## Validation
 
-The focused suite covers 71 Outcomes tests and 38 scheduler tests, with the two previously documented baseline tests deselected. Local tests use an explicit SQLite test database instead of the production Linux default path. New regression cases cover more than 100 public anchors in one symbol batch, exclusion of internal scoring-version entries, idempotency, advancing past a failing provider symbol across bounded runs, and refreshing stale price objects while keeping immutable snapshots loaded.
+110 focused tests passed (72 Outcomes tests and 38 scheduler tests), with the two previously documented baseline tests deselected. Local tests use an explicit SQLite test database instead of the production Linux default path. New regression cases cover more than 100 public anchors in one symbol batch, exclusion of internal scoring-version entries, idempotency, advancing past a failing provider symbol across bounded runs, refreshing stale price objects while keeping immutable snapshots loaded, and waiting for the actual target trading session's close before classifying missing prices.
 
 The user explicitly approved a production backfill for the 218 overdue 7D and 1,122 overdue 30D measurements, followed by refreshing the public caches. Raw audit evidence is retained locally under `frontend/test-results/outcomes-7d-repair/` (ignored by Git).
+
+## Production backfill results
+
+The public event count remains 3,075. Verified 7D measurements increased from 2,844 to 3,061 (+217); verified 30D measurements increased from 58 to 1,176 (+1,118). Thirteen recent events are not yet due for 7D. Stored observations have zero nonfinite returns and zero ticker/benchmark session mismatches.
+
+The refreshed public overview and 500-row 7D snapshot cache expose these results. DECK now has a 7D return of -5.7185%, DT -5.9297%, ONC -1.4081%, and WELL +0.3511%. All six score bands have been covered; the sole remaining overdue 7D is LEG in the 65–69 band.
+
+Five missing measurements require corporate-action handling rather than an old-symbol close that does not exist:
+
+- LEG, 7D target September 1: [Somnigroup completed the acquisition August 26](https://www.sec.gov/Archives/edgar/data/1206264/000120626426000121/sgi-20260826.htm); each LEG share became 0.1455 SGI shares.
+- LPSN, 30D target September 8: [SoundHound completed the acquisition September 4 and announced that LPSN would cease Nasdaq trading](https://investors.soundhound.com/news-releases/news-release-details/soundhound-ai-completes-acquisition-liveperson-creating-world).
+- LBRDA, 30D target September 9: [Charter completed its acquisition August 20](https://corporate.charter.com/newsroom/charter-and-cox-communications-complete-transaction).
+- WBS, 30D target September 8: [Santander completed its acquisition August 20](https://www.websterbank.com/santander-bank/).
+- GGRP, 30D target September 9: [the issuer changed its common-stock ticker to BTLN](https://ir.brightlineinteractive.com/brightline-interactive-inc-nasdaqbtln-formerly-the-glimpse-group-inc-nasdaqggrp-begins-trading-under-new-ticker-btln/).
+
+These five observations remain absent. No stale last price, zero return, or unverified successor-security return was substituted. The new pending-status fix also avoids calling weekend targets missing before the next trading session closes; under the prior code 301 still-pending 30D events were prematurely counted as missing prices at the UTC date rollover.
+
+The approved backfill and public cache refresh are complete. The permanent scheduler, runtime-budget, performance, and pending-status fixes are committed; their final Fly rollout awaits the separately requested explicit registry/deployment approval.

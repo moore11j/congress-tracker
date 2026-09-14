@@ -32,6 +32,18 @@ from app.services.price_lookup import EodPriceBar, is_market_trading_day, recons
 UTC = timezone.utc
 
 
+def test_horizon_waits_for_target_trading_session_close_before_reporting_missing_price(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import outcome_integrity as integrity
+
+    entry = SimpleNamespace(entry_session_date=date(2026, 8, 13))
+    monkeypatch.setattr(integrity, "get_expected_latest_market_date", lambda: date(2026, 9, 11))
+    # Calendar target is Saturday September 12; the executable close is Monday.
+    assert integrity.canonical_outcome_payload(entry, [])["30D"]["status"] == "pending"
+    assert integrity.canonical_outcome_payload(entry, [], as_of=date(2026, 9, 13))["30D"]["status"] == "pending"
+    assert integrity.canonical_outcome_payload(entry, [], as_of=date(2026, 9, 14))["30D"]["status"] == "missing_price"
+
+
 def test_public_horizon_repair_batches_over_100_anchors_and_ignores_internal_versions(monkeypatch):
     from app.services import outcome_horizon_repair as repair
     from app.models import OutcomeEntry

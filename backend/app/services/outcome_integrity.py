@@ -18,7 +18,7 @@ from app.models import (
     PriceCache,
     TickerContextBundleCache,
 )
-from app.services.price_lookup import is_market_trading_day
+from app.services.price_lookup import get_expected_latest_market_date, is_market_trading_day
 
 
 getcontext().prec = 34
@@ -408,15 +408,18 @@ def canonical_outcome_payload(
     *,
     as_of: date | None = None,
 ) -> dict[str, Any]:
-    today = as_of or datetime.now(UTC).date()
+    today = as_of or get_expected_latest_market_date()
     by_days = {row.horizon_days: row for row in observations}
     payload: dict[str, Any] = {}
     for days in OUTCOME_HORIZONS:
         target = entry.entry_session_date + timedelta(days=days)
         row = by_days.get(days)
         if row is None:
+            session_day = target
+            while not is_market_trading_day(session_day):
+                session_day += timedelta(days=1)
             payload[f"{days}D"] = {
-                "status": "pending" if target > today else "missing_price",
+                "status": "pending" if session_day > today else "missing_price",
                 "horizon_days": days,
                 "target_date": target.isoformat(),
             }
