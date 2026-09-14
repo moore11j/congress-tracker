@@ -6511,13 +6511,15 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
     cache_key = f"status:{persistent_key}"
     cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "memory"
         return cached
     persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
     if persistent_cached is not None:
         response.headers["X-Walnut-Outcome-Cache"] = "persistent"
         return _public_outcome_ledger_cache_set(cache_key, persistent_cached)
     payload = outcome_ledger_status(db)
-    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    response.headers["X-Walnut-Outcome-Cache"] = "miss"
+    payload = store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
@@ -6537,6 +6539,7 @@ def outcomes_overview(
     cache_key = f"overview:{persistent_key}"
     cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "memory"
         return cached
     persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
     if persistent_cached is not None:
@@ -6555,7 +6558,8 @@ def outcomes_overview(
         ),
         "default_horizon": selected_horizons[0],
     }
-    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    response.headers["X-Walnut-Outcome-Cache"] = "miss"
+    payload = store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
@@ -6587,6 +6591,7 @@ def outcomes_summary(
     cache_key = f"summary:{persistent_key}"
     cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "memory"
         return cached
     persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
     if persistent_cached is not None:
@@ -6602,7 +6607,8 @@ def outcomes_summary(
         start_date=_parse_outcome_date(start_date),
         end_date=_parse_outcome_date(end_date),
     )
-    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    response.headers["X-Walnut-Outcome-Cache"] = "miss"
+    payload = store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
@@ -6637,6 +6643,7 @@ def outcomes_snapshots(
     cache_key = f"snapshots:{persistent_key}"
     cached = _public_outcome_ledger_cache_get(cache_key)
     if cached is not None:
+        response.headers["X-Walnut-Outcome-Cache"] = "memory"
         return cached
     persistent_cached = cached_public_outcome_ledger_payload(db, persistent_key)
     if persistent_cached is not None:
@@ -6654,7 +6661,8 @@ def outcomes_snapshots(
         include_internal=False,
         balanced_horizon=horizon,
     )
-    store_public_outcome_ledger_payload(db, persistent_key, payload)
+    response.headers["X-Walnut-Outcome-Cache"] = "miss"
+    payload = store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 

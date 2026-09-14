@@ -8,6 +8,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import func, select, update
@@ -41,6 +42,7 @@ from app.services.price_lookup import (
     get_daily_close_series_with_fallback,
     get_expected_latest_market_date,
     hydrate_split_adjusted_ohlc,
+    is_market_trading_day,
 )
 from app.services.provider_usage import log_provider_budget_summary
 from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
@@ -48,8 +50,8 @@ from app.services.saved_screen_monitoring import refresh_due_saved_screen_monito
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 from app.services.confirmation_score import confirmation_active_source_count, get_confirmation_score_bundles_for_tickers
 from app.services.institutional_ingest_job import run_scheduled_latest_once
-from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled, warm_public_outcome_ledger_cache
-from app.services.outcome_integrity import materialize_outcome_entry, materialize_outcome_horizons
+from app.services.outcome_ledger import OUTCOME_HORIZONS, capture_live_confirmation_score_snapshot, outcome_ledger_enabled, outcome_leaderboard_symbols, warm_public_outcome_ledger_cache
+from app.services.outcome_integrity import materialize_cached_outcome_horizons, materialize_outcome_entry, materialize_outcome_horizons
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
@@ -105,6 +107,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "all",
         ],
         help="Which scheduled ingest job to run.",
+    )
+    parser.add_argument(
+        "--trading-days-only", action="store_true",
+        help="Skip scheduled work on US market holidays and weekends, using the New York date.",
     )
     return parser
 
@@ -1155,6 +1161,9 @@ def _outcome_ledger_hydrator_symbols(db, *, limit: int, lookback_days: int) -> l
     symbols: list[str] = []
     seen: set[str] = set()
 
+    for symbol in outcome_leaderboard_symbols(db):
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
     featured_symbols = os.getenv(
         "OUTCOME_LEDGER_HYDRATOR_FEATURED_SYMBOLS",
         "NVDA,BMNR,AAPL,PLTR,AMZN,META,GOOGL,MSFT",
@@ -1318,6 +1327,8 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
     started = time.monotonic()
     expected_date = get_expected_latest_market_date()
     with SessionLocal() as db:
+        cached_repair = materialize_cached_outcome_horizons(db, as_of=expected_date)
+        db.commit()
         bounded_limit = max(1, snapshot_limit)
         entry_pairs = db.execute(
             select(ConfirmationScoreSnapshot, OutcomeEntry)
@@ -1330,6 +1341,7 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
                 select(OutcomeHorizonObservation.snapshot_id, OutcomeHorizonObservation.horizon_days)
             ).all()
         }
+        leader_symbols = set(outcome_leaderboard_symbols(db))
         due_by_horizon: dict[int, list[tuple[ConfirmationScoreSnapshot, OutcomeEntry]]] = {}
         for days in OUTCOME_HORIZONS:
             due_by_horizon[days] = sorted(
@@ -1340,6 +1352,7 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
                     and (int(snapshot.id), days) not in observed_horizons
                 ),
                 key=lambda pair: (
+                    pair[0].ticker_at_time.upper() not in leader_symbols,
                     pair[1].entry_session_date + timedelta(days=days),
                     pair[1].entry_session_date,
                     int(pair[0].id),
@@ -1455,7 +1468,11 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
         total_points = 0
         failures: list[dict[str, object]] = []
         items: list[dict[str, object]] = []
-        for symbol, (start_day, end_day) in sorted(windows.items()):
+        # SPY is shared by every outcome: refresh it before the ticker budget
+        # can expire, then cover published leaders before the remaining work.
+        for symbol, (start_day, end_day) in sorted(windows.items(), key=lambda item: (
+            item[0] != benchmark_symbol, item[0] not in leader_symbols, item[0],
+        )):
             if time.monotonic() - started > max_seconds:
                 logger.info("outcome_ledger_price_hydrator_time_budget_exhausted hydrated_symbols=%s", hydrated_symbols)
                 break
@@ -1491,9 +1508,12 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
             materialized_entries += 1
             materialized_horizons += len(materialize_outcome_horizons(db, entry, as_of=expected_date))
         db.commit()
+        after_hydration_repair = materialize_cached_outcome_horizons(db, as_of=expected_date)
+        db.commit()
 
     result = {
         "job": "outcome-ledger-price-hydrator",
+        "cached_observations_created": cached_repair["observations_created"] + after_hydration_repair["observations_created"],
         "status": "ok",
         "snapshot_count": len(rows),
         "window_count": len(windows),
@@ -1520,7 +1540,7 @@ def _run_outcome_ledger_cache_warm_job() -> dict[str, object]:
 
     ensure_price_cache_volume_columns(engine)
     ensure_outcome_ledger_schema(engine)
-    snapshot_limit = int(os.getenv("OUTCOME_LEDGER_CACHE_WARM_SNAPSHOT_LIMIT", "100") or 100)
+    snapshot_limit = int(os.getenv("OUTCOME_LEDGER_CACHE_WARM_SNAPSHOT_LIMIT", "500") or 500)
     with SessionLocal() as db:
         payload = warm_public_outcome_ledger_cache(db, snapshot_limit=max(1, min(snapshot_limit, 500)))
     result = {"job": "outcome-ledger-cache-warm", **payload}
@@ -1606,7 +1626,9 @@ def _run_outcome_ledger_history_backfill_job() -> dict[str, object]:
     return payload
 
 
-def _run_job_payload(job: str) -> dict[str, object]:
+def _run_job_payload(job: str, *, trading_days_only: bool = False) -> dict[str, object]:
+    if trading_days_only and not is_market_trading_day(datetime.now(ZoneInfo("America/New_York")).date()):
+        return {"job": job, "status": "skipped", "reason": "non_trading_day"}
     if job == "core":
         return _run_core_job()
     if job == "recent-congress":
@@ -1675,7 +1697,7 @@ def main() -> None:
     started = time.monotonic()
     try:
         _require_data_mount_writable()
-        payload = _run_job_payload(args.job)
+        payload = _run_job_payload(args.job, trading_days_only=args.trading_days_only)
     except Exception as exc:
         logger.exception("ingest job failed job=%s", args.job)
         payload = {

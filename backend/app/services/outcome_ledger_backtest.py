@@ -10,13 +10,14 @@ from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ConfirmationScoreSnapshot
+from app.models import ConfirmationScoreSnapshot, OutcomeEntry
 from app.services.confirmation_score import SHORT_HORIZON_SOURCES, SOURCE_ORDER, THIRTY_DAY_DURABLE_SOURCES
 from app.services.outcome_ledger import (
     OUTCOME_SCORE_BANDS,
     V2_FEATURES_KEY,
     _apply_snapshot_filters,
     _directional_side,
+    _filter_opening_events,
     _prefetch_outcome_price_rows,
     _project_directional_outcome_events,
     _score_band_for_score,
@@ -157,8 +158,6 @@ def load_clean_training_events(
 ) -> tuple[list[CleanTrainingEvent], dict[str, int]]:
     query = _apply_snapshot_filters(
         select(ConfirmationScoreSnapshot),
-        start_date=start_date,
-        end_date=end_date,
         calculation_type=calculation_type,
     )
     rows = db.execute(
@@ -169,7 +168,11 @@ def load_clean_training_events(
             ConfirmationScoreSnapshot.id.asc(),
         )
     ).scalars().all()
-    events = _project_directional_outcome_events(rows)
+    verified_snapshot_ids = set(db.execute(select(OutcomeEntry.snapshot_id)).scalars())
+    events = _filter_opening_events(
+        db, _project_directional_outcome_events(rows, verified_snapshot_ids=verified_snapshot_ids),
+        methodology=None, start_date=start_date, end_date=end_date,
+    )
     projected_snapshots = [event.snapshot for event in events]
     price_rows = _prefetch_outcome_price_rows(db, projected_snapshots, horizons=(30,))
     exclusions: Counter[str] = Counter()

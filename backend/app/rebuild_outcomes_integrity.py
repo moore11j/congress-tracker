@@ -122,7 +122,8 @@ def rebuild_outcomes_integrity(
             .order_by(ConfirmationScoreSnapshot.calculated_at.asc(), ConfirmationScoreSnapshot.id.asc())
         ).scalars().all()
         report["snapshots_scanned"] = len(snapshots)
-        events = _project_directional_outcome_events(snapshots)
+        verified_snapshot_ids = set(db.execute(select(OutcomeEntry.snapshot_id)).scalars())
+        events = _project_directional_outcome_events(snapshots, verified_snapshot_ids=verified_snapshot_ids)
         qualifying_snapshots = [event.snapshot for event in events]
         report["qualifying_live_events"] = len(qualifying_snapshots)
 

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import Base, ensure_outcome_ledger_schema
 from app.models import (
     ConfirmationScoreSnapshot,
+    LeaderboardSnapshot,
     OutcomeEvidenceProvenance,
     OutcomeHorizonObservation,
     PriceCache,
@@ -23,9 +24,10 @@ from app.services.outcome_integrity import (
     market_open_at,
     materialize_outcome_entry,
     materialize_outcome_horizons,
+    materialize_cached_outcome_horizons,
 )
 from app.services.outcome_ledger import _date_spread_sample, _project_directional_outcome_events, _snapshot_row, list_outcome_snapshots, outcome_ledger_summary
-from app.services.price_lookup import EodPriceBar, reconstruct_adjusted_price_bars
+from app.services.price_lookup import EodPriceBar, is_market_trading_day, reconstruct_adjusted_price_bars
 
 UTC = timezone.utc
 
@@ -62,6 +64,7 @@ def _snapshot(
     score: int = 70,
     direction: str = "bullish",
     legacy_reference_price: float | None = None,
+    methodology_version_id: int = 1,
 ):
     snapshot = ConfirmationScoreSnapshot(
         security_id=security_id,
@@ -79,7 +82,7 @@ def _snapshot(
         source_contributions_json="{}",
         source_freshness_json="{}",
         input_hash=f"{ticker}-{calculated_at.isoformat()}-{score}",
-        methodology_version_id=1,
+        methodology_version_id=methodology_version_id,
         calculation_type="live",
         created_at=calculated_at,
     )
@@ -321,7 +324,9 @@ def test_calendar_horizon_uses_first_valid_close_on_or_after_target(days: int):
     with Session(engine) as db:
         entry_day = date(2024, 1, 2)
         target = entry_day + timedelta(days=days)
-        exit_day = target + timedelta(days=2)
+        exit_day = target
+        while not is_market_trading_day(exit_day):
+            exit_day += timedelta(days=1)
         snapshot = _snapshot(db, datetime(2024, 1, 2, 13, tzinfo=UTC))
         db.add_all([_bar("CRM", entry_day, 100), _bar("SPY", entry_day, 500), _bar("CRM", exit_day, 110), _bar("SPY", exit_day, 505)])
         db.flush()
@@ -329,6 +334,73 @@ def test_calendar_horizon_uses_first_valid_close_on_or_after_target(days: int):
         rows = materialize_outcome_horizons(db, entry, as_of=exit_day)
         row = next(item for item in rows if item.horizon_days == days)
         assert row.target_date == target and row.security_session_date == exit_day
+
+
+def test_tsm_holiday_cache_row_does_not_block_thirty_day_measurement():
+    engine = _engine()
+    with Session(engine) as db:
+        snapshot = _snapshot(db, datetime(2026, 8, 5, 17, tzinfo=UTC), ticker="TSM")
+        db.add_all([
+            _bar("TSM", date(2026, 8, 6), 409.54), _bar("SPY", date(2026, 8, 6), 760),
+            PriceCache(symbol="SPY", date="2026-09-07", close=770.24),
+            PriceCache(symbol="TSM", date="2026-09-07", close=428.91),
+            _bar("TSM", date(2026, 9, 8), 437, 439), _bar("SPY", date(2026, 9, 8), 767, 765.96),
+        ])
+        db.flush()
+        entry = materialize_outcome_entry(db, snapshot)
+        assert entry is not None
+        assert materialize_outcome_horizons(db, entry, as_of=date(2026, 9, 7)) == []
+        first = materialize_cached_outcome_horizons(db, as_of=date(2026, 9, 11))
+        assert first == {"entries_checked": 1, "observations_created": 1}
+        observation = db.execute(select(OutcomeHorizonObservation)).scalar_one()
+        assert observation.horizon_days == 30
+        assert observation.security_session_date == observation.benchmark_session_date == date(2026, 9, 8)
+        assert observation.security_return_pct == pytest.approx((439 / 409.54 - 1) * 100)
+        assert materialize_cached_outcome_horizons(db, as_of=date(2026, 9, 11))["observations_created"] == 0
+
+
+def test_missing_target_session_is_not_replaced_by_later_cached_prices():
+    engine = _engine()
+    with Session(engine) as db:
+        snapshot = _snapshot(db, datetime(2026, 1, 5, 13, tzinfo=UTC))
+        db.add_all([
+            _bar("CRM", date(2026, 1, 5), 100), _bar("SPY", date(2026, 1, 5), 500),
+            _bar("CRM", date(2026, 1, 13), 110), _bar("SPY", date(2026, 1, 13), 510),
+        ])
+        db.flush()
+        entry = materialize_outcome_entry(db, snapshot)
+        assert entry is not None
+        assert materialize_outcome_horizons(db, entry, as_of=date(2026, 1, 13)) == []
+
+
+def test_cached_repair_is_not_limited_to_one_hundred_entries():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all([_bar("SPY", date(2026, 1, 5), 500), _bar("SPY", date(2026, 1, 12), 510)])
+        for index in range(105):
+            symbol = f"T{index}"
+            snapshot = _snapshot(db, datetime(2026, 1, 5, 13, tzinfo=UTC), ticker=symbol, security_id=index + 1)
+            db.add_all([_bar(symbol, date(2026, 1, 5), 100), _bar(symbol, date(2026, 1, 12), 110)])
+            db.flush()
+            assert materialize_outcome_entry(db, snapshot) is not None
+        report = materialize_cached_outcome_horizons(db, as_of=date(2026, 1, 12))
+        assert report == {"entries_checked": 105, "observations_created": 105}
+        assert materialize_cached_outcome_horizons(db, as_of=date(2026, 1, 12))["observations_created"] == 0
+
+
+def test_published_leader_is_in_preview_and_search_finds_older_events():
+    engine = _engine()
+    with Session(engine) as db:
+        for index, (symbol, day) in enumerate([("TSM", date(2026, 8, 6)), ("NEW", date(2026, 9, 1))]):
+            snapshot = _snapshot(db, datetime.combine(day, time=datetime.min.time(), tzinfo=UTC).replace(hour=12), ticker=symbol, security_id=index + 1)
+            db.add_all([_bar(symbol, day, 100), _bar("SPY", day, 500)])
+            db.flush()
+            assert materialize_outcome_entry(db, snapshot) is not None
+        db.add(LeaderboardSnapshot(leaderboard_key="top_stocks", generated_at=datetime.now(UTC), payload_json='{"items":[{"symbol":"TSM"}]}'))
+        db.flush()
+        assert list_outcome_snapshots(db, limit=1, balanced_horizon="30D")["items"][0]["ticker"] == "TSM"
+        found = list_outcome_snapshots(db, ticker="tsm", limit=500, balanced_horizon="30D")
+        assert found["total"] == 1 and found["items"][0]["ticker"] == "TSM"
 
 
 def test_returns_use_high_precision_until_storage():
@@ -361,10 +433,20 @@ def test_duplicate_same_day_snapshot_is_prevented_in_projection():
     with Session(engine) as db:
         first = _snapshot(db, datetime(2026, 1, 5, 14, tzinfo=UTC), score=70)
         later = _snapshot(db, datetime(2026, 1, 5, 15, tzinfo=UTC), score=72)
-        assert [event.snapshot.id for event in _project_directional_outcome_events([first, later])] == [later.id]
+        assert [event.snapshot.id for event in _project_directional_outcome_events([first, later])] == [first.id]
 
 
-def test_overlapping_same_direction_events_require_cooldown_and_score_change():
+def test_same_day_upgrade_preserves_original_opening():
+    engine = _engine()
+    with Session(engine) as db:
+        first = _snapshot(db, datetime(2026, 8, 5, 14, tzinfo=UTC), score=71)
+        upgraded = _snapshot(db, datetime(2026, 8, 5, 15, tzinfo=UTC), score=100, methodology_version_id=2)
+        events = _project_directional_outcome_events([upgraded, first])
+        assert [event.snapshot.id for event in events] == [first.id]
+        assert events[0].closed_at is None
+
+
+def test_same_direction_score_updates_keep_original_thesis_open():
     engine = _engine()
     with Session(engine) as db:
         first = _snapshot(db, datetime(2026, 1, 5, 14, tzinfo=UTC), score=70)
@@ -372,7 +454,73 @@ def test_overlapping_same_direction_events_require_cooldown_and_score_change():
         day_31_small = _snapshot(db, datetime(2026, 2, 5, 14, tzinfo=UTC), score=72)
         day_32_material = _snapshot(db, datetime(2026, 2, 6, 14, tzinfo=UTC), score=81)
         events = _project_directional_outcome_events([first, next_day, day_31_small, day_32_material])
-        assert [event.snapshot.id for event in events] == [first.id, day_32_material.id]
+        assert [event.snapshot.id for event in events] == [first.id]
+        assert events[0].closed_at is None
+
+
+def test_methodology_upgrade_and_watch_states_do_not_restart_thesis():
+    engine = _engine()
+    with Session(engine) as db:
+        first = _snapshot(db, datetime(2026, 8, 5, 17, tzinfo=UTC), ticker="TSM", score=71)
+        upgraded = _snapshot(db, datetime(2026, 8, 21, 14, tzinfo=UTC), ticker="TSM", score=100, methodology_version_id=2)
+        mixed = _snapshot(db, datetime(2026, 8, 25, 14, tzinfo=UTC), ticker="TSM", direction="mixed")
+        neutral = _snapshot(db, datetime(2026, 8, 26, 14, tzinfo=UTC), ticker="TSM", direction="neutral")
+        later = _snapshot(db, datetime(2026, 9, 13, 14, tzinfo=UTC), ticker="TSM", score=86, methodology_version_id=2)
+        events = _project_directional_outcome_events([first, upgraded, mixed, neutral, later])
+        assert [event.snapshot.id for event in events] == [first.id]
+        assert events[0].closed_at is None
+
+
+def test_bearish_reversal_across_methodologies_closes_original_thesis():
+    engine = _engine()
+    with Session(engine) as db:
+        first = _snapshot(db, datetime(2026, 8, 5, 17, tzinfo=UTC), ticker="TSM", score=71)
+        reversal = _snapshot(db, datetime(2026, 9, 14, 14, tzinfo=UTC), ticker="TSM", direction="bearish", methodology_version_id=2)
+        events = _project_directional_outcome_events([first, reversal])
+        assert [event.snapshot.id for event in events] == [first.id, reversal.id]
+        assert events[0].closed_at == reversal.market_date
+        assert events[1].closed_at is None
+
+
+def test_public_continuity_keeps_current_score_and_hides_versions():
+    from app.models import ConfirmationMethodologyVersion
+    engine = _engine()
+    with Session(engine) as db:
+        first = _snapshot(db, datetime(2026, 8, 5, 17, tzinfo=UTC), ticker="TSM", score=71)
+        upgraded = _snapshot(db, datetime(2026, 8, 21, 14, tzinfo=UTC), ticker="TSM", score=100, methodology_version_id=2)
+        latest = _snapshot(db, datetime(2026, 9, 13, 14, tzinfo=UTC), ticker="TSM", score=86, methodology_version_id=2)
+        db.add_all([_bar("TSM", date(2026, 8, 6), 409.54), _bar("SPY", date(2026, 8, 6), 760)])
+        db.flush()
+        assert materialize_outcome_entry(db, first) is not None
+        payload = list_outcome_snapshots(db, ticker="TSM")
+        assert payload["total"] == 1
+        item = payload["items"][0]
+        assert item["id"] == first.id and item["score"] == 71
+        assert item["entry_session_date"] == "2026-08-06"
+        assert item["current_confirmation"]["score"] == 86
+        assert item["current_confirmation"]["calculated_at"] == latest.calculated_at.isoformat()
+        assert "methodology" not in item
+        assert "methodology" not in item["current_confirmation"]
+        # Date filters must not turn the later scoring update into an event.
+        assert list_outcome_snapshots(db, ticker="TSM", start_date=date(2026, 8, 20))["total"] == 0
+        assert outcome_ledger_summary(db, horizon="30D", start_date=date(2026, 8, 20))["verified_events"] == 0
+
+
+def test_unverified_older_snapshot_does_not_hide_verified_continuous_entry():
+    engine = _engine()
+    with Session(engine) as db:
+        older = _snapshot(db, datetime(2026, 8, 5, 14, tzinfo=UTC), ticker="TSM", score=70)
+        verified = _snapshot(db, datetime(2026, 8, 5, 17, tzinfo=UTC), ticker="TSM", score=71)
+        updated = _snapshot(db, datetime(2026, 8, 21, 14, tzinfo=UTC), ticker="TSM", score=100, methodology_version_id=2)
+        db.add_all([_bar("TSM", date(2026, 8, 6), 409.54), _bar("SPY", date(2026, 8, 6), 760)])
+        db.flush()
+        assert materialize_outcome_entry(db, verified) is not None
+        result = list_outcome_snapshots(db, ticker="TSM")
+        assert result["total"] == 1
+        assert result["items"][0]["id"] == verified.id
+        assert result["items"][0]["reference_price"] == 409.54
+        assert result["items"][0]["current_confirmation"]["score"] == 100
+        assert outcome_ledger_summary(db, horizon="30D")["verified_events"] == 1
 
 
 def test_incomplete_horizon_is_not_persisted_or_counted():

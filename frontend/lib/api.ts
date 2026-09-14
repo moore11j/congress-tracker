@@ -8259,7 +8259,7 @@ export async function getTickerProfiles(symbols: string[], options?: { source?: 
 export type OutcomeLedgerStatus = {
   enabled: boolean;
   tracking_status: string;
-  current_methodology_version: string;
+  current_methodology_version?: string;
   first_live_snapshot_date?: string | null;
   most_recent_snapshot_timestamp?: string | null;
   unique_securities_captured: number;
@@ -8277,6 +8277,9 @@ export type OutcomeScoreBandSummary = {
 
 export type OutcomeLedgerSummary = {
   horizon: string;
+  verified_events?: number;
+  pending_events?: number;
+  missing_price_events?: number;
   completed_events: number;
   directional_sample_count: number;
   accuracy: number | null;
@@ -8326,6 +8329,12 @@ export type OutcomeSnapshot = {
   active_sources: string[];
   methodology?: string | null;
   outcomes?: Record<string, OutcomeHorizonResult>;
+  current_confirmation?: {
+    score: number;
+    direction: string;
+    methodology?: string | null;
+    calculated_at: string;
+  } | null;
   lifecycle_status?: "open" | "closed" | string;
   closed_at?: string | null;
   live_mark?: {
@@ -8362,6 +8371,7 @@ export type OutcomeHorizonResult = {
 };
 
 export type OutcomeSnapshotsResponse = {
+  generated_at?: string;
   items: OutcomeSnapshot[];
   page: number;
   limit: number;
@@ -8408,8 +8418,8 @@ export async function getOutcomeLedgerOverview(params: QueryParams = {}): Promis
     `outcome-ledger-overview:${url}`,
     () =>
       fetchOutcomePublicJson<OutcomeLedgerOverview>(url, {
-        cache: "no-store",
-        next: { revalidate: 0 },
+        cache: "force-cache",
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
@@ -8422,8 +8432,8 @@ export async function getOutcomeLedgerStatus(): Promise<OutcomeLedgerStatus> {
     `outcome-ledger-status:${url}`,
     () =>
       fetchOutcomePublicJson<OutcomeLedgerStatus>(url, {
-        cache: "no-store",
-        next: { revalidate: 0 },
+        cache: "force-cache",
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
@@ -8436,8 +8446,8 @@ export async function getOutcomeLedgerSummary(params: QueryParams = {}): Promise
     `outcome-ledger-summary:${url}`,
     () =>
       fetchOutcomePublicJson<OutcomeLedgerSummary>(url, {
-        cache: "no-store",
-        next: { revalidate: 0 },
+        cache: "force-cache",
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,
@@ -8450,8 +8460,8 @@ export async function getOutcomeSnapshots(params: QueryParams = {}): Promise<Out
     `outcome-ledger-snapshots:${url}`,
     () =>
       fetchOutcomePublicJson<OutcomeSnapshotsResponse>(url, {
-        cache: "no-store",
-        next: { revalidate: 0 },
+        cache: "force-cache",
+        next: { revalidate: 300 },
         source: "OutcomeLedgerPage",
       }),
     OUTCOME_LEDGER_CACHE_TTL_MS,

@@ -25,8 +25,10 @@ CRON_TZ=America/Los_Angeles
 8,38 6-18 * * * cd /app && sh /app/scripts/run_profile_overview_prewarm.sh
 10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator
 35 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator
-41 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-price-hydrator
-45 7,16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-cache-warm
+# Publish twice per trading day: premarket and after the evening price repair.
+# The calendar flag also skips weekday market holidays; retain the prior cache.
+41 16 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-price-hydrator --trading-days-only && python -m app.ingest_run --job outcome-ledger-cache-warm --trading-days-only
+45 5 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-cache-warm --trading-days-only
 5 7-13 * * 1-5 cd /app && python -m app.jobs.refresh_market_pressure_snapshots --all
 # Leaderboards refresh from their canonical sources once per business day.
 # The public pages read the stored snapshot only.

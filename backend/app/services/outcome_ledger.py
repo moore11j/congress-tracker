@@ -16,6 +16,7 @@ from app.models import (
     AppSetting,
     ConfirmationMethodologyVersion,
     ConfirmationScoreSnapshot,
+    LeaderboardSnapshot,
     OutcomeEntry,
     OutcomeHorizonObservation,
     PriceCache,
@@ -63,10 +64,8 @@ DIRECTIONAL_OUTCOME_SIDES = ("bullish", "bearish")
 DateSpreadItem = TypeVar("DateSpreadItem")
 OUTCOME_QUALIFICATION_MIN_SCORE = 40
 OUTCOME_QUALIFICATION_MIN_SOURCES = 1
-OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS = 30
-OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE = 10
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v7-batched-canonical"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v8-daily-coverage"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -114,16 +113,16 @@ def outcome_ledger_enabled(db: Session | None = None) -> bool:
 
 def outcome_ledger_cache_ttl_seconds() -> int:
     try:
-        return max(60, min(3600, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_TTL_SECONDS", "300") or 300)))
+        return max(60, min(86400, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_TTL_SECONDS", "43200") or 43200)))
     except ValueError:
-        return 300
+        return 43200
 
 
 def outcome_ledger_cache_expiry_seconds() -> int:
     try:
-        return max(300, min(86400, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_EXPIRY_SECONDS", "3600") or 3600)))
+        return max(300, min(604800, int(os.getenv("OUTCOME_LEDGER_PERSISTENT_CACHE_EXPIRY_SECONDS", "345600") or 345600)))
     except ValueError:
-        return 3600
+        return 345600
 
 
 def public_outcome_ledger_cache_key(kind: str, params: dict[str, Any] | None = None) -> str:
@@ -157,6 +156,7 @@ def cached_public_outcome_ledger_payload(db: Session, cache_key: str) -> dict[st
 
 def store_public_outcome_ledger_payload(db: Session, cache_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
+    payload = {**payload, "generated_at": now.isoformat()}
     stale_after = now + timedelta(seconds=outcome_ledger_cache_ttl_seconds())
     expires_at = now + timedelta(seconds=outcome_ledger_cache_expiry_seconds())
     payload_json = json.dumps(payload, default=str, separators=(",", ":"))
@@ -1280,7 +1280,6 @@ def _snapshot_row(
         "data_integrity_status": "verified" if canonical_entry is not None else "fixture" if legacy_allowed else "requires_reconstruction",
         "active_source_count": snapshot.active_source_count,
         "active_sources": _json_loads(snapshot.active_sources_json, []),
-        "methodology": None,
         "outcomes": _snapshot_outcomes(
             db,
             snapshot,
@@ -1436,60 +1435,42 @@ def _snapshot_event_time(snapshot: ConfirmationScoreSnapshot) -> tuple[datetime,
     return snapshot_time, int(snapshot.id or 0)
 
 
-def _directional_event_group_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int, int]:
+def _directional_event_group_key(snapshot: ConfirmationScoreSnapshot) -> tuple[str, int]:
     return (
         snapshot.calculation_type,
         snapshot.security_id,
-        snapshot.methodology_version_id,
     )
 
 
-def _project_directional_outcome_events(rows: list[ConfirmationScoreSnapshot]) -> list[DirectionalOutcomeEvent]:
-    grouped: dict[tuple[str, int, int], list[ConfirmationScoreSnapshot]] = {}
+def _project_directional_outcome_events(
+    rows: list[ConfirmationScoreSnapshot], *, verified_snapshot_ids: set[int] | None = None,
+) -> list[DirectionalOutcomeEvent]:
+    grouped: dict[tuple[str, int], list[ConfirmationScoreSnapshot]] = {}
     for row in rows:
         grouped.setdefault(_directional_event_group_key(row), []).append(row)
 
     events: list[DirectionalOutcomeEvent] = []
     for group_rows in grouped.values():
-        latest_directional_by_day: dict[date, ConfirmationScoreSnapshot] = {}
-        for row in group_rows:
+        runs: list[list[ConfirmationScoreSnapshot]] = []
+        for row in sorted(group_rows, key=_snapshot_event_time):
             if not _is_directional_snapshot(row):
                 # Mixed/neutral are watch states. They do not open, grade, or close a directional event.
                 continue
-            current = latest_directional_by_day.get(row.market_date)
-            if current is None or _snapshot_event_time(row) > _snapshot_event_time(current):
-                latest_directional_by_day[row.market_date] = row
-
-        daily_rows = sorted(latest_directional_by_day.values(), key=_snapshot_event_time)
-        qualifying_rows: list[ConfirmationScoreSnapshot] = []
-        for row in daily_rows:
             if int(row.score or 0) < OUTCOME_QUALIFICATION_MIN_SCORE:
                 continue
             if int(row.active_source_count or 0) < OUTCOME_QUALIFICATION_MIN_SOURCES:
                 continue
-            if not qualifying_rows:
-                qualifying_rows.append(row)
-                continue
-            previous = qualifying_rows[-1]
-            previous_side = _directional_side(previous.direction)
-            current_side = _directional_side(row.direction)
-            if current_side != previous_side:
-                qualifying_rows.append(row)
-                continue
-            cooldown_elapsed = (row.market_date - previous.market_date).days >= OUTCOME_SAME_DIRECTION_COOLDOWN_DAYS
-            material_score_change = abs(int(row.score or 0) - int(previous.score or 0)) >= OUTCOME_SAME_DIRECTION_MIN_SCORE_CHANGE
-            if cooldown_elapsed and material_score_change:
-                qualifying_rows.append(row)
+            if not runs or _directional_side(runs[-1][-1].direction) != _directional_side(row.direction):
+                runs.append([])
+            runs[-1].append(row)
 
-        for index, row in enumerate(qualifying_rows):
-            side = _directional_side(row.direction)
-            closed_at = None
-            for later in qualifying_rows[index + 1 :]:
-                later_side = _directional_side(later.direction)
-                if later_side is not None and later_side != side:
-                    closed_at = later.market_date
-                    break
-            events.append(DirectionalOutcomeEvent(snapshot=row, closed_at=closed_at))
+        for index, run in enumerate(runs):
+            # Anchor public history to the earliest verified entry in this
+            # continuous direction. Older audit-held snapshots cannot hide an
+            # existing verified event or backdate its executable entry.
+            anchor = next((row for row in run if row.id in verified_snapshot_ids), run[0]) if verified_snapshot_ids is not None else run[0]
+            closed_at = runs[index + 1][0].market_date if index + 1 < len(runs) else None
+            events.append(DirectionalOutcomeEvent(snapshot=anchor, closed_at=closed_at))
     return events
 
 
@@ -1498,6 +1479,20 @@ def _event_display_sort_key(event: DirectionalOutcomeEvent) -> tuple[int, dateti
     is_30d_matured = int(event.snapshot.market_date <= thirty_day_matured_cutoff)
     event_time, event_id = _snapshot_event_time(event.snapshot)
     return is_30d_matured, event_time, event_id
+
+
+def _filter_opening_events(db: Session, events: list[DirectionalOutcomeEvent], *, methodology: str | None, start_date: date | None, end_date: date | None) -> list[DirectionalOutcomeEvent]:
+    """Filter after projection so a view cannot manufacture a new opening."""
+    methodology_ids = None
+    if methodology:
+        methodology_ids = set(db.execute(select(ConfirmationMethodologyVersion.id).where(
+            ConfirmationMethodologyVersion.version == methodology.strip(),
+        )).scalars())
+    return [event for event in events if
+        (methodology_ids is None or event.snapshot.methodology_version_id in methodology_ids)
+        and (start_date is None or event.snapshot.market_date >= start_date)
+        and (end_date is None or event.snapshot.market_date <= end_date)
+    ]
 
 
 def _date_spread_sample(
@@ -1528,6 +1523,21 @@ def _date_spread_sample(
             break
         depth += 1
     return sample
+
+
+def outcome_leaderboard_symbols(db: Session) -> list[str]:
+    """Include published leaderboard tickers without rebuilding their scores."""
+    row = db.execute(select(LeaderboardSnapshot).where(
+        LeaderboardSnapshot.leaderboard_key == "top_stocks",
+    )).scalar_one_or_none()
+    payload = _json_loads(row.payload_json, {}) if row is not None else {}
+    items = list(payload.get("items") or [])
+    for filtered in (payload.get("filter_items") or {}).values():
+        items.extend(filtered or [])
+    return list(dict.fromkeys(
+        str(item["symbol"]).strip().upper() for item in items
+        if isinstance(item, dict) and item.get("symbol")
+    ))
 
 
 def _balanced_horizon_event_sample(
@@ -1596,10 +1606,23 @@ def _balanced_horizon_event_sample(
     selected_ids = {int(event.snapshot.id) for event in selected}
     fill = [
         event
-        for event in awaiting[awaiting_quota:] + matured[matured_quota:] + remainder
+        for event in awaiting + matured + remainder
         if int(event.snapshot.id) not in selected_ids
     ]
     selected.extend(fill[: max(0, limit - len(selected))])
+    # Reserve representation for published leaders, even when their first
+    # qualifying event is older than the recent preview. This changes only
+    # the preview; all verified measurements still contribute to summaries.
+    leaders = set(outcome_leaderboard_symbols(db))
+    latest_by_leader: dict[str, DirectionalOutcomeEvent] = {}
+    for event in sorted(events, key=recency, reverse=True):
+        symbol = event.snapshot.ticker_at_time.upper()
+        if symbol in leaders:
+            latest_by_leader.setdefault(symbol, event)
+    featured = list(latest_by_leader.values())[:limit]
+    featured_ids = {int(event.snapshot.id) for event in featured}
+    selected = featured + [event for event in selected if int(event.snapshot.id) not in featured_ids]
+    selected = selected[:limit]
     return sorted(selected, key=recency, reverse=True)
 
 
@@ -1621,10 +1644,7 @@ def list_outcome_snapshots(
     base = _apply_snapshot_filters(
         select(ConfirmationScoreSnapshot),
         ticker=ticker,
-        methodology=methodology,
         calculation_type=calculation_type,
-        start_date=start_date,
-        end_date=end_date,
     )
     ordered_rows = db.execute(
         base.order_by(
@@ -1632,7 +1652,13 @@ def list_outcome_snapshots(
             ConfirmationScoreSnapshot.id.desc(),
         )
     ).scalars().all()
-    events = sorted(_project_directional_outcome_events(ordered_rows), key=_event_display_sort_key, reverse=True)
+    verified_snapshot_ids = set(db.execute(select(OutcomeEntry.snapshot_id)).scalars())
+    events = sorted(_filter_opening_events(
+        db, _project_directional_outcome_events(ordered_rows, verified_snapshot_ids=verified_snapshot_ids), methodology=methodology, start_date=start_date, end_date=end_date,
+    ), key=_event_display_sort_key, reverse=True)
+    latest_confirmation_by_security: dict[tuple[str, int], ConfirmationScoreSnapshot] = {}
+    for row in ordered_rows:
+        latest_confirmation_by_security.setdefault(_directional_event_group_key(row), row)
     if not include_internal and events:
         event_ids = [int(event.snapshot.id) for event in events]
         verified_ids = set(
@@ -1660,7 +1686,7 @@ def list_outcome_snapshots(
     methodology_by_id = {
         row.id: row.version
         for row in db.execute(select(ConfirmationMethodologyVersion)).scalars().all()
-    }
+    } if include_internal else {}
     legacy_rows = [
         row
         for row in rows
@@ -1680,10 +1706,20 @@ def list_outcome_snapshots(
             entry_by_snapshot=entry_by_snapshot,
             observations_by_entry=observations_by_entry,
         )
-        item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
+        if include_internal:
+            item["methodology"] = methodology_by_id.get(snapshot.methodology_version_id)
+        latest = latest_confirmation_by_security.get(_directional_event_group_key(snapshot))
+        item["current_confirmation"] = {
+            "score": latest.score,
+            "direction": latest.direction,
+            "calculated_at": latest.calculated_at.isoformat(),
+        } if event.closed_at is None and latest is not None else None
+        if include_internal and item["current_confirmation"] is not None:
+            item["current_confirmation"]["methodology"] = methodology_by_id.get(latest.methodology_version_id)
         items.append(item)
     return {
         "items": items,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "page": bounded_page,
         "limit": bounded_limit,
         "total": total,
@@ -1706,10 +1742,7 @@ def outcome_ledger_summary(
     selected_horizon_days = int(selected_horizon[:-1])
     base = _apply_snapshot_filters(
         select(ConfirmationScoreSnapshot),
-        methodology=methodology,
         calculation_type=calculation_type,
-        start_date=start_date,
-        end_date=end_date,
     )
     ordered_rows = db.execute(
         base.order_by(
@@ -1717,7 +1750,10 @@ def outcome_ledger_summary(
             ConfirmationScoreSnapshot.id.desc(),
         )
     ).scalars().all()
-    events = _project_directional_outcome_events(ordered_rows)
+    verified_snapshot_ids = set(db.execute(select(OutcomeEntry.snapshot_id)).scalars())
+    events = _filter_opening_events(
+        db, _project_directional_outcome_events(ordered_rows, verified_snapshot_ids=verified_snapshot_ids), methodology=methodology, start_date=start_date, end_date=end_date,
+    )
     canonical_rows = [event.snapshot for event in events]
     entry_by_snapshot, observations_by_entry = _prefetch_canonical_outcome_rows(db, canonical_rows)
     legacy_rows = [
@@ -1808,6 +1844,9 @@ def outcome_ledger_summary(
 
     return {
         "horizon": selected_horizon,
+        "verified_events": sum(row["data_integrity_status"] in {"verified", "fixture"} for row in rows),
+        "pending_events": sum(row["outcomes"].get(selected_horizon, {}).get("status") == "pending" for row in rows),
+        "missing_price_events": sum(row["outcomes"].get(selected_horizon, {}).get("status") == "missing_price" for row in rows),
         "completed_events": len(matured_for_horizon),
         "directional_sample_count": len(directional_for_horizon),
         "accuracy": accuracy,
@@ -1820,7 +1859,7 @@ def outcome_ledger_summary(
     }
 
 
-def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) -> dict[str, Any]:
+def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 500) -> dict[str, Any]:
     if not outcome_ledger_enabled(db):
         return {"status": "skipped", "reason": "outcome_ledger_disabled", "warmed": 0}
 
@@ -1830,7 +1869,7 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) 
     store_public_outcome_ledger_payload(db, status_key, status_payload)
     warmed = 1
 
-    raw_horizons = os.getenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "30D,7D")
+    raw_horizons = os.getenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", "30D,7D,90D,180D,365D")
     warm_horizons = [
         item.strip().upper()
         for item in raw_horizons.split(",")
@@ -1883,12 +1922,13 @@ def warm_public_outcome_ledger_cache(db: Session, *, snapshot_limit: int = 100) 
         )
         warmed += 1
 
-    overview_params = {"horizons": warm_horizons, "snapshot_limit": snapshot_limit}
+    overview_horizons = [horizon for horizon in ("30D", "7D") if horizon in warm_horizons] or warm_horizons
+    overview_params = {"horizons": overview_horizons, "snapshot_limit": snapshot_limit}
     overview_payload = {
         "status": status_payload,
-        "summaries": summary_payloads,
-        "snapshots": snapshot_payloads[warm_horizons[0]],
-        "default_horizon": warm_horizons[0] if warm_horizons else "30D",
+        "summaries": {horizon: summary_payloads[horizon] for horizon in overview_horizons},
+        "snapshots": snapshot_payloads[overview_horizons[0]],
+        "default_horizon": overview_horizons[0],
     }
     store_public_outcome_ledger_payload(
         db,
@@ -1948,7 +1988,6 @@ def outcome_ledger_status(db: Session, *, include_admin: bool = False) -> dict[s
     status = {
         "enabled": outcome_ledger_enabled(db),
         "tracking_status": "live" if outcome_ledger_enabled(db) else "disabled",
-        "current_methodology_version": methodology.version,
         "first_live_snapshot_date": first_snapshot.isoformat() if first_snapshot else None,
         "most_recent_snapshot_timestamp": latest_snapshot.isoformat() if latest_snapshot else None,
         "unique_securities_captured": unique_securities,
@@ -1960,6 +1999,7 @@ def outcome_ledger_status(db: Session, *, include_admin: bool = False) -> dict[s
     if include_admin:
         status.update(
             {
+                "current_methodology_version": methodology.version,
                 "snapshots_created_past_24h": past_24h,
                 "duplicate_attempts_ignored": _counter_value(db, OUTCOMES_LEDGER_DUPLICATES_KEY),
                 "persistence_errors": _counter_value(db, OUTCOMES_LEDGER_ERRORS_KEY),

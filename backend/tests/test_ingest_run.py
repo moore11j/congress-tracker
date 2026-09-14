@@ -27,6 +27,41 @@ from app.ingest_run import (
 from app.models import Base, Event, IndexMembership, PriceCache, SavedScreenSnapshot, Security, WatchlistItem
 
 
+@pytest.mark.parametrize("utc_time,should_run", [
+    ("2026-09-07T12:45:00+00:00", False),  # Labor Day
+    ("2026-09-12T12:45:00+00:00", False),  # Saturday
+    ("2026-09-14T01:00:00+00:00", False),  # Still Sunday in New York
+    ("2026-09-14T12:45:00+00:00", True),
+])
+def test_scheduled_outcome_refresh_respects_market_calendar(monkeypatch, utc_time, should_run):
+    from app import ingest_run
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(utc_time).astimezone(tz)
+
+    calls = []
+    monkeypatch.setattr(ingest_run, "datetime", FrozenDateTime)
+    monkeypatch.setattr(ingest_run, "_run_outcome_ledger_cache_warm_job", lambda: calls.append("warm") or {"status": "ok"})
+    args = _build_parser().parse_args(["--job", "outcome-ledger-cache-warm", "--trading-days-only"])
+    result = ingest_run._run_job_payload(args.job, trading_days_only=args.trading_days_only)
+    assert calls == (["warm"] if should_run else [])
+    assert result["status"] == ("ok" if should_run else "skipped")
+    # Explicit maintenance remains possible on non-trading days.
+    assert ingest_run._run_job_payload(args.job)["status"] == "ok"
+
+
+def test_outcome_cache_refresh_runs_twice_on_trading_days():
+    cron = (Path(__file__).resolve().parents[1] / "crontab").read_text()
+    scheduled = [line for line in cron.splitlines() if "--job outcome-ledger-cache-warm" in line]
+    assert len(scheduled) == 2
+    assert any(line.startswith("45 5 * * 1-5 ") for line in scheduled)
+    assert any(line.startswith("41 16 * * 1-5 ") for line in scheduled)
+    assert all("--job outcome-ledger-cache-warm --trading-days-only" in line for line in scheduled)
+    assert "outcome-ledger-price-hydrator --trading-days-only &&" in scheduled[0]
+
+
 def test_institutional_ingest_provider_error_is_non_fatal(monkeypatch, caplog) -> None:
     def fake_scheduled_latest_once():
         return {"status": "retryable", "error": "latest endpoint timed out"}

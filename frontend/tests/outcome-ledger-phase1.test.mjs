@@ -44,8 +44,25 @@ test("Outcome Ledger page uses real API data and truthful empty states", () => {
   assert.doesNotMatch(outcomesClient, /Scored Horizons/);
   assert.match(outcomesClient, /visibleOutcomeEventKey/);
   assert.match(outcomesClient, /byVisibleEvent\.set\(key, snapshot\)/);
-  assert.match(outcomesClient, /bullish\/bearish calls measured at/);
+  assert.match(outcomesClient, /measured calls across open and closed theses/);
   assert.match(outcomesClient, /function maturedOutcome/);
+});
+
+test("ticker search queries the full ledger and explains preview coverage", () => {
+  assert.match(outcomesClient, /<Form action="\/outcomes"/);
+  assert.match(outcomesClient, /name="ticker" type="search"/);
+  assert.match(outcomesClient, /Search checks the full ledger/);
+  assert.match(outcomesClient, /Open Confirmations/);
+  assert.match(outcomesClient, /awaiting verified prices/);
+  assert.match(outcomesPage, /await Promise\.all/);
+  assert.match(outcomesPage, /getOutcomeSnapshots\(\{ ticker: initialTicker/);
+});
+
+test("public ledger presents continuous events without scoring versions", () => {
+  assert.doesNotMatch(outcomesClient, /methodologyFilter|All Methodologies|confirmation-v[12]|selected\.methodology/);
+  assert.match(outcomesClient, /Current confirmation/);
+  assert.match(outcomesClient, /Tracking continues from the original entry/);
+  assert.match(outcomesClient, /Mixed, neutral, and score updates keep the original thesis open/);
 });
 
 test("admin Outcomes diagnostics uses admin guard, filters, and internal endpoints", () => {

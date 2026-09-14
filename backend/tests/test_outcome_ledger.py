@@ -111,6 +111,37 @@ def test_warm_public_outcome_ledger_cache_persists_overview_payload(monkeypatch)
         assert overview["snapshots"]["limit"] == 25
 
 
+def test_daily_warmer_matches_page_request_and_survives_weekend(monkeypatch):
+    from datetime import timedelta
+    from fastapi import Response
+    from app import main
+    from app.models import TickerContextBundleCache
+    monkeypatch.delenv("OUTCOME_LEDGER_CACHE_WARM_HORIZONS", raising=False)
+    monkeypatch.delenv("OUTCOME_LEDGER_PERSISTENT_CACHE_TTL_SECONDS", raising=False)
+    monkeypatch.delenv("OUTCOME_LEDGER_PERSISTENT_CACHE_EXPIRY_SECONDS", raising=False)
+    engine = _engine()
+    with Session(engine) as db:
+        report = warm_public_outcome_ledger_cache(db)
+        key = public_outcome_ledger_cache_key("overview", {"horizons": ["30D", "7D"], "snapshot_limit": 500})
+        payload = cached_public_outcome_ledger_payload(db, key)
+        assert payload is not None and payload["snapshots"]["limit"] == 500
+        assert set(report["horizons"]) == {"7D", "30D", "90D", "180D", "365D"}
+        row = db.get(TickerContextBundleCache, key)
+        assert row.stale_after - row.generated_at == timedelta(hours=12)
+        assert row.expires_at - row.generated_at >= timedelta(days=3)
+        assert payload["generated_at"]
+        def no_request_computation(*args, **kwargs):
+            raise AssertionError("a warmed page must not rebuild the ledger")
+        monkeypatch.setattr(main, "outcome_ledger_status", no_request_computation)
+        monkeypatch.setattr(main, "outcome_ledger_summary", no_request_computation)
+        monkeypatch.setattr(main, "list_outcome_snapshots", no_request_computation)
+        with _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK:
+            _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE.clear()
+        response = Response()
+        assert main.outcomes_overview(response, limit=500, horizons="30D,7D", db=db) == payload
+        assert response.headers["X-Walnut-Outcome-Cache"] == "persistent"
+
+
 def test_methodology_seed_and_single_current_version():
     engine = _engine()
     with Session(engine) as db:
@@ -158,7 +189,7 @@ def test_current_methodology_promotes_deployed_version_over_existing_current():
         assert retired_v1.retired_at is not None
 
 
-def test_live_capture_shows_latest_visible_daily_event_when_score_changes():
+def test_live_capture_preserves_opening_and_exposes_current_confirmation():
     engine = _engine()
     with Session(engine) as db:
         db.add(PriceCache(symbol="CRM", date="2026-08-04", close=101.25, price_source="test"))
@@ -181,7 +212,8 @@ def test_live_capture_shows_latest_visible_daily_event_when_score_changes():
 
         response = list_outcome_snapshots(db, limit=10, calculation_type="live")
         assert response["total"] == 1
-        assert response["items"][0]["score"] == 68
+        assert response["items"][0]["score"] == 67
+        assert response["items"][0]["current_confirmation"]["score"] == 68
         assert response["items"][0]["calculation_type"] == "live"
         assert response["items"][0]["reference_price"] == 101.25
         assert json.loads(rows[0].active_sources_json) == ["insiders", "price_volume"]
@@ -701,7 +733,7 @@ def test_backfill_history_uses_market_pressure_score_snapshots():
         assert pltr["outcomes"]["30D"]["spy_return_pct"] == 5.0
 
 
-def test_clean_training_set_keeps_latest_same_day_directional_event_only():
+def test_clean_training_set_keeps_original_continuous_event():
     engine = _engine()
     with Session(engine) as db:
         observed_day = (datetime.now(timezone.utc) - outcome_ledger_module.timedelta(days=45)).date()
@@ -740,8 +772,8 @@ def test_clean_training_set_keeps_latest_same_day_directional_event_only():
         assert older is not None
         assert latest is not None
         assert mixed is not None
-        assert [event.snapshot_id for event in events] == [latest.id]
-        assert events[0].score == 72
+        assert [event.snapshot_id for event in events] == [older.id]
+        assert events[0].score == 61
         assert events[0].directionally_correct is True
         assert events[0].source_payload_quality == "real_source_payload"
 

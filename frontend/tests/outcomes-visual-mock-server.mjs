@@ -1,4 +1,8 @@
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+
+const reviewDirectory = process.env.OUTCOMES_REVIEW_FIXTURES;
 
 const horizons = [7, 30, 90, 180, 365];
 const symbols = ["NVDA", "AAPL", "PLTR", "AMZN", "META", "MSFT"];
@@ -101,16 +105,39 @@ const pathPoints = Array.from({ length: 23 }, (_, index) => {
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? "/", "http://127.0.0.1:8083");
   let payload;
+  if (reviewDirectory && url.pathname.startsWith("/api/outcomes/")) {
+    const overview = JSON.parse(fs.readFileSync(path.join(reviewDirectory, "overview.json"), "utf8"));
+    const tsm = JSON.parse(fs.readFileSync(path.join(reviewDirectory, "tsm.json"), "utf8"));
+    if (url.pathname === "/api/outcomes/overview") {
+      payload = { ...overview, snapshots: { ...overview.snapshots } };
+    } else if (url.pathname === "/api/outcomes/snapshots") {
+      const ticker = url.searchParams.get("ticker")?.toUpperCase();
+      const snapshot = ticker === "TSM" ? tsm : overview.snapshots;
+      const matches = ticker ? snapshot.items.filter((item) => item.ticker === ticker) : snapshot.items;
+      payload = { ...snapshot, items: matches, ...(ticker && ticker !== "TSM" ? { total: matches.length } : {}) };
+    } else if (url.pathname === "/api/outcomes/summary") {
+      payload = overview.summaries[url.searchParams.get("horizon") ?? "30D"];
+    } else if (/^\/api\/outcomes\/snapshots\/\d+\/price-path$/.test(url.pathname)) {
+      const id = url.pathname.split("/")[4];
+      const pricePath = path.join(reviewDirectory, `price-path-${id}.json`);
+      if (fs.existsSync(pricePath)) payload = JSON.parse(fs.readFileSync(pricePath, "utf8"));
+    }
+    response.writeHead(payload ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
+    response.end(JSON.stringify(payload ?? { detail: "This record is not in the local production capture." }));
+    return;
+  }
   if (url.pathname === "/api/auth/me") {
     payload = { user: null };
   } else if (url.pathname === "/api/entitlements") {
     payload = { tier: "premium", effective_tier: "premium", limits: {}, features: [], upgrade_url: "/pricing" };
   } else if (url.pathname === "/api/outcomes/overview") {
-    payload = { status, summaries: { "7D": summary("7D"), "30D": summary("30D") }, snapshots: { items, page: 0, limit: 100, total: items.length, has_next: false }, default_horizon: "30D" };
+    payload = { status, summaries: { "7D": summary("7D"), "30D": summary("30D") }, snapshots: { items, page: 0, limit: 500, total: items.length, has_next: false }, default_horizon: "30D" };
   } else if (url.pathname === "/api/outcomes/summary") {
     payload = summary(url.searchParams.get("horizon") ?? "30D");
   } else if (url.pathname === "/api/outcomes/snapshots") {
-    payload = { items, page: 0, limit: 100, total: items.length, has_next: false };
+    const ticker = url.searchParams.get("ticker")?.toUpperCase();
+    const matches = ticker ? items.filter((item) => item.ticker === ticker) : items;
+    payload = { items: matches, page: 0, limit: 500, total: matches.length, has_next: false };
   } else if (/^\/api\/outcomes\/snapshots\/\d+\/price-path$/.test(url.pathname)) {
     payload = { snapshot_id: 101, symbol: "NVDA", benchmark_symbol: "SPY", horizon_days: 30, methodology: "outcomes-v3-next-executable-open-calendar-horizons", points: pathPoints };
   } else {
@@ -122,4 +149,5 @@ const server = http.createServer((request, response) => {
   response.end(JSON.stringify(payload));
 });
 
-server.listen(8083, "127.0.0.1", () => console.log("Outcomes visual fixture listening on 8083"));
+const port = Number(process.env.OUTCOMES_VISUAL_MOCK_PORT ?? 8083);
+server.listen(port, "127.0.0.1", () => console.log(`Outcomes visual fixture listening on ${port}`));

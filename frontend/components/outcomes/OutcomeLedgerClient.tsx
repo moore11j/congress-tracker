@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Form from "next/form";
 import {
   ApiError,
   getEntitlements,
@@ -28,6 +29,7 @@ const cohortFilterOptions = [
   { value: "all", label: "All" },
   { value: "live", label: "Live Tracked" },
   { value: "matured", label: "Matured" },
+  { value: "open", label: "Open Confirmations" },
 ] as const;
 const directionFilterOptions = ["All", "Bullish", "Bearish"];
 const scoreBandFilterOptions = ["All Scores", ...scoreBands];
@@ -183,11 +185,9 @@ function calculatedTime(snapshot: OutcomeSnapshot) {
 }
 
 function visibleOutcomeEventKey(snapshot: OutcomeSnapshot) {
-  return [
-    snapshot.calculation_type,
-    snapshot.ticker.toUpperCase(),
-    snapshot.market_date ?? snapshot.calculated_at?.slice(0, 10) ?? snapshot.created_at?.slice(0, 10) ?? "unknown",
-  ].join(":");
+  // The API supplies continuous events. Distinct same-day reversals retain
+  // their own IDs; the browser must not collapse them into a daily score.
+  return String(snapshot.id);
 }
 
 function replacedOutcomeSnapshotIds(snapshots: OutcomeSnapshot[]) {
@@ -725,14 +725,12 @@ function matchesOutcomeFilters(
     horizon,
     direction,
     scoreBand,
-    methodology,
     dateRange,
   }: {
     cohort: CohortFilterValue;
     horizon: string;
     direction: string;
     scoreBand: string;
-    methodology: string;
     dateRange: DateRangeFilterValue;
   },
 ) {
@@ -740,9 +738,9 @@ function matchesOutcomeFilters(
   if (!publicOutcomeCalculationTypes.has(snapshot.calculation_type)) return false;
   if (cohort === "live" && snapshot.calculation_type !== "live") return false;
   if (cohort === "matured" && !(outcome?.status === "matured" && typeof outcome.return_pct === "number")) return false;
+  if (cohort === "open" && snapshot.lifecycle_status !== "open") return false;
   if (direction !== "All" && formatDirection(snapshot.direction) !== direction) return false;
   if (scoreBand !== "All Scores" && scoreBandForScore(snapshot.score) !== scoreBand) return false;
-  if (methodology !== "All Methodologies" && (snapshot.methodology ?? "-") !== methodology) return false;
   const cutoff = dateRangeCutoff(dateRange);
   if (cutoff !== null && openedTime(snapshot) < cutoff) return false;
   return true;
@@ -935,7 +933,7 @@ function EventsTable({
             </button>
           ))}
         </div>
-        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Full table: featured tickers plus live-tracked history" : "Browse all outcomes · 10 rows per page"}</p>
+        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Loaded events: leaderboard tickers and tracked history" : "Browse loaded events · 10 rows per page"}</p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-xs text-slate-300">
         <span>
@@ -1146,7 +1144,6 @@ function DetailPanel({
           <dl className="mt-5 grid grid-cols-2 gap-y-2 text-sm">
             {[
               ["Opened", selected ? openedDate(selected) : "-"],
-              ["Methodology", selected?.methodology ?? "-"],
               ["Entry Price", formatPrice(selected?.reference_price)],
               ["Price Method", selected?.entry_price_type === "official_open" ? "Official open" : "-"],
               ["Integrity", selected?.data_integrity_status === "verified" ? "Verified" : "Audit hold"],
@@ -1158,6 +1155,14 @@ function DetailPanel({
               </div>
             ))}
           </dl>
+          {selected?.current_confirmation ? (
+            <div className="mt-4 border-t border-white/10 pt-3 text-sm">
+              <p className="font-semibold text-slate-200">Current confirmation</p>
+              <p className="mt-1 text-slate-300">{selected.current_confirmation.score}/100 · {formatDirection(selected.current_confirmation.direction)}</p>
+              <p className="mt-1 text-xs text-slate-400">Updated {formatDate(selected.current_confirmation.calculated_at)}</p>
+              <p className="mt-2 text-xs text-slate-400">Tracking continues from the original entry. The opened score and measured returns stay with this event.</p>
+            </div>
+          ) : null}
         </div>
         <div className="border-t border-white/10 pt-4">
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Price Path vs SPY</h3>
@@ -1219,10 +1224,10 @@ function DetailPanel({
           </div>
         </div>
         <div className="border-t border-white/10 pt-4">
-          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Methodology</h3>
+          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-white">Event tracking</h3>
           <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm leading-5 text-slate-300">
             {selected
-              ? `${selected.methodology ?? "confirmation-v1"} preserved ${selected.ticker} at ${openedDate(selected)} with an opened ${selected.score}/100 ${formatDirection(selected.direction)} score. The live ticker page can move after this snapshot.`
+              ? `${selected.ticker} opened at ${openedDate(selected)} with an opened ${selected.score}/100 ${formatDirection(selected.direction)} score. The live ticker page can move after this snapshot.`
               : "Events are created from live confirmation-score snapshots. Outcome windows mature independently while the event remains open until the thesis closes."}
           </p>
         </div>
@@ -1253,7 +1258,6 @@ export function OutcomeLedgerClient({
   const [horizonFilter, setHorizonFilter] = useState("30D");
   const [directionFilter, setDirectionFilter] = useState("All");
   const [scoreBandFilter, setScoreBandFilter] = useState("All Scores");
-  const [methodologyFilter, setMethodologyFilter] = useState("All Methodologies");
   const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilterValue>("all");
   const [eventDetailOpen, setEventDetailOpen] = useState(true);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(null);
@@ -1318,10 +1322,6 @@ export function OutcomeLedgerClient({
     return [...byVisibleEvent.values()];
   }, [snapshotItems]);
   const replacedSnapshotIds = useMemo(() => replacedOutcomeSnapshotIds(uniqueSnapshotItems), [uniqueSnapshotItems]);
-  const methodologyOptions = useMemo(() => {
-    const values = [...new Set(uniqueSnapshotItems.map((snapshot) => snapshot.methodology ?? "-").filter(Boolean))].sort();
-    return ["All Methodologies", ...values].map((value) => ({ value, label: value }));
-  }, [uniqueSnapshotItems]);
   const filteredSnapshotItems = useMemo(
     () =>
       uniqueSnapshotItems.filter((snapshot) =>
@@ -1330,11 +1330,10 @@ export function OutcomeLedgerClient({
           horizon: horizonFilter,
           direction: directionFilter,
           scoreBand: scoreBandFilter,
-          methodology: methodologyFilter,
           dateRange: dateRangeFilter,
         }),
       ),
-    [cohortFilter, dateRangeFilter, directionFilter, horizonFilter, methodologyFilter, scoreBandFilter, uniqueSnapshotItems],
+    [cohortFilter, dateRangeFilter, directionFilter, horizonFilter, scoreBandFilter, uniqueSnapshotItems],
   );
   const canUseServerSummary =
     !initialTicker &&
@@ -1342,7 +1341,6 @@ export function OutcomeLedgerClient({
     cohortFilter === "all" &&
     directionFilter === "All" &&
     scoreBandFilter === "All Scores" &&
-    methodologyFilter === "All Methodologies" &&
     dateRangeFilter === "all";
   const publicPreviewSnapshots = useMemo(() => {
     const byTicker = new Map<string, OutcomeSnapshot[]>();
@@ -1428,6 +1426,13 @@ export function OutcomeLedgerClient({
     };
   }, [canUseServerSummary, filteredSnapshotItems, horizonFilter, summary]);
   const canExportCsv = canExportOutcomesCsv(entitlementTier);
+  const coverage = canUseServerSummary && summary ? {
+    pending: summary.pending_events,
+    missing: summary.missing_price_events,
+  } : {
+    pending: filteredSnapshotItems.filter((snapshot) => outcomeFor(snapshot, horizonFilter)?.status === "pending").length,
+    missing: filteredSnapshotItems.filter((snapshot) => outcomeFor(snapshot, horizonFilter)?.status === "missing_price").length,
+  };
 
   function handleHorizonChange(nextHorizon: string) {
     if (nextHorizon === horizonFilter) return;
@@ -1489,13 +1494,23 @@ export function OutcomeLedgerClient({
             <div className="rounded-md border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">{error}</div>
           ) : null}
 
+          <Form action="/outcomes" className="flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1 text-xs font-semibold text-slate-300">
+              Search all ledger tickers
+              <input name="ticker" type="search" defaultValue={initialTicker ?? ""} placeholder="Ticker, e.g. TSM"
+                pattern="[A-Za-z0-9.\^\-]{1,15}" maxLength={15} aria-label="Search all ledger tickers"
+                className="mt-1 block h-11 w-full rounded-md border border-white/15 bg-slate-900 px-3 text-sm uppercase text-white placeholder:normal-case focus:border-emerald-300 focus:outline-none" />
+            </label>
+            <button type="submit" className="h-11 rounded-md border border-emerald-300/30 bg-emerald-400/10 px-4 text-sm font-semibold text-emerald-200">Search</button>
+            {initialTicker ? <a href="/outcomes" className="flex h-11 items-center px-3 text-sm text-slate-300 underline">Clear</a> : null}
+          </Form>
+
           <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,1fr)_14.25rem]">
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
               <FilterSelect label="Outcome Set" value={cohortFilter} options={cohortFilterOptions} onChange={(value) => setCohortFilter(value as CohortFilterValue)} />
               <FilterSelect label="Horizon" value={horizonFilter} options={horizonColumns.map((value) => ({ value, label: value }))} onChange={handleHorizonChange} />
               <FilterSelect label="Direction" value={directionFilter} options={directionFilterOptions.map((value) => ({ value, label: value }))} onChange={setDirectionFilter} />
               <FilterSelect label="Score Band" value={scoreBandFilter} options={scoreBandFilterOptions.map((value) => ({ value, label: value }))} onChange={setScoreBandFilter} />
-              <FilterSelect label="Methodology" value={methodologyFilter} options={methodologyOptions} onChange={setMethodologyFilter} />
               <FilterSelect label="Date Range" value={dateRangeFilter} options={dateRangeFilterOptions} onChange={(value) => setDateRangeFilter(value as DateRangeFilterValue)} />
             </div>
             <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-1">
@@ -1535,6 +1550,16 @@ export function OutcomeLedgerClient({
             </section>
           ) : (
             <>
+          <p className="text-xs leading-5 text-slate-400" role="status">
+            {initialTicker ? `${snapshots?.total ?? 0} verified ${(snapshots?.total ?? 0) === 1 ? "event" : "events"} for ${initialTicker}.` : `Previewing ${snapshotItems.length} of ${(snapshots?.total ?? 0).toLocaleString()} verified events. Headline totals cover the full ledger; filters and charts cover this preview.`}
+            {" "}Search checks the full ledger, including older open confirmations.
+            {snapshots?.generated_at ? ` Updated ${formatDate(snapshots.generated_at)}.` : ""}
+          </p>
+          {coverage.pending !== undefined && coverage.missing !== undefined ? (
+            <p className="text-xs leading-5 text-slate-300">
+              {coverage.pending.toLocaleString()} awaiting {horizonFilter}; {coverage.missing.toLocaleString()} due but awaiting verified prices. Only measured events count toward accuracy.
+            </p>
+          ) : null}
           <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon="OK"
@@ -1595,7 +1620,8 @@ export function OutcomeLedgerClient({
           <section className="rounded-md border border-white/10 bg-slate-900/55 p-5 text-sm leading-6 text-slate-300">
             <h2 className="text-sm font-bold uppercase tracking-[0.16em] text-white">Reproducible return methodology</h2>
             <p className="mt-3">
-              An Outcome begins when a live, point-in-time Confirmation Score first qualifies, changes direction, or requalifies after the published cooldown. Evidence is frozen at that timestamp.
+              An Outcome begins when a live, point-in-time Confirmation Score first qualifies or reverses between bullish and bearish. Evidence is frozen at that timestamp.
+              Mixed, neutral, and score updates keep the original thesis open. Each horizon is a measurement of that thesis, not a new event.
               Premarket events use that session&apos;s official open; events at or after 9:30 a.m. New York time use the next trading session&apos;s official open.
             </p>
             <p className="mt-2">

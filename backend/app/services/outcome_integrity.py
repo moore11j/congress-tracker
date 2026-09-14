@@ -18,6 +18,7 @@ from app.models import (
     PriceCache,
     TickerContextBundleCache,
 )
+from app.services.price_lookup import is_market_trading_day
 
 
 getcontext().prec = 34
@@ -278,6 +279,8 @@ def materialize_outcome_horizons(
     entry: OutcomeEntry,
     *,
     as_of: date | None = None,
+    price_rows_by_key: dict[tuple[str, str], PriceCache] | None = None,
+    existing_observations: list[OutcomeHorizonObservation] | None = None,
 ) -> list[OutcomeHorizonObservation]:
     today = as_of or datetime.now(UTC).date()
     observations: list[OutcomeHorizonObservation] = []
@@ -285,27 +288,39 @@ def materialize_outcome_horizons(
     benchmark_entry = _decimal(entry.benchmark_entry_price)
     assert entry_price is not None and benchmark_entry is not None
     for horizon_days in OUTCOME_HORIZONS:
-        existing = db.execute(
-            select(OutcomeHorizonObservation).where(
-                OutcomeHorizonObservation.entry_id == entry.id,
-                OutcomeHorizonObservation.horizon_days == horizon_days,
-            )
-        ).scalar_one_or_none()
+        existing = (
+            next((row for row in existing_observations if row.horizon_days == horizon_days), None)
+            if existing_observations is not None
+            else db.execute(
+                select(OutcomeHorizonObservation).where(
+                    OutcomeHorizonObservation.entry_id == entry.id,
+                    OutcomeHorizonObservation.horizon_days == horizon_days,
+                )
+            ).scalar_one_or_none()
+        )
         if existing is not None:
             observations.append(existing)
             continue
         target = entry.entry_session_date + timedelta(days=horizon_days)
         if target > today:
             continue
-        # SPY is the US-session calendar. Both legs must use the same session;
-        # a missing security observation remains missing (for example delisting).
-        benchmark_row = _first_price_row(db, entry.benchmark_symbol, target)
-        benchmark_day = _price_day(benchmark_row) if benchmark_row is not None else None
-        security_row = (
-            db.get(PriceCache, {"symbol": entry.ticker_at_time, "date": benchmark_day.isoformat()})
-            if benchmark_day is not None
-            else None
-        )
+        # Resolve the session from the market calendar, never from cache rows:
+        # legacy caches can contain weekend/holiday prices. Missing prices on
+        # the actual target session must not silently shift the measurement.
+        session_day = target
+        while not is_market_trading_day(session_day):
+            session_day += timedelta(days=1)
+        if session_day > today:
+            continue
+
+        def price_row(symbol: str) -> PriceCache | None:
+            key = (symbol, session_day.isoformat())
+            if price_rows_by_key is not None:
+                return price_rows_by_key.get(key)
+            return db.get(PriceCache, {"symbol": key[0], "date": key[1]})
+
+        benchmark_row = price_row(entry.benchmark_symbol)
+        security_row = price_row(entry.ticker_at_time)
         security_price = adjusted_price(security_row, "close")
         benchmark_price = adjusted_price(benchmark_row, "close")
         if (
@@ -343,6 +358,48 @@ def materialize_outcome_horizons(
         db.flush()
         observations.append(observation)
     return observations
+
+
+def materialize_cached_outcome_horizons(db: Session, *, as_of: date) -> dict[str, int]:
+    """Process every due verified entry from stored prices, without provider calls.
+
+    The provider hydration budget must not cap work whose prices already exist.
+    Existing observations remain immutable; the caller owns the transaction.
+    """
+    entries = db.execute(select(OutcomeEntry).where(
+        OutcomeEntry.entry_session_date <= as_of - timedelta(days=min(OUTCOME_HORIZONS)),
+    )).scalars().all()
+    if not entries:
+        return {"entries_checked": 0, "observations_created": 0}
+    observations = db.execute(select(OutcomeHorizonObservation).where(
+        OutcomeHorizonObservation.entry_id.in_([entry.id for entry in entries]),
+    )).scalars().all()
+    by_entry: dict[int, list[OutcomeHorizonObservation]] = {}
+    for row in observations:
+        by_entry.setdefault(row.entry_id, []).append(row)
+    due_entries = [entry for entry in entries if any(
+        entry.entry_session_date + timedelta(days=days) <= as_of
+        and days not in {row.horizon_days for row in by_entry.get(entry.id, [])}
+        for days in OUTCOME_HORIZONS
+    )]
+    if not due_entries:
+        return {"entries_checked": 0, "observations_created": 0}
+    symbols = {symbol for entry in due_entries for symbol in (entry.ticker_at_time, entry.benchmark_symbol)}
+    start_day = min(entry.entry_session_date for entry in due_entries) + timedelta(days=min(OUTCOME_HORIZONS))
+    prices = db.execute(select(PriceCache).where(
+        PriceCache.symbol.in_(symbols),
+        PriceCache.date >= start_day.isoformat(),
+        PriceCache.date <= as_of.isoformat(),
+    )).scalars().all()
+    prices_by_key = {(row.symbol, row.date): row for row in prices}
+    created = 0
+    for entry in due_entries:
+        existing = by_entry.get(entry.id, [])
+        rows = materialize_outcome_horizons(
+            db, entry, as_of=as_of, price_rows_by_key=prices_by_key, existing_observations=existing,
+        )
+        created += len(rows) - len(existing)
+    return {"entries_checked": len(due_entries), "observations_created": created}
 
 
 def canonical_outcome_payload(
