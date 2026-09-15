@@ -725,6 +725,22 @@ function EvidenceList({ evidence }: { evidence: Evidence[] }) {
 }
 
 type Run = (fn: () => Promise<unknown>, success?: string) => Promise<void>;
+export function RetryGeneration({busy, onRetry}: {busy: boolean; onRetry: () => Promise<void>}) {
+  const [acknowledged, setAcknowledged] = useState(false);
+  return <div className="space-y-3 rounded-lg border border-emerald-300/25 bg-emerald-300/5 p-4">
+    <p className="text-sm text-slate-300">Resume this version from the failed step. Completed captures and narration are kept. The finished video returns for review.</p>
+    <label className="flex cursor-pointer items-start gap-2 text-xs text-slate-400">
+      <input type="checkbox" disabled={busy} checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />
+      I checked worker/provider activity. I understand retrying an uncertain request may incur another charge.
+    </label>
+    <button type="button" className={button} disabled={busy || !acknowledged} onClick={() => {
+      if (busy || !acknowledged) return;
+      setAcknowledged(false);
+      void onRetry();
+    }}>{busy ? "Queuing retry…" : "Retry generation"}</button>
+  </div>;
+}
+
 function VideoCard({
   item,
   opportunity,
@@ -758,7 +774,6 @@ function VideoCard({
     video_url?: string;
     thumbnail_url?: string;
   }>({});
-  const [retryAcknowledged, setRetryAcknowledged] = useState(false);
   const player = useRef<HTMLVideoElement>(null);
   useEffect(() => { if (!expanded) player.current?.pause(); }, [expanded]);
   const act = (action: string, extra = {}) =>
@@ -771,7 +786,9 @@ function VideoCard({
         }),
       action === "edit" || action === "regenerate"
         ? "New revision queued. Previous video and review history retained."
-        : "Video draft updated.",
+        : action === "retry"
+          ? "Generation retry queued. Completed work is retained; the finished video will return here for review."
+          : "Video draft updated.",
     );
   const loadEvidence = async () => {
     const result = await growthVideoRequest<{ evidence: Evidence[] }>(
@@ -804,6 +821,9 @@ function VideoCard({
         <p className="rounded bg-rose-400/10 p-3 text-sm text-rose-200">
           Could not finish this version. {item.payload.failure_reason}
         </p>
+      )}
+      {item.status === "FAILED" && !publications.length && (
+        <RetryGeneration busy={busy} onRetry={() => act("retry", { acknowledge_provider_retry: true })} />
       )}
       {item.payload.budget_message && <p className="rounded bg-emerald-300/10 p-3 text-sm">{item.payload.budget_message} Next attempt: {item.payload.retry_at ? new Date(item.payload.retry_at).toLocaleString() : "next quota window"}.</p>}
       <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
@@ -1015,28 +1035,6 @@ function VideoCard({
           </button>
         )}
       </div>
-      {item.status === "FAILED" && (
-        <div className="space-y-2">
-          <label className="flex items-start gap-2 text-xs text-slate-400">
-            <input
-              type="checkbox"
-              checked={retryAcknowledged}
-              onChange={(e) => setRetryAcknowledged(e.target.checked)}
-            />
-            I checked provider activity. I understand retrying an uncertain
-            request may incur another charge.
-          </label>
-          <button
-            className={button}
-            disabled={busy || !retryAcknowledged}
-            onClick={() =>
-              void act("retry", { acknowledge_provider_retry: true })
-            }
-          >
-            Retry failed stage
-          </button>
-        </div>
-      )}
       {editing && board && (
         <div className="space-y-3 rounded-lg border border-white/10 p-4">
           <p className="text-sm text-slate-400">

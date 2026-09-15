@@ -24,6 +24,8 @@ def advance_stage(db, item, stage, token, *, storage=None, capture=None, narrato
             shot=scene["shot"]
             if not scene["walnut_url"] or shot in data["captures"]:
                 continue
+            data["capture_attempt"] = {"shot": shot, "at": store.now()}
+            store.save_job(db, item, token=token)
             if capture:
                 footage,thumbnail,metadata=capture(shot)
             elif board["schema_version"] in {4, 5}:

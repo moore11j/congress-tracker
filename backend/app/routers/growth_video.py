@@ -318,8 +318,16 @@ def decision(job_id: str, payload: Decision, user=Depends(admin), db=Depends(get
         if stage == "RENDERING" and item["payload"].get("render_provider_failed"):
             stage = "RENDER_PENDING"
             item["payload"].pop("render_id", None)
+        item["payload"].setdefault("retry_history", []).append({
+            "at": store.now(), "actor_id": user.id, "stage": stage,
+            "failure_reason": item["payload"].get("failure_reason"),
+            "failure_context": item["payload"].get("failure_context"),
+        })
         item["status"] = stage
-        item["payload"]["retry_count"] += 1
+        item["payload"]["retry_count"] = item["payload"].get("retry_count", 0) + 1
+        item["payload"].pop("failure_reason", None)
+        item["payload"].pop("failed_stage", None)
+        item["payload"].pop("failure_context", None)
     safe_call(store.save_job, db, item)
     store.remember(db, item, user.id, action, payload.feedback)
     return item

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -234,8 +235,14 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
         db.rollback()
         item["status"] = "FAILED"
         data["failed_stage"] = stage
+        # Persist code locations, never provider URLs, headers or exception bodies.
+        data["failure_context"] = {"error_type": type(exc).__name__, "stage": stage,
+            "frames": [{"file": os.path.basename(frame.filename), "line": frame.lineno, "function": frame.name}
+                       for frame in traceback.extract_tb(exc.__traceback__)[-6:]]}
         # Provider exception URLs may contain credentials. Persist only our safe errors.
         data["failure_reason"] = str(exc)[:500] if type(exc) is ValueError else f"Video stage failed ({type(exc).__name__}). Check worker/provider configuration before manually retrying."
+        if stage == "CAPTURE_PENDING" and type(exc).__name__ == "TimeoutError":
+            data["failure_reason"] = "Browser capture timed out before this scene finished. Completed scenes are retained. Check the worker and source page, then retry generation."
         store.save_job(db, item, token=token)
     finally:
         db.execute(text("UPDATE growth_video_jobs SET lease_token=NULL,lease_until=NULL WHERE id=:id AND lease_token=:token"), {"id": job_id, "token": token})

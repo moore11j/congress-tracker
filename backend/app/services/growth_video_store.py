@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from urllib.parse import urlencode
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -259,7 +259,12 @@ def job(db, job_id):
 
 
 def save_job(db, item, *, token=None):
-    params = {"id": item["id"], "status": item["status"], "payload": dumps(item["payload"]), "at": now(), "token": token, "previous": item["updated_at"]}
+    updated_at = now()
+    # Each accepted write must advance the optimistic version, including two
+    # saves inside the same clock tick. Otherwise a stale retry can still match.
+    if updated_at <= item["updated_at"]:
+        updated_at = (datetime.fromisoformat(item["updated_at"]) + timedelta(microseconds=1)).isoformat()
+    params = {"id": item["id"], "status": item["status"], "payload": dumps(item["payload"]), "at": updated_at, "token": token, "previous": item["updated_at"]}
     clause = " AND lease_token=:token" if token else " AND lease_token IS NULL AND updated_at=:previous"
     result = db.execute(text("UPDATE growth_video_jobs SET status=:status,payload_json=:payload,updated_at=:at WHERE id=:id" + clause), params)
     if result.rowcount != 1:

@@ -218,6 +218,37 @@ def test_capture_failure_retains_error_and_never_calls_narrator(db,monkeypatch):
     assert pipeline.advance(db,item["id"])=="FAILED"
 
 
+def test_manual_capture_retry_keeps_assets_and_archives_failure(db,monkeypatch):
+    item,*_=prepared(db,monkeypatch)
+    item["status"]="FAILED"
+    item["payload"].update({"failed_stage":"CAPTURE_PENDING", "failure_reason":"Browser timed out.",
+        "failure_context":{"error_type":"TimeoutError"}, "captures":{"completed":{"id":"asset"}},
+        "audio":{"completed":{"id":"voice"}}, "render_budget_reserved":True})
+    store.save_job(db,item)
+    with pytest.raises(HTTPException):
+        api.decision(item["id"],api.Decision(action="retry"),db.get(UserAccount,1),db)
+    api.decision(item["id"],api.Decision(action="retry",acknowledge_provider_retry=True),db.get(UserAccount,1),db)
+    saved=store.job(db,item["id"])
+    assert saved["status"]=="CAPTURE_PENDING"
+    assert saved["payload"]["captures"]=={"completed":{"id":"asset"}}
+    assert saved["payload"]["audio"]=={"completed":{"id":"voice"}}
+    assert saved["payload"]["render_budget_reserved"] is True
+    assert "failure_reason" not in saved["payload"] and "failed_stage" not in saved["payload"]
+    assert saved["payload"]["retry_history"][-1]["failure_reason"]=="Browser timed out."
+    with pytest.raises(HTTPException):
+        api.decision(item["id"],api.Decision(action="retry",acknowledge_provider_retry=True),db.get(UserAccount,1),db)
+
+
+def test_capture_timeout_records_safe_code_locations(db,monkeypatch):
+    item,*_=prepared(db,monkeypatch);item["status"]="CAPTURE_PENDING";store.save_job(db,item)
+    def fail(*a,**k): raise TimeoutError("https://provider.invalid?secret=do-not-log")
+    assert pipeline.advance(db,item["id"],storage=Storage(),capture=fail)=="FAILED"
+    payload=store.job(db,item["id"])["payload"]
+    assert "Browser capture timed out" in payload["failure_reason"]
+    assert payload["failure_context"]["error_type"]=="TimeoutError"
+    assert "do-not-log" not in json.dumps(payload)
+
+
 def test_render_poll_failure_keeps_id_and_retry_does_not_resubmit(db,monkeypatch):
     item,*_=prepared(db,monkeypatch);item["status"]="CAPTURE_PENDING";store.save_job(db,item)
     storage,narrator,renderer=Storage(),Narrator(),Renderer()
@@ -420,6 +451,8 @@ def test_daily_render_budget_is_reserved_before_tts(db,monkeypatch):
 def test_stale_review_cannot_overwrite_another_review(db,monkeypatch):
     item,*_=prepared(db,monkeypatch)
     stale=store.job(db,item["id"])
+    same_tick = item["updated_at"]
+    monkeypatch.setattr(store, "now", lambda: same_tick)
     item["status"]="REJECTED";store.save_job(db,item)
     stale["status"]="CAPTURE_PENDING"
     with pytest.raises(ValueError): store.save_job(db,stale)
