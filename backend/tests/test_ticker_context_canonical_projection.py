@@ -7,7 +7,29 @@ from sqlalchemy.orm import Session
 import app.main as main_module
 from app.entitlements import ENTITLEMENTS
 from app.services.confirmation_score import confirmation_score_bundle_from_source_contexts
+from app.services.confirmation_score import confirmation_score_bundle_from_source_payloads
 from test_ticker_signals_summary import _engine, _mock_ticker_context_bundle_dependencies
+
+
+def test_source_updates_recompute_score_and_conflict_ceiling():
+    def source(direction):
+        return {"present": True, "direction": direction, "strength": 95,
+                "quality": 95, "score_contribution": 10, "freshness_days": 2}
+    bundle = confirmation_score_bundle_from_source_payloads("TEST", sources_payload={
+        "fundamentals": source("bullish"), "analysts": source("bullish"),
+        "price_volume": source("bullish"), "institutional_activity": source("bearish"),
+    })
+    assert bundle["conflict_adjustment"]["opposing_weight"] > 0
+    unavailable = main_module._mark_institutional_unavailable_in_confirmation_bundle(bundle, None, {})
+    assert unavailable["conflict_adjustment"]["opposing_weight"] == 0
+    assert unavailable["sources"]["institutional_activity"]["status"] == "unavailable"
+    refreshed = main_module._merge_authorized_signal_context_into_confirmation_bundle(
+        unavailable, {"status": "active", "direction": "bearish", "recent_count": 3, "latest_score": 95}, {},
+    )
+    expected = confirmation_score_bundle_from_source_payloads("TEST", sources_payload=refreshed["sources"])
+    assert refreshed["score"] == expected["score"]
+    assert refreshed["conflict_adjustment"] == expected["conflict_adjustment"]
+    assert refreshed["conflict_adjustment"]["opposing_weight"] > 0
 
 
 def _canonical_payload() -> dict:

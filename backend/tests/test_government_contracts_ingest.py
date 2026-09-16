@@ -666,3 +666,42 @@ def test_guardrail_blocks_second_contract_run_within_twelve_hours(monkeypatch):
 
     assert first["status"] == "ok"
     assert second["status"] == "guarded_skip"
+
+
+def test_future_contracts_are_excluded_from_summary_agency_and_paginated_details():
+    from app.services.government_contracts import get_government_contracts_for_symbol, _government_contracts_score_contribution
+
+    today = datetime.now(timezone.utc).date()
+    engine = _engine()
+    with Session(engine) as db:
+        for index, day, amount, agency in [
+            (1, today, 1_000_000, "Department of Defense"),
+            (2, today + timedelta(days=1), 1_400_000_000, "Future agency"),
+            (3, today - timedelta(days=31), 50_000_000, "Old agency"),
+        ]:
+            db.add(GovernmentContract(
+                id=index, award_id=f"BOEING-{index}", dedupe_key=f"BA-{index}", symbol="BA",
+                recipient_name="Boeing", raw_recipient_name="Boeing", award_date=day,
+                award_amount=amount, awarding_agency=agency, source="usaspending",
+                mapping_method="alias_exact", mapping_confidence=1.0, payload_json="{}",
+            ))
+        db.commit()
+        summary = get_government_contracts_summaries_for_symbols(db, ["BA"], lookback_days=30)["BA"]
+        details = get_government_contracts_for_symbol(db, "BA", lookback_days=30, limit=1)
+    assert summary["contract_count"] == 1
+    assert summary["total_award_amount"] == 1_000_000
+    assert summary["latest_award_date"] == today.isoformat()
+    assert summary["top_agency"] == "Department of Defense"
+    assert details["total"] == 1
+    assert details["has_next"] is False
+    assert [row["contract_id"] for row in details["items"]] == ["BOEING-1"]
+    assert _government_contracts_score_contribution(total_award_amount=1_400_000_000, latest_award_date=(today + timedelta(days=1)).isoformat()) == 0
+
+
+def test_contract_end_date_is_not_used_as_an_award_date():
+    from app.ingest.government_contracts import normalize_usaspending_award
+
+    row = _row()
+    row["Start Date"] = None
+    row["End Date"] = "2030-01-31"
+    assert normalize_usaspending_award(row, load_ticker_aliases()) is None

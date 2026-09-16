@@ -1,8 +1,7 @@
 """Deterministic interpretation of disagreement inside a confirmation bundle.
 
-This deliberately does not participate in the confirmation-score calculation.  It
-uses the already-normalized source payload and produces a separately versioned,
-qualitative interpretation that can be persisted with a score snapshot.
+The display and confirmation-score ceiling share material-evidence weights.
+The qualitative interpretation is persisted with each score snapshot.
 """
 from __future__ import annotations
 
@@ -10,13 +9,20 @@ import os
 from typing import Any
 
 from app.services.confirmation_score import MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS, SOURCE_LABELS, SOURCE_ORDER
+from app.services.confirmation_evidence import (
+    MIN_MATERIAL_CONTRIBUTION,
+    evidence_exclusion,
+    evidence_freshness as _freshness,
+    evidence_magnitude as _source_magnitude,
+    SOURCE_MAX_POINTS,
+    INSIDER_MAX_POINTS,
+)
 
 
-CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION = "divergence-v2"
+CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION = "divergence-v4-source-priorities"
 # Analysts and other capped-but-directional sources can contribute two points
 # to confirmation. They remain real, current evidence and belong in the
 # agreement view; this floor excludes only de minimis one-point noise.
-MIN_MATERIAL_CONTRIBUTION = 2.0
 MILD_CONFLICT_RATIO = 0.12
 MODERATE_CONFLICT_RATIO = 0.25
 STRONG_CONFLICT_RATIO = 0.42
@@ -36,6 +42,8 @@ def cross_source_divergence_methodology() -> dict[str, Any]:
         "version": CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION,
         "minimum_material_contribution": MIN_MATERIAL_CONTRIBUTION,
         "maximum_freshness_days": MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS,
+        "source_max_points": dict(SOURCE_MAX_POINTS),
+        "insider_max_points": dict(INSIDER_MAX_POINTS),
         "conflict_ratios": {
             "mild": MILD_CONFLICT_RATIO,
             "moderate": MODERATE_CONFLICT_RATIO,
@@ -44,34 +52,6 @@ def cross_source_divergence_methodology() -> dict[str, Any]:
         "fast_sources": sorted(FAST_SOURCE_KEYS),
         "slow_sources": sorted(SLOW_SOURCE_KEYS),
     }
-
-
-def _number(value: Any, default: float = 0.0) -> float:
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return default
-    return value if value == value else default
-
-
-def _freshness(source: dict[str, Any]) -> int | None:
-    value = source.get("freshness_days")
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _source_magnitude(source: dict[str, Any]) -> float:
-    """Use native contribution when available, otherwise a bounded evidence proxy."""
-    contribution = abs(_number(source.get("score_contribution")))
-    if contribution > 0:
-        return contribution
-    strength = max(0.0, _number(source.get("strength")))
-    quality = max(0.0, _number(source.get("quality")))
-    # Confirmation's own evidence formula is deliberately not imported here;
-    # this proxy only makes sources without an explicit contribution comparable.
-    return round((strength * 0.50 + quality * 0.35) / 10.0, 2)
 
 
 def _state_for_strengths(bullish: float, bearish: float) -> str:
@@ -118,21 +98,13 @@ def build_cross_source_divergence(bundle: dict[str, Any] | None) -> dict[str, An
     excluded = {"inactive": 0, "neutral_or_mixed": 0, "stale": 0, "immaterial": 0}
     for key in SOURCE_ORDER:
         source = raw_sources.get(key)
-        if not isinstance(source, dict) or source.get("present") is not True:
-            excluded["inactive"] += 1
+        reason = evidence_exclusion(source)
+        if reason is not None:
+            excluded[reason] += 1
             continue
         direction = str(source.get("direction") or "neutral").lower()
-        if direction not in {"bullish", "bearish"}:
-            excluded["neutral_or_mixed"] += 1
-            continue
         freshness_days = _freshness(source)
-        if freshness_days is not None and freshness_days > MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS:
-            excluded["stale"] += 1
-            continue
-        magnitude = _source_magnitude(source)
-        if magnitude < MIN_MATERIAL_CONTRIBUTION:
-            excluded["immaterial"] += 1
-            continue
+        magnitude = _source_magnitude(source, key)
         eligible.append(
             {
                 "key": key,

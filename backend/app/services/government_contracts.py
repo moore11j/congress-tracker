@@ -124,6 +124,7 @@ def get_government_contracts_signals_for_symbols(
         return {symbol: unavailable_government_contracts_summary() for symbol in normalized_symbols}
 
     cutoff_date = _cutoff_date(lookback_days)
+    today = datetime.now(timezone.utc).date()
     minimum_amount = _non_negative_float(min_amount) or 0.0
 
     summary_rows = db.execute(
@@ -136,6 +137,7 @@ def get_government_contracts_signals_for_symbols(
         )
         .where(func.upper(GovernmentContract.symbol).in_(normalized_symbols))
         .where(GovernmentContract.award_date >= cutoff_date)
+        .where(GovernmentContract.award_date <= today)
         .where(GovernmentContract.award_amount >= minimum_amount)
         .group_by(func.upper(GovernmentContract.symbol))
     ).mappings().all()
@@ -148,6 +150,7 @@ def get_government_contracts_signals_for_symbols(
         )
         .where(func.upper(GovernmentContract.symbol).in_(normalized_symbols))
         .where(GovernmentContract.award_date >= cutoff_date)
+        .where(GovernmentContract.award_date <= today)
         .where(GovernmentContract.award_amount >= minimum_amount)
         .where(GovernmentContract.awarding_agency.is_not(None))
         .group_by(func.upper(GovernmentContract.symbol), GovernmentContract.awarding_agency)
@@ -223,6 +226,7 @@ def get_government_contracts_for_symbol(
     bounded_page = max(0, int(page or 0))
     offset = bounded_page * bounded_limit
     cutoff_date = _cutoff_date(lookback_days)
+    today = datetime.now(timezone.utc).date()
     minimum_amount = _non_negative_float(min_amount) or 0.0
     bounded_lookback_days = max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
 
@@ -279,6 +283,7 @@ def get_government_contracts_for_symbol(
             select(func.count(GovernmentContract.id))
             .where(func.upper(GovernmentContract.symbol) == normalized_symbol)
             .where(GovernmentContract.award_date >= cutoff_date)
+            .where(GovernmentContract.award_date <= today)
             .where(GovernmentContract.award_amount >= minimum_amount)
         ).scalar()
         or 0
@@ -288,6 +293,7 @@ def get_government_contracts_for_symbol(
         select(GovernmentContract)
         .where(func.upper(GovernmentContract.symbol) == normalized_symbol)
         .where(GovernmentContract.award_date >= cutoff_date)
+        .where(GovernmentContract.award_date <= today)
         .where(GovernmentContract.award_amount >= minimum_amount)
         .order_by(GovernmentContract.award_date.desc(), GovernmentContract.award_amount.desc(), GovernmentContract.id.desc())
         .offset(offset)
@@ -441,7 +447,9 @@ def _government_contracts_score_contribution(
     recency_boost = 0
     parsed_latest = _parse_iso_date(latest_award_date)
     if parsed_latest is not None:
-        age_days = max((datetime.now(timezone.utc).date() - parsed_latest).days, 0)
+        age_days = (datetime.now(timezone.utc).date() - parsed_latest).days
+        if age_days < 0:
+            return 0
         if age_days <= 7:
             recency_boost = 5
         elif age_days <= 30:

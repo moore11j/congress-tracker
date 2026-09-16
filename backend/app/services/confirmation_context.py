@@ -24,6 +24,8 @@ from app.services.intelligence_overlays import (
 from app.services.macro_positioning import get_macro_positioning_summaries_for_symbols
 from app.utils.symbols import normalize_symbol
 
+TICKER_CONFIRMATION_CONTEXT_VERSION = "ticker_confirmation_30d_v4_source_priorities"
+
 
 def build_ticker_confirmation_context(db: Session, symbols: list[str]) -> dict[str, Any]:
     """The shared 30-day scoring path for ticker pages and Top Stocks jobs.
@@ -52,7 +54,7 @@ def build_ticker_confirmation_context(db: Session, symbols: list[str]) -> dict[s
         except Exception:
             logging.getLogger(__name__).exception("ticker_confirmation_inputs_failed symbol=%s", symbol)
             bundle = {**bundle, "inputs_incomplete": True}
-        bundle["score_context_version"] = "ticker_confirmation_30d_v1"
+        bundle["score_context_version"] = TICKER_CONFIRMATION_CONTEXT_VERSION
         context["bundles"][symbol] = bundle
     return context
 

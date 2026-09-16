@@ -10,6 +10,7 @@ from app.db import Base
 from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot, Event, FundamentalsCache, GovernmentContract, PriceCache
 from app.services.confirmation_score import (
     CONFIRMATION_CLASSIFICATION_VERSION,
+    CONFIRMATION_SCORING_VERSION,
     confirmation_score_history_for_ticker,
     confirmation_score_bundle_from_source_contexts,
     confirmation_score_bundle_from_source_payloads,
@@ -57,7 +58,7 @@ def test_confirmation_band_thresholds_match_product_contract():
     assert confirmation_band_for_score(80) == "exceptional"
 
 
-def test_confirmation_score_bundle_combines_insider_and_price_confirmation():
+def test_weak_price_confirmation_and_insider_selling_do_not_force_bearish_direction():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
@@ -89,8 +90,8 @@ def test_confirmation_score_bundle_combines_insider_and_price_confirmation():
 
         assert bundle["ticker"] == "CRM"
         assert bundle["band"] in {"weak", "moderate", "strong"}
-        assert bundle["direction"] == "bearish"
-        assert bundle["status"] == "2-source bearish confirmation"
+        assert bundle["direction"] == "neutral"
+        assert bundle["status"] == "Supportive multi-source setup"
         assert bundle["sources"]["insiders"]["present"] is True
         assert bundle["sources"]["price_volume"]["present"] is True
         assert bundle["sources"]["congress"]["present"] is False
@@ -485,8 +486,8 @@ def test_mixed_price_volume_discounts_but_does_not_override_broad_bullish_stack(
 
     assert bundle["sources"]["price_volume"]["direction"] == "mixed"
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] == 73
-    assert bundle["band"] == "strong"
+    assert bundle["score"] == 81
+    assert bundle["band"] == "exceptional"
 
 
 def test_institutional_new_positions_raise_bullish_confirmation_weight():
@@ -709,7 +710,7 @@ def test_slim_confirmation_bundle_exposes_classification_version():
     assert slim["confirmation_classification_version"] == CONFIRMATION_CLASSIFICATION_VERSION
 
 
-def test_bearish_source_conflict_no_longer_caps_clear_bullish_edge():
+def test_bearish_source_conflict_preserves_clear_bullish_direction():
     bundle = confirmation_score_bundle_from_source_contexts(
         "CLSH",
         source_contexts={
@@ -733,3 +734,133 @@ def test_bearish_source_conflict_no_longer_caps_clear_bullish_edge():
 
     assert bundle["direction"] == "bullish"
     assert bundle["score"] > 39
+
+
+def test_future_contract_context_cannot_supply_confirmation():
+    future = (datetime.now(timezone.utc) + timedelta(days=1000)).date().isoformat()
+    bundle = confirmation_score_bundle_from_source_contexts("BA", source_contexts={
+        "government_contracts": {"status": "active", "latest_date": future, "contract_count": 3, "contract_value": 1_400_000_000},
+    })
+    assert bundle["sources"]["government_contracts"]["present"] is False
+    assert bundle["score"] == 0
+
+
+def test_boeing_style_conflict_cannot_be_erased_by_saturating_bonuses():
+    from app.services.cross_source_divergence import build_cross_source_divergence
+    from app.services.ticker_decision_layer import build_ticker_decision_layer
+
+    sources = {key: _payload_source("bullish") for key in
+               ["analysts", "fundamentals", "government_contracts", "institutional_activity"]}
+    sources["government_contracts"]["score_contribution"] = 20
+    sources.update({key: _payload_source("bearish") for key in ["congress", "price_volume", "macro_positioning"]})
+    bundle = confirmation_score_bundle_from_source_payloads("BA", sources_payload=sources)
+    divergence = build_cross_source_divergence(bundle)
+    adjustment = bundle["conflict_adjustment"]
+    assert bundle["direction"] == "bullish"
+    assert adjustment["uncapped_score"] == 100
+    assert adjustment["aligned_weight"] == divergence["bullish_strength"] == 45.67
+    assert adjustment["opposing_weight"] == divergence["bearish_strength"] == 29.82
+    assert divergence["state"] == "moderate_divergence"
+    assert bundle["score"] == 60
+    assert bundle["band"] == "strong"
+    assert "Opposing evidence limits confirmation to 60/100" in bundle["explanation"]
+    slim = slim_confirmation_score_bundle(bundle)
+    assert slim["confirmation_score"] == 60
+    assert slim["confirmation_band"] == "strong"
+    assert slim["confirmation_scoring_version"] == CONFIRMATION_SCORING_VERSION
+    layer = build_ticker_decision_layer("BA", confirmation_bundle=bundle)
+    assert layer["confirmation"]["score"] == 60
+    assert "Opposing evidence limits confirmation to 60/100" in layer["summary"]
+    # The same rule is applied to every ticker and every normalized rebuild.
+    rebuilt = confirmation_score_bundle_from_source_payloads("OTHER", sources_payload=bundle["sources"])
+    assert rebuilt["score"] == bundle["score"]
+    assert rebuilt["conflict_adjustment"] == adjustment
+
+
+def test_aligned_evidence_can_still_reach_full_confirmation():
+    from app.services.confirmation_score import SOURCE_ORDER
+    bundle = confirmation_score_bundle_from_source_payloads("ALIGNED", sources_payload={
+        key: _payload_source("bullish") for key in SOURCE_ORDER
+    })
+    assert bundle["score"] == 100
+    assert bundle["conflict_adjustment"]["applied"] is False
+
+
+def test_conflict_ceiling_is_symmetric_and_ignores_only_excluded_evidence():
+    from app.services.confirmation_evidence import confirmation_conflict_ceiling
+    from app.services.cross_source_divergence import build_cross_source_divergence
+    for side, other in [("bullish", "bearish"), ("bearish", "bullish")]:
+        sources = {"fundamentals": {**_payload_source(side), "score_contribution": 14},
+                   "price_volume": {**_payload_source(other), "score_contribution": 6}}
+        assert confirmation_conflict_ceiling(sources, side)["ceiling"] == 62
+        sources["price_volume"].update(strength=100, quality=100)
+        assert confirmation_conflict_ceiling(sources, side)["ceiling"] == 60
+        for age in [-1, 91]:
+            sources["price_volume"]["freshness_days"] = age
+            assert confirmation_conflict_ceiling(sources, side)["ceiling"] == 100
+            assert build_cross_source_divergence({"sources": sources})["active_source_count"] == 1
+        sources["price_volume"].update(freshness_days=3, score_contribution=1)
+        assert confirmation_conflict_ceiling(sources, side)["ceiling"] == 100
+        sources["price_volume"].update(score_contribution=0, strength=70, quality=70)
+        assert confirmation_conflict_ceiling(sources, side)["ceiling"] < 100
+
+
+def test_redaction_recomputes_conflict_metadata_without_locked_evidence():
+    bundle = confirmation_score_bundle_from_source_payloads("LOCK", sources_payload={
+        "fundamentals": _payload_source("bullish"),
+        "analysts": _payload_source("bullish"),
+        "institutional_activity": _payload_source("bullish"),
+        "options_flow": _payload_source("bearish"),
+    })
+    assert bundle["conflict_adjustment"]["opposing_weight"] > 0
+    redacted = redact_confirmation_bundle_sources(bundle, {"options_flow"})
+    assert redacted["conflict_adjustment"]["opposing_weight"] == 0
+    assert redacted["conflict_adjustment"]["applied"] is False
+
+
+def test_approved_source_maxima_match_score_points_and_evidence_priorities():
+    from app.services.confirmation_evidence import evidence_magnitude
+    for key, side, maximum in [
+        ("fundamentals", "bullish", 20), ("institutional_activity", "bullish", 16),
+        ("insiders", "bullish", 12), ("congress", "bullish", 10),
+        ("congress", "bearish", 10), ("analysts", "bullish", 8),
+        ("government_contracts", "bullish", 5), ("insiders", "bearish", 1),
+    ]:
+        source = {**_payload_source(side, strength=100, quality=100), "score_contribution": 20}
+        bundle = confirmation_score_bundle_from_source_payloads("WEIGHTS", sources_payload={key: source})
+        assert bundle["sources"][key]["confirmation_contribution"] == maximum
+        assert evidence_magnitude(bundle["sources"][key], key) == maximum
+
+
+def test_direction_uses_approved_priorities_and_selling_remains_weak_opposition():
+    from app.services.confirmation_score import ConfirmationSourceSummary, _directional_evidence_weight
+    from app.services.cross_source_divergence import build_cross_source_divergence
+    full = ConfirmationSourceSummary(True, "bullish", 100, 100, 1, "Fixture", 20)
+    assert (_directional_evidence_weight("fundamentals", full)
+            > _directional_evidence_weight("institutional_activity", full)
+            > _directional_evidence_weight("insiders", full)
+            > _directional_evidence_weight("congress", full)
+            > _directional_evidence_weight("analysts", full))
+    sources = {"fundamentals": _payload_source("bullish", strength=100, quality=100),
+               "insiders": _payload_source("bearish", strength=100, quality=100)}
+    result = build_cross_source_divergence({"sources": sources})
+    assert result["bearish_source_count"] == 1
+    assert result["bearish_strength"] == 1
+    bundle = confirmation_score_bundle_from_source_payloads("BUYSELL", sources_payload=sources)
+    assert bundle["direction"] == "bullish"
+    assert bundle["conflict_adjustment"]["ceiling"] == 95
+
+
+def test_legacy_native_contract_bonus_cannot_bypass_five_point_limit():
+    from copy import deepcopy
+    sources = {"fundamentals": _payload_source("bullish"),
+               "government_contracts": _payload_source("bullish")}
+    outputs = []
+    for native in [20, 25]:
+        current = deepcopy(sources)
+        current["government_contracts"]["score_contribution"] = native
+        outputs.append(confirmation_score_bundle_from_source_payloads("CAP", sources_payload=current))
+    assert outputs[0]["sources"]["government_contracts"]["confirmation_contribution"] == 5
+    assert outputs[1]["sources"]["government_contracts"]["confirmation_contribution"] == 5
+    assert outputs[0]["score"] == outputs[1]["score"]
+    assert outputs[0]["conflict_adjustment"] == outputs[1]["conflict_adjustment"]

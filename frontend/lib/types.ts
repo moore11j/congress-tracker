@@ -186,6 +186,7 @@ export type ConfirmationScoreSource = {
   status?: string | null;
   title?: string | null;
   score_contribution?: number;
+  confirmation_contribution?: number;
   detail?: string | null;
   summary?: string | null;
   lines?: string[];
@@ -199,6 +200,14 @@ export type ConfirmationScoreBundle = {
   direction: ConfirmationDirection;
   status: string;
   explanation: string;
+  scoring_version?: string;
+  conflict_adjustment?: {
+    ceiling: number;
+    aligned_weight: number;
+    opposing_weight: number;
+    uncapped_score: number;
+    applied: boolean;
+  } | null;
   sources: {
     congress: ConfirmationScoreSource;
     insiders: ConfirmationScoreSource;

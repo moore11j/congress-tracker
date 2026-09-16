@@ -338,14 +338,14 @@ function contributionRows(snapshot?: OutcomeSnapshot) {
   if (contributions && typeof contributions === "object") {
     const rows = Object.entries(contributions).flatMap(([key, raw]) => {
       if (!raw || typeof raw !== "object") return [];
-      const row = raw as { label?: unknown; direction?: unknown; strength?: unknown; score_contribution?: unknown };
+      const row = raw as { label?: unknown; direction?: unknown; strength?: unknown; score_contribution?: unknown; confirmation_contribution?: unknown };
       return [
         {
           key,
           label: typeof row.label === "string" && row.label ? row.label : sourceLabel(key),
           direction: typeof row.direction === "string" ? formatDirection(row.direction) : "-",
           strength: typeof row.strength === "number" ? String(row.strength) : typeof row.strength === "string" ? row.strength : "-",
-          score: typeof row.score_contribution === "number" ? row.score_contribution : null,
+          score: typeof row.confirmation_contribution === "number" ? row.confirmation_contribution : typeof row.score_contribution === "number" ? row.score_contribution : null,
         },
       ];
     });

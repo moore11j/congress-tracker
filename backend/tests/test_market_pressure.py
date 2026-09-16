@@ -119,6 +119,7 @@ def _tiles_by_symbol(response: dict) -> dict[str, dict]:
 
 def _minimal_market_pressure_tile(symbol: str, *, market_cap: float | None = 100_000_000_000) -> dict:
     return {
+        "scoringVersion": market_pressure.SCORING_VERSION,
         "symbol": symbol,
         "companyName": f"{symbol} Corp",
         "sector": "Technology" if symbol not in {"JPM", "XOM"} else "Financial Services",
@@ -927,3 +928,20 @@ def test_market_pressure_watchlist_is_user_scoped(db):
 
     assert set(_tiles_by_symbol(response_a)) == {"AAA"}
     assert set(_tiles_by_symbol(response_b)) == {"BBB"}
+
+
+def test_market_pressure_rejects_obsolete_score_snapshot(db, monkeypatch):
+    generated = datetime.now(timezone.utc)
+    tile = _minimal_market_pressure_tile("BA")
+    tile["scoringVersion"] = "confirmation_score_v1"
+    tile["confirmationScore"] = 100
+    db.add(MarketPressureSnapshot(
+        universe="sp500", period="1d", symbol="BA", company_name="Boeing", sector="Industrials",
+        exchange="NYSE", price_change_pct=0, market_cap=100_000_000_000,
+        confirmation_direction="bullish", data_state="available", generated_at=generated,
+        tile_json=json.dumps(tile),
+    ))
+    db.commit()
+    params = market_pressure.MarketPressureParams(universe="sp500", period="1d", view="market_pressure", warnings=())
+    assert market_pressure._snapshot_response(db, params=params, symbols=["BA"], generated_at=generated,
+        entitlements=ENTITLEMENTS["pro"], capabilities={}, warnings=[]) is None

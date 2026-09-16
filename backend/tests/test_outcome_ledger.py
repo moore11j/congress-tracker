@@ -189,8 +189,8 @@ def test_methodology_seed_and_single_current_version():
         current_rows = db.execute(
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.is_current.is_(True))
         ).scalars().all()
-        assert current.version == "confirmation-v2"
-        assert [row.version for row in current_rows] == ["confirmation-v2"]
+        assert current.version == "confirmation-v4-source-priorities"
+        assert [row.version for row in current_rows] == ["confirmation-v4-source-priorities"]
 
 
 def test_current_methodology_promotes_deployed_version_over_existing_current():
@@ -211,8 +211,8 @@ def test_current_methodology_promotes_deployed_version_over_existing_current():
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.version == "confirmation-v1")
         ).scalar_one()
 
-        assert current.version == "confirmation-v2"
-        assert [row.version for row in current_rows] == ["confirmation-v2"]
+        assert current.version == "confirmation-v4-source-priorities"
+        assert [row.version for row in current_rows] == ["confirmation-v4-source-priorities"]
         assert retired_v1.is_current is False
         assert retired_v1.retired_at is not None
 
@@ -288,9 +288,17 @@ def test_live_capture_persists_v2_training_features():
         db.commit()
 
         first = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(58, "neutral"), calculated_at=datetime(2026, 8, 3, 15, tzinfo=timezone.utc))
-        second = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(67, "bearish"), calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc))
+        current_bundle = _bundle(67, "bearish")
+        current_bundle["scoring_version"] = "confirmation_score_v4_source_priorities"
+        current_bundle["conflict_adjustment"] = {"ceiling": 70, "aligned_weight": 14, "opposing_weight": 6, "uncapped_score": 67, "applied": False}
+        second = capture_live_confirmation_score_snapshot(db, "CRM", current_bundle, calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc))
         rows = db.execute(select(ConfirmationScoreSnapshot).order_by(ConfirmationScoreSnapshot.id)).scalars().all()
         payload = json.loads(rows[-1].source_contributions_json)
+        assert payload["__score_consistency"] == {
+            "scoring_version": current_bundle["scoring_version"],
+            "conflict_adjustment": current_bundle["conflict_adjustment"],
+        }
+        assert rows[0].score == 58
         features = payload["__v2_features"]
 
         assert first is not None
@@ -672,6 +680,22 @@ def test_backfill_history_creates_matured_rows_from_monitoring_events():
         assert crm["outcomes"]["30D"]["return_pct"] == 12.0
         assert crm["outcomes"]["30D"]["spy_return_pct"] == 2.0
         assert crm["calculation_type"] == "historical_reconstruction"
+        assert crm["score"] == 70  # Preserve the recorded historical score.
+        imported = db.execute(select(ConfirmationScoreSnapshot).where(
+            ConfirmationScoreSnapshot.calculation_type == "historical_reconstruction",
+        )).scalar_one()
+        assert db.get(ConfirmationMethodologyVersion, imported.methodology_version_id).version == "confirmation-historical-recorded-v1"
+        # Activating the new rules must neither duplicate nor relabel this row.
+        original_id, original_hash, original_sources = imported.id, imported.input_hash, imported.source_contributions_json
+        current = current_confirmation_methodology(db)
+        assert current.version == "confirmation-v4-source-priorities"
+        again = backfill_outcome_ledger_history(db, since_days=120, limit=10, min_score=40, min_source_count=1, hydrate_prices=False)
+        assert again["created"] == 0
+        db.refresh(imported)
+        assert (imported.id, imported.score, imported.input_hash, imported.source_contributions_json) == (
+            original_id, 70, original_hash, original_sources,
+        )
+        assert db.get(ConfirmationMethodologyVersion, imported.methodology_version_id).version == "confirmation-historical-recorded-v1"
 
 
 def test_backfill_history_dedupes_same_visible_daily_point():

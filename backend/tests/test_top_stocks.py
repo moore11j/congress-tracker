@@ -151,3 +151,14 @@ def test_shared_score_inputs_do_not_hydrate_incomplete_fundamentals(monkeypatch)
         result = main.build_ticker_signals_summary_contexts_from_cache("TEST", db=db)
         assert result["fundamentals"]
         assert not db.dirty
+
+
+def test_obsolete_scoring_snapshot_is_not_presented_as_current(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row("BA", 100)], {"BA": 100})
+        snapshot = db.scalar(select(LeaderboardSnapshot))
+        payload = json.loads(snapshot.payload_json)
+        payload["score_context_version"] = "ticker_confirmation_30d_v1"
+        snapshot.payload_json = json.dumps(payload)
+        db.commit()
+        assert top_stocks.build_top_stocks_response(db)["items"] == []

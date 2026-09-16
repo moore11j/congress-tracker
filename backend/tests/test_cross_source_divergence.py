@@ -58,7 +58,7 @@ def test_fast_slow_conflict_is_classified_deterministically():
             insiders=_source("bearish", 7),
         )
     )
-    assert result["state"] == "moderate_divergence"
+    assert result["state"] == "mild_divergence"
     assert result["directional_context"] == "near_term_bearish_longer_term_bullish"
     assert result["fast_group_state"] == "bearish"
     assert result["slow_group_state"] == "bullish"
@@ -69,6 +69,7 @@ def test_balanced_multi_source_conflict_is_strong():
         _bundle(
             price_volume=_source("bullish", 14),
             options_flow=_source("bullish", 10),
+            signals=_source("bullish", 10),
             fundamentals=_source("bearish", 11),
             analysts=_source("bearish", 7),
             institutional_activity=_source("bearish", 8),

@@ -156,3 +156,11 @@ def test_decision_layer_does_not_call_neutral_scores_exceptional_neutral():
     )
 
     assert payload["confirmation"]["label"] == "No clear direction"
+
+
+def test_future_source_timestamp_is_not_the_last_updated_date():
+    payload = build_ticker_decision_layer(
+        "BA", confirmation_bundle=_bundle(), generated_at="2026-07-20T00:00:00Z",
+        source_contexts={"government_contracts": {"latest_date": "2999-01-31"}, "price_volume": {"latest_date": "2026-07-19"}},
+    )
+    assert payload["confirmation"]["updated_at"] == "2026-07-19"

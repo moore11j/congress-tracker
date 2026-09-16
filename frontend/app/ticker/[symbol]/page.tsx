@@ -1349,11 +1349,12 @@ function CrossSourceDivergenceCard({ divergence }: { divergence?: CrossSourceDiv
         </div>
       ) : null}
       <div className="mt-4 grid grid-cols-[auto_minmax(4rem,1fr)_auto] items-center gap-3 text-[11px] font-medium">
-        <span className="text-slate-400">Evidence balance</span>
+        <span className="text-slate-400">Source count</span>
         <div className="flex h-1 overflow-hidden rounded-full bg-slate-800"><span className="bg-emerald-400" style={{ width: `${bullishShare}%` }} /><span className="bg-rose-400" style={{ width: `${100 - bullishShare}%` }} /></div>
         <span className="tabular-nums text-slate-400"><span className="text-emerald-300">{divergence.bullish_source_count} bullish</span> <span className="px-1 text-slate-600">|</span> <span className="text-rose-300">{divergence.bearish_source_count} bearish</span></span>
       </div>
-      <p className="mt-3 text-xs text-slate-500">{divergence.active_source_count} active sources evaluated · {divergence.methodology_version}</p>
+      <p className="mt-3 text-xs text-slate-400">Divergence measures weighted disagreement between sources. The bar shows source counts, not their weight in the rating.</p>
+      <p className="mt-2 text-xs text-slate-500">{divergence.active_source_count} active sources evaluated · {divergence.methodology_version}</p>
     </section>
   );
 }
@@ -1828,7 +1829,7 @@ function displayScoreForSources(sources: ConfirmationScoreBundle["sources"]): nu
     ? directionalSources.reduce((sum, source) => sum + Math.max(sources[source].strength, sources[source].quality), 0) / directionalSources.length
     : 0;
   const supportScore = sources.government_contracts.present
-    ? sources.government_contracts.score_contribution ?? Math.max(1, Math.min(sources.government_contracts.strength, 20))
+    ? sources.government_contracts.confirmation_contribution ?? Math.min(5, sources.government_contracts.score_contribution ?? sources.government_contracts.strength)
     : 0;
   return Math.max(0, Math.min(100, Math.round(directionalScore + supportScore)));
 }
@@ -2364,7 +2365,8 @@ function analystSourceBody(source: ConfirmationScoreBundle["sources"]["analysts"
 
 function analystSourceSupport(source: ConfirmationScoreBundle["sources"]["analysts"]): string {
   if (!source.present) return "No directional analyst source in this window.";
-  const contribution = typeof source.score_contribution === "number" ? Math.round(source.score_contribution) : null;
+  const points = source.confirmation_contribution ?? source.score_contribution;
+  const contribution = typeof points === "number" ? Math.round(points) : null;
   return contribution !== null ? `Capped contribution ${contribution}` : "Capped confirmation input";
 }
 

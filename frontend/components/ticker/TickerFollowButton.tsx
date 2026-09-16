@@ -158,23 +158,23 @@ export function TickerFollowButton({ symbol }: Props) {
   const following = Boolean(followingWatchlist);
 
   return (
-    <div className="relative inline-flex min-w-0 flex-col items-stretch gap-1 sm:items-end">
+    <div className="relative inline-flex min-w-0 items-center">
       <button
         type="button"
         onClick={() => void handleClick()}
         disabled={isBusy}
-        className={`inline-flex min-h-10 items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 disabled:cursor-wait disabled:opacity-70 ${
+        className={`inline-flex items-center justify-center whitespace-nowrap rounded-2xl border px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 disabled:cursor-wait disabled:opacity-70 ${
           following
             ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/15"
             : "border-emerald-300/60 bg-emerald-400/90 text-slate-950 shadow-lg shadow-emerald-400/20 hover:bg-emerald-300"
         }`}
         aria-label={following ? `Following ${normalizedSymbol}. Manage follow.` : `Follow ${normalizedSymbol}`}
         aria-busy={isBusy}
+        title={following ? undefined : "Get notified when the evidence changes."}
       >
         {isBusy ? "Following..." : following ? `✓ Following ${normalizedSymbol}` : `★ Follow ${normalizedSymbol}`}
       </button>
-      {!following ? <p className="hidden text-right text-[11px] font-medium text-slate-400 xl:block">Get notified when the evidence changes.</p> : null}
-      {status ? <p className="max-w-64 text-right text-xs text-rose-300" role="alert">{status}</p> : null}
+      {status ? <p className="absolute right-0 top-full z-10 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-rose-300/20 bg-slate-950 p-2 text-right text-xs text-rose-300" role="alert">{status}</p> : null}
       <span className="sr-only" aria-live="polite">{following ? `${normalizedSymbol} is now followed.` : ""}</span>
 
       <WalnutModal

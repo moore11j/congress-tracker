@@ -26,11 +26,13 @@ from app.models import (
 )
 from app.services.confirmation_score import (
     CONFIRMATION_CLASSIFICATION_VERSION,
+    CONFIRMATION_SCORING_VERSION,
     SHORT_HORIZON_SOURCES,
     SOURCE_ORDER,
     THIRTY_DAY_DURABLE_SOURCES,
     confirmation_active_source_count,
 )
+from app.services.confirmation_evidence import SOURCE_MAX_POINTS, INSIDER_MAX_POINTS
 from app.services.cross_source_divergence import (
     CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION,
     build_cross_source_divergence,
@@ -54,7 +56,7 @@ OUTCOMES_LEDGER_MISSING_PRICE_KEY = "outcome_ledger_missing_reference_prices"
 OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_prices"
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
-CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v2"
+CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v4-source-priorities"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OutcomeEntriesBySnapshot = dict[int, OutcomeEntry]
@@ -65,7 +67,7 @@ DateSpreadItem = TypeVar("DateSpreadItem")
 OUTCOME_QUALIFICATION_MIN_SCORE = 40
 OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v8-daily-coverage"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v10-source-priorities"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -201,6 +203,11 @@ def current_code_commit_sha() -> str:
 def current_methodology_configuration() -> dict[str, Any]:
     return {
         "classification_version": CONFIRMATION_CLASSIFICATION_VERSION,
+        "scoring_version": CONFIRMATION_SCORING_VERSION,
+        "source_max_points": dict(SOURCE_MAX_POINTS),
+        "insider_max_points": dict(INSIDER_MAX_POINTS),
+        "application_policy": "New calculations only; never reweight or relabel recorded historical scores or outcomes.",
+        "conflict_ceiling": "floor(100 * aligned_material_weight / total_material_directional_weight), applied after additive bonuses; shared divergence weights",
         "lookback_days": 30,
         "source_order": list(SOURCE_ORDER),
         "score_bands": {
@@ -210,7 +217,7 @@ def current_methodology_configuration() -> dict[str, Any]:
             "strong": [60, 79],
             "exceptional": [80, 100],
         },
-        "notes": "Confirmation v2 keeps the ticker-page score shape but calibrates direction for 30D outcomes: durable sources carry more weight, short-horizon tape carries less weight, and bearish calls require stronger confirmation.",
+        "notes": "Confirmation v4 applies approved source priorities to new calculations only: fundamentals 20, institutions 16, insider buys 12, Congress 10, analysts 8, contracts 5, insider sells 1. Existing snapshots and outcomes retain their original methodology. Scores remain evidence confirmation, not calibrated return probabilities.",
         "outcome_target": {
             "primary_horizon": "30D",
             "primary_metric": "directional accuracy and excess return versus SPY",
@@ -319,6 +326,7 @@ def source_contributions_from_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
             "strength": source.get("strength"),
             "quality": source.get("quality"),
             "score_contribution": source.get("score_contribution"),
+            "confirmation_contribution": source.get("confirmation_contribution"),
             "label": source.get("label"),
             "detail": source.get("detail"),
             "summary": source.get("summary"),
@@ -675,6 +683,8 @@ def input_hash_for_confirmation_bundle(bundle: dict[str, Any], methodology: Conf
         "source_contributions": source_contributions_from_bundle(bundle),
         "source_freshness": source_freshness_from_bundle(bundle),
         "classification_version": bundle.get("classification_version"),
+        "scoring_version": bundle.get("scoring_version"),
+        "conflict_adjustment": bundle.get("conflict_adjustment"),
         "divergence_methodology_version": CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION,
     }
     encoded = json.dumps(_normalized_json(payload), sort_keys=True, separators=(",", ":"))
@@ -804,6 +814,10 @@ def capture_live_confirmation_score_snapshot(
         # This prevents later historical analysis from reconstructing it from
         # today's source state.
         source_contributions["__cross_source_divergence"] = build_cross_source_divergence(bundle)
+        source_contributions["__score_consistency"] = {
+            "scoring_version": bundle.get("scoring_version"),
+            "conflict_adjustment": bundle.get("conflict_adjustment"),
+        }
         input_hash = input_hash_for_confirmation_bundle(bundle, methodology)
 
         existing = db.execute(

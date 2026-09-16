@@ -60,6 +60,9 @@ def build_ticker_decision_layer(
         "history": history,
     }
     summary = _summary(sources, contexts, direction)
+    adjustment = bundle.get("conflict_adjustment")
+    if isinstance(adjustment, dict) and adjustment.get("applied") is True and score is not None:
+        summary += f" Opposing evidence limits confirmation to {score}/100."
     what_changed = _what_changed(confirmation, sources, contexts)
     catalysts = _catalysts(sources, contexts)
     risks = _risks(sources, contexts)
@@ -207,15 +210,16 @@ def _freshness(source: dict[str, Any], context: dict[str, Any]) -> str | None:
 
 def _latest_source_timestamp(sources: dict[str, Any], contexts: dict[str, Any]) -> str | None:
     candidates: list[str] = []
+    today = datetime.now(timezone.utc).date().isoformat()
     for key in SOURCE_ORDER:
         context = _context(contexts, key)
         for field in ("latest_date", "updated_at", "updated", "as_of"):
             value = _text(context.get(field))
-            if value:
+            if value and value[:10] <= today:
                 candidates.append(value)
         source = _source(sources, key)
         value = _text(source.get("updated_at"))
-        if value:
+        if value and value[:10] <= today:
             candidates.append(value)
     return sorted(candidates)[-1] if candidates else None
 

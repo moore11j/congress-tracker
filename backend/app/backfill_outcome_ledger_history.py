@@ -23,14 +23,13 @@ from app.models import (
     TickerMeta,
 )
 from app.services.confirmation_score import (
-    CONFIRMATION_CLASSIFICATION_VERSION,
     SOURCE_ORDER,
     confirmation_band_for_score,
 )
 from app.services.outcome_ledger import (
     OUTCOME_HORIZONS,
     current_code_commit_sha,
-    current_confirmation_methodology,
+    register_confirmation_methodology_version,
 )
 from app.services.price_lookup import get_daily_close_series_with_fallback
 from app.utils.symbols import normalize_symbol
@@ -156,7 +155,7 @@ def _bundle_for_point(point: HistoricalScorePoint) -> dict[str, Any]:
         "band": point.band,
         "direction": point.direction,
         "status": point.status,
-        "classification_version": CONFIRMATION_CLASSIFICATION_VERSION,
+        "classification_version": "historical-recorded-unknown",
         "active_sources": [],
         "sources": {},
         "source_count": point.source_count,
@@ -374,7 +373,6 @@ def _same_day_snapshot(
     db: Session,
     *,
     security_id: int,
-    methodology_id: int,
     market_date: date,
     calculation_type: str,
 ) -> ConfirmationScoreSnapshot | None:
@@ -383,7 +381,6 @@ def _same_day_snapshot(
             select(ConfirmationScoreSnapshot)
             .where(
                 ConfirmationScoreSnapshot.security_id == security_id,
-                ConfirmationScoreSnapshot.methodology_version_id == methodology_id,
                 ConfirmationScoreSnapshot.market_date == market_date,
                 ConfirmationScoreSnapshot.calculation_type == calculation_type,
             )
@@ -405,7 +402,14 @@ def backfill_outcome_ledger_history(
     dry_run: bool = False,
     calculation_type: str = "historical_reconstruction",
 ) -> dict[str, Any]:
-    methodology = current_confirmation_methodology(db)
+    # Historical points contain recorded scores, not enough inputs to establish
+    # which scoring rules produced them. Never label them with today's weights.
+    methodology = register_confirmation_methodology_version(
+        db, version="confirmation-historical-recorded-v1", make_current=False,
+        description="Recorded historical scores; original scoring methodology not available.",
+        configuration={"score_policy": "preserve_as_recorded", "original_methodology": "unknown",
+                       "applies_current_weights": False},
+    )
     since = datetime.now(timezone.utc) - timedelta(days=max(1, int(since_days or 365)))
     points = _load_points(
         db,
@@ -449,11 +453,10 @@ def backfill_outcome_ledger_history(
         existing_same_day = _same_day_snapshot(
             db,
             security_id=security.id,
-            methodology_id=methodology.id,
             market_date=entry_day,
             calculation_type=calculation_type,
         )
-        if existing_same_day is not None and existing_same_day.calculated_at >= point.observed_at:
+        if existing_same_day is not None and _utc(existing_same_day.calculated_at) >= _utc(point.observed_at):
             report["skipped_existing"] += 1
             continue
 

@@ -9,7 +9,7 @@ from sqlalchemy import JSON, cast, select, type_coerce
 from sqlalchemy.orm import Session
 
 from app.models import LeaderboardSnapshot, TickerContextBundleCache
-from app.services.confirmation_context import build_ticker_confirmation_context
+from app.services.confirmation_context import TICKER_CONFIRMATION_CONTEXT_VERSION, build_ticker_confirmation_context
 from app.services.confirmation_score import SOURCE_LABELS
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, matches_confirmation_filters
 
@@ -51,6 +51,8 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
         return _empty_response()
     payload = _payload(snapshot.payload_json)
     if payload is None:
+        return _empty_response()
+    if payload.get("score_context_version") != TICKER_CONFIRMATION_CONTEXT_VERSION:
         return _empty_response()
     candidates = payload.pop("candidate_rows", None)
     if not isinstance(candidates, list):
@@ -117,7 +119,7 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
         row["updated_at"] = _iso(generated_at)
         candidates.append(row)
     payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
-    stored_payload = {**payload, "candidate_rows": candidates}
+    stored_payload = {**payload, "candidate_rows": candidates, "score_context_version": TICKER_CONFIRMATION_CONTEXT_VERSION}
     snapshot = db.execute(
         select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)
     ).scalar_one_or_none()

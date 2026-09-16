@@ -6746,7 +6746,7 @@ def admin_ticker_cross_source_divergence(symbol: str, request: Request, response
     }
 
 
-_TICKER_CONTEXT_BUNDLE_VERSION = 8
+_TICKER_CONTEXT_BUNDLE_VERSION = 11
 _TICKER_CONTEXT_BUNDLE_INFLIGHT_LOCK = threading.Lock()
 _TICKER_CONTEXT_BUNDLE_INFLIGHT: dict[str, dict[str, Any]] = {}
 _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK = threading.Lock()
@@ -10944,7 +10944,12 @@ def _merge_authorized_signal_context_into_confirmation_bundle(
     )
     source_details["signals"] = signal_detail
     merged["source_details"] = source_details
-    return merged
+    recomputed = confirmation_score_bundle_from_source_payloads(
+        str(bundle.get("ticker") or ""),
+        lookback_days=max(1, min(int(bundle.get("lookback_days") or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+        sources_payload=sources,
+    )
+    return {**merged, **recomputed, "sources": sources}
 
 
 def _merge_fresh_public_contexts_into_confirmation_bundle(
@@ -11036,7 +11041,12 @@ def _mark_institutional_unavailable_in_confirmation_bundle(
         source_details = {}
     source_details["institutional_activity"] = "Institutional activity is unavailable."
     merged["source_details"] = source_details
-    return merged
+    recomputed = confirmation_score_bundle_from_source_payloads(
+        str(bundle.get("ticker") or ""),
+        lookback_days=max(1, min(int(bundle.get("lookback_days") or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+        sources_payload=sources,
+    )
+    return {**merged, **recomputed, "sources": sources}
 
 
 @app.get("/api/tickers/{symbol}/signals-summary")

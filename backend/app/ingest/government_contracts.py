@@ -374,7 +374,8 @@ def normalize_usaspending_award(raw: dict[str, Any], alias_map: dict[str, str]) 
 
     period_start = _parse_date(raw.get("Start Date"))
     period_end = _parse_date(raw.get("End Date"))
-    award_date = period_start or period_end
+    # A performance end date is not an award date and may be years ahead.
+    award_date = period_start
     if award_date is None:
         return None
 

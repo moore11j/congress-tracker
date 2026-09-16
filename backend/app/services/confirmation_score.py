@@ -32,6 +32,13 @@ from app.services.price_lookup import get_daily_close_series_with_fallback, get_
 from app.services.signal_freshness import slim_signal_freshness_bundle
 from app.services.signal_score import calculate_smart_score
 from app.services.why_now import slim_why_now_bundle
+from app.services.confirmation_evidence import (
+    MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS,
+    confirmation_conflict_ceiling,
+    evidence_magnitude,
+    freshness_score,
+    source_max_points,
+)
 
 ConfirmationDirection = Literal["bullish", "bearish", "neutral", "mixed"]
 ConfirmationBand = Literal["inactive", "weak", "moderate", "strong", "exceptional"]
@@ -73,12 +80,12 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v4_30d_calibrated"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v5_source_priorities"
+CONFIRMATION_SCORING_VERSION = "confirmation_score_v4_source_priorities"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0
 CONFLICT_DIRECTIONAL_EDGE_RATIO = 0.25
-MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
 THIRTY_DAY_DURABLE_SOURCES: set[ConfirmationSourceKey] = {
     "analysts",
     "fundamentals",
@@ -145,6 +152,8 @@ class ConfirmationScoreBundle:
     active_sources: list[ConfirmationSourceKey]
     source_details: dict[ConfirmationSourceKey, str]
     classification_version: str = CONFIRMATION_CLASSIFICATION_VERSION
+    scoring_version: str = CONFIRMATION_SCORING_VERSION
+    conflict_adjustment: dict[str, Any] | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -155,11 +164,14 @@ class ConfirmationScoreBundle:
             "direction": self.direction,
             "status": self.status,
             "explanation": self.explanation,
-            "sources": {key: value.as_dict() for key, value in self.sources.items()},
+            "sources": {key: {**value.as_dict(), "confirmation_contribution": _source_score_component(key, value)}
+                        for key, value in self.sources.items()},
             "drivers": list(self.drivers),
             "active_sources": list(self.active_sources),
             "source_details": dict(self.source_details),
             "classification_version": self.classification_version,
+            "scoring_version": self.scoring_version,
+            "conflict_adjustment": self.conflict_adjustment,
         }
 
 
@@ -462,6 +474,7 @@ def slim_confirmation_score_bundle(bundle: dict) -> dict:
         "confirmation_score": score_int,
         "confirmation_band": band,
         "confirmation_direction": direction,
+        "confirmation_scoring_version": bundle.get("scoring_version") if isinstance(bundle, dict) else None,
         "confirmation_classification_version": (
             bundle.get("classification_version")
             if isinstance(bundle, dict) and isinstance(bundle.get("classification_version"), str)
@@ -981,6 +994,8 @@ def _options_flow_source(
 
 
 def _government_contracts_source(summary: dict | None) -> ConfirmationSourceSummary:
+    if isinstance(summary, dict) and _is_future_date(summary.get("latest_award_date")):
+        return _empty_source("No recent government contracts")
     if not isinstance(summary, dict) or summary.get("active") is not True:
         return _empty_source("No recent government contracts")
 
@@ -1015,6 +1030,8 @@ def _government_contracts_source(summary: dict | None) -> ConfirmationSourceSumm
 
 def _government_contracts_support_source(summary: dict | None) -> ConfirmationSourceSummary:
     if not isinstance(summary, dict):
+        return _empty_source("No recent government contracts")
+    if _is_future_date(summary.get("latest_award_date")):
         return _empty_source("No recent government contracts")
 
     is_active = summary.get("active") is True
@@ -1167,6 +1184,16 @@ def _freshness_days(value: datetime | None, now: datetime) -> int | None:
     return max((now - ts).days, 0)
 
 
+def _is_future_date(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return _coerce_utc(parsed).date() > datetime.now(timezone.utc).date()
+
+
 def _days_since_iso(value: object) -> int | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -1179,17 +1206,7 @@ def _days_since_iso(value: object) -> int | None:
 
 
 def _freshness_score(days: int | None) -> int:
-    if days is None:
-        return 0
-    if days <= 3:
-        return 100
-    if days <= 7:
-        return 85
-    if days <= 14:
-        return 65
-    if days <= 30:
-        return 40
-    return 15
+    return freshness_score(days)
 
 
 def _normalized_side(value: str | None) -> Literal["buy", "sell"] | None:
@@ -1427,6 +1444,8 @@ def _fundamentals_context_source(context: dict[str, Any] | None) -> Confirmation
 
 def _government_contracts_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
     if _context_status(context) != "active":
+        return _empty_source("No recent government contracts")
+    if _is_future_date(context.get("latest_date")):
         return _empty_source("No recent government contracts")
     contract_count = _context_int(context, "contract_count")
     if contract_count <= 0:
@@ -2048,8 +2067,9 @@ def classify_confirmation_direction(
 
 
 def _directional_evidence_weight(key: ConfirmationSourceKey, source: ConfirmationSourceSummary) -> float:
-    freshness = _freshness_score(source.freshness_days)
-    weight = source.strength * 0.50 + source.quality * 0.35 + freshness * 0.15 + source.score_contribution * 2.0
+    # Retain the classifier's existing 0–100 reference scale and horizon
+    # adjustments while sharing the source priorities with score and divergence.
+    weight = evidence_magnitude(source.as_dict(), key) * 10.0
     if key in THIRTY_DAY_DURABLE_SOURCES:
         weight *= 1.20 if source.direction == "bullish" else 1.08 if source.direction == "bearish" else 1.0
     elif key in SHORT_HORIZON_SOURCES:
@@ -2077,38 +2097,29 @@ def _classification_strength(evidence: float, edge: float) -> Literal["weak", "m
     return "weak"
 
 
-def _asymmetric_source_component(
-    source: ConfirmationSourceSummary,
-    *,
-    bullish_weight: float,
-    bearish_weight: float,
-    mixed_weight: float = 0.0,
-) -> float:
+def _source_score_component(key: str, source: ConfirmationSourceSummary) -> float:
+    """Actual source-specific points, distinct from legacy native activity inputs."""
     if not source.present:
         return 0.0
-    if source.direction == "bullish":
-        return source.strength * bullish_weight
-    if source.direction == "bearish":
-        return source.strength * bearish_weight
-    if source.direction == "mixed":
-        return source.strength * mixed_weight
-    return 0.0
-
-
-def _disclosure_component(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> float:
-    congress = sources["congress"]
-    insiders = sources["insiders"]
-    component = 0.0
-    if congress.present and congress.direction in {"bullish", "bearish"}:
-        component += congress.strength * 0.05
-    if insiders.present:
-        if insiders.direction == "bullish":
-            component += insiders.strength * 0.07
-        elif insiders.direction == "bearish":
-            component += insiders.strength * 0.02
-        elif insiders.direction == "mixed":
-            component += insiders.strength * 0.03
-    return component
+    side = source.direction
+    cap = source_max_points(key, side)
+    if key == "government_contracts":
+        return round(min(max(source.score_contribution, 0), 20) * cap / 20, 4)
+    if key == "price_volume":
+        return round(source.strength * cap / 100, 4)
+    if key == "fundamentals":
+        multiplier = 1.0 if side == "bullish" else .5 if side in {"bearish", "mixed"} else 0.0
+    elif key == "institutional_activity":
+        multiplier = 1.0 if side == "bullish" else .5 if side == "bearish" else .3 if side == "mixed" else 0.0
+    elif key == "analysts":
+        multiplier = 1.0 if side == "bullish" else 5 / 8 if side == "bearish" else 0.0
+    elif key == "congress":
+        multiplier = 1.0 if side in {"bullish", "bearish"} else 0.0
+    elif key == "insiders":
+        multiplier = 1.0
+    else:
+        return 0.0
+    return round(source.strength * cap * multiplier / 100, 4)
 
 
 def _score_bundle(
@@ -2150,26 +2161,12 @@ def _score_bundle(
     quality_component = sum(source.quality for source in present_sources) / active_count
     freshness_component = sum(_freshness_score(source.freshness_days) for source in present_sources) / active_count
     price_component = sources["price_volume"].strength if sources["price_volume"].present else 0
-    fundamentals_component = _asymmetric_source_component(
-        sources["fundamentals"],
-        bullish_weight=0.16,
-        bearish_weight=0.08,
-        mixed_weight=0.08,
-    )
-    analysts_component = _asymmetric_source_component(
-        sources["analysts"],
-        bullish_weight=0.08,
-        bearish_weight=0.05,
-    )
-    institutional_component = _asymmetric_source_component(
-        sources["institutional_activity"],
-        bullish_weight=0.20,
-        bearish_weight=0.10,
-        mixed_weight=0.06,
-    )
-    disclosure_component = _disclosure_component(sources)
+    fundamentals_component = _source_score_component("fundamentals", sources["fundamentals"])
+    analysts_component = _source_score_component("analysts", sources["analysts"])
+    institutional_component = _source_score_component("institutional_activity", sources["institutional_activity"])
+    disclosure_component = sum(_source_score_component(key, sources[key]) for key in ("congress", "insiders"))
     support_bonus = sum(
-        sources[key].score_contribution
+        _source_score_component(key, sources[key])
         for key in SOURCE_ORDER
         if sources[key].present and key in SUPPORT_ONLY_SOURCE_KEYS
     )
@@ -2193,10 +2190,18 @@ def _score_bundle(
     if _has_conflicting_support(sources, direction):
         score = min(score, 79)
 
+    conflict_adjustment = confirmation_conflict_ceiling(
+        {key: source.as_dict() for key, source in sources.items()}, direction,
+    )
+    conflict_adjustment["uncapped_score"] = score
+    score = min(score, conflict_adjustment["ceiling"])
+    conflict_adjustment["applied"] = score < conflict_adjustment["uncapped_score"]
     band = confirmation_band_for_score(score)
     drivers = _driver_bullets(sources, direction)
     status = _status_text(active_count, direction)
     explanation = _explanation(sources, drivers, direction)
+    if conflict_adjustment["applied"]:
+        explanation += f" Opposing evidence limits confirmation to {score}/100."
 
     return ConfirmationScoreBundle(
         ticker=ticker,
@@ -2210,6 +2215,7 @@ def _score_bundle(
         drivers=drivers,
         active_sources=active_source_keys,
         source_details={key: sources[key].detail or sources[key].summary or sources[key].label for key in SOURCE_ORDER},
+        conflict_adjustment=conflict_adjustment,
     )
 
 

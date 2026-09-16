@@ -17,6 +17,7 @@ from app.clients.fmp import FMPClientError, fetch_market_capitalization
 from app.entitlements import TierEntitlements
 from app.models import FundamentalsCache, MarketPressureSnapshot, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_score import (
+    CONFIRMATION_SCORING_VERSION,
     SOURCE_ORDER,
     confirmation_active_source_count,
     confirmation_band_for_score,
@@ -43,7 +44,7 @@ Divergence = Literal[
 ]
 
 CONFIRMATION_FRESHNESS_WINDOW_DAYS = 30
-SCORING_VERSION = "confirmation_score_v1"
+SCORING_VERSION = CONFIRMATION_SCORING_VERSION
 MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 260
 MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS: dict[MarketPressureUniverse, set[str]] = {
     "sp500": {"GOOG"},
@@ -457,6 +458,8 @@ def _snapshot_response(
             tile = json.loads(row.tile_json)
         except (TypeError, ValueError):
             continue
+        if isinstance(tile, dict) and tile.get("scoringVersion") != SCORING_VERSION:
+            return None
         if isinstance(tile, dict) and _tile_matches_view(tile, params.view):
             tiles.append(tile)
     sectors = _group_tiles_by_sector(tiles)
@@ -1058,6 +1061,7 @@ def _build_tile(
         "priceStartAt": price.start_at,
         "priceEndAt": price.end_at,
         "confirmationScore": score if direction != "unavailable" else None,
+        "scoringVersion": SCORING_VERSION,
         "confirmationDirection": direction,
         "confirmationStrength": strength,
         "confirmationTrend": None,

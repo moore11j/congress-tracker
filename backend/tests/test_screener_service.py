@@ -1181,7 +1181,7 @@ def test_screener_government_contract_filters_and_row_fields(monkeypatch):
     assert [row["symbol"] for row in response["items"]] == ["GOVT"]
     row = response["items"][0]
     assert row["government_contracts_active"] is True
-    assert row["government_contracts_score_contribution"] == 13
+    assert row["government_contracts_score_contribution"] == 3.25
     assert row["government_contracts_count"] == 1
     assert row["government_contracts_total_amount"] == 12_000_000
     assert row["government_contracts_top_agency"] == "Department of Defense"
@@ -1273,8 +1273,9 @@ def test_screener_and_bundle_share_government_contract_score_contribution(monkey
         bundle = get_confirmation_score_bundle_for_ticker(db, "SYNC", lookback_days=30)
 
     row = response["items"][0]
-    assert row["government_contracts_score_contribution"] == summary["score_contribution"] == 20
-    assert bundle["sources"]["government_contracts"]["score_contribution"] == row["government_contracts_score_contribution"]
+    assert summary["score_contribution"] == 20  # Native activity input is unchanged.
+    assert row["government_contracts_score_contribution"] == 5
+    assert bundle["sources"]["government_contracts"]["confirmation_contribution"] == row["government_contracts_score_contribution"]
     assert row["confirmation"]["score"] is not None
 
 
