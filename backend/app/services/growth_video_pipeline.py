@@ -117,7 +117,7 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
     if item["payload"].get("capture_retry_at", "") > now():
         return item["status"]
     token = uuid.uuid4().hex
-    lease = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    lease = (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat()
     # Expired in-flight work must be reconciled, not silently replayed.
     claimed = db.execute(text("UPDATE growth_video_jobs SET lease_token=:token,lease_until=:lease WHERE id=:id AND status=:status AND lease_token IS NULL"),
         {"token": token, "lease": lease, "id": job_id, "status": item["status"]})

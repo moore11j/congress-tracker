@@ -12,6 +12,7 @@ class CinematicStyle:
         self.w, self.h = size
         self.brightness = brightness
         self.background = Path(background) if background else None
+        self._background_key = self._light_key = self._frame_key = self._panel_key = None
         self.plate = (ImageOps.fit(Image.open(self.background).convert('RGB'),
                                  (self.w + 100, self.h + 160), method=Image.Resampling.LANCZOS)
                       if self.background else Image.new('RGB', (self.w + 100, self.h + 160), '#102327'))
@@ -24,14 +25,25 @@ class CinematicStyle:
     def frame(self, t, elapsed, closing=False):
         x = round(50 + 30 * math.sin(t * .13))
         y = round(75 - 55 * math.sin(t * .075))
-        image = self.plate.crop((x, y, x + self.w, y + self.h)).convert('RGBA')
-        image = Image.alpha_composite(image, self.veil)
-        light = Image.new('RGBA', (self.w // 4, self.h // 4))
-        d = ImageDraw.Draw(light)
         cx = 120 + 60 * math.sin(t * .17)
-        d.ellipse((cx - 100, 90, cx + 100, 375), fill=(64, 200, 164, 25 if closing else 16))
-        light = light.filter(ImageFilter.GaussianBlur(35)).resize(image.size, Image.Resampling.BILINEAR)
-        image = Image.alpha_composite(image, light)
+        background_key = (x, y) if self.background else (0, 0)
+        # Pillow rasterizes these ellipse coordinates to integers. Cache the
+        # resulting pixels, not the product footage, while the geometry matches.
+        light_key = (int(cx - 100), int(cx + 100), closing)
+        frame_key = (background_key, light_key, elapsed if 0 <= elapsed < .5 else None)
+        if frame_key == self._frame_key:
+            return self._frame.copy()
+        if background_key != self._background_key:
+            image = self.plate.crop((x, y, x + self.w, y + self.h)).convert('RGBA')
+            self._background = Image.alpha_composite(image, self.veil)
+            self._background_key = background_key
+        if light_key != self._light_key:
+            light = Image.new('RGBA', (self.w // 4, self.h // 4))
+            d = ImageDraw.Draw(light)
+            d.ellipse((light_key[0], 90, light_key[1], 375), fill=(64, 200, 164, 25 if closing else 16))
+            self._light = light.filter(ImageFilter.GaussianBlur(35)).resize((self.w, self.h), Image.Resampling.BILINEAR)
+            self._light_key = light_key
+        image = Image.alpha_composite(self._background, self._light)
         if 0 <= elapsed < .5:
             light = Image.new('RGBA', image.size)
             d = ImageDraw.Draw(light)
@@ -44,15 +56,19 @@ class CinematicStyle:
         image = image.convert('RGB')
         if self.brightness != 1.0:
             image = image.point([round(v*self.brightness) for v in range(256)]*3)
+        self._frame_key, self._frame = frame_key, image.copy()
         return image
 
     def panel(self, image, pic, xy):
         x, y = xy
-        layer = Image.new('RGBA', image.size)
-        d = ImageDraw.Draw(layer)
-        d.rounded_rectangle((x-8,y-8,x+pic.width+8,y+pic.height+8), radius=20, fill=(0,0,0,215))
-        layer = layer.filter(ImageFilter.GaussianBlur(15))
-        image.paste(layer, (0,0), layer)
+        panel_key = (image.size, pic.size, xy)
+        if panel_key != self._panel_key:
+            layer = Image.new('RGBA', image.size)
+            d = ImageDraw.Draw(layer)
+            d.rounded_rectangle((x-8,y-8,x+pic.width+8,y+pic.height+8), radius=20, fill=(0,0,0,215))
+            self._panel = layer.filter(ImageFilter.GaussianBlur(15))
+            self._panel_key = panel_key
+        image.paste(self._panel, (0,0), self._panel)
         image.paste(pic, xy)
         d = ImageDraw.Draw(image)
         d.rounded_rectangle((x-2,y-2,x+pic.width+2,y+pic.height+2), radius=8, outline='#365750', width=2)

@@ -113,7 +113,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
    process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=log);started=time.monotonic()
    try:
     for n in range(math.ceil(duration*FPS)):
-     if time.monotonic()-started>900:raise ValueError('Navigation render exceeded time budget.')
+     if time.monotonic()-started>1800:raise ValueError('Navigation render exceeded time budget.')
      t=n/FPS;scene=scenes[max(0,bisect.bisect_right([s['start'] for s in scenes],t)-1)];shot=scene['shot']
      elapsed=t-scene['start']
      if cinema:
