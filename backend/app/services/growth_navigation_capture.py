@@ -2,6 +2,7 @@
 import io
 import math
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -13,6 +14,13 @@ from app.services.growth_video_domain import now, digest
 
 VIEWPORT={'width':1040,'height':1000}
 SHOTS={'v4_search','v4_ownership','v4_activity','v4_manager','v4_filings','v4_insights','v4_brief'}
+PAGE_TIMEOUT_MS=120000
+FRAME_TIMEOUT_MS=90000
+CAPTURE_SECONDS=900
+
+
+class CaptureTimeout(TimeoutError):
+ pass
 
 
 def pointer_arc(start,end,steps=8,bend=18):
@@ -31,7 +39,7 @@ def pointer_arc(start,end,steps=8,bend=18):
 class Recorder:
  def __init__(self,page,root):
   self.page=page;self.root=root;self.frames=[];self.markers=[];self.events=[];self.pointer=(670,180);self.clicked=False
-  self.camera=None;self.deadline=time.monotonic()+360
+  self.camera=None;self.deadline=time.monotonic()+CAPTURE_SECONDS
 
  def box(self,loc):
   b=loc.bounding_box()
@@ -42,7 +50,7 @@ class Recorder:
   self.markers.append({'phrase':phrase,'frame':len(self.frames)})
 
  def frame(self):
-  if time.monotonic()>self.deadline:raise ValueError('Navigation capture exceeded its time budget.')
+  if time.monotonic()>self.deadline:raise CaptureTimeout('Navigation capture exceeded its time budget.')
   # The page stays unmodified. Mask personal account identity in captured
   # pixels only; paid product data remains exactly as displayed.
   masks=self.page.evaluate('''() => {
@@ -58,16 +66,23 @@ class Recorder:
    document.querySelectorAll('button').forEach(e=>{if(/Hello,/.test(e.textContent||''))add(e);});
    return out;
   }''')
-  im=Image.open(io.BytesIO(self.page.screenshot(animations='disabled',timeout=20000))).convert('RGB')
+  im=Image.open(io.BytesIO(self.page.screenshot(type='jpeg',quality=95,animations='disabled',timeout=FRAME_TIMEOUT_MS))).convert('RGB')
   for b in masks:
    rect=(max(0,int(b['x'])),max(0,int(b['y'])),min(1040,math.ceil(b['x']+b['width'])),min(1000,math.ceil(b['y']+b['height'])))
    if rect[2]>rect[0] and rect[3]>rect[1]:im.paste(im.crop(rect).filter(ImageFilter.GaussianBlur(14)),rect)
-  im.save(self.root/f'frame-{len(self.frames):03}.png')
+  im.save(self.root/f'frame-{len(self.frames):03}.jpg',quality=95,subsampling=0)
   self.frames.append({'cursor':list(self.pointer),'click':self.clicked,'camera':self.camera or {'x':0,'y':0,**VIEWPORT},'page_url':self.page.url,'masked_regions':len(masks)})
   self.clicked=False
 
  def hold(self,n=6):
-  for _ in range(n):self.frame()
+  # A deliberate still hold needs one real screenshot, not n expensive browser
+  # screenshots of identical pixels. Keep every timeline frame/action index.
+  if n<=0:return
+  self.frame()
+  source=self.root/f'frame-{len(self.frames)-1:03}.jpg'
+  for _ in range(n-1):
+   shutil.copyfile(source,self.root/f'frame-{len(self.frames):03}.jpg')
+   self.frames.append({**self.frames[-1],'click':False})
 
  def move(self,loc,steps=7):
   b=self.box(loc);end=(b['x']+b['width']*.48,b['y']+b['height']*.53)
@@ -90,7 +105,7 @@ class Recorder:
   self.clicked=True;self.frame()
   # Locators also wait for a target to settle after asynchronous table hydration.
   # This is a real browser click; it cannot activate an unrelated row underneath.
-  loc.click(position={'x':b['width']*.48,'y':b['height']*.53},timeout=20000)
+  loc.click(position={'x':b['width']*.48,'y':b['height']*.53},timeout=FRAME_TIMEOUT_MS)
   self.events.append({'type':'click','target':label,'frame':len(self.frames)-1,'page_url':self.page.url})
 
  def circle(self,loc):
@@ -135,7 +150,7 @@ class Recorder:
 def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  from playwright.sync_api import sync_playwright
  import imageio_ffmpeg
- shots={'daily_search','daily_insights','daily_brief','daily_takeaway'} if daily else SHOTS
+ shots={'daily_search','daily_insights','daily_research','daily_brief','daily_takeaway'} if daily else SHOTS
  if shot not in shots or owner_id is None:raise ValueError('Authorized navigation capture required.')
  ticker=daily['ticker'] if daily else 'NVDA'
  ticker_url=f'https://app.walnutmarkets.com/ticker/{ticker}' if daily else TICKER_URL
@@ -144,15 +159,19 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  source_title=daily['source_research_title'] if daily else SOURCE_TITLE
  if session_token is None:
   from app.auth import sign_session_payload
-  session_token=sign_session_payload({'uid':owner_id,'exp':int(time.time())+900})
+  session_token=sign_session_payload({'uid':owner_id,'exp':int(time.time())+1800})
  initial=INSIGHTS_URL if shot in {'v4_search','v4_brief'} else INSTITUTION_URL if shot in {'v4_filings','v4_insights'} else TICKER_URL
  if daily:initial=INSIGHTS_URL if shot in {'daily_search','daily_brief'} else ticker_url if shot=='daily_insights' else brief_url
+ ticker_research=bool(daily and daily.get('walkthrough_version',1)>=2)
+ if ticker_research and shot in {'daily_search','daily_research','daily_brief'}:initial=ticker_url
  with tempfile.TemporaryDirectory(prefix='walnut-navigation-') as folder,sync_playwright() as pw:
   root=Path(folder);browser=pw.chromium.launch(headless=True)
   context=browser.new_context(viewport=VIEWPORT,device_scale_factor=1,color_scheme='dark',locale='en-US',timezone_id='UTC')
-  context.add_cookies([{'name':'ct_session','value':session_token,'domain':host,'path':'/','secure':True,'httpOnly':True,'sameSite':'None','expires':time.time()+900} for host in ['app.walnutmarkets.com','walnutmarkets.com','congress-tracker-api.fly.dev']])
+  context.add_cookies([{'name':'ct_session','value':session_token,'domain':host,'path':'/','secure':True,'httpOnly':True,'sameSite':'None','expires':time.time()+1800} for host in ['app.walnutmarkets.com','walnutmarkets.com','congress-tracker-api.fly.dev']])
   context.add_cookies([{'name':name,'value':value,'domain':host,'path':'/','secure':True} for host in ['app.walnutmarkets.com','walnutmarkets.com'] for name,value in [('ct_auth_hint','1'),('walnut_privacy_consent','v1.a0.m0')]])
   page=context.new_page();search_requests=[]
+  page.set_default_timeout(PAGE_TIMEOUT_MS)
+  page.set_default_navigation_timeout(PAGE_TIMEOUT_MS)
   page.on('response',lambda response:search_requests.append({'path':urlsplit(response.url).path,'status':response.status}) if 'search' in urlsplit(response.url).path else None)
   allowed_paths={urlsplit(u).path for u in [ticker_url,INSTITUTION_URL,INSIGHTS_URL,brief_url]}
   def guard(route):
@@ -167,9 +186,9 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
   identity=context.request.get('https://congress-tracker-api.fly.dev/api/auth/me',timeout=30000,max_redirects=0)
   user=(identity.json().get('user') or {}) if identity.status==200 else {}
   if user.get('id')!=owner_id or user.get('role')!='admin':raise ValueError('Admin capture session could not be verified.')
-  response=page.goto(initial,wait_until='domcontentloaded',timeout=60000)
+  response=page.goto(initial,wait_until='domcontentloaded',timeout=PAGE_TIMEOUT_MS)
   if not response or response.status!=200:raise ValueError('Navigation source is unavailable.')
-  page.get_by_role('combobox',name='Global search').wait_for(timeout=60000)
+  page.get_by_role('combobox',name='Global search').wait_for(timeout=PAGE_TIMEOUT_MS)
   page.wait_for_timeout(2200)
   r=Recorder(page,root)
   holders=page.get_by_role('heading',name='Institutional Holders',exact=True)
@@ -190,6 +209,11 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    page.wait_for_timeout(350)
   def ready_briefs():
    briefs.locator('a[href$="'+brief_path+'"]').wait_for(timeout=60000)
+  research=page.get_by_role('button',name=re.compile(r'^Research\s+New$',re.I))
+  ticker_brief=page.locator('a[href$="'+brief_path+'"]')
+  def ready_ticker_briefs():
+   research.click(timeout=PAGE_TIMEOUT_MS)
+   ticker_brief.wait_for(timeout=PAGE_TIMEOUT_MS)
   if shot=='daily_search':
    r.hold(4);r.mark('Search')
    search=page.get_by_role('combobox',name='Global search');r.click(search,'Global search')
@@ -200,13 +224,22 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    result.wait_for(timeout=30000);r.click(result,'Open '+ticker)
    page.get_by_role('heading',level=1).filter(has_text=ticker).wait_for(timeout=60000)
    page.wait_for_timeout(1200);r.hold(15)
+  elif shot=='daily_research':
+   research.wait_for(timeout=PAGE_TIMEOUT_MS)
+   position(research,top=260);r.hold(3);r.mark('Click Research');r.click(research,'Ticker Research tab')
+   ticker_brief.wait_for(timeout=PAGE_TIMEOUT_MS)
+   r.hold(3);r.circle(page.get_by_text('Related Research',exact=True));r.hold(6)
   elif shot=='daily_insights':
    r.hold(3);r.mark('Click Insights');r.click(page.get_by_role('link',name='Insights',exact=True),'Insights')
    ready_briefs();page.wait_for_timeout(900);r.hold(3);r.mark('scroll');r.scroll_to(briefs,steps=26)
    r.circle(briefs.get_by_role('heading',name=re.compile('^Research Briefs$',re.I)))
   elif shot=='daily_brief':
-   ready_briefs();position(briefs);r.hold(3);r.mark('Open the brief')
-   r.click(briefs.locator('a[href$="'+brief_path+'"]'),'Published research brief')
+   if ticker_research:
+    ready_ticker_briefs();position(research,top=260);link=ticker_brief
+   else:
+    ready_briefs();position(briefs);link=briefs.locator('a[href$="'+brief_path+'"]')
+   r.hold(3);r.mark('Open the brief')
+   r.click(link,'Published research brief')
    heading=page.get_by_role('heading',level=1,name=source_title,exact=True);heading.wait_for(timeout=60000)
    page.wait_for_timeout(700);r.hold(15);source_text.append(heading.inner_text())
   elif shot=='daily_takeaway':
@@ -275,9 +308,9 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    b=r.box(history.locator('xpath=ancestor::section[1]'))
    y=max(0,b['y']-35)
    final_focus={'x':max(0,b['x']-8),'y':y,'width':min(760,1040-b['x']),'height':min(1000-y,b['height']+60)}
-  end_url=page.url;thumb=(root/'frame-000.png').read_bytes()
+  end_url=page.url;thumbnail=io.BytesIO();Image.open(root/'frame-000.jpg').save(thumbnail,format='PNG');thumb=thumbnail.getvalue()
   context.close();browser.close();output=root/'capture.mp4'
-  subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-y','-v','error','-framerate','12','-i',str(root/'frame-%03d.png'),'-c:v','libx264','-crf','16','-preset','veryfast','-pix_fmt','yuv420p',str(output)],check=True,capture_output=True,timeout=120)
+  subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-y','-v','error','-framerate','12','-i',str(root/'frame-%03d.jpg'),'-c:v','libx264','-threads','1','-crf','16','-preset','veryfast','-pix_fmt','yuv420p',str(output)],check=True,capture_output=True,timeout=240)
   source='\n'.join(source_text)
   return output.read_bytes(),thumb,{'page_url':end_url,'initial_url':initial,'component':shot,'captured_at':now(),
    'viewport':VIEWPORT,'crop':{'x':0,'y':0,**VIEWPORT},'focus_panels':[{'x':0,'y':0,**VIEWPORT}],

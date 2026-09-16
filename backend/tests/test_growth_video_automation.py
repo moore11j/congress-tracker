@@ -27,6 +27,63 @@ def source(db, monkeypatch):
     return item
 
 
+def test_new_walkthrough_uses_ticker_research_and_legacy_stays_valid(db, monkeypatch):
+    original = source(db, monkeypatch)
+    item = daily.create_job(db, original, 1, feedback="Open the ticker Research tab")
+    board = daily.validate(item, db)
+    assert board["walkthrough_version"] == 2
+    assert board["storyboard"][1]["shot"] == "daily_research"
+    assert board["storyboard"][1]["walnut_url"].endswith("/ticker/NVDA")
+    assert "Click Research" in board["narration"] and "Insights" not in board["narration"]
+    assert "NVDA ticker → Research" in board["caption"]
+    legacy = daily.creative(original, 1)
+    assert "walkthrough_version" not in legacy
+    item["payload"].update(creative=legacy, campaign_hash=store.digest(legacy))
+    assert daily.validate(item, db) == legacy
+
+
+def test_navigation_timeout_retries_only_failed_scene_with_backoff_and_bound(db, monkeypatch):
+    item = daily.create_job(db, source(db, monkeypatch), 1)
+    item["payload"]["captures"]["daily_search"] = {"id": "retained"}
+    store.save_job(db, item)
+    from test_growth_video import Storage
+    calls = []
+    def timeout(shot):
+        calls.append(shot)
+        raise TimeoutError("private provider URL must not be persisted")
+    storage = Storage()
+    for attempt in range(1, 4):
+        expected = "CAPTURE_PENDING" if attempt < 3 else "FAILED"
+        assert pipeline.advance(db, item["id"], storage=storage, capture=timeout) == expected
+        current = store.job(db, item["id"])
+        assert current["payload"]["captures"] == {"daily_search": {"id": "retained"}}
+        assert not current["payload"]["audio"] and not current["lease_token"]
+        assert current["payload"]["capture_timeout_attempts"]["daily_research"] == attempt
+        assert "private provider" not in json.dumps(current)
+        if attempt < 3:
+            assert pipeline.advance(db, item["id"], storage=storage, capture=timeout) == expected
+            assert len(calls) == attempt  # Backoff prevents hot-loop capture.
+            current["payload"].pop("capture_retry_at")
+            store.save_job(db, current)
+    assert calls == ["daily_research"] * 3
+    assert not storage.calls  # No paid provider calls or replacement assets.
+
+
+def test_success_after_capture_timeout_clears_active_error(db, monkeypatch):
+    item = daily.create_job(db, source(db, monkeypatch), 1)
+    from test_growth_video import Storage
+    def timeout(shot):
+        raise TimeoutError()
+    assert pipeline.advance(db, item["id"], storage=Storage(), capture=timeout) == "CAPTURE_PENDING"
+    item = store.job(db, item["id"])
+    item["payload"].pop("capture_retry_at")
+    store.save_job(db, item)
+    assert pipeline.advance(db, item["id"], storage=Storage(), capture=lambda shot: (b"clip", b"png", {})) == "CAPTURE_PENDING"
+    saved = store.job(db, item["id"])["payload"]
+    assert "failure_context" not in saved and "capture_retry_at" not in saved
+    assert saved["capture_retry_history"]
+
+
 def ready(db, monkeypatch):
     item = daily.create_job(db, source(db, monkeypatch), 1)
     item["status"] = "READY_FOR_REVIEW"
@@ -55,6 +112,12 @@ class Buffer:
 
 
 def test_daily_requires_new_published_source_and_is_once_per_day(db, monkeypatch):
+    # Publishing after reconciliation must have a later timestamp even on
+    # coarse Windows clocks; this test is about event semantics, not timing.
+    import itertools
+    ticks = itertools.count()
+    start = datetime.now(timezone.utc)
+    monkeypatch.setattr(store, "now", lambda: (start + timedelta(seconds=next(ticks))).isoformat())
     original = source(db, monkeypatch)
     assert automation.create_daily(db)["status"] == "disabled"
     automation.configure(db, 1, True)

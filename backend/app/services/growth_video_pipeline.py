@@ -114,8 +114,10 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
     item = store.job(db, job_id)
     if item["status"] not in RUNNABLE:
         return item["status"]
+    if item["payload"].get("capture_retry_at", "") > now():
+        return item["status"]
     token = uuid.uuid4().hex
-    lease = (datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat()
+    lease = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
     # Expired in-flight work must be reconciled, not silently replayed.
     claimed = db.execute(text("UPDATE growth_video_jobs SET lease_token=:token,lease_until=:lease WHERE id=:id AND status=:status AND lease_token IS NULL"),
         {"token": token, "lease": lease, "id": job_id, "status": item["status"]})
@@ -133,6 +135,8 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
             advance_stage(db,item,stage,token,storage=storage,capture=capture,narrator=narrator,render=renderer)
             data.pop("failure_reason",None)
             data.pop("failed_stage",None)
+            data.pop("capture_retry_at",None)
+            data.pop("failure_context",None)
             store.save_job(db,item,token=token)
             return item["status"]
         opp, evidence = validate_job(db, item)
@@ -241,8 +245,22 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
                        for frame in traceback.extract_tb(exc.__traceback__)[-6:]]}
         # Provider exception URLs may contain credentials. Persist only our safe errors.
         data["failure_reason"] = str(exc)[:500] if type(exc) is ValueError else f"Video stage failed ({type(exc).__name__}). Check worker/provider configuration before manually retrying."
-        if stage == "CAPTURE_PENDING" and type(exc).__name__ == "TimeoutError":
+        if stage == "CAPTURE_PENDING" and type(exc).__name__ in {"TimeoutError", "CaptureTimeout"}:
             data["failure_reason"] = "Browser capture timed out before this scene finished. Completed scenes are retained. Check the worker and source page, then retry generation."
+            # Only read-only, resumable browser capture is replayed automatically.
+            # Never replay an uncertain paid narration/render/publishing request.
+            if data.get("campaign_id"):
+                shot = data.get("capture_attempt", {}).get("shot", "capture")
+                attempts = data.setdefault("capture_timeout_attempts", {})
+                attempts[shot] = attempts.get(shot, 0) + 1
+                data.setdefault("capture_retry_history", []).append({
+                    "at": now(), "shot": shot, "attempt": attempts[shot],
+                    "failure_context": data["failure_context"]})
+                if attempts[shot] <= 2:
+                    item["status"] = "CAPTURE_PENDING"
+                    data["capture_retry_at"] = (datetime.now(timezone.utc) + timedelta(minutes=2 * attempts[shot])).isoformat()
+                    data.pop("failure_reason", None)
+                    data.pop("failed_stage", None)
         store.save_job(db, item, token=token)
     finally:
         db.execute(text("UPDATE growth_video_jobs SET lease_token=NULL,lease_until=NULL WHERE id=:id AND lease_token=:token"), {"id": job_id, "token": token})

@@ -328,6 +328,8 @@ def decision(job_id: str, payload: Decision, user=Depends(admin), db=Depends(get
         item["payload"].pop("failure_reason", None)
         item["payload"].pop("failed_stage", None)
         item["payload"].pop("failure_context", None)
+        item["payload"].pop("capture_retry_at", None)
+        item["payload"].pop("capture_timeout_attempts", None)
     safe_call(store.save_job, db, item)
     store.remember(db, item, user.id, action, payload.feedback)
     return item

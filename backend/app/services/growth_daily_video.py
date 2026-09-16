@@ -53,7 +53,9 @@ def excerpt(source):
     raise ValueError("The brief needs a self-contained takeaway (8–65 words) for narration.")
 
 
-def creative(source):
+def creative(source, walkthrough_version=2):
+    if walkthrough_version not in {1, 2}:
+        raise ValueError("Unsupported daily walkthrough version.")
     takeaway = excerpt(source)
     article = source["article"]
     ticker = source.get("primary_ticker", "")
@@ -81,7 +83,12 @@ def creative(source):
                    visual_type="walnut_recording" if page else "brand_card", transition="cut",
                    statement_ids=[shot], evidence_ids=["published_brief:" + source["id"]])
               for i, (shot, voice, head, sub, page) in enumerate(beats, 1)]
-    return dict(schema_version=5, campaign_id=CAMPAIGN, format="research_finding",
+    if walkthrough_version == 2:
+        scenes[1].update(shot="daily_research", capture_target="daily_research",
+                         narration="Click Research on the ticker page to see its related briefs.",
+                         subhead=f"{ticker} → Research", walnut_url=ticker_url,
+                         statement_ids=["daily_research"], duration_seconds=5)
+    board = dict(schema_version=5, campaign_id=CAMPAIGN, format="research_finding",
                 creative_angle="published_research_walkthrough", hook_id="daily", hook=beats[0][1],
                 storyboard=scenes, scenes=scenes, narration=" ".join(s["narration"] for s in scenes),
                 target_duration_seconds=sum(s["duration_seconds"] for s in scenes),
@@ -96,12 +103,16 @@ def creative(source):
                           "Check the brief's dates, source limitations and risks before approving.",
                           "Real admin navigation; account identity is masked. Background and voice are AI assisted."],
                 caption_statement_ids=[], evidence_ids=[source["id"]])
+    if walkthrough_version == 2:
+        board["walkthrough_version"] = 2
+        board["caption"] = board["caption"].replace("Insights → Research Briefs", f"{ticker} ticker → Research")
+    return board
 
 
 def validate(item, db=None):
     p = item["payload"]
     source = p.get("research_source", {})
-    expected = creative(source)
+    expected = creative(source, (p.get("creative") or {}).get("walkthrough_version", 1))
     if p.get("creative") != expected or p.get("campaign_hash") != digest(expected):
         raise ValueError("Daily creative changed. Create a new video revision.")
     if p.get("research_source_hash") != source_fingerprint(source):

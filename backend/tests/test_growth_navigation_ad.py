@@ -6,6 +6,26 @@ from test_growth_product_ad import aligned
 from app.models import UserAccount
 from app.services import growth_navigation_ad as nav, growth_product_ad as product, growth_video_store as store, growth_video_pipeline as pipeline, research_briefs
 from app.services.growth_navigation_capture import pointer_arc
+
+
+def test_still_holds_capture_once_preserving_frame_indices_and_clicks(tmp_path):
+ import io
+ from PIL import Image
+ from app.services.growth_navigation_capture import Recorder, FRAME_TIMEOUT_MS
+ class Page:
+  url='https://app.walnutmarkets.com/ticker/NVDA'
+  calls=0
+  def evaluate(self, script):return []
+  def screenshot(self, **options):
+   self.calls+=1
+   assert options['timeout']==FRAME_TIMEOUT_MS and options['type']=='jpeg'
+   out=io.BytesIO();Image.new('RGB',(50,50),'green').save(out,format='JPEG');return out.getvalue()
+ page=Page();recorder=Recorder(page,tmp_path);recorder.clicked=True
+ recorder.hold(15);recorder.mark('next');recorder.hold(3)
+ assert page.calls==2 and len(recorder.frames)==18
+ assert recorder.markers==[{'phrase':'next','frame':15}]
+ assert recorder.frames[0]['click'] and not any(f['click'] for f in recorder.frames[1:])
+ assert len(list(tmp_path.glob('frame-*.jpg')))==18
 from app.services.growth_navigation_render import action_knots, source_frame_at
 from app.routers import growth_video as api
 
