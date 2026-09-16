@@ -40,6 +40,9 @@ frontend/node_modules/
 !*.env.example
 
 # Local logs and generated reports
+backend/.local/top-stocks-live-verification.json
+backend/.local/top-stocks-production-audit.json
+backend/.local/top-stocks-repair-preview.json
 *.log
 logs/
 frontend/*.log

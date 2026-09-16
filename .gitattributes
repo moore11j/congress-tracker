@@ -1,0 +1,6 @@
+# Research manifests hash exact file bytes; preserve line endings across checkouts.
+backend/scripts/research/*.py -text
+docs/confirmation-*-2026-09-14.md -text
+docs/confirmation-*-2026-09-15.md -text
+docs/options-activity-*-2026-09-14.md -text
+docs/massive-options-feasibility-2026-09-14.md -text

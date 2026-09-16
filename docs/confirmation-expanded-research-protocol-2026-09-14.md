@@ -1,0 +1,23 @@
+# Expanded confirmation research protocol
+
+Recorded before inspecting outcomes for the expanded dataset. Research only: existing public entries, scores, returns, grading, and production configuration remain unchanged.
+
+## Objective and evaluation
+
+Prioritize 30-calendar-day directional correctness under the existing absolute-return OR SPY-excess-return definition. Report raw directional accuracy too. Evaluate bullish qualification separately from bearish qualification. Report the number and fraction of opportunities retained; a high percentage on a tiny selected subset is not success. The initial qualification floor is 50% of bullish opportunities, retaining existing bearish calls when testing a bullish-only gate. Report 7D separately and do not claim improvement at unmeasured longer horizons.
+
+The already examined August 2026 ledger security holdout is development evidence now, not a fresh final test. New historical research must use chronological partitions. Training outcomes must have matured before the next partition's first decision date; purge overlapping 30D labels. Select candidates on validation only, freeze them, then inspect final test once. Compare against unconditional bullish, unconditional bearish, and simple trend baselines on the same opportunities. Report results by time block and market regime, since events from the same market day are correlated. A claim of >75% forward accuracy requires multiple independent periods and meaningful coverage; a single fitted or same-period result cannot establish it.
+
+## Data eligibility
+
+First audit existing historical coverage. Use historical disclosure availability dates, not private transaction dates. Do not backdate current fundamentals or mutable macro caches. Preserve unknown features as unknown. Historical reconstructed features are research inputs and must be identified as reconstructed rather than contemporaneously archived. Price series must have a consistent adjustment basis, adequate trailing history, and no forward-filled future values. Historical universe selection must be documented, including survivorship and missing-price exclusions. Any newly assembled proxy cohort is distinct from the actual confirmation-event universe and cannot be presented as a measured improvement to its published accuracy.
+
+## Candidate families
+
+Investigate momentum and reversal at several trailing horizons, relative strength versus SPY/QQQ, trend acceleration, realized volatility and drawdown, volume confirmation, and market interactions. Add raw dated filings, point-in-time fundamentals, and published COT changes where coverage supports them. Compare regularized linear models and constrained tree ensembles. Favor a stable improvement at meaningful coverage over an isolated maximum. All model selection and exclusions must be logged, including unsuccessful candidates.
+
+If long-term archived data are insufficient, document the exact missing coverage and pursue a bounded alternative dataset or a separate historical proxy study. Do not fabricate historical confirmation scores, relabel the ledger, repeatedly inspect a final holdout until it passes, or assert a numerical target has been achieved without evidence.
+
+## Price-panel experiment fixed before export inspection
+
+Use at most 256 symbols chosen by a fixed symbol hash from symbols with at least 180 provider-attributed OHLC observations during 2023, plus SPY/QQQ benchmarks. This sample is conditional on current historical-cache availability and does not eliminate survivorship bias. Use weekly decision opportunities, with prior-session features and next-session opens. It is a historical price-feature proxy, not recreated confirmation events. Train on entries before December 2024 with outcomes matured before January 2025; validate January–June 2025 (only labels matured before July); reserve July 2025–July 2026 for the final test. Earlier sparse coverage and later broad coverage must be disclosed. Candidate families: regularized logistic regression and shallow histogram gradient boosting, trained separately for bullish and bearish correctness. Select a bullish gate retaining at least half of opportunities and a directional policy at full coverage, plus a selective directional policy retaining at least half. Validation selects all candidates/thresholds; final results are inspected once. Evaluate 7D for those same fixed policies. Use consistent provider raw OHLC price basis; exclude invalid inputs based only on pre-entry information and audit price-basis discontinuities. Labels use the ledger's existing OR definition but remain separate research records.

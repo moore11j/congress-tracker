@@ -1,0 +1,37 @@
+# Expanded free options study: frozen protocol
+
+Approved September 14, 2026. Research only: no subscription upgrade, live score change, retrospective public outcome change, or production data write. This study follows a failed eight-ticker fixed-rule pilot. Its purpose is to test continuous options inputs across more periods rather than tune that pilot's thresholds.
+
+## Universe, dates, and request budget
+
+Prespecified convenience universe: TSM, AAPL, NVDA, MSFT, AMZN, JPM, XOM, WMT, GOOGL, UNH, CAT, KO. These are surviving liquid names selected independently of this study's options observations, not a representative or survivorship-free equity universe.
+
+Six anchor dates: first SPY session on/after January 2, May 1, and September 2 of 2025; January 2, May 1, and July 1 of 2026. Each anchor freezes a matched standard call/put pair using only reference metadata and the underlying close available at that anchor. Select an expiration 60–90 calendar days away, nearest to 90 days, then the strike nearest the anchor close within +/-10%. Require identical strikes/expirations, 100-share deliverables, no additional underlyings. Fetch complete reference pages. `as_of` with `expired=false` includes contracts alive on the historical anchor, including contracts that have since expired; the pilot verified this by retrieving August-expired contracts in September. Do not substitute today's chain.
+
+Sample weekly decisions from the first session strictly after each anchor through anchor plus 55 calendar days. Each entry is the first SPY session in its ISO week; its options/price cutoff is the preceding session, never before the anchor. Keep the anchor-selected pair fixed throughout the window; do not choose strikes retrospectively based on subsequent stock performance. Measure options features only when the pair's remaining maturity is 30–90 days. Record contemporaneous moneyness and days to expiry so fixed-pair aging is visible. This remains a sampled pair, not full-chain flow.
+
+Collect contract bars from anchor minus 90 calendar days through the window end. Rows after an individual decision cutoff must be excluded before feature calculation. Reference and bars alone require approximately 216 requests for 72 anchor/ticker groups; pagination may add requests. Limit each invocation to at most 260, pace at >=13 seconds, cache sanitized responses, resume without refetching completed pages, and share the existing local options collector's process lock and request clock. Do not retry 401/403/429 or buy entitlement access. A read-only export of already cached stock/SPY prices provides May 2024–September 11, 2026 coverage; no price hydration or application cache refresh.
+
+## Features and labels
+
+Reuse the pilot's five-session versus preceding 20-session activity features and its missing-history rules. Inputs include unsigned call/put volume and gross premium shares, changes in those shares, activity ratios, total activity, days to expiry, and moneyness. No inferred buyer/seller side, opening/closing status, sweeps, or implied-volatility values are manufactured. Apply fixed log/cap transforms before training to activity ratios; do not select caps using outcomes. Newly listed contracts or failed/truncated downloads are missing, not zero or a bearish signal.
+
+Price/market controls use only trailing closes: stock and SPY momentum over 5/20/60 sessions, distance from 20/60-session averages, 20-session volatility and drawdown, and stock momentum relative to SPY. Add moneyness and days to expiry to both baseline and augmented models to avoid attributing contract-selection context to volume. Options-price interactions are not added after seeing results.
+
+Research entries use the next-session stock open and the first SPY session on/after entry plus 30 calendar days (primary) or 7 days (secondary). Use attributed stock and benchmark prices on internally consistent bases: entry/target for each asset must share a provider; different assets may use different providers. Recover raw-basis open using the cache's own raw-close/adjusted-close factor. Do not splice provider endpoints within an asset. No future return outlier exclusion. Unmatured or missing measurements are reported separately. Grading is the existing bullish absolute-return-positive OR two-decimal SPY-excess-positive definition. Research outcomes are separate from the public ledger.
+
+The original confirmation input snapshots do not exist throughout this older period. Therefore the broad historical comparison is a **price/market baseline versus the same baseline plus options**, not a reconstruction of past Walnut confirmation scores. A separate transfer check on the immutable public ledger reports original decisions versus learned hypothetical bullish filtering, preserving bearish calls and unknown-feature decisions. Do not portray either as validated live performance.
+
+## Training and comparison
+
+Training: 2025 anchor windows, with every 30D label matured before January 1, 2026. Validation: January 2026 window, with every 30D label matured before April 1. Test: May and July 2026 windows, with labels available by the frozen September 11 price cutoff. This leaves at least a 30D maturity gap before the next evaluation period. All feature-only eligible test observations receive predictions before outcomes are used to compute metrics.
+
+Fit regularized logistic regression, with median imputation and standardization fit on training only. Try C = 0.01, 0.1, 1 for two families: price/market baseline and price/market plus options. Choose C independently within each family by validation log loss, tie to stronger regularization. Save selections before evaluating test outcomes. Do not refit on validation or change features/thresholds after inspecting test outcomes.
+
+Both families train and evaluate on identical rows with valid options features, so coverage cannot explain their difference. Primary policy retains the top half of predicted bullish-success probabilities within each decision date, tied deterministically by ticker. Also report the fixed >=0.50 probability gate and the unfiltered bullish baseline. Report 30D and 7D directional accuracy, retention, raw positive frequency, average raw and SPY-relative returns, probability log loss/Brier score, per-period performance, and uncertainty by resampling whole entry dates and tickers. Do not promote a model on a small high-percentage subgroup. Fewer than 100 training rows, 20 validation rows, or 30 test measurements is insufficient for the planned model comparison; report coverage instead of improvising another split.
+
+The historical price periods and some public ledger outcomes were inspected in earlier experiments. These are chronological options-model tests, not a pristine test of the entire research program. Weekly entries overlap in their 30D return windows. Shared ticker/market exposure, survivor selection, sparse option history, revised historical records, and only two test windows limit inference. No >75% expectation or production promotion follows from an isolated favorable result.
+
+## Reproducibility
+
+Persist the universe, dates, selection inputs, request budget and code/protocol hashes before collection. Persist feature rows before label joins and model selections before test metrics. Verify the original ledger SHA-256 remains `de0885ffc1c1b026541b0cb364efd7c0b5dcf9feb62108d7d08473a49303613b`. All outputs are local research artifacts. No scheduled production collector is installed by this experiment.
