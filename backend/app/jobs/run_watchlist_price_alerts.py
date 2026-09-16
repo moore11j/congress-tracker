@@ -14,6 +14,7 @@ from app.services.email_intraday import (
     run_intraday_alert_sweep, summarize_intraday_alert_results,
 )
 from app.services.price_lookup import is_market_trading_day
+from app.services.price_alert_reference import refresh_daily_price_references
 
 
 def run_price_alert_cycle(*, now: datetime | None = None) -> dict:
@@ -27,6 +28,7 @@ def run_price_alert_cycle(*, now: datetime | None = None) -> dict:
         return {"status": "skipped", "reason": "intraday_disabled"}
     if os.getenv("BACKGROUND_JOBS_PAUSED", "").lower() in {"true", "1", "yes", "on"}:
         return {"status": "skipped", "reason": "background_jobs_paused"}
+    references = refresh_daily_price_references(SessionLocal, now=current)
     evaluation = refresh_all_monitored_watchlist_confirmation_monitoring(
         SessionLocal, refresh_quotes=True, price_rules_only=True,
     )
@@ -42,8 +44,8 @@ def run_price_alert_cycle(*, now: datetime | None = None) -> dict:
             market_hours_only=False, custom_price_only=True,
         )
     delivery = summarize_intraday_alert_results(results)
-    failed = evaluation.get("failures", 0) or delivery["failed_count"]
-    return {"status": "failed" if failed else "ok", "evaluation": evaluation, "delivery": delivery}
+    failed = evaluation.get("failures", 0) or delivery["failed_count"] or references["unavailable"]
+    return {"status": "failed" if failed else "ok", "references": references, "evaluation": evaluation, "delivery": delivery}
 
 
 def main() -> None:

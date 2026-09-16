@@ -164,7 +164,10 @@ def test_one_day_price_move_uses_fresh_quote_against_prior_close() -> None:
         quote.price = 226.39
         assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=65))["triggered"] == 0
         # The same rule may trigger again in the next market session.
-        tomorrow = now + timedelta(days=1)
+        # Next session after Labor Day weekend requires Friday's close.
+        db.add(PriceCache(symbol="NBIS", date="2026-09-04", close=210.63))
+        db.commit()
+        tomorrow = now + timedelta(days=4)
         quote.price = 210.63
         quote.asof_ts = tomorrow.replace(tzinfo=None)
         evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=tomorrow)
@@ -223,3 +226,36 @@ def test_daily_drop_after_utc_midnight_uses_exchange_date_and_matching_bar_price
         condition = {"metric": "price_change_pct", "time_window": {"value": 1, "unit": "day"}}
         value, _ = _metric_value(db, "BMNR", condition, datetime(2026, 9, 16, 2, 30, tzinfo=timezone.utc))
         assert round(value, 2) == -8.39
+
+
+def test_onds_false_drop_never_triggers_but_real_five_percent_drop_does():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 9, 16, 13, 39, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        user = UserAccount(email="onds-regression@example.test")
+        watchlist = Watchlist(name="ONDS regression", owner_user_id=1)
+        security = Security(symbol="ONDS", name="Ondas", asset_class="equity")
+        db.add_all([user, watchlist, security])
+        db.flush()
+        watchlist.owner_user_id = user.id
+        quote = QuoteCache(symbol="ONDS", price=7.135, asof_ts=now)
+        db.add_all([quote, PriceCache(symbol="ONDS", date="2026-09-08", close=7.62),
+            WatchlistItem(watchlist_id=watchlist.id, security_id=security.id, target_type="ticker"),
+            WatchlistAlertRule(user_id=user.id, watchlist_id=watchlist.id, name="5% Price Decrease", enabled=True,
+                conditions_json=json.dumps(validate_conditions([{"metric": "price_change_pct", "operator": "decreases_by",
+                "comparison_type": "value", "comparison_value": 5, "time_window": {"value": 1, "unit": "day"}}])), delivery="immediate")])
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 0
+        db.add(PriceCache(symbol="ONDS", date="2026-09-15", close=7.24))
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 0
+        quote.price = 6.80
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 1
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 0
+        payload = json.loads(db.execute(select(MonitoringAlert)).scalar_one().payload_json)
+        assert payload["price_observation"]["reference_price"] == 7.24
+        assert payload["price_observation"]["reference_date"] == "2026-09-15"
+        assert round(payload["price_observation"]["change_pct"], 2) == -6.08

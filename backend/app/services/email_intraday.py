@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.services.email_delivery import send_email
 from app.services.custom_alert_rules import DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES
+from app.services.price_alert_reference import valid_daily_price_evidence
 from app.services.email_digests import (
     DEFAULT_DIGEST_TIMEZONE,
     DUPLICATE_BLOCKING_STATUSES,
@@ -473,6 +474,7 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         "alert_url": watchlist_url if is_custom_alert else f"{_frontend_base_url()}/ticker/{ticker}" if ticker != "UNKNOWN" else f"{_frontend_base_url()}/signals",
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat(),
     }
+    price_reference_skip = None
     if is_custom_price_alert and (payload.get("daily_price_rule") or rule_name in DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES):
         # Price values/alert row IDs change across repeated observations. The
         # user's ticker, condition and market date identify the actual alert.
@@ -480,6 +482,15 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         identity = hashlib.sha256(json.dumps(conditions, sort_keys=True).encode()).hexdigest()[:24]
         session_date = _coerce_aware(alert.event_created_at).astimezone(ZoneInfo("America/New_York")).date()
         context["price_session_identity"] = f"{ticker}:{session_date}:{identity}"
+        evidence = payload.get("price_observation")
+        if not valid_daily_price_evidence(evidence, _coerce_aware(alert.event_created_at)):
+            price_reference_skip = "unverified_daily_price_reference"
+        else:
+            explanation = (f"Observed move: {evidence['change_pct']:+.2f}% from the "
+                           f"{evidence['reference_date']} close of ${evidence['reference_price']:.4f} "
+                           f"to ${evidence['current_price']:.4f}.")
+            context["alert_intro"] += " " + explanation
+            context["why_notable"] += " " + explanation
     return IntradayAlertCandidate(
         source="custom_alert" if is_custom_alert else "signal",
         user=user,
@@ -490,7 +501,7 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
         score=score,
         amount=None,
         trigger=trigger,
-        skip_reason=None if trigger else "low_conviction",
+        skip_reason=price_reference_skip or (None if trigger else "low_conviction"),
         watchlist_id=int(alert.source_id) if is_custom_alert and str(alert.source_id or "").isdigit() else None,
         context=context,
     )

@@ -33,6 +33,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.technical_indicators import _ema, _rsi
+from app.services.price_alert_reference import daily_price_observation
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +299,8 @@ def _price_rows(db: Session, ticker: str) -> list[PriceCache]:
 
 def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: datetime) -> tuple[float | None, list[int]]:
     metric = condition["metric"]
+    if metric == "price_change_pct" and condition.get("time_window") == {"value": 1, "unit": "day"}:
+        return daily_price_observation(db, ticker, now)["change_pct"], []
     price_metrics = {"price", "price_change_pct", "volume", "relative_volume", "rsi", "sma", "ema", "macd", "macd_signal", "vwap", "bollinger_upper", "bollinger_lower", "week_52_high", "week_52_low"}
     rows = _price_rows(db, ticker) if metric in price_metrics else []
     closes = [float(row.adjusted_close or row.close) for row in rows if (row.adjusted_close or row.close) is not None]
@@ -574,16 +577,8 @@ def evaluate_watchlist_custom_alerts(
             if matched_price_condition:
                 trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
                 if daily_price_rule:
-                    # Keep the price displayed in the email consistent with the
-                    # daily-bar fallback actually used for the percentage move.
-                    quote = db.get(QuoteCache, ticker)
-                    asof = quote.asof_ts if quote is not None else None
-                    if asof is not None and asof.tzinfo is None:
-                        asof = asof.replace(tzinfo=timezone.utc)
-                    market_day = current.astimezone(ZoneInfo("America/New_York")).date()
-                    if asof is None or not current - PRICE_QUOTE_FRESHNESS <= asof <= current or asof.astimezone(ZoneInfo("America/New_York")).date() != market_day:
-                        bar = db.get(PriceCache, (ticker, market_day.isoformat()))
-                        trigger_price = float(bar.adjusted_close or bar.close) if bar is not None else None
+                    observation = daily_price_observation(db, ticker, current)
+                    trigger_price = observation["current_price"]
             alert_payload = {
                 "custom_alert": True,
                 "rule_id": rule.id,
@@ -593,6 +588,7 @@ def evaluate_watchlist_custom_alerts(
                 "price_alert": matched_price_condition,
                 "trigger_price": trigger_price,
                 "daily_price_rule": _is_daily_price_rule(conditions),
+                "price_observation": observation if daily_price_rule and matched_price_condition else None,
                 "href": f"/watchlists/{watchlist_id}",
             }
             # Negative IDs live in a distinct namespace from canonical Event IDs.

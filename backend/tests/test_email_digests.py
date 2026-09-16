@@ -53,6 +53,22 @@ def test_repeated_daily_price_rows_share_one_delivery_identity():
     assert len(set(keys)) == 1
 
 
+def test_daily_price_email_blocks_unverified_reference_and_explains_verified_move():
+    user = UserAccount(id=1, email="price-reference@example.test")
+    payload = {"custom_alert": True, "rule_name": "5% Price Decrease", "price_alert": True,
+               "daily_price_rule": True, "conditions": [{"condition": "Price % change decreases by 5% over 1 day",
+               "target": 5, "value": -6.08, "matched": True}]}
+    alert = MonitoringAlert(id=1, user_id=1, source_type="watchlist", source_id="1", alert_type="custom_alert",
+        symbol="ONDS", event_created_at=datetime(2026, 9, 16, 14, tzinfo=timezone.utc), payload_json=json.dumps(payload))
+    assert _signal_alert_candidate(user, alert, {"ONDS"}).skip_reason == "unverified_daily_price_reference"
+    payload["price_observation"] = {"status": "ok", "session_date": "2026-09-16", "reference_date": "2026-09-15",
+                                    "reference_price": 7.24, "current_price": 6.80, "change_pct": (6.80 / 7.24 - 1) * 100}
+    alert.payload_json = json.dumps(payload)
+    candidate = _signal_alert_candidate(user, alert, {"ONDS"})
+    assert candidate.skip_reason is None
+    assert "-6.08% from the 2026-09-15 close of $7.2400 to $6.8000" in candidate.context["why_notable"]
+
+
 def test_digest_failure_for_one_user_does_not_skip_other_users(monkeypatch):
     import app.services.email_digests as service
 
@@ -2066,7 +2082,9 @@ def test_price_only_lane_recovers_old_same_day_alert_and_sends_once(monkeypatch)
                 source_name=watchlist.name, event_id=-100-index, symbol="BMNR", alert_type="custom_alert",
                 title="5% Price Decrease", event_created_at=now-timedelta(hours=2, minutes=index),
                 payload_json=json.dumps({"rule_name": "5% Price Decrease", "delivery": "immediate", "price_alert": True,
-                    "trigger_price": 23.6, "conditions": [{"condition": "Price % change decreases by 5% over 1 day", "target": 5}]})))
+                    "trigger_price": 23.6, "conditions": [{"condition": "Price % change decreases by 5% over 1 day", "target": 5}],
+                    "price_observation": {"status": "ok", "session_date": "2026-09-15", "reference_date": "2026-09-14",
+                        "reference_price": 25.76, "current_price": 23.6, "change_pct": (23.6/25.76-1)*100}})))
         db.commit()
         kwargs = dict(lookback_minutes=600, dry_run=False, now=now, custom_price_only=True)
         first = run_intraday_alert_sweep(db, **kwargs)
