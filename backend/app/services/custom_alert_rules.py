@@ -306,7 +306,9 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
         return (float(quote.price) if quote and quote.price is not None else (closes[-1] if closes else None), [])
     if metric == "price_change_pct":
         delta = _window_delta(condition["time_window"])
-        cutoff = (now - delta).date().isoformat()
+        # Daily price moves follow the exchange's date, not UTC midnight.
+        market_now = now.astimezone(ZoneInfo("America/New_York"))
+        cutoff = (market_now - delta).date().isoformat()
         prior = next((float(row.adjusted_close or row.close) for row in reversed(rows) if row.date <= cutoff and (row.adjusted_close or row.close) is not None), None)
         quote = db.get(QuoteCache, ticker)
         quote_asof = quote.asof_ts if quote is not None else None
@@ -316,7 +318,8 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
             quote is not None
             and quote.price is not None
             and isinstance(quote_asof, datetime)
-            and quote_asof >= now - PRICE_QUOTE_FRESHNESS
+            and now - PRICE_QUOTE_FRESHNESS <= quote_asof <= now
+            and quote_asof.astimezone(ZoneInfo("America/New_York")).date() == market_now.date()
         )
         if fresh_quote:
             current = float(quote.price)
@@ -328,7 +331,7 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
                 (
                     float(row.adjusted_close or row.close)
                     for row in reversed(rows)
-                    if cutoff < row.date <= now.date().isoformat()
+                    if cutoff < row.date <= market_now.date().isoformat()
                     and (row.adjusted_close or row.close) is not None
                 ),
                 None,
@@ -485,6 +488,7 @@ def evaluate_watchlist_custom_alerts(
     watchlist_id: int,
     now: datetime | None = None,
     rule_names: set[str] | None = None,
+    daily_price_only: bool = False,
 ) -> dict[str, int]:
     current = now or datetime.now(timezone.utc)
     rules_query = select(WatchlistAlertRule).where(
@@ -498,9 +502,12 @@ def evaluate_watchlist_custom_alerts(
     rules = db.execute(rules_query.order_by(WatchlistAlertRule.id).with_for_update()).scalars().all()
     tickers = _watchlist_tickers(db, watchlist_id)
     states = {(state.rule_id, state.ticker): state for state in db.execute(select(WatchlistAlertRuleState).where(WatchlistAlertRuleState.rule_id.in_([rule.id for rule in rules] or [-1]))).scalars().all()}
-    evaluated = triggered = initialized = 0
+    evaluated = triggered = initialized = unavailable = 0
     for rule in rules:
         conditions = _loads(rule.conditions_json, [])
+        daily_price_rule = _is_daily_price_rule(conditions)
+        if daily_price_only and not daily_price_rule:
+            continue
         scoped = [rule.scope_ticker.upper()] if rule.scope_type == "specific_ticker" and rule.scope_ticker else tickers
         for ticker in scoped:
             if ticker not in tickers: continue
@@ -510,6 +517,7 @@ def evaluate_watchlist_custom_alerts(
             # Missing observations are unknown, not a reset below threshold.
             # Retain the last valid state until prices become available again.
             if not result.matched and any(item["value"] is None for item in result.condition_results):
+                unavailable += 1
                 continue
             # A missing or stale state is a fresh baseline, not a historical
             # transition. This also prevents a Pro re-upgrade from replaying
@@ -517,7 +525,7 @@ def evaluate_watchlist_custom_alerts(
             last_evaluated_at = state.last_evaluated_at if state is not None else None
             if last_evaluated_at is not None and last_evaluated_at.tzinfo is None:
                 last_evaluated_at = last_evaluated_at.replace(tzinfo=timezone.utc)
-            if state is None or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2)):
+            if not daily_price_rule and (state is None or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
                 if state is None:
                     db.add(WatchlistAlertRuleState(rule_id=rule.id, ticker=ticker, previous_result=result.matched, current_result=result.matched, last_evaluated_at=current, values_json=json.dumps(result.values)))
                 else:
@@ -527,11 +535,17 @@ def evaluate_watchlist_custom_alerts(
                     state.values_json = json.dumps(result.values)
                 initialized += 1
                 continue
-            should_trigger = result.matched and not state.current_result
+            if state is None:
+                state = WatchlistAlertRuleState(rule_id=rule.id, ticker=ticker, current_result=False, previous_result=False)
+                db.add(state)
+            # A daily move is eligible on its first qualifying observation,
+            # including gap opens and recovery after downtime. Durable session
+            # triggers below enforce once-per-day, not a fragile false->true edge.
+            should_trigger = result.matched and (daily_price_rule or not state.current_result)
             state.previous_result, state.current_result, state.last_evaluated_at, state.values_json = state.current_result, result.matched, current, json.dumps(result.values)
             if not should_trigger:
                 continue
-            if _is_daily_price_rule(conditions):
+            if daily_price_rule:
                 session_tz = ZoneInfo("America/New_York")
                 session_start = current.astimezone(session_tz).replace(hour=0, minute=0, second=0, microsecond=0)
                 already_triggered = db.execute(select(WatchlistAlertRuleTrigger.id).where(
@@ -559,6 +573,17 @@ def evaluate_watchlist_custom_alerts(
             trigger_price: float | None = None
             if matched_price_condition:
                 trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
+                if daily_price_rule:
+                    # Keep the price displayed in the email consistent with the
+                    # daily-bar fallback actually used for the percentage move.
+                    quote = db.get(QuoteCache, ticker)
+                    asof = quote.asof_ts if quote is not None else None
+                    if asof is not None and asof.tzinfo is None:
+                        asof = asof.replace(tzinfo=timezone.utc)
+                    market_day = current.astimezone(ZoneInfo("America/New_York")).date()
+                    if asof is None or not current - PRICE_QUOTE_FRESHNESS <= asof <= current or asof.astimezone(ZoneInfo("America/New_York")).date() != market_day:
+                        bar = db.get(PriceCache, (ticker, market_day.isoformat()))
+                        trigger_price = float(bar.adjusted_close or bar.close) if bar is not None else None
             alert_payload = {
                 "custom_alert": True,
                 "rule_id": rule.id,
@@ -586,4 +611,6 @@ def evaluate_watchlist_custom_alerts(
             ))
             triggered += 1
             logger.info("custom_alert_rule_triggered rule_id=%s watchlist_id=%s ticker=%s", rule.id, watchlist_id, ticker)
-    return {"evaluated": evaluated, "triggered": triggered, "initialized": initialized}
+    if unavailable:
+        logger.warning("custom_alert_observations_unavailable watchlist_id=%s count=%s", watchlist_id, unavailable)
+    return {"evaluated": evaluated, "triggered": triggered, "initialized": initialized, "unavailable": unavailable}

@@ -160,6 +160,7 @@ def run_intraday_alert_sweep(
     dry_run: bool | None = None,
     now: datetime | None = None,
     market_hours_only: bool = True,
+    custom_price_only: bool = False,
 ) -> list[dict[str, Any]]:
     current = _coerce_aware(now or datetime.now(timezone.utc))
     window_start = current - timedelta(minutes=lookback_minutes or email_alert_sweep_lookback_minutes())
@@ -167,7 +168,8 @@ def run_intraday_alert_sweep(
     should_dry_run = intraday_schedule_dry_run_default() if dry_run is None else bool(dry_run)
     outside_market_hours = market_hours_only and not is_market_hours(current)
     enabled = intraday_alerts_enabled()
-    candidates = _collect_intraday_candidates(db, since=window_start, limit=requested_limit)
+    candidates = (_signal_intraday_candidates(db, since=window_start, limit=requested_limit, custom_price_only=True)
+                  if custom_price_only else _collect_intraday_candidates(db, since=window_start, limit=requested_limit))
     results: list[dict[str, Any]] = []
     for candidate in candidates:
         skip_reason = candidate.skip_reason or _alert_skip_reason(candidate.user, "intraday_alerts")
@@ -254,7 +256,7 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
     return candidates
 
 
-def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> list[IntradayAlertCandidate]:
+def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int, custom_price_only: bool = False) -> list[IntradayAlertCandidate]:
     users = (
         db.execute(
             select(UserAccount)
@@ -272,6 +274,7 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
                 select(MonitoringAlert)
                 .where(MonitoringAlert.user_id == user.id)
                 .where(MonitoringAlert.dismissed_at.is_(None))
+                .where(MonitoringAlert.alert_type == "custom_alert" if custom_price_only else True)
                 .where(MonitoringAlert.event_created_at >= since)
                 .where(
                     or_(
@@ -296,6 +299,8 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
                 continue
             if alert.alert_type == "custom_alert":
                 payload = _loads_dict(alert.payload_json)
+                if custom_price_only and not _is_custom_price_alert(payload):
+                    continue
                 is_default_price_move_alert = payload.get("rule_name") in DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES
                 if not entitlements_for_user(db, user).has_feature("custom_alert_rules") and not is_default_price_move_alert:
                     continue
@@ -311,6 +316,8 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
             if alert.source_type == "saved_screen":
                 subscription = saved_screen_subscription_by_id.get(_saved_screen_id(alert.source_id))
             candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription))
+        if custom_price_only:
+            continue
         confirmation_rows = (
             db.execute(
                 select(ConfirmationMonitoringEvent)

@@ -2043,6 +2043,41 @@ def test_intraday_custom_price_alert_renders_the_triggering_quote():
         db.close()
 
 
+def test_price_only_lane_recovers_old_same_day_alert_and_sends_once(monkeypatch):
+    monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "test-token")
+    sends = []
+    def fake_send(**kwargs):
+        sends.append(kwargs)
+        return "price-provider-message"
+    def slow_general_lane(**kwargs):
+        raise AssertionError("price alerts must not query general watchlist activity")
+    monkeypatch.setattr("app.services.email_delivery._send_with_provider", fake_send)
+    monkeypatch.setattr("app.services.email_intraday._collect_intraday_candidates", slow_general_lane)
+    db = _session()
+    try:
+        user = _user(db, "independent-price@example.test", tier="pro")
+        watchlist = _watchlist(db, user, source_payload={"intraday_alerts_enabled": True})
+        now = datetime(2026, 9, 15, 18, tzinfo=timezone.utc)
+        for index in range(3):
+            db.add(MonitoringAlert(user_id=user.id, source_type="watchlist", source_id=str(watchlist.id),
+                source_name=watchlist.name, event_id=-100-index, symbol="BMNR", alert_type="custom_alert",
+                title="5% Price Decrease", event_created_at=now-timedelta(hours=2, minutes=index),
+                payload_json=json.dumps({"rule_name": "5% Price Decrease", "delivery": "immediate", "price_alert": True,
+                    "trigger_price": 23.6, "conditions": [{"condition": "Price % change decreases by 5% over 1 day", "target": 5}]})))
+        db.commit()
+        kwargs = dict(lookback_minutes=600, dry_run=False, now=now, custom_price_only=True)
+        first = run_intraday_alert_sweep(db, **kwargs)
+        second = run_intraday_alert_sweep(db, **kwargs)
+        assert sum(item["status"] == "sent" for item in first) == 1
+        assert all(item["status"] == "skipped" for item in second)
+        assert len(sends) == 1
+    finally:
+        db.close()
+
+
 def test_intraday_duplicate_run_does_not_resend(monkeypatch):
     monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")

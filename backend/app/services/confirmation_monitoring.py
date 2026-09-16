@@ -380,6 +380,7 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
     lookback_days: int = 30,
     now: datetime | None = None,
     refresh_quotes: bool = False,
+    price_rules_only: bool = False,
 ) -> dict[str, int]:
     started = perf_counter()
     logger.info("scheduled_monitor_refresh_started")
@@ -428,6 +429,7 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                     ttl_seconds=10 * 60,
                     stale_while_revalidate=False,
                     max_network_fetch=100,
+                    force_quote_endpoint=price_rules_only,
                 )
             db.commit()
 
@@ -439,6 +441,8 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
 
     custom_rules_evaluated = 0
     custom_rules_triggered = 0
+    custom_rules_unavailable = 0
+    failures = 0
     for user_id, watchlist_id, can_use_custom_rules in work:
         with session_factory() as db:
             try:
@@ -452,7 +456,7 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                     .scalars()
                     .all()
                 )
-                result = refresh_watchlist_confirmation_monitoring(
+                result = {"generated": 0, "initialized": 0, "deduped": 0} if price_rules_only else refresh_watchlist_confirmation_monitoring(
                     db,
                     user_id=user_id,
                     watchlist_id=watchlist_id,
@@ -468,6 +472,7 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                         user_id=user_id,
                         watchlist_id=watchlist_id,
                         now=observed_at,
+                        daily_price_only=price_rules_only,
                     )
                     custom_rules_evaluated += int(custom_result.get("evaluated") or 0)
                     custom_rules_triggered += int(custom_result.get("triggered") or 0)
@@ -480,12 +485,15 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                         watchlist_id=watchlist_id,
                         now=observed_at,
                         rule_names=DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES,
+                        daily_price_only=price_rules_only,
                     )
                     custom_rules_evaluated += int(custom_result.get("evaluated") or 0)
                     custom_rules_triggered += int(custom_result.get("triggered") or 0)
+                custom_rules_unavailable += int(custom_result.get("unavailable") or 0)
                 db.commit()
             except Exception:
                 db.rollback()
+                failures += 1
                 logger.exception(
                     "scheduled_monitor_refresh_watchlist_failed user_id=%s watchlist_id=%s",
                     user_id,
@@ -506,6 +514,8 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
         "deduped": deduped,
         "custom_rules_evaluated": custom_rules_evaluated,
         "custom_rules_triggered": custom_rules_triggered,
+        "custom_rules_unavailable": custom_rules_unavailable,
+        "failures": failures,
         "quote_symbols_checked": len(monitored_symbols) if refresh_quotes else 0,
         "duration_ms": duration_ms,
     }

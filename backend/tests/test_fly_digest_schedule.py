@@ -107,6 +107,8 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
     assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" not in crontab
     assert "4 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
+    assert "*/5 6-12 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh" in crontab
+    assert "0,5 13 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh" in crontab
     assert "billing" not in crontab.lower()
     assert "monthly" not in crontab.lower()
 

@@ -43,6 +43,7 @@ Do not add a second external schedule:
 
 - `monitoring`: consolidated daily activity after market close, as scheduled above.
 - Intraday sweeps: approximately every 15 minutes during market hours; separately enabled custom immediate rules do not become daily-only when the watchlist monitoring matrix is daily.
+- Daily percentage-price rules: a separate five-minute job refreshes live quotes, evaluates rules, and delivers same-session pending price alerts. This job does not wait for screener or confirmation-score calculations. It also runs at 1:00 and 1:05 PM Pacific with a short market-close grace period.
 
 ## Admin Endpoint
 
@@ -90,6 +91,10 @@ Each scheduled command calls `scripts/run_email_digest_schedule.sh`, which valid
 The intraday schedule calls `scripts/run_email_intraday_alert_sweep.sh`, which validates `EMAIL_ALERT_SWEEP_LOOKBACK_MINUTES` and `EMAIL_ALERT_SWEEP_LIMIT`, then calls `python -m app.jobs.send_intraday_email_alerts`. General events use event-level idempotency. One-day percentage-price rules additionally deduplicate by ticker/rule/market date during evaluation, and by recipient/ticker/condition/market date during delivery, including overlapping watchlists. Missing quotes do not reset threshold state. An actual reset/re-cross on the same day also does not resend a daily percentage-price alert.
 
 Digest assembly uses newly ingested Event rows for discovery and cached calendar enrichment only. A missing optional calendar cache must not hold up the report behind live provider requests.
+
+The price job (`run_watchlist_price_alerts.sh`) has a single-process `flock` and a 240-second timeout. It respects the intraday delivery, dry-run, and background-pause settings. Unlike generic threshold/crossing rules, a daily percentage-price rule triggers on its first qualifying observation even if its state is new, stale, or already matched without a durable trigger. Overnight resets and two-hour baseline suppression must never suppress a qualifying daily price move. Evaluation and delivery still use the existing once-per-session identities. Exchange-local dates are used for after-UTC-midnight evaluation. Missing observations are counted and logged, not silently treated as successful monitoring.
+
+The Confirmation monitor displays changes in confirmation scores/source states. A percentage-price trigger is stored as a custom monitoring alert and does not require a confirmation event; do not fabricate a score change to make a price rule visible there.
 
 Suggested intraday defaults:
 

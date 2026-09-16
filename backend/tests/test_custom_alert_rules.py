@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import MonitoringAlert, PriceCache, QuoteCache, Security, UserAccount, Watchlist, WatchlistAlertRule, WatchlistItem
+from app.models import MonitoringAlert, PriceCache, QuoteCache, Security, UserAccount, Watchlist, WatchlistAlertRule, WatchlistAlertRuleState, WatchlistItem
 from app.services.custom_alert_rules import _compare, evaluate_watchlist_custom_alerts, format_rule_summary, validate_conditions
 
 
@@ -170,3 +171,55 @@ def test_one_day_price_move_uses_fresh_quote_against_prior_close() -> None:
         quote.price = 226.39
         quote.asof_ts = (tomorrow + timedelta(minutes=5)).replace(tzinfo=None)
         assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=tomorrow + timedelta(minutes=5))["triggered"] == 1
+
+
+@pytest.mark.parametrize("state_kind", ["missing", "stale_false", "stale_true", "already_matched_without_trigger"])
+def test_daily_price_drop_alerts_on_first_qualifying_observation(state_kind):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime(2026, 9, 15, 18, 20, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        user = UserAccount(email="bmnr-regression@example.test")
+        watchlist = Watchlist(name="BMNR regression", owner_user_id=1)
+        security = Security(symbol="BMNR", name="Bitmine", asset_class="equity")
+        db.add_all([user, watchlist, security])
+        db.flush()
+        watchlist.owner_user_id = user.id
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id, target_type="ticker"))
+        db.add(PriceCache(symbol="BMNR", date="2026-09-14", close=25.76))
+        quote = QuoteCache(symbol="BMNR", price=23.6, asof_ts=now)
+        db.add(quote)
+        rule = WatchlistAlertRule(user_id=user.id, watchlist_id=watchlist.id, name="5% Price Decrease", enabled=True,
+            conditions_json=json.dumps(validate_conditions([{"metric": "price_change_pct", "operator": "decreases_by",
+            "comparison_type": "value", "comparison_value": 5, "time_window": {"value": 1, "unit": "day"}}])), delivery="immediate")
+        db.add(rule)
+        db.flush()
+        if state_kind != "missing":
+            db.add(WatchlistAlertRuleState(rule_id=rule.id, ticker="BMNR", current_result=state_kind != "stale_false",
+                last_evaluated_at=now - timedelta(minutes=5 if state_kind == "already_matched_without_trigger" else 180)))
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 1
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 0
+        alert = db.execute(select(MonitoringAlert)).scalar_one()
+        assert round(json.loads(alert.payload_json)["conditions"][0]["value"], 2) == -8.39
+        # Consecutive qualifying market sessions do not require an intervening
+        # false reading (e.g. another gap down at the next opening).
+        db.add(PriceCache(symbol="BMNR", date="2026-09-15", close=23.6))
+        quote.price, quote.asof_ts = 21.5, now + timedelta(days=1)
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(days=1))["triggered"] == 1
+
+
+def test_daily_drop_after_utc_midnight_uses_exchange_date_and_matching_bar_price():
+    from app.services.custom_alert_rules import _metric_value
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add_all([PriceCache(symbol="BMNR", date="2026-09-14", close=25.76),
+                    PriceCache(symbol="BMNR", date="2026-09-15", close=23.6),
+                    QuoteCache(symbol="BMNR", price=23.995, asof_ts=datetime(2026, 9, 15, 18, 20))])
+        db.commit()
+        condition = {"metric": "price_change_pct", "time_window": {"value": 1, "unit": "day"}}
+        value, _ = _metric_value(db, "BMNR", condition, datetime(2026, 9, 16, 2, 30, tzinfo=timezone.utc))
+        assert round(value, 2) == -8.39

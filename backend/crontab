@@ -21,6 +21,9 @@ CRON_TZ=America/Los_Angeles
 3 13 * * 1-5 cd /app && python -m app.ingest_run --job monitoring-alert-refresh
 4,19,34,49 6-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
 4 13 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
+# Price thresholds have their own refresh/evaluation/delivery lane.
+*/5 6-12 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh
+0,5 13 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh
 12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
 8,38 6-18 * * * cd /app && sh /app/scripts/run_profile_overview_prewarm.sh
 10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator

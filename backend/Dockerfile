@@ -4,7 +4,7 @@ WORKDIR /app
 ENV PYTHONPATH=/app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl poppler-utils tesseract-ocr tzdata \
+    && apt-get install -y --no-install-recommends ca-certificates curl poppler-utils tesseract-ocr tzdata util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 ARG SUPERCRONIC_VERSION=v0.2.34

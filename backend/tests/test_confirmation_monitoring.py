@@ -255,3 +255,11 @@ def test_scheduled_refresh_checks_monitored_watchlists_with_per_watchlist_commit
     assert "scheduled_monitor_refresh_started" in caplog.text
     assert "watchlists_checked=1" in caplog.text
     assert "changes_created=2" in caplog.text
+
+    def broken_confirmation(*args, **kwargs):
+        raise AssertionError("price lane must not calculate confirmation scores")
+
+    monkeypatch.setattr("app.services.confirmation_monitoring.refresh_watchlist_confirmation_monitoring", broken_confirmation)
+    price_only = refresh_all_monitored_watchlist_confirmation_monitoring(SessionLocal, now=now, price_rules_only=True)
+    assert price_only["failures"] == 0
+    assert price_only["watchlists_checked"] == 1
