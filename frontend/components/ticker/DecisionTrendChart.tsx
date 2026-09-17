@@ -143,7 +143,7 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
       <p className="text-slate-400">{recalibrationNote}</p>
     </div> : null}
     {active && tooltipPosition && typeof document !== "undefined" ? createPortal(
-      <div role="status" className="pointer-events-none fixed z-[9999] min-w-36 rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: tooltipPosition.left, top: tooltipPosition.top, transform: "translate(-50%, -100%)" }}>
+      <div role="status" className="pointer-events-none fixed z-[9999] w-64 max-w-[calc(100vw-1rem)] rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: clamp(tooltipPosition.left, Math.min(136, window.innerWidth / 2), Math.max(window.innerWidth - 136, window.innerWidth / 2)), top: tooltipPosition.top, transform: "translate(-50%, -100%)" }}>
         <p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p>
         <p className="mt-1 tabular-nums text-emerald-200">Score {Math.round(active.score)} / 100</p>
         <p className="mt-1 font-medium text-slate-400">{confirmationLabel(active.score, direction)}</p>
