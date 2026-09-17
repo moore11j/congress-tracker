@@ -60,6 +60,9 @@ def build_ticker_decision_layer(
         "history": history,
     }
     summary = _summary(sources, contexts, direction)
+    calculation = bundle.get("score_calculation")
+    if isinstance(calculation, dict) and calculation.get("opposing_weight", 0) > 0 and score is not None:
+        summary += f" Opposing evidence is deducted directly; net confirmation is {score}/100."
     adjustment = bundle.get("conflict_adjustment")
     if isinstance(adjustment, dict) and adjustment.get("applied") is True and score is not None:
         summary += f" Opposing evidence limits confirmation to {score}/100."

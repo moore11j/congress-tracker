@@ -36,8 +36,9 @@ from app.services.confirmation_evidence import (
     MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS,
     confirmation_conflict_ceiling,
     evidence_magnitude,
+    evidence_exclusion,
     freshness_score,
-    source_max_points,
+    net_confirmation,
 )
 
 ConfirmationDirection = Literal["bullish", "bearish", "neutral", "mixed"]
@@ -80,8 +81,8 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v5_source_priorities"
-CONFIRMATION_SCORING_VERSION = "confirmation_score_v4_source_priorities"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v6_net_evidence"
+CONFIRMATION_SCORING_VERSION = "confirmation_score_v5_net_evidence"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0
@@ -154,6 +155,7 @@ class ConfirmationScoreBundle:
     classification_version: str = CONFIRMATION_CLASSIFICATION_VERSION
     scoring_version: str = CONFIRMATION_SCORING_VERSION
     conflict_adjustment: dict[str, Any] | None = None
+    score_calculation: dict[str, Any] | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -164,7 +166,8 @@ class ConfirmationScoreBundle:
             "direction": self.direction,
             "status": self.status,
             "explanation": self.explanation,
-            "sources": {key: {**value.as_dict(), "confirmation_contribution": _source_score_component(key, value)}
+            "sources": {key: {**value.as_dict(), "confirmation_contribution": (self.score_calculation or {}).get("source_contributions", {}).get(key, 0.0),
+                              "confirmation_evidence_weight": (self.score_calculation or {}).get("source_weights", {}).get(key, 0.0)}
                         for key, value in self.sources.items()},
             "drivers": list(self.drivers),
             "active_sources": list(self.active_sources),
@@ -172,6 +175,7 @@ class ConfirmationScoreBundle:
             "classification_version": self.classification_version,
             "scoring_version": self.scoring_version,
             "conflict_adjustment": self.conflict_adjustment,
+            "score_calculation": self.score_calculation,
         }
 
 
@@ -2015,6 +2019,8 @@ def classify_confirmation_direction(
         if not source.present or key in SUPPORT_ONLY_SOURCE_KEYS:
             continue
         evidence = _directional_evidence_weight(key, source)
+        if evidence <= 0:
+            continue
         if source.direction in {"bullish", "bearish"}:
             side_scores[source.direction] += evidence
             side_layers[source.direction] += 1
@@ -2069,6 +2075,8 @@ def classify_confirmation_direction(
 def _directional_evidence_weight(key: ConfirmationSourceKey, source: ConfirmationSourceSummary) -> float:
     # Retain the classifier's existing 0–100 reference scale and horizon
     # adjustments while sharing the source priorities with score and divergence.
+    if evidence_exclusion(source.as_dict()) is not None:
+        return 0.0
     weight = evidence_magnitude(source.as_dict(), key) * 10.0
     if key in THIRTY_DAY_DURABLE_SOURCES:
         weight *= 1.20 if source.direction == "bullish" else 1.08 if source.direction == "bearish" else 1.0
@@ -2097,31 +2105,6 @@ def _classification_strength(evidence: float, edge: float) -> Literal["weak", "m
     return "weak"
 
 
-def _source_score_component(key: str, source: ConfirmationSourceSummary) -> float:
-    """Actual source-specific points, distinct from legacy native activity inputs."""
-    if not source.present:
-        return 0.0
-    side = source.direction
-    cap = source_max_points(key, side)
-    if key == "government_contracts":
-        return round(min(max(source.score_contribution, 0), 20) * cap / 20, 4)
-    if key == "price_volume":
-        return round(source.strength * cap / 100, 4)
-    if key == "fundamentals":
-        multiplier = 1.0 if side == "bullish" else .5 if side in {"bearish", "mixed"} else 0.0
-    elif key == "institutional_activity":
-        multiplier = 1.0 if side == "bullish" else .5 if side == "bearish" else .3 if side == "mixed" else 0.0
-    elif key == "analysts":
-        multiplier = 1.0 if side == "bullish" else 5 / 8 if side == "bearish" else 0.0
-    elif key == "congress":
-        multiplier = 1.0 if side in {"bullish", "bearish"} else 0.0
-    elif key == "insiders":
-        multiplier = 1.0
-    else:
-        return 0.0
-    return round(source.strength * cap * multiplier / 100, 4)
-
-
 def _score_bundle(
     ticker: str,
     lookback_days: int,
@@ -2148,60 +2131,19 @@ def _score_bundle(
             source_details=empty.source_details,
         )
 
-    core_source_keys = {"congress", "insiders", "signals", "price_volume", "options_flow", "macro_positioning"}
-    breadth_denominator = len(
-        [
-            key
-            for key, source in sources.items()
-            if key in core_source_keys or source.present
-        ]
-    )
-    breadth_component = (active_count / max(breadth_denominator, 1)) * 100
-    agreement_component = _agreement_component(sources)
-    quality_component = sum(source.quality for source in present_sources) / active_count
-    freshness_component = sum(_freshness_score(source.freshness_days) for source in present_sources) / active_count
-    price_component = sources["price_volume"].strength if sources["price_volume"].present else 0
-    fundamentals_component = _source_score_component("fundamentals", sources["fundamentals"])
-    analysts_component = _source_score_component("analysts", sources["analysts"])
-    institutional_component = _source_score_component("institutional_activity", sources["institutional_activity"])
-    disclosure_component = sum(_source_score_component(key, sources[key]) for key in ("congress", "insiders"))
-    support_bonus = sum(
-        _source_score_component(key, sources[key])
-        for key in SOURCE_ORDER
-        if sources[key].present and key in SUPPORT_ONLY_SOURCE_KEYS
-    )
-
-    score = _clamp_int(
-        breadth_component * 0.20
-        + agreement_component * 0.22
-        + quality_component * 0.16
-        + freshness_component * 0.12
-        + price_component * 0.12
-        + fundamentals_component
-        + analysts_component
-        + institutional_component
-        + disclosure_component
-        + support_bonus
-    )
-    if active_count == 1 and not _has_only_support_sources(sources):
-        score = min(score, 39)
-    if direction == "mixed":
-        score = min(score, 59)
-    if _has_conflicting_support(sources, direction):
-        score = min(score, 79)
-
-    conflict_adjustment = confirmation_conflict_ceiling(
-        {key: source.as_dict() for key, source in sources.items()}, direction,
-    )
-    conflict_adjustment["uncapped_score"] = score
-    score = min(score, conflict_adjustment["ceiling"])
-    conflict_adjustment["applied"] = score < conflict_adjustment["uncapped_score"]
+    payloads = {key: source.as_dict() for key, source in sources.items()}
+    calculation = net_confirmation(payloads, direction)
+    score = calculation["score"]
+    # Preserve the legacy metadata shape for clients; the ratio is diagnostic.
+    # The new score deducts opposition directly rather than applying this ceiling.
+    conflict_adjustment = confirmation_conflict_ceiling(payloads, direction)
+    conflict_adjustment.update(uncapped_score=score, applied=False)
     band = confirmation_band_for_score(score)
     drivers = _driver_bullets(sources, direction)
     status = _status_text(active_count, direction)
     explanation = _explanation(sources, drivers, direction)
-    if conflict_adjustment["applied"]:
-        explanation += f" Opposing evidence limits confirmation to {score}/100."
+    if calculation["opposing_weight"] > 0:
+        explanation += f" Opposing evidence is deducted directly; net confirmation is {score}/100."
 
     return ConfirmationScoreBundle(
         ticker=ticker,
@@ -2216,29 +2158,8 @@ def _score_bundle(
         active_sources=active_source_keys,
         source_details={key: sources[key].detail or sources[key].summary or sources[key].label for key in SOURCE_ORDER},
         conflict_adjustment=conflict_adjustment,
+        score_calculation=calculation,
     )
-
-
-def _agreement_component(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> float:
-    directional_items = [
-        (key, source.direction)
-        for key, source in sources.items()
-        if source.present and source.direction != "neutral" and key not in SUPPORT_ONLY_SOURCE_KEYS
-    ]
-    directions = [
-        direction
-        for _key, direction in directional_items
-    ]
-    if _has_only_mixed_price_volume_against_bullish_stack(directional_items):
-        return 85.0
-    if not directions:
-        return 20.0
-    if len(directions) == 1:
-        return 45.0 if directions[0] != "mixed" else 25.0
-    direction = _combined_direction(directions)
-    if direction == "mixed":
-        return 30.0
-    return 100.0
 
 
 def _status_text(active_count: int, direction: ConfirmationDirection) -> str:
@@ -2440,39 +2361,9 @@ def _bundle_direction(sources: dict[ConfirmationSourceKey, ConfirmationSourceSum
     return classify_confirmation_direction(sources).direction
 
 
-def _has_only_mixed_price_volume_against_bullish_stack(
-    directional_items: Sequence[tuple[ConfirmationSourceKey, ConfirmationDirection]],
-) -> bool:
-    mixed_keys = {
-        key
-        for key, direction in directional_items
-        if direction == "mixed"
-    }
-    bullish_count = sum(1 for _key, direction in directional_items if direction == "bullish")
-    bearish_count = sum(1 for _key, direction in directional_items if direction == "bearish")
-    return bearish_count == 0 and bullish_count >= 2 and mixed_keys == {"price_volume"}
-
-
 def _has_only_support_sources(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> bool:
     present_keys = {key for key, source in sources.items() if source.present}
     return bool(present_keys) and present_keys.issubset(SUPPORT_ONLY_SOURCE_KEYS)
-
-
-def _has_conflicting_support(
-    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary],
-    direction: ConfirmationDirection,
-) -> bool:
-    if direction not in {"bullish", "bearish"}:
-        return False
-    for key in SUPPORT_ONLY_SOURCE_KEYS:
-        source = sources.get(key)
-        if source is None or not source.present:
-            continue
-        if direction == "bearish" and source.direction == "bullish":
-            return True
-        if direction == "bullish" and source.direction == "bearish":
-            return True
-    return False
 
 
 def _source_aligns_with_direction(

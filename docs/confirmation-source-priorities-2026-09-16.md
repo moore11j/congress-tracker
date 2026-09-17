@@ -1,7 +1,7 @@
 # Approved confirmation priorities: prospective application
 
-Implemented locally on September 16, 2026; not deployed. The user approved these
-source priorities and explicitly requested forward-only application.
+Deployed on September 16, 2026 after the user's explicit deployment approval.
+The user approved these source priorities and requested forward-only application.
 
 | Source | Previous maximum points | Approved maximum points |
 | --- | ---: | ---: |
@@ -64,6 +64,32 @@ TypeScript checking passed, as did all nine ticker decision-layer and outcome-ch
 frontend tests. The history regression activates the new methodology, repeats an
 import, and verifies the old snapshot ID, score, hash, source values and methodology
 remain unchanged.
+
+## Production release verification
+
+- Commit `6daec12212c2ee81ae9bad23213251aa0de04df3` pushed to main. Vercel reported
+  success and the public app-version endpoint returned this exact commit.
+- Fly image `confirmation-priorities-6daec122`, digest
+  `sha256:a885d771aff273d0380204ef91c5dd75aa283484f0d33938de5541b87f4fd1a6`,
+  passed rolling deployment checks on both API machines and the cron machine.
+  `/ready` reported service and database OK; the BA page returned HTTP 200.
+- Refreshed canonical BA and NVDA caches under the new scoring version. At
+  verification, full-evidence BA was 70/100 Strong Bullish (81 before the conflict
+  ceiling), and NVDA was 81/100 Exceptional Bullish. The logged-out BA projection
+  was 64/100, reflecting the existing viewer-source entitlement policy. These are
+  observations at release time, not permanently fixed scores.
+- The current methodology is `confirmation-v4-source-priorities`. Historical
+  backfilling remains disabled. Top Stocks was refreshed with the new methodology
+  and returned ten entries at `2026-09-16T17:40:49.935823Z`.
+- Before/after read-only checksums matched for all 34,694 existing score snapshots,
+  4,130 outcome entries and 5,339 horizon observations. No historical values changed.
+- Expanded release checks: 180 passed, four failed and one deselected. All four
+  government-contract failures reproduced on an isolated unchanged baseline
+  (two legacy feed payload assertions, an inactive-state assertion and a provider
+  request blocked in the test environment). No new failing test was introduced.
+
+Local verification artifacts are under `backend/.local/confirmation-*release*`
+and `backend/.local/confirmation-release-warm.log`.
 
 These are approved rules for evidence weighting and consistency. They do not
 establish improved 30-day return prediction, and the previous research findings

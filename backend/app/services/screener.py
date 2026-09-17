@@ -23,7 +23,6 @@ from app.services.confirmation_score import (
     slim_confirmation_score_bundle,
 )
 from app.services.confirmation_context import build_confirmation_score_context
-from app.services.confirmation_evidence import source_max_points
 from app.services.government_contracts import (
     DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
     DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
@@ -1766,7 +1765,7 @@ def _enrich_row(
         "insider_activity": _activity_from_bundle(bundle, "insiders", "No recent activity"),
         "government_contracts_status": government_contracts_status,
         "government_contracts_active": government_contracts_summary.get("active") is True if government_contracts_status == "ok" else None,
-        "government_contracts_score_contribution": min(20, max(0, int(government_contracts_summary.get("score_contribution") or 0))) * source_max_points("government_contracts", "bullish") / 20
+        "government_contracts_score_contribution": ((bundle.get("sources") or {}).get("government_contracts") or {}).get("confirmation_contribution", 0.0)
         if government_contracts_status == "ok"
         else None,
         "government_contracts_count": int(government_contracts_summary.get("contract_count") or 0)

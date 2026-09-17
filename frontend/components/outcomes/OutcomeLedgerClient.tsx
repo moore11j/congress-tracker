@@ -1223,7 +1223,7 @@ function DetailPanel({
                   {sourceRows.map((row) => (
                     <div key={row.key} className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-white/[0.06] pb-2 last:border-0 last:pb-0">
                       <span className="text-slate-100">{row.label}</span>
-                      <span className="text-right text-lime-300">{row.score === null ? "active" : `${row.score > 0 ? "+" : ""}${row.score}`}</span>
+                      <span className={`text-right ${row.score !== null && row.score < 0 ? "text-rose-300" : "text-lime-300"}`}>{row.score === null ? "active" : `${row.score > 0 ? "+" : ""}${row.score}`}</span>
                       <span className="text-xs text-slate-400">{row.direction}</span>
                       <span className="text-right text-xs text-slate-400">{row.strength}</span>
                     </div>

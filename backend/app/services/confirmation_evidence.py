@@ -105,3 +105,38 @@ def confirmation_conflict_ceiling(sources: dict[str, dict[str, Any]], direction:
     ceiling = min(99, 100 * aligned_units // (aligned_units + opposing_units)) if opposing_units else 100
     return {"ceiling": ceiling, "aligned_weight": aligned_units / 100,
             "opposing_weight": opposing_units / 100}
+
+
+def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict[str, Any]:
+    """Signed consensus: opposition subtracts; missing/mixed inputs earn nothing.
+
+    A fixed direction is monotonic in each eligible source's evidence weight.
+    No activity, breadth, quality or freshness bonuses are added separately.
+    Quality and freshness already affect each source's evidence magnitude.
+    """
+    weights = {key: round(evidence_magnitude(source, key), 2)
+               if evidence_exclusion(source) is None else 0.0
+               for key, source in sources.items()}
+    signed = {key: (weight if sources[key].get("direction") == direction else -weight)
+              if direction in {"bullish", "bearish"} else 0.0
+              for key, weight in weights.items()}
+    aligned = round(sum(value for value in signed.values() if value > 0), 2)
+    opposing = round(-sum(value for value in signed.values() if value < 0), 2)
+    total = round(aligned + opposing, 2)
+    net = round(aligned - opposing, 2)
+    raw_score = max(0.0, 100 * net / total) if total else 0.0
+    score = max(0, min(100, int(round(raw_score))))
+    # Rounding must never make real opposition disappear at the 100 boundary.
+    if opposing > 0:
+        score = min(score, 99)
+    eligible_count = sum(weight > 0 for weight in weights.values())
+    single_source_cap = eligible_count == 1 and score > 39
+    if single_source_cap:
+        score = 39
+    return {"method": "net_directional_evidence", "aligned_weight": aligned,
+            "opposing_weight": opposing, "net_weight": net, "total_weight": total,
+            "raw_score": round(raw_score, 4), "score": score,
+            "single_source_cap_applied": single_source_cap,
+            "source_weights": weights,
+            "source_contributions": {key: round(100 * value / total, 4) if total else 0.0
+                                     for key, value in signed.items()}}

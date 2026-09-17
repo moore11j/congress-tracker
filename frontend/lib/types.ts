@@ -187,6 +187,7 @@ export type ConfirmationScoreSource = {
   title?: string | null;
   score_contribution?: number;
   confirmation_contribution?: number;
+  confirmation_evidence_weight?: number;
   detail?: string | null;
   summary?: string | null;
   lines?: string[];
@@ -201,6 +202,18 @@ export type ConfirmationScoreBundle = {
   status: string;
   explanation: string;
   scoring_version?: string;
+  score_calculation?: {
+    method: string;
+    aligned_weight: number;
+    opposing_weight: number;
+    net_weight: number;
+    total_weight: number;
+    raw_score: number;
+    score: number;
+    single_source_cap_applied: boolean;
+    source_weights: Record<string, number>;
+    source_contributions: Record<string, number>;
+  } | null;
   conflict_adjustment?: {
     ceiling: number;
     aligned_weight: number;

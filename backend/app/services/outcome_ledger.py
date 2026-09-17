@@ -56,7 +56,7 @@ OUTCOMES_LEDGER_MISSING_PRICE_KEY = "outcome_ledger_missing_reference_prices"
 OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_prices"
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
-CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v4-source-priorities"
+CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v5-net-evidence"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OutcomeEntriesBySnapshot = dict[int, OutcomeEntry]
@@ -67,7 +67,7 @@ DateSpreadItem = TypeVar("DateSpreadItem")
 OUTCOME_QUALIFICATION_MIN_SCORE = 40
 OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v10-source-priorities"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v11-net-evidence"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -207,7 +207,8 @@ def current_methodology_configuration() -> dict[str, Any]:
         "source_max_points": dict(SOURCE_MAX_POINTS),
         "insider_max_points": dict(INSIDER_MAX_POINTS),
         "application_policy": "New calculations only; never reweight or relabel recorded historical scores or outcomes.",
-        "conflict_ceiling": "floor(100 * aligned_material_weight / total_material_directional_weight), applied after additive bonuses; shared divergence weights",
+        "score_formula": "round(100 * (aligned_weight - opposing_weight) / (aligned_weight + opposing_weight)), clamped to 0..100; one eligible source capped at 39; any opposition prevents 100",
+        "contribution_units": "Signed percentage points before rounding and the single-source cap; source priorities are relative evidence weights.",
         "lookback_days": 30,
         "source_order": list(SOURCE_ORDER),
         "score_bands": {
@@ -217,7 +218,7 @@ def current_methodology_configuration() -> dict[str, Any]:
             "strong": [60, 79],
             "exceptional": [80, 100],
         },
-        "notes": "Confirmation v4 applies approved source priorities to new calculations only: fundamentals 20, institutions 16, insider buys 12, Congress 10, analysts 8, contracts 5, insider sells 1. Existing snapshots and outcomes retain their original methodology. Scores remain evidence confirmation, not calibrated return probabilities.",
+        "notes": "Confirmation v5 deducts opposing evidence directly, with no separate activity bonuses. Mixed, neutral, missing, stale and immaterial sources contribute zero. Approved relative source priorities are unchanged. New calculations only; existing snapshots and outcomes retain their original methodology. Scores measure net evidence agreement, not return probabilities or absolute evidence coverage.",
         "outcome_target": {
             "primary_horizon": "30D",
             "primary_metric": "directional accuracy and excess return versus SPY",
@@ -327,6 +328,7 @@ def source_contributions_from_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
             "quality": source.get("quality"),
             "score_contribution": source.get("score_contribution"),
             "confirmation_contribution": source.get("confirmation_contribution"),
+            "confirmation_evidence_weight": source.get("confirmation_evidence_weight"),
             "label": source.get("label"),
             "detail": source.get("detail"),
             "summary": source.get("summary"),
@@ -817,6 +819,7 @@ def capture_live_confirmation_score_snapshot(
         source_contributions["__score_consistency"] = {
             "scoring_version": bundle.get("scoring_version"),
             "conflict_adjustment": bundle.get("conflict_adjustment"),
+            "score_calculation": bundle.get("score_calculation"),
         }
         input_hash = input_hash_for_confirmation_bundle(bundle, methodology)
 

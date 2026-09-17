@@ -1798,42 +1798,6 @@ function lockFeatureLabel(requiredPlan?: TickerSourceEntitlement["required_plan"
   return requiredPlan === "pro" ? "Pro feature" : "Premium feature";
 }
 
-function confirmationBandForDisplayScore(score: number): ConfirmationScoreBundle["band"] {
-  if (score <= 19) return "inactive";
-  if (score <= 39) return "weak";
-  if (score <= 59) return "moderate";
-  if (score <= 79) return "strong";
-  return "exceptional";
-}
-
-function displayDirectionForSources(sources: ConfirmationScoreBundle["sources"]): ConfirmationScoreBundle["direction"] {
-  const directionalSources = confirmationSourceOrder.filter((source) => (
-    source !== "government_contracts"
-    && sources[source].present
-    && sources[source].direction !== "neutral"
-  ));
-  const directions = new Set(directionalSources.map((source) => sources[source].direction));
-  if (directions.has("mixed") || (directions.has("bullish") && directions.has("bearish"))) return "mixed";
-  if (directions.has("bullish")) return "bullish";
-  if (directions.has("bearish")) return "bearish";
-  return "neutral";
-}
-
-function displayScoreForSources(sources: ConfirmationScoreBundle["sources"]): number {
-  const directionalSources = confirmationSourceOrder.filter((source) => (
-    source !== "government_contracts"
-    && sources[source].present
-    && sources[source].direction !== "neutral"
-  ));
-  const directionalScore = directionalSources.length > 0
-    ? directionalSources.reduce((sum, source) => sum + Math.max(sources[source].strength, sources[source].quality), 0) / directionalSources.length
-    : 0;
-  const supportScore = sources.government_contracts.present
-    ? sources.government_contracts.confirmation_contribution ?? Math.min(5, sources.government_contracts.score_contribution ?? sources.government_contracts.strength)
-    : 0;
-  return Math.max(0, Math.min(100, Math.round(directionalScore + supportScore)));
-}
-
 function displayConfirmationBundleForEntitlements(
   bundle: ConfirmationScoreBundle,
   entitlements: TickerSourceEntitlements | null | undefined,
@@ -1870,19 +1834,14 @@ function displayConfirmationBundleForEntitlements(
     };
   }
   if (lockedActiveSources.length === 0) return { ...bundle, sources };
-  const displayScore = displayScoreForSources(sources);
-  const displayDirection = displayDirectionForSources(sources);
+  // Scores must come from the server's canonical entitlement projection.
+  // A legacy unprojected response cannot be safely rescored in the browser.
   return {
-    ...bundle,
-    score: displayScore,
-    band: confirmationBandForDisplayScore(displayScore),
-    direction: displayDirection,
-    status: visibleActiveSources.length > 0 ? "Visible context" : "Inactive",
-    explanation: visibleActiveSources.length > 0
-      ? "Visible confirmation context is based on unlocked sources."
-      : "No unlocked confirmation sources are active for this lookback.",
-    sources,
-    active_sources: visibleActiveSources,
+    ...bundle, score: 0, band: "inactive", direction: "neutral",
+    status: "Confirmation refreshing",
+    explanation: "Confirmation is refreshing for your available sources.",
+    sources, active_sources: visibleActiveSources,
+    conflict_adjustment: undefined, score_calculation: undefined,
   };
 }
 

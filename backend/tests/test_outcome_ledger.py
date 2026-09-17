@@ -189,8 +189,8 @@ def test_methodology_seed_and_single_current_version():
         current_rows = db.execute(
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.is_current.is_(True))
         ).scalars().all()
-        assert current.version == "confirmation-v4-source-priorities"
-        assert [row.version for row in current_rows] == ["confirmation-v4-source-priorities"]
+        assert current.version == "confirmation-v5-net-evidence"
+        assert [row.version for row in current_rows] == ["confirmation-v5-net-evidence"]
 
 
 def test_current_methodology_promotes_deployed_version_over_existing_current():
@@ -211,8 +211,8 @@ def test_current_methodology_promotes_deployed_version_over_existing_current():
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.version == "confirmation-v1")
         ).scalar_one()
 
-        assert current.version == "confirmation-v4-source-priorities"
-        assert [row.version for row in current_rows] == ["confirmation-v4-source-priorities"]
+        assert current.version == "confirmation-v5-net-evidence"
+        assert [row.version for row in current_rows] == ["confirmation-v5-net-evidence"]
         assert retired_v1.is_current is False
         assert retired_v1.retired_at is not None
 
@@ -289,14 +289,16 @@ def test_live_capture_persists_v2_training_features():
 
         first = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(58, "neutral"), calculated_at=datetime(2026, 8, 3, 15, tzinfo=timezone.utc))
         current_bundle = _bundle(67, "bearish")
-        current_bundle["scoring_version"] = "confirmation_score_v4_source_priorities"
+        current_bundle["scoring_version"] = "confirmation_score_v5_net_evidence"
         current_bundle["conflict_adjustment"] = {"ceiling": 70, "aligned_weight": 14, "opposing_weight": 6, "uncapped_score": 67, "applied": False}
+        current_bundle["score_calculation"] = {"method": "net_directional_evidence", "aligned_weight": 14, "opposing_weight": 6}
         second = capture_live_confirmation_score_snapshot(db, "CRM", current_bundle, calculated_at=datetime(2026, 8, 4, 15, tzinfo=timezone.utc))
         rows = db.execute(select(ConfirmationScoreSnapshot).order_by(ConfirmationScoreSnapshot.id)).scalars().all()
         payload = json.loads(rows[-1].source_contributions_json)
         assert payload["__score_consistency"] == {
             "scoring_version": current_bundle["scoring_version"],
             "conflict_adjustment": current_bundle["conflict_adjustment"],
+            "score_calculation": current_bundle["score_calculation"],
         }
         assert rows[0].score == 58
         features = payload["__v2_features"]
@@ -442,7 +444,24 @@ def test_snapshots_and_used_methodologies_are_immutable():
             db.commit()
 
 
-def test_demo_seeder_populates_pending_snapshots_with_prices_and_skips_reruns():
+def _freeze_market_afternoon(monkeypatch):
+    # Keep these fixtures on the same UTC and New York date. They test ledger
+    # behavior, not the demo generator's UTC/market-date boundary handling.
+    from app import seed_outcome_ledger_demo
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 9, 16, 20, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(outcome_ledger_module, "datetime", FrozenDatetime)
+    monkeypatch.setattr(seed_outcome_ledger_demo, "datetime", FrozenDatetime)
+    return FrozenDatetime.now(timezone.utc)
+
+
+def test_demo_seeder_populates_pending_snapshots_with_prices_and_skips_reruns(monkeypatch):
+    _freeze_market_afternoon(monkeypatch)
     engine = _engine()
     with Session(engine) as db:
         first = seed_outcome_ledger_demo_snapshots(db, count=3)
@@ -587,12 +606,13 @@ def test_directional_correctness_allows_raw_return_or_spy_relative_win():
 
 
 def test_pending_snapshot_listing_skips_price_outcome_lookups(monkeypatch):
+    now = _freeze_market_afternoon(monkeypatch)
     engine = _engine()
     with Session(engine) as db:
-        today = datetime.now(timezone.utc).date()
+        today = now.date()
         db.add(PriceCache(symbol="CRM", date=today.isoformat(), close=101.25, price_source="test"))
         db.commit()
-        snapshot = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(), calculated_at=datetime.now(timezone.utc))
+        snapshot = capture_live_confirmation_score_snapshot(db, "CRM", _bundle(), calculated_at=now)
         assert snapshot is not None
 
         def fail_price_lookup(*_args, **_kwargs):
@@ -688,7 +708,7 @@ def test_backfill_history_creates_matured_rows_from_monitoring_events():
         # Activating the new rules must neither duplicate nor relabel this row.
         original_id, original_hash, original_sources = imported.id, imported.input_hash, imported.source_contributions_json
         current = current_confirmation_methodology(db)
-        assert current.version == "confirmation-v4-source-priorities"
+        assert current.version == "confirmation-v5-net-evidence"
         again = backfill_outcome_ledger_history(db, since_days=120, limit=10, min_score=40, min_source_count=1, hydrate_prices=False)
         assert again["created"] == 0
         db.refresh(imported)

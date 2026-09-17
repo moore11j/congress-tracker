@@ -89,7 +89,8 @@ def test_weak_price_confirmation_and_insider_selling_do_not_force_bearish_direct
         bundle = get_confirmation_score_bundle_for_ticker(db, "CRM", lookback_days=30)
 
         assert bundle["ticker"] == "CRM"
-        assert bundle["band"] in {"weak", "moderate", "strong"}
+        assert bundle["band"] == "inactive"
+        assert bundle["score"] == 0
         assert bundle["direction"] == "neutral"
         assert bundle["status"] == "Supportive multi-source setup"
         assert bundle["sources"]["insiders"]["present"] is True
@@ -345,7 +346,7 @@ def test_confirmation_bundle_can_include_government_contracts_without_breaking_w
     assert bundle["sources"]["government_contracts"]["present"] is True
     assert bundle["sources"]["government_contracts"]["direction"] == "bullish"
     assert slim["confirmation_source_count"] >= 1
-    assert slim["why_now"]["state"] != "inactive"
+    assert slim["why_now"]["state"] == "inactive"  # Contracts alone cannot establish direction.
 
 
 def test_v2_single_source_insider_selling_with_contract_support_stays_neutral():
@@ -448,7 +449,7 @@ def test_v2_confirmed_selloff_with_insider_selling_can_stay_bearish_despite_cont
     assert bundle["band"] != "exceptional"
 
 
-def test_mixed_price_volume_discounts_but_does_not_override_broad_bullish_stack():
+def test_mixed_price_volume_adds_no_credit_to_broad_bullish_stack():
     bundle = confirmation_score_bundle_from_source_contexts(
         "TSM",
         source_contexts={
@@ -486,7 +487,8 @@ def test_mixed_price_volume_discounts_but_does_not_override_broad_bullish_stack(
 
     assert bundle["sources"]["price_volume"]["direction"] == "mixed"
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] == 81
+    assert bundle["score"] == 100
+    assert bundle["sources"]["price_volume"]["confirmation_contribution"] == 0
     assert bundle["band"] == "exceptional"
 
 
@@ -541,7 +543,8 @@ def test_institutional_new_positions_raise_bullish_confirmation_weight():
         )
 
     assert with_new_positions["sources"]["institutional_activity"]["strength"] > base["sources"]["institutional_activity"]["strength"]
-    assert with_new_positions["score"] > base["score"]
+    assert with_new_positions["score"] == base["score"] == 100  # Already unanimous.
+    assert with_new_positions["sources"]["institutional_activity"]["confirmation_evidence_weight"] > base["sources"]["institutional_activity"]["confirmation_evidence_weight"]
 
 
 def test_bullish_fundamentals_get_more_confirmation_lift_than_bearish_fundamentals():
@@ -659,7 +662,8 @@ def test_one_opposing_layer_does_not_force_conflicted():
     )
 
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] > 39
+    assert bundle["score"] == 37
+    assert bundle["sources"]["options_flow"]["confirmation_contribution"] < 0
 
 
 def test_material_near_balanced_opposition_returns_conflicted():
@@ -757,20 +761,20 @@ def test_boeing_style_conflict_cannot_be_erased_by_saturating_bonuses():
     divergence = build_cross_source_divergence(bundle)
     adjustment = bundle["conflict_adjustment"]
     assert bundle["direction"] == "bullish"
-    assert adjustment["uncapped_score"] == 100
+    assert adjustment["uncapped_score"] == 21
     assert adjustment["aligned_weight"] == divergence["bullish_strength"] == 45.67
     assert adjustment["opposing_weight"] == divergence["bearish_strength"] == 29.82
     assert divergence["state"] == "moderate_divergence"
-    assert bundle["score"] == 60
-    assert bundle["band"] == "strong"
-    assert "Opposing evidence limits confirmation to 60/100" in bundle["explanation"]
+    assert bundle["score"] == 21
+    assert bundle["band"] == "weak"
+    assert "Opposing evidence is deducted directly; net confirmation is 21/100" in bundle["explanation"]
     slim = slim_confirmation_score_bundle(bundle)
-    assert slim["confirmation_score"] == 60
-    assert slim["confirmation_band"] == "strong"
+    assert slim["confirmation_score"] == 21
+    assert slim["confirmation_band"] == "weak"
     assert slim["confirmation_scoring_version"] == CONFIRMATION_SCORING_VERSION
     layer = build_ticker_decision_layer("BA", confirmation_bundle=bundle)
-    assert layer["confirmation"]["score"] == 60
-    assert "Opposing evidence limits confirmation to 60/100" in layer["summary"]
+    assert layer["confirmation"]["score"] == 21
+    assert "Opposing evidence is deducted directly; net confirmation is 21/100" in layer["summary"]
     # The same rule is applied to every ticker and every normalized rebuild.
     rebuilt = confirmation_score_bundle_from_source_payloads("OTHER", sources_payload=bundle["sources"])
     assert rebuilt["score"] == bundle["score"]
@@ -818,7 +822,7 @@ def test_redaction_recomputes_conflict_metadata_without_locked_evidence():
     assert redacted["conflict_adjustment"]["applied"] is False
 
 
-def test_approved_source_maxima_match_score_points_and_evidence_priorities():
+def test_approved_source_maxima_remain_evidence_priorities():
     from app.services.confirmation_evidence import evidence_magnitude
     for key, side, maximum in [
         ("fundamentals", "bullish", 20), ("institutional_activity", "bullish", 16),
@@ -828,7 +832,7 @@ def test_approved_source_maxima_match_score_points_and_evidence_priorities():
     ]:
         source = {**_payload_source(side, strength=100, quality=100), "score_contribution": 20}
         bundle = confirmation_score_bundle_from_source_payloads("WEIGHTS", sources_payload={key: source})
-        assert bundle["sources"][key]["confirmation_contribution"] == maximum
+        assert bundle["sources"][key]["confirmation_evidence_weight"] == maximum
         assert evidence_magnitude(bundle["sources"][key], key) == maximum
 
 
@@ -860,7 +864,7 @@ def test_legacy_native_contract_bonus_cannot_bypass_five_point_limit():
         current = deepcopy(sources)
         current["government_contracts"]["score_contribution"] = native
         outputs.append(confirmation_score_bundle_from_source_payloads("CAP", sources_payload=current))
-    assert outputs[0]["sources"]["government_contracts"]["confirmation_contribution"] == 5
-    assert outputs[1]["sources"]["government_contracts"]["confirmation_contribution"] == 5
+    assert outputs[0]["sources"]["government_contracts"]["confirmation_evidence_weight"] <= 5
+    assert outputs[1]["sources"]["government_contracts"]["confirmation_evidence_weight"] <= 5
     assert outputs[0]["score"] == outputs[1]["score"]
     assert outputs[0]["conflict_adjustment"] == outputs[1]["conflict_adjustment"]
