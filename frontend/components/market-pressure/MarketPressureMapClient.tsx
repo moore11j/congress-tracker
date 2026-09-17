@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmationLabel } from "@/lib/confirmationLabel";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -746,7 +747,7 @@ function TickerFlyout({
         <div className="grid gap-2 sm:grid-cols-4">
           <Metric label={`${period} price`} value={formatPct(tile.priceChangePct)} />
           <Metric label="Confirmation" value={tile.confirmationScore == null ? "NA" : `${Math.round(tile.confirmationScore)}/100`} />
-          <Metric label="Direction" value={statusTitle(tile.confirmationDirection)} />
+          <Metric label="Direction" value={confirmationLabel(tile.confirmationScore, tile.confirmationDirection)} />
           <Metric label="Divergence" value={divergenceLabel[tile.divergence]} />
         </div>
         <div className="rounded-md border border-white/10 bg-slate-950/45 p-3">

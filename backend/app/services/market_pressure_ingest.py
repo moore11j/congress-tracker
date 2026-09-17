@@ -18,7 +18,6 @@ from sqlalchemy.orm import Session
 from app.clients.fmp import FMP_BASE_URL
 from app.models import MarketPressureSnapshot, PriceCache, QuoteCache
 from app.services import market_pressure
-from app.services.confirmation_score import get_confirmation_score_bundles_for_tickers
 from app.services.provider_usage import ensure_fmp_live_allowed, record_provider_response
 from app.services.quote_lookup import quote_cache_upsert_many
 
@@ -165,11 +164,7 @@ def refresh_market_pressure_universe_snapshot(
             sleep_fn(rate_delay)
 
     _write_price_caches(db, quote_prices, price_as_of, generated_at.date())
-    bundles = get_confirmation_score_bundles_for_tickers(
-        db,
-        symbols,
-        lookback_days=market_pressure.CONFIRMATION_FRESHNESS_WINDOW_DAYS,
-    )
+    bundles = market_pressure._default_confirmation_loader(db, symbols)
 
     snapshot_rows: list[dict[str, Any]] = []
     for symbol in symbols:

@@ -41,7 +41,7 @@ test("ticker overview keeps one confirmation score and removes old watch sentenc
 
 test("ticker overview does not label neutral scores as exceptional neutral", () => {
   assert.match(page, /function confirmationSignalLabel/);
-  assert.match(page, /if \(direction === "neutral"\) return "No clear direction";/);
+  assert.match(page, /return confirmationLabel\(score, direction, band\)/);
   assert.doesNotMatch(page, /\$\{capitalizeWord\(bundle\.band\)\} \$\{confirmationDirectionDisplay\(bundle\.direction\)\}/);
 });
 

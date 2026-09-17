@@ -93,9 +93,9 @@ def test_market_pressure_snapshot_job_reuses_cache_fetches_missing_and_serves_pa
             return {"date": generated_at.isoformat(), "close": 210.0}
 
         monkeypatch.setattr(
-            market_pressure_ingest,
-            "get_confirmation_score_bundles_for_tickers",
-            lambda _db, symbols, lookback_days: {symbol: _bundle(symbol) for symbol in symbols},
+            market_pressure,
+            "_default_confirmation_loader",
+            lambda _db, symbols: {symbol: _bundle(symbol) for symbol in symbols},
         )
 
         results = refresh_market_pressure_snapshots(

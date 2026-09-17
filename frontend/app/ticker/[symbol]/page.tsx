@@ -1,3 +1,4 @@
+import { confirmationLabel } from "@/lib/confirmationLabel";
 import { TickerDiscoveryLink } from "@/components/ticker/TickerDiscoveryLink";
 import { VisibleEvent } from "@/components/analytics/VisibleEvent";
 import { institutionDisplayName } from "@/lib/institution";
@@ -1910,11 +1911,7 @@ function confirmationSignalLabel(
   direction: ConfirmationScoreBundle["direction"],
   score: number | null | undefined,
 ): string {
-  if (score === null || score === undefined) return "Unavailable";
-  if (band === "inactive" && direction === "neutral") return "Inactive";
-  if (direction === "neutral") return "No clear direction";
-  if (direction === "mixed") return "Conflicted confirmation";
-  return `${capitalizeWord(band)} ${confirmationDirectionDisplay(direction)}`;
+  return confirmationLabel(score, direction, band);
 }
 
 function overviewScoreLine(bundle: ConfirmationScoreBundle): string {

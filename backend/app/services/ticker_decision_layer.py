@@ -230,6 +230,8 @@ def _latest_source_timestamp(sources: dict[str, Any], contexts: dict[str, Any]) 
 def _confirmation_label(band: str, direction: str, score: int | None) -> str:
     if score is None:
         return "Unavailable"
+    if score <= 19 and direction in {"bullish", "bearish"}:
+        return f"Weak {direction} lean"
     if band == "inactive" and direction == "neutral":
         return "Inactive"
     if direction == "neutral":

@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmationLabel } from "@/lib/confirmationLabel";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -377,7 +378,7 @@ function ScreenerTableRow({
       {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
-          <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>{titleCase(row.confirmation.band)}</span>
+          <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>{confirmationLabel(row.confirmation.score, row.confirmation.direction, row.confirmation.band)}</span>
         </div>
         <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>{confirmationDirection}</div>
         <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>

@@ -21,7 +21,6 @@ from app.services.confirmation_score import (
     SOURCE_ORDER,
     confirmation_active_source_count,
     confirmation_band_for_score,
-    get_confirmation_score_bundles_for_tickers,
 )
 from app.services.index_memberships import active_index_membership_snapshot, index_universe_capabilities
 from app.services.quote_lookup import get_current_prices_meta_db
@@ -399,11 +398,9 @@ def build_market_pressure_response(
 
 
 def _default_confirmation_loader(db: Session, symbols: list[str]) -> dict[str, dict]:
-    return get_confirmation_score_bundles_for_tickers(
-        db,
-        symbols,
-        lookback_days=CONFIRMATION_FRESHNESS_WINDOW_DAYS,
-    )
+    from app.services.confirmation_context import build_ticker_confirmation_context
+
+    return build_ticker_confirmation_context(db, symbols)["bundles"]
 
 
 def _snapshot_fresh_minutes() -> int:
@@ -1096,6 +1093,8 @@ def _market_direction(bundle: dict[str, Any], score: int | None, present_sources
 
 
 def _confirmation_strength(band: str | None, direction: MarketPressureDirection) -> str | None:
+    if band == "inactive" and direction in {"bullish", "bearish"}:
+        return "weak"
     if direction == "unavailable" or band in {None, "inactive"}:
         return None
     if band == "weak":

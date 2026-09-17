@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmationLabel } from "@/lib/confirmationLabel";
 import Link from "next/link";
 import { ContextualUpgrade } from "@/components/billing/ContextualUpgrade";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -59,9 +60,8 @@ function PreviewGate({ tier, label }: { tier: "Premium" | "Pro"; label: string }
 }
 
 function Direction({ row }: { row: Record<string, unknown> }) {
-  const band = text(row, "confirmation_band").replace(/^./, (letter) => letter.toUpperCase());
-  const direction = text(row, "confirmation_direction").replace(/^./, (letter) => letter.toUpperCase());
-  return <span className="inline-flex rounded bg-emerald-400/10 px-2 py-1 text-[11px] font-medium text-emerald-200">{[band, direction].filter(Boolean).join(" ") || "Bullish"}</span>;
+  const label = confirmationLabel(number(row, "confirmation_score"), text(row, "confirmation_direction"), text(row, "confirmation_band"));
+  return <span className="inline-flex rounded bg-emerald-400/10 px-2 py-1 text-[11px] font-medium text-emerald-200">{label}</span>;
 }
 
 function TopStocks({ snapshot, allowed }: { snapshot: Snapshot; allowed: boolean }) {

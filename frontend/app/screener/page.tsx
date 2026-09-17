@@ -1,3 +1,4 @@
+import { confirmationLabel } from "@/lib/confirmationLabel";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";
@@ -1781,7 +1782,7 @@ function ScreenerTableRow({
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
           <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>
-            {titleCase(row.confirmation.band)}
+            {confirmationLabel(row.confirmation.score, row.confirmation.direction, row.confirmation.band)}
           </span>
         </div>
         <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>

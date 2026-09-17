@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmationLabel } from "@/lib/confirmationLabel";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { formatDateShort } from "@/lib/format";
@@ -13,8 +14,6 @@ const height = 96;
 const padding = { top: 9, right: 10, bottom: 22, left: 32 };
 
 function clamp(value: number, min: number, max: number): number { return Math.max(min, Math.min(max, value)); }
-function scoreBand(score: number): string { if (score <= 19) return "Inactive"; if (score <= 39) return "Weak"; if (score <= 59) return "Moderate"; if (score <= 79) return "Strong"; return "Very strong"; }
-function confirmationLabel(score: number, direction?: string | null): string { const normalized = (direction ?? "").toLowerCase(); if (score <= 19 && normalized === "neutral") return "Inactive"; if (normalized === "mixed") return "Conflicted confirmation"; if (normalized === "neutral" || !normalized) return "No clear direction"; return `${scoreBand(score)} ${normalized}`; }
 function formatAxisDate(value: string): string { const formatted = formatDateShort(value); return formatted ? formatted.replace(/, \d{4}$/, "") : value; }
 function chartTheme(direction?: string | null) { if (direction === "bearish") return { stroke: "#fb7185", areaTop: "rgba(251,113,133,.34)", areaBottom: "rgba(251,113,133,0)" }; if (direction === "mixed") return { stroke: "#fbbf24", areaTop: "rgba(251,191,36,.30)", areaBottom: "rgba(251,191,36,0)" }; return { stroke: "#6ee7b7", areaTop: "rgba(74,222,128,.35)", areaBottom: "rgba(74,222,128,0)" }; }
 
