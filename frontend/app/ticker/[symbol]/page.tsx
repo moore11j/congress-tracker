@@ -2325,8 +2325,10 @@ function analystSourceBody(source: ConfirmationScoreBundle["sources"]["analysts"
 function analystSourceSupport(source: ConfirmationScoreBundle["sources"]["analysts"]): string {
   if (!source.present) return "No directional analyst source in this window.";
   const points = source.confirmation_contribution ?? source.score_contribution;
-  const contribution = typeof points === "number" ? Math.round(points) : null;
-  return contribution !== null ? `Capped contribution ${contribution}` : "Capped confirmation input";
+  const contribution = typeof points === "number" ? points : null;
+  return contribution !== null
+    ? `Score contribution ${contribution > 0 ? "+" : ""}${contribution.toFixed(1)}`
+    : "Directional confirmation input";
 }
 
 function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
