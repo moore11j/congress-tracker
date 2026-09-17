@@ -1,6 +1,7 @@
 "use client";
 
 import { confirmationLabel } from "@/lib/confirmationLabel";
+import { scoreRecalibrationsInRange } from "@/lib/confirmationRecalibrations";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { formatDateShort } from "@/lib/format";
@@ -25,6 +26,7 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   const svgRef = useRef<SVGSVGElement | null>(null);
   const gradientId = useId().replace(/:/g, "");
   const points = useMemo(() => Array.isArray(history) ? history.filter((point) => Number.isFinite(point.score)).slice(-30) : [], [history]);
+  const recalibrations = useMemo(() => scoreRecalibrationsInRange(points), [points]);
   const chart = useMemo(() => {
     if (points.length < 2) return null;
     const scores = points.map((point) => clamp(point.score, 0, 100));
@@ -86,9 +88,16 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
   const linePoints = chart.rendered.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
   const areaPoints = `${linePoints} ${chart.rendered.at(-1)?.x ?? width - padding.right},${height - padding.bottom} ${chart.rendered[0]?.x ?? padding.left},${height - padding.bottom}`;
   const theme = chartTheme(direction);
+  const recalibrationNote = "Scores across these changes use different methods. Historical scores are unchanged.";
+  const activeRecalibrations = recalibrations.filter((event) => event.inspectionIndex === activeIndex);
   const nearestIndexFor = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerX = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * width;
+    const nearestMarker = recalibrations.map((recalibration) => ({
+      inspectionIndex: recalibration.inspectionIndex,
+      distance: Math.abs(padding.left + recalibration.index * ((width - padding.left - padding.right) / (points.length - 1)) - pointerX),
+    })).sort((a, b) => a.distance - b.distance)[0];
+    if (nearestMarker && nearestMarker.distance <= 5) return nearestMarker.inspectionIndex;
     return chart.rendered.reduce((nearest, point, index) => Math.abs(point.x - pointerX) < Math.abs(chart.rendered[nearest].x - pointerX) ? index : nearest, 0);
   };
   const setNearestIndex = (event: PointerEvent<SVGSVGElement>) => {
@@ -103,8 +112,8 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
     setActiveIndex((current) => clamp((current ?? chart.rendered.length - 1) + (event.key === "ArrowLeft" ? -1 : 1), 0, chart.rendered.length - 1));
   };
 
-  return <div className="relative z-20 h-24 w-full overflow-visible">
-    <svg ref={svgRef} className="h-full w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores." tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => {
+  return <div className="relative z-20 w-full overflow-visible">
+    <svg ref={svgRef} className="h-24 w-full overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`30-day confirmation score history. Hover, touch, or use arrow keys to inspect scores.${recalibrations.length ? ` Dashed amber lines mark score recalibrations on ${recalibrations.map((event) => event.date).join(" and ")} (UTC). ${recalibrationNote}` : ""}`} tabIndex={0} style={{ touchAction: "pan-y" }} onKeyDown={inspectWithKeyboard} onPointerMove={setNearestIndex} onPointerDown={(event) => {
       const nearestIndex = nearestIndexFor(event);
       if (event.pointerType !== "mouse") event.currentTarget.setPointerCapture(event.pointerId);
       if (event.pointerType !== "mouse" && activeIndex === nearestIndex) {
@@ -119,13 +128,26 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
       {chart.yTicks.map((tick) => { const y = chart.yFor(tick); return <g key={tick}><line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="stroke-white/10" strokeDasharray="2 4" /><text x={padding.left - 6} y={y + 3} textAnchor="end" className="fill-slate-500 tabular-nums" fontSize="10">{tick}</text></g>; })}
       {chart.xTicks.map((index) => { const point = chart.rendered[index]; const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"; return <text key={`${point.date}-${index}`} x={point.x} y={height - 5} textAnchor={anchor} className="fill-slate-500" fontSize="10">{formatAxisDate(point.date)}</text>; })}
       <g clipPath={`url(#${gradientId}-clip)`} style={{ clipPath: revealed ? "inset(0 0 0 0)" : "inset(0 100% 0 0)", transition: "clip-path 560ms cubic-bezier(.22,1,.36,1)" }}><polygon points={areaPoints} fill={`url(#${gradientId})`} /><polyline points={linePoints} fill="none" stroke={theme.stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></g>
+      {recalibrations.map((event) => {
+        const x = padding.left + event.index * ((width - padding.left - padding.right) / (points.length - 1));
+        return <g key={event.version} className="pointer-events-none" data-recalibration={event.version}>
+          <title>{`Score recalibrated ${event.date} (UTC). ${event.description} ${recalibrationNote}`}</title>
+          <line x1={x} y1={padding.top} x2={x} y2={height - padding.bottom} stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+          <path d={`M ${x} ${padding.top - 4} l 4 4 l -4 4 l -4 -4 Z`} fill="#fbbf24" />
+        </g>;
+      })}
       {active ? <><line x1={active.x} y1={padding.top} x2={active.x} y2={height - padding.bottom} className="stroke-white/35" strokeDasharray="3 4" /><circle cx={active.x} cy={active.y} r="5" fill={theme.stroke} stroke="#020617" strokeWidth="2" /></> : null}
     </svg>
+    {recalibrations.length ? <div className="mt-1.5 text-[10px] leading-4">
+      <p className="font-medium text-amber-200"><span aria-hidden="true" className="mr-1">◆</span>Score recalibrated · {recalibrations.map((event) => formatAxisDate(event.date)).join(" & ")} (UTC)</p>
+      <p className="text-slate-400">{recalibrationNote}</p>
+    </div> : null}
     {active && tooltipPosition && typeof document !== "undefined" ? createPortal(
       <div role="status" className="pointer-events-none fixed z-[9999] min-w-36 rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: tooltipPosition.left, top: tooltipPosition.top, transform: "translate(-50%, -100%)" }}>
         <p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p>
         <p className="mt-1 tabular-nums text-emerald-200">Score {Math.round(active.score)} / 100</p>
         <p className="mt-1 font-medium text-slate-400">{confirmationLabel(active.score, direction)}</p>
+        {activeRecalibrations.map((event) => <p key={event.version} className="mt-2 max-w-60 border-t border-amber-300/20 pt-2 leading-4 text-amber-200">Score recalibrated {formatAxisDate(event.date)} (UTC). {event.description}</p>)}
       </div>,
       document.body,
     ) : null}
