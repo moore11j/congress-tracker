@@ -6615,6 +6615,20 @@ export async function getMemberPortfolioPerformance(
   );
 }
 
+export async function searchRetirementParticipants(query: string, signal?: AbortSignal): Promise<SearchSuggestResponse> {
+  return fetchJson<SearchSuggestResponse>(
+    buildApiUrl("/api/search/suggest", { q: query, limit: 20, mode: "deep" }),
+    { signal, cache: "no-store", source: "RetirementCalculator" },
+  );
+}
+
+export async function getInsiderPortfolioPerformance(reportingCik: string, issuer?: string, signal?: AbortSignal): Promise<MemberPortfolioPerformance> {
+  return fetchJson<MemberPortfolioPerformance>(
+    buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/portfolio-performance`, { lookback_days: 1095, mode: "realistic_disclosure_lag", issuer }),
+    { signal, source: "RetirementCalculator" },
+  );
+}
+
 export async function getMemberReportedHoldings(
   bioguideId: string,
   params?: { source?: string; signal?: AbortSignal },

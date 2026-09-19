@@ -10,6 +10,7 @@ const anonymousPublicRenderHeaderName = "x-walnut-anonymous-public-render";
 const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidate=300";
 const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
+  "/retirement-calculator",
   "/landing",
   "/congress-trades",
   "/insider-trading-tracker",

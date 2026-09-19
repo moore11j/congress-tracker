@@ -20,6 +20,7 @@ const profilesNavLinks = [
 ] as const;
 
 const toolsNavLinks = [
+  { label: "Retirement Calculator", href: "/retirement-calculator", description: "Project investment growth and retirement income for you and your spouse." },
   { label: "Leaderboards", href: `${appUrl}/leaderboards`, description: "Compare Walnut's stored stock and participant rankings." },
   { label: "Stock Screener", href: `${appUrl}/screener`, description: "Screen public companies by Walnut evidence and market data." },
   { label: "Stock Comparisons", href: `${appUrl}/compare`, description: "Compare two tickers across the research workflow." },

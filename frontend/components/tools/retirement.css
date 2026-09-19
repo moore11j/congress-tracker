@@ -1,0 +1,6 @@
+.retirement-calculator .retirement-input { display: block; width: 100%; margin-top: .375rem; border: 1px solid rgba(255,255,255,.12); border-radius: .5rem; background: #020617; padding: .625rem .75rem; color: #f1f5f9; font-size: .875rem; font-variant-numeric: tabular-nums; outline: none; color-scheme: dark; }
+.retirement-calculator .retirement-input:focus { border-color: #6ee7b7; box-shadow: 0 0 0 2px rgba(110,231,183,.12); }
+.retirement-calculator button:focus-visible, .retirement-calculator a:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 3px; }
+.retirement-reveal { animation: retirement-reveal 260ms ease-out; }
+@keyframes retirement-reveal { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .retirement-calculator *, .retirement-calculator *::before, .retirement-calculator *::after { animation: none !important; transition: none !important; } }

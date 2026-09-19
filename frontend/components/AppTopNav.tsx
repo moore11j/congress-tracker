@@ -33,6 +33,7 @@ const toolsNavGroups = [
   {
     label: "Analysis",
     items: [
+      { href: "/retirement-calculator", label: "Retirement Calculator", icon: "◷", description: "Plan savings, investment growth, and retirement income" },
       { href: "/backtesting", label: "Backtesting", icon: "↗︎", description: "Test strategies against history" },
       { href: "/market-pressure", label: "Market Maps", icon: "◫", description: "Visualize market pressure" },
     ],

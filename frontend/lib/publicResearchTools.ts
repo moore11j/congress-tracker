@@ -1,4 +1,5 @@
 export const publicResearchTools = [
+  { href: "/retirement-calculator", label: "Retirement & investment growth calculator", shortLabel: "Retirement calculator" },
   {
     href: "/stock-research-software",
     label: "Stock research software",
