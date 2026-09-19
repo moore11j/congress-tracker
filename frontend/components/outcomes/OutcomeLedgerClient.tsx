@@ -1493,7 +1493,7 @@ export function OutcomeLedgerClient({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] overflow-x-clip px-4 py-5 text-slate-100 sm:px-6">
+    <div className="w-full min-w-0 overflow-x-clip py-4 text-slate-100 sm:py-5">
       {exportGateOpen ? <ExportGateModal onClose={() => setExportGateOpen(false)} /> : null}
       <div className={`grid min-w-0 gap-4 ${eventDetailOpen && datasetReady ? "xl:grid-cols-[minmax(0,1fr)_22.5rem]" : "xl:grid-cols-1"}`}>
         <main className="min-w-0 space-y-4" aria-busy={datasetLoading}>
