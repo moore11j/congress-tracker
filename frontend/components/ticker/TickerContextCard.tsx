@@ -526,6 +526,19 @@ function LoadMoreButton({
 export function TickerContextCard({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
 
+  useEffect(() => {
+    const selectLinkedTab = () => {
+      const tab = window.location.hash.slice(1);
+      if (["overview", "news", "financials", "ownership", "events", "macro", "valuation", "consensus", "research"].includes(tab)) {
+        setActiveTab(tab as ContextTab);
+        document.getElementById("ticker-research-panels")?.scrollIntoView({ block: "start" });
+      }
+    };
+    selectLinkedTab();
+    window.addEventListener("hashchange", selectLinkedTab);
+    return () => window.removeEventListener("hashchange", selectLinkedTab);
+  }, [symbol]);
+
   const [newsPages, setNewsPages] = useState<InsightsNewsResponse[]>([]);
   const [loadingNews, setLoadingNews] = useState(false);
 
@@ -1139,7 +1152,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const macroState = macroPositioning?.overall ?? macroPositioning?.overall_state ?? "neutral";
 
   return (
-    <section className={`${cardClassName} min-w-0 max-w-full overflow-hidden !rounded-lg !p-0 ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
+    <section id="ticker-research-panels" className={`${cardClassName} scroll-mt-24 min-w-0 max-w-full overflow-hidden !rounded-lg !p-0 ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
       <div className="overflow-x-auto border-b border-white/10 bg-slate-950/55 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex min-w-max">
           <button

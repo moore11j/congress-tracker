@@ -10,7 +10,7 @@ from typing import Literal, Protocol
 
 logger = logging.getLogger(__name__)
 
-OptionsFlowState = Literal["bullish", "bearish", "mixed", "inactive", "unavailable"]
+OptionsFlowState = Literal["bullish", "bearish", "call_heavy", "put_heavy", "mixed", "inactive", "unavailable"]
 OptionsFlowConfidence = Literal["low", "moderate", "high"]
 OptionsContractType = Literal["call", "put"]
 
@@ -178,58 +178,27 @@ def summarize_options_flow(
         )
 
     premium_direction = _premium_direction(call_premium, put_premium)
-    volume_direction = _volume_direction(call_volume, put_volume)
-    conflicted = (
-        premium_direction in {"bullish", "bearish"}
-        and volume_direction in {"bullish", "bearish"}
-        and premium_direction != volume_direction
-    )
-    confidence = _confidence(
-        call_premium=call_premium,
-        put_premium=put_premium,
-        total_premium=total_premium,
-        total_volume=total_volume,
-        observed_contracts=observed_contracts,
-        freshness_days=freshness,
-        conflicted=conflicted,
-    )
+    # Unsigned premium cannot identify buying, selling, or hedge intent.
+    state = {"bullish": "call_heavy", "bearish": "put_heavy"}.get(premium_direction, "mixed")
+    label = {"call_heavy": "Call-heavy activity", "put_heavy": "Put-heavy activity", "mixed": "Mixed call/put activity"}[state]
 
-    if premium_direction == "bullish" and confidence != "low" and not conflicted:
-        state: OptionsFlowState = "bullish"
-    elif premium_direction == "bearish" and confidence != "low" and not conflicted:
-        state = "bearish"
-    else:
-        state = "mixed"
-
-    signals = _signals(
-        state=state,
-        call_premium=call_premium,
-        put_premium=put_premium,
-        freshness_days=freshness,
-    )
-    can_confirm = (
-        state in {"bullish", "bearish"}
-        and confidence in {"moderate", "high"}
-        and freshness is not None
-        and freshness <= 5
-        and (total_premium >= 500_000 or total_volume >= 250)
-    )
-
-    return _summary(
+    result = _summary(
         ticker=symbol,
         lookback_days=bounded_lookback,
         state=state,
-        label=_label(state),
+        label=label,
         is_active=True,
-        confidence=confidence,
+        confidence="low",
         freshness_days=freshness,
         latest_flow_date=latest_observed_at.date().isoformat() if latest_observed_at is not None else None,
-        summary=_plain_summary(state),
-        signals=signals,
+        summary=label + ". Buying versus selling is unknown.",
+        signals=[label, "No directional confirmation"],
         metrics=_metrics(ratio, call_put_ratio, net_premium_skew, total_premium, total_volume, observed_contracts, freshness),
-        can_confirm=can_confirm,
+        can_confirm=False,
         provider=provider,
     )
+    result.update(direction=state, score=None, directional_evidence=False)
+    return result
 
 
 class OptionsFlowUnavailable(Exception):

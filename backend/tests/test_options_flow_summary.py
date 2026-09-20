@@ -6,7 +6,7 @@ from app.services.confirmation_score import get_confirmation_score_bundle_for_ti
 from app.services.options_flow import OptionsFlowObservation, summarize_options_flow
 
 
-def test_options_flow_summary_classifies_recent_put_premium_skew_as_bearish():
+def test_options_flow_summary_describes_put_activity_without_directional_confirmation():
     now = datetime.now(timezone.utc)
     summary = summarize_options_flow(
         "PLTR",
@@ -19,15 +19,16 @@ def test_options_flow_summary_classifies_recent_put_premium_skew_as_bearish():
         now=now,
     )
 
-    assert summary["state"] == "bearish"
-    assert summary["confidence"] == "moderate"
-    assert summary["can_confirm"] is True
+    assert summary["state"] == "put_heavy"
+    assert summary["confidence"] == "low"
+    assert summary["can_confirm"] is False
+    assert summary["score"] is None
     assert summary["freshness_days"] == 2
     assert summary["metrics"]["put_call_premium_ratio"] == 2.5
-    assert "Put premium outweighs calls in recent flow" in summary["signals"]
+    assert "No directional confirmation" in summary["signals"]
 
 
-def test_options_flow_summary_keeps_conflicted_activity_mixed_and_non_confirming():
+def test_options_flow_summary_labels_premium_even_when_volume_leans_the_other_way():
     now = datetime.now(timezone.utc)
     summary = summarize_options_flow(
         "NVDA",
@@ -40,7 +41,7 @@ def test_options_flow_summary_keeps_conflicted_activity_mixed_and_non_confirming
         now=now,
     )
 
-    assert summary["state"] == "mixed"
+    assert summary["state"] == "put_heavy"
     assert summary["confidence"] == "low"
     assert summary["can_confirm"] is False
 

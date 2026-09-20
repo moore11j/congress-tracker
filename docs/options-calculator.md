@@ -31,6 +31,18 @@ Massive lists Basic as an individual-use plan. Before public distribution of pro
 
 ## Calculations and boundaries
 
+### Free historical options activity
+
+The Pro ticker context includes an on-demand **Options activity** card, served by `POST /api/tools/options/activity?symbol=SPY`. It reuses the existing server keys and free historical bars; no paid quote feed or new subscription is required. The route enforces `options_flow_feed` access before requesting provider data.
+
+Each sample selects the first listed expiration at least 21 days away and checks all its currently listed standard 100-share contracts, up to 1,000. Other expirations and adjusted contracts are excluded. The expiration appears on the ticker card and screener. Historical data spans 30 calendar days ending before the current UTC day, outside Alpaca's recent-data restriction. The provider adapter follows pagination; missing VWAP, malformed volume, or incomplete pagination fails without saving partial totals.
+
+For each contract/session, estimated premium traded = volume × VWAP × 100. Sum these values separately for calls and puts. More than 1.6× opposite-side premium is labeled call-heavy or put-heavy; otherwise mixed. These unsigned totals cannot identify buying, selling, or hedge intent. `can_confirm=false` and `score=null` prevent the sample from contributing to directional confirmation. The older aggregate-premium summarizer also no longer infers bullish/bearish intent.
+
+The volume comparison divides the latest observed session's total contracts traded by the mean of up to 20 preceding active sessions, requiring at least five. A multiple of 2× or more is labeled an activity spike; it is not sentiment. Historical samples are cached for 24 hours in `ticker_content_cache`, with cache-only profile/screener reads for the 30-day window. Data loads only when requested; provider quotas still apply. Cached samples cover only tickers previously loaded, not the full market.
+
+Validation: `python -m pytest tests/test_options_activity.py tests/test_options_flow_summary.py tests/test_options_alpaca.py tests/test_options_calculator.py -q`. A local live check sampled 442 SPY contracts expiring October 16, 2026 in 3.8 seconds, with the cached result returned immediately. This timing is an observation, not a loading-time guarantee.
+
 Expiration P/L sums signed contract quantities × 100 × (intrinsic − entry premium), adds stock P/L, and subtracts entry commissions. Risk extrema and break-even boundaries are computed from strike breakpoints and the slope of the unbounded upper-price segment, never from the plotted range.
 
 Pre-expiration values use Black–Scholes with continuous dividend yield, continuously compounded rates, and calendar days/365. Volatility is entered, not imported market IV. Position Greeks use numerical sensitivities; theta is one day forward and vega is per one volatility percentage point. American early exercise/assignment, stock dividends received, financing, slippage, margin, exit fees, and taxes are excluded. Entry prices are fixed until deliberately changed. This is an educational scenario tool, not a probability model or recommendation engine.

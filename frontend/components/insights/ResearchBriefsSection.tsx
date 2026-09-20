@@ -1,36 +1,18 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getGeneratedResearchBriefCards } from "@/lib/api";
-import { getPublishedResearchBriefs, type ResearchBriefCard } from "@/lib/researchBriefs";
-
-const BRIEFS_PER_PAGE = 6;
+import type { ResearchBriefCard } from "@/lib/researchBriefs";
+import { BRIEFS_PER_PAGE, loadResearchArchive, researchArchiveHref } from "@/lib/researchArchive";
+import { marketingCanonicalUrl } from "@/lib/marketingMetadata";
+import { notFound } from "next/navigation";
 
 type ResearchBriefsSectionProps = {
   mode?: "preview" | "archive";
+  page?: number;
 };
 
 function formatBriefDate(value: string): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(date);
-}
-
-function briefTimestamp(brief: ResearchBriefCard): number {
-  const timestamp = new Date(`${brief.publishedAt}T00:00:00.000Z`).getTime();
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function sortBriefsNewestFirst(briefs: ResearchBriefCard[]): ResearchBriefCard[] {
-  return briefs
-    .map((brief, index) => ({ brief, index }))
-    .sort((left, right) => {
-      const dateDelta = briefTimestamp(right.brief) - briefTimestamp(left.brief);
-      if (dateDelta !== 0) return dateDelta;
-      return left.index - right.index;
-    })
-    .map(({ brief }) => brief);
 }
 
 function judgmentClassName(judgment?: ResearchBriefCard["judgment"]): string {
@@ -76,7 +58,7 @@ function BriefVisual({ brief }: { brief: ResearchBriefCard }) {
 function BriefCard({ brief }: { brief: ResearchBriefCard }) {
   return (
     <Link
-      href={brief.route}
+      href={marketingCanonicalUrl(brief.route)}
       prefetch={false}
       className="group relative flex min-h-[15rem] min-w-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950/60 transition hover:border-emerald-300/35 hover:bg-slate-950/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/25"
     >
@@ -116,53 +98,14 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
   );
 }
 
-export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectionProps) {
-  const [generatedBriefs, setGeneratedBriefs] = useState<ResearchBriefCard[]>([]);
-  const [pageIndex, setPageIndex] = useState(0);
+export async function ResearchBriefsSection({ mode = "preview", page = 1 }: ResearchBriefsSectionProps) {
   const isArchive = mode === "archive";
-  const briefs = useMemo(() => {
-    const staticBriefs = getPublishedResearchBriefs().filter((brief) => brief.route.startsWith("/research/"));
-    const seen = new Set(staticBriefs.map((brief) => brief.slug));
-    const generated = generatedBriefs.filter((brief) => brief.route.startsWith("/research/") && !seen.has(brief.slug));
-    return sortBriefsNewestFirst([...staticBriefs, ...generated]);
-  }, [generatedBriefs]);
+  const briefs = await loadResearchArchive();
   const totalPages = Math.max(1, Math.ceil(briefs.length / BRIEFS_PER_PAGE));
-  const visibleBriefs = useMemo(
-    () => briefs.slice(pageIndex * BRIEFS_PER_PAGE, pageIndex * BRIEFS_PER_PAGE + BRIEFS_PER_PAGE),
-    [briefs, pageIndex],
-  );
+  if (!Number.isSafeInteger(page) || page < 1 || page > totalPages) notFound();
+  const pageIndex = isArchive ? page - 1 : 0;
+  const visibleBriefs = briefs.slice(pageIndex * BRIEFS_PER_PAGE, pageIndex * BRIEFS_PER_PAGE + BRIEFS_PER_PAGE);
   const canShowMore = pageIndex + 1 < totalPages;
-
-  useEffect(() => {
-    setPageIndex((current) => (current >= totalPages ? 0 : current));
-  }, [totalPages]);
-
-  useEffect(() => {
-    let alive = true;
-    getGeneratedResearchBriefCards()
-      .then((payload) => {
-        if (!alive) return;
-        setGeneratedBriefs(
-          payload.items.map((item) => ({
-            slug: item.slug,
-            route: item.route,
-            title: item.title,
-            description: item.description,
-            tickers: item.tickers,
-            category: item.category,
-            judgment: item.judgment === "neutral" ? "mixed" : (item.judgment as ResearchBriefCard["judgment"]),
-            publishedAt: item.publishedAt,
-            readingMinutes: item.readingMinutes,
-            premium: Boolean(item.premium),
-            requiredPlan: item.requiredPlan,
-          })),
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   return (
     <section id="research-briefs" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 shadow-[0_18px_60px_-42px_rgba(16,185,129,0.55)] sm:p-5">
@@ -173,7 +116,7 @@ export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectio
         </div>
         {!isArchive ? (
           <Link
-            href="/research"
+            href={researchArchiveHref(1)}
             className="inline-flex min-h-9 items-center rounded-md border border-white/10 px-3 py-1.5 text-sm font-semibold text-emerald-200 transition hover:border-emerald-300/35 hover:bg-emerald-300/10 hover:text-emerald-100"
           >
             Open Research Briefs -&gt;
@@ -194,26 +137,26 @@ export function ResearchBriefsSection({ mode = "preview" }: ResearchBriefsSectio
             ))}
           </div>
           {briefs.length > BRIEFS_PER_PAGE ? (
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <nav aria-label="Research archive pagination" className="mt-5 flex flex-wrap items-center justify-center gap-3">
               {pageIndex > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                <Link
+                  href={researchArchiveHref(page - 1)}
+                  rel="prev"
                   className="inline-flex min-h-10 items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
                 >
                   Previous
-                </button>
+                </Link>
               ) : null}
               {canShowMore ? (
-                <button
-                  type="button"
-                  onClick={() => setPageIndex((current) => Math.min(totalPages - 1, current + 1))}
+                <Link
+                  href={researchArchiveHref(pageIndex + 2)}
+                  rel="next"
                   className="inline-flex min-h-10 items-center justify-center rounded-lg border border-emerald-300/35 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
                 >
-                  Show more
-                </button>
+                  More research briefs
+                </Link>
               ) : null}
-            </div>
+            </nav>
           ) : null}
         </>
       ) : (

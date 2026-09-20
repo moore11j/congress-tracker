@@ -6509,6 +6509,7 @@ export type ScreenerApiRow = {
   options_flow_active?: boolean | null;
   options_flow_score?: number | null;
   options_flow_direction?: string | null;
+  options_flow_expiration?: string | null;
   options_flow_intensity?: string | null;
   options_flow_total_premium?: number | null;
   options_flow_status?: string | null;
@@ -8994,6 +8995,9 @@ export async function deleteNotificationSubscription(id: number): Promise<void> 
 }
 
 export type CalculatorClose = { ticker: string; price: number; as_of: string; source: string; price_basis: string };
+export function getOptionsActivity(symbol: string, signal?: AbortSignal) {
+  return fetchJson<import("./types").OptionsFlowSummary>(buildApiUrl("/api/tools/options/activity", { symbol }), { method: "POST", signal, cache: "no-store", source: "options-activity", requestSource: "client" });
+}
 export type CalculatorOptionContract = { ticker: string; kind: "call" | "put"; strike: number; expiration: string; exercise_style: string; close?: CalculatorClose; no_trade?: boolean };
 export type CalculatorOptionChain = { symbol: string; expiration: string; contracts: CalculatorOptionContract[]; excluded: number; truncated: boolean; next_cursor?: string | null; source: string; price_provider?: "alpaca" | "massive" };
 export function getCalculatorOptionPrices(tickers: string[], signal?: AbortSignal) {

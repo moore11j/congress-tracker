@@ -1,3 +1,4 @@
+import { OptionsActivityCard } from "@/components/ticker/OptionsActivityCard";
 import { confirmationLabel } from "@/lib/confirmationLabel";
 import { TickerDiscoveryLink } from "@/components/ticker/TickerDiscoveryLink";
 import { VisibleEvent } from "@/components/analytics/VisibleEvent";
@@ -3312,7 +3313,7 @@ async function DeferredTickerContent({
                   support="Options flow unlocks with Pro."
                 />
               ) : (
-                <OptionsFlowCard summary={optionsFlow} />
+                <OptionsActivityCard summary={optionsFlow} />
               )}
               <GovernmentContractsCard
                 source={confirmationBundle.sources.government_contracts}

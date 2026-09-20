@@ -6,6 +6,8 @@ import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefC
 import { PremiumResearchGate } from "@/components/research/MuPremiumGate";
 import { ResearchBriefTopNav } from "@/components/research/ResearchBriefTopNav";
 import { CampaignEventOnMount } from "@/components/campaign/CampaignAnalytics";
+import { researchLinkHref } from "@/lib/researchLinks";
+import type { ResearchBriefCard } from "@/lib/researchBriefs";
 
 type StoredSignalResult = {
   ticker: string;
@@ -41,6 +43,13 @@ type GeneratedResearchArticleExtras = {
   analytics?: Record<string, string | number | boolean | null>;
 };
 
+function formatResearchDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-US", {
+    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  }).format(date);
+}
+
 function paragraphs(markdown: string) {
   return markdown
     .split(/\n{2,}/)
@@ -53,9 +62,7 @@ function cleanInlineText(value: string) {
 }
 
 function safeLinkHref(value: string) {
-  const href = value.trim();
-  if (href.startsWith("https://") || href.startsWith("http://") || href.startsWith("/")) return href;
-  return "";
+  return researchLinkHref(value);
 }
 
 function linkClassName() {
@@ -103,8 +110,9 @@ function autoLinkUrls(text: string, keyPrefix: string): ReactNode[] {
 
   while ((match = urlPattern.exec(text)) !== null) {
     if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
-    const href = safeLinkHref(match[0].replace(/[.,;:!?]+$/, ""));
-    const trailing = match[0].slice(href.length);
+    const originalHref = match[0].replace(/[.,;:!?]+$/, "");
+    const href = safeLinkHref(originalHref);
+    const trailing = match[0].slice(originalHref.length);
     nodes.push(
       <a key={`${keyPrefix}-url-${nodeIndex++}`} href={href} target="_blank" rel="noreferrer" className={linkClassName()}>
         {href}
@@ -183,10 +191,12 @@ export function GeneratedResearchBriefPage({
   draft,
   returnTo,
   authenticated = false,
+  relatedBriefs = [],
 }: {
   draft: AdminResearchBriefDraft;
   returnTo?: string;
   authenticated?: boolean;
+  relatedBriefs?: ResearchBriefCard[];
 }) {
   const article = draft.article as AdminResearchBriefDraft["article"] & GeneratedResearchArticleExtras;
   const canonicalUrl = marketingCanonicalUrl(`/research/${article.slug}`);
@@ -218,13 +228,19 @@ export function GeneratedResearchBriefPage({
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.breadcrumbs) }} />
       <section className="border-b border-white/10 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,0.18),transparent_28%),linear-gradient(180deg,rgba(2,6,23,0.96),rgba(2,6,23,1))]">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-          <Link href="/insights" className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-200">
+          <Link href={marketingCanonicalUrl("/research")} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-200">
             <img src="/walnut-intel-logo-mark.png" alt="" className="h-6 w-6" />
             Walnut Research
           </Link>
           <div className="mt-10 max-w-3xl" data-growth-capture="research-header">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{article.category || "Research Brief"}</p>
             <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{cleanInlineText(article.title)}</h1>
+            <p className="mt-4 text-sm text-slate-400">
+              By <Link href="https://walnutmarkets.com/about" className="text-emerald-200 hover:underline">Walnut Markets</Link>
+              {draft.published_at ? <> · Published <time dateTime={draft.published_at}>{formatResearchDate(draft.published_at)}</time></> : " · Draft for review"}
+              {draft.published_at && draft.updated_at.slice(0, 10) > draft.published_at.slice(0, 10) ? <> · Updated <time dateTime={draft.updated_at}>{formatResearchDate(draft.updated_at)}</time></> : null}
+            </p>
+            <p className="mt-2 text-xs text-slate-500">AI-assisted research. Source links and data limitations are included below.</p>
             <p className="mt-5 text-lg leading-8 text-slate-300" data-growth-capture="research-summary">{cleanInlineText(article.subtitle || article.summary)}</p>
             <p className="mt-6 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
           </div>
@@ -259,6 +275,15 @@ export function GeneratedResearchBriefPage({
               </div>
             </section>
           ))}
+          {relatedBriefs.length ? (
+            <nav aria-label="Related research" className="rounded-lg border border-white/10 p-5">
+              <h2 className="text-xl font-semibold text-white">Related research</h2>
+              <ul className="mt-3 space-y-3">
+                {relatedBriefs.map((brief) => <li key={brief.slug}><Link href={marketingCanonicalUrl(brief.route)} className={linkClassName()}>{brief.title}</Link></li>)}
+              </ul>
+              <Link href={marketingCanonicalUrl("/research")} className="mt-4 inline-block text-sm text-emerald-200">Browse all research briefs</Link>
+            </nav>
+          ) : null}
           {fullArticleVisible ? (
             <>
               <CampaignEventOnMount eventName="research_full_article_viewed" path={returnTo || `/research/${article.slug}`} properties={researchAnalytics} />
@@ -326,6 +351,7 @@ export function generatedResearchJsonLd(draft: AdminResearchBriefDraft, canonica
       datePublished: draft.published_at || draft.created_at,
       dateModified: draft.updated_at,
       mainEntityOfPage: canonicalUrl,
+      author: { "@type": "Organization", name: "Walnut Markets", url: `${WALNUT_MARKETING_URL}/about` },
       publisher: {
         "@type": "Organization",
         name: "Walnut Markets",
@@ -344,8 +370,8 @@ export function generatedResearchJsonLd(draft: AdminResearchBriefDraft, canonica
         {
           "@type": "ListItem",
           position: 1,
-          name: "Insights",
-          item: marketingCanonicalUrl("/insights"),
+          name: "Research Briefs",
+          item: marketingCanonicalUrl("/research"),
         },
         {
           "@type": "ListItem",

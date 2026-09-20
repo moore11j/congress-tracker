@@ -213,11 +213,12 @@ function OptionsFlowCell({ row, proLocked }: { row: ScreenerApiRow; proLocked?: 
   return (
     <div className="min-w-[10rem]">
       <div className="text-sm font-semibold text-slate-100">
-        {row.options_flow_score ?? "--"} / {titleCase(row.options_flow_direction ?? "neutral")}
+        {titleCase((row.options_flow_direction ?? "neutral").replaceAll("_", "-"))}
       </div>
       <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
         {formatCurrencyCompact(row.options_flow_total_premium)} premium / {titleCase(row.options_flow_intensity ?? "low")}
       </div>
+      {row.options_flow_expiration ? <div className="text-[10px] text-slate-500">Expiration {row.options_flow_expiration} only · estimated premium</div> : null}
     </div>
   );
 }
@@ -502,7 +503,7 @@ export function ScreenerResultsClient({
               {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" /> : null}
               {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" /> : null}
               {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
-              {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
+              {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Activity</th> : null}
               {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
               {activeColumns.includes("analyst_consensus") ? <SortHeader params={params} sort="analyst_consensus_upside" label="Analysts" locked={intelligenceLocked} /> : null}
               {activeColumns.includes("confirmation") ? <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} /> : null}

@@ -109,33 +109,31 @@ test("mu premium gate uses requested copy, CTAs, and analytics events", () => {
   }
 });
 
-test("insights renders research briefs from the registry", () => {
+test("insights renders the public server-loaded research archive", () => {
   assert.match(insightsPage, /<ResearchBriefsSection \/>/);
-  assert.match(researchSection, /getPublishedResearchBriefs/);
+  assert.match(researchSection, /await loadResearchArchive\(\)/);
   assert.match(researchSection, /brief\.route/);
   assert.match(researchSection, /Read brief/);
   assert.match(researchSection, /brief\.premium/);
   assert.match(researchSection, /Premium/);
-  assert.match(researchSection, /const BRIEFS_PER_PAGE = 6/);
   assert.match(researchSection, /mode = "preview"/);
-  assert.match(researchSection, /href="\/research"/);
+  assert.match(researchSection, /href=\{researchArchiveHref\(1\)\}/);
   assert.match(researchSection, /Open Research Briefs/);
-  assert.match(researchSection, /sortBriefsNewestFirst\(\[\.\.\.staticBriefs, \.\.\.generated\]\)/);
   assert.match(researchSection, /const isArchive = mode === "archive"/);
   assert.match(researchSection, /briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);
   assert.match(researchSection, /xl:grid-cols-3/);
-  assert.match(researchSection, /Show more/);
+  assert.match(researchSection, /More research briefs/);
   assert.match(researchSection, /of \{briefs\.length\} published briefs/);
-  assert.match(researchSection, /setPageIndex\(\(current\) => Math\.min\(totalPages - 1, current \+ 1\)\)/);
+  assert.doesNotMatch(researchSection, /useEffect|setPageIndex/);
   assert.doesNotMatch(researchSection, /NVDA vs MU: Quality vs Cycle Torque/);
   assert.doesNotMatch(researchSection, /View all briefs/);
 });
 
 test("research index opens the full research briefs archive", () => {
-  assert.match(researchIndexPage, /appPageMetadata\("\/research"/);
+  assert.match(researchIndexPage, /marketingPageMetadata\(`/);
   assert.match(researchIndexPage, /Back to Insights/);
   assert.match(researchIndexPage, /All published Walnut research briefs/);
-  assert.match(researchIndexPage, /<ResearchBriefsSection mode="archive" \/>/);
+  assert.match(researchIndexPage, /<ResearchBriefsSection mode="archive" page=\{page\} \/>/);
 });
 
 test("the research archive uses the Walnut Market Terminal navigation shell", () => {
@@ -188,8 +186,8 @@ test("generated research briefs expose stored-signal conversion and miss visuals
   assert.match(generatedBriefPage, /function StoredSignalResultsTable/);
   assert.match(generatedBriefPage, /META moved against the signal/);
   assert.match(generatedBriefPage, /row\.aligned \? "Aligned" : "Miss"/);
-  assert.match(generatedBriefPage, /function TickerLookupCard/);
-  assert.match(generatedBriefPage, /placeholder="Enter a ticker"/);
+  assert.match(generatedBriefPage, /<ResearchBriefContextualCta/);
+  assert.match(generatedBriefPage, /ticker=\{article.primary_ticker \|\| draft.primary_ticker\}/);
   assert.match(generatedBriefPage, /function generatedResearchJsonLd/);
   assert.match(generatedBriefPage, /walnut-intel-logo-mark\.png/);
 });

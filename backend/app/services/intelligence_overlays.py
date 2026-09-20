@@ -66,18 +66,26 @@ def get_options_flow_summaries_for_symbols(
         return unavailable, _options_flow_availability(status="disabled", enabled=False)
 
     inspector = inspect(db.get_bind())
+    cached = {}
+    if lookback_days == 30 and inspector.has_table("ticker_content_cache"):
+        from app.services.options_activity import cached_summaries
+        cached = cached_summaries(db, normalized_symbols)
+
     if inspector.has_table("options_flow_summary"):
         summaries = _options_flow_from_summary_table(db, normalized_symbols, lookback_days=lookback_days)
         if summaries:
+            summaries.update(cached)
             return summaries, _options_flow_availability(status="ok", enabled=True)
 
     if inspector.has_table("options_flow_events"):
         summaries = _options_flow_from_events_table(db, normalized_symbols, lookback_days=lookback_days)
         if summaries:
+            summaries.update(cached)
             return summaries, _options_flow_availability(status="ok", enabled=True)
 
     unavailable = {symbol: _unavailable_options_flow_overlay(symbol) for symbol in normalized_symbols}
-    return unavailable, _options_flow_availability(status="unavailable", enabled=True)
+    unavailable.update(cached)
+    return unavailable, _options_flow_availability(status="ok" if cached else "unavailable", enabled=True)
 
 
 def get_institutional_activity_summary(

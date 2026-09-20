@@ -1,12 +1,23 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy.orm import Session
+from app.db import get_db
+from app.entitlements import current_entitlements, require_feature
 
 from app.rate_limit import rate_limit_provider_backed
 from app.services.options_calculator import OptionsDataError, contracts, expirations, previous_close
 from app.services.options_alpaca import enabled as alpaca_enabled, prices as alpaca_prices
 
 router = APIRouter(prefix="/tools/options", tags=["options-calculator"], dependencies=[Depends(rate_limit_provider_backed)])
+
+
+@router.post("/activity")
+def option_activity(request: Request, response: Response, symbol: str = Query(pattern=r"^[A-Z][A-Z0-9.\-]{0,9}$"), db: Session = Depends(get_db)):
+    from app.services.options_activity import refresh
+    require_feature(current_entitlements(request, db), "options_flow_feed", message="Options activity is included with Walnut Pro.")
+    response.headers["Cache-Control"] = "private, no-store"
+    return _data(refresh, symbol)
 
 
 def _data(action, *args):

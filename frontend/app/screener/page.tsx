@@ -130,6 +130,7 @@ type ScreenerRow = {
   options_flow_active?: boolean | null;
   options_flow_score?: number | null;
   options_flow_direction?: string | null;
+  options_flow_expiration?: string | null;
   options_flow_intensity?: string | null;
   options_flow_total_premium?: number | null;
   options_flow_call_put_premium_ratio?: number | null;
@@ -367,8 +368,8 @@ const GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS = [
   ["1095", "3Y"],
 ] as const;
 const OPTIONS_FLOW_DIRECTION_OPTIONS = [
-  ["bullish", "Bullish"],
-  ["bearish", "Bearish"],
+  ["call_heavy", "Call-heavy"],
+  ["put_heavy", "Put-heavy"],
   ["mixed", "Mixed"],
 ] as const;
 const OPTIONS_FLOW_SCORE_OPTIONS = [
@@ -1179,19 +1180,19 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
               )}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Flow</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Activity</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <FilterSelect name="options_flow_active" label="Options flow" value={params.options_flow_active} options={BOOLEAN_ACTIVITY_OPTIONS} disabled={!optionsFlowFilterable} />
-                  <FilterSelect name="options_flow_direction" label="Direction" value={params.options_flow_direction} options={OPTIONS_FLOW_DIRECTION_OPTIONS} disabled={!optionsFlowFilterable} />
-                  <FilterSelect name="options_flow_min_score" label="Minimum score" value={params.options_flow_min_score} options={OPTIONS_FLOW_SCORE_OPTIONS} disabled={!optionsFlowFilterable} />
+                  <FilterSelect name="options_flow_direction" label="Premium activity" value={params.options_flow_direction} options={OPTIONS_FLOW_DIRECTION_OPTIONS} disabled={!optionsFlowFilterable} />
                   <FilterSelect name="options_flow_min_premium" label="Minimum premium" value={params.options_flow_min_premium} options={OPTIONS_FLOW_PREMIUM_OPTIONS} disabled={!optionsFlowFilterable} />
                   <FilterSelect name="options_flow_lookback_days" label="Lookback" value={params.options_flow_lookback_days} options={OPTIONS_FLOW_LOOKBACK_OPTIONS} disabled={!optionsFlowFilterable} />
                 </div>
                 {!canUseOptionsFlow ? (
                   <p className="mt-3 text-xs leading-5 text-slate-500">Options flow filters require Pro.</p>
                 ) : !overlayAvailability?.options_flow?.filterable ? (
-                  <p className="mt-3 text-xs leading-5 text-slate-500">Options flow data is not connected yet.</p>
+                  <p className="mt-3 text-xs leading-5 text-slate-500">Load historical activity on a ticker page to include its cached sample here. Free samples use a 30-day window and one expiration.</p>
                 ) : null}
+                {optionsFlowFilterable ? <p className="mt-3 text-xs leading-5 text-slate-500">Cached samples cover one expiration per ticker. Call-heavy / put-heavy is premium activity, not bullish / bearish confirmation.</p> : null}
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
@@ -1448,7 +1449,7 @@ function ScreenerResults({
               {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" /> : null}
               {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" /> : null}
               {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
-              {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
+              {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Activity</th> : null}
               {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
               {activeColumns.includes("analyst_consensus") ? <SortHeader params={params} sort="analyst_consensus_upside" label="Analysts" locked={intelligenceLocked} /> : null}
               {activeColumns.includes("confirmation") ? <SortHeader params={params} sort="confirmation_score" label="Confirm" locked={intelligenceLocked} /> : null}
@@ -1650,11 +1651,12 @@ function OptionsFlowCell({ row, proLocked }: { row: ScreenerRow; proLocked?: boo
   return (
     <div className="min-w-[10rem]">
       <div className="text-sm font-semibold text-slate-100">
-        {row.options_flow_score ?? "—"} · {titleCase(row.options_flow_direction ?? "neutral")}
+        {titleCase((row.options_flow_direction ?? "neutral").replaceAll("_", "-"))}
       </div>
       <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
         {formatCurrencyCompact(row.options_flow_total_premium)} premium · {titleCase(row.options_flow_intensity ?? "low")}
       </div>
+      {row.options_flow_expiration ? <div className="text-[10px] text-slate-500">Expiration {row.options_flow_expiration} only · estimated premium</div> : null}
     </div>
   );
 }

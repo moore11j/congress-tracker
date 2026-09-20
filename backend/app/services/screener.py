@@ -817,6 +817,7 @@ def build_screener_csv_export(
             "Options Flow Intensity",
             "Options Flow Total Premium",
             "Options Flow Latest Date",
+            "Options Activity Expiration (sample only)",
             "Institutional Activity Active",
             "Institutional Activity Direction",
             "Institutional Activity Net Activity",
@@ -872,6 +873,7 @@ def build_screener_csv_export(
                 _csv_label(row.get("options_flow_intensity")),
                 _csv_number(row.get("options_flow_total_premium")),
                 row.get("options_flow_latest_date") or "",
+                row.get("options_flow_expiration") or "",
                 row.get("institutional_activity_active"),
                 _csv_label(row.get("institutional_activity_direction")),
                 _csv_number(row.get("institutional_activity_net_activity")),
@@ -1794,6 +1796,7 @@ def _enrich_row(
         "options_flow_call_put_premium_ratio": _number(options_flow_summary.get("call_put_premium_ratio")) if options_flow_available else None,
         "options_flow_latest_date": options_flow_summary.get("latest_flow_date") if options_flow_available and isinstance(options_flow_summary.get("latest_flow_date"), str) else None,
         "options_flow_status": options_flow_status,
+        "options_flow_expiration": (options_flow_summary.get("coverage") or {}).get("expiration") if options_flow_available else None,
         "institutional_activity_active": (institutional_activity_summary.get("active") is True) if institutional_activity_available else None,
         "institutional_activity_direction": institutional_activity_summary.get("direction") if institutional_activity_available and isinstance(institutional_activity_summary.get("direction"), str) else None,
         "institutional_activity_net_activity": _number(institutional_activity_summary.get("net_activity")) if institutional_activity_available else None,
@@ -1871,6 +1874,7 @@ def _redact_options_flow_row(row: dict[str, Any]) -> dict[str, Any]:
         "options_flow_call_put_premium_ratio": None,
         "options_flow_latest_date": None,
         "options_flow_status": "pro_locked",
+        "options_flow_expiration": None,
         "options_flow_locked": True,
     }
 

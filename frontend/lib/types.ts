@@ -239,10 +239,14 @@ export type ConfirmationScoreBundle = {
   history?: { date: string; score: number }[];
 };
 
-export type OptionsFlowState = "bullish" | "bearish" | "mixed" | "inactive" | "unavailable";
+export type OptionsFlowState = "bullish" | "bearish" | "call_heavy" | "put_heavy" | "mixed" | "inactive" | "unavailable";
 export type OptionsFlowConfidence = "low" | "moderate" | "high";
 
 export type OptionsFlowSummary = {
+  data_basis?: string;
+  latest_flow_date?: string;
+  coverage?: { expiration: string; listed_contracts: number; scope: string; note: string };
+  history?: { date: string; call_volume: number; put_volume: number; call_premium: number; put_premium: number }[];
   ticker: string;
   lookback_days: number;
   state: OptionsFlowState;
@@ -254,6 +258,12 @@ export type OptionsFlowSummary = {
   signals: string[];
   metrics: {
     put_call_premium_ratio: number | null;
+    call_volume?: number;
+    put_volume?: number;
+    call_premium?: number;
+    put_premium?: number;
+    volume_multiple?: number | null;
+    baseline_sessions?: number;
     net_premium_skew: number;
     recent_contract_volume?: number;
     observed_contracts?: number;

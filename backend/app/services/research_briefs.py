@@ -19,6 +19,7 @@ from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.services.research_links import imprecise_release_sources, invalid_ticker_links, repair_research_links
 from app.models import (
     Event,
     FundamentalsCache,
@@ -910,8 +911,8 @@ def sanitize_research_brief_article(
     repair_generated_sections: bool = True,
 ) -> dict[str, Any]:
     section_format = str(config.get("section_format") or "Walnut Research Brief")
-    sanitized = deepcopy(article)
-    before = json.dumps(sanitized, sort_keys=True, default=str)
+    before = json.dumps(article, sort_keys=True, default=str)
+    sanitized = repair_research_links(deepcopy(article))
     for key in ("title", "subtitle", "summary", "preview_body"):
         if isinstance(sanitized.get(key), str):
             sanitized[key] = sanitize_research_brief_copy(sanitized[key]).lstrip("# ").strip()
@@ -6187,6 +6188,9 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     return "\n".join(
         [
             "You are Walnut's senior market research editor writing a publishable research brief in Walnut's investor-to-investor voice.",
+            "Answer one distinct investor question with Walnut-native evidence. Prefer a concise sourced table of named entities, reported changes and reporting periods over repeating a generic thesis. Never invent evidence to fill a table.",
+            "Link exact reviewed filings or releases for specific claims, not a generic investor-relations homepage labeled as a particular release. Distinguish the holdings reporting date from the filing date; delayed disclosures do not establish real-time buying.",
+            "Use only supported Walnut routes from the site context. Ticker financials use https://app.walnutmarkets.com/ticker/SYMBOL#financials; ticker research uses https://app.walnutmarkets.com/ticker/SYMBOL#research. Never invent /ticker/SYMBOL/earnings or other nested ticker paths.",
             f"PRIMARY_TICKER: {primary_symbol}",
             f"PRIMARY_COMPANY: {primary_company}",
             f"RESEARCH_RUN_ID: {context.get('research_run_id')}",
@@ -6645,8 +6649,15 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     labels["search_intent"] = "passed" if context.get("search_intent") or context.get("research_question") else "failed"
     labels["walnut_native_data"] = "passed" if _context_has_numbers(context) else "failed"
     labels["internal_links"] = "passed" if internal_links else "failed"
+    broken_ticker_links = invalid_ticker_links(article)
+    if broken_ticker_links:
+        warnings.append(_warning("invalid_internal_route", "Unsupported ticker destinations: " + ", ".join(broken_ticker_links) + ". Use the ticker page and its supported tabs.", blocking=True))
+        labels["internal_links"] = "failed"
+        blocking = True
     if not internal_links:
         warnings.append(_warning("missing_internal_links", "No Walnut internal links found. Add the relevant ticker page or research hub before publishing.", blocking=False))
+    for label in imprecise_release_sources(article):
+        warnings.append(_warning("imprecise_release_source", f"'{label}' links only to a homepage. Replace it with the exact reviewed release or filing before publishing.", blocking=False))
     overlaps = context.get("potential_overlap") if isinstance(context.get("potential_overlap"), list) else []
     if overlaps:
         warnings.append(_warning("potential_overlap", "Potential overlap with existing research. Review the linked brief and choose whether to update or publish a distinct angle.", blocking=False))
@@ -7957,6 +7968,7 @@ def _dedupe_source_links(values: list[Any]) -> list[dict[str, str]]:
 
 
 PUBLISH_HARD_STOP_WARNING_CODES = {
+    "invalid_internal_route",
     "missing_title",
     "thin_body",
     "missing_disclaimer",

@@ -31,7 +31,7 @@ def _request(params: dict) -> dict:
     if not key or not secret:
         raise OptionsDataError("Alpaca historical prices are not configured. Enter premiums manually.")
     account = hashlib.sha256((key + ":" + secret).encode()).hexdigest()[:16]
-    cache_key = _cache_key("alpaca:options:bars:v1:" + account, params)
+    cache_key = _cache_key("alpaca:options:bars:v2:" + account, params)
     with _lock, SessionLocal() as db:
         if db.bind.dialect.name == "postgresql" and not db.scalar(text("SELECT pg_try_advisory_xact_lock(84193628)")):
             raise OptionsDataError("Historical prices are busy. Retry shortly.", 429)
@@ -64,7 +64,7 @@ def _request(params: dict) -> dict:
                 raise OptionsDataError("Alpaca returned invalid pagination. Retry later.")
             # Persist only bar fields used by the calculator, never provider messages or URLs.
             allowed = set(params["symbols"].split(","))
-            bars = {symbol: [{"c": bar.get("c"), "t": bar.get("t")} for bar in values if isinstance(bar, dict)]
+            bars = {symbol: [{k: bar.get(k) for k in ("c", "t", "v", "vw", "n")} for bar in values if isinstance(bar, dict)]
                     for symbol, values in payload["bars"].items() if symbol in allowed and isinstance(values, list)}
             safe = {"bars": bars, "next_page_token": token}
             _save(db, cache_key, safe, source="alpaca")

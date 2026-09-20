@@ -5,6 +5,7 @@ import { marketingCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMet
 import { buildReturnTo, optionalPageAuthToken } from "@/lib/serverAuth";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { loadResearchArchive } from "@/lib/researchArchive";
 
 export const dynamic = "force-dynamic";
 
@@ -73,5 +74,10 @@ export default async function GeneratedResearchPage({
   const authToken = await optionalPageAuthToken();
   const draft = await loadGeneratedResearchBrief(slug, authToken ?? null);
   if (!draft) notFound();
-  return <GeneratedResearchBriefPage draft={draft} returnTo={buildReturnTo(`/research/${draft.article.slug || slug}`, sp)} authenticated={Boolean(authToken)} />;
+  const tickers = new Set([draft.primary_ticker, ...(draft.comparison_tickers || [])].map((ticker) => ticker.toUpperCase()));
+  // Related public titles are optional; an archive outage must not hide an article.
+  const relatedBriefs = (await loadResearchArchive().catch(() => []))
+    .filter((brief) => brief.slug !== slug && brief.tickers.some((ticker) => tickers.has(ticker.toUpperCase())))
+    .slice(0, 3);
+  return <GeneratedResearchBriefPage draft={draft} returnTo={buildReturnTo(`/research/${draft.article.slug || slug}`, sp)} authenticated={Boolean(authToken)} relatedBriefs={relatedBriefs} />;
 }

@@ -9,6 +9,8 @@ backend/**/*.pyc
 __pycache__/
 
 # Local migration/checkpoint artifacts
+/artifacts/
+/backend/.local/
 backend/artifacts/
 backend/comparison-checkpoint*.json
 backend/backend-comparison*.json
