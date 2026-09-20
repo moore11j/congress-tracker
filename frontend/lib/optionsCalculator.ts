@@ -3,6 +3,40 @@ export type OptionKind = "call" | "put";
 export type OptionLeg = { id: string; kind: OptionKind; side: 1 | -1; strike: number; premium: number; quantity: number; source: string; contract?: string };
 export type ModelInputs = { spot: number; days: number; volatility: number; rate: number; dividend: number };
 export type Position = { legs: OptionLeg[]; shares: number; stockEntry: number; fee: number };
+type DatedClose = { price: number; as_of: string; source?: string };
+type ListedContract = { ticker: string; kind: OptionKind; strike: number; close?: DatedClose };
+export const optionCloseLabel = (close: DatedClose) => `${close.source ?? "Massive"} close · ${close.as_of.slice(0, 10)}`;
+export function applyOptionClose(position: Position, close: DatedClose & { ticker: string }): Position {
+  return { ...position, legs: position.legs.map(leg => leg.contract === close.ticker && leg.source === "Modeled entry"
+    ? { ...leg, premium: close.price, source: optionCloseLabel(close) } : leg) };
+}
+/** Match all legs together, preserving strike ordering and shared strikes (e.g. straddles). */
+export function matchListedPosition(position: Position, contracts: ListedContract[], model: ModelInputs): Position {
+  const targets = [...new Set(position.legs.map(l => l.strike))].sort((a, b) => a - b);
+  const strikes = [...new Set(contracts.map(c => c.strike))].sort((a, b) => a - b);
+  const byKey = new Map(contracts.map(c => [`${c.kind}:${c.strike}`, c]));
+  const parents: number[][] = [];
+  let costs = strikes.map(() => 0);
+  for (let group = 0; group < targets.length; group++) {
+    const kinds = position.legs.filter(l => l.strike === targets[group]).map(l => l.kind);
+    let best = Infinity, bestIndex = -1;
+    const next = strikes.map((strike, index) => {
+      if (index > 0 && costs[index - 1] < best) { best = costs[index - 1]; bestIndex = index - 1; }
+      (parents[group] ??= [])[index] = bestIndex;
+      return kinds.every(kind => byKey.has(`${kind}:${strike}`)) ? (group === 0 ? 0 : best) + Math.abs(strike - targets[group]) : Infinity;
+    });
+    costs = next;
+  }
+  let index = costs.indexOf(Math.min(...costs));
+  if (!targets.length || index < 0 || !Number.isFinite(costs[index])) return position;
+  const chosen = new Map<number, number>();
+  for (let group = targets.length - 1; group >= 0; group--) { chosen.set(targets[group], strikes[index]); index = parents[group][index]; }
+  return { ...position, legs: position.legs.map(leg => {
+    const strike = chosen.get(leg.strike)!, contract = byKey.get(`${leg.kind}:${strike}`)!;
+    return { ...leg, strike, contract: contract.ticker, premium: contract.close?.price ?? Math.round(optionValue(leg.kind, strike, model) * 100) / 100,
+      source: contract.close ? optionCloseLabel(contract.close) : "Modeled entry" };
+  }) };
+}
 export const normalCDF = (x: number): number => {
   const z = Math.abs(x), t = 1 / (1 + .2316419 * z);
   const tail = Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI) * t * (.319381530 + t * (-.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));

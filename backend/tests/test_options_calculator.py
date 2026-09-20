@@ -14,6 +14,7 @@ from app.services import options_calculator as service
 
 @pytest.fixture
 def provider(monkeypatch):
+    monkeypatch.delenv("OPTIONS_PRICE_PROVIDER", raising=False)
     engine = create_engine("sqlite://")
     TickerContentCache.__table__.create(engine)
     monkeypatch.setattr(service, "SessionLocal", sessionmaker(bind=engine))
@@ -101,6 +102,48 @@ def test_missing_key_has_manual_fallback(provider, monkeypatch):
     assert not provider[0]
 
 
+def test_expirations_are_listed_sorted_unique_and_paginated_without_urls(provider):
+    calls, payload = provider
+    normal = {"underlying_ticker": "SPY", "contract_type": "call", "strike_price": 100,
+              "expiration_date": "2026-10-16", "shares_per_contract": 100}
+    payload.update(results=[normal, normal, {**normal, "expiration_date": "2026-09-25"},
+                            {**normal, "expiration_date": "2027-01-15", "shares_per_contract": 10}],
+                   next_url="https://api.massive.com/v3/reference/options/contracts?cursor=page2&apiKey=secret")
+    result = service.expirations("SPY", 100)
+    assert result["expirations"] == ["2026-09-25", "2026-10-16"]
+    assert result["next_cursor"] == "page2"
+    assert "secret" not in str(result)
+    assert calls[0][1]["params"]["strike_price.gte"] == 97.5
+    service.expirations("SPY", 100, "page2")
+    assert calls[1][1]["params"] == {"cursor": "page2", "limit": 1000}
+
+
+def test_chain_attaches_cached_closes_and_no_trade_without_spending_requests(provider):
+    calls, payload = provider
+    ticker = "O:SPY261016C00100000"
+    payload["results"][0]["c"] = 0
+    close = service.previous_close(ticker)
+    payload["results"] = []
+    with pytest.raises(service.OptionsDataError):
+        service.previous_close("O:SPY261016P00100000")
+    normal = {"ticker": ticker, "underlying_ticker": "SPY", "contract_type": "call", "strike_price": 100,
+              "expiration_date": "2026-10-16", "shares_per_contract": 100}
+    payload["results"] = [normal, {**normal, "ticker": "O:SPY261016P00100000", "contract_type": "put"}]
+    result = service.contracts("SPY", "2026-10-16")
+    assert len(calls) == 3
+    assert result["contracts"][0]["close"] == close
+    assert result["contracts"][1]["no_trade"] is True
+
+
+def test_cursor_page_cannot_mix_another_symbol_or_expiration(provider):
+    calls, payload = provider
+    payload["results"] = [{"underlying_ticker": "QQQ", "expiration_date": "2026-10-16"},
+                          {"underlying_ticker": "SPY", "expiration_date": "2026-11-20"}]
+    result = service.contracts("SPY", "2026-10-16", "page2")
+    assert result["contracts"] == []
+    assert calls[0][0] == "https://api.massive.com/v3/reference/options/contracts"
+
+
 def test_routes_reject_paths_and_invalid_dates_before_provider_calls(provider):
     import asyncio
     from fastapi import FastAPI
@@ -119,4 +162,6 @@ def test_routes_reject_paths_and_invalid_dates_before_provider_calls(provider):
         return next(m["status"] for m in messages if m["type"] == "http.response.start")
     assert asyncio.run(status("/tools/options/close", "ticker=../../private")) == 422
     assert asyncio.run(status("/tools/options/contracts", "symbol=SPY&expiration=invalid")) == 422
+    assert asyncio.run(status("/tools/options/expirations", "symbol=SPY&spot=0")) == 422
+    assert asyncio.run(status("/tools/options/expirations", "symbol=SPY&spot=100&cursor=https://evil.test")) == 422
     assert not provider[0]

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { chartBounds, nearestChartIndex } from "@/components/charts/chartPerformanceUtils";
 import { formatChartCompact } from "@/components/charts/chartFormatters";
+import { MovableChartTooltip } from "./MovableChartTooltip";
 
 export type WalnutLineSeries = { key: string; label: string; color: string; dashed?: boolean; areaColor?: string; areaGradient?: { top: string; bottom: string }; values: readonly number[] };
 export type WalnutLinePoint = { label: string };
@@ -19,12 +20,13 @@ type Props = {
   formatValue?: (value: number) => string;
   valueFormat?: "number" | "currencyCompact";
   renderTooltip?: (index: number) => ReactNode;
+  draggableTooltip?: boolean;
 };
 
 const WIDTH = 1000;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
 
-export function WalnutLineChart({ data, series, ariaLabel, height = 320, width = WIDTH, minValue, axisFontSize = 11, alignEdgeLabels = false, formatValue, valueFormat, renderTooltip }: Props) {
+export function WalnutLineChart({ data, series, ariaLabel, height = 320, width = WIDTH, minValue, axisFontSize = 11, alignEdgeLabels = false, formatValue, valueFormat, renderTooltip, draggableTooltip = false }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const frame = useRef<number | null>(null);
   const latestIndex = useRef<number | null>(null);
@@ -79,7 +81,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, width =
     const rect = svg.getBoundingClientRect();
     const localX = ((clientX - rect.left) / Math.max(rect.width, 1)) * width;
     const index = nearestChartIndex(chart.xValues, Math.max(margin.left, Math.min(width - margin.right, localX)));
-    if (index < 0 || index === latestIndex.current) return;
+    if (index < 0) return;
     latestIndex.current = index;
     if (frame.current !== null) return;
     frame.current = requestAnimationFrame(() => {
@@ -104,7 +106,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, width =
       }
     }}>
       <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} className="w-full outline-none" style={{ height, touchAction: "pan-y" }} role="img" aria-label={ariaLabel} tabIndex={0}
-        onPointerDown={handlePointerDown} onPointerMove={(event) => scheduleIndex(event.clientX)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
+        onPointerDown={handlePointerDown} onPointerMove={(event) => scheduleIndex(event.clientX)} onPointerLeave={(event) => { if (!draggableTooltip && event.pointerType === "mouse") setActiveIndex(null); }}>
         <defs><clipPath id={clipId}><rect x={margin.left} y={margin.top} width={innerWidth} height={innerHeight} /></clipPath>{series.map((item) => item.areaGradient ? <linearGradient key={`${item.key}-gradient`} id={`${clipId}-${item.key}-gradient`} x1="0" x2="0" y1="0" y2="1"><stop stopColor={item.areaGradient.top} /><stop offset="1" stopColor={item.areaGradient.bottom} /></linearGradient> : null)}</defs>
         {chart.yTicks.map((tick) => <g key={tick.y}><line x1={margin.left} x2={width - margin.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" /><text x={width - margin.right + 8} y={tick.y + 4} className="fill-slate-300/65 tabular-nums" fontSize={axisFontSize}>{displayedValue(tick.value)}</text></g>)}
         {chart.tickIndexes.map((index) => <g key={index}><line x1={chart.xValues[index]} x2={chart.xValues[index]} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.08)" /><text x={chart.xValues[index]} y={height - 10} textAnchor={alignEdgeLabels && index === 0 ? "start" : alignEdgeLabels && index === data.length - 1 ? "end" : "middle"} className="fill-slate-400" fontSize={axisFontSize}>{data[index].label}</text></g>)}
@@ -114,7 +116,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, width =
         </g>
         {active ? <><line x1={active.x} x2={active.x} y1={margin.top} y2={height - margin.bottom} stroke="rgba(167,243,208,0.3)" strokeWidth="1.2" />{chart.paths.map((item) => <circle key={item.key} cx={active.x} cy={item.yFor(item.values[active.index] ?? 0)} r={item.dashed ? 3.2 : 4} fill={item.color} stroke="rgba(2,6,23,.8)" strokeWidth="1.2" />)}</> : null}
       </svg>
-      {active ? <div className="pointer-events-none absolute top-4 z-10 w-56 rounded-2xl border border-white/10 bg-slate-950/95 px-3 py-3 text-sm shadow-xl" style={{ left: `clamp(12px, calc(${((active.x / width) * 100).toFixed(2)}% + 12px), calc(100% - 15rem))` }}>{renderTooltip ? renderTooltip(active.index) : <DefaultTooltip label={data[active.index].label} series={series} index={active.index} formatValue={displayedValue} />}</div> : null}
+      {active ? draggableTooltip ? <MovableChartTooltip anchor={active.x / width * 100} height={height} onClose={() => { if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; } setActiveIndex(null); }}>{renderTooltip ? renderTooltip(active.index) : <DefaultTooltip label={data[active.index].label} series={series} index={active.index} formatValue={displayedValue} />}</MovableChartTooltip> : <div className="pointer-events-none absolute top-4 z-10 w-56 rounded-2xl border border-white/10 bg-slate-950/95 px-3 py-3 text-sm shadow-xl" style={{ left: `clamp(12px, calc(${((active.x / width) * 100).toFixed(2)}% + 12px), calc(100% - 15rem))` }}>{renderTooltip ? renderTooltip(active.index) : <DefaultTooltip label={data[active.index].label} series={series} index={active.index} formatValue={displayedValue} />}</div> : null}
       <span className="sr-only">Use left and right arrow keys to inspect chart values. Touch and drag across the chart to scrub values.</span>
     </div>
   );

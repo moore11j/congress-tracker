@@ -5590,7 +5590,7 @@ export type SearchSuggestMode = "fast" | "deep";
 export async function searchSuggest(
   q: string,
   limit = 8,
-  options?: { signal?: AbortSignal; source?: string; includeEvents?: boolean; mode?: SearchSuggestMode },
+  options?: { signal?: AbortSignal; source?: string; includeEvents?: boolean; mode?: SearchSuggestMode; sameOrigin?: boolean },
 ): Promise<SearchSuggestResponse> {
   const normalized = q.trim().toLowerCase();
   const includeEvents = options?.includeEvents ?? false;
@@ -5604,7 +5604,7 @@ export async function searchSuggest(
   }
 
   const request = fetchSearchSuggestJson<SearchSuggestResponse>(
-    buildBackendApiUrl("/api/search/suggest", { q: normalized || q, limit, include_events: includeEvents ? 1 : undefined, mode: mode === "deep" ? "deep" : undefined }),
+    (options?.sameOrigin ? buildApiUrl : buildBackendApiUrl)("/api/search/suggest", { q: normalized || q, limit, include_events: includeEvents ? 1 : undefined, mode: mode === "deep" ? "deep" : undefined }),
     { signal: options?.signal, source: options?.source ?? "SearchSuggest" },
   ).then((response) => {
     const items = Array.isArray(response.items) ? response.items : Array.isArray(response.results) ? response.results : [];
@@ -5633,11 +5633,11 @@ export async function suggestSymbols(
   q: string,
   tape: string,
   limit = 10,
-  options?: { includeDepartments?: boolean; signal?: AbortSignal; source?: string },
+  options?: { includeDepartments?: boolean; signal?: AbortSignal; source?: string; sameOrigin?: boolean },
 ): Promise<SymbolSuggestResponse> {
   const tapeValue = (tape || "").trim().toLowerCase();
   if (tapeValue === "all" || tapeValue === "") {
-    const response = await searchSuggest(q, limit, { signal: options?.signal, source: options?.source ?? "SymbolSuggest" });
+    const response = await searchSuggest(q, limit, { signal: options?.signal, source: options?.source ?? "SymbolSuggest", sameOrigin: options?.sameOrigin });
     const items = response.items
       .filter((item) => item.kind === "ticker" || (options?.includeDepartments && item.kind === "agency"))
       .map((item) => ({
@@ -8993,11 +8993,18 @@ export async function deleteNotificationSubscription(id: number): Promise<void> 
   });
 }
 
-export type CalculatorOptionContract = { ticker: string; kind: "call" | "put"; strike: number; expiration: string; exercise_style: string };
-export type CalculatorOptionChain = { symbol: string; expiration: string; contracts: CalculatorOptionContract[]; excluded: number; truncated: boolean; source: string };
-export function getCalculatorOptionContracts(symbol: string, expiration: string) {
-  return fetchJson<CalculatorOptionChain>(buildApiUrl("/api/tools/options/contracts", { symbol, expiration }), { cache: "no-store", source: "options-calculator", requestSource: "client" });
+export type CalculatorClose = { ticker: string; price: number; as_of: string; source: string; price_basis: string };
+export type CalculatorOptionContract = { ticker: string; kind: "call" | "put"; strike: number; expiration: string; exercise_style: string; close?: CalculatorClose; no_trade?: boolean };
+export type CalculatorOptionChain = { symbol: string; expiration: string; contracts: CalculatorOptionContract[]; excluded: number; truncated: boolean; next_cursor?: string | null; source: string; price_provider?: "alpaca" | "massive" };
+export function getCalculatorOptionPrices(tickers: string[], signal?: AbortSignal) {
+  return fetchJson<{ closes: CalculatorClose[]; no_trade: string[]; source: string }>(buildApiUrl("/api/tools/options/prices", { tickers: tickers.join(",") }), { signal, cache: "no-store", source: "options-calculator", requestSource: "client" });
 }
-export function getCalculatorClose(ticker: string) {
-  return fetchJson<{ ticker: string; price: number; as_of: string; source: string; price_basis: string }>(buildApiUrl("/api/tools/options/close", { ticker }), { cache: "no-store", source: "options-calculator", requestSource: "client" });
+export function getCalculatorOptionContracts(symbol: string, expiration: string, cursor?: string, signal?: AbortSignal) {
+  return fetchJson<CalculatorOptionChain>(buildApiUrl("/api/tools/options/contracts", { symbol, expiration, cursor }), { signal, cache: "no-store", source: "options-calculator", requestSource: "client" });
+}
+export function getCalculatorClose(ticker: string, signal?: AbortSignal) {
+  return fetchJson<CalculatorClose>(buildApiUrl("/api/tools/options/close", { ticker }), { signal, cache: "no-store", source: "options-calculator", requestSource: "client" });
+}
+export function getCalculatorExpirations(symbol: string, spot: number, cursor?: string, signal?: AbortSignal) {
+  return fetchJson<{ symbol: string; expirations: string[]; truncated: boolean; next_cursor?: string | null }>(buildApiUrl("/api/tools/options/expirations", { symbol, spot, cursor }), { signal, cache: "no-store", source: "options-calculator", requestSource: "client" });
 }
