@@ -1,0 +1,21 @@
+.options-calculator { --option-border: rgba(148,163,184,.16); color: #cbd5e1; }
+.options-panel { min-width: 0; border: 1px solid var(--option-border); border-radius: 1rem; background: rgba(15,23,42,.45); padding: 1.25rem; }
+.options-calculator h2 { font-size: .95rem; font-weight: 600; color: #f8fafc; }
+.options-calculator h3 { color: #f1f5f9; font-weight: 500; }
+.options-calculator label { display: block; min-width: 0; font-size: .75rem; color: #94a3b8; }
+.options-calculator input:not([type=range]), .options-calculator select { display: block; width: 100%; min-width: 0; margin-top: .4rem; border: 1px solid var(--option-border); border-radius: .55rem; background: #020617; color: #f8fafc; padding: .65rem .7rem; font-size: .875rem; font-variant-numeric: tabular-nums; color-scheme: dark; }
+.options-calculator input:focus, .options-calculator select:focus { outline: 2px solid #6ee7b7; outline-offset: 1px; }
+.options-calculator button:focus-visible, .options-calculator a:focus-visible, .options-calculator summary:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 3px; }
+.options-button { border: 1px solid var(--option-border); border-radius: .55rem; padding: .5rem .8rem; font-size: .75rem; font-weight: 500; color: #cbd5e1; transition: background .18s, border-color .18s; }
+.options-button:hover { background: rgba(148,163,184,.1); }
+.options-button[aria-pressed=true], .options-primary { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.4); color: #a7f3d0; }
+.options-calculator button:disabled { opacity: .4; cursor: not-allowed; }
+.options-tag { display: inline-block; border: 1px solid var(--option-border); border-radius: 999px; padding: .2rem .55rem; font-size: .65rem; color: #94a3b8; }
+.options-table { width: 100%; border-collapse: collapse; font-size: .75rem; font-variant-numeric: tabular-nums; }
+.options-table th { color: #94a3b8; font-weight: 500; text-align: right; padding: .75rem; white-space: nowrap; }
+.options-table td { text-align: right; padding: .75rem; border-top: 1px solid var(--option-border); white-space: nowrap; }
+.options-table th:first-child,.options-table td:first-child { text-align: left; }
+.options-reveal { animation: options-reveal .25s ease-out; }
+@keyframes options-reveal { from { opacity: .3; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 640px) { .options-panel { padding: 1rem; } }
+@media (prefers-reduced-motion: reduce) { .options-calculator *, .options-calculator *::before, .options-calculator *::after { animation: none !important; transition: none !important; } }

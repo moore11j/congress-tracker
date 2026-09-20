@@ -162,6 +162,7 @@ from app.routers.custom_alert_rules import router as custom_alert_rules_router
 from app.routers.debug import router as debug_router
 from app.routers.event_calendar import router as event_calendar_router
 from app.routers.institutional import router as institutional_router
+from app.routers.options_calculator import router as options_calculator_router
 from app.routers.institutional_ingest_admin import router as institutional_ingest_admin_router
 from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
@@ -15316,6 +15317,7 @@ app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
 app.include_router(analyst_consensus_router, prefix="/api")
 app.include_router(institutional_router, prefix="/api")
+app.include_router(options_calculator_router, prefix="/api")
 app.include_router(institutional_ingest_admin_router, prefix="/api")
 app.include_router(market_pressure_router, prefix="/api")
 app.include_router(screener_router, prefix="/api")

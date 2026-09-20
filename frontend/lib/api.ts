@@ -8992,3 +8992,12 @@ export async function deleteNotificationSubscription(id: number): Promise<void> 
     method: "DELETE",
   });
 }
+
+export type CalculatorOptionContract = { ticker: string; kind: "call" | "put"; strike: number; expiration: string; exercise_style: string };
+export type CalculatorOptionChain = { symbol: string; expiration: string; contracts: CalculatorOptionContract[]; excluded: number; truncated: boolean; source: string };
+export function getCalculatorOptionContracts(symbol: string, expiration: string) {
+  return fetchJson<CalculatorOptionChain>(buildApiUrl("/api/tools/options/contracts", { symbol, expiration }), { cache: "no-store", source: "options-calculator", requestSource: "client" });
+}
+export function getCalculatorClose(ticker: string) {
+  return fetchJson<{ ticker: string; price: number; as_of: string; source: string; price_basis: string }>(buildApiUrl("/api/tools/options/close", { ticker }), { cache: "no-store", source: "options-calculator", requestSource: "client" });
+}

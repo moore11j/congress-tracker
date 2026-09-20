@@ -15,6 +15,7 @@ type Props = {
   width?: number;
   minValue?: number;
   axisFontSize?: number;
+  alignEdgeLabels?: boolean;
   formatValue?: (value: number) => string;
   valueFormat?: "number" | "currencyCompact";
   renderTooltip?: (index: number) => ReactNode;
@@ -23,7 +24,7 @@ type Props = {
 const WIDTH = 1000;
 const MARGIN = { top: 18, right: 84, bottom: 34, left: 64 };
 
-export function WalnutLineChart({ data, series, ariaLabel, height = 320, width = WIDTH, minValue, axisFontSize = 11, formatValue, valueFormat, renderTooltip }: Props) {
+export function WalnutLineChart({ data, series, ariaLabel, height = 320, width = WIDTH, minValue, axisFontSize = 11, alignEdgeLabels = false, formatValue, valueFormat, renderTooltip }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const frame = useRef<number | null>(null);
   const latestIndex = useRef<number | null>(null);
@@ -106,7 +107,7 @@ export function WalnutLineChart({ data, series, ariaLabel, height = 320, width =
         onPointerDown={handlePointerDown} onPointerMove={(event) => scheduleIndex(event.clientX)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
         <defs><clipPath id={clipId}><rect x={margin.left} y={margin.top} width={innerWidth} height={innerHeight} /></clipPath>{series.map((item) => item.areaGradient ? <linearGradient key={`${item.key}-gradient`} id={`${clipId}-${item.key}-gradient`} x1="0" x2="0" y1="0" y2="1"><stop stopColor={item.areaGradient.top} /><stop offset="1" stopColor={item.areaGradient.bottom} /></linearGradient> : null)}</defs>
         {chart.yTicks.map((tick) => <g key={tick.y}><line x1={margin.left} x2={width - margin.right} y1={tick.y} y2={tick.y} stroke="rgba(148,163,184,0.12)" /><text x={width - margin.right + 8} y={tick.y + 4} className="fill-slate-300/65 tabular-nums" fontSize={axisFontSize}>{displayedValue(tick.value)}</text></g>)}
-        {chart.tickIndexes.map((index) => <g key={index}><line x1={chart.xValues[index]} x2={chart.xValues[index]} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.08)" /><text x={chart.xValues[index]} y={height - 10} textAnchor="middle" className="fill-slate-400" fontSize={axisFontSize}>{data[index].label}</text></g>)}
+        {chart.tickIndexes.map((index) => <g key={index}><line x1={chart.xValues[index]} x2={chart.xValues[index]} y1={margin.top} y2={height - margin.bottom} stroke="rgba(148,163,184,0.08)" /><text x={chart.xValues[index]} y={height - 10} textAnchor={alignEdgeLabels && index === 0 ? "start" : alignEdgeLabels && index === data.length - 1 ? "end" : "middle"} className="fill-slate-400" fontSize={axisFontSize}>{data[index].label}</text></g>)}
         <g clipPath={`url(#${clipId})`} style={{ clipPath: reducedMotion || revealed ? "inset(0 0 0 0)" : "inset(0 100% 0 0)", transition: reducedMotion ? "none" : "clip-path 560ms cubic-bezier(.22,1,.36,1)" }}>
           {chart.paths.map((item) => item.area ? <polygon key={`${item.key}-area`} points={item.area} fill={item.areaGradient ? `url(#${clipId}-${item.key}-gradient)` : item.areaColor} /> : null)}
           {chart.paths.map((item) => <polyline key={item.key} fill="none" stroke={item.color} strokeDasharray={item.dashed ? "6 4" : undefined} strokeWidth={item.dashed ? 2 : 2.8} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" points={item.path} />)}

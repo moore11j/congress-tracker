@@ -11,6 +11,7 @@ const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidat
 const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
   "/retirement-calculator",
+  "/options-calculator",
   "/landing",
   "/congress-trades",
   "/insider-trading-tracker",
