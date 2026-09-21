@@ -155,6 +155,43 @@ def test_unchanged_document_does_not_repeat_semantic_extraction(db):
     assert document.processing_version == EVIDENCE_PROCESSING_VERSION
 
 
+def test_source_passage_choices_are_verbatim_bounded_and_cover_full_section():
+    from app.services.research_evidence import _source_excerpt_choices, _semantic_schema
+    for source in (("Management expects growth, subject to approval. " * 400)[:18000], "x" * 18000):
+        source = source.strip()
+        choices = _source_excerpt_choices(source)
+        assert len(choices) < 100
+        assert sum(map(len, choices)) < 50000
+        assert all(0 < len(value) <= 500 and value in source for value in choices)
+        assert source.startswith(choices[0]) and source.endswith(choices[-1])
+        schema = _semantic_schema(source)
+        assert schema["properties"]["events"]["items"]["properties"]["evidence_excerpt"]["enum"] == choices
+
+
+def test_extraction_constrains_model_to_source_passages_and_reuses_result(db, monkeypatch):
+    from app.services import research_evidence as service
+    source = "Management expects the launch next quarter, subject to approval."
+    security = seed_security(db)
+    document, _ = upsert_source_document(db, security_id=security.id, document_type="earnings_transcript", source_provider="fmp", external_id="passage-call", content=source)
+    calls = []
+    monkeypatch.setattr(service, "resolved_setting_value", lambda *_: "test-key")
+    def send(**kwargs):
+        payload = kwargs["payload"]
+        calls.append(payload)
+        assert payload["text"]["format"]["strict"] is True
+        choices = payload["text"]["format"]["schema"]["properties"]["events"]["items"]["properties"]["evidence_excerpt"]["enum"]
+        event = {"category": "product_commercial", "event_type": "product_launch", "subject": "Product", "metric": None, "direction": "positive", "previous_text": None, "current_text": None, "headline": source, "summary": source, "evidence_excerpt": choices[0], "watch_item": "Approval next quarter", "confidence": "medium", "materiality": "medium"}
+        return Response(json.dumps({"events": [event]}))
+    monkeypatch.setattr(service, "audited_openai_request", send)
+    assert extract_document_events(db, document=document, source_text=source)["events_written"] == 1
+    assert extract_document_events(db, document=document, source_text=source)["status"] == "reused"
+    assert len(calls) == 1
+    row = db.query(ResearchEvidenceEvent).one()
+    assert row.evidence_excerpt == source
+    assert row.source_locator.endswith(f"chars:0-{len(source)}")
+    assert row.prompt_version == service.EVIDENCE_EXTRACTION_PROMPT_VERSION
+
+
 def test_changed_document_is_marked_pending_for_controlled_reprocessing(db):
     security = seed_security(db)
     document, _ = upsert_source_document(db, security_id=security.id, document_type="press_release", source_provider="company_ir", external_id="amended-doc", content="Original statement.")

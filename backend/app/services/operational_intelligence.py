@@ -266,7 +266,7 @@ def _coverage(db: Session, security_id: int, source_type: str) -> ResearchSource
     return row
 
 
-def refresh_operational_intelligence(db: Session, *, security_id: int | None = None, limit: int = 50) -> dict[str, int | str]:
+def refresh_operational_intelligence(db: Session, *, security_id: int | None = None, limit: int = 50, source_types: set[str] | None = None) -> dict[str, int | str]:
     if not operational_intelligence_enabled():
         return {"status": "disabled", "securities": 0, "documents": 0, "events": 0, "matches": 0, "skipped": 0}
     securities = [db.get(Security, security_id)] if security_id else candidate_securities(db, limit=limit)
@@ -279,6 +279,8 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
             continue
         totals["securities"] += 1
         for document_type, loader in (("news_article", get_stock_news), ("press_release", get_press_releases), ("earnings_transcript", None)):
+            if source_types is not None and document_type not in source_types:
+                continue
             coverage = _coverage(db, security.id, document_type)
             if document_type == "earnings_transcript" and not transcript_analysis_enabled():
                 coverage.status = "disabled"

@@ -151,6 +151,25 @@ def test_source_budget_reserves_calls_for_other_sources_and_respects_run_cap():
     assert total.deferred == 2
 
 
+def test_transcript_only_refresh_preserves_other_source_coverage(monkeypatch):
+    db, engine = make_db()
+    try:
+        security = Security(symbol="MU", name="Micron", asset_class="Equity")
+        db.add(security); db.commit()
+        db.add(ResearchSourceCoverage(security_id=security.id, source_type="news_article", status="ready", documents_seen=12)); db.commit()
+        monkeypatch.setenv("RESEARCH_TRANSCRIPT_ANALYSIS_ENABLED", "true")
+        monkeypatch.setenv("RESEARCH_OPERATIONAL_INTELLIGENCE_ENABLED", "true")
+        monkeypatch.setattr(operational_intelligence, "get_stock_news", lambda **_: (_ for _ in ()).throw(AssertionError("must not fetch news")))
+        monkeypatch.setattr(operational_intelligence, "_ingest_latest_transcript", lambda *_, **__: {"documents": 1, "events": 0, "matches": 0, "skipped": 0})
+        result = operational_intelligence.refresh_operational_intelligence(db, security_id=security.id, source_types={"earnings_transcript"})
+        assert result["documents"] == 1
+        news = db.get(ResearchSourceCoverage, (security.id, "news_article"))
+        assert news.status == "ready" and news.documents_seen == 12
+        assert db.get(ResearchSourceCoverage, (security.id, "earnings_transcript")).status == "ready"
+    finally:
+        db.close(); engine.dispose()
+
+
 def test_processed_sources_retry_matching_without_extracting_again(monkeypatch):
     db, engine = make_db()
     try:

@@ -1329,7 +1329,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           </div>
         ) : null}
         {activeTab === "research" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-4">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Related Research</p>

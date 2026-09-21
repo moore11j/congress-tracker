@@ -6,6 +6,13 @@ import { researchSourceHref } from "@/lib/researchEvidence";
 import { mergeOperationalOverview, type OverviewDecisionItem } from "@/lib/tickerOperationalOverview";
 import { useTickerOperationalIntelligence } from "./TickerOperationalIntelligenceProvider";
 
+function openResearch() {
+  // The user may have selected Overview after previously following #research.
+  // Re-select the tab even when the URL fragment is already unchanged.
+  window.location.hash = "research";
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 function DecisionItem({ item }: { item: OverviewDecisionItem }) {
   const href = researchSourceHref(item.sourceUrl);
   const date = item.date ? formatDateShort(item.date) : item.freshness;
@@ -15,7 +22,7 @@ function DecisionItem({ item }: { item: OverviewDecisionItem }) {
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
         <span>{item.title}{date ? ` · ${date}` : ""}</span>
         {href ? <a href={href} target="_blank" rel="noreferrer" className="text-emerald-200 hover:text-emerald-100">Source ↗</a> : null}
-        <a href="#research" className="text-emerald-200 hover:text-emerald-100">Research details →</a>
+        <a href="#research" onClick={openResearch} className="text-emerald-200 hover:text-emerald-100">Research details →</a>
       </div>
     </> : <>
       <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1"><p className="text-sm font-semibold leading-5 text-slate-100">{item.title}</p>{date ? <span className="text-xs text-slate-500">{date}</span> : null}</div>
@@ -45,7 +52,7 @@ export function TickerDecisionPanels({ layer }: { layer: TickerDecisionLayer }) 
       {combined.watch_items?.length ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{combined.watch_items.map((item, index) => <DecisionItem key={`${item.category}-${index}`} item={item} />)}</div> : <p className="text-sm text-slate-500">No specific watch items are available yet.</p>}
     </section>
     {!disabled ? <p className="mt-2 text-xs leading-5 text-slate-500" role="status">
-      {failed ? <>Company developments are temporarily unavailable; other confirmation inputs remain visible. <button type="button" onClick={retry} className="text-emerald-200">Retry</button></> : !data ? "Loading company developments…" : <>Source-grounded company findings are summarized here; <a href="#research" className="text-emerald-200 hover:text-emerald-100">see coverage and evidence in Research</a>. These findings do not change the confirmation score.</>}
+      {failed ? <>Company developments are temporarily unavailable; other confirmation inputs remain visible. <button type="button" onClick={retry} className="text-emerald-200">Retry</button></> : !data ? "Loading company developments…" : <>Source-grounded company findings are summarized here; <a href="#research" onClick={openResearch} className="text-emerald-200 hover:text-emerald-100">see coverage and evidence in Research</a>. These findings do not change the confirmation score.</>}
     </p> : null}
   </>;
 }

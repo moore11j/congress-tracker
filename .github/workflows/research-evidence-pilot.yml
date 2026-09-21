@@ -6,7 +6,7 @@ on:
       mode:
         description: Read-only diagnosis or bounded live pilot
         type: choice
-        options: [diagnose, pilot, verify_matching, probe_transcripts]
+        options: [diagnose, pilot, verify_matching, probe_transcripts, pilot_transcripts]
         default: diagnose
 
 permissions:
@@ -34,7 +34,7 @@ jobs:
           PILOT_MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
-          case "$PILOT_MODE" in diagnose|pilot|verify_matching|probe_transcripts) ;; *) exit 1 ;; esac
+          case "$PILOT_MODE" in diagnose|pilot|verify_matching|probe_transcripts|pilot_transcripts) ;; *) exit 1 ;; esac
           code=$(base64 -w0 backend/scripts/research_evidence_pilot.py)
           flyctl ssh console --app congress-tracker-api --machine 850d53cd356458 \
             --command "python -c \"import base64,sys; sys.argv=['pilot','$PILOT_MODE']; exec(compile(base64.b64decode('$code'),'research_evidence_pilot.py','exec'))\""

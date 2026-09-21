@@ -63,7 +63,7 @@ def verify_matching():
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'diagnose'
-    if mode not in {'diagnose', 'pilot', 'verify_matching', 'probe_transcripts'}:
+    if mode not in {'diagnose', 'pilot', 'verify_matching', 'probe_transcripts', 'pilot_transcripts'}:
         raise ValueError('Unsupported pilot mode')
     if mode == 'probe_transcripts':
         # Verify configured provider access without logging licensed text or
@@ -113,7 +113,7 @@ def main():
                  watchlist_entries=db.scalar(select(func.count()).select_from(WatchlistItem).where(WatchlistItem.security_id == security.id)),
                  coverage=ops.ticker_operational_intelligence(db, security=security)['coverage'],
                  documents=[{'status': status, 'reason': reason, 'count': count} for status, reason, count in db.execute(select(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason, func.count()).where(ResearchSourceDocument.security_id == security.id).group_by(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason))])
-    if mode == 'pilot':
+    if mode in {'pilot', 'pilot_transcripts'}:
         # Two recent documents per source, at most four extraction calls and two
         # private matching calls per symbol. Production licensing flags stay intact.
         os.environ['RESEARCH_OPERATIONAL_MAX_EXTRACTIONS_PER_RUN'] = '4'
@@ -142,7 +142,7 @@ def main():
                         if not security:
                             continue
                         tick = time.monotonic()
-                        outcome = ops.refresh_operational_intelligence(db, security_id=security.id)
+                        outcome = ops.refresh_operational_intelligence(db, security_id=security.id, source_types={'earnings_transcript'} if mode == 'pilot_transcripts' else None)
                         emit('pilot_result', symbol=symbol, seconds=round(time.monotonic()-tick, 2), **outcome)
                         emit('document_outcomes', symbol=symbol, results=[{'status': status, 'reason': reason, 'count': count} for status, reason, count in db.execute(select(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason, func.count()).where(ResearchSourceDocument.security_id == security.id).group_by(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason))])
                         emit('public_result', **ops.ticker_operational_intelligence(db, security=security))
