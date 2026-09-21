@@ -111,6 +111,31 @@ test("FAQ aliases permanently redirect in one hop and its marketing destination 
   assert.doesNotMatch(await robots.text(), /Disallow: \/(?:faq)?\s*$/m);
 });
 
+test("public leaderboards are indexable while filter variants stay noindex", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const origin = "https://app.walnutmarkets.com";
+  for (const ua of ["Googlebot", "Mozilla/5.0 Chrome/130.0.0.0"]) {
+    const request = path => new NextRequest(`${origin}${path}`, { headers: { host: "app.walnutmarkets.com", "user-agent": ua } });
+    for (const path of ["/leaderboards", "/leaderboards?utm_source=google"]) {
+      const response = await middleware(request(path));
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("location"), null, "public preview must not redirect to login");
+      assert.equal(response.headers.get("x-robots-tag"), null);
+    }
+    for (const path of ["/leaderboards?filter=tech", "/leaderboards?sort=return", "/leaderboards?page=2"]) {
+      const response = await middleware(request(path));
+      assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
+    }
+  }
+  const urls = Array.from(sitemap.matchAll(/<loc>([^<]+)<\/loc>/g), match => match[1]);
+  assert.deepEqual(urls.filter(url => new URL(url).pathname === "/leaderboards"), [`${origin}/leaderboards`]);
+  assert.match(readAppPage("leaderboards"), /robots: \{ index: true, follow: true \}/);
+  assert.match(readAppPage("leaderboards"), /canonical: "https:\/\/app\.walnutmarkets\.com\/leaderboards"/);
+  const robotsResponse = await middleware(new NextRequest(`${origin}/robots.txt`, { headers: { host: "app.walnutmarkets.com" } }));
+  assert.doesNotMatch(await robotsResponse.text(), /Disallow: \/leaderboards/);
+});
+
 test("department underscore aliases receive a real permanent redirect before rendering", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");

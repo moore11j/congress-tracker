@@ -68,7 +68,6 @@ const noindexAppRoutePrefixes = [
   "/billing",
   "/admin",
   "/backtesting",
-  "/leaderboards",
   "/search",
 ];
 
