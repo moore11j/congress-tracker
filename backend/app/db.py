@@ -2674,8 +2674,8 @@ def ensure_research_memory_schema(bind=engine) -> None:
 
 
 def ensure_research_evidence_schema(bind=engine) -> None:
-    """Create the Phase 2 global evidence tables separately from private Research Memory data."""
-    from app.models import ResearchEvidenceEvent, ResearchSourceDocument
+    """Create and evolve global Evidence tables separately from private Research Memory data."""
+    from app.models import ResearchEvidenceEvent, ResearchSourceDocument, ResearchSourceCoverage, ResearchExtractionChunk
 
     with bind.begin() as conn:
         _set_postgres_ddl_timeouts(conn)
@@ -2684,8 +2684,33 @@ def ensure_research_evidence_schema(bind=engine) -> None:
             tables=[
                 ResearchSourceDocument.__table__,
                 ResearchEvidenceEvent.__table__,
+                ResearchSourceCoverage.__table__,
+                ResearchExtractionChunk.__table__,
             ],
         )
+        if conn.dialect.name == "sqlite":
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(research_evidence_events)")).fetchall()}
+            if "watch_item" not in columns:
+                conn.execute(text("ALTER TABLE research_evidence_events ADD COLUMN watch_item TEXT"))
+        else:
+            conn.execute(text("ALTER TABLE research_evidence_events ADD COLUMN IF NOT EXISTS watch_item TEXT"))
+        from sqlalchemy import inspect
+        existing = {column["name"] for column in inspect(conn).get_columns("research_evidence_events")}
+        for name, sql_type in (("source_revision_hash", "TEXT"), ("superseded_at", "TIMESTAMP")):
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE research_evidence_events ADD COLUMN {name} {sql_type}"))
+
+        # Phase 4 adds operational source taxonomy. PostgreSQL needs an explicit
+        # replacement because create_all does not evolve existing CHECK clauses.
+        if conn.dialect.name == "postgresql":
+            from sqlalchemy import inspect
+
+            checks = {row.get("name"): row.get("sqltext") or "" for row in inspect(conn).get_check_constraints("research_evidence_events")}
+            if "guidance_raised" not in checks.get("ck_research_evidence_event_type", ""):
+                conn.execute(text("ALTER TABLE research_evidence_events DROP CONSTRAINT IF EXISTS ck_research_evidence_event_category"))
+                conn.execute(text("ALTER TABLE research_evidence_events DROP CONSTRAINT IF EXISTS ck_research_evidence_event_type"))
+                conn.execute(text("ALTER TABLE research_evidence_events ADD CONSTRAINT ck_research_evidence_event_category CHECK (category IN ('financial','government_contract','ownership','walnut_signal','company_operations','product_commercial','management_guidance','m_and_a','other_material_company_event'))"))
+                conn.execute(text("ALTER TABLE research_evidence_events ADD CONSTRAINT ck_research_evidence_event_type CHECK (event_type IN ('metric_increased','metric_decreased','growth_accelerated','growth_decelerated','margin_expanded','margin_compressed','contract_awarded','contract_modified','insider_purchase','insider_sale','institutional_position_increased','institutional_position_decreased','institutional_position_opened','institutional_position_closed','confirmation_strengthened','confirmation_weakened','confirmation_direction_changed','cross_source_alignment_changed','guidance_raised','guidance_lowered','product_launch','product_delay','commercial_milestone','operational_milestone','operational_setback','customer_win','customer_loss','supply_constraint','supply_relief','pricing_increased','pricing_decreased','m_and_a_announced','m_and_a_completed','regulatory_approval','regulatory_setback'))"))
 
 
 def ensure_research_claim_matching_schema(bind=engine) -> None:

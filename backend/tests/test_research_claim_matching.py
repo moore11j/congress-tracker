@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -13,6 +14,7 @@ from app.models import (
     ResearchInvalidatorEvidenceMatch, ResearchThesis, ResearchThesisClaim,
     ResearchThesisInvalidator, Security, UserAccount,
 )
+from app.services import research_claim_matching
 from app.services.research_claim_matching import process_event_matches, query_matches, semantic_match
 
 
@@ -98,6 +100,28 @@ def test_semantic_match_checkpoint_and_error_handling(db):
     with pytest.raises(HTTPException) as timeout:
         semantic_match(db, claim=semantic_claim, event=evidence, security=mu, request_sender=lambda: (_ for _ in ()).throw(requests.Timeout()))
     assert timeout.value.status_code == 504
+
+
+def test_semantic_matching_receives_factual_evidence_with_a_separate_trust_boundary(db, monkeypatch):
+    user, _other, mu, _nvda = seed(db)
+    active = thesis(db, user, mu, started=datetime.now(timezone.utc) - timedelta(days=1))
+    semantic_claim = claim(db, active, metric="HBM demand", direction="increase", mode="semantic", coverage="partially_monitored", subject="HBM demand")
+    db.commit()
+    evidence = event(db, mu, metric="capacity_commitment", summary="HBM capacity commitments now extend through 2027.")
+    evidence.evidence_excerpt = "Management stated that HBM capacity commitments now extend through 2027."
+    db.commit()
+    captured = {}
+    monkeypatch.setattr(research_claim_matching, "resolved_setting_value", lambda *_args: "test-key")
+    monkeypatch.setattr(research_claim_matching, "audited_openai_request", lambda **kwargs: captured.update(kwargs["payload"]) or Response('{"relationship":"supports","relevance":"high","confidence":"high","reason":"The source supports the claim."}'))
+
+    result = semantic_match(db, claim=semantic_claim, event=evidence, security=mu)
+
+    assert result["relationship"] == "supports"
+    context = json.loads(captured["input"])
+    assert context["evidence"]["headline"] == "Gross margin expanded"
+    assert context["evidence"]["summary"] == "HBM capacity commitments now extend through 2027."
+    assert context["evidence"]["evidence_excerpt"].startswith("Management stated")
+    assert "untrusted source text" in captured["instructions"]
 
 
 def test_unrelated_semantic_result_is_checkpointed_not_persisted(db):

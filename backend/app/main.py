@@ -172,6 +172,7 @@ from app.routers.research_briefs import router as research_briefs_router
 from app.routers.research_claim_matching import router as research_claim_matching_router
 from app.routers.research_evidence import router as research_evidence_router
 from app.routers.research_memory import router as research_memory_router
+from app.routers.operational_intelligence import router as operational_intelligence_router
 from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
@@ -15340,4 +15341,5 @@ app.include_router(research_briefs_router, prefix="/api")
 app.include_router(research_claim_matching_router, prefix="/api")
 app.include_router(research_evidence_router, prefix="/api")
 app.include_router(research_memory_router, prefix="/api")
+app.include_router(operational_intelligence_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")

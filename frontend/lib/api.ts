@@ -6364,6 +6364,10 @@ export type ResearchMemoryStructure = { title: string; summary: string; orientat
 export type ResearchMemoryThesis = ResearchMemoryStructure & { id: string; security_id: number; ticker: string; company_name: string; status: "draft" | "active" | "paused" | "archived" | string; created_at?: string | null; updated_at?: string | null; started_monitoring_at?: string | null; phase_one_notice?: string };
 export type ResearchMemorySuggestion = { id: string; suggestion_type: string; title: string; summary: string; orientation: string; evidence_basis: string[]; structured_thesis: ResearchMemoryStructure; monitoring_coverage: string[] };
 export type ResearchMemoryTemplate = { id: string; title: string; description: string; orientation: string };
+export type ResearchMemoryEvidenceMatch = { id: string; relationship: string; relevance: string; confidence: string; reason: string; match_method: string; claim_snapshot?: { subject?: string; metric?: string; expected_direction?: string }; created_at?: string | null; evidence_snapshot: { headline?: string; summary?: string; source_url?: string | null; source_type?: string; source_locator?: string; evidence_excerpt?: string; published_at?: string | null; watch_item?: string | null } };
+export type OperationalIntelligenceItem = { id: string; title: string; summary: string; event_type: string; source_type: string; source_url?: string | null; published_at?: string | null; materiality: string; confidence?: "high" | "medium" | "low"; evidence_excerpt?: string | null };
+export type ResearchSourceCoverage = { source_type: string; status: string; last_checked_at: string | null; last_success_at: string | null; documents_seen: number };
+export type TickerOperationalIntelligence = { symbol: string; status: "ok" | "empty" | string; source_version: string; catalysts: OperationalIntelligenceItem[]; risks: OperationalIntelligenceItem[]; opportunities: OperationalIntelligenceItem[]; watch_next: OperationalIntelligenceItem[]; coverage: ResearchSourceCoverage[]; lookback_days: number };
 
 function researchMemoryInit(method: string, payload?: unknown): ApiRequestInit {
   return { method, headers: { "Content-Type": "application/json" }, body: payload === undefined ? undefined : JSON.stringify(payload), cache: "no-store", next: { revalidate: 0 }, source: "ResearchMemory" };
@@ -6380,6 +6384,8 @@ export async function createResearchMemoryDraft(payload: { security_id?: number;
 export async function updateResearchMemory(id: string, structure: ResearchMemoryStructure): Promise<ResearchMemoryThesis> { return fetchJson(buildApiUrl(`/api/research-memory/${encodeURIComponent(id)}`), researchMemoryInit("PUT", { structure })); }
 export async function activateResearchMemory(id: string): Promise<ResearchMemoryThesis> { return fetchJson(buildApiUrl(`/api/research-memory/${encodeURIComponent(id)}/activate`), researchMemoryInit("POST")); }
 export async function getTickerResearchMemories(ticker: string): Promise<{ ticker: string; count: number; items: { id: string; title: string; status: string }[] }> { return fetchJson(buildApiUrl(`/api/research-memory/ticker/${tickerPathSymbol(ticker)}/active`), researchMemoryInit("GET")); }
+export async function getResearchMemoryMatches(id: string): Promise<{ items: ResearchMemoryEvidenceMatch[] }> { return fetchJson(buildApiUrl(`/api/research-memory/${encodeURIComponent(id)}/matches`, { limit: 12 }), researchMemoryInit("GET")); }
+export async function getTickerOperationalIntelligence(symbol: string): Promise<TickerOperationalIntelligence> { return fetchJson(buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/operational-intelligence`), { cache: "no-store", next: { revalidate: 0 }, source: "TickerOperationalIntelligence" }); }
 
 /** Reads the prebuilt dashboard bundle; the API never calculates rankings here. */
 export async function getLeaderboardDashboard(params?: { authToken?: string; source?: string }): Promise<LeaderboardDashboardResponse> {

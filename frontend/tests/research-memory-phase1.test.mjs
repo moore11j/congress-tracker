@@ -5,9 +5,11 @@ import test from "node:test";
 
 const read = (relative) => fs.readFileSync(path.join(process.cwd(), relative), "utf8");
 const workspace = read("components/research-memory/ResearchMemoryWorkspace.tsx");
+const evidencePanel = read("components/research-memory/ResearchEvidencePanel.tsx");
 const monitoring = read("app/monitoring/page.tsx");
 const tickerPage = read("app/ticker/[symbol]/page.tsx");
 const tickerCard = read("components/ticker/TickerResearchMemoryCard.tsx");
+const operationalCard = read("components/ticker/TickerOperationalIntelligenceCard.tsx");
 const indexPage = read("app/monitoring/research/page.tsx");
 const detailPage = read("app/monitoring/research/[id]/page.tsx");
 const api = read("lib/api.ts");
@@ -60,8 +62,19 @@ test("private detail route is guarded and handles unavailable ownership state", 
   assert.match(api, /activateResearchMemory/);
 });
 
-test("activated surfaces truthfully state that monitoring is deferred", () => {
-  assert.match(workspace, /Continuous evidence monitoring will be added in the next phase/);
-  assert.match(workspace, /Coverage labels describe future capability, not active monitoring/);
-  assert.match(tickerCard, /evidence monitoring is not running yet/);
+test("activated surfaces truthfully describe source-linked monitoring without a thesis-health claim", () => {
+  assert.match(workspace, /Operational-source evidence is processed and matched to eligible claims/);
+  assert.match(evidencePanel, /This is not a thesis-health score/);
+  assert.match(workspace, /Coverage labels describe expected source coverage/);
+  assert.match(tickerCard, /operating-source evidence is matched as it is processed/);
+});
+
+test("ticker operating intelligence is source-linked and avoids a fake thesis-health state", () => {
+  assert.match(operationalCard, /getTickerOperationalIntelligence/);
+  assert.match(operationalCard, /Source-grounded company developments/);
+  assert.match(operationalCard, /source_url/);
+  assert.match(operationalCard, /Evidence excerpt/);
+  assert.match(operationalCard, /extraction confidence/);
+  assert.match(operationalCard, /Try again/);
+  assert.match(tickerPage, /TickerOperationalIntelligenceCard/);
 });

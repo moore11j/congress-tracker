@@ -1185,7 +1185,7 @@ def get_insights_category_news(category: str, *, page: int = 0, limit: int = 20)
     return _cache_set(cache_key, payload, ttl_seconds=INSIGHTS_CATEGORY_NEWS_TTL_SECONDS, category=usage_category)
 
 
-def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:
+def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20, force_refresh: bool = False) -> dict[str, Any]:
     normalized_symbol = _normalize_symbol(symbol)
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
@@ -1195,7 +1195,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     active_panel_request = _is_active_ticker_panel_request({"TickerNewsPanel"})
     cache_key = _cache_key("stock-news", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:stock", symbol=normalized_symbol)
-    if _payload_has_items(cached):
+    if _payload_has_items(cached) and not force_refresh:
         return cached
     record_cache_miss(category="news:stock", symbol=normalized_symbol)
     db_cached = db_ticker_content_cache_get(
@@ -1205,9 +1205,9 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         limit=bounded_limit,
         window_key="latest",
     )
-    if db_cached is not None and (_payload_has_items(db_cached) or not active_panel_request):
+    if db_cached is not None and not force_refresh and (_payload_has_items(db_cached) or not active_panel_request):
         return _cache_set(cache_key, db_cached, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
-    if cached is not None and not active_panel_request:
+    if cached is not None and not force_refresh and not active_panel_request:
         return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(
@@ -1278,7 +1278,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     return cached_payload
 
 
-def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:
+def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20, force_refresh: bool = False) -> dict[str, Any]:
     normalized_symbol = _normalize_symbol(symbol)
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
@@ -1288,7 +1288,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     active_panel_request = _is_active_ticker_panel_request({"TickerPressPanel"})
     cache_key = _cache_key("press-releases", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:press-releases", symbol=normalized_symbol)
-    if _payload_has_items(cached):
+    if _payload_has_items(cached) and not force_refresh:
         return cached
     record_cache_miss(category="news:press-releases", symbol=normalized_symbol)
     db_cached = db_ticker_content_cache_get(
@@ -1298,9 +1298,9 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         limit=bounded_limit,
         window_key="latest",
     )
-    if db_cached is not None and (_payload_has_items(db_cached) or not active_panel_request):
+    if db_cached is not None and not force_refresh and (_payload_has_items(db_cached) or not active_panel_request):
         return _cache_set(cache_key, db_cached, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
-    if cached is not None and not active_panel_request:
+    if cached is not None and not force_refresh and not active_panel_request:
         return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(

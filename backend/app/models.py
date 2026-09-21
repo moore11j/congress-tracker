@@ -547,14 +547,38 @@ class ResearchSourceDocument(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class ResearchSourceCoverage(Base):
+    """Public acquisition status; no user or thesis content."""
+    __tablename__ = "research_source_coverage"
+    __table_args__ = (Index("ix_research_coverage_attempt", "last_attempt_at"),)
+    security_id: Mapped[int] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text, default="pending", nullable=False)
+    last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    documents_seen: Mapped[int] = mapped_column(default=0, nullable=False)
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class ResearchExtractionChunk(Base):
+    """Validated results for resumable document sections; source prose is not retained."""
+    __tablename__ = "research_extraction_chunks"
+    document_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    revision_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    processing_version: Mapped[str] = mapped_column(Text, primary_key=True)
+    part: Mapped[int] = mapped_column(primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ResearchEvidenceEvent(Base):
     """Normalized company-level facts. These never contain a user, thesis, or thesis-health state."""
 
     __tablename__ = "research_evidence_events"
     __table_args__ = (
         UniqueConstraint("content_hash", name="uq_research_evidence_events_content_hash"),
-        CheckConstraint("category IN ('financial','government_contract','ownership','walnut_signal','other_material_company_event')", name="ck_research_evidence_event_category"),
-        CheckConstraint("event_type IN ('metric_increased','metric_decreased','growth_accelerated','growth_decelerated','margin_expanded','margin_compressed','contract_awarded','contract_modified','insider_purchase','insider_sale','institutional_position_increased','institutional_position_decreased','institutional_position_opened','institutional_position_closed','confirmation_strengthened','confirmation_weakened','confirmation_direction_changed','cross_source_alignment_changed')", name="ck_research_evidence_event_type"),
+        CheckConstraint("category IN ('financial','government_contract','ownership','walnut_signal','company_operations','product_commercial','management_guidance','m_and_a','other_material_company_event')", name="ck_research_evidence_event_category"),
+        CheckConstraint("event_type IN ('metric_increased','metric_decreased','growth_accelerated','growth_decelerated','margin_expanded','margin_compressed','contract_awarded','contract_modified','insider_purchase','insider_sale','institutional_position_increased','institutional_position_decreased','institutional_position_opened','institutional_position_closed','confirmation_strengthened','confirmation_weakened','confirmation_direction_changed','cross_source_alignment_changed','guidance_raised','guidance_lowered','product_launch','product_delay','commercial_milestone','operational_milestone','operational_setback','customer_win','customer_loss','supply_constraint','supply_relief','pricing_increased','pricing_decreased','m_and_a_announced','m_and_a_completed','regulatory_approval','regulatory_setback')", name="ck_research_evidence_event_type"),
         CheckConstraint("direction IN ('positive','negative','neutral','mixed','unknown')", name="ck_research_evidence_event_direction"),
         CheckConstraint("confidence IN ('high','medium','low')", name="ck_research_evidence_event_confidence"),
         CheckConstraint("materiality IN ('low','medium','high')", name="ck_research_evidence_event_materiality"),
@@ -594,6 +618,9 @@ class ResearchEvidenceEvent(Base):
     headline: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     evidence_excerpt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    watch_item: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_revision_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     confidence: Mapped[str] = mapped_column(Text, nullable=False)
     materiality: Mapped[str] = mapped_column(Text, nullable=False)
     extraction_method: Mapped[str] = mapped_column(Text, nullable=False)

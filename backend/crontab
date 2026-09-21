@@ -49,6 +49,9 @@ CRON_TZ=America/Los_Angeles
 50 16 * * 1-5 cd /app && python -m app.jobs.deliver_strategy_event_emails
 20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache
 45 13 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning
+# Global operating-company evidence only. It processes each changed source once,
+# then reuses the resulting Evidence Events across active Research Memories.
+7,37 * * * * cd /app && python -m app.jobs.refresh_research_operational_intelligence --limit 20
 */15 6-13 * * * cd /app && python -m app.jobs.refresh_insights_snapshot --kind all
 # Stored-data SEO refreshes only: no providers, AI, or page changes.
 # Opt-in video worker. Durable database leases prevent overlapping stage execution.

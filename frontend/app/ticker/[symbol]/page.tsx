@@ -26,6 +26,7 @@ import {
 } from "@/components/ticker/TickerActivityText";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
+import { TickerOperationalIntelligenceCard } from "@/components/ticker/TickerOperationalIntelligenceCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
@@ -1559,6 +1560,7 @@ function TickerOverviewPanel({
         <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} symbol={symbol} />
       )}
       <TickerResearchMemoryCard symbol={symbol} />
+      <TickerOperationalIntelligenceCard symbol={symbol} />
     </div>
   );
 }
