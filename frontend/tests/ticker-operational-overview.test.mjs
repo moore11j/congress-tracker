@@ -17,7 +17,7 @@ test("AI findings flow into existing Overview buckets without altering confirmat
   assert.equal(result.catalysts[0].description, positive.title); // preserve uncertainty verbatim
   assert.equal(result.catalysts[0].sourceUrl, positive.source_url);
   assert.equal(result.risks[0].evidenceId, "risk");
-  assert.equal(result.watch_items[0].description, "Approval decision in Q4.");
+  assert.equal(result.watch_items[0].description, "Longer detail");
   assert.deepEqual(result.confirmation, base.confirmation);
   assert.equal(base.catalysts.length, 1); // no mutation of server data
 });
@@ -25,6 +25,13 @@ test("AI findings flow into existing Overview buckets without altering confirmat
 test("What Changed includes only dated findings in the last 30 days", () => {
   const result = mergeOperationalOverview(base, data({ catalysts: [event("recent"), event("old", { title: "Older release", published_at: "2026-07-01" }), event("missing", { title: "Undated", published_at: null }), event("future", { title: "Future date", published_at: "2026-12-01" })] }), now);
   assert.deepEqual(result.what_changed.map(x => x.evidenceId), ["recent"]);
+});
+
+test("watch dates retain the associated development and source context", () => {
+  const launch = event("launch", { title: "Management expects the new facility to begin production in calendar 2028." });
+  const result = mergeOperationalOverview(base, data({ opportunities: [launch], watch_next: [{ ...launch, title: "calendar 2028" }] }), now);
+  assert.equal(result.watch_items[0].description, launch.title);
+  assert.equal(result.watch_items[0].sourceUrl, launch.source_url);
 });
 
 test("opportunities deduplicate into catalysts, neutral facts do not invent watch items", () => {

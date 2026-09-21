@@ -36,6 +36,8 @@ export function mergeOperationalOverview(layer: TickerDecisionLayer, data: Ticke
     catalysts: merge([...data.catalysts, ...data.opportunities], layer.catalysts),
     risks: merge(data.risks, layer.risks),
     what_changed: merge(changed, layer.what_changed),
-    watch_items: merge(data.watch_next, layer.watch_items),
+    // The API's watch title can be just a date (e.g. "calendar 2028").
+    // Keep its source-supported company context instead of showing a bare label.
+    watch_items: merge(data.watch_next.map((item) => ({ ...item, title: developments.find((development) => development.id === item.id)?.title || item.summary || item.title })), layer.watch_items),
   };
 }

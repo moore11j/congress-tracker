@@ -40,6 +40,7 @@ Coverage now distinguishes enabled-but-not-yet-checked from disabled. Retried or
 - Material findings rank before lower-materiality findings, then by publication date.
 - What Changed includes only actual publication dates in the preceding 30 days. Undated/future items are excluded.
 - What to Watch Next uses explicit extracted future milestones, not invented dates or milestones.
+- Date-only watch labels retain their associated development headline (or stored explanatory summary), so a date such as "calendar 2028" is not presented without company context.
 - No client AI, private thesis text, or per-user source extraction cache.
 - Existing worker advisory lock, budgets, source reuse, chunk resume, source identity, and ownership boundaries remain intact.
 - Existing stored events continue into Research Memory's matching pipeline; this change does not create or activate user theses.
@@ -84,10 +85,10 @@ npm.cmd run build
 npm.cmd test
 ```
 
-- Targeted frontend tests: **18 passed**.
+- Targeted frontend tests: **19 passed**, including the final date-only watch-label regression.
 - TypeScript: **passed**.
 - Production build: **passed**, 64 pages.
-- Full frontend suite: **642 passed / 46 failed / 688 total**. The same 46 failures were reproduced against the pre-change versions of overlapping files; they are existing source-inspection fixtures in navigation/feed/pricing/profile/leaderboard/watchlist/ticker areas. The full suite is not green; these failures were not skipped or hidden.
+- Full frontend suite before the final added watch-label regression: **642 passed / 46 failed / 688 total**. The same 46 failures were reproduced against the pre-change versions of overlapping files; they are existing source-inspection fixtures in navigation/feed/pricing/profile/leaderboard/watchlist/ticker areas. The full suite is not green; these failures were not skipped or hidden.
 - No standalone lint script exists in `frontend/package.json`. Build/type checking and `git diff --check` passed.
 
 From `backend`:
