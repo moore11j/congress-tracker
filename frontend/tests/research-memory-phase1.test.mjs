@@ -10,6 +10,8 @@ const monitoring = read("app/monitoring/page.tsx");
 const tickerPage = read("app/ticker/[symbol]/page.tsx");
 const tickerCard = read("components/ticker/TickerResearchMemoryCard.tsx");
 const operationalCard = read("components/ticker/TickerOperationalIntelligenceCard.tsx");
+const operationalProvider = read("components/ticker/TickerOperationalIntelligenceProvider.tsx");
+const contextCard = read("components/ticker/TickerContextCard.tsx");
 const indexPage = read("app/monitoring/research/page.tsx");
 const detailPage = read("app/monitoring/research/[id]/page.tsx");
 const api = read("lib/api.ts");
@@ -70,11 +72,12 @@ test("activated surfaces truthfully describe source-linked monitoring without a 
 });
 
 test("ticker operating intelligence is source-linked and avoids a fake thesis-health state", () => {
-  assert.match(operationalCard, /getTickerOperationalIntelligence/);
+  assert.match(operationalProvider, /getTickerOperationalIntelligence/);
   assert.match(operationalCard, /Source-grounded company developments/);
   assert.match(operationalCard, /source_url/);
   assert.match(operationalCard, /Evidence excerpt/);
   assert.match(operationalCard, /extraction confidence/);
   assert.match(operationalCard, /Try again/);
-  assert.match(tickerPage, /TickerOperationalIntelligenceCard/);
+  assert.doesNotMatch(tickerPage, /TickerOperationalIntelligenceCard/);
+  assert.match(contextCard, /TickerOperationalIntelligenceCard/);
 });

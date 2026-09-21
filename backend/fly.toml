@@ -18,6 +18,9 @@ destination = "/data"
     INSTALL_GROWTH_VIDEO_WORKER = "true"
 
 [env]
+  # Enabled at the owner's request after a successful MU/NVDA/AAPL access probe.
+  # Full calls are sectioned, cached, and processed within existing AI budgets.
+  RESEARCH_TRANSCRIPT_ANALYSIS_ENABLED = "true"
   GROWTH_VIDEO_WORKER_ENABLED = "true"
   GROWTH_ASSET_BUCKET = "walnut-ai-growth-assets"
   GROWTH_S3_ENDPOINT_URL = "https://fly.storage.tigris.dev"

@@ -36,6 +36,8 @@ import { TickerFinancialsPanel, TickerFinancialsSkeleton } from "@/components/ti
 import { TickerOwnershipPanel, TickerOwnershipSkeleton } from "@/components/ticker/TickerOwnershipPanel";
 import { TickerAnalystConsensusSkeleton, TickerAnalystConsensusTab } from "@/components/ticker/TickerAnalystConsensusTab";
 import { TickerValuationSkeleton, TickerValuationTab } from "@/components/ticker/TickerValuationTab";
+import { TickerOperationalIntelligenceCard } from "@/components/ticker/TickerOperationalIntelligenceCard";
+import { TickerOperationalIntelligenceProvider } from "@/components/ticker/TickerOperationalIntelligenceProvider";
 
 type Props = {
   symbol: string;
@@ -523,7 +525,11 @@ function LoadMoreButton({
   );
 }
 
-export function TickerContextCard({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {
+export function TickerContextCard(props: Props) {
+  return <TickerOperationalIntelligenceProvider symbol={props.symbol}><TickerContextContents {...props} /></TickerOperationalIntelligenceProvider>;
+}
+
+function TickerContextContents({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
 
   useEffect(() => {
@@ -1344,6 +1350,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
               ) : (
                 <p className="text-sm text-slate-500">No published research is related to {symbol} yet.</p>
               )}
+              <TickerOperationalIntelligenceCard symbol={symbol} />
             </div>
           </div>
         ) : null}

@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { cache, Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type CrossSourceDivergenceSource, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type CrossSourceDivergenceSource, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -26,7 +26,7 @@ import {
 } from "@/components/ticker/TickerActivityText";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
-import { TickerOperationalIntelligenceCard } from "@/components/ticker/TickerOperationalIntelligenceCard";
+import { TickerDecisionPanels } from "@/components/ticker/TickerDecisionPanels";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
@@ -1229,58 +1229,6 @@ function decisionToneClass(direction?: string | null): string {
   return "text-slate-400";
 }
 
-function decisionDotClass(category: string): string {
-  if (category === "fundamentals" || category === "government_contracts") return "bg-emerald-300";
-  if (category === "price_volume" || category === "signals") return "bg-sky-300";
-  if (category === "analysts") return "bg-cyan-300";
-  if (category === "insiders" || category === "congress") return "bg-violet-300";
-  if (category === "institutional_activity" || category === "options_flow") return "bg-indigo-300";
-  if (category === "macro_positioning") return "bg-amber-300";
-  return "bg-slate-400";
-}
-
-function decisionDateLabel(item: TickerDecisionItem): string | null {
-  if (item.date) return formatDateShort(item.date);
-  return item.freshness ?? null;
-}
-
-function DecisionItemList({ items, empty }: { items?: TickerDecisionItem[]; empty: string }) {
-  const visible = (items ?? []).slice(0, 5);
-  if (visible.length === 0) return <p className="text-sm leading-6 text-slate-500">{empty}</p>;
-  return (
-    <div className="space-y-4">
-      {visible.map((item, index) => {
-        const date = decisionDateLabel(item);
-        return (
-          <div key={`${item.category}-${item.title}-${index}`} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-slate-900/70">
-              <span className={`h-2 w-2 rounded-full ${decisionDotClass(item.category)}`} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold leading-5 text-slate-100">{item.title}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
-            </div>
-            {date ? <span className="text-xs font-medium text-slate-500">{date}</span> : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DecisionPanel({ title, items, empty }: { title: string; items?: TickerDecisionItem[]; empty: string }) {
-  const hasMore = (items?.length ?? 0) > 5;
-  return (
-    <section className="min-h-[21.25rem] rounded-lg border border-white/10 bg-slate-950/40 p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">{title}</h3>
-        {hasMore ? <button type="button" className="text-sm font-medium text-sky-300">View all</button> : null}
-      </div>
-      <DecisionItemList items={items} empty={empty} />
-      {hasMore ? <button type="button" className="mt-5 text-sm font-medium text-sky-300">View all {title.toLowerCase().replace(" (30d)", "")}</button> : null}
-    </section>
-  );
-}
 
 function divergenceToneClass(state: CrossSourceDivergence["state"]): string {
   if (state === "strong_divergence") return "border-rose-300/35 bg-rose-300/10 text-rose-100";
@@ -1528,31 +1476,7 @@ function TickerOverviewPanel({
 
       <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-3">
-          <DecisionPanel title="WHAT CHANGED (30D)" items={layer.what_changed} empty="No meaningful dated changes are available for this window." />
-          <DecisionPanel title="CATALYSTS" items={layer.catalysts} empty="No positive catalyst is active in the available data." />
-          <DecisionPanel title="RISKS" items={layer.risks} empty="No decision-relevant risk is active in the available data." />
-        </div>
-
-        <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h3 className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
-              <span className="text-slate-400"><IntelligenceIcon kind="eye" /></span>
-              WHAT TO WATCH NEXT
-            </h3>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {(layer.watch_items ?? []).slice(0, 5).map((item, index) => (
-              <div key={`${item.category}-${item.title}-${index}`} className="border-l border-white/10 pl-3">
-                <p className="text-sm font-semibold leading-5 text-slate-100">{item.title}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
-              </div>
-            ))}
-          </div>
-          {(!layer.watch_items || layer.watch_items.length === 0) ? (
-            <p className="text-sm leading-6 text-slate-500">No specific watch items are available yet.</p>
-          ) : null}
-        </section>
+        <TickerDecisionPanels layer={layer} />
       </div>
       {similarHistoricalSetupsLocked ? (
         <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
@@ -1560,7 +1484,6 @@ function TickerOverviewPanel({
         <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} symbol={symbol} />
       )}
       <TickerResearchMemoryCard symbol={symbol} />
-      <TickerOperationalIntelligenceCard symbol={symbol} />
     </div>
   );
 }

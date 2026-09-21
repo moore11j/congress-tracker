@@ -10,16 +10,18 @@ const page = read("app/ticker/[symbol]/page.tsx");
 const card = read("components/ticker/TickerContextCard.tsx");
 const api = read("lib/api.ts");
 const decisionTrend = read("components/ticker/DecisionTrendChart.tsx");
+const decisionPanels = read("components/ticker/TickerDecisionPanels.tsx");
 
 test("ticker overview renders the approved decision layer structure", () => {
   assert.match(api, /export type TickerDecisionLayer/);
   assert.match(api, /decision_layer\?: TickerDecisionLayer \| null/);
   assert.match(page, /decisionLayer=\{contextBundle\?\.decision_layer \?\? null\}/);
   assert.match(page, /30-DAY CONFIRMATION/);
-  assert.match(page, /WHAT CHANGED \(30D\)/);
-  assert.match(page, /CATALYSTS/);
-  assert.match(page, /RISKS/);
-  assert.match(page, /WHAT TO WATCH NEXT/);
+  assert.match(page, /TickerDecisionPanels layer=\{layer\}/);
+  assert.match(decisionPanels, /WHAT CHANGED \(30D\)/);
+  assert.match(decisionPanels, /CATALYSTS/);
+  assert.match(decisionPanels, /RISKS/);
+  assert.match(decisionPanels, /WHAT TO WATCH NEXT/);
   assert.match(decisionTrend, /Score history unavailable/);
 });
 
