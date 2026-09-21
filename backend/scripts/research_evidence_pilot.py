@@ -17,11 +17,57 @@ def emit(kind, **values):
     print(json.dumps({'kind': kind, **values}, default=str, sort_keys=True), flush=True)
 
 
+def verify_matching():
+    """Exercise real matching against public evidence in disposable in-memory storage."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from app.db import Base
+    from app.models import ResearchEvidenceEvent, ResearchInvalidatorEvidenceMatch, ResearchClaimMatchCheckpoint, ResearchThesisInvalidator, UserAccount
+    from app.services import research_claim_matching as matching
+    with SessionLocal() as production:
+        security = production.scalar(select(Security).where(Security.symbol == 'MU'))
+        event = production.scalar(select(ResearchEvidenceEvent).where(ResearchEvidenceEvent.security_id == security.id, ResearchEvidenceEvent.superseded_at.is_(None), ResearchEvidenceEvent.event_type == 'commercial_milestone').order_by(ResearchEvidenceEvent.created_at.desc()))
+        if event is None:
+            raise RuntimeError('Pilot needs a real Micron commercial milestone first')
+        event_values = {column.name: getattr(event, column.name) for column in event.__table__.columns}
+        security_values = {'id': security.id, 'symbol': security.symbol, 'name': security.name, 'asset_class': security.asset_class}
+        api_key = resolved_setting_value(production, OPENAI_API_KEY)
+    isolated = create_engine('sqlite+pysqlite:///:memory:')
+    Base.metadata.create_all(isolated, tables=[model.__table__ for model in (UserAccount, Security, ResearchThesis, ResearchThesisClaim, ResearchThesisInvalidator, ResearchEvidenceEvent, ResearchClaimEvidenceMatch, ResearchClaimMatchCheckpoint, ResearchInvalidatorEvidenceMatch)])
+    original_resolver = matching.resolved_setting_value
+    matching.resolved_setting_value = lambda _db, _key: api_key
+    try:
+        with Session(isolated) as db:
+            user = UserAccount(email='isolated-pilot@example.test')
+            other = UserAccount(email='other-isolated-pilot@example.test')
+            db.add_all([user, other, Security(**security_values)]); db.flush()
+            fixture = ResearchThesis(id='pilot-only', user_id=user.id, security_id=security_values['id'], ticker_at_creation='MU', title='Isolated test fixture', summary='Synthetic assertions for pipeline validation; never persisted to production', orientation='neutral', source_type='custom', status='active', started_monitoring_at=event_values['published_at']-timedelta(days=1))
+            db.add(fixture)
+            for name, subject in [('supports', 'Micron is advancing DDR5 server memory product capabilities.'), ('contradicts', 'Micron has stopped advancing DDR5 server memory product capabilities.')]:
+                db.add(ResearchThesisClaim(id=name, thesis_id=fixture.id, claim_type='product_launch', subject=subject, importance='high', monitoring_mode='semantic', coverage_level='partially_monitored', user_confirmed=True))
+            live_event = ResearchEvidenceEvent(**event_values)
+            db.add(live_event); db.commit()
+            budget = matching.MatchBudget(remaining=2)
+            first = matching.process_event_matches(db, event=live_event, budget=budget)
+            rows = matching.query_matches(db, user=user, thesis_id=fixture.id)
+            relationships = {row['claim_id']: row['relationship'] for row in rows}
+            assert relationships == {'supports': 'supports', 'contradicts': 'contradicts'}, relationships
+            assert matching.query_matches(db, user=other, thesis_id=fixture.id) == []
+            second = matching.process_event_matches(db, event=live_event, budget=budget)
+            assert second['semantic'] == 0 and second['matches'] == 0
+            emit('isolated_matching_verified', relationships=relationships, model_calls=budget.attempts, repeat_calls=second['semantic'], ownership_protected=True, production_theses_created=0)
+    finally:
+        matching.resolved_setting_value = original_resolver
+        isolated.dispose()
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'diagnose'
-    if mode not in {'diagnose', 'pilot'}:
+    if mode not in {'diagnose', 'pilot', 'verify_matching'}:
         raise ValueError('Unsupported pilot mode')
     started = datetime.now(timezone.utc)
+    if mode == 'verify_matching':
+        verify_matching()
     with SessionLocal() as db:
         emit('configuration', operational_enabled=ops.operational_intelligence_enabled(),
              matching_enabled=ops.claim_matching_enabled(), transcripts_enabled=ops.transcript_analysis_enabled(),
@@ -77,6 +123,10 @@ def main():
                 guard.execute(text('SELECT pg_advisory_unlock(84193639)'))
     with SessionLocal() as db:
         if inspect(engine).has_table('openai_request_audit'):
+            emit('audit_schema', columns=[{'name': c['name'], 'type': str(c['type'])} for c in inspect(engine).get_columns('openai_request_audit')],
+                 pool_size=engine.pool.size(), pool_checked_out=engine.pool.checkedout(),
+                 total=db.scalar(text('SELECT count(*) FROM openai_request_audit')),
+                 latest=str(db.scalar(text('SELECT max(created_at) FROM openai_request_audit'))))
             rows = db.execute(text("SELECT feature, model, status_code, succeeded, duration_ms, usage_json FROM openai_request_audit WHERE feature IN ('research_evidence','research_claim_matching') AND created_at >= :since ORDER BY created_at DESC LIMIT 25"), {'since': (started-timedelta(hours=2) if mode == 'diagnose' else started).isoformat()}).mappings().all()
             emit('model_usage', requests=[dict(row) for row in rows])
         emit('private_matching', total_matches=db.scalar(select(func.count()).select_from(ResearchClaimEvidenceMatch)),
