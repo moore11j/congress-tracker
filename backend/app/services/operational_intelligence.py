@@ -238,14 +238,14 @@ def _ingest_latest_transcript(db: Session, *, security: Security, budget: _Extra
         filing_type=f"Q{quarter}-{year}",
     )
     if not changed and document.processing_status == "processed" and document.processing_version == EVIDENCE_PROCESSING_VERSION:
-        return {"documents": 0, "events": 0, "matches": _match_document_events(db, document.id), "skipped": 1}
+        return {"documents": 0, "events": 0, "matches": _match_document_events(db, document.id), "skipped": 1, "documents_seen": 1}
     try:
         result = extract_document_events(db, document=document, source_text=content, consume_call=budget.consume if budget else None)
     except Exception as exc:
         db.rollback()
         logger.info("operational_transcript_extraction_failed security_id=%s document_id=%s error=%s", security.id, document.id, type(exc).__name__)
-        return {"documents": int(changed), "events": 0, "matches": 0, "skipped": 0}
-    return {"documents": int(changed), "events": int(result.get("events_written") or 0), "matches": _match_document_events(db, document.id) if result.get("status") in {"processed", "reused"} else 0, "skipped": 0}
+        return {"documents": int(changed), "events": 0, "matches": 0, "skipped": 0, "documents_seen": 1}
+    return {"documents": int(changed), "events": int(result.get("events_written") or 0), "matches": _match_document_events(db, document.id) if result.get("status") in {"processed", "reused"} else 0, "skipped": 0, "documents_seen": 1}
 
 
 def candidate_securities(db: Session, *, limit: int = 50) -> list[Security]:
@@ -294,7 +294,7 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
             try:
                 if loader is None:
                     result = _ingest_latest_transcript(db, security=security, budget=source_budget)
-                    count = result["documents"] + result["skipped"]
+                    count = result.get("documents_seen", result["documents"] + result["skipped"])
                     results = [result]
                 else:
                     payload = loader(symbol=security.symbol, limit=20, force_refresh=True)
@@ -377,6 +377,8 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
         status = row.status if row else "not_checked"
         if source == "earnings_transcript" and not transcript_analysis_enabled():
             status = "disabled"
+        elif source == "earnings_transcript" and status == "disabled":
+            status = "not_checked"
         last = row.last_success_at.replace(tzinfo=timezone.utc) if row and row.last_success_at else None
         if status in {"ready", "empty"} and last and now - last > timedelta(hours=6):
             status = "stale"

@@ -160,12 +160,25 @@ def test_transcript_only_refresh_preserves_other_source_coverage(monkeypatch):
         monkeypatch.setenv("RESEARCH_TRANSCRIPT_ANALYSIS_ENABLED", "true")
         monkeypatch.setenv("RESEARCH_OPERATIONAL_INTELLIGENCE_ENABLED", "true")
         monkeypatch.setattr(operational_intelligence, "get_stock_news", lambda **_: (_ for _ in ()).throw(AssertionError("must not fetch news")))
-        monkeypatch.setattr(operational_intelligence, "_ingest_latest_transcript", lambda *_, **__: {"documents": 1, "events": 0, "matches": 0, "skipped": 0})
+        monkeypatch.setattr(operational_intelligence, "_ingest_latest_transcript", lambda *_, **__: {"documents": 0, "events": 3, "matches": 0, "skipped": 0, "documents_seen": 1})
         result = operational_intelligence.refresh_operational_intelligence(db, security_id=security.id, source_types={"earnings_transcript"})
-        assert result["documents"] == 1
+        assert result["documents"] == 0 and result["events"] == 3
         news = db.get(ResearchSourceCoverage, (security.id, "news_article"))
         assert news.status == "ready" and news.documents_seen == 12
         assert db.get(ResearchSourceCoverage, (security.id, "earnings_transcript")).status == "ready"
+        assert db.get(ResearchSourceCoverage, (security.id, "earnings_transcript")).documents_seen == 1
+    finally:
+        db.close(); engine.dispose()
+
+
+def test_enabling_transcripts_replaces_stored_disabled_label_with_awaiting_coverage(monkeypatch):
+    db, engine = make_db()
+    try:
+        security = Security(symbol="MU", name="Micron", asset_class="Equity")
+        db.add(security); db.commit()
+        db.add(ResearchSourceCoverage(security_id=security.id, source_type="earnings_transcript", status="disabled")); db.commit()
+        monkeypatch.setenv("RESEARCH_TRANSCRIPT_ANALYSIS_ENABLED", "true")
+        assert ticker_operational_intelligence(db, security=security)["coverage"][-1]["status"] == "not_checked"
     finally:
         db.close(); engine.dispose()
 
