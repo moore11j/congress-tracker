@@ -146,7 +146,7 @@ def test_unchanged_document_does_not_repeat_semantic_extraction(db):
     text = "Management launched a product today."
     document, _ = upsert_source_document(db, security_id=security.id, document_type="press_release", source_provider="company_ir", external_id="doc-2", content=text)
     calls = []
-    payload = '{"events":[{"category":"product_commercial","event_type":"product_launch","subject":"product","metric":"product availability","direction":"positive","previous_text":null,"current_text":"launched","headline":"Product launched","summary":"Product launched.","evidence_excerpt":"Management launched a product today.","watch_item":null,"confidence":"medium","materiality":"medium"}]}'
+    payload = '{"events":[{"category":"product_commercial","event_type":"product_launch","subject":"product","metric":"product availability","direction":"positive","previous_text":null,"current_text":"launched","headline":"Product launched","summary":"Product launched.","source_passage_id":"passage_0","watch_item":null,"confidence":"medium","materiality":"medium"}]}'
     first = extract_document_events(db, document=document, source_text=text, request_sender=lambda: (calls.append(1) or Response(payload)))
     second = extract_document_events(db, document=document, source_text=text, request_sender=lambda: (calls.append(1) or Response(payload)))
     assert first["events_written"] == 1
@@ -165,12 +165,12 @@ def test_source_passage_choices_are_verbatim_bounded_and_cover_full_section():
         assert all(0 < len(value) <= 500 and value in source for value in choices)
         assert source.startswith(choices[0]) and source.endswith(choices[-1])
         schema = _semantic_schema(source)
-        assert schema["properties"]["events"]["items"]["properties"]["evidence_excerpt"]["enum"] == choices
+        assert schema["properties"]["events"]["items"]["properties"]["source_passage_id"]["enum"] == [f"passage_{index}" for index in range(len(choices))]
 
 
 def test_extraction_constrains_model_to_source_passages_and_reuses_result(db, monkeypatch):
     from app.services import research_evidence as service
-    source = "Management expects the launch next quarter, subject to approval."
+    source = 'Management expects the "new product" launch next quarter, subject to approval.'
     security = seed_security(db)
     document, _ = upsert_source_document(db, security_id=security.id, document_type="earnings_transcript", source_provider="fmp", external_id="passage-call", content=source)
     calls = []
@@ -179,8 +179,10 @@ def test_extraction_constrains_model_to_source_passages_and_reuses_result(db, mo
         payload = kwargs["payload"]
         calls.append(payload)
         assert payload["text"]["format"]["strict"] is True
-        choices = payload["text"]["format"]["schema"]["properties"]["events"]["items"]["properties"]["evidence_excerpt"]["enum"]
-        event = {"category": "product_commercial", "event_type": "product_launch", "subject": "Product", "metric": None, "direction": "positive", "previous_text": None, "current_text": None, "headline": source, "summary": source, "evidence_excerpt": choices[0], "watch_item": "Approval next quarter", "confidence": "medium", "materiality": "medium"}
+        choices = payload["text"]["format"]["schema"]["properties"]["events"]["items"]["properties"]["source_passage_id"]["enum"]
+        assert choices == ["passage_0"]
+        assert source in payload["input"]
+        event = {"category": "product_commercial", "event_type": "product_launch", "subject": "Product", "metric": None, "direction": "positive", "previous_text": None, "current_text": None, "headline": source, "summary": source, "source_passage_id": choices[0], "watch_item": "Approval next quarter", "confidence": "medium", "materiality": "medium"}
         return Response(json.dumps({"events": [event]}))
     monkeypatch.setattr(service, "audited_openai_request", send)
     assert extract_document_events(db, document=document, source_text=source)["events_written"] == 1
@@ -190,6 +192,20 @@ def test_extraction_constrains_model_to_source_passages_and_reuses_result(db, mo
     assert row.evidence_excerpt == source
     assert row.source_locator.endswith(f"chars:0-{len(source)}")
     assert row.prompt_version == service.EVIDENCE_EXTRACTION_PROMPT_VERSION
+
+
+@pytest.mark.parametrize("passage_id", ["passage_999", None, ["passage_0"]])
+def test_unknown_source_passage_is_rejected_without_persisting_events(db, passage_id):
+    security = seed_security(db)
+    source = 'Management said "the product launched".'
+    document, _ = upsert_source_document(db, security_id=security.id, document_type="earnings_transcript", source_provider="fmp", external_id="invalid-passage", content=source)
+    event = {"category": "product_commercial", "event_type": "product_launch", "subject": "Product", "metric": None, "direction": "positive", "previous_text": None, "current_text": None, "headline": source, "summary": source, "source_passage_id": passage_id, "watch_item": None, "confidence": "medium", "materiality": "medium"}
+    with pytest.raises(HTTPException) as error:
+        extract_document_events(db, document=document, source_text=source, request_sender=lambda: Response(json.dumps({"events": [event]})))
+    assert error.value.status_code == 502
+    assert document.processing_status == "failed"
+    assert db.query(ResearchEvidenceEvent).count() == 0
+    assert db.query(ResearchExtractionChunk).count() == 0
 
 
 def test_changed_document_is_marked_pending_for_controlled_reprocessing(db):
@@ -331,7 +347,7 @@ def test_corrected_document_supersedes_only_after_valid_replacement(db):
     security = seed_security(db)
     source = "Product launched today."
     document, _ = upsert_source_document(db, security_id=security.id, document_type="press_release", source_provider="fmp", external_id="corrected-release", content=source)
-    value = {"category": "product_commercial", "event_type": "product_launch", "subject": "Product", "metric": None, "direction": "positive", "previous_text": None, "current_text": None, "headline": "Product launched", "summary": source, "evidence_excerpt": source, "watch_item": None, "confidence": "high", "materiality": "medium"}
+    value = {"category": "product_commercial", "event_type": "product_launch", "subject": "Product", "metric": None, "direction": "positive", "previous_text": None, "current_text": None, "headline": "Product launched", "summary": source, "source_passage_id": "passage_0", "watch_item": None, "confidence": "high", "materiality": "medium"}
     extract_document_events(db, document=document, source_text=source, request_sender=lambda: Response(json.dumps({"events": [value]})))
     original = db.query(ResearchEvidenceEvent).one()
     corrected = "Correction: the product has not launched."
