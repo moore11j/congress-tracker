@@ -1,4 +1,10 @@
-export const researchSourceLabels: Record<string, string> = { news_article: "News", press_release: "Company releases", earnings_transcript: "Earnings calls" };
+export const researchSourceLabels: Record<string, string> = { news_article: "News", press_release: "Press releases", earnings_transcript: "Earnings calls" };
+
+export function researchCheckTime(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short", timeZone: "UTC" }).format(date);
+}
 
 export function researchSourceHref(value?: string | null): string | null {
   if (!value) return null;

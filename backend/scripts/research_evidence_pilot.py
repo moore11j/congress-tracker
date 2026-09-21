@@ -109,6 +109,7 @@ def main():
             if not guard.scalar(text('SELECT pg_try_advisory_lock(84193639)')):
                 emit('busy', reason='Scheduled refresh already owns the worker lock')
                 return
+            guard.detach()
             try:
                 for symbol in ('MU', 'NVDA', 'AAPL'):
                     with SessionLocal() as db:
@@ -118,6 +119,7 @@ def main():
                         tick = time.monotonic()
                         outcome = ops.refresh_operational_intelligence(db, security_id=security.id)
                         emit('pilot_result', symbol=symbol, seconds=round(time.monotonic()-tick, 2), **outcome)
+                        emit('document_outcomes', symbol=symbol, results=[{'status': status, 'reason': reason, 'count': count} for status, reason, count in db.execute(select(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason, func.count()).where(ResearchSourceDocument.security_id == security.id).group_by(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason))])
                         emit('public_result', **ops.ticker_operational_intelligence(db, security=security))
             finally:
                 guard.execute(text('SELECT pg_advisory_unlock(84193639)'))

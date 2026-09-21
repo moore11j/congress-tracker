@@ -52,6 +52,29 @@ class _ExtractionBudget:
         return True
 
 
+@dataclass
+class _SourceBudget:
+    """Share the global ceiling while reserving room for other sources/tickers."""
+    parent: _ExtractionBudget
+    remaining: int
+
+    def consume(self) -> bool:
+        if self.remaining <= 0:
+            self.parent.deferred += 1
+            return False
+        if not self.parent.consume():
+            return False
+        self.remaining -= 1
+        return True
+
+
+def _source_extraction_limit() -> int:
+    try:
+        return max(1, min(int(os.getenv('RESEARCH_OPERATIONAL_MAX_EXTRACTIONS_PER_SOURCE', '5')), 50))
+    except ValueError:
+        return 5
+
+
 def _extraction_limit() -> int:
     try:
         value = int(os.getenv("RESEARCH_OPERATIONAL_MAX_EXTRACTIONS_PER_RUN", "50"))
@@ -265,9 +288,10 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
             coverage.status, coverage.failure_reason = "refreshing", None
             db.commit()
             deferred_before = budget.deferred
+            source_budget = _SourceBudget(parent=budget, remaining=_source_extraction_limit())
             try:
                 if loader is None:
-                    result = _ingest_latest_transcript(db, security=security, budget=budget)
+                    result = _ingest_latest_transcript(db, security=security, budget=source_budget)
                     count = result["documents"] + result["skipped"]
                     results = [result]
                 else:
@@ -276,7 +300,7 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                         raise RuntimeError("source_unavailable")
                     items = [item for item in payload.get("items", []) if isinstance(item, dict)]
                     count = len(items)
-                    results = [_ingest_article(db, security=security, item=item, document_type=document_type, budget=budget) for item in items]
+                    results = [_ingest_article(db, security=security, item=item, document_type=document_type, budget=source_budget) for item in items]
                 for result in results:
                     for key in ("documents", "events", "matches", "skipped"):
                         totals[key] += result[key]

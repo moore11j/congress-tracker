@@ -138,6 +138,19 @@ def test_source_identity_is_security_scoped_and_stable_when_title_changes():
     assert operational_intelligence._source_url("https://name:password@example.test") is None
 
 
+def test_source_budget_reserves_calls_for_other_sources_and_respects_run_cap():
+    total = operational_intelligence._ExtractionBudget(remaining=3)
+    news = operational_intelligence._SourceBudget(parent=total, remaining=1)
+    releases = operational_intelligence._SourceBudget(parent=total, remaining=5)
+    assert news.consume()
+    assert not news.consume()
+    assert total.remaining == 2
+    assert releases.consume() and releases.consume()
+    assert not releases.consume()
+    assert total.attempts == 3
+    assert total.deferred == 2
+
+
 def test_processed_sources_retry_matching_without_extracting_again(monkeypatch):
     db, engine = make_db()
     try:

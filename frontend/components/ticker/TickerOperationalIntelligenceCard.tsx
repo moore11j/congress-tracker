@@ -8,7 +8,7 @@ import { researchSourceHref } from "@/lib/researchEvidence";
 
 const SOURCE_LABELS: Record<string, string> = {
   news_article: "News",
-  press_release: "Company release",
+  press_release: "Press release",
   earnings_transcript: "Earnings call",
 };
 
@@ -62,6 +62,7 @@ export function TickerOperationalIntelligenceCard({ symbol }: { symbol: string }
   if (!enabled || disabled) return null;
   return <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Company developments</p><h2 className="mt-2 text-xl font-semibold text-white">The business behind the ticker</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Source-grounded company developments from news, official releases, and enabled earnings-call coverage.</p></div><Link href={`/monitoring/research?ticker=${encodeURIComponent(symbol)}`} className="rounded-lg border border-emerald-300/25 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-300/10">Build a thesis →</Link></div>
+    <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">News and press-release analysis uses provider excerpts, which may omit details from the full source. Releases may describe the company or its partners.</p>
     {data?.coverage ? <div className="mt-4"><ResearchCoverage items={data.coverage}/><p className="mt-2 text-xs text-slate-500">Recent evidence · past {data.lookback_days ?? 120} days. Coverage describes what has been checked; an empty section does not mean the business has no risks.</p></div> : null}
     {!data && !failed ? <LoadingGroups /> : failed ? <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-slate-950/35 p-3"><p className="text-sm text-slate-400">Operational-source intelligence is temporarily unavailable.</p><button type="button" onClick={() => setRetry((value) => value + 1)} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">Try again</button></div> : data?.status === "empty" ? <p className="mt-4 rounded-lg border border-dashed border-white/10 px-3 py-3 text-sm leading-5 text-slate-500">No material operating-source signals have been processed for this ticker yet.</p> : <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-4"><SignalGroup title="Catalysts" items={data?.catalysts ?? []} empty="No catalysts identified in the checked sources."/><SignalGroup title="Risks" items={data?.risks ?? []} empty="No risks identified in the checked sources."/><SignalGroup title="Opportunities" items={data?.opportunities ?? []} empty="No positive developments with explicit future milestones identified."/><SignalGroup title="What to watch next" items={data?.watch_next ?? []} empty="No explicit future milestones were extracted."/></div>}
   </section>;

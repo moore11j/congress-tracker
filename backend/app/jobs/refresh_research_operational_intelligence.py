@@ -3,11 +3,31 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import contextmanager
 from sqlalchemy import text
 
 from app.db import SessionLocal, engine, ensure_research_claim_matching_schema, ensure_research_evidence_schema
 from app.models import Security
 from app.services.operational_intelligence import candidate_securities, refresh_operational_intelligence
+
+
+@contextmanager
+def operational_refresh_lock(bind=engine):
+    """Keep one dedicated lock connection outside the two-slot cron work pool."""
+    if bind.dialect.name != 'postgresql':
+        yield True
+        return
+    with bind.connect() as guard:
+        if not guard.scalar(text('SELECT pg_try_advisory_lock(84193639)')):
+            yield False
+            return
+        # Detached connections close physically on context exit. This keeps the
+        # lock across source commits without starving provider/AI audit writes.
+        guard.detach()
+        try:
+            yield True
+        finally:
+            guard.execute(text('SELECT pg_advisory_unlock(84193639)'))
 
 
 def main() -> None:
@@ -39,20 +59,13 @@ def main() -> None:
         return
     ensure_research_evidence_schema(engine)
     ensure_research_claim_matching_schema(engine)
-    # A dedicated session-level lock survives source commits and prevents two
-    # schedulers from multiplying per-run spend. Unlock before returning to pool.
-    with engine.connect() as guard:
-        postgres = guard.dialect.name == "postgresql"
-        if postgres and not guard.scalar(text("SELECT pg_try_advisory_lock(84193639)")):
+    with operational_refresh_lock() as acquired:
+        if not acquired:
             print(json.dumps({"status": "busy", "committed": False}))
             return
-        try:
-            with SessionLocal() as db:
-                result = refresh_operational_intelligence(db, security_id=args.security_id, limit=args.limit)
-                db.commit(); result = {**result, "dry_run": False, "committed": True}
-        finally:
-            if postgres:
-                guard.execute(text("SELECT pg_advisory_unlock(84193639)"))
+        with SessionLocal() as db:
+            result = refresh_operational_intelligence(db, security_id=args.security_id, limit=args.limit)
+            db.commit(); result = {**result, "dry_run": False, "committed": True}
     print(json.dumps(result, sort_keys=True))
 
 

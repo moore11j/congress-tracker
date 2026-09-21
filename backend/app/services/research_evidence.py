@@ -614,8 +614,17 @@ def extract_document_events(db: Session, *, document: ResearchSourceDocument, so
         document.processing_status, document.failure_reason = "failed", "provider_error"; db.commit()
         raise HTTPException(status_code=502, detail="Evidence extraction is temporarily unavailable.") from exc
     except (ValueError, json.JSONDecodeError) as exc:
-        document.processing_status, document.failure_reason = "failed", "validation_error"; db.commit()
-        logger.warning("research_evidence_extraction_validation_failed document_id=%s error=%s", document.id, type(exc).__name__)
+        # Controlled codes retain actionable diagnostics without storing model text.
+        reason = 'validation_error'
+        message = str(exc)
+        if message == 'evidence excerpt is not present in source text':
+            reason = 'excerpt_not_in_source'
+        elif message.endswith(' is too long'):
+            reason = 'field_length_exceeded'
+        elif message == 'evidence extraction did not complete':
+            reason = 'incomplete_response'
+        document.processing_status, document.failure_reason = "failed", reason; db.commit()
+        logger.warning("research_evidence_extraction_validation_failed document_id=%s reason=%s", document.id, reason)
         raise HTTPException(status_code=502, detail="Evidence extraction returned an invalid structure.") from exc
 
 
