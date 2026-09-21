@@ -138,10 +138,11 @@ export function DecisionTrendChart({ history, direction }: { history?: DecisionT
       })}
       {active ? <><line x1={active.x} y1={padding.top} x2={active.x} y2={height - padding.bottom} className="stroke-white/35" strokeDasharray="3 4" /><circle cx={active.x} cy={active.y} r="5" fill={theme.stroke} stroke="#020617" strokeWidth="2" /></> : null}
     </svg>
-    {recalibrations.length ? <div className="mt-1.5 text-[10px] leading-4">
-      <p className="font-medium text-amber-200"><span aria-hidden="true" className="mr-1">◆</span>Score recalibrated · {recalibrations.map((event) => formatAxisDate(event.date)).join(" & ")} (UTC)</p>
+    {recalibrations.length ? <details className="mt-1 text-xs leading-5">
+      <summary className="cursor-pointer rounded py-1 font-medium text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"><span aria-hidden="true" className="mr-1">◆</span>Score recalibrated · {recalibrations.map((event) => formatAxisDate(event.date)).join(" & ")} (UTC)</summary>
       <p className="text-slate-400">{recalibrationNote}</p>
-    </div> : null}
+      {recalibrations.map((event) => <p key={event.version} className="mt-1 text-slate-400">{formatAxisDate(event.date)} (UTC): {event.description}</p>)}
+    </details> : null}
     {active && tooltipPosition && typeof document !== "undefined" ? createPortal(
       <div role="status" className="pointer-events-none fixed z-[9999] w-64 max-w-[calc(100vw-1rem)] rounded-md border border-emerald-300/25 bg-slate-950/95 px-3 py-2 text-xs shadow-2xl shadow-black/50 ring-1 ring-emerald-300/10 backdrop-blur" style={{ left: clamp(tooltipPosition.left, Math.min(136, window.innerWidth / 2), Math.max(window.innerWidth - 136, window.innerWidth / 2)), top: tooltipPosition.top, transform: "translate(-50%, -100%)" }}>
         <p className="font-semibold text-slate-100">{formatDateShort(active.date) ?? active.date}</p>

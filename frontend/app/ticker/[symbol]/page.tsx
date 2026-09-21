@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { cache, Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type CrossSourceDivergenceSource, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -27,6 +27,7 @@ import {
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
 import { TickerDecisionPanels } from "@/components/ticker/TickerDecisionPanels";
+import { TickerSourceAlignment } from "@/components/ticker/TickerSourceAlignment";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
@@ -1230,85 +1231,6 @@ function decisionToneClass(direction?: string | null): string {
 }
 
 
-function divergenceToneClass(state: CrossSourceDivergence["state"]): string {
-  if (state === "strong_divergence") return "border-rose-300/35 bg-rose-300/10 text-rose-100";
-  if (state === "moderate_divergence") return "border-amber-300/35 bg-amber-300/10 text-amber-100";
-  if (state === "mild_divergence") return "border-sky-300/35 bg-sky-300/10 text-sky-100";
-  return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
-}
-
-function divergenceSurfaceClass(state: CrossSourceDivergence["state"]): string {
-  if (state === "strong_divergence") return "border-rose-300/35 bg-rose-300/[0.035]";
-  if (state === "moderate_divergence") return "border-amber-300/35 bg-amber-300/[0.035]";
-  if (state === "mild_divergence") return "border-sky-300/35 bg-sky-300/[0.035]";
-  return "border-emerald-300/40 bg-emerald-300/[0.035]";
-}
-
-function divergenceSourceIcon(key: string): IntelligenceIconKind {
-  if (key === "fundamentals") return "fundamentals";
-  if (key === "price_volume") return "price-volume";
-  if (key === "institutional_activity") return "people";
-  if (key === "government_contracts") return "government-contract";
-  if (key === "congress") return "congress";
-  if (key === "insiders") return "insider-buy";
-  if (key === "options_flow") return "flow";
-  return "signals";
-}
-
-function DivergenceSourceChips({ sources, tone }: { sources: CrossSourceDivergenceSource[]; tone: "bullish" | "bearish" }) {
-  if (!sources.length) return <p className="mt-2 text-sm text-slate-300">No material {tone} evidence</p>;
-  const chipClass = tone === "bullish"
-    ? "border-emerald-300/25 bg-emerald-300/[0.07] text-emerald-50"
-    : "border-rose-300/25 bg-rose-300/[0.07] text-rose-50";
-  const iconClass = tone === "bullish" ? "text-emerald-300" : "text-rose-300";
-  return <div className="mt-2 flex flex-wrap gap-2">{sources.map((source) => (
-    <span key={source.key} className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs font-semibold ${chipClass}`}>
-      <IntelligenceIcon kind={divergenceSourceIcon(source.key)} className={`h-4 w-4 ${iconClass}`} />
-      {source.label}
-    </span>
-  ))}</div>;
-}
-
-function CrossSourceDivergenceCard({ divergence }: { divergence?: CrossSourceDivergence | null }) {
-  if (!divergence) return null;
-  const showBreakdown = divergence.source_breakdown_available && (
-    (divergence.bullish_sources?.length ?? 0) > 0 || (divergence.bearish_sources?.length ?? 0) > 0
-  );
-  const bullishSources = divergence.bullish_sources ?? [];
-  const bearishSources = divergence.bearish_sources ?? [];
-  const totalDirectionalSources = Math.max(divergence.bullish_source_count + divergence.bearish_source_count, 1);
-  const bullishShare = Math.round((divergence.bullish_source_count / totalDirectionalSources) * 100);
-  return (
-    <section className={`mt-5 rounded-lg border px-5 py-4 ${divergenceSurfaceClass(divergence.state)}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Cross-Source Divergence</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{divergence.explanation ?? divergence.public_explanation}</p>
-        </div>
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${divergenceToneClass(divergence.state)}`}>{divergence.state === "aligned" ? "✓" : null}{divergence.label}</span>
-      </div>
-      {showBreakdown ? (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.045] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">Bullish evidence</p>
-            <DivergenceSourceChips sources={bullishSources} tone="bullish" />
-          </div>
-          <div className="rounded-lg border border-rose-300/30 bg-rose-300/[0.035] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-200">Bearish evidence</p>
-            <DivergenceSourceChips sources={bearishSources} tone="bearish" />
-          </div>
-        </div>
-      ) : null}
-      <div className="mt-4 grid grid-cols-[auto_minmax(4rem,1fr)_auto] items-center gap-3 text-[11px] font-medium">
-        <span className="text-slate-400">Source count</span>
-        <div className="flex h-1 overflow-hidden rounded-full bg-slate-800"><span className="bg-emerald-400" style={{ width: `${bullishShare}%` }} /><span className="bg-rose-400" style={{ width: `${100 - bullishShare}%` }} /></div>
-        <span className="tabular-nums text-slate-400"><span className="text-emerald-300">{divergence.bullish_source_count} bullish</span> <span className="px-1 text-slate-600">|</span> <span className="text-rose-300">{divergence.bearish_source_count} bearish</span></span>
-      </div>
-      <p className="mt-3 text-xs text-slate-400">Divergence measures weighted disagreement between sources. The bar shows source counts, not their weight in the rating.</p>
-      <p className="mt-2 text-xs text-slate-500">{divergence.active_source_count} active sources evaluated · {divergence.methodology_version}</p>
-    </section>
-  );
-}
 
 function TickerInterpretationPremiumLock({ title, description }: { title: string; description: string }) {
   return (
@@ -1335,7 +1257,7 @@ function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHisto
   const locked = Boolean(setups.access?.locked);
   const hasMatches = !locked && (setups.top_matches?.length ?? 0) > 0;
   return (
-    <section className="mt-5 rounded-lg border border-violet-300/25 bg-violet-300/[0.025] px-5 py-4">
+    <section className="mt-5 border-t border-white/10 pt-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">Similar Historical Setups</p>
@@ -1354,7 +1276,7 @@ function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHisto
       <div className={`mt-3 grid gap-4 ${hasMatches ? "xl:grid-cols-[minmax(19rem,0.9fr)_minmax(0,1.35fr)] xl:items-start" : "max-w-2xl"}`}>
         <div>
           {setups.current_setup ? (
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-400">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-2 text-xs text-slate-400">
               <span className="font-semibold uppercase tracking-[0.12em] text-slate-500">Current profile</span>
               <span>Score <strong className="text-slate-100">{setups.current_setup.score}</strong></span>
               <span className="text-emerald-300">● {setups.current_setup.direction}</span>
@@ -1366,7 +1288,7 @@ function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHisto
             {(["7D", "30D"] as const).map((horizon) => {
               const metrics = horizon === "30D" ? thirtyDay : sevenDay;
               return (
-                <div key={horizon} className="rounded-md border border-white/10 bg-slate-950/55 p-3">
+                <div key={horizon} className="border-l border-white/10 py-1 pl-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon} outcome</p>
                   {metrics?.status === "building" ? (
                     <p className="mt-2 text-xs leading-5 text-slate-400"><strong className="text-xl font-semibold tabular-nums text-slate-100">{metrics.sample_size}</strong> matured comparable outcome{metrics.sample_size === 1 ? "" : "s"}.</p>
@@ -1386,19 +1308,19 @@ function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHisto
           {locked && !building ? <Link href="/pricing" className="mt-3 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">Unlock the full historical setup analysis</Link> : null}
         </div>
         {hasMatches ? (
-          <div className="rounded-md border border-white/10 bg-slate-950/35 px-3 py-2.5">
+          <div className="min-w-0 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most similar events</p>
             <div className="mt-2 grid gap-1.5">
               {(setups.top_matches ?? []).slice(0, 3).map((match) => {
                 const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
-                return <div key={`${match.ticker}-${match.market_date}`} className="grid gap-x-3 gap-y-1 rounded-md border border-violet-300/15 bg-violet-300/[0.035] px-2.5 py-2 text-xs sm:grid-cols-[minmax(13rem,0.75fr)_minmax(0,1.35fr)_auto] sm:items-center">
+                return <div key={`${match.ticker}-${match.market_date}`} className="grid min-w-0 gap-x-3 gap-y-1 border-t border-white/10 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                     <p className="font-semibold text-slate-100"><span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-violet-400/15 text-[9px] text-violet-200">⌁</span>{match.ticker}</p>
                     <span className="text-slate-500">{formatDateShort(match.market_date)}</span>
                     <TickerDiscoveryLink compact ticker={symbol} href={`/outcomes?ticker=${encodeURIComponent(match.ticker)}`} destinationType="outcome" destinationId={match.ticker}>Outcome history</TickerDiscoveryLink>
                   </div>
-                  {match.reasons?.length ? <p className="min-w-0 truncate text-[11px] text-slate-500">Similar: {match.reasons.join(" · ")}</p> : <span />}
                   <p className="font-medium text-slate-300 sm:text-right">Score <span className="text-emerald-300">{match.score}</span> · {match.direction} · {outcome?.status === "matured" ? historicalPercent(outcome.directional_return_pct) : "Pending"}</p>
+                  {match.reasons?.length ? <details className="min-w-0 text-xs leading-5 text-slate-400 sm:col-span-2"><summary className="w-fit cursor-pointer rounded py-1 text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300">Comparison details</summary><p>Similar: {match.reasons.join(" · ")}</p></details> : null}
                 </div>;
               })}
             </div>
@@ -1440,41 +1362,31 @@ function TickerOverviewPanel({
 
   return (
     <div className="relative">
-      <div className="relative">
-        <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
-          <section className="grid gap-5 rounded-lg border border-white/10 bg-slate-950/30 px-6 py-5 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,0.9fr)_minmax(14rem,1.05fr)_minmax(16rem,1fr)] lg:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">30-DAY CONFIRMATION</p>
-            <p className="mt-3 text-xs text-slate-500">{updated}</p>
+      <section aria-label="Confirmation and source alignment" className="grid min-w-0 gap-5 rounded-lg border border-white/10 bg-slate-950/25 p-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,0.9fr)] lg:gap-5">
+        <div className="relative min-w-0">
+          <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">30-DAY CONFIRMATION</p>
+            <VisibleEvent name="confirmation_score_viewed" properties={{ ticker: symbol }} enabled={!confirmationLocked && score !== null}>
+              <p className={`mt-2 text-4xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>{score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span></p>
+              <p className={`mt-1 text-base font-semibold ${decisionToneClass(direction)}`}>{label}</p>
+            </VisibleEvent>
+            <p className="mt-2 text-xs text-slate-400">{updated}</p>
+            <details className="mt-1 text-xs leading-5 text-slate-400"><summary className="w-fit cursor-pointer rounded py-1 text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300">Confirmation interpretation</summary><p>{layer.summary ?? displayBundle.explanation}</p></details>
           </div>
-          <VisibleEvent name="confirmation_score_viewed" properties={{ ticker: symbol }} enabled={!confirmationLocked && score !== null}>
-            <p className={`text-5xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>
-              {score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span>
-            </p>
-            <p className={`mt-2 text-2xl font-semibold ${decisionToneClass(direction)}`}>{label}</p>
-          </VisibleEvent>
-          <div>
-            <p className="text-base leading-7 text-slate-100">{layer.summary ?? displayBundle.explanation}</p>
-          </div>
-          <div>
+          {confirmationLocked && confirmationGate ? <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/80 p-2"><ContextualUpgrade title="Understand the ranking" body={confirmationGate.message} feature="ticker_confirmation" compact /></div> : null}
+        </div>
+        <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+          {divergenceLocked ? <div><p className="text-xs font-semibold text-slate-300">Cross-Source Divergence</p><p className="mt-2 text-sm text-slate-400">Compare how Walnut’s confirmation sources align or diverge with Premium.</p><Link href="/pricing" className="mt-2 inline-flex text-sm font-semibold text-emerald-200">Unlock with Premium</Link></div> : <TickerSourceAlignment divergence={divergence} />}
+        </div>
+        <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+          <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
+            <p className="mb-1 text-xs text-slate-400">Confirmation trend · 30D</p>
             <DecisionTrendChart history={confirmation.history} direction={direction} />
           </div>
-          </section>
         </div>
-        {confirmationLocked && confirmationGate ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/35 p-4 backdrop-blur-[1px]">
-            <div className="max-w-sm bg-slate-950/90"><ContextualUpgrade title="Understand the ranking" body={confirmationGate.message} feature="ticker_confirmation" compact /></div>
-          </div>
-        ) : null}
-      </div>
+      </section>
 
-      {divergenceLocked ? (
-        <TickerInterpretationPremiumLock title="Cross-Source Divergence" description="Compare how Walnut’s confirmation sources align or diverge with Premium." />
-      ) : (
-        <CrossSourceDivergenceCard divergence={divergence} />
-      )}
-
-      <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
+      <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
 
         <TickerDecisionPanels layer={layer} />
       </div>

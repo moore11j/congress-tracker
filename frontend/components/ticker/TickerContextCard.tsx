@@ -1332,18 +1332,18 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-4">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Related Research</p>
-                <p className="mt-2 text-sm text-slate-400">Walnut analysis and thematic briefs related to {symbol}.</p>
+                <h2 className="text-xl font-semibold text-slate-100">Walnut research</h2>
+                <p className="mt-1 text-sm text-slate-400">Walnut analysis and thematic briefs related to {symbol}.</p>
               </div>
               <Link href="/research" className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">All research</Link>
             </div>
             <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               {researchItems.length ? (
-                <div className="grid gap-2">
+                <div className="divide-y divide-white/10 border-y border-white/10">
                   {researchItems.map((item) => (
-                    <Link key={item.slug} href={item.route} className="block rounded-lg border border-white/10 bg-slate-900/55 p-3 transition hover:border-emerald-300/35 hover:bg-slate-900/80">
+                    <Link key={item.slug} href={item.route} className="block px-1 py-4 transition hover:bg-white/[0.025] focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300">
                       <p className="text-sm font-semibold text-slate-100">{item.title}</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-400">{item.description}</p>
                     </Link>
                   ))}
                 </div>
