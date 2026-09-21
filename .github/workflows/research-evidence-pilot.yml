@@ -1,0 +1,40 @@
+name: Research Evidence Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only diagnosis or bounded live pilot
+        type: choice
+        options: [diagnose, pilot]
+        default: diagnose
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-evidence-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install flyctl
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+      - name: Run reviewed pilot on the existing cron machine
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          PILOT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          case "$PILOT_MODE" in diagnose|pilot) ;; *) exit 1 ;; esac
+          code=$(base64 -w0 backend/scripts/research_evidence_pilot.py)
+          flyctl ssh console --app congress-tracker-api --machine 850d53cd356458 \
+            --command "python -c \"import base64,sys; sys.argv=['pilot','$PILOT_MODE']; exec(compile(base64.b64decode('$code'),'research_evidence_pilot.py','exec'))\""
