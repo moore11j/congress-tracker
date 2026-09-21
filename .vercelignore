@@ -5,6 +5,7 @@ frontend/.env
 frontend/.env.*
 backend/.env
 backend/.env.*
+backend/.local
 .release-outcomes
 work
 .pytest_cache
