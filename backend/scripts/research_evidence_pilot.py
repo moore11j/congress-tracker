@@ -156,6 +156,10 @@ def main():
                  latest=str(db.scalar(text('SELECT max(created_at) FROM openai_request_audit'))))
             rows = db.execute(text("SELECT feature, model, status_code, succeeded, duration_ms, usage_json FROM openai_request_audit WHERE feature IN ('research_evidence','research_claim_matching') AND created_at >= :since ORDER BY created_at DESC LIMIT 25"), {'since': (started-timedelta(hours=2) if mode == 'diagnose' else started).isoformat()}).mappings().all()
             emit('model_usage', requests=[dict(row) for row in rows])
+            # Evidence extraction uses public source material, not private theses.
+            # Keep private compiler/matching request errors out of operator logs.
+            failures = db.execute(text("SELECT status_code, error FROM openai_request_audit WHERE feature = 'research_evidence' AND status_code >= 400 AND created_at >= :since ORDER BY created_at DESC LIMIT 5"), {'since': (started-timedelta(hours=2)).isoformat()}).mappings().all()
+            emit('evidence_provider_failures', requests=[dict(row) for row in failures])
         emit('private_matching', total_matches=db.scalar(select(func.count()).select_from(ResearchClaimEvidenceMatch)),
              new_matches=db.scalar(select(func.count()).select_from(ResearchClaimEvidenceMatch).where(ResearchClaimEvidenceMatch.created_at >= started)))
 
