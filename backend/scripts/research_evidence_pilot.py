@@ -3,12 +3,12 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, '/app')
 from sqlalchemy import func, inspect, select, text
 from app.db import SessionLocal, engine
-from app.models import ResearchSourceDocument, ResearchThesis, ResearchThesisClaim, ResearchClaimEvidenceMatch, Security, WatchlistItem
+from app.models import ResearchSourceCoverage, ResearchSourceDocument, ResearchThesis, ResearchThesisClaim, ResearchClaimEvidenceMatch, Security, WatchlistItem
 from app.services import operational_intelligence as ops
 from app.services.ai_marketing import OPENAI_API_KEY, resolved_setting_value
 
@@ -29,6 +29,9 @@ def main():
              thesis_status_counts=dict(db.execute(select(ResearchThesis.status, func.count()).group_by(ResearchThesis.status)).all()),
              claims=db.scalar(select(func.count()).select_from(ResearchThesisClaim)),
              scheduler_candidates=len(ops.candidate_securities(db, limit=250)))
+        emit('worker_progress',
+             coverage=[{'source': source, 'status': status, 'count': count, 'latest_attempt': latest} for source, status, count, latest in db.execute(select(ResearchSourceCoverage.source_type, ResearchSourceCoverage.status, func.count(), func.max(ResearchSourceCoverage.last_attempt_at)).group_by(ResearchSourceCoverage.source_type, ResearchSourceCoverage.status))],
+             documents=[{'status': status, 'reason': reason, 'count': count} for status, reason, count in db.execute(select(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason, func.count()).group_by(ResearchSourceDocument.processing_status, ResearchSourceDocument.failure_reason))])
         for symbol in ('MU', 'NVDA', 'AAPL'):
             security = db.scalar(select(Security).where(Security.symbol == symbol))
             if not security:
@@ -74,7 +77,7 @@ def main():
                 guard.execute(text('SELECT pg_advisory_unlock(84193639)'))
     with SessionLocal() as db:
         if inspect(engine).has_table('openai_request_audit'):
-            rows = db.execute(text("SELECT feature, model, status_code, succeeded, duration_ms, usage_json FROM openai_request_audit WHERE feature IN ('research_evidence','research_claim_matching') AND created_at >= :since ORDER BY created_at DESC LIMIT 25"), {'since': started.isoformat()}).mappings().all()
+            rows = db.execute(text("SELECT feature, model, status_code, succeeded, duration_ms, usage_json FROM openai_request_audit WHERE feature IN ('research_evidence','research_claim_matching') AND created_at >= :since ORDER BY created_at DESC LIMIT 25"), {'since': (started-timedelta(hours=2) if mode == 'diagnose' else started).isoformat()}).mappings().all()
             emit('model_usage', requests=[dict(row) for row in rows])
         emit('private_matching', total_matches=db.scalar(select(func.count()).select_from(ResearchClaimEvidenceMatch)),
              new_matches=db.scalar(select(func.count()).select_from(ResearchClaimEvidenceMatch).where(ResearchClaimEvidenceMatch.created_at >= started)))
