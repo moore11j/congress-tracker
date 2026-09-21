@@ -18,6 +18,7 @@ backend/.venv312
 frontend/*.log
 backend/*.log
 security-reports
+artifacts
 playwright-report
 test-results
 frontend/playwright-report
