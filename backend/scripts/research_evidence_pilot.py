@@ -63,8 +63,33 @@ def verify_matching():
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'diagnose'
-    if mode not in {'diagnose', 'pilot', 'verify_matching'}:
+    if mode not in {'diagnose', 'pilot', 'verify_matching', 'probe_transcripts'}:
         raise ValueError('Unsupported pilot mode')
+    if mode == 'probe_transcripts':
+        # Verify configured provider access without logging licensed text or
+        # invoking an AI model. Explicit operator action only.
+        for symbol in ('MU', 'NVDA', 'AAPL'):
+            try:
+                rows = ops._fmp_rows('earning-call-transcript-dates', {'symbol': symbol})
+                periods = []
+                for row in rows:
+                    try:
+                        year = int(row.get('year') or row.get('fiscalYear'))
+                        quarter = int(str(row.get('quarter') or row.get('period') or '').upper().replace('Q', ''))
+                        if year > 1990 and 1 <= quarter <= 4:
+                            periods.append((year, quarter))
+                    except (ValueError, TypeError):
+                        continue
+                if not periods:
+                    emit('transcript_probe', symbol=symbol, status='no_periods')
+                    continue
+                year, quarter = max(periods)
+                transcripts = ops._fmp_rows('earning-call-transcript', {'symbol': symbol, 'year': year, 'quarter': quarter})
+                lengths = [len(str(row.get('content') or '')) for row in transcripts]
+                emit('transcript_probe', symbol=symbol, year=year, quarter=quarter, status='available' if any(length >= 200 for length in lengths) else 'no_content', content_lengths=lengths)
+            except Exception as exc:
+                emit('transcript_probe', symbol=symbol, status='unavailable', error_type=type(exc).__name__)
+        return
     started = datetime.now(timezone.utc)
     if mode == 'verify_matching':
         verify_matching()
