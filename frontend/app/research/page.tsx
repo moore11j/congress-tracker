@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ResearchBriefsSection } from "@/components/insights/ResearchBriefsSection";
-import { marketingPageMetadata } from "@/lib/marketingMetadata";
+import { appCanonicalUrl, marketingPageMetadata } from "@/lib/marketingMetadata";
 import { researchArchivePage } from "@/lib/researchArchive";
 import { notFound, redirect } from "next/navigation";
 
@@ -34,6 +34,10 @@ export default async function ResearchBriefsPage({ searchParams }: Props) {
           <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Research Briefs</h1>
           <p className="mt-2 text-sm leading-6 text-slate-400">
             All published Walnut research briefs, including company deep dives, comparison notes, market DD, and campaign analysis.
+          </p>
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            Learn how we use sources and AI, attribute research, and handle corrections in our{" "}
+            <Link href={appCanonicalUrl("/editorial-policy")} className="text-emerald-200 hover:underline">Editorial Policy</Link>.
           </p>
         </div>
       </div>

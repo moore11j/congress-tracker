@@ -11,7 +11,7 @@ import {
   WALNUT_X_URL,
 } from "@/lib/marketingMetadata";
 
-const lastUpdated = "July 9, 2026";
+const lastUpdated = "September 22, 2026";
 const ABOUT_DESCRIPTION =
   "Learn who operates Walnut Market Terminal, why Walnut focuses on disclosure intelligence, and how its research tools are built.";
 
@@ -77,6 +77,15 @@ export default async function AboutPage() {
         </p>
         <p>
           Walnut identifies its operating entity, keeps the public-record context behind research visible, and explains its Confirmation Score as an interpretive layer rather than a recommendation. See the <a className="text-emerald-200 hover:text-emerald-100" href="/stock-confirmation-score">Confirmation Score methodology</a> and the <a className="text-emerald-200 hover:text-emerald-100" href={`${process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com"}/outcomes`}>Outcomes ledger</a> for the supporting product context.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Research and Editorial Standards">
+        <p>
+          Research published under the Walnut Markets byline is attributed to the organization. AI-assisted briefs disclose that assistance; the byline does not imply an individual analyst has manually verified every claim.
+        </p>
+        <p>
+          Our <a className="text-emerald-200 hover:text-emerald-100" href={appCanonicalUrl("/editorial-policy")}>Editorial Policy</a> explains authorship, source limitations, methodology, and how to request a correction.
         </p>
       </LegalSection>
 

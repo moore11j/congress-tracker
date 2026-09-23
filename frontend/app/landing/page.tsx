@@ -68,6 +68,7 @@ const researchDataFooterLinks = [
 
 const companyFooterLinks = [
   { label: "About", href: `${appUrl}/about` },
+  { label: "Editorial Policy", href: `${appUrl}/editorial-policy` },
   { label: "FAQ", href: "https://walnutmarkets.com/faq" },
   { label: "Contact", href: `${appUrl}/contact` },
   { label: "Terms", href: `${appUrl}/terms` },
@@ -309,7 +310,8 @@ export default async function LandingPage() {
               </a>
             </div>
             <div id="analyze-a-stock" className="scroll-mt-28">
-              <LandingSearch appUrl={appUrl} buttonLabel="Analyze a Stock" buttonOutside subduedButton placeholder="Search tickers, companies, Congress members, insiders, institutions, departments..." reassuranceCopy="Free to research · No credit card required" className="mt-6 max-w-3xl" featuredSuggestion={heroFeaturedTicker} submitEventName="analyze_stock_click" />
+              <LandingSearch appUrl={appUrl} buttonLabel="Analyze a Stock" buttonOutside subduedButton placeholder="Search a company or ticker" className="mt-6 max-w-3xl" featuredSuggestion={heroFeaturedTicker} submitEventName="analyze_stock_click" />
+              <p className="mt-2 text-xs leading-5 text-slate-400">Start free. Paid plans unlock deeper research.</p>
             </div>
             <p className="mt-4 flex max-w-4xl flex-wrap gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
               {heroEvidenceSources.map((source, index) => (

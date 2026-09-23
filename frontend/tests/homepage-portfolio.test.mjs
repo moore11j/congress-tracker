@@ -98,7 +98,7 @@ test("rendered homepage has eight workflow sections and serializes no paid metri
     return {ok: true, json: async () => context(symbol, symbol === "AMZN")};
   }});
   const html = renderToStaticMarkup(await load("app/landing/page.tsx").default());
-  assert.match(html, /Build Your Next Winning Portfolio/);
+  assert.match(html, /Follow the Insiders\. Know More Before You Buy\./);
   assert.equal((html.match(/<section/g) || []).length, 8);
   assert.equal((html.match(/data-homepage-ranked-stock=/g) || []).length, 3);
   assert.match(html, /Why is AMZN near the top/);

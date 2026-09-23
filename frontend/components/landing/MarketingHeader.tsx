@@ -31,6 +31,7 @@ const toolsNavLinks = [
 
 const companyNavLinks = [
   { label: "About", href: `${appUrl}/about`, description: "Who operates Walnut Markets." },
+  { label: "Editorial Policy", href: `${appUrl}/editorial-policy`, description: "Research standards, sources, and corrections." },
   { label: "FAQ", href: "https://walnutmarkets.com/faq", description: "Answers about data, billing, privacy, and support." },
   { label: "Contact", href: `${appUrl}/contact`, description: "Send feedback, bug reports, and requests." },
   { label: "Terms", href: `${appUrl}/terms`, description: "Terms of Use." },

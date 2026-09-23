@@ -21,12 +21,12 @@ const seo = load("lib/tickerSeo.ts");
 const content = load("lib/homepageContent.ts").homepageContent;
 
 test("homepage metadata fits snippets and keeps the requested positioning", () => {
-  assert.equal(content.hero.title, "Build Your Next Winning Portfolio");
-  assert.equal(content.metadata.title, "Stock Analysis, Congress Trades & Insider Data | Walnut Markets");
+  assert.equal(content.hero.title, "Follow the Insiders. Know More Before You Buy.");
+  assert.equal(content.metadata.title, "Insider Trading Tracker & Stock Research | Walnut Markets");
   assert.ok(content.metadata.title.length <= 65);
   assert.ok(content.metadata.description.length <= 165);
-  assert.match(content.hero.description, /historically/);
-  assert.match(content.hero.description, /backtested/);
+  assert.match(content.hero.description, /reported insider buying and selling/);
+  assert.match(content.hero.description, /institutional holdings/);
 });
 
 test("ticker fallback rejects unavailable, mismatched and undated public snapshots", () => {
@@ -71,5 +71,6 @@ test("robots and redirects preserve production indexing while excluding previews
   assert.equal(alias.status, 308);
   assert.equal(alias.headers.get("location"), "https://walnutmarkets.com/?utm_source=test");
   const sitemap = fs.readFileSync("public/sitemap.xml", "utf8");
-  assert.doesNotMatch(sitemap, /<loc>[^<]*\/(leaderboards|watchlists|screener|monitoring)<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/app\.walnutmarkets\.com\/leaderboards<\/loc>/);
+  assert.doesNotMatch(sitemap, /<loc>[^<]*\/(watchlists|screener|monitoring)<\/loc>/);
 });

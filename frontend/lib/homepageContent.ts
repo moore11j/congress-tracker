@@ -5,17 +5,17 @@
  */
 export const homepageContent = {
   hero: {
-    eyebrow: "Stock Analysis · Alternative Data · Market Intelligence",
-    title: "Build Your Next Winning Portfolio",
+    eyebrow: "Insider Trading Tracker & Stock Research",
+    title: "Follow the Insiders. Know More Before You Buy.",
     description:
-      "Use top-ranked stocks, historically strong market participants, and backtested strategies to find ideas, understand the evidence, and build a portfolio you can keep monitoring.",
+      "Track reported insider buying and selling alongside Congress trades, institutional holdings, financials and technicals—all in one place. See where the data agrees before making your next move.",
   },
   metadata: {
-    title: "Stock Analysis, Congress Trades & Insider Data | Walnut Markets",
+    title: "Insider Trading Tracker & Stock Research | Walnut Markets",
     description:
-      "Research ranked stocks with fundamentals, technicals, Congress trades, insider data, institutional holdings, contracts and analysts. Compare backtested strategies.",
+      "Track reported insider buying and selling, Congress trades and institutional holdings alongside financials and technicals. Start researching stocks free.",
     socialDescription:
-      "Find top-ranked stocks, compare historical performers and backtested strategies, then review fundamentals, technicals, Congress trades, insiders and institutions.",
+      "Follow the insiders. Know more before you buy. Explore reported insider trades, financials, technicals, Congress activity and institutional holdings with Walnut.",
   },
   differentiation: {
     description:

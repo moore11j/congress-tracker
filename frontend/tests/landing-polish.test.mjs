@@ -108,9 +108,9 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Feature Depth<\/SectionEyebrow>/);
 });
 
-test("landing uses portfolio outcome positioning and preserves discovery actions", () => {
-  assert.match(homepageContent, /Build Your Next Winning Portfolio/);
-  assert.match(homepageContent, /historically strong market participants/);
+test("landing uses stock research positioning and preserves discovery actions", () => {
+  assert.match(homepageContent, /Follow the Insiders\. Know More Before You Buy\./);
+  assert.match(homepageContent, /Insider Trading Tracker & Stock Research/);
   assert.match(landingPage, /homepageContent.hero.title/);
   assert.match(landingPage, /homepageContent.hero.description/);
   assert.match(landingPage, /Open Screener/);
@@ -143,7 +143,7 @@ test("homepage research activation keeps the existing search flow and emits GA4 
   assert.match(landingSearch, /isHighConfidenceSearchResult\(bestResult, trimmedQuery\)/);
   assert.match(landingSearch, /window\.location\.href = absoluteAppHref\(appUrl, routeForSearchResult\(bestResult\)\)/);
   assert.match(landingSearch, /window\.location\.href = absoluteAppHref\(appUrl, searchResultsHref\(trimmedQuery\)\)/);
-  assert.match(landingPage, /reassuranceCopy="Free to research · No credit card required"/);
+  assert.match(landingPage, /Start free\. Paid plans unlock deeper research\./);
   assert.match(landingSearch, /homepageViewTrackedRef/);
   assert.match(landingSearch, /searchFocusTrackedRef/);
   assert.match(landingSearch, /searchInputTrackedRef/);
@@ -153,8 +153,8 @@ test("landing metadata reflects research and monitoring positioning", () => {
   assert.match(marketingMetadata, /import \{ homepageContent \} from "@\/lib\/homepageContent"/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = homepageContent\.metadata\.title/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_DESCRIPTION = homepageContent\.metadata\.description/);
-  assert.match(homepageContent, /title: "Stock Analysis, Congress Trades & Insider Data \| Walnut Markets"/);
-  assert.match(homepageContent, /Research ranked stocks with fundamentals, technicals, Congress trades, insider data/);
+  assert.match(homepageContent, /title: "Insider Trading Tracker & Stock Research \| Walnut Markets"/);
+  assert.match(homepageContent, /Track reported insider buying and selling, Congress trades and institutional holdings/);
   assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
   assert.match(marketingMetadata, /openGraph:/);
   assert.match(marketingMetadata, /twitter:/);
@@ -221,7 +221,7 @@ test("landing navigation sends app-owned information pages to the app host", () 
   for (const route of ["/landing", "/congress-trades", "/insider-trading-tracker"]) {
     assert.match(middleware, new RegExp(`"${route}"`));
   }
-  assert.match(middleware, /const appHostedPaths = new Set\(\["\/about", "\/pricing", "\/terms", "\/privacy", "\/contact"\]\)/);
+  assert.match(middleware, /const appHostedPaths = new Set\(\["\/about", "\/pricing", "\/terms", "\/privacy", "\/contact", "\/editorial-policy"\]\)/);
   assert.match(middleware, /\(publicLandingHosts\.has\(host\) \|\| legacyMarketingHosts\.has\(host\)\) && appHostedPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.hostname = appHost/);
   assert.match(middleware, /return NextResponse\.redirect\(appUrl, 308\)/);

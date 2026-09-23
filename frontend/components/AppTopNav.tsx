@@ -43,6 +43,7 @@ const toolsNavGroups = [
 
 const companyNavItems = [
   { href: "/about", label: "About", icon: "•", description: "Who operates Walnut Markets" },
+  { href: "/editorial-policy", label: "Editorial Policy", icon: "•", description: "Research standards and corrections" },
   { href: "https://walnutmarkets.com/faq", label: "FAQ", icon: "•", description: "Answers about data, billing, privacy, and support" },
   { href: "/contact", label: "Contact", icon: "•", description: "Feedback, bug reports, feature requests, and inquiries" },
   { href: "/terms", label: "Terms", icon: "•", description: "Terms of Use" },

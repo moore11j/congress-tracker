@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import type { AdminResearchBriefDraft } from "@/lib/api";
-import { WALNUT_MARKETING_URL, marketingCanonicalUrl } from "@/lib/marketingMetadata";
+import { WALNUT_MARKETING_URL, appCanonicalUrl, marketingCanonicalUrl } from "@/lib/marketingMetadata";
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
 import { PremiumResearchGate } from "@/components/research/MuPremiumGate";
 import { ResearchBriefTopNav } from "@/components/research/ResearchBriefTopNav";
@@ -236,11 +236,14 @@ export function GeneratedResearchBriefPage({
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{article.category || "Research Brief"}</p>
             <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{cleanInlineText(article.title)}</h1>
             <p className="mt-4 text-sm text-slate-400">
-              By <Link href="https://walnutmarkets.com/about" className="text-emerald-200 hover:underline">Walnut Markets</Link>
+              By <Link href={appCanonicalUrl("/about")} className="text-emerald-200 hover:underline">Walnut Markets</Link>
               {draft.published_at ? <> · Published <time dateTime={draft.published_at}>{formatResearchDate(draft.published_at)}</time></> : " · Draft for review"}
               {draft.published_at && draft.updated_at.slice(0, 10) > draft.published_at.slice(0, 10) ? <> · Updated <time dateTime={draft.updated_at}>{formatResearchDate(draft.updated_at)}</time></> : null}
             </p>
-            <p className="mt-2 text-xs text-slate-500">AI-assisted research. Source links and data limitations are included below.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              AI-assisted research. Source links and data limitations are included below.{" "}
+              <Link href={appCanonicalUrl("/editorial-policy")} className="text-emerald-200 hover:underline">Editorial policy and corrections</Link>.
+            </p>
             <p className="mt-5 text-lg leading-8 text-slate-300" data-growth-capture="research-summary">{cleanInlineText(article.subtitle || article.summary)}</p>
             <p className="mt-6 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
           </div>
@@ -351,7 +354,7 @@ export function generatedResearchJsonLd(draft: AdminResearchBriefDraft, canonica
       datePublished: draft.published_at || draft.created_at,
       dateModified: draft.updated_at,
       mainEntityOfPage: canonicalUrl,
-      author: { "@type": "Organization", name: "Walnut Markets", url: `${WALNUT_MARKETING_URL}/about` },
+      author: { "@type": "Organization", name: "Walnut Markets", url: appCanonicalUrl("/about") },
       publisher: {
         "@type": "Organization",
         name: "Walnut Markets",

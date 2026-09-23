@@ -22,6 +22,7 @@ const publicLandingRoutes = [
   "/",
   "/landing",
   "/about",
+  "/editorial-policy",
   "/pricing",
   "/faq",
   "/terms",

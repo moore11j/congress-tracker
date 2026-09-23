@@ -155,11 +155,31 @@ test("marketing hostname normalization remains consistent without moving other a
     assert.equal(response.status, 301);
     assert.equal(response.headers.get("location"), `https://walnutmarkets.com${route}`);
   }
-  for (const route of ["/about", "/pricing", "/terms", "/privacy", "/contact"]) {
+  for (const route of ["/about", "/pricing", "/terms", "/privacy", "/contact", "/editorial-policy"]) {
     const response = await middleware(new NextRequest(`https://www.walnutmarkets.com${route}`, { headers: { host: "www.walnutmarkets.com" } }));
     assert.equal(response.status, 308);
     assert.equal(response.headers.get("location"), `https://app.walnutmarkets.com${route}`);
   }
+});
+
+test("editorial policy remains public for anonymous readers and crawlers on its canonical host", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const canonical = "https://app.walnutmarkets.com/editorial-policy";
+  for (const userAgent of ["Mozilla/5.0", "Googlebot"]) {
+    const response = await middleware(new NextRequest(canonical, { headers: { host: "app.walnutmarkets.com", "user-agent": userAgent } }));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("x-robots-tag"), null);
+  }
+  const alias = await middleware(new NextRequest("https://walnutmarkets.com/editorial-policy", { headers: { host: "walnutmarkets.com" } }));
+  assert.equal(alias.status, 308);
+  assert.equal(alias.headers.get("location"), canonical);
+  const metadata = loadModule("lib/marketingMetadata.ts").appPageMetadata("/editorial-policy", { title: "Editorial Policy" });
+  assert.equal(metadata.alternates.canonical, canonical);
+  assert.equal(metadata.openGraph.url, canonical);
+  assert.equal(metadata.robots.index, true);
+  assert.equal(sitemap.split(`<loc>${canonical}</loc>`).length - 1, 1);
 });
 
 test("FAQ canonical, Open Graph and internal destinations agree on the preferred host", () => {

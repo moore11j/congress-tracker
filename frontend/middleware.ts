@@ -31,7 +31,7 @@ const publicStaticPaths = new Set([
 // These pages are part of the terminal experience. Keep the public marketing
 // site focused on acquisition pages and send requests for app-owned content
 // straight to the app host.
-const appHostedPaths = new Set(["/about", "/pricing", "/terms", "/privacy", "/contact"]);
+const appHostedPaths = new Set(["/about", "/pricing", "/terms", "/privacy", "/contact", "/editorial-policy"]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
