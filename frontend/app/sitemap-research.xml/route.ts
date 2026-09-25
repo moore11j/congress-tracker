@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getGeneratedResearchBriefCards } from "@/lib/api";
 import { getPublishedResearchBriefs } from "@/lib/researchBriefs";
 import { sitemapUrlset, type SeoPilotPage } from "@/lib/seoQuality";
+import { researchLastmod } from "@/lib/researchLastmod";
 
 const MARKETING_URL = "https://walnutmarkets.com";
 
@@ -27,7 +28,7 @@ export async function GET() {
     pagesByPath.set(path, {
       type: "research",
       path,
-      lastmod: sitemapLastmod(brief.publishedAt),
+      lastmod: researchLastmod(brief),
       rationale: "Published Walnut research brief.",
     });
   }
@@ -44,8 +45,4 @@ function researchSitemapPath(route: string | null | undefined, slug: string) {
   const candidate = (route ?? "").trim();
   if (/^\/research\/[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(candidate)) return candidate;
   return `/research/${encodeURIComponent(slug)}`;
-}
-
-function sitemapLastmod(value: string | null | undefined) {
-  return value?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? new Date().toISOString().slice(0, 10);
 }

@@ -87,10 +87,9 @@ function pricingJsonLd() {
   return [
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
+      "@type": "Service",
       name: "Walnut Market Terminal",
-      applicationCategory: "FinanceApplication",
-      operatingSystem: "Web",
+      serviceType: "Stock research subscription",
       url: WALNUT_APP_URL,
       image: WALNUT_SOCIAL_IMAGE_URL,
       offers,

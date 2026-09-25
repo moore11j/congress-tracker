@@ -43,6 +43,7 @@ type LandingPlanPriceDisplay = {
 };
 
 const platformFooterLinks = [
+  { label: "Explore research profiles", href: "https://app.walnutmarkets.com/explore" },
   { label: "Compare Walnut", href: "/compare" },
   { label: "Stock Research Software", href: "/stock-research-software" },
   { label: "Stock Analysis Platform", href: "/stock-analysis-platform" },
@@ -242,19 +243,18 @@ function landingJsonLd(config: PlanConfig | null) {
 
   const application = {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
+    "@type": "Service",
     "@id": `${WALNUT_MARKETING_URL}/#application`,
     name: "Walnut Market Terminal",
     brand: {
       "@type": "Brand",
       name: "Walnut Markets",
     },
-    applicationCategory: "FinanceApplication",
-    operatingSystem: "Web",
+    serviceType: "Stock research subscription",
     url: WALNUT_MARKETING_URL,
     image: WALNUT_SOCIAL_IMAGE_URL,
     description: WALNUT_MARKETING_DESCRIPTION,
-    publisher: {
+    provider: {
       "@id": `${WALNUT_MARKETING_URL}/#organization`,
     },
     offers: landingPlanOffers(config),

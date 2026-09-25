@@ -13,25 +13,22 @@ import {
   periodToTimeRange,
   selectMarketPressureUniverse,
 } from "@/lib/marketPressure";
-import { WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
+import { WALNUT_MARKETING_URL, appPageMetadata } from "@/lib/marketingMetadata";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = appPageMetadata("/market-pressure", {
   title: "Market Pressure Map | Walnut Markets",
   description:
     "Visualize where bullish and bearish market pressure is building across price, fundamentals, disclosures, institutions, options, and macro positioning.",
-  alternates: {
-    canonical: "/market-pressure",
-  },
   openGraph: {
     title: "Market Pressure Map | Walnut Markets",
     description:
       "Visualize where bullish and bearish market pressure is building across price, fundamentals, disclosures, institutions, options, and macro positioning.",
     url: "/market-pressure",
   },
-};
+});
 
 type MarketPressureSearchParams = Record<string, string | string[] | undefined>;
 

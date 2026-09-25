@@ -207,7 +207,7 @@ export function sitemapUrlset(appUrl: string, pages: readonly SeoPilotPage[]) {
   pages = [...canonicalPages.values()];
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${pages.map((page) => `  <url><loc>${appUrl}${page.path}</loc><lastmod>${page.lastmod}</lastmod></url>`).join("\n")}
+${pages.map((page) => `  <url><loc>${appUrl}${page.path}</loc>${page.lastmod ? `<lastmod>${page.lastmod}</lastmod>` : ""}</url>`).join("\n")}
 </urlset>
 `;
 }

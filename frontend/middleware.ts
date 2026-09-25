@@ -346,6 +346,17 @@ async function routeRequest(request: NextRequest) {
   const requestProto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
   const isHttpCanonicalMarketingRequest = host === canonicalMarketingHost && requestProto === "http";
 
+  // Retired generated research links should land directly on the working tab.
+  const legacyTickerTab = pathname.match(/^\/ticker\/([A-Za-z0-9.^-]+)\/(earnings|financials)\/?$/i);
+  if (legacyTickerTab && (isProductionSeoHost(host) || legacyMarketingHosts.has(host) || legacyAppHosts.has(host) || localDevHosts.has(host))) {
+    const target = request.nextUrl.clone();
+    if (!localDevHosts.has(host)) { target.protocol = "https:"; target.hostname = appHost; target.port = ""; }
+    target.pathname = `/ticker/${legacyTickerTab[1].toUpperCase()}`;
+    target.search = "";
+    target.hash = "financials";
+    return NextResponse.redirect(target, 308);
+  }
+
   // FAQ has one marketing canonical. Keep its existing page shell while
   // sending www, app and legacy aliases directly to the preferred URL.
   if (pathname === "/faq" && (publicLandingHosts.has(host) || legacyMarketingHosts.has(host) || host === appHost || legacyAppHosts.has(host))) {
@@ -410,7 +421,8 @@ async function routeRequest(request: NextRequest) {
   }
 
   if (isAnonymousPublicPageRenderCandidate(request, host, pathname)) {
-    return rewriteAnonymousPublicRender(request, pathname);
+    const response = rewriteAnonymousPublicRender(request, pathname);
+    return shouldNoindex ? withNoindex(response) : response;
   }
 
   if (isTerminalRoute(pathname)) {

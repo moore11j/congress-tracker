@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import type { AdminResearchBriefDraft } from "@/lib/api";
 import { WALNUT_MARKETING_URL, appCanonicalUrl, marketingCanonicalUrl } from "@/lib/marketingMetadata";
 import { ResearchBriefContextualCta } from "@/components/research/ResearchBriefContextualCta";
@@ -361,9 +362,14 @@ export function GeneratedResearchBriefPage({
 }
 
 function ResearchHeroImage({ src, title }: { src: string; title: string }) {
+  const href = safeLinkHref(src);
+  const localPath = href.startsWith(`${WALNUT_MARKETING_URL}/`) ? href.slice(WALNUT_MARKETING_URL.length) : href;
+  const optimize = localPath.startsWith("/research/") && /\.(png|jpe?g|webp)$/i.test(localPath);
   return (
     <div className="mt-10 overflow-hidden rounded-lg border border-white/10 bg-slate-900">
-      <img src={safeLinkHref(src)} alt={`${cleanInlineText(title)} hero image`} className="aspect-[16/9] w-full object-cover" />
+      {optimize
+        ? <Image src={localPath} alt={`${cleanInlineText(title)} hero image`} width={1200} height={675} sizes="(max-width: 1024px) 100vw, 1100px" quality={75} className="aspect-[16/9] w-full object-cover" />
+        : <img src={href} alt={`${cleanInlineText(title)} hero image`} className="aspect-[16/9] w-full object-cover" />}
     </div>
   );
 }

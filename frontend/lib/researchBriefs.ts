@@ -7,6 +7,7 @@ export type ResearchBriefCard = {
   category: string;
   judgment?: "bullish" | "bearish" | "mixed" | "macro" | "policy";
   publishedAt: string;
+  updatedAt?: string;
   readingMinutes: number;
   featured?: boolean;
   premium?: boolean;

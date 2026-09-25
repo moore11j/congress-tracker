@@ -27,6 +27,7 @@ export default async function InsightsPage({ searchParams }: Props) {
 
   return (
     <div className="w-full max-w-[calc(100vw-2rem)] space-y-4 sm:max-w-[calc(100vw-3rem)] lg:max-w-none">
+      <h1 className="pt-4 text-2xl font-semibold text-white">Stock market insights and research</h1>
       <InsightsMarketSnapshotClient />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(22rem,0.9fr)]">
         <InsightsNewsClient page={page} limit={limit} />

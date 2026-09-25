@@ -462,20 +462,19 @@ export function commercialFeaturePageJsonLd(page: CommercialFeaturePage) {
         url: WALNUT_MARKETING_URL,
       },
       about: {
-        "@type": "SoftwareApplication",
+        "@type": "Service",
         name: "Walnut Market Terminal",
       },
     },
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
+      "@type": "Service",
       name: "Walnut Market Terminal",
-      applicationCategory: "FinanceApplication",
-      operatingSystem: "Web",
+      serviceType: "Stock research subscription",
       url: WALNUT_MARKETING_URL,
       image: WALNUT_SOCIAL_IMAGE_URL,
       description: WALNUT_MARKETING_DESCRIPTION,
-      publisher: {
+      provider: {
         "@type": "Organization",
         name: "Walnut Intelligence Inc.",
       },

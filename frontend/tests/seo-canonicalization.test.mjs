@@ -27,6 +27,33 @@ const marketingMetadata = fs.readFileSync(path.join(root, "lib/marketingMetadata
 const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const sitemap = fs.readFileSync(path.join(root, "public/sitemap.xml"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
+
+test("anonymous screener rewrites retain noindex for clean and filtered URLs", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  for (const userAgent of ["Googlebot", "AhrefsSiteAudit", "Mozilla/5.0 Chrome/130"]) {
+    for (const suffix of ["", "?government_contracts_active=true&government_contracts_lookback_days=365"]) {
+      const response = await middleware(new NextRequest(`https://app.walnutmarkets.com/screener${suffix}`, { headers: { host: "app.walnutmarkets.com", "user-agent": userAgent } }));
+      assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
+      assert.ok(response.headers.get("x-middleware-rewrite").includes("/walnut-public/screener"));
+    }
+  }
+  const { screenerMetadata } = loadModule("lib/screenerMetadata.ts");
+  assert.equal(screenerMetadata.robots.index, false);
+  assert.equal(screenerMetadata.alternates.canonical, "https://app.walnutmarkets.com/screener");
+});
+
+test("retired financials and earnings URLs redirect directly to the real ticker tab", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  for (const host of ["walnutmarkets.com", "app.walnutmarkets.com", "www.walnutmarkets.com"]) {
+    for (const tab of ["earnings", "financials"]) {
+      const response = await middleware(new NextRequest(`https://${host}/ticker/nvda/${tab}`, { headers: { host, "user-agent": "AhrefsBot" } }));
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get("location"), "https://app.walnutmarkets.com/ticker/NVDA#financials");
+    }
+  }
+});
 const seoRoutes = [
   "/stock-research-app",
   "/stock-analysis-tools",

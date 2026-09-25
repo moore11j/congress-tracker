@@ -1,4 +1,7 @@
 import { confirmationLabel } from "@/lib/confirmationLabel";
+import { screenerMetadata } from "@/lib/screenerMetadata";
+
+export const metadata = screenerMetadata;
 import Link from "next/link";
 import { headers } from "next/headers";
 import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow";

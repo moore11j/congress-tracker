@@ -824,18 +824,17 @@ export function seoLandingPageJsonLd(page: SeoLandingPage) {
 
   const application = {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
+    "@type": "Service",
     name: "Walnut Market Terminal",
     brand: {
       "@type": "Brand",
       name: "Walnut Markets",
     },
-    applicationCategory: "FinanceApplication",
-    operatingSystem: "Web",
+    serviceType: "Stock research subscription",
     url: WALNUT_MARKETING_URL,
     image: WALNUT_SOCIAL_IMAGE_URL,
     description: WALNUT_MARKETING_DESCRIPTION,
-    publisher: {
+    provider: {
       "@type": "Organization",
       name: "Walnut Intelligence Inc.",
     },
@@ -872,7 +871,7 @@ export function seoLandingPageJsonLd(page: SeoLandingPage) {
       url: WALNUT_MARKETING_URL,
     },
     about: {
-      "@type": "SoftwareApplication",
+      "@type": "Service",
       name: "Walnut Market Terminal",
     },
   };

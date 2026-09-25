@@ -143,6 +143,8 @@ function buildMemberBacktestHref(memberId: string, lookbackDays: number) {
 }
 
 function buildCommitteeSourceHref(memberId: string, memberName: string, chamber?: string | null) {
+  // Vendor identifiers are internal keys, not public congressional profile IDs.
+  if (!/^[A-Z]\d{6}$/i.test(memberId)) return null;
   if ((chamber ?? "").toLowerCase() === "house") {
     return `https://clerk.house.gov/Members/${encodeURIComponent(memberId)}`;
   }
@@ -406,14 +408,14 @@ export default async function MemberPage({ params, searchParams }: Props) {
               Current committee and subcommittee assignments from official congressional profile sources.
             </p>
           </div>
-          <a
+          {committeeSourceHref ? <a
             href={committeeSourceHref}
             target="_blank"
             rel="noreferrer"
             className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 bg-slate-950/30 px-3 text-xs font-semibold text-sky-200 transition hover:border-sky-300/40 hover:bg-sky-400/10"
           >
             Open official profile
-          </a>
+          </a> : null}
         </div>
         {committeeAssignments ? (
           <div className="mt-3 grid gap-2 md:grid-cols-2">

@@ -2,18 +2,16 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { OutcomeLedgerClient } from "@/components/outcomes/OutcomeLedgerClient";
 import { getOutcomeLedgerOverview, getOutcomeSnapshots } from "@/lib/api";
+import { appPageMetadata } from "@/lib/marketingMetadata";
 
 // Render the prepared ledger at request time; ticker searches share the same
 // cached overview and fetch their matching events concurrently.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = appPageMetadata("/outcomes", {
   title: "Outcome Ledger | Walnut Markets",
   description: "Track Walnut confirmation-score judgments as immutable point-in-time snapshots.",
-  alternates: {
-    canonical: "/outcomes",
-  },
-};
+});
 
 export default async function OutcomesPage({ searchParams }: { searchParams: Promise<{ ticker?: string }> }) {
   const requested = (await searchParams).ticker;

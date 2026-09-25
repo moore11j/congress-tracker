@@ -79,6 +79,17 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           </header>
           <Suspense fallback={null}><PageAnalyticsTracker /></Suspense>
           <main className="relative z-0 w-full min-w-0 px-4 py-1.5 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
+          <footer className="mt-8 border-t border-white/10 px-4 py-6 text-sm text-slate-400 sm:px-6 lg:px-8">
+            <nav aria-label="Public research directories" className="flex flex-wrap gap-x-5 gap-y-3">
+              <Link href="/explore" prefetch={false} className="hover:text-white">Explore research</Link>
+              <Link href="/explore/stocks" prefetch={false} className="hover:text-white">Stocks</Link>
+              <Link href="/explore/members" prefetch={false} className="hover:text-white">Congress members</Link>
+              <Link href="/explore/insiders" prefetch={false} className="hover:text-white">Insiders</Link>
+              <Link href="/explore/institutions" prefetch={false} className="hover:text-white">Institutions</Link>
+              <Link href="/explore/departments" prefetch={false} className="hover:text-white">Government agencies</Link>
+              <a href="https://walnutmarkets.com/research" className="hover:text-white">Research briefs</a>
+            </nav>
+          </footer>
         </div>
         <AppVersionRefresh version={version} />
         <CookieConsentManager />

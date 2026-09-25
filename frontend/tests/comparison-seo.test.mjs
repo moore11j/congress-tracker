@@ -55,7 +55,7 @@ test("comparison pages use real product evidence and valid SEO surfaces", () => 
   assert.match(comparisonData, /comparisonPageJsonLd/);
   assert.match(comparisonData, /FAQPage/);
   assert.match(comparisonData, /BreadcrumbList/);
-  assert.match(comparisonData, /SoftwareApplication/);
+  assert.match(comparisonData, /"@type": "Service"/);
   assert.match(middleware, /function isPublicComparisonRoute\(pathname: string\): boolean/);
   assert.match(middleware, /normalized\.startsWith\("\/compare\/walnut-markets-vs-"\)/);
   assert.match(middleware, /function isMarketingComparisonSlugRoute\(pathname: string\): boolean/);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 const APP_URL = "https://app.walnutmarkets.com";
 const SITEMAPS = [
+  "/sitemap-directory.xml",
   "/sitemap-tickers.xml",
   "/sitemap-members.xml",
   "/sitemap-insiders.xml",

@@ -46,7 +46,7 @@ const apiBase = (
 const nextConfig = {
   // Keep canonical/robots metadata in the initial HTML for search crawlers.
   // Retain Next's default HTML-only bots and include Googlebot/InspectionTool.
-  htmlLimitedBots: /Googlebot|Google-InspectionTool|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
+  htmlLimitedBots: /AhrefsBot|AhrefsSiteAudit|Googlebot|Google-InspectionTool|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
   // Lets local QA run beside other dev servers without sharing their incremental build cache.
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   async headers() {

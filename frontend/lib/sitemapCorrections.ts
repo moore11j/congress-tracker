@@ -56,5 +56,65 @@ export const sitemapCorrections: Readonly<Record<string, { canonical?: string; e
   "https://app.walnutmarkets.com/insider/zvi-alon-0001084951": {
     "canonical": "https://app.walnutmarkets.com/insider/alon-zvi-0001084951",
     "reason": "2026-09-13 public crawl verified this self-referencing canonical."
+  },
+  "https://app.walnutmarkets.com/insider/martina-hundmejean-0001223622": {
+    "canonical": "https://app.walnutmarkets.com/insider/hundmejean-martina-0001223622",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/daniyel-erdberg-0001257950": {
+    "canonical": "https://app.walnutmarkets.com/insider/erdberg-daniyel-0001257950",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/larry-madden-0001284309": {
+    "canonical": "https://app.walnutmarkets.com/insider/madden-larry-0001284309",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/amit-kumar-0001191905": {
+    "canonical": "https://app.walnutmarkets.com/insider/kumar-amit-0001191905",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/marc-sheinbaum-0001605873": {
+    "canonical": "https://app.walnutmarkets.com/insider/sheinbaum-marc-0001605873",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/alexander-shoghi-0001663166": {
+    "canonical": "https://app.walnutmarkets.com/insider/shoghi-alexander-0001663166",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/sally-susman-0001263544": {
+    "canonical": "https://app.walnutmarkets.com/insider/susman-sally-0001263544",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/sergio-traversa-0001565832": {
+    "canonical": "https://app.walnutmarkets.com/insider/traversa-sergio-0001565832",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/todd-krasnow-0001526378": {
+    "canonical": "https://app.walnutmarkets.com/insider/krasnow-todd-0001526378",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/ray-stata-0000900729": {
+    "canonical": "https://app.walnutmarkets.com/insider/stata-ray-0000900729",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/robin-tomasello-0001608511": {
+    "canonical": "https://app.walnutmarkets.com/insider/tomasello-robin-0001608511",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/robin-josephs-0001222801": {
+    "canonical": "https://app.walnutmarkets.com/insider/josephs-robin-0001222801",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/marjorie-lao-0001750258": {
+    "canonical": "https://app.walnutmarkets.com/insider/lao-marjorie-0001750258",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/eric-brandt-0001190639": {
+    "canonical": "https://app.walnutmarkets.com/insider/brandt-eric-0001190639",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
+  },
+  "https://app.walnutmarkets.com/insider/guy-gecht-0001116233": {
+    "canonical": "https://app.walnutmarkets.com/insider/gecht-guy-0001116233",
+    "reason": "2026-09-25 Ahrefs follow-up verified the live profile canonical."
   }
 };

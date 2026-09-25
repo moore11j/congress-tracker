@@ -1,8 +1,16 @@
 const WALNUT_HOSTS = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "app.walnutmarkets.com"]);
 
+// Exact destinations verified against the publishers during the Ahrefs audit.
+const repairedSources: Record<string, string> = {
+  "https://investor.apple.com/earnings/default.aspx": "https://investor.apple.com/investor-relations/default.aspx",
+  "https://investor.apple.com/earnings-results/default.aspx": "https://investor.apple.com/investor-relations/default.aspx",
+  "https://www.fool.com/investing/2026/06/04/goldman-sachs-just-predicted-spacex-ai-revenue-2030/": "https://www.fool.com/investing/2026/06/04/goldman-sachs-just-predicted-spacex-s-ai-revenue-will-be-this-number-by-2030/",
+};
+
 /** Repair old generated ticker destinations without changing access to their data. */
 export function researchLinkHref(value: string): string {
   const href = value.trim();
+  if (repairedSources[href]) return repairedSources[href];
   if (!href || href.startsWith("//") || !/^(https?:\/\/|\/)/i.test(href)) return "";
   let url: URL;
   try { url = new URL(href, "https://walnutmarkets.com"); } catch { return ""; }
