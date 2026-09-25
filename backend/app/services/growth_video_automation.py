@@ -322,7 +322,7 @@ def notify_ready(db, *, sender=None):
     return output
 
 
-def run_once(db):
+def run_once(db, *, render_limit=2):
     from app.services.growth_video_pipeline import run_pending
     from app.services.growth_buffer import run_pending as publish_pending
     # Hand approved posts to Buffer before capture/render work can occupy this
@@ -335,6 +335,6 @@ def run_once(db):
                   "failed": events.get("failed", [])}
     store.set_setting(db, "GROWTH_VIDEO_LAST_PASS", {"at": store.now(), **pass_state})
     db.commit()
-    rendered = run_pending(db, limit=2)
+    rendered = run_pending(db, limit=render_limit)
     notices = notify_ready(db)
     return {"daily": pass_state, "video_jobs": rendered, "notifications": notices, "publications": published}

@@ -228,14 +228,16 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    research.wait_for(timeout=PAGE_TIMEOUT_MS)
    position(research,top=260);r.hold(3);r.mark('Click Research');r.click(research,'Ticker Research tab')
    ticker_brief.wait_for(timeout=PAGE_TIMEOUT_MS)
-   r.hold(3);r.circle(page.get_by_text('Related Research',exact=True));r.hold(6)
+   # Anchor the emphasis to the verified source link, not editorial UI copy.
+   # The ticker heading has changed before while its canonical brief stayed.
+   r.hold(3);r.scroll_to(ticker_brief,top=420,steps=18);r.circle(ticker_brief);r.hold(6)
   elif shot=='daily_insights':
    r.hold(3);r.mark('Click Insights');r.click(page.get_by_role('link',name='Insights',exact=True),'Insights')
    ready_briefs();page.wait_for_timeout(900);r.hold(3);r.mark('scroll');r.scroll_to(briefs,steps=26)
    r.circle(briefs.get_by_role('heading',name=re.compile('^Research Briefs$',re.I)))
   elif shot=='daily_brief':
    if ticker_research:
-    ready_ticker_briefs();position(research,top=260);link=ticker_brief
+    ready_ticker_briefs();position(ticker_brief,top=440);link=ticker_brief
    else:
     ready_briefs();position(briefs);link=briefs.locator('a[href$="'+brief_path+'"]')
    r.hold(3);r.mark('Open the brief')

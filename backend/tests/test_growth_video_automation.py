@@ -84,6 +84,46 @@ def test_success_after_capture_timeout_clears_active_error(db, monkeypatch):
     assert saved["capture_retry_history"]
 
 
+@pytest.mark.parametrize("stage", ["CAPTURING", "CAPTURE_READY", "AUDIO_READY", "RENDER_PENDING"])
+def test_interrupted_local_work_resumes_bounded_without_losing_assets(db, monkeypatch, stage):
+    item = daily.create_job(db, source(db, monkeypatch), 1)
+    item["payload"]["captures"] = {"daily_search": {"id": "retained-footage"}}
+    item["payload"]["audio"] = {"continuous": {"id": "retained-paid-audio"}}
+    store.save_job(db, item)
+    resume = "CAPTURE_PENDING" if stage == "CAPTURING" else stage
+    for attempt in range(1, 4):
+        db.execute(text("UPDATE growth_video_jobs SET status=:stage,lease_token='expired',lease_until='2000-01-01' WHERE id=:id"), {"stage": stage, "id": item["id"]})
+        db.commit()
+        pipeline.recover_expired(db)
+        saved = store.job(db, item["id"])
+        assert saved["status"] == (resume if attempt <= 2 else "FAILED")
+        assert saved["lease_token"] is None
+        assert saved["payload"]["captures"] == item["payload"]["captures"]
+        assert saved["payload"]["audio"] == item["payload"]["audio"]
+        assert saved["payload"]["interruption_recoveries"][resume] == min(attempt, 2)
+
+
+@pytest.mark.parametrize("stage,campaign", [("AUDIO_PENDING", True), ("RENDER_PENDING", False), ("OPPORTUNITY_CREATED", False)])
+def test_interrupted_paid_calls_are_never_replayed(db, monkeypatch, stage, campaign):
+    item = daily.create_job(db, source(db, monkeypatch), 1)
+    if not campaign:
+        item["payload"].pop("campaign_id")
+    store.save_job(db, item)
+    db.execute(text("UPDATE growth_video_jobs SET status=:stage,lease_token='expired',lease_until='2000-01-01' WHERE id=:id"), {"stage":stage,"id":item["id"]})
+    db.commit()
+    pipeline.recover_expired(db)
+    saved = store.job(db,item["id"])
+    assert saved["status"] == "FAILED" and saved["payload"]["failed_stage"] == stage
+
+
+def test_nonexpired_worker_is_not_recovered(db, monkeypatch):
+    item = daily.create_job(db, source(db, monkeypatch), 1)
+    db.execute(text("UPDATE growth_video_jobs SET lease_token='running',lease_until='2999-01-01' WHERE id=:id"), {"id":item["id"]})
+    db.commit()
+    pipeline.recover_expired(db)
+    assert store.job(db,item["id"])["lease_token"] == "running"
+
+
 def ready(db, monkeypatch):
     item = daily.create_job(db, source(db, monkeypatch), 1)
     item["status"] = "READY_FOR_REVIEW"

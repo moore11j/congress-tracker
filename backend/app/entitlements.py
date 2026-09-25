@@ -67,6 +67,11 @@ FeatureKey = Literal[
 PLAN_TIERS: tuple[PlanTierName, ...] = ("free", "premium", "pro")
 PLAN_RANKS: dict[TierName, int] = {"free": 0, "premium": 10, "pro": 20, "admin": 100}
 HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
+    "view_research_memory": "premium",
+    "create_research_memory": "premium",
+    "use_custom_thesis_ai": "premium",
+    "monitor_research_memory": "premium",
+    "receive_thesis_alerts": "premium",
     "peer_compare": "premium",
     "watchlist_people_departments": "premium",
     "watchlist_institutions": "pro",
@@ -138,10 +143,10 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "analyst_consensus": 1,
             "analyst_consensus_history": 0,
             "api_webhooks": 0,
-            "view_research_memory": 1,
-            "create_research_memory": 25,
-            "use_custom_thesis_ai": 1,
-            "monitor_research_memory": 1,
+            "view_research_memory": 0,
+            "create_research_memory": 0,
+            "use_custom_thesis_ai": 0,
+            "monitor_research_memory": 0,
             "receive_thesis_alerts": 0,
         },
         features=frozenset(
@@ -158,11 +163,6 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "insider_feed",
                 "congress_feed",
                 "analyst_consensus",
-                "view_research_memory",
-                "create_research_memory",
-                "use_custom_thesis_ai",
-                "monitor_research_memory",
-                "receive_thesis_alerts",
             }
         ),
     ),
@@ -499,11 +499,11 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
         "required_tier": "pro",
         "description": "API and webhook access placeholder for future workflow automation.",
     },
-    "view_research_memory": {"required_tier": "free", "description": "View private Research Memory objects."},
-    "create_research_memory": {"required_tier": "free", "description": "Create and edit private Research Memory objects."},
-    "use_custom_thesis_ai": {"required_tier": "free", "description": "Compile a private custom thesis into editable structure."},
-    "monitor_research_memory": {"required_tier": "free", "description": "Activate a Research Memory for a future monitoring phase."},
-    "receive_thesis_alerts": {"required_tier": "free", "description": "Future thesis-alert delivery capability."},
+    "view_research_memory": {"required_tier": "premium", "description": "View private Research Memory objects."},
+    "create_research_memory": {"required_tier": "premium", "description": "Create and edit private Research Memory objects."},
+    "use_custom_thesis_ai": {"required_tier": "premium", "description": "Compile a private custom thesis into editable structure."},
+    "monitor_research_memory": {"required_tier": "premium", "description": "Activate a Research Memory for a future monitoring phase."},
+    "receive_thesis_alerts": {"required_tier": "premium", "description": "Future thesis-alert delivery capability."},
 }
 
 ENTITLEMENTS["admin"] = TierEntitlements(

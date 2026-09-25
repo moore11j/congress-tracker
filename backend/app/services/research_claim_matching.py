@@ -28,6 +28,8 @@ from app.models import (
 )
 from app.services.ai_marketing import OPENAI_API_KEY, resolved_setting_value
 from app.services.openai_request_audit import audited_openai_request
+from app.auth import is_admin_user
+from app.entitlements import PLAN_RANKS, effective_user_tier, required_tier_for_feature
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +189,17 @@ def _semantic_candidate(claim: ResearchThesisClaim, event: ResearchEvidenceEvent
     return bool(_tokens(claim.subject, claim.metric, claim.claim_type) & _tokens(event.subject, event.metric, event.summary, event.evidence_excerpt))
 
 
+def _monitorable_thesis_ids(db: Session, theses: list[ResearchThesis]) -> set[str]:
+    if not theses:
+        return set()
+    # Read-only entitlement resolution: do not seed/commit settings while the
+    # matching worker holds its transaction-scoped event lock.
+    minimum = PLAN_RANKS[required_tier_for_feature(db, "monitor_research_memory")]
+    users = db.execute(select(UserAccount).where(UserAccount.id.in_({thesis.user_id for thesis in theses}))).scalars().all()
+    allowed = {user.id for user in users if is_admin_user(user) or PLAN_RANKS[effective_user_tier(user)] >= minimum}
+    return {thesis.id for thesis in theses if thesis.user_id in allowed}
+
+
 def candidate_claims(db: Session, event: ResearchEvidenceEvent) -> list[tuple[ResearchThesis, ResearchThesisClaim]]:
     """Security/status/time/coverage/category filtering before any semantic comparison."""
     availability = _availability(event)
@@ -198,17 +211,20 @@ def candidate_claims(db: Session, event: ResearchEvidenceEvent) -> list[tuple[Re
         .where(ResearchThesisClaim.monitoring_mode != "manual", ResearchThesisClaim.coverage_level != "manual_review_required")
         .order_by(ResearchThesis.id, ResearchThesisClaim.id)
     ).all()
-    return [(thesis, claim) for thesis, claim in rows if _event_category_compatible(claim, event)]
+    allowed = _monitorable_thesis_ids(db, [thesis for thesis, _claim in rows])
+    return [(thesis, claim) for thesis, claim in rows if thesis.id in allowed and _event_category_compatible(claim, event)]
 
 
 def _eligible_theses(db: Session, event: ResearchEvidenceEvent) -> list[ResearchThesis]:
     availability = _availability(event)
-    return db.execute(
+    theses = db.execute(
         select(ResearchThesis)
         .where(ResearchThesis.security_id == event.security_id, ResearchThesis.status == "active")
         .where(ResearchThesis.started_monitoring_at.is_not(None), ResearchThesis.started_monitoring_at <= availability)
         .order_by(ResearchThesis.id)
     ).scalars().all()
+    allowed = _monitorable_thesis_ids(db, theses)
+    return [thesis for thesis in theses if thesis.id in allowed]
 
 
 def deterministic_match(claim: ResearchThesisClaim, event: ResearchEvidenceEvent) -> dict[str, str] | None:

@@ -105,15 +105,15 @@ class LoginPayload(BaseModel):
 
 class RegisterPayload(BaseModel):
     name: str | None = Field(default=None, max_length=160)
-    first_name: str = Field(min_length=1, max_length=80)
-    last_name: str = Field(min_length=1, max_length=80)
+    first_name: str = Field(default="", max_length=80)
+    last_name: str = Field(default="", max_length=80)
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=240)
-    country: str = Field(min_length=1, max_length=2)
+    country: str = Field(default="", max_length=2)
     state_province: str = Field(default="", max_length=100)
-    postal_code: str = Field(min_length=1, max_length=32)
-    city: str = Field(min_length=1, max_length=120)
-    address_line1: str = Field(min_length=1, max_length=240)
+    postal_code: str = Field(default="", max_length=32)
+    city: str = Field(default="", max_length=120)
+    address_line1: str = Field(default="", max_length=240)
     address_line2: str = Field(default="", max_length=240)
 
 
@@ -4127,15 +4127,18 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
         "address_line1": _clean_profile_value(payload.address_line1),
         "address_line2": _clean_profile_value(payload.address_line2),
     }
-    missing = [label for field, label in BILLING_REQUIRED_FIELDS if not cleaned_registration.get(field)]
-    if cleaned_registration.get("country") in COUNTRIES_REQUIRING_BILLING_REGION and not cleaned_registration.get("state_province"):
-        missing.append("State/province")
-    if missing:
-        raise HTTPException(status_code=422, detail=f"{', '.join(missing)} required.")
+    _validate_country_code(cleaned_registration.get("country"))
 
     is_new_user = existing is None
     user = existing or get_or_create_user(db, email=email, name=payload.name or _display_name(payload.first_name, payload.last_name))
-    _set_billing_profile(user, **cleaned_registration)
+    # Billing is collected on upgrade. Older clients may still send profile
+    # fields; omitted fields must not erase an existing Google user's profile.
+    supplied = _payload_fields_set(payload)
+    for field, value in cleaned_registration.items():
+        if field in supplied:
+            setattr(user, field, value)
+    if supplied.intersection({"first_name", "last_name"}):
+        user.name = _display_name(user.first_name, user.last_name)
     user.password_hash = hash_password(payload.password)
     user.auth_provider = user.auth_provider or "email"
     if existing is None:
@@ -4152,6 +4155,7 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
     if is_new_user:
         _send_welcome_email(db, user)
     auth_response = _auth_response_for_user(db, user, response)
+    auth_response["is_new_user"] = is_new_user
     auth_response["email_verification_required"] = user.email_verified_at is None
     if _allow_insecure_verification_link_response():
         auth_response["dev_verification_url"] = verification_url
@@ -6276,7 +6280,7 @@ def admin_sales_ledger(
     }
 
 
-_CANONICAL_FUNNEL_EVENTS = {'strategy_followed', 'signin_completed', 'ticker_added_to_watchlist', 'subscription_completed', 'upgrade_prompt_clicked', 'insider_activity_viewed', 'watchlist_created', 'ticker_related_content_viewed', 'screener_opened', 'confirmation_score_viewed', 'pricing_viewed', 'congress_trades_viewed', 'ticker_viewed', 'signup_started', 'screener_result_clicked', 'strategy_viewed', 'checkout_started', 'upgrade_prompt_viewed', 'ticker_related_content_clicked', 'leaderboard_entity_clicked', 'outcomes_viewed', 'homepage_viewed', 'signin_started', 'strategy_list_viewed', 'alert_created', 'leaderboard_viewed', 'signup_completed', 'institutional_activity_viewed'}
+_CANONICAL_FUNNEL_EVENTS = {'strategy_followed', 'signin_completed', 'ticker_added_to_watchlist', 'subscription_completed', 'upgrade_prompt_clicked', 'insider_activity_viewed', 'watchlist_created', 'ticker_related_content_viewed', 'screener_opened', 'confirmation_score_viewed', 'pricing_viewed', 'congress_trades_viewed', 'ticker_viewed', 'signup_started', 'signup_submitted', 'signup_validation_failed', 'signup_failed',  'screener_result_clicked', 'strategy_viewed', 'checkout_started', 'upgrade_prompt_viewed', 'ticker_related_content_clicked', 'leaderboard_entity_clicked', 'outcomes_viewed', 'homepage_viewed', 'signin_started', 'strategy_list_viewed', 'alert_created', 'leaderboard_viewed', 'signup_completed', 'institutional_activity_viewed'}
 
 _FUNNEL_PROPERTY_KEYS = {
     "route", "source_page", "destination_page", "ticker", "entity_type", "entity_id",
@@ -6428,61 +6432,13 @@ def admin_page_analytics(
     db: Session = Depends(get_db),
     period: Literal["24h", "7d", "30d"] = "7d",
     limit: int = Query(20, ge=1, le=100),
+    include_internal: bool = False,
 ):
+    from app.growth_reporting import page_analytics
+
     require_admin_user(db, request)
     start, normalized_period = _page_analytics_period_start(period)
-    visitor_key = func.coalesce(cast(PageViewEvent.user_id, String), PageViewEvent.session_id_hash, cast(PageViewEvent.id, String))
-    rows = db.execute(
-        select(
-            PageViewEvent.normalized_path.label("page"),
-            PageViewEvent.route_group.label("route_group"),
-            func.count(PageViewEvent.id).label("views"),
-            func.count(func.distinct(visitor_key)).label("unique_visitors"),
-            func.sum(case((PageViewEvent.is_authenticated.is_(True), 1), else_=0)).label("authenticated_views"),
-            func.sum(case((PageViewEvent.plan_at_time.in_(["premium", "pro", "admin"]), 1), else_=0)).label("paid_views"),
-            func.sum(case((PageViewEvent.plan_at_time.in_(["pro", "admin"]), 1), else_=0)).label("pro_views"),
-            func.sum(case((PageViewEvent.device_type == "mobile", 1), else_=0)).label("mobile_views"),
-            func.max(PageViewEvent.created_at).label("last_viewed_at"),
-        )
-        .where(PageViewEvent.created_at >= start)
-        .group_by(PageViewEvent.normalized_path, PageViewEvent.route_group)
-        .order_by(func.count(PageViewEvent.id).desc(), PageViewEvent.normalized_path.asc())
-        .limit(limit)
-    ).all()
-
-    items = []
-    for row in rows:
-        views = int(row.views or 0)
-        items.append(
-            {
-                "page": row.page,
-                "route_group": row.route_group,
-                "views": views,
-                "unique_users": int(row.unique_visitors or 0),
-                "authenticated_views": int(row.authenticated_views or 0),
-                "anonymous_views": max(views - int(row.authenticated_views or 0), 0),
-                "auth_percent": round((int(row.authenticated_views or 0) / views) * 100, 1) if views else 0,
-                "paid_percent": round((int(row.paid_views or 0) / views) * 100, 1) if views else 0,
-                "pro_percent": round((int(row.pro_views or 0) / views) * 100, 1) if views else 0,
-                "mobile_percent": round((int(row.mobile_views or 0) / views) * 100, 1) if views else 0,
-                "last_viewed_at": row.last_viewed_at,
-            }
-        )
-
-    trend_rows = db.execute(
-        select(func.date(PageViewEvent.created_at).label("day"), func.count(PageViewEvent.id).label("views"))
-        .where(PageViewEvent.created_at >= start)
-        .group_by(func.date(PageViewEvent.created_at))
-        .order_by(func.date(PageViewEvent.created_at).asc())
-    ).all()
-    low_usage = sorted(items, key=lambda item: (item["views"], item["page"]))[: min(10, len(items))]
-    return {
-        "period": normalized_period,
-        "generated_at": datetime.now(timezone.utc),
-        "top_pages": items,
-        "low_usage_pages": low_usage,
-        "trend_by_day": [{"day": str(row.day), "views": int(row.views or 0)} for row in trend_rows],
-    }
+    return page_analytics(db, start=start, period=normalized_period, limit=limit, include_internal=include_internal)
 
 
 @router.get("/admin/provider-usage/fmp")

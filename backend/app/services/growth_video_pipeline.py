@@ -240,9 +240,13 @@ def advance(db, job_id, *, storage=None, capture=None, narrator=None, renderer=N
         item["status"] = "FAILED"
         data["failed_stage"] = stage
         # Persist code locations, never provider URLs, headers or exception bodies.
+        frames = traceback.extract_tb(exc.__traceback__)
+        # Keep application call sites: six Playwright wrappers alone hide the
+        # selector/scene that actually failed. Never include exception URLs.
+        app_frames = [f for f in frames if os.path.basename(f.filename).startswith("growth_")]
         data["failure_context"] = {"error_type": type(exc).__name__, "stage": stage,
             "frames": [{"file": os.path.basename(frame.filename), "line": frame.lineno, "function": frame.name}
-                       for frame in traceback.extract_tb(exc.__traceback__)[-6:]]}
+                       for frame in [*app_frames[-4:], *frames[-2:]]]}
         # Provider exception URLs may contain credentials. Persist only our safe errors.
         data["failure_reason"] = str(exc)[:500] if type(exc) is ValueError else f"Video stage failed ({type(exc).__name__}). Check worker/provider configuration before manually retrying."
         if stage == "CAPTURE_PENDING" and type(exc).__name__ in {"TimeoutError", "CaptureTimeout"}:
@@ -274,8 +278,21 @@ def recover_expired(db):
         item = store.job(db, row[0])
         token = item["lease_token"]
         original = {"CREATIVE_GENERATING": "OPPORTUNITY_CREATED", "CAPTURING": "CAPTURE_PENDING"}.get(item["status"], item["status"])
-        item["status"] = "FAILED"
-        item["payload"].update({"failed_stage": original, "failure_reason": "Worker interrupted. Completed assets are retained. Review provider activity before manually retrying."})
+        data = item["payload"]
+        # These operations can be repeated without another paid provider call.
+        # In particular AUDIO_PENDING and external render submission stay manual.
+        safe = original in {"CAPTURE_PENDING", "CAPTURE_READY", "AUDIO_READY"} or (
+            original == "RENDER_PENDING" and bool(data.get("campaign_id")))
+        attempts = data.setdefault("interruption_recoveries", {})
+        if safe and attempts.get(original, 0) < 2:
+            attempts[original] = attempts.get(original, 0) + 1
+            data.setdefault("interruption_history", []).append({"stage": original, "at": now()})
+            item["status"] = original
+            data.pop("failed_stage", None)
+            data.pop("failure_reason", None)
+        else:
+            item["status"] = "FAILED"
+            data.update({"failed_stage": original, "failure_reason": "Worker interrupted. Completed assets are retained. Review provider activity before manually retrying."})
         store.save_job(db, item, token=token)
         db.execute(text("UPDATE growth_video_jobs SET lease_token=NULL,lease_until=NULL WHERE id=:id AND lease_token=:token"), {"id": item["id"], "token": token})
         db.commit()

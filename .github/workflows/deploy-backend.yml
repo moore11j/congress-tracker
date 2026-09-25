@@ -50,15 +50,12 @@ jobs:
                   return json.load(response)
 
           assert get('/ready')['database'] == 'ok'
-          data = get('/api/tickers/MU/operational-intelligence')
-          assert data['symbol'] == 'MU'
-          assert {'catalysts', 'risks', 'opportunities', 'watch_next', 'coverage'} <= data.keys()
-          assert len(data['coverage']) == 3
-          try:
-              get('/api/research-memory')
-          except urllib.error.HTTPError as error:
-              assert error.code in (401, 403), error.code
-          else:
-              raise AssertionError('Private Research Memory route accepted an anonymous request')
-          print('Production readiness, operational evidence schema, and private route checks passed.')
+          for path in ('/api/research-memory', '/api/tickers/MU/operational-intelligence'):
+              try:
+                  get(path)
+              except urllib.error.HTTPError as error:
+                  assert error.code in (401, 403), (path, error.code)
+              else:
+                  raise AssertionError(f'Premium research route accepted an anonymous request: {path}')
+          print('Production readiness and Premium research privacy checks passed.')
           PY

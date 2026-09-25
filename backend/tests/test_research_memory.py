@@ -186,6 +186,8 @@ def test_research_memory_indexes_and_duplicate_constraint_are_declared():
 
 def test_api_create_activate_and_cross_user_access_are_server_scoped(db: Session):
     owner, other, security = _seed_user_and_security(db)
+    owner.manual_tier_override = other.manual_tier_override = "premium"
+    db.commit()
     seed_feature_gates(db)
     api = FastAPI()
     api.include_router(research_memory_router)

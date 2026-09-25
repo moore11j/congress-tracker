@@ -7,6 +7,17 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_video_worker_is_isolated_from_ingest_and_web_traffic():
+    config = tomllib.loads((BACKEND_ROOT / "fly.toml").read_text())
+    assert config["processes"]["video"] == "python -u -m app.jobs.run_growth_videos --continuous"
+    assert "run_growth_videos" not in (BACKEND_ROOT / "crontab").read_text()
+    assert "video" not in config["http_service"]["processes"]
+    assert all("video" not in m.get("processes", []) for m in config["mounts"])
+    video_vm = next(vm for vm in config["vm"] if vm["processes"] == ["video"])
+    assert video_vm["cpus"] == 1 and video_vm["memory_mb"] == 2048
+    assert video_vm["cpu_kind"] == "performance"
+
+
 def test_fly_cron_process_is_separate_from_web_process():
     fly_config = tomllib.loads((BACKEND_ROOT / "fly.toml").read_text())
 

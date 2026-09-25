@@ -12,7 +12,7 @@ from app.db import Base
 from app.models import (
     ResearchClaimEvidenceMatch, ResearchClaimMatchCheckpoint, ResearchEvidenceEvent,
     ResearchInvalidatorEvidenceMatch, ResearchThesis, ResearchThesisClaim,
-    ResearchThesisInvalidator, Security, UserAccount,
+    ResearchThesisInvalidator, Security, UserAccount, FeatureGate,
 )
 from app.services import research_claim_matching
 from app.services.research_claim_matching import process_event_matches, query_matches, semantic_match
@@ -22,7 +22,7 @@ from app.services.research_claim_matching import process_event_matches, query_ma
 def db():
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
-        UserAccount.__table__, Security.__table__, ResearchThesis.__table__, ResearchThesisClaim.__table__, ResearchThesisInvalidator.__table__,
+        UserAccount.__table__, FeatureGate.__table__, Security.__table__, ResearchThesis.__table__, ResearchThesisClaim.__table__, ResearchThesisInvalidator.__table__,
         ResearchEvidenceEvent.__table__, ResearchClaimEvidenceMatch.__table__, ResearchClaimMatchCheckpoint.__table__, ResearchInvalidatorEvidenceMatch.__table__,
     ])
     session = Session(engine)
@@ -31,7 +31,7 @@ def db():
 
 
 def seed(db):
-    user, other = UserAccount(email="owner@example.test"), UserAccount(email="other@example.test")
+    user, other = UserAccount(email="owner@example.test", manual_tier_override="premium"), UserAccount(email="other@example.test", manual_tier_override="premium")
     mu, nvda = Security(symbol="MU", name="Micron", asset_class="Equity", sector="Technology"), Security(symbol="NVDA", name="Nvidia", asset_class="Equity", sector="Technology")
     db.add_all([user, other, mu, nvda]); db.commit()
     return user, other, mu, nvda
@@ -64,6 +64,20 @@ def test_deterministic_support_contradiction_and_unrelated_metric(db):
     assert rows[supports.id] == "supports"
     assert rows[contradicts.id] == "contradicts"
     assert db.query(ResearchClaimMatchCheckpoint).count() == 0
+
+
+def test_free_or_downgraded_theses_do_not_receive_matches(db):
+    user, _other, mu, _nvda = seed(db)
+    active = thesis(db, user, mu, started=datetime.now(timezone.utc) - timedelta(days=1))
+    claim(db, active, mode="semantic", metric=None, subject="Micron product launch")
+    user.manual_tier_override = None
+    db.commit()
+    evidence = event(db, mu, metric=None, summary="Micron product launch")
+    def no_model_call():
+        pytest.fail("Free thesis invoked a model")
+    result = process_event_matches(db, event=evidence, request_sender=no_model_call)
+    assert result["candidates"] == result["matches"] == result["invalidators"] == 0
+    assert db.get(ResearchThesis, active.id).status == "active"
 
 
 def test_security_status_and_time_filters(db):
