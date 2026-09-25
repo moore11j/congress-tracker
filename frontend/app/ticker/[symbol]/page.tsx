@@ -1376,7 +1376,7 @@ function TickerOverviewPanel({
           {confirmationLocked && confirmationGate ? <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/80 p-2"><ContextualUpgrade title="Understand the ranking" body={confirmationGate.message} feature="ticker_confirmation" compact /></div> : null}
         </div>
         <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-          {divergenceLocked ? <div><p className="text-xs font-semibold text-slate-300">Cross-Source Divergence</p><p className="mt-2 text-sm text-slate-400">Compare how Walnut’s confirmation sources align or diverge with Premium.</p><Link href="/pricing" className="mt-2 inline-flex text-sm font-semibold text-emerald-200">Unlock with Premium</Link></div> : <TickerSourceAlignment divergence={divergence} />}
+          {divergenceLocked ? <ContextualUpgrade title="Cross-Source Divergence" body="Compare how Walnut’s confirmation sources align or diverge with Premium." feature="cross_source_divergence" compact /> : <TickerSourceAlignment divergence={divergence} />}
         </div>
         <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
           <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
@@ -1386,10 +1386,7 @@ function TickerOverviewPanel({
         </div>
       </section>
 
-      <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
-
-        <TickerDecisionPanels layer={layer} />
-      </div>
+      <TickerDecisionPanels layer={layer} locked={confirmationLocked} />
       {similarHistoricalSetupsLocked ? (
         <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
       ) : (

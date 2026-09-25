@@ -1,3 +1,4 @@
+import { ResearchMemoryAccessBoundary } from "@/components/research-memory/ResearchMemoryAccess";
 import { ResearchMemoryDetail } from "@/components/research-memory/ResearchMemoryWorkspace";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { getResearchMemory } from "@/lib/api";
@@ -7,5 +8,5 @@ export default async function ResearchMemoryDetailPage({ params }: { params: Pro
   const { id } = await params;
   const authToken = await requirePageAuth(`/monitoring/research/${id}`);
   const thesis = authToken ? await getResearchMemory(id, authToken).catch(() => null) : null;
-  return <VerifiedSessionGuard returnTo={`/monitoring/research/${id}`} initiallyAuthorized={Boolean(authToken)}>{thesis ? <ResearchMemoryDetail thesis={thesis} /> : <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm text-amber-100">Research Memory not found or unavailable.</div>}</VerifiedSessionGuard>;
+  return <VerifiedSessionGuard returnTo={`/monitoring/research/${id}`} initiallyAuthorized={Boolean(authToken)}><ResearchMemoryAccessBoundary>{thesis ? <ResearchMemoryDetail thesis={thesis} /> : <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm text-amber-100">Research Memory not found or unavailable.</div>}</ResearchMemoryAccessBoundary></VerifiedSessionGuard>;
 }

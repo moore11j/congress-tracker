@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Form from "next/form";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
+import { OutcomeChartPremiumGate } from "@/components/outcomes/OutcomeChartPremiumGate";
 import {
   ApiError,
   getEntitlements,
@@ -1267,6 +1268,7 @@ export function OutcomeLedgerClient({
   const requestedHorizonRef = useRef(initialSummary?.horizon ?? "30D");
   const [error, setError] = useState<string | null>(null);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
+  const [chartsUnlocked, setChartsUnlocked] = useState(false);
   const [exportGateOpen, setExportGateOpen] = useState(false);
   const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
   const [horizonFilter, setHorizonFilter] = useState("30D");
@@ -1283,6 +1285,7 @@ export function OutcomeLedgerClient({
       .then((entitlements) => {
         if (!alive) return;
         setEntitlementTier(normalizeTier(entitlements.effective_tier ?? entitlements.tier));
+        setChartsUnlocked(entitlements.status !== "temporarily_unavailable" && canViewPremiumOutcomes(normalizeTier(entitlements.effective_tier ?? entitlements.tier)));
       })
       .catch(() => {
         if (alive) setEntitlementTier(clientEntitlementTier());
@@ -1619,8 +1622,12 @@ export function OutcomeLedgerClient({
           </div>
 
           <div className="grid min-w-0 gap-2 xl:grid-cols-[0.82fr_1.18fr]">
-            <BarChartPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} summary={canUseServerSummary ? summary : null} />
-            <ScatterPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
+            <OutcomeChartPremiumGate unlocked={chartsUnlocked} title="Performance by Score Band" body="Compare directional accuracy across confirmation-score bands with Premium." feature="outcomes_score_band_performance">
+              <BarChartPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} summary={canUseServerSummary ? summary : null} />
+            </OutcomeChartPremiumGate>
+            <OutcomeChartPremiumGate unlocked={chartsUnlocked} title="Event Outcomes" body="Explore individual event returns and measured outcomes over time with Premium." feature="outcomes_event_chart">
+              <ScatterPanel snapshots={filteredSnapshotItems} horizon={horizonFilter} />
+            </OutcomeChartPremiumGate>
           </div>
 
           <EventsTable

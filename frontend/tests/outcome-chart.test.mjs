@@ -18,13 +18,58 @@ function load(relativePath, imports = {}, suffix = "") {
   return exports;
 }
 const chart = load("../lib/outcome-chart.ts");
-const { ScatterPanel } = load("../components/outcomes/OutcomeLedgerClient.tsx", {
+const { ContextualUpgrade } = load("../components/billing/ContextualUpgrade.tsx", {
+  "next/link": { default: ({ href, children, prefetch, ...props }) => React.createElement("a", { href, ...props }, children) },
+  "@/components/analytics/VisibleEvent": { VisibleEvent: ({ children, className }) => React.createElement("div", { className }, children) },
+  "@/lib/productAnalytics": { trackEvent() {} },
+});
+const { OutcomeChartPremiumGate } = load("../components/outcomes/OutcomeChartPremiumGate.tsx", {
+  "@/components/billing/ContextualUpgrade": { ContextualUpgrade },
+});
+const { ScatterPanel, canViewPremiumOutcomes } = load("../components/outcomes/OutcomeLedgerClient.tsx", {
   "next/form": {},
   "@/components/feed/FeedSymbolAutosuggestEnhancer": {},
+  "@/components/outcomes/OutcomeChartPremiumGate": { OutcomeChartPremiumGate },
   "@/lib/api": {},
   "@/lib/entitlements": {},
   "@/lib/outcome-chart": chart,
-}, "\nexport { ScatterPanel };\n");
+}, "\nexport { ScatterPanel, canViewPremiumOutcomes };\n");
+
+test("locked outcome charts blur and disable the preview, not the Premium CTA", () => {
+  const html = renderToStaticMarkup(React.createElement(OutcomeChartPremiumGate, {
+    unlocked: false, title: "Event Outcomes", body: "Explore event returns with Premium.", feature: "outcomes_event_chart",
+  }, React.createElement("button", null, "Chart interaction")));
+  assert.match(html, /aria-label="Event Outcomes"/);
+  assert.match(html, /aria-hidden="true" inert=""/);
+  assert.match(html, /blur-\[5px\]/);
+  assert.match(html, /\[grid-area:1\/1\]/); // CTA contributes height on narrow screens.
+  assert.match(html, /<button>Chart interaction<\/button><\/div><div/);
+  assert.match(html, /href="\/pricing"/);
+  assert.match(html, /Unlock with Premium/);
+  assert.match(html, /border-emerald-300\/25/);
+});
+
+test("Premium, Pro, and admin retain unmodified chart interactions", () => {
+  assert.equal(canViewPremiumOutcomes("free"), false);
+  for (const tier of ["premium", "pro", "admin"]) {
+    const html = renderToStaticMarkup(React.createElement(OutcomeChartPremiumGate, {
+      unlocked: canViewPremiumOutcomes(tier), title: "Event Outcomes", body: "Premium", feature: "outcomes_event_chart",
+    }, React.createElement("button", null, "Chart interaction")));
+    assert.equal(html, "<button>Chart interaction</button>");
+  }
+});
+
+test("both chart gates await verified entitlements and leave the table preview intact", () => {
+  const source = readFileSync(new URL("../components/outcomes/OutcomeLedgerClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /\[chartsUnlocked, setChartsUnlocked\] = useState\(false\)/);
+  assert.match(source, /setChartsUnlocked\(entitlements.status !== "temporarily_unavailable" && canViewPremiumOutcomes/);
+  assert.equal((source.match(/<OutcomeChartPremiumGate unlocked=\{chartsUnlocked\}/g) ?? []).length, 2);
+  assert.match(source, /title="Performance by Score Band"[\s\S]*?<BarChartPanel/);
+  assert.match(source, /title="Event Outcomes"[\s\S]*?<ScatterPanel/);
+  assert.match(source, /const effectivePageSize = hasPremiumTable \? pageSize : 10/);
+  assert.match(source, /nextPageSize > 10 && !gatePremiumTable\(\)/);
+  assert.match(source, /<EventsTable\s+snapshots=\{publicPreviewSnapshots\}/);
+});
 
 test("chart selection excludes extreme returns symmetrically without mutating ledger values", () => {
   const values = [-8051.16, -196.06, -100, -7.2, 0, 45, 100, 196.06, NaN, Infinity];

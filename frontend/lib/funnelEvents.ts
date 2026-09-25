@@ -3,7 +3,7 @@ export const funnelEvents = [
   "homepage_viewed", "screener_opened", "screener_result_clicked", "leaderboard_viewed", "leaderboard_entity_clicked",
   "strategy_list_viewed", "strategy_viewed", "ticker_viewed", "congress_trades_viewed", "insider_activity_viewed",
   "institutional_activity_viewed", "outcomes_viewed", "confirmation_score_viewed", "upgrade_prompt_viewed",
-  "upgrade_prompt_clicked", "pricing_viewed", "signup_started", "signup_completed", "signin_started", "signin_completed",
+  "upgrade_prompt_clicked", "pricing_viewed", "signup_started", "signup_submitted", "signup_validation_failed", "signup_failed",  "signup_completed", "signin_started", "signin_completed",
   "checkout_started", "subscription_completed", "watchlist_created", "ticker_added_to_watchlist", "strategy_followed", "alert_created",
 ] as const;
 export type FunnelEvent = typeof funnelEvents[number];

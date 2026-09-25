@@ -6,6 +6,7 @@ import { ResearchCoverage } from "@/components/research-memory/ResearchCoverage"
 import { researchSourceHref } from "@/lib/researchEvidence";
 import { collectResearchFindings, findingCategories, selectResearchFindings, type FindingCategory, type ResearchFinding } from "@/lib/tickerResearchFindings";
 import { useTickerOperationalIntelligence } from "./TickerOperationalIntelligenceProvider";
+import { ResearchMemoryAccessNotice, useResearchMemoryAccess } from "@/components/research-memory/ResearchMemoryAccess";
 
 const SOURCE_LABELS: Record<string, string> = { news_article: "News", press_release: "Press release", earnings_transcript: "Earnings call" };
 const FILTER_LABELS = { all: "All findings", catalysts: "Catalysts", risks: "Risks", opportunities: "Opportunities", watch_next: "Watch next" } as const;
@@ -47,6 +48,7 @@ export function ResearchFindingRow({ finding }: { finding: ResearchFinding }) {
 }
 
 export function TickerOperationalIntelligenceCard({ symbol }: { symbol: string }) {
+  const access = useResearchMemoryAccess();
   const { data, failed, disabled, retry } = useTickerOperationalIntelligence();
   const [selection, setSelection] = useState<{ symbol: string; category: FindingCategory | "all" }>({ symbol, category: "all" });
   const [sort, setSort] = useState<"latest" | "material">("latest");
@@ -54,6 +56,8 @@ export function TickerOperationalIntelligenceCard({ symbol }: { symbol: string }
   const category = selection.symbol === symbol ? selection.category : "all";
   const findings = collectResearchFindings(data);
   const visible = selectResearchFindings(findings, category, sort);
+  if (process.env.NEXT_PUBLIC_RESEARCH_OPERATIONAL_INTELLIGENCE_ENABLED === "false") return null;
+  if (access.status !== "allowed") return <section className="mt-6 border-t border-white/10 pt-5" aria-label="Company developments"><ResearchMemoryAccessNotice {...access} title="Company developments" body="Unlock source-grounded catalysts, risks, opportunities, and what to watch next from news, press releases, and earnings calls with Premium." /></section>;
   if (disabled) return null;
   return <section className="mt-6 border-t border-white/10 pt-5" aria-label="Company developments">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold text-white">Company developments</h2><p className="mt-1 text-sm text-slate-300">The business behind the ticker</p></div><Link href={`/monitoring/research?ticker=${encodeURIComponent(symbol)}`} className="rounded-lg border border-emerald-300/25 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-300/10">Build a thesis →</Link></div>

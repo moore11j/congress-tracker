@@ -1806,6 +1806,9 @@ export type AdminPageAnalyticsRow = {
   route_group: string;
   views: number;
   unique_users: number;
+  accounts: number;
+  sessions: number;
+  views_without_session: number;
   authenticated_views: number;
   anonymous_views: number;
   auth_percent: number;
@@ -1818,6 +1821,13 @@ export type AdminPageAnalyticsRow = {
 export type AdminPageAnalyticsResponse = {
   period: AdminPageAnalyticsPeriod;
   generated_at: string;
+  include_internal: boolean;
+  totals: { views: number; accounts: number; sessions: number; views_without_session: number; pages: number };
+  top_destinations: Array<{ page: string; views: number; accounts: number; sessions: number }>;
+  event_reach: Array<{ event: string; events: number; accounts: number; sessions: number }>;
+  accounts: { current_accounts: number; new_accounts: number; active_accounts: number; verified_new_accounts: number };
+  payments: { live_paid_invoices: number; live_paying_accounts: number; current_accounts_with_payment: number; test_paid_invoices: number; unverified_paid_invoices: number; zero_paid_invoices: number; paid_invoices_with_refund: number; unmatched_live_paid_invoices: number };
+  measurement: { production_enabled: boolean; ga4_secret_configured: boolean; heycatch_bridge_configured: boolean; excluded_account_count: number };
   top_pages: AdminPageAnalyticsRow[];
   low_usage_pages: AdminPageAnalyticsRow[];
   trend_by_day: Array<{ day: string; views: number }>;
@@ -2683,15 +2693,15 @@ export async function verifyAuthenticatedSession(source = "auth-login"): Promise
 }
 
 export async function register(payload: {
-  first_name: string;
-  last_name: string;
+  first_name?: string;
+  last_name?: string;
   email: string;
   password: string;
-  country: string;
+  country?: string;
   state_province?: string;
-  postal_code: string;
-  city: string;
-  address_line1: string;
+  postal_code?: string;
+  city?: string;
+  address_line1?: string;
   address_line2?: string;
 }): Promise<AuthResponse> {
   const response = await fetchJson<AuthResponse>(buildApiUrl("/api/auth/register"), {
@@ -2703,7 +2713,7 @@ export async function register(payload: {
   rememberEntitlements(response.entitlements);
   setAnalyticsIdentity(response.user);
   identifyHeyCatchUser(response.user);
-  trackEvent("signup_completed", { method: "password" });
+  trackEvent(response.is_new_user === false ? "signin_completed" : "signup_completed", { method: "password" });
   return response;
 }
 
@@ -3391,8 +3401,10 @@ export async function getAdminReportsSummary(): Promise<AdminReportsSummary> {
   return fetchJson<AdminReportsSummary>(buildApiUrl("/api/admin/reports/summary"));
 }
 
-export async function getAdminPageAnalytics(params: { period?: AdminPageAnalyticsPeriod; limit?: number }): Promise<AdminPageAnalyticsResponse> {
-  return fetchJson<AdminPageAnalyticsResponse>(buildApiUrl("/api/admin/reports/page-analytics", params));
+export async function getAdminPageAnalytics(params: { period?: AdminPageAnalyticsPeriod; limit?: number; include_internal?: boolean }): Promise<AdminPageAnalyticsResponse> {
+  return fetchJson<AdminPageAnalyticsResponse>(buildApiUrl("/api/admin/reports/page-analytics", {
+    ...params, include_internal: params.include_internal ? "true" : "false",
+  }));
 }
 
 export async function getAdminProviderUsageFmp(): Promise<AdminProviderUsageResponse> {

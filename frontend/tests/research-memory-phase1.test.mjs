@@ -18,7 +18,8 @@ const api = read("lib/api.ts");
 
 test("Research Memory feature flag controls navigation and ticker entry", () => {
   assert.match(monitoring, /NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED !== "false"/);
-  assert.match(tickerCard, /NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED === "false"/);
+  assert.match(tickerCard, /NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED !== "false"/);
+  assert.match(tickerCard, /if \(!enabled\) return null/);
   assert.match(tickerPage, /TickerResearchMemoryCard/);
   assert.match(tickerCard, /No active thesis/);
   assert.match(tickerCard, /Create thesis/);

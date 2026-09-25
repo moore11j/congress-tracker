@@ -5,9 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import { ApiError, getGoogleAuthUrl, getMe, login, recordProductEvent, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
-import { selectClassName } from "@/lib/styles";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 import { campaignParamKeys } from "@/lib/campaignAttribution";
 import { trackEvent } from "@/lib/productAnalytics";
@@ -94,16 +92,11 @@ export function LoginRegisterPanel({
   const nextPath = safeAppReturnPath(resolvedReturnTo, resolvedReactivated ? reactivatedBillingPath : defaultPostLoginPath);
   const startedModes = useRef(new Set<Mode>());
   const [mode, setMode] = useState<Mode>(requestedMode);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [country, setCountry] = useState("");
-  const [stateProvince, setStateProvince] = useState("");
-  const [postalCode, setPostalCode] = useState("");
-  const [city, setCity] = useState("");
-  const [addressLine1, setAddressLine1] = useState("");
-  const [addressLine2, setAddressLine2] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const signupPath = safeAppReturnPath(resolvedReturnTo, "/welcome");
   const [resetEmail, setResetEmail] = useState("");
   const [status, setStatus] = useState<string | null>(
     resolvedAccountDeleted
@@ -144,18 +137,9 @@ export function LoginRegisterPanel({
   }, [mode, nextPath]);
 
   const headline = useMemo(
-    () => (mode === "register" ? "Create your Walnut account." : "Welcome back."),
+    () => (mode === "register" ? "Create your free Walnut account." : "Welcome back."),
     [mode],
   );
-  const normalizedCountry = normalizeCountryInput(country);
-  const regionOptions = regionOptionsForCountry(normalizedCountry);
-  const stateProvinceLabel =
-    normalizedCountry === "US"
-      ? "State"
-      : normalizedCountry === "CA"
-        ? "Province / territory"
-        : "State / province / region";
-
   const validateSubmit = () => {
     const normalizedEmail = email.trim();
     if (!normalizedEmail || !normalizedEmail.includes("@")) return "Enter a valid email address.";
@@ -171,18 +155,6 @@ export function LoginRegisterPanel({
       return "Password must satisfy at least 3 of 4 requirements.";
     }
 
-    const requiredFields = [
-      { label: "First name", value: firstName },
-      { label: "Last name", value: lastName },
-      { label: "Country", value: country },
-      { label: "Postal code", value: postalCode },
-      { label: "City", value: city },
-      { label: "Address line 1", value: addressLine1 },
-    ];
-    const missing = requiredFields.find((field) => !field.value.trim());
-    if (missing) return `${missing.label} is required.`;
-    if (normalizedCountry.length !== 2) return "Country must be a two-letter ISO code, like US or CA.";
-    if (regionOptions.length && !stateProvince.trim()) return `${stateProvinceLabel} is required.`;
     return null;
   };
 
@@ -190,6 +162,7 @@ export function LoginRegisterPanel({
     event.preventDefault();
     const validationError = validateSubmit();
     if (validationError) {
+      if (mode === "register") trackEvent("signup_validation_failed", { method: "password" });
       setStatus(validationError);
       return;
     }
@@ -200,32 +173,23 @@ export function LoginRegisterPanel({
     try {
       let destination = nextPath;
       if (mode === "register") {
-        await register({
-          first_name: firstName,
-          last_name: lastName,
-          email,
-          password,
-          country: normalizedCountry,
-          state_province: normalizeRegionInput(normalizedCountry, stateProvince),
-          postal_code: postalCode,
-          city,
-          address_line1: addressLine1,
-          address_line2: addressLine2,
-        });
-        destination = resolvedReturnTo ? nextPath : "/account/settings?registered=1";
+        trackEvent("signup_submitted", { method: "password" });
+        await register({ email: email.trim(), password });
+        destination = signupPath;
         recordSignupCompleteEvents(destination);
       } else {
         await login({ email, password });
       }
-      const destinationLabel = mode === "register" ? "account settings" : nextPath === defaultPostLoginPath ? "feed" : "requested page";
+      const destinationLabel = destination === "/welcome" ? "getting-started page" : destination === defaultPostLoginPath ? "feed" : "requested page";
       setLoadingLabel("Verifying session...");
       setStatus("Verifying your session...");
-      const session = await verifyAuthenticatedSession(mode === "register" ? "RegisterPanel" : "LoginPanel");
+      await verifyAuthenticatedSession(mode === "register" ? "RegisterPanel" : "LoginPanel");
       setLoadingLabel(`Opening ${destinationLabel}...`);
       setStatus(`You're in. Opening the ${destinationLabel}...`);
       router.replace(destination);
       router.refresh();
     } catch (error) {
+      if (mode === "register") trackEvent("signup_failed", { method: "password" });
       if (mode === "register" && error instanceof ApiError && error.status === 409) {
         setDuplicateAccount(true);
         setStatus("An account already exists for this email. Please sign in or reset your password.");
@@ -242,7 +206,7 @@ export function LoginRegisterPanel({
     setLoadingLabel("Starting Google sign-in...");
     setStatus(null);
     try {
-      const response = await getGoogleAuthUrl(nextPath);
+      const response = await getGoogleAuthUrl(mode === "register" ? signupPath : nextPath);
       setLoadingLabel("Opening Google...");
       window.location.href = response.authorization_url;
     } catch (error) {
@@ -274,7 +238,7 @@ export function LoginRegisterPanel({
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Account Access</p>
         <h1 className="mt-3 text-3xl font-semibold text-white">{headline}</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
-          Keep watchlists, signals, inbox monitoring, and billing attached to one secure account.
+          Save stocks to your watchlist and pick up your research where you left off.
         </p>
 
         <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-slate-950/60 p-1">
@@ -316,28 +280,6 @@ export function LoginRegisterPanel({
         </div>
 
         <form onSubmit={submit} noValidate className="space-y-3">
-          {mode === "register" ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-slate-200">
-                <RequiredLabel>First name</RequiredLabel>
-                <input
-                  value={firstName}
-                  onChange={(event) => setFirstName(event.target.value)}
-                  autoComplete="given-name"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-200">
-                <RequiredLabel>Last name</RequiredLabel>
-                <input
-                  value={lastName}
-                  onChange={(event) => setLastName(event.target.value)}
-                  autoComplete="family-name"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
-              </label>
-            </div>
-          ) : null}
           <label className="block text-sm font-medium text-slate-200">
             <RequiredLabel>Email</RequiredLabel>
             <input
@@ -354,92 +296,20 @@ export function LoginRegisterPanel({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               minLength={8}
-              type="password"
+              type={showPassword ? "text" : "password"}
+              aria-describedby={mode === "register" ? "password-rules" : undefined}
               autoComplete={mode === "register" ? "new-password" : "current-password"}
               className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
             />
           </label>
+          <button type="button" onClick={() => setShowPassword(!showPassword)} aria-pressed={showPassword} className="text-sm text-emerald-200">
+            {showPassword ? "Hide password" : "Show password"}
+          </button>
           {mode === "register" ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-slate-200">
-                <RequiredLabel>Country</RequiredLabel>
-                <select
-                  value={country}
-                  onChange={(event) => setCountry(event.target.value)}
-                  autoComplete="country"
-                  className={`mt-1 ${selectClassName}`}
-                >
-                  <option value="">Select country</option>
-                  {countryOptions.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-slate-200">
-                {regionOptions.length ? <RequiredLabel>{stateProvinceLabel}</RequiredLabel> : stateProvinceLabel}
-                {regionOptions.length ? (
-                  <select
-                    value={stateProvince}
-                    onChange={(event) => setStateProvince(event.target.value)}
-                    autoComplete="address-level1"
-                    className={`mt-1 ${selectClassName}`}
-                  >
-                    <option value="">Select {stateProvinceLabel.toLowerCase()}</option>
-                    {regionOptions.map((option) => (
-                      <option key={option.code} value={option.code}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={stateProvince}
-                    onChange={(event) => setStateProvince(event.target.value)}
-                    placeholder="Region"
-                    autoComplete="address-level1"
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                  />
-                )}
-              </label>
-              <label className="block text-sm font-medium text-slate-200">
-                <RequiredLabel>Postal code</RequiredLabel>
-                <input
-                  value={postalCode}
-                  onChange={(event) => setPostalCode(event.target.value)}
-                  autoComplete="postal-code"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-200">
-                <RequiredLabel>City</RequiredLabel>
-                <input
-                  value={city}
-                  onChange={(event) => setCity(event.target.value)}
-                  autoComplete="address-level2"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-200 sm:col-span-2">
-                <RequiredLabel>Address line 1</RequiredLabel>
-                <input
-                  value={addressLine1}
-                  onChange={(event) => setAddressLine1(event.target.value)}
-                  autoComplete="address-line1"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-200 sm:col-span-2">
-                Address line 2 <span className="text-slate-500">(optional)</span>
-                <input
-                  value={addressLine2}
-                  onChange={(event) => setAddressLine2(event.target.value)}
-                  autoComplete="address-line2"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-3 text-slate-100 outline-none transition focus:border-emerald-300/50"
-                />
-              </label>
-            </div>
+            <p id="password-rules" className="text-xs leading-5 text-slate-400">
+              At least 8 characters. Include at least two of: letters, numbers, special characters.
+              No payment details needed to create your free account.
+            </p>
           ) : null}
           <button
             type="submit"
@@ -451,33 +321,38 @@ export function LoginRegisterPanel({
             {loading && !loadingLabel?.includes("Google") && !loadingLabel?.includes("reset")
               ? loadingLabel
               : mode === "register"
-                ? "Create account"
+                ? "Create free account"
                 : "Login"}
           </button>
         </form>
 
-        <form onSubmit={reset} noValidate className="mt-5 rounded-lg border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              value={resetEmail}
-              onChange={(event) => setResetEmail(event.target.value)}
-              type="email"
-              placeholder="Email for password reset"
-              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-emerald-300/50"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:cursor-wait disabled:opacity-70"
-              aria-busy={loading}
-            >
-              {loading && loadingLabel?.includes("reset") ? <LoadingDot /> : null}
-              {loading && loadingLabel?.includes("reset") ? loadingLabel : "Reset password"}
-            </button>
-          </div>
-        </form>
+        <details className="mt-5" open={resetOpen} onToggle={(event) => setResetOpen(event.currentTarget.open)}>
+          <summary className="cursor-pointer text-sm text-emerald-200">Forgot password?</summary>
+          <form onSubmit={reset} noValidate className="mt-5 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <input
+                value={resetEmail}
+                onChange={(event) => setResetEmail(event.target.value)}
+                type="email"
+                placeholder="Email for password reset"
+                aria-label="Email for password reset"
+                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-emerald-300/50"
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white disabled:cursor-wait disabled:opacity-70"
+                aria-busy={loading}
+              >
+                {loading && loadingLabel?.includes("reset") ? <LoadingDot /> : null}
+                {loading && loadingLabel?.includes("reset") ? loadingLabel : "Reset password"}
+              </button>
+            </div>
+          </form>
 
-        {status ? <p className="mt-4 text-sm text-slate-300">{status}</p> : null}
+        </details>
+
+        {status ? <p role="status" className="mt-4 text-sm text-slate-300">{status}</p> : null}
         {duplicateAccount ? (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -491,6 +366,7 @@ export function LoginRegisterPanel({
               type="button"
               onClick={() => {
                 setResetEmail(email);
+                setResetOpen(true);
                 setStatus("Enter the email below and send a reset link.");
               }}
               className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200"
@@ -502,11 +378,11 @@ export function LoginRegisterPanel({
       </section>
 
       <aside className="rounded-lg border border-white/10 bg-slate-950/60 p-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Premium Workflow</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Your Walnut account</p>
         <h2 className="mt-3 text-2xl font-semibold text-white">One account for every research surface.</h2>
         <div className="mt-5 space-y-3 text-sm leading-6 text-slate-300">
           <p>Watchlists stay tied to your account.</p>
-          <p>Signals and leaderboards open after sign-in and return you to the page you requested.</p>
+          <p>Signing in returns you to the page you requested. Feature availability depends on your plan.</p>
           <p>Billing remains separate from authentication, with plan details on a dedicated pricing page.</p>
         </div>
         <Link

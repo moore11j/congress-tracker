@@ -87,7 +87,7 @@ export function BusinessOverviewReport() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Business Overview</p>
           <h2 className="mt-1 text-xl font-semibold text-white">Business Overview</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">User activity and subscription revenue at a glance.</p>
+          <p className="mt-2 max-w-2xl text-sm text-slate-400">Account inventory and legacy billing estimates. Use Page analytics for filtered customer activity and verified live-payment counts.</p>
         </div>
         {summary?.generated_at ? <p className="text-xs text-slate-500">Updated {formatUpdatedAt(summary.generated_at)}</p> : null}
       </div>
@@ -99,17 +99,19 @@ export function BusinessOverviewReport() {
         <>
           <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
             <MetricCard label="Active Free Users" value={formatInteger(summary.active_free_users)} />
-            <MetricCard label="Active Premium Users" value={formatInteger(summary.active_premium_users)} />
-            <MetricCard label="Active Pro Users" value={formatInteger(summary.active_pro_users ?? 0)} />
+            <MetricCard label="Premium Access" value={formatInteger(summary.active_premium_users)} />
+            <MetricCard label="Pro Access" value={formatInteger(summary.active_pro_users ?? 0)} />
             <MetricCard
-              label="Monthly Recurring Revenue"
+              label="Estimated Monthly Plan Value"
               value={formatCurrency(summary.monthly_recurring_revenue, summary.currency)}
               detail="/ month"
             />
-            <MetricCard label="Revenue — YTD" value={formatCurrency(summary.revenue_ytd, summary.currency)} />
-            <MetricCard label="New Users — Last 30 Days" value={formatInteger(summary.new_users_last_30_days)} />
-            <MetricCard label="Total Users" value={formatInteger(summary.total_users)} />
+            <MetricCard label="Recorded Invoice Totals — YTD" value={formatCurrency(summary.revenue_ytd, summary.currency)} />
+            <MetricCard label="New Account Records — 30 Days" value={formatInteger(summary.new_users_last_30_days)} />
+            <MetricCard label="All Account Records" value={formatInteger(summary.total_users)} />
           </div>
+
+          <p className="mt-3 text-xs leading-5 text-slate-400">Account records include internal and deleted accounts. Premium/Pro access can include complimentary grants. Plan value is an estimate, not collected revenue. Legacy invoice totals have not been reconciled for test mode, refunds or currency; use the sales ledger for accounting.</p>
 
           {summary.notes && summary.notes.length > 0 ? (
             <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/35 px-4 py-3">

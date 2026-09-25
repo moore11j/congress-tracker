@@ -9,14 +9,19 @@ import ts from "typescript";
 
 const require = createRequire(import.meta.url);
 let provider = { data: null, disabled: false, failed: false, retry() {} };
+let researchAccess = { status: "allowed", retry() {} };
 const cache = new Map();
 function load(relative) {
   if (cache.has(relative)) return cache.get(relative);
   const code = ts.transpileModule(fs.readFileSync(relative, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const module = { exports: {} };
   new Function("require", "module", "exports", code)((name) => {
+    if (name.endsWith("ResearchMemoryAccess")) return { useResearchMemoryAccess: () => researchAccess, ResearchMemoryAccessNotice: load("components/research-memory/ResearchMemoryAccess.tsx").ResearchMemoryAccessNotice };
+    if (name === "@/lib/api") return { ApiError: class extends Error {}, getEntitlements() { throw new Error("Unexpected render-time request"); } };
+    if (name === "@/lib/productAnalytics") return { trackEvent() {} };
+    if (name.endsWith("VisibleEvent")) return { VisibleEvent: ({ children, className }) => React.createElement("div", { className }, children) };
     if (name.endsWith("TickerOperationalIntelligenceProvider")) return { useTickerOperationalIntelligence: () => provider };
-    if (name === "next/link") return ({ href, children, ...props }) => React.createElement("a", { href, ...props }, children);
+    if (name === "next/link") return ({ href, children, prefetch, ...props }) => React.createElement("a", { href, ...props }, children);
     if (name.startsWith("@/") || name.startsWith(".")) {
       const base = name.startsWith("@/") ? name.slice(2) : path.join(path.dirname(relative), name);
       return load([`${base}.ts`, `${base}.tsx`].find(fs.existsSync));
@@ -128,4 +133,71 @@ test("compact Overview preserves entitlement checks and calibration inspection",
   assert.match(trend, /<details/);
   assert.match(trend, /event.description/);
   assert.match(trend, /onKeyDown=\{inspectWithKeyboard\}/);
+});
+
+test("Research Memory capabilities require Premium even with a stale Free payload", () => {
+  const { hasEntitlement, defaultEntitlements, premiumEntitlements, proEntitlements } = load("lib/entitlements.ts");
+  for (const key of ["view_research_memory", "create_research_memory", "use_custom_thesis_ai", "monitor_research_memory", "receive_thesis_alerts"]) {
+    assert.equal(hasEntitlement(defaultEntitlements, key), false);
+    assert.equal(hasEntitlement({ ...defaultEntitlements, features: [key] }, key), false);
+    assert.equal(hasEntitlement(premiumEntitlements, key), true);
+    assert.equal(hasEntitlement(proEntitlements, key), true);
+    assert.equal(hasEntitlement({ ...defaultEntitlements, is_admin: true }, key), true);
+  }
+});
+
+test("Company developments lock renders the common CTA without premium findings", () => {
+  researchAccess = { status: "locked", retry() {} };
+  provider = { data: data({ risks: [event("private", { title: "PREMIUM_FINDING" })] }), disabled: true, failed: false, retry() {} };
+  const html = render(TickerOperationalIntelligenceCard, { symbol: "MU" });
+  assert.match(html, /Company developments/);
+  assert.match(html, /Unlock with Premium/);
+  assert.match(html, /bg-emerald-300/);
+  assert.doesNotMatch(html, /PREMIUM_FINDING|Evidence &amp; interpretation|Build a thesis/);
+  researchAccess = { status: "allowed", retry() {} };
+  provider = { data: null, disabled: false, failed: false, retry() {} };
+});
+
+test("Your Research has a Premium CTA and preserves disabled-feature behavior", () => {
+  const { TickerResearchMemoryCard } = load("components/ticker/TickerResearchMemoryCard.tsx");
+  researchAccess = { status: "locked", retry() {} };
+  assert.match(render(TickerResearchMemoryCard, { symbol: "MU" }), /Your Research/);
+  assert.match(render(TickerResearchMemoryCard, { symbol: "MU" }), /Unlock with Premium/);
+  const previous = process.env.NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED;
+  process.env.NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED = "false";
+  assert.equal(render(TickerResearchMemoryCard, { symbol: "MU" }), "");
+  if (previous === undefined) delete process.env.NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED;
+  else process.env.NEXT_PUBLIC_RESEARCH_MEMORY_ENABLED = previous;
+  researchAccess = { status: "allowed", retry() {} };
+  assert.doesNotMatch(render(TickerResearchMemoryCard, { symbol: "MU" }), /Unlock with Premium/);
+});
+
+test("access uncertainty shows a retry or loading state, not paid contents", () => {
+  const { ResearchMemoryAccessNotice } = load("components/research-memory/ResearchMemoryAccess.tsx");
+  assert.match(render(ResearchMemoryAccessNotice, { status: "error", retry() {} }), /role="alert"/);
+  assert.match(render(ResearchMemoryAccessNotice, { status: "error", retry() {} }), /Try again/);
+  assert.match(render(ResearchMemoryAccessNotice, { status: "loading", retry() {} }), /role="status"/);
+  assert.equal(render(ResearchMemoryAccessNotice, { status: "allowed", retry() {} }), "");
+});
+
+test("every blurred decision section has an accessible common upgrade CTA", () => {
+  const { TickerDecisionPanels } = load("components/ticker/TickerDecisionPanels.tsx");
+  const layer = { symbol: "MU", catalysts: [], risks: [], what_changed: [], watch_items: [] };
+  const html = render(TickerDecisionPanels, { layer, locked: true });
+  assert.equal((html.match(/Unlock with Premium/g) ?? []).length, 4);
+  assert.equal((html.match(/inert=""/g) ?? []).length, 4);
+  assert.match(html, /Understand the catalysts/);
+  assert.match(html, /Understand the risks/);
+  assert.match(html, /See what changed/);
+  assert.doesNotMatch(render(TickerDecisionPanels, { layer, locked: false }), /Unlock with Premium/);
+  assert.match(fs.readFileSync("app/ticker/[symbol]/page.tsx", "utf8"), /divergenceLocked \? <ContextualUpgrade/);
+});
+
+test("Premium fetches wait for access and direct Research routes include the gate", () => {
+  const source = fs.readFileSync("components/ticker/TickerOperationalIntelligenceProvider.tsx", "utf8");
+  assert.ok(source.indexOf('access !== "allowed") return') < source.indexOf("getTickerOperationalIntelligence(symbol)"));
+  assert.match(source, /access !== "allowed" \? \{ data: null/);
+  for (const file of ["app/monitoring/research/page.tsx", "app/monitoring/research/[id]/page.tsx"]) assert.match(fs.readFileSync(file, "utf8"), /<ResearchMemoryAccessBoundary>/);
+  const context = fs.readFileSync("components/ticker/TickerContextCard.tsx", "utf8");
+  assert.ok(context.indexOf("researchItems.map") < context.indexOf("<TickerOperationalIntelligenceCard"));
 });

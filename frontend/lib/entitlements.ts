@@ -105,13 +105,13 @@ export const defaultEntitlements: Entitlements = {
     market_pressure: 0,
     walnut_strategies: 0,
     api_webhooks: 0,
-    view_research_memory: 1,
-    create_research_memory: 25,
-    use_custom_thesis_ai: 1,
-    monitor_research_memory: 1,
+    view_research_memory: 0,
+    create_research_memory: 0,
+    use_custom_thesis_ai: 0,
+    monitor_research_memory: 0,
     receive_thesis_alerts: 0,
   },
-  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed", "view_research_memory", "create_research_memory", "use_custom_thesis_ai", "monitor_research_memory", "receive_thesis_alerts"],
+  features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed"],
   upgrade_url: "/pricing",
 };
 
@@ -286,6 +286,9 @@ export const proEntitlements: Entitlements = {
 
 export function hasEntitlement(entitlements: Entitlements, feature: EntitlementFeature) {
   if (entitlements.tier === "admin" || entitlements.effective_tier === "admin" || entitlements.is_admin || entitlements.user?.is_admin) return true;
+  // Fail closed for stale Free payloads from before the Premium rollout.
+  if (["view_research_memory", "create_research_memory", "use_custom_thesis_ai", "monitor_research_memory", "receive_thesis_alerts"].includes(feature)
+    && !["premium", "pro"].includes(entitlements.effective_tier ?? entitlements.tier)) return false;
   return entitlements.features.includes(feature);
 }
 

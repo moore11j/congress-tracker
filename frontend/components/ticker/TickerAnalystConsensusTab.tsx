@@ -531,27 +531,14 @@ function RatingsMixChart({
 
 function PremiumLocked() {
   return (
-    <section className={`${panelClass} p-4`}>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <div>
-          <p className="text-sm font-semibold text-white">Premium Detail</p>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
-            Unlock rating distribution, target dispersion, trend changes, and upgrade/downgrade history.
-          </p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <SkeletonBlock className="h-16" />
-            <SkeletonBlock className="h-16" />
-            <SkeletonBlock className="h-16" />
-          </div>
-        </div>
-        <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.06] p-4">
-          <p className="font-semibold text-emerald-100">Analyst detail is Premium</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">Free users get the current summary. Premium adds the full consensus trail.</p>
-          <Link href="/account/billing" prefetch={false} className="mt-4 inline-flex h-10 items-center justify-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20">
-            Upgrade
-          </Link>
-        </div>
-      </div>
+    <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-5">
+      <p className="text-sm font-semibold text-emerald-100">Analyst detail requires Premium.</p>
+      <p className="mt-2 text-sm leading-6 text-slate-300">
+        Free users get the current summary. Premium adds the full consensus trail: rating distribution, target dispersion, trend changes, and upgrade/downgrade history.
+      </p>
+      <Link href="/account/billing" prefetch={false} className="mt-4 inline-flex rounded-xl border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
+        Upgrade to Premium
+      </Link>
     </section>
   );
 }

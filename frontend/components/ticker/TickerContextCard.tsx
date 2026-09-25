@@ -38,6 +38,7 @@ import { TickerAnalystConsensusSkeleton, TickerAnalystConsensusTab } from "@/com
 import { TickerValuationSkeleton, TickerValuationTab } from "@/components/ticker/TickerValuationTab";
 import { TickerOperationalIntelligenceCard } from "@/components/ticker/TickerOperationalIntelligenceCard";
 import { TickerOperationalIntelligenceProvider } from "@/components/ticker/TickerOperationalIntelligenceProvider";
+import { ResearchMemoryAccessProvider } from "@/components/research-memory/ResearchMemoryAccess";
 
 type Props = {
   symbol: string;
@@ -526,7 +527,7 @@ function LoadMoreButton({
 }
 
 export function TickerContextCard(props: Props) {
-  return <TickerOperationalIntelligenceProvider symbol={props.symbol}><TickerContextContents {...props} /></TickerOperationalIntelligenceProvider>;
+  return <ResearchMemoryAccessProvider><TickerOperationalIntelligenceProvider symbol={props.symbol}><TickerContextContents {...props} /></TickerOperationalIntelligenceProvider></ResearchMemoryAccessProvider>;
 }
 
 function TickerContextContents({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {

@@ -3,6 +3,51 @@
 import { useEffect, useMemo, useState } from "react";
 import { getAdminPageAnalytics, type AdminPageAnalyticsPeriod, type AdminPageAnalyticsResponse } from "@/lib/api";
 
+function GrowthMeasurement({ data }: { data: AdminPageAnalyticsResponse }) {
+  const { accounts, payments, measurement } = data;
+  return (
+    <div className="mt-5 space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["Current accounts", accounts.current_accounts],
+          ["New accounts in period", accounts.new_accounts],
+          ["Active accounts in period", accounts.active_accounts],
+          ["Accounts with live payments in period", payments.live_paying_accounts],
+        ].map(([label, value]) => <div key={label} className="rounded-lg border border-white/10 bg-slate-900/60 p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 text-2xl text-white">{value}</p></div>)}
+      </div>
+      <p className="text-xs leading-5 text-slate-400">
+        Account totals exclude deleted and suspended accounts. Active means last seen within this period, not GA4 active users. {accounts.verified_new_accounts} new accounts have verified email.
+        Payment counts use recorded live Stripe invoices with a positive amount paid; they are historical payments in this period, not current subscriptions or net revenue.
+      </p>
+      <details className="rounded-lg border border-white/10 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-200">Payment and measurement checks</summary>
+        <ul className="mt-3 space-y-2 text-sm text-slate-400">
+          <li>{payments.live_paid_invoices} live paid invoices; {payments.paid_invoices_with_refund} show a refund; {payments.unmatched_live_paid_invoices} have no linked account.</li>
+          <li>{payments.test_paid_invoices} test invoices, {payments.zero_paid_invoices} zero-payment invoices and {payments.unverified_paid_invoices} invoices missing live-mode/payment evidence are excluded from the live-payment count.</li>
+          <li>Production forwarding: {measurement.production_enabled ? "enabled" : "disabled"}. GA4 payment secret: {measurement.ga4_secret_configured ? "configured" : "missing"}. HeyCatch bridge: {measurement.heycatch_bridge_configured ? "configured" : "missing"}.</li>
+          <li>Configuration presence does not confirm provider delivery. Compare a consented signup and a verified live payment with GA4 before relying on conversion totals. No test payment is counted as a live conversion.</li>
+        </ul>
+      </details>
+      <details className="rounded-lg border border-white/10 p-4" open>
+        <summary className="cursor-pointer text-sm font-semibold text-slate-200">Product actions and signup steps</summary>
+        <p className="my-3 text-xs text-slate-400">Event reach, not an ordered funnel. Signup started means the form was shown; submitted means a valid form was sent. Failed can include session verification after account creation. Counts depend on consent and can include repeated attempts. New-account records above are the source of truth for account creation.</p>
+        <div className="overflow-x-auto"><table className="min-w-full text-left text-sm text-slate-300">
+          <thead><tr><th className="py-2">Action</th><th>Events</th><th>Accounts</th><th>Sessions</th></tr></thead>
+          <tbody>{data.event_reach.map(row => <tr key={row.event} className="border-t border-white/10"><td className="py-2">{row.event.replaceAll("_", " ")}</td><td>{row.events}</td><td>{row.accounts}</td><td>{row.sessions}</td></tr>)}</tbody>
+        </table></div>
+      </details>
+      <details className="rounded-lg border border-white/10 p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-200">Most-viewed URLs</summary>
+        <p className="my-3 text-xs text-slate-400">Individual destinations, including specific stock pages. The route table below groups similar pages.</p>
+        <div className="overflow-x-auto"><table className="min-w-full text-left text-sm text-slate-300">
+          <thead><tr><th className="py-2">URL path</th><th>Views</th><th>Accounts</th><th>Sessions</th></tr></thead>
+          <tbody>{data.top_destinations.map(row => <tr key={row.page} className="border-t border-white/10"><td className="py-2 font-mono">{row.page}</td><td>{row.views}</td><td>{row.accounts}</td><td>{row.sessions}</td></tr>)}</tbody>
+        </table></div>
+      </details>
+    </div>
+  );
+}
+
 const PERIODS: Array<{ value: AdminPageAnalyticsPeriod; label: string }> = [
   { value: "24h", label: "24h" },
   { value: "7d", label: "7d" },
@@ -24,6 +69,7 @@ function formatDate(value?: string | null) {
 
 export function PageAnalyticsReport() {
   const [period, setPeriod] = useState<AdminPageAnalyticsPeriod>("7d");
+  const [includeInternal, setIncludeInternal] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [data, setData] = useState<AdminPageAnalyticsResponse | null>(null);
@@ -32,7 +78,8 @@ export function PageAnalyticsReport() {
   useEffect(() => {
     let ignore = false;
     setStatus("Loading page analytics.");
-    getAdminPageAnalytics({ period, limit: 30 })
+    setData(null);
+    getAdminPageAnalytics({ period, limit: 100, include_internal: includeInternal })
       .then((next) => {
         if (ignore) return;
         setData(next);
@@ -44,7 +91,7 @@ export function PageAnalyticsReport() {
     return () => {
       ignore = true;
     };
-  }, [period]);
+  }, [period, includeInternal]);
 
   const pageCount = Math.max(1, Math.ceil((data?.top_pages.length ?? 0) / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -54,7 +101,7 @@ export function PageAnalyticsReport() {
   }, [currentPage, data, pageSize]);
   const firstVisibleRow = data?.top_pages.length ? (currentPage - 1) * pageSize + 1 : 0;
   const lastVisibleRow = data?.top_pages.length ? Math.min(currentPage * pageSize, data.top_pages.length) : 0;
-  const totalViews = useMemo(() => data?.top_pages.reduce((sum, row) => sum + row.views, 0) ?? 0, [data]);
+  const totalViews = data?.totals.views ?? 0;
   const maxTrend = useMemo(() => Math.max(1, ...(data?.trend_by_day.map((row) => row.views) ?? [1])), [data]);
 
   useEffect(() => {
@@ -66,7 +113,7 @@ export function PageAnalyticsReport() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-white">Page analytics</h2>
-          <p className="mt-1 text-sm text-slate-400">First-party usage by route, audience, plan, and device.</p>
+          <p className="mt-1 text-sm text-slate-400">Consent-based page views and product actions, reconciled with account and payment records.</p>
         </div>
         <div className="flex rounded-lg border border-white/10 bg-slate-900/70 p-1">
           {PERIODS.map((option) => (
@@ -85,6 +132,11 @@ export function PageAnalyticsReport() {
         </div>
       </div>
 
+      <label className="mt-4 flex items-center gap-2 text-sm text-slate-300">
+        <input type="checkbox" checked={includeInternal} onChange={(event) => setIncludeInternal(event.target.checked)} />
+        Include admin and configured test accounts
+      </label>
+      <p className="mt-2 text-xs text-slate-400">By default, known admin/test accounts and their identified sessions are excluded. Anonymous internal visits cannot always be identified. Counts cover the selected period; they are not GA4 engagement metrics.</p>
       {status ? <p className="mt-4 text-sm text-slate-400">{status}</p> : null}
 
       {data ? (
@@ -96,7 +148,7 @@ export function PageAnalyticsReport() {
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-900/60 p-3">
               <div className="text-xs font-semibold uppercase text-slate-500">Tracked pages</div>
-              <div className="mt-1 text-2xl font-semibold text-white">{data.top_pages.length.toLocaleString()}</div>
+              <div className="mt-1 text-2xl font-semibold text-white">{data.totals.pages.toLocaleString()}</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-900/60 p-3">
               <div className="text-xs font-semibold uppercase text-slate-500">Generated</div>
@@ -104,15 +156,17 @@ export function PageAnalyticsReport() {
             </div>
           </div>
 
+          <p className="mt-3 text-xs text-slate-400">{data.totals.sessions} identified browser sessions · {data.totals.accounts} signed-in accounts · {data.totals.views_without_session} views without a session ID. Accounts and sessions overlap; do not add them. Premium/Pro access includes complimentary access and does not prove payment.</p>
+          <GrowthMeasurement data={data} />
           <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/5 text-xs uppercase tracking-wide text-slate-400">
                 <tr>
                   <th className="px-3 py-3">Page</th>
                   <th className="px-3 py-3">Views</th>
-                  <th className="px-3 py-3">Unique users</th>
+                  <th className="px-3 py-3">Accounts</th>
                   <th className="px-3 py-3">Auth %</th>
-                  <th className="px-3 py-3">Premium/Pro %</th>
+                  <th className="px-3 py-3">Premium/Pro access %</th>
                   <th className="px-3 py-3">Mobile %</th>
                   <th className="px-3 py-3">Last viewed</th>
                 </tr>
@@ -122,7 +176,7 @@ export function PageAnalyticsReport() {
                   <tr key={row.page} className="text-slate-300">
                     <td className="whitespace-nowrap px-3 py-3 font-mono text-slate-100">{row.page}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{row.views.toLocaleString()}</td>
-                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">{row.unique_users.toLocaleString()}</td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums">{row.accounts.toLocaleString()}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatPercent(row.auth_percent)}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatPercent(row.paid_percent)}</td>
                     <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatPercent(row.mobile_percent)}</td>
@@ -198,7 +252,7 @@ export function PageAnalyticsReport() {
 
           <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.2fr]">
             <div className="rounded-lg border border-white/10 bg-slate-900/50 p-4">
-              <h3 className="text-sm font-semibold text-slate-200">Low usage</h3>
+              <h3 className="text-sm font-semibold text-slate-200">Least-viewed tracked routes</h3>
               <div className="mt-3 space-y-2">
                 {data.low_usage_pages.map((row) => (
                   <div key={row.page} className="flex items-center justify-between gap-3 text-sm">
