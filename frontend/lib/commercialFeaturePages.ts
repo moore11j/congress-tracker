@@ -404,6 +404,7 @@ export const commercialFeaturePages = {
       "Institutional activity, institutional filters, market pressure, and related higher-limit workflows are Pro-level features in the current public plan model.",
     relatedLinks: [
       { title: "Institutional filings tracker", body: "Read the current public overview of Walnut's institutional filing workflow.", href: "/institutional-filings" },
+      { title: "NVIDIA institutional ownership research", body: "Work through a dated filing analysis, keeping reported share changes separate from live buying.", href: "/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings" },
       { title: "Pricing", body: "Confirm current Pro plan access for institutional activity.", href: "/pricing" },
       { title: "Stock analysis platform", body: "See how ownership context fits with fundamentals, price action, and disclosures.", href: "/stock-analysis-platform" },
     ],

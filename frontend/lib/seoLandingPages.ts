@@ -575,18 +575,44 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     pathname: "/government-contracts",
     title: "Government Contracts Tracker | Walnut Markets",
     description:
-      "Track government contract awards, public disclosure activity, and ticker context in Walnut Markets.",
+      "Research government contract awards by agency, compare NASA, DoD and Department of Energy recipients, and check public-company exposure and award values.",
     breadcrumbLabel: "Government Contracts",
     eyebrow: "Contract award research",
     h1: "Government Contracts Tracker",
     intro:
-      "Walnut Markets helps investors research government contract awards, public disclosure activity, issuer exposure, and ticker context in one stock market intelligence workflow.",
+      "Find tracked government contract awards by agency, see which recipients map to public companies, and compare the award with the company's broader financial picture. Start with an agency below, then check the recipient, award date, and amount definition in the source record.",
     highlights: [
       "Government contract awards and modifications",
       "Ticker context for public companies with contract exposure",
       "Research-only stock market intelligence, not investment advice",
     ],
     sections: [
+      {
+        title: "Explore contract awards by agency",
+        cards: [
+          { title: "Department of Energy contracts", body: "Research tracked DOE awards and linked companies, with guidance on laboratory operators and facility-management contracts.", href: `${appUrl}/departments/department-of-energy`, label: "Energy and laboratories" },
+          { title: "NASA contracts", body: "Compare tracked NASA recipients and distinguish funded orders from the maximum value of a contract vehicle.", href: `${appUrl}/departments/nasa`, label: "Space and technology" },
+          { title: "Department of Defense contracts", body: "Review tracked defense awards, recipient tickers, and the difference between announcement dates and award dates.", href: `${appUrl}/departments/department-of-defense`, label: "Defense" },
+        ],
+      },
+      {
+        title: "Award amount is not the same as company revenue",
+        paragraphs: [
+          "An obligation is a commitment of government funds; an outlay is a payment. A contract's potential value can include work or options that have not been funded. None of these amounts, by itself, tells you how much revenue or profit a public company has recognized.",
+          "Before comparing recipients, use the same reporting period and amount definition. Check whether a record is a new award or a modification, and whether the named recipient is the listed parent, a subsidiary, or a joint venture. Walnut's mapped records are a research starting point, not a complete agency spending total.",
+        ],
+        cards: [
+          { title: "USAspending amount definitions", body: "Read the primary-source definitions of obligations, outlays, award spending, and negative adjustments.", href: "https://www.usaspending.gov/data/Federal-Spending-Guide.pdf", label: "Primary source" },
+        ],
+      },
+      {
+        title: "Read company and agency research",
+        cards: [
+          { title: "Public companies receiving NASA contracts", body: "Read the dated research alongside the NASA profile and verify the underlying award records.", href: "/research/public-companies-winning-nasa-contracts", label: "NASA research" },
+          { title: "Public companies receiving defense contracts", body: "Explore the research, then check current tracked recipients on the defense department page.", href: "/research/public-companies-winning-department-of-defense-contracts", label: "Defense research" },
+          { title: "Boeing government-contract backlog", body: "Examine the company-specific research and keep contract awards separate from reported backlog.", href: "/research/boeing-government-contract-backlog-ba-stock", label: "Company research" },
+        ],
+      },
       {
         title: "What government contract data can show",
         paragraphs: [
@@ -645,6 +671,17 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       "No implication of live institutional buying",
     ],
     sections: [
+      {
+        title: "How to check who is buying a stock using 13F filings",
+        paragraphs: [
+          "Compare a manager's reported share count for the same security across two quarter ends. A higher reported market value alone does not establish that shares were added: the stock price may have changed. Check amendments and corporate actions before interpreting a difference in share counts.",
+          "Form 13F filings are generally due within 45 days after quarter end. They do not reveal exact purchase dates or prices, and short equity positions are not reported. A manager's reported long holding therefore does not show its complete net exposure or current position.",
+        ],
+        cards: [
+          { title: "NVIDIA institutional ownership research", body: "Read the dated NVIDIA filing analysis, then use the reporting period and source filings to check the holder changes.", href: "/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings", label: "Worked research example" },
+          { title: "SEC Form 13F questions and answers", body: "Verify reporting deadlines, included securities, amendments, and the treatment of short positions in the SEC's guidance.", href: "https://www.sec.gov/rules-regulations/staff-guidance/division-investment-management-frequently-asked-questions/frequently-asked-questions-about-form-13f", label: "Primary source" },
+        ],
+      },
       {
         title: "What institutional filings show",
         paragraphs: [

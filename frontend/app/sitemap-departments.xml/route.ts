@@ -16,7 +16,9 @@ export async function GET() {
       .map((item) => ({
         type: "department" as const,
         path: departmentHref(item.name)!,
-        lastmod: safeDepartmentLastmod(item.latestAwardDate),
+        lastmod: ["/departments/department-of-energy", "/departments/nasa", "/departments/department-of-defense"].includes(departmentHref(item.name)!)
+          ? [safeDepartmentLastmod(item.latestAwardDate), "2026-09-25"].sort().at(-1)!
+          : safeDepartmentLastmod(item.latestAwardDate),
         rationale: "Public department profile with mapped government-contract exposure.",
       })))
     .catch(() => null);

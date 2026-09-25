@@ -11,7 +11,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   const page = researchArchivePage((await searchParams)?.page);
   return marketingPageMetadata(`/research${page && page > 1 ? `?page=${page}` : ""}`, {
     title: `Research Briefs${page && page > 1 ? ` — Page ${page}` : ""} | Walnut Markets`,
-    description: "Browse Walnut Markets research briefs, company comparisons, market DD, and campaign analysis.",
+    description: "Read stock research, company comparisons, institutional ownership analysis, and government-contract research with source links and reporting dates.",
     ...(page === null ? { robots: { index: false, follow: true } } : {}),
   });
 }
@@ -33,7 +33,7 @@ export default async function ResearchBriefsPage({ searchParams }: Props) {
         <div className="mt-5 max-w-3xl">
           <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Research Briefs</h1>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            All published Walnut research briefs, including company deep dives, comparison notes, market DD, and campaign analysis.
+            Research company fundamentals, reported ownership changes, and government-contract exposure. Each brief should be read with its publication date, source documents, and data limitations in view.
           </p>
           <p className="mt-2 text-xs leading-5 text-slate-400">
             Learn how we use sources and AI, attribute research, and handle corrections in our{" "}
@@ -41,6 +41,19 @@ export default async function ResearchBriefsPage({ searchParams }: Props) {
           </p>
         </div>
       </div>
+
+      {page === 1 ? (
+        <nav aria-label="Research by topic" className="grid gap-3 sm:grid-cols-2">
+          <Link href="/government-contracts" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 transition hover:border-emerald-300/40">
+            <h2 className="font-semibold text-white">Government contracts and public companies</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">Explore NASA, Defense, and Energy awards, recipient tickers, and how to interpret contract values.</p>
+          </Link>
+          <Link href="/institutional-filings" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 transition hover:border-emerald-300/40">
+            <h2 className="font-semibold text-white">Institutional ownership and 13F filings</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">Understand reported holder changes, share counts, and the gap between quarter-end positions and filing dates.</p>
+          </Link>
+        </nav>
+      ) : null}
 
       <ResearchBriefsSection mode="archive" page={page} />
     </div>

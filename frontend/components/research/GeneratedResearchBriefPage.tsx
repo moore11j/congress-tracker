@@ -9,6 +9,25 @@ import { CampaignEventOnMount } from "@/components/campaign/CampaignAnalytics";
 import { researchLinkHref } from "@/lib/researchLinks";
 import type { ResearchBriefCard } from "@/lib/researchBriefs";
 
+// Reviewed topic matches, not keyword-generated links into unrelated articles.
+const researchGuides: Record<string, { href: string; label: string }[]> = {
+  "public-companies-winning-nasa-contracts": [
+    { href: appCanonicalUrl("/departments/nasa"), label: "NASA contract recipients and tracked awards" },
+    { href: marketingCanonicalUrl("/government-contracts"), label: "How to compare government contract values" },
+  ],
+  "public-companies-winning-department-of-defense-contracts": [
+    { href: appCanonicalUrl("/departments/department-of-defense"), label: "Defense contract recipients and tracked awards" },
+    { href: marketingCanonicalUrl("/government-contracts"), label: "How to compare government contract values" },
+  ],
+  "boeing-government-contract-backlog-ba-stock": [
+    { href: marketingCanonicalUrl("/government-contracts"), label: "Government contract awards, obligations, and company exposure" },
+  ],
+  "who-is-buying-nvidia-stock-in-the-latest-13f-filings": [
+    { href: marketingCanonicalUrl("/institutional-filings"), label: "How to interpret 13F share changes and reporting dates" },
+    { href: marketingCanonicalUrl("/institutional-activity-tracker"), label: "Institutional ownership research tools" },
+  ],
+};
+
 type StoredSignalResult = {
   ticker: string;
   eventDate: string;
@@ -278,6 +297,14 @@ export function GeneratedResearchBriefPage({
               </div>
             </section>
           ))}
+          {researchGuides[article.slug]?.length ? (
+            <nav aria-label="Research sources and methods" className="rounded-lg border border-white/10 p-5">
+              <h2 className="text-xl font-semibold text-white">Explore the data behind this research</h2>
+              <ul className="mt-3 space-y-3 text-sm">
+                {researchGuides[article.slug].map((guide) => <li key={guide.href}><Link href={guide.href} className={linkClassName()}>{guide.label}</Link></li>)}
+              </ul>
+            </nav>
+          ) : null}
           {relatedBriefs.length ? (
             <nav aria-label="Related research" className="rounded-lg border border-white/10 p-5">
               <h2 className="text-xl font-semibold text-white">Related research</h2>

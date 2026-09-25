@@ -19,6 +19,7 @@ import { tickerHref } from "@/lib/ticker";
 import { departmentHref, departmentSlug } from "@/lib/departments";
 import { WalnutLineChart } from "@/components/charts/WalnutLineChart";
 import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
+import { DepartmentResearchGuide } from "@/components/research/DepartmentResearchGuide";
 import { WALNUT_APP_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
 import { conciseSeoDescription, conciseSeoTitle, departmentHasIndexableContent, noindexFollowMetadata } from "@/lib/seoQuality";
 
@@ -120,9 +121,9 @@ export default async function DepartmentPage({ params }: Props) {
                 Public-market contract exposure from {department.name} awards.
               </p>
               <p className="mt-1 text-sm text-slate-400">
-                Data sourced from <span className="text-sky-300">USAspending.gov</span>
+                Data sourced from <a href="https://www.usaspending.gov/" className="text-sky-300 hover:underline">USAspending.gov</a>
                 <span className="mx-2 text-slate-600">-</span>
-                Last updated {formatDateShort(summary.latestAwardDate)}
+                Latest tracked award {formatDateShort(summary.latestAwardDate)}
               </p>
             </div>
           </div>
@@ -172,10 +173,12 @@ export default async function DepartmentPage({ params }: Props) {
         <ContractPanel title="Largest Contracts" items={department.largestContracts} />
       </section>
 
+      <DepartmentResearchGuide name={department.name} />
+
       <div className={`${panelClassName} mt-1 flex items-start gap-3 px-4 py-3 text-xs leading-5 text-slate-400`}>
         <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-sky-400/60 text-sky-300">i</span>
         <p>
-          Contract data sourced from USAspending.gov. Awards may include obligated, funded, or potential contract values. Not all awards are publicly disclosed. Data is updated daily.
+          Contract data sourced from USAspending.gov. Awards may include obligated, funded, or potential contract values; these are not interchangeable with company revenue. Coverage reflects Walnut's tracked records and ticker mappings, not all agency spending. Check the source record for its dates and amount definition.
         </p>
       </div>
     </div>
