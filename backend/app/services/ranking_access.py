@@ -17,10 +17,10 @@ def idea_limit(entitlements) -> int:
     return maximum if configured < 0 else min(maximum, configured)
 
 
-def project_ranking(snapshot: dict, *, authenticated: bool, entitlements=None, stocks: bool = False, full: bool = False) -> dict:
+def project_ranking(snapshot: dict, *, authenticated: bool, entitlements=None, stocks: bool = False, full: bool = False, stock_limit: int = 10) -> dict:
     """Never copy unknown metadata, candidates, filters or protected evidence to teasers."""
     paid = bool(authenticated and full)
-    limit = idea_limit(entitlements) if stocks else (100 if paid else 5)
+    limit = min(idea_limit(entitlements), stock_limit) if stocks else (100 if paid else 5)
     minimum = 1 if authenticated else 3
     fields = STOCK_BASIC if stocks else PARTICIPANT_BASIC
 

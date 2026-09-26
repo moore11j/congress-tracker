@@ -19,7 +19,7 @@ def snapshot():
             "metadata": {"winner": "STOCK1"}, "generated_at": "2026-09-25T20:00:00Z"}
 
 
-@pytest.mark.parametrize("tier,expected", [(None, [3, 4, 5]), ("free", list(range(1, 6))), ("premium", list(range(1, 11))), ("pro", list(range(1, 26)))])
+@pytest.mark.parametrize("tier,expected", [(None, [3, 4, 5]), ("free", list(range(1, 6))), ("premium", list(range(1, 11))), ("pro", list(range(1, 11))), ("admin", list(range(1, 11)))])
 @pytest.mark.parametrize("path", ["/top-stocks", "/leaderboards/dashboard", "/leaderboards/top-stocks"])
 def test_all_stock_http_routes_enforce_identity_rank_and_evidence_access(monkeypatch, tier, expected, path):
     from app.routers import leaderboards, top_stocks
@@ -38,6 +38,8 @@ def test_all_stock_http_routes_enforce_identity_rank_and_evidence_access(monkeyp
     payload = response.json()
     data = payload["top_stocks"] if path.endswith("dashboard") else payload
     assert [r["rank"] for r in data["items"]] == expected
+    for rows in data.get("filter_items", {}).values():
+        assert [r["rank"] for r in rows] == expected
     if tier in {None, "free"}:
         assert "PAID_EVIDENCE" not in json.dumps(payload)
         assert "PRO_SECRET" not in json.dumps(payload)

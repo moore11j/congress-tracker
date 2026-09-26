@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.entitlements import entitlements_for_user
 from app.models import UserAccount
-from app.services.ranking_access import project_ranking
+from app.services.ranking_access import idea_limit, project_ranking
 from app.services.top_stocks import build_top_stocks_response
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,8 @@ def build_top_ideas_digest(db, user, *, now=None):
     from app.services.email_digests import DigestBuild, _frontend_base_url
     entitlement = entitlements_for_user(db, user)
     snapshot = project_ranking(build_top_stocks_response(db, entitlements=entitlement), authenticated=True,
-                               entitlements=entitlement, stocks=True, full=entitlement.has_feature("leaderboards"))
+                               entitlements=entitlement, stocks=True, full=entitlement.has_feature("leaderboards"),
+                               stock_limit=idea_limit(entitlement))
     items = snapshot["items"]
     sections = []
     html_sections = []

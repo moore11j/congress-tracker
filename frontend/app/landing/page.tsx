@@ -426,7 +426,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Get up to 25 ranked ideas, the highest result limits, institutional activity, options flow, advanced alternative data and deeper analysis. Follow strategies where entitled. Future API and automation workflows are not yet included.
+                Get the Top 10 with deeper evidence, the highest research result limits, institutional activity, options flow and advanced alternative data. Follow strategies where entitled. Future API and automation workflows are not yet included.
               </p>
             </article>
           </div>
