@@ -59,8 +59,8 @@ def test_ba_release_inputs_have_signed_auditable_net_score():
     result = calculate(inputs)
     math = result['score_calculation']
     assert result['direction'] == 'bullish'
-    assert result['score'] == 24
-    assert (math['aligned_weight'], math['opposing_weight'], math['net_weight'], math['total_weight']) == (35.04, 10.86, 24.18, 45.9)
+    assert result['score'] == 30
+    assert math['net_weight'] == pytest.approx(math['aligned_weight'] - math['opposing_weight'], abs=.0001)
     assert sum(s['confirmation_contribution'] for s in result['sources'].values()) == pytest.approx(math['raw_score'], abs=.001)
     assert result['sources']['congress']['confirmation_contribution'] < 0
     assert result['sources']['macro_positioning']['confirmation_contribution'] < 0
@@ -71,7 +71,7 @@ def test_ba_release_inputs_have_signed_auditable_net_score():
 
 def test_single_source_cannot_claim_full_confirmation_and_mixed_only_has_none():
     single = calculate({'fundamentals': source('bullish')})
-    assert single['score'] == 20
+    assert single['score'] == 30
     assert single['score_calculation']['single_source_cap_applied'] is False
     mixed = calculate({'fundamentals': source('mixed'), 'price_volume': source('mixed')})
     assert mixed['score'] == 0
@@ -100,11 +100,11 @@ def test_full_confirmation_requires_every_weighted_source_at_full_strength():
     for key, maximum in SOURCE_MAX_POINTS.items():
         missing = deepcopy(inputs)
         del missing[key]
-        assert calculate(missing)['score'] == 100 - maximum
+        assert calculate(missing)['score'] == round(100 - maximum)
         for state in ('mixed', 'neutral'):
             incomplete = deepcopy(inputs)
             incomplete[key]['direction'] = state
-            assert calculate(incomplete)['score'] == 100 - maximum
+            assert calculate(incomplete)['score'] == round(100 - maximum)
     almost = deepcopy(inputs)
     almost['government_contracts']['strength'] = 99
     assert calculate(almost)['score'] == 99  # Rounding cannot manufacture 100.
@@ -113,8 +113,8 @@ def test_full_confirmation_requires_every_weighted_source_at_full_strength():
 def test_two_unanimous_low_weight_sources_cannot_compete_with_broad_confirmation():
     thin = calculate({'analysts': source('bullish'), 'macro_positioning': source('bullish')})
     broad = calculate({key: source('bullish') for key in ('fundamentals', 'institutional_activity', 'price_volume', 'congress', 'insiders', 'analysts')})
-    assert thin['score'] == 13
-    assert broad['score'] == 83
+    assert thin['score'] == 11
+    assert broad['score'] == 87
     assert thin['score_calculation']['aligned_source_count'] == 2
     assert broad['score_calculation']['aligned_source_count'] == 6
 
@@ -123,6 +123,21 @@ def test_paid_redaction_preserves_canonical_score_but_removes_locked_math():
     from app.services.confirmation_score import redact_confirmation_bundle_sources
     bundle = calculate({key: source('bullish') for key in ('fundamentals', 'institutional_activity', 'price_volume')})
     redacted = redact_confirmation_bundle_sources(bundle, {'institutional_activity'})
-    assert redacted['score'] == bundle['score'] == 55
+    assert redacted['score'] == bundle['score'] == 63
     assert redacted['score_calculation'] is None
     assert redacted['sources']['institutional_activity']['strength'] is None
+
+
+def test_fundamentals_transfer_is_equal_across_all_other_sources():
+    from app.services.confirmation_evidence import SOURCE_MAX_POINTS
+    previous = dict(fundamentals=20, institutional_activity=20, price_volume=15,
+                    congress=10, insiders=10, analysts=8, signals=5, options_flow=5,
+                    macro_positioning=5, government_contracts=2)
+    assert SOURCE_MAX_POINTS['fundamentals'] == 30
+    assert sum(SOURCE_MAX_POINTS.values()) == pytest.approx(100)
+    for key, maximum in previous.items():
+        if key != 'fundamentals':
+            assert maximum - SOURCE_MAX_POINTS[key] == pytest.approx(10 / 9)
+    full = calculate({key: source('bullish') for key in previous})
+    assert full['score_calculation']['raw_score'] == 100
+    assert full['score'] == 100

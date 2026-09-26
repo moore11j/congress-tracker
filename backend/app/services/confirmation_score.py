@@ -81,8 +81,8 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v7_weighted_coverage"
-CONFIRMATION_SCORING_VERSION = "confirmation_score_v6_weighted_coverage"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v8_fundamentals_30"
+CONFIRMATION_SCORING_VERSION = "confirmation_score_v7_fundamentals_30"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0
@@ -260,7 +260,7 @@ def redact_confirmation_bundle_sources(
     lock_state: str = "pro_locked",
     required_plan: str = "pro",
 ) -> dict:
-    """Remove locked evidence while retaining the canonical v6 headline score."""
+    """Remove locked evidence while retaining the canonical headline score."""
     if not isinstance(bundle, dict):
         return bundle
     locked = {source for source in locked_sources if source in SOURCE_ORDER}

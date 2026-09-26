@@ -8,19 +8,22 @@ MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
 MIN_MATERIAL_CONTRIBUTION = 2.0
 
 # Full-source bullish capacity totals 100. Missing evidence never shrinks it.
+# Transfer ten points to fundamentals, taking exactly 10/9 from each other source.
+# Keep full precision here; rounding nine allocations would change the total.
+OTHER_SOURCE_REDUCTION = 10.0 / 9.0
 SOURCE_MAX_POINTS = {
-    "fundamentals": 20.0,
-    "institutional_activity": 20.0,
-    "price_volume": 15.0,
-    "congress": 10.0,
-    "insiders": 10.0,
-    "analysts": 8.0,
-    "signals": 5.0,
-    "options_flow": 5.0,
-    "macro_positioning": 5.0,
-    "government_contracts": 2.0,
+    "fundamentals": 30.0,
+    "institutional_activity": 20.0 - OTHER_SOURCE_REDUCTION,
+    "price_volume": 15.0 - OTHER_SOURCE_REDUCTION,
+    "congress": 10.0 - OTHER_SOURCE_REDUCTION,
+    "insiders": 10.0 - OTHER_SOURCE_REDUCTION,
+    "analysts": 8.0 - OTHER_SOURCE_REDUCTION,
+    "signals": 5.0 - OTHER_SOURCE_REDUCTION,
+    "options_flow": 5.0 - OTHER_SOURCE_REDUCTION,
+    "macro_positioning": 5.0 - OTHER_SOURCE_REDUCTION,
+    "government_contracts": 2.0 - OTHER_SOURCE_REDUCTION,
 }
-INSIDER_MAX_POINTS = {"bullish": 10.0, "bearish": 1.0, "mixed": 3.0}
+INSIDER_MAX_POINTS = {"bullish": SOURCE_MAX_POINTS["insiders"], "bearish": 1.0, "mixed": 3.0}
 
 
 def source_max_points(key: str, direction: str) -> float:
@@ -74,7 +77,7 @@ def evidence_magnitude(source: dict[str, Any], key: str) -> float:
     quality = max(0.0, min(100.0, _number(source.get("quality"))))
     freshness = freshness_score(evidence_freshness(source))
     strength_fraction = (strength * .50 + quality * .35 + freshness * .15) / 100
-    return round(source_max_points(key, str(source.get("direction") or "neutral").lower()) * strength_fraction, 4)
+    return source_max_points(key, str(source.get("direction") or "neutral").lower()) * strength_fraction
 
 
 def evidence_exclusion(source: Any) -> str | None:
@@ -118,29 +121,29 @@ def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict
     Quality and freshness already affect each source's evidence magnitude.
     """
     sources = {key: sources.get(key, {}) for key in SOURCE_MAX_POINTS}
-    weights = {key: round(evidence_magnitude(source, key), 2)
+    weights = {key: evidence_magnitude(source, key)
                if evidence_exclusion(source) is None else 0.0
                for key, source in sources.items()}
     signed = {key: (weight if sources[key].get("direction") == direction else -weight)
               if direction in {"bullish", "bearish"} else 0.0
               for key, weight in weights.items()}
-    aligned = round(sum(value for value in signed.values() if value > 0), 2)
-    opposing = round(-sum(value for value in signed.values() if value < 0), 2)
-    total = round(aligned + opposing, 2)
-    net = round(aligned - opposing, 2)
-    capacity = sum(SOURCE_MAX_POINTS.values())
+    aligned = sum(value for value in signed.values() if value > 0)
+    opposing = -sum(value for value in signed.values() if value < 0)
+    total = aligned + opposing
+    net = aligned - opposing
+    capacity = 100.0
     raw_score = max(0.0, 100 * net / capacity)
     score = max(0, min(100, int(round(raw_score))))
     # Neither missing coverage nor near-perfect inputs may round up to 100.
-    if net < capacity:
+    if not all(signed[key] >= maximum for key, maximum in SOURCE_MAX_POINTS.items()):
         score = min(score, 99)
     aligned_count = sum(value > 0 for value in signed.values())
-    return {"method": "weighted_full_source_confirmation", "aligned_weight": aligned,
-            "opposing_weight": opposing, "net_weight": net, "total_weight": total,
+    return {"method": "weighted_full_source_confirmation", "aligned_weight": round(aligned, 4),
+            "opposing_weight": round(opposing, 4), "net_weight": round(net, 4), "total_weight": round(total, 4),
             "capacity_weight": capacity, "aligned_source_count": aligned_count,
             "source_count": len(SOURCE_MAX_POINTS),
             "raw_score": round(raw_score, 4), "score": score,
             "single_source_cap_applied": False,
-            "source_weights": weights,
+            "source_weights": {key: round(value, 4) for key, value in weights.items()},
             "source_contributions": {key: round(100 * value / capacity, 4)
                                      for key, value in signed.items()}}

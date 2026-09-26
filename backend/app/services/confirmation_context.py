@@ -24,7 +24,7 @@ from app.services.intelligence_overlays import (
 from app.services.macro_positioning import get_macro_positioning_summaries_for_symbols
 from app.utils.symbols import normalize_symbol
 
-TICKER_CONFIRMATION_CONTEXT_VERSION = "ticker_confirmation_30d_v6_weighted_coverage"
+TICKER_CONFIRMATION_CONTEXT_VERSION = "ticker_confirmation_30d_v7_fundamentals_30"
 
 
 def build_ticker_confirmation_context(db: Session, symbols: list[str]) -> dict[str, Any]:

@@ -38,7 +38,7 @@ test("weighted coverage rollout is marked without recalculating past scores", ()
   const history = [{ date: "2026-09-25", score: 100 }, { date: "2026-09-26", score: 49 }];
   const events = scoreRecalibrationsInRange(history);
   assert.equal(events.length, 1);
-  assert.equal(events[0].version, "confirmation-v6-weighted-coverage");
+  assert.equal(events[0].version, "confirmation-v7-fundamentals-30");
   assert.match(events[0].description, /fixed weighted 100-point/);
   assert.deepEqual(history.map(point => point.score), [100, 49]);
 });
