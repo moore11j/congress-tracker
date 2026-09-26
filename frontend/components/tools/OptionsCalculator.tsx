@@ -8,6 +8,7 @@ import { ApiError, getCalculatorClose, getCalculatorExpirations, getCalculatorOp
 import { applyOptionClose, optionCloseLabel, createStrategy, matchListedPosition, daysUntil, entryCost, entryFees, expirationRisk, optionValue, positionGreeks, profitAt, strategyTemplates, type ModelInputs, type OptionLeg, type Position } from "@/lib/optionsCalculator";
 import { loadOptionsData, optionPriceBatch, waitForOptions } from "@/lib/optionsMarketData";
 import { OptionsTickerInput } from "./OptionsTickerInput";
+import { CalculatorNumberInput } from "./CalculatorNumberInput";
 import "./options.css";
 
 const money = (n: number) => Number.isFinite(n) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n) : "Unlimited";
@@ -17,9 +18,7 @@ const pnlClass = (n: number) => n >= 0 ? "text-emerald-300" : "text-rose-300";
 // Display cash flows to cents; the pricing/risk engine retains full precision.
 const chartCash = (n: number) => Math.round(n * 100) / 100;
 function Field({ label, value, onChange, min = 0, max = 1000000, step = .01 }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  return <label>{label}<input type="number" min={min} max={max} step={step} value={draft} onChange={e => { setDraft(e.target.value); const n = Number(e.target.value); if (e.target.value && Number.isFinite(n) && n >= min && n <= max && (step !== 1 || Number.isInteger(n))) onChange(n); }} onBlur={() => setDraft(String(value))} /></label>;
+  return <label>{label}<CalculatorNumberInput value={value} onCommit={onChange} min={min} max={max} integer={step === 1} /></label>;
 }
 function Metric({ label, value, note, tone = "text-white" }: { label: string; value: string; note: string; tone?: string }) {
   return <div className="options-panel"><p className="text-xs text-slate-400">{label}</p><p className={`mt-2 break-words text-2xl font-semibold tracking-tight tabular-nums ${tone}`}>{value}</p><p className="mt-2 text-xs leading-5 text-slate-500">{note}</p></div>;
@@ -171,6 +170,7 @@ export function OptionsCalculator({ today, initialExpiry }: { today: string; ini
       </div>
       <p role="status" className="mt-3 text-xs text-emerald-200">{busy === "market" ? "Loading listed dates, strikes, and starting prices…" : priceStatus}{hidden ? " · Price loading paused while this tab is hidden." : ""}</p>
       <p className="mt-3 text-xs text-slate-500">{spotSource} · {days} calendar days to expiration · no live quotes</p>
+      <p className="mt-2 text-xs text-slate-400">Chart and results update when you Tab or click away from a number. Press Enter to apply an edit.</p>
       <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-6">{outlooks.map(({ id, label, icon: Icon }) => <button className="options-button flex min-h-16 flex-col items-start justify-center gap-2 text-left" key={id} aria-pressed={outlook === id} onClick={() => { setOutlook(id); setMove(id === "bearish" ? -10 : id === "bullish" || id === "move" ? 10 : 0); if (id === "vol-up") setScenarioVol(volatility + 10); else if (id === "vol-down") setScenarioVol(Math.max(0, volatility - 10)); else setScenarioVol(volatility); }}><Icon size={17} />{label}</button>)}</div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">{templates.map(t => <button key={t.id} className="options-button p-4 text-left" aria-pressed={strategy === t.id} onClick={() => chooseStrategy(t.id)}><span className="block text-sm font-semibold">{t.name}</span><span className="mt-2 block text-xs font-normal leading-5 text-slate-400">{t.description}</span><span className="mt-3 block text-xs text-emerald-300">Build strategy →</span></button>)}</div>
       <p className="mt-3 text-xs text-slate-500">Examples matching your outlook, not recommendations. Selecting a strategy uses listed strikes and cached closes when available; remaining modeled entries load EOD prices automatically.</p>

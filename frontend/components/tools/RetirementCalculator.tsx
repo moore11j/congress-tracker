@@ -7,6 +7,7 @@ import { WalnutDonutChart } from "@/components/charts/WalnutDonutChart";
 import { WalnutChartContainer } from "@/components/charts/WalnutChartContainer";
 import { defaultRetirementPlan, projectRetirement, realAnnualReturn, retirementDisplayValue, validateRetirementPlan, type RetirementPerson, type RetirementPlan } from "@/lib/retirementCalculator";
 import { RetirementReturnPicker, type ImportedReturn } from "./RetirementReturnPicker";
+import { CalculatorNumberInput } from "./CalculatorNumberInput";
 import "./retirement.css";
 
 const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
@@ -26,7 +27,7 @@ function ResponsiveLineChart(props: ComponentProps<typeof WalnutLineChart>) {
 }
 
 function NumberField({ label, value, onChange, min = 0, max = 1000000, step = 1, suffix }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number; suffix?: string }) {
-  return <label className="block min-w-0 text-xs text-slate-400">{label}<div className="relative"><input type="number" inputMode="decimal" className="retirement-input pr-8" value={Number.isNaN(value) ? "" : value} min={min} max={max} step={step} onChange={(e) => onChange(e.target.value === "" ? NaN : Number(e.target.value))} />{suffix ? <span className="pointer-events-none absolute right-3 top-3 text-xs text-slate-500">{suffix}</span> : null}</div></label>;
+  return <label className="block min-w-0 text-xs text-slate-400">{label}<div className="relative"><CalculatorNumberInput className="retirement-input pr-8" value={value} onCommit={onChange} min={min} max={max} integer={step === 1 && suffix !== "$"} />{suffix ? <span className="pointer-events-none absolute right-3 top-3 text-xs text-slate-500">{suffix}</span> : null}</div></label>;
 }
 function PersonFields({ name, person, onChange, color }: { name: string; person: RetirementPerson; onChange: (person: RetirementPerson) => void; color: string }) {
   const field = (key: keyof RetirementPerson) => (value: number) => onChange({ ...person, [key]: value });
@@ -61,16 +62,17 @@ export function RetirementCalculator({ startYear }: { startYear: number }) {
   const contributions = projection.rows.slice(0, projection.bothYear + 1).reduce((sum, row) => sum + row.contributions, 0);
   const initial = plan.you.openingBalance + (plan.includeSpouse ? plan.spouse.openingBalance : 0);
   const earned = projection.rows.slice(0, projection.bothYear + 1).reduce((sum, row) => sum + row.growth, 0);
-  const change = (key: keyof RetirementPlan, value: number | boolean) => setDraft((old) => ({ ...old, [key]: value }));
+  const change = (key: keyof RetirementPlan, value: number | boolean) => updateDraft({ ...draft, [key]: value });
 
-  function calculate() {
-    const nextErrors = validateRetirementPlan(draft);
+  function updateDraft(next: RetirementPlan) {
+    setDraft(next);
+    const nextErrors = validateRetirementPlan(next);
     setErrors(nextErrors);
     if (nextErrors.length) return;
-    setPlan(draft); setRevision((v) => v + 1);
+    setPlan(next); setRevision((v) => v + 1);
   }
   function applySource(source: ImportedReturn, target: "saving" | "retirement" | "both") {
-    setDraft((old) => ({ ...old, ...(target !== "retirement" ? { annualReturn: Number(source.rate.toFixed(4)) } : {}), ...(target !== "saving" ? { retirementReturn: Number(source.rate.toFixed(4)) } : {}) }));
+    updateDraft({ ...draft, ...(target !== "retirement" ? { annualReturn: Number(source.rate.toFixed(4)) } : {}), ...(target !== "saving" ? { retirementReturn: Number(source.rate.toFixed(4)) } : {}) });
     if (target !== "retirement") setSavingSource(source);
     if (target !== "saving") setRetirementSource(source);
     setImportOpen(false);
@@ -85,8 +87,8 @@ export function RetirementCalculator({ startYear }: { startYear: number }) {
 
   return <div className="retirement-calculator space-y-6">
     <div className="grid items-start gap-6 xl:grid-cols-[370px_minmax(0,1fr)]">
-      <form onSubmit={(e) => { e.preventDefault(); calculate(); }} className="space-y-4" noValidate>
-        <Panel title="Build your retirement plan"><div className="space-y-5"><PersonFields name="You" person={draft.you} color={colors.you} onChange={(you) => setDraft((old) => ({ ...old, you }))} /><div className="border-t border-white/10 pt-4"><label className="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" className="h-4 w-4 accent-emerald-300" checked={draft.includeSpouse} onChange={(e) => change("includeSpouse", e.target.checked)} /><Users size={15} /> Include spouse or partner</label></div>{draft.includeSpouse ? <PersonFields name="Spouse / partner" color={colors.spouse} person={draft.spouse} onChange={(spouse) => setDraft((old) => ({ ...old, spouse }))} /> : null}</div></Panel>
+      <form onSubmit={(e) => { e.preventDefault(); updateDraft(draft); }} className="space-y-4" noValidate>
+        <Panel title="Build your retirement plan"><div className="space-y-5"><PersonFields name="You" person={draft.you} color={colors.you} onChange={(you) => updateDraft({ ...draft, you })} /><div className="border-t border-white/10 pt-4"><label className="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" className="h-4 w-4 accent-emerald-300" checked={draft.includeSpouse} onChange={(e) => change("includeSpouse", e.target.checked)} /><Users size={15} /> Include spouse or partner</label></div>{draft.includeSpouse ? <PersonFields name="Spouse / partner" color={colors.spouse} person={draft.spouse} onChange={(spouse) => updateDraft({ ...draft, spouse })} /> : null}</div></Panel>
         <Panel title="Return & withdrawal assumptions"><p className="-mt-2 mb-4 text-xs leading-5 text-slate-400">Enter nominal annual returns. The real view adjusts returns and balances for your inflation assumption.</p><div className="grid grid-cols-2 gap-3"><NumberField label="Annual return · saving" value={draft.annualReturn} onChange={(v) => { change("annualReturn", v); setSavingSource(null); }} min={-99} max={100} step={0.1} suffix="%" /><NumberField label="Annual return · retired" value={draft.retirementReturn} onChange={(v) => { change("retirementReturn", v); setRetirementSource(null); }} min={-99} max={100} step={0.1} suffix="%" /><NumberField label="Annual inflation" value={draft.inflation} onChange={(v) => change("inflation", v)} max={20} step={0.1} suffix="%" /><NumberField label="Withdrawal tax rate" value={draft.taxRate} onChange={(v) => change("taxRate", v)} max={60} step={0.1} suffix="%" /><div className="col-span-2"><NumberField label={draft.includeSpouse ? "Years to project after both retire" : "Years to project after retirement"} value={draft.retirementYears} onChange={(v) => change("retirementYears", v)} min={1} max={60} /></div></div>
           <button type="button" aria-expanded={importOpen} onClick={() => setImportOpen(!importOpen)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/5 px-3 py-2.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-300/10"><TrendingUp size={15} />Import a historical annual return</button>
           {importOpen ? <RetirementReturnPicker onApply={applySource} /> : null}
@@ -94,11 +96,11 @@ export function RetirementCalculator({ startYear }: { startYear: number }) {
         </Panel>
         {errors.length ? <div role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-5 text-amber-200">{errors.map((error) => <p key={error}>{error}</p>)}</div> : null}
         <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"><ChartNoAxesCombined size={18} />Calculate my projection</button>
-        <p className="text-center text-xs text-slate-500">Calculations run in your browser. No account required.</p>
+        <p className="text-center text-xs text-slate-500">Updates automatically when you Tab or click away from a number. Calculations run in your browser.</p>
       </form>
 
       <div className="min-w-0 space-y-5">
-        <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3"><p role="status" className={`text-xs ${dirty ? "text-amber-200" : "text-slate-400"}`}>{dirty ? "Inputs changed. Calculate to update the results below." : "Projection updated"}</p><div role="group" aria-label="Nominal or real projection" className="flex flex-wrap gap-1 rounded-lg border border-white/10 bg-slate-950/50 p-1">{[{ value: false, label: "Nominal · future dollars" }, { value: true, label: "Real · today's dollars" }].map((option) => <button key={option.label} type="button" aria-pressed={real === option.value} onClick={() => setReal(option.value)} className={`rounded-md px-3 py-2 text-xs transition ${real === option.value ? "bg-emerald-300/15 text-emerald-200" : "text-slate-400 hover:text-white"}`}>{option.label}</button>)}</div></div><p aria-live="polite" className="text-xs leading-5 text-slate-400">{real ? "Real annual returns" : "Nominal annual returns"}: <strong className="text-slate-200">{displayedSavingReturn.toFixed(2)}% saving / {displayedRetirementReturn.toFixed(2)}% retired</strong>{real ? ` · adjusted for ${plan.inflation}% inflation. Balances, chart, table, and CSV show today's purchasing power.` : " · before inflation. Balances, chart, table, and CSV show future dollars."}</p></div>
+        <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3"><p role="status" className={`text-xs ${dirty ? "text-amber-200" : "text-slate-400"}`}>{dirty ? "Check the highlighted inputs. Results show the last valid projection." : "Projection updated"}</p><div role="group" aria-label="Nominal or real projection" className="flex flex-wrap gap-1 rounded-lg border border-white/10 bg-slate-950/50 p-1">{[{ value: false, label: "Nominal · future dollars" }, { value: true, label: "Real · today's dollars" }].map((option) => <button key={option.label} type="button" aria-pressed={real === option.value} onClick={() => setReal(option.value)} className={`rounded-md px-3 py-2 text-xs transition ${real === option.value ? "bg-emerald-300/15 text-emerald-200" : "text-slate-400 hover:text-white"}`}>{option.label}</button>)}</div></div><p aria-live="polite" className="text-xs leading-5 text-slate-400">{real ? "Real annual returns" : "Nominal annual returns"}: <strong className="text-slate-200">{displayedSavingReturn.toFixed(2)}% saving / {displayedRetirementReturn.toFixed(2)}% retired</strong>{real ? ` · adjusted for ${plan.inflation}% inflation. Balances, chart, table, and CSV show today's purchasing power.` : " · before inflation. Balances, chart, table, and CSV show future dollars."}</p></div>
         <div className={`grid gap-3 ${plan.includeSpouse ? "sm:grid-cols-3" : "sm:grid-cols-2"}`} aria-live="polite">
           <Metric label="At your retirement" value={money(adjust(projection.atRetirement[0], plan.you.retirementAge - plan.you.age))} detail={`Your balance · age ${plan.you.retirementAge} · ${startYear + plan.you.retirementAge - plan.you.age}`} color="text-emerald-200" />
           {plan.includeSpouse ? <Metric label="At spouse's retirement" value={money(adjust(projection.atRetirement[1], plan.spouse.retirementAge - plan.spouse.age))} detail={`Spouse's balance · age ${plan.spouse.retirementAge} · ${startYear + plan.spouse.retirementAge - plan.spouse.age}`} color="text-amber-200" /> : null}
