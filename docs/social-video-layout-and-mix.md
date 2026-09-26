@@ -14,7 +14,10 @@ video, and interleave useful app tutorials with search-led research videos.
 - Real app footage occupies a focused panel above a caption band at y1060.
   Preserve table columns; follow the recorded vertical action or evidence crop.
 - Omit the repeated top masthead. Use the original Walnut logo on the closing
-  card. Keep the existing system typography, mint accent and narration voice.
+  card. Center all closing-card text beneath the logo on the shared safe-area
+  axis (x480), including the title, tagline, URL and small print. Research and
+  tutorial scene headings remain left aligned. Keep the existing system
+  typography, mint accent and narration voice.
 - Retain research/paid-plan context inside the safe area. Keep the native
   account header, right action rail and bottom description area clear.
 - Never alter financial values or redraw product screens to fit the layout.
@@ -38,6 +41,11 @@ do not advance it. Existing jobs and approved publishing records are immutable.
 ## September 26 delivery
 
 Deployed image: `registry.fly.io/congress-tracker-api:social-layout-20260926-v2`.
+The video worker subsequently received `social-layout-centered-20260926` for
+the owner's closing-card alignment correction. The same three unapproved review
+jobs were recomposed using their retained narration and captures; their earlier
+render assets remain recorded in `previous_renders`. Seven layout/workflow
+checks passed for this correction.
 Built from production `dc9c8f74f0883051af5fd79fa534125ec46a6f9f` plus only the
 six video service files changed for this task; healthy app/cron/video machines.
 Validation: 133 relevant tests plus an additional publish-event integration

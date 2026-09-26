@@ -25,19 +25,20 @@ def focus_crop(index, asset):
     return {'x': 0, 'y': target, 'width': w, 'height': height}
 
 
-def _text(draw, text, y, size, *, color=WHITE, max_width=820):
-    """Left-aligned editorial type with a bounded two-line headline."""
+def _text(draw, text, y, size, *, color=WHITE, max_width=820, centered=False):
+    """Fit type inside the shared safe area, preserving its vertical position."""
     size = min(size, 58)
     while size > 26 and draw.textlength(text, font=brand_font(size, True)) > max_width:
         size -= 1
-    draw.text((58, y), text, font=brand_font(size, True), fill=color)
+    draw.text((480 if centered else 58, y), text, font=brand_font(size, True),
+              fill=color, anchor='ma' if centered else 'la')
 
 
 def decorate(image, scene, scenes, creative, caption, *, closing=False, logo=None):
     d = ImageDraw.Draw(image)
     tutorial = creative.get('content_kind') == 'feature_tutorial'
     eyebrow = 'WALNUT / QUICK GUIDE' if tutorial else f"{creative.get('ticker', 'WALNUT')} / RESEARCH"
-    _text(d, eyebrow, 280, 22, color=MINT)
+    _text(d, eyebrow, 280, 22, color=MINT, centered=closing)
     if not closing:
         _text(d, scene['on_screen_text'], 332, 56)
         # A compact path line replaces the masthead and multiple footer labels.
@@ -45,9 +46,9 @@ def decorate(image, scene, scenes, creative, caption, *, closing=False, logo=Non
     else:
         if logo is not None:
             image.paste(logo.resize((180,180), Image.Resampling.LANCZOS), (390,470))
-        _text(d, 'Walnut Markets', 710, 58)
-        _text(d, "Don't follow a signal.", 805, 42)
-        _text(d, 'Follow the evidence.', 865, 42, color=MINT)
+        _text(d, 'Walnut Markets', 710, 58, centered=True)
+        _text(d, "Don't follow a signal.", 805, 42, centered=True)
+        _text(d, 'Follow the evidence.', 865, 42, color=MINT, centered=True)
     if caption:
         tight_caption(d, caption['text'], brand_font(52, True), y=CAPTION_Y,
                       width=960, max_width=790)
@@ -58,7 +59,7 @@ def decorate(image, scene, scenes, creative, caption, *, closing=False, logo=Non
         d.rounded_rectangle((x,1230,x+bar,1234), radius=2,
                             fill=MINT if i < scene['sequence'] else '#253c40')
     _text(d, 'walnutmarkets.com' if closing else ('ONE FEATURE. ONE NEXT STEP.' if tutorial else 'EXPLORE THE FULL BRIEF ON WALNUT'),
-          1270, 22, color=MINT)
-    _text(d, 'Research only · Not investment advice', 1330, 18, color=MUTED)
-    _text(d, 'Some features require a paid plan', 1360, 16, color=MUTED)
+          1270, 22, color=MINT, centered=closing)
+    _text(d, 'Research only · Not investment advice', 1330, 18, color=MUTED, centered=closing)
+    _text(d, 'Some features require a paid plan', 1360, 16, color=MUTED, centered=closing)
     return image
