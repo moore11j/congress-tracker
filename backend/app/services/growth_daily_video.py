@@ -53,7 +53,7 @@ def excerpt(source):
     raise ValueError("The brief needs a self-contained takeaway (8–65 words) for narration.")
 
 
-def creative(source, walkthrough_version=2):
+def creative(source, walkthrough_version=2, *, tutorial=None):
     if walkthrough_version not in {1, 2}:
         raise ValueError("Unsupported daily walkthrough version.")
     takeaway = excerpt(source)
@@ -106,13 +106,17 @@ def creative(source, walkthrough_version=2):
     if walkthrough_version == 2:
         board["walkthrough_version"] = 2
         board["caption"] = board["caption"].replace("Insights → Research Briefs", f"{ticker} ticker → Research")
+    if tutorial:
+        from app.services.growth_feature_tutorial import adapt
+        return adapt(board, tutorial)
     return board
 
 
 def validate(item, db=None):
     p = item["payload"]
     source = p.get("research_source", {})
-    expected = creative(source, (p.get("creative") or {}).get("walkthrough_version", 1))
+    expected = creative(source, (p.get("creative") or {}).get("walkthrough_version", 1),
+                        tutorial=(p.get("creative") or {}).get("tutorial_id"))
     if p.get("creative") != expected or p.get("campaign_hash") != digest(expected):
         raise ValueError("Daily creative changed. Create a new video revision.")
     if p.get("research_source_hash") != source_fingerprint(source):
@@ -124,20 +128,21 @@ def validate(item, db=None):
     return expected
 
 
-def create_job(db, source, actor, *, parent=None, feedback=""):
-    board = creative(source)
+def create_job(db, source, actor, *, parent=None, feedback="", tutorial=None):
+    board = creative(source, tutorial=tutorial)
     store.consume_budget(db, "creatives", store.config(db)["creative_limit"])
     key = CAMPAIGN + ":" + source["id"] + ":" + source_fingerprint(source)
-    opp = {"id": "co_" + digest(key)[:32], "topic": source["article"]["title"],
-           "opportunity_type": "daily_research", "tickers": [board["ticker"]], "score": 0,
+    if tutorial:key += ':tutorial:' + tutorial
+    opp = {"id": "co_" + digest(key)[:32], "topic": board.get('tutorial_title') or source["article"]["title"],
+           "opportunity_type": "feature_tutorial" if tutorial else "daily_research", "tickers": [board["ticker"]], "score": 0,
            "component_scores": {}, "factual_data_timestamp": (source.get("research_context") or {}).get("generated_at") or source.get("created_at"),
            "destination_url": board["target_url"], "research_brief_id": source["id"],
            "reason": "Published research adapted into a source-bound walkthrough; owner approval required.",
-           "suggested_format": "research_finding", "search_signal": {"target_keyword": source.get("target_keyword")}}
+           "suggested_format": board['format'], "search_signal": {"target_keyword": source.get("target_keyword")}}
     db.execute(text("INSERT INTO growth_content_opportunities VALUES (:id,:key,0,:at,:payload) ON CONFLICT(source_key) DO NOTHING"),
                {"id": opp["id"], "key": key, "at": store.now(), "payload": store.dumps(opp)})
     db.commit()
-    item = store.create_job(db, opp["id"], actor, "instagram", "research_finding", parent=parent, feedback=feedback,
+    item = store.create_job(db, opp["id"], actor, "instagram", board['format'], parent=parent, feedback=feedback,
         reviewed_product={"campaign_id": CAMPAIGN, "product_hook": "daily", "creative": board,
                           "campaign_hash": digest(board), "research_source": source,
                           "research_source_hash": source_fingerprint(source), "daily_automation": True,

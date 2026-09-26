@@ -72,12 +72,13 @@ def navigation_crop(shot,index,asset):
  return target
 
 
-def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='cinematic_v3'):
+def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='social_v1'):
  import imageio_ffmpeg
- if presentation not in {'classic','cinematic_v1','cinematic_v2','cinematic_v3'}:raise ValueError('Unknown navigation presentation.')
- refined=presentation in {'cinematic_v2','cinematic_v3'}
+ if presentation not in {'classic','cinematic_v1','cinematic_v2','cinematic_v3','social_v1'}:raise ValueError('Unknown navigation presentation.')
+ social=presentation=='social_v1'
+ refined=presentation in {'cinematic_v2','cinematic_v3','social_v1'}
  cinema=None
- if presentation.startswith('cinematic_'):
+ if presentation.startswith('cinematic_') or social:
   from app.services.growth_cinematic_style import BACKGROUND,NVIDIA_BACKGROUND,CinematicStyle,entrance_offset,tight_caption
   background=NVIDIA_BACKGROUND if presentation=='cinematic_v3' and creative.get('campaign_id')=='nvda_navigation_v4' else BACKGROUND
   if creative.get('schema_version')==5:background=NVIDIA_BACKGROUND if creative.get('ticker')=='NVDA' else None
@@ -92,6 +93,10 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
  d.line((64,255,1016,255),fill='#1e293b',width=1)
  centered(d,'Research only · Not investment advice · Paid features shown',1710,brand_font(18),MUTED)
  centered(d,'walnutmarkets.com',1760,brand_font(25),MINT)
+ if social:
+  # No burned-in top masthead or bottom footer beneath native app chrome.
+  from app.services.growth_social_layout import PANEL, SAFE, focus_crop, decorate
+  base=Image.new('RGBA',(W,H),(0,0,0,0))
  with tempfile.TemporaryDirectory(prefix='walnut-nav-render-') as folder:
   root=Path(folder);voice=root/'voice.mp3';voice.write_bytes(read_asset(audio));decoded={};knots={}
   for scene in scenes:
@@ -121,8 +126,9 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
      else:im=base.copy()
      d=ImageDraw.Draw(im)
      if shot in decoded:
-      centered(d,scene['on_screen_text'],295+(entrance_offset(elapsed) if cinema else 0),brand_font(66,True),WHITE,max_width=952)
-      centered(d,scene['subhead'],460,brand_font(26),MINT,max_width=956)
+      if not social:
+       centered(d,scene['on_screen_text'],295+(entrance_offset(elapsed) if cinema else 0),brand_font(66,True),WHITE,max_width=952)
+       centered(d,scene['subhead'],460,brand_font(26),MINT,max_width=956)
       raw,w,h,size,count=decoded[shot];a=captures[shot];f=source_frame_at(knots[shot],t-scene['start']);index=min(count-1,int(f));fraction=f-index
       with raw.open('rb') as stream:stream.seek(index*size);pic=Image.frombytes('RGB',(w,h),stream.read(size))
       current=a['frames'][index];following=a['frames'][min(count-1,index+1)]
@@ -135,31 +141,36 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
        cx,cy=a['frames'][recent]['cursor'];radius=13+(index-recent+fraction)*4
        pd.ellipse((cx-radius,cy-radius,cx+radius,cy+radius),outline=MINT,width=2)
       pd.polygon([(x,y),(x+2,y+23),(x+8,y+17),(x+15,y+28),(x+20,y+25),(x+13,y+14),(x+23,y+13)],fill='#f8fafc',outline=BG,width=2)
-      c=navigation_crop(shot,f,a);pic=pic.crop((int(c['x']),int(c['y']),int(c['x']+c['width']),int(c['y']+c['height'])))
-      scale=min(968/pic.width,914/pic.height);dw,dh=round(pic.width*scale),round(pic.height*scale)
-      px=(W-dw)//2;py=542+(914-dh)//2+(entrance_offset(elapsed) if cinema else 0)
+      c=focus_crop(f,a) if social else navigation_crop(shot,f,a);pic=pic.crop((int(c['x']),int(c['y']),int(c['x']+c['width']),int(c['y']+c['height'])))
+      pw,ph=(PANEL[2]-PANEL[0],PANEL[3]-PANEL[1]) if social else (968,914)
+      scale=min(pw/pic.width,ph/pic.height);dw,dh=round(pic.width*scale),round(pic.height*scale)
+      px=PANEL[0]+(pw-dw)//2 if social else (W-dw)//2
+      py=PANEL[1]+(ph-dh)//2 if social else 542+(914-dh)//2+(entrance_offset(elapsed) if cinema else 0)
       pic=pic.resize((dw,dh),Image.Resampling.LANCZOS)
       if cinema:cinema.panel(im,pic,(px,py))
       else:im.paste(pic,(px,py))
       d=ImageDraw.Draw(im)
       if not cinema:d.rounded_rectangle((px-2,py-2,px+dw+2,py+dh+2),radius=8,outline='#334155',width=2)
-      centered(d,'Actual Walnut navigation · Published research' if creative.get('schema_version')==5 else 'Actual Walnut navigation · Paid research tools',1479,brand_font(19),MUTED)
-     else:
+      if not social:centered(d,'Actual Walnut navigation · Published research' if creative.get('schema_version')==5 else 'Actual Walnut navigation · Paid research tools',1479,brand_font(19),MUTED)
+     elif not social:
       centered(d,'Walnut Markets',335,brand_font(68,True),WHITE)
       im.paste(logo.resize((280,280),Image.Resampling.LANCZOS),(400,640));d=ImageDraw.Draw(im)
       centered(d,creative['brand_tagline'].replace('. ','.\n',1),1020,brand_font(61,True),WHITE,max_width=820)
       centered(d,creative['cta'],1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
-     if caption:
+     if social:
+      decorate(im,scene,scenes,creative,caption,closing=shot not in decoded,logo=logo)
+     elif caption:
       if refined:
        tight_caption(d,caption['text'],brand_font(52,True))
       elif cinema:
        d.rounded_rectangle((52,1520,1028,1646),radius=20,fill='#08121f',outline='#253c40',width=1)
        d.line((76,1544,76,1584),fill=MINT,width=3)
       if not refined:centered(d,caption['text'],1540,brand_font(52,True),WHITE,max_width=900 if cinema else 940)
-     gap=14;bar=(952-gap*(len(scenes)-1))/len(scenes)
-     for i in range(len(scenes)):
-      x=64+i*(bar+gap);d.rounded_rectangle((x,1674,x+bar,1678),radius=2,fill=MINT if i<scene['sequence'] else '#1e293b')
+     if not social:
+      gap=14;bar=(952-gap*(len(scenes)-1))/len(scenes)
+      for i in range(len(scenes)):
+       x=64+i*(bar+gap);d.rounded_rectangle((x,1674,x+bar,1678),radius=2,fill=MINT if i<scene['sequence'] else '#1e293b')
      if frame_observer:frame_observer(n,im)
      process.stdin.write(im.tobytes())
     process.stdin.close()
@@ -169,9 +180,9 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
   content=output.read_bytes()
   if content[4:8]!=b'ftyp' or len(content)>200*1024*1024:raise ValueError('Invalid navigation export.')
   return content,{'provider':'walnut_native','width':W,'height':H,'duration':duration,'frame_rate':FPS,'encoding':'h264_intra',
-   'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':4,'font':Path(brand_font(24).path).name,
+   'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':5 if social else 4,'font':Path(brand_font(24).path).name,
    'brand_accent':MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
    'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
-   'presentation':presentation,'background_brightness':.45 if refined else 1.0,
+   'presentation':presentation,'safe_content_bounds':list(SAFE) if social else None,'brand_placement':'closing_card_only' if social else 'masthead','background_brightness':.45 if refined else 1.0,
    'caption_box':'text_bounds_16x10_padding' if refined else 'fixed','scene_transition':'cut','foreground_motion':'none',
    'background_asset':cinema.background.name if cinema and cinema.background else None,'background_is_illustrative':bool(cinema)}

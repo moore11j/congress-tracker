@@ -101,7 +101,25 @@ def ensure_schema(db):
 
 
 def config(db):
-    return {"enabled": False, "owner_id": None, "enabled_at": None, **store.setting(db, KEY, {})}
+    return {"enabled": False, "owner_id": None, "enabled_at": None,
+            "tutorial_every": 0, "tutorial_mix_since": None, **store.setting(db, KEY, {})}
+
+
+def next_tutorial(db, cfg):
+    """One of every four new briefs becomes a product lesson; old jobs stay put.
+
+    Count acknowledged events, so a retry or worker restart cannot advance the
+    mix. The single video worker claims events before creating their one job.
+    """
+    if cfg.get('tutorial_every') != 4 or not cfg.get('tutorial_mix_since'):
+        return None
+    count = db.execute(text("SELECT COUNT(*) FROM growth_video_brief_events WHERE status='CREATED' AND replace(created_at,' ','T')>=:since"),
+                       {'since':cfg['tutorial_mix_since']}).scalar() or 0
+    position = count + 1
+    if position % 4:
+        return None
+    from app.services.growth_feature_tutorial import TUTORIALS
+    return TUTORIALS[(position//4-1) % len(TUTORIALS)]
 
 
 def configure(db, actor, enabled):
@@ -243,7 +261,8 @@ def process_publish_events(db, *, limit=10):
             if existing:
                 job_id = existing
             else:
-                item = create_job(db, source, owner.id)
+                tutorial = next_tutorial(db, cfg)
+                item = create_job(db, source, owner.id, tutorial=tutorial) if tutorial else create_job(db, source, owner.id)
                 job_id = item["id"]
             db.execute(text("""UPDATE growth_video_brief_events
                 SET status='CREATED',job_id=:job,updated_at=:at,error=NULL WHERE brief_id=:id"""),

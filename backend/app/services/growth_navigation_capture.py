@@ -150,7 +150,7 @@ class Recorder:
 def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  from playwright.sync_api import sync_playwright
  import imageio_ffmpeg
- shots={'daily_search','daily_insights','daily_research','daily_brief','daily_takeaway'} if daily else SHOTS
+ shots={'daily_search','daily_insights','daily_research','daily_brief','daily_takeaway','tutorial_ownership'} if daily else SHOTS
  if shot not in shots or owner_id is None:raise ValueError('Authorized navigation capture required.')
  ticker=daily['ticker'] if daily else 'NVDA'
  ticker_url=f'https://app.walnutmarkets.com/ticker/{ticker}' if daily else TICKER_URL
@@ -163,7 +163,7 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  initial=INSIGHTS_URL if shot in {'v4_search','v4_brief'} else INSTITUTION_URL if shot in {'v4_filings','v4_insights'} else TICKER_URL
  if daily:initial=INSIGHTS_URL if shot in {'daily_search','daily_brief'} else ticker_url if shot=='daily_insights' else brief_url
  ticker_research=bool(daily and daily.get('walkthrough_version',1)>=2)
- if ticker_research and shot in {'daily_search','daily_research','daily_brief'}:initial=ticker_url
+ if ticker_research and shot in {'daily_search','daily_research','daily_brief','tutorial_ownership'}:initial=ticker_url
  with tempfile.TemporaryDirectory(prefix='walnut-navigation-') as folder,sync_playwright() as pw:
   root=Path(folder);browser=pw.chromium.launch(headless=True)
   context=browser.new_context(viewport=VIEWPORT,device_scale_factor=1,color_scheme='dark',locale='en-US',timezone_id='UTC')
@@ -209,7 +209,7 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    page.wait_for_timeout(350)
   def ready_briefs():
    briefs.locator('a[href$="'+brief_path+'"]').wait_for(timeout=60000)
-  research=page.get_by_role('button',name=re.compile(r'^Research\s+New$',re.I))
+  research=page.get_by_role('button',name=re.compile(r'^Research(?:\s+New)?$',re.I))
   ticker_brief=page.locator('a[href$="'+brief_path+'"]')
   def ready_ticker_briefs():
    research.click(timeout=PAGE_TIMEOUT_MS)
@@ -224,6 +224,14 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    result.wait_for(timeout=30000);r.click(result,'Open '+ticker)
    page.get_by_role('heading',level=1).filter(has_text=ticker).wait_for(timeout=60000)
    page.wait_for_timeout(1200);r.hold(15)
+  elif shot=='tutorial_ownership':
+   ownership=page.get_by_role('button',name='Ownership',exact=True)
+   ownership.wait_for(timeout=PAGE_TIMEOUT_MS);position(ownership,top=260)
+   r.hold(3);r.mark('Click Ownership');r.click(ownership,'Ticker Ownership tab')
+   reported=page.get_by_role('heading',name=re.compile(r'^(Institutional Holders|Reported Institutional Holdings)$'))
+   reported.wait_for(timeout=PAGE_TIMEOUT_MS)
+   r.hold(3);r.scroll_to(reported,top=220,steps=20);r.circle(reported);r.hold(20)
+   source_text.append(reported.locator('xpath=ancestor::section[1]').inner_text())
   elif shot=='daily_research':
    research.wait_for(timeout=PAGE_TIMEOUT_MS)
    position(research,top=260);r.hold(3);r.mark('Click Research');r.click(research,'Ticker Research tab')
