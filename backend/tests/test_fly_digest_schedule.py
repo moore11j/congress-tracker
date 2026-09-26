@@ -134,7 +134,7 @@ def test_digest_schedule_wrapper_is_gated_and_bounded():
     assert 'EMAIL_DIGEST_SCHEDULE_DRY_RUN:-0' in script
     assert "--dry-run" in script
     assert 'set -- python -m app.jobs.send_email_digests --kind "$kind"' in script
-    assert "monitoring) ;;" in script
+    assert "monitoring|top_ideas) ;;" in script
     assert "watchlist_activity" not in script
     assert "signals" not in script
     assert "billing" not in script.lower()

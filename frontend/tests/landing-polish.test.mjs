@@ -113,7 +113,7 @@ test("landing uses stock research positioning and preserves discovery actions", 
   assert.match(homepageContent, /Insider Trading Tracker & Stock Research/);
   assert.match(landingPage, /homepageContent.hero.title/);
   assert.match(landingPage, /homepageContent.hero.description/);
-  assert.match(landingPage, /Open Screener/);
+  assert.match(landingPage, /See today&apos;s #1 and #2 stocks/);
   assert.match(landingPage, /eventName="see_top_performers_click"/);
   assert.match(landingPage, /View Leaderboards/);
   assert.match(landingPage, /Explore Strategies/);
@@ -143,7 +143,7 @@ test("homepage research activation keeps the existing search flow and emits GA4 
   assert.match(landingSearch, /isHighConfidenceSearchResult\(bestResult, trimmedQuery\)/);
   assert.match(landingSearch, /window\.location\.href = absoluteAppHref\(appUrl, routeForSearchResult\(bestResult\)\)/);
   assert.match(landingSearch, /window\.location\.href = absoluteAppHref\(appUrl, searchResultsHref\(trimmedQuery\)\)/);
-  assert.match(landingPage, /Start free\. Paid plans unlock deeper research\./);
+  assert.match(landingPage, /Free account: Top 5 ideas/);
   assert.match(landingSearch, /homepageViewTrackedRef/);
   assert.match(landingSearch, /searchFocusTrackedRef/);
   assert.match(landingSearch, /searchInputTrackedRef/);
@@ -178,12 +178,12 @@ test("landing includes compact watchlist and alert proof", () => {
   assert.match(homepageContent, /Save tickers to watchlists and get alerted when meaningful disclosures, news, press releases, institutional activity/);
 });
 
-test("landing consolidates participant and strategy discovery into the portfolio blueprint", () => {
-  assert.match(workflow, /Your portfolio blueprint/);
-  assert.match(workflow, /Learn from historical performers/);
-  assert.match(workflow, /Study backtested strategies/);
-  assert.match(workflow, /eventName="insider_profile_click"/);
-  assert.match(workflow, /eventName="strategy_click"/);
+test("landing leads with filtered ideas, optional evidence and monitoring", () => {
+  assert.match(workflow, /Research filtered for you/);
+  assert.match(workflow, /Receive the strongest ideas/);
+  assert.match(workflow, /See why each idea ranked/);
+  assert.match(workflow, /Follow what changes/);
+  assert.match(workflow, /eventName="top_stocks_click"/);
   assert.doesNotMatch(landingPage, /followActivityCards|5,685 holdings|BlackRock, Inc/);
 });
 

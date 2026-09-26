@@ -162,3 +162,23 @@ def test_obsolete_scoring_snapshot_is_not_presented_as_current(monkeypatch):
         snapshot.payload_json = json.dumps(payload)
         db.commit()
         assert top_stocks.build_top_stocks_response(db)["items"] == []
+
+
+def test_canonical_evidence_breaks_ties_without_a_new_public_score():
+    high = _row("HIGH", 95)
+    steady = _row("STEADY", 80, ranking_context={"baseline_score": 80})
+    accelerating = _row("RISING", 80, ranking_context={"baseline_score": 70})
+    clustered = _row("CLUSTER", 80, ranking_context={"baseline_score": 70, "insider_cluster_count": 3})
+    clustered["confirmation"]["sources"] = {"congress": {"present": True, "direction": "bullish"}}
+    payload = top_stocks._ranked_payload([steady, accelerating, clustered, high], generated_at="2026-09-25T20:00:00Z")
+    assert [item["symbol"] for item in payload["items"]] == ["HIGH", "CLUSTER", "RISING", "STEADY"]
+    assert payload["items"][1]["why_ranked"] == "Insider cluster with Congress confirmation"
+    assert "baseline_score" not in json.dumps(payload)
+    assert "idea_score" not in json.dumps(payload)
+
+
+def test_tier_evidence_projection_does_not_reorder_canonical_ranks():
+    first = _row("FIRST", 95, visible_confirmation=_bundle("FIRST", 65))
+    second = _row("SECOND", 85, visible_confirmation=_bundle("SECOND", 80))
+    payload = top_stocks._ranked_payload([second, first], generated_at="2026-09-25T20:00:00Z")
+    assert [(item["rank"], item["symbol"], item["confirmation_score"]) for item in payload["items"]] == [(1, "FIRST", 65), (2, "SECOND", 80)]

@@ -96,7 +96,8 @@ export function LoginRegisterPanel({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
-  const signupPath = safeAppReturnPath(resolvedReturnTo, "/welcome");
+  const signupReturnPath = safeAppReturnPath(resolvedReturnTo, "/welcome");
+  const signupPath = signupReturnPath === "/welcome" ? "/welcome" : `/welcome?return_to=${encodeURIComponent(signupReturnPath)}`;
   const [resetEmail, setResetEmail] = useState("");
   const [status, setStatus] = useState<string | null>(
     resolvedAccountDeleted
@@ -137,7 +138,7 @@ export function LoginRegisterPanel({
   }, [mode, nextPath]);
 
   const headline = useMemo(
-    () => (mode === "register" ? "Create your free Walnut account." : "Welcome back."),
+    () => (mode === "register" ? "See today's #1 and #2 stocks." : "Welcome back."),
     [mode],
   );
   const validateSubmit = () => {
@@ -176,7 +177,7 @@ export function LoginRegisterPanel({
         trackEvent("signup_submitted", { method: "password" });
         await register({ email: email.trim(), password });
         destination = signupPath;
-        recordSignupCompleteEvents(destination);
+        recordSignupCompleteEvents(signupReturnPath);
       } else {
         await login({ email, password });
       }

@@ -22,6 +22,9 @@ import {
 } from "@/lib/marketingMetadata";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 import { homepageContent } from "@/lib/homepageContent";
+import { optionalPageAuthState } from "@/lib/serverAuth";
+import { getLeaderboardDashboard, type LeaderboardDashboardResponse } from "@/lib/api";
+import { RankingLocks } from "@/components/landing/RankingLocks";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
@@ -30,6 +33,7 @@ export const metadata: Metadata = walnutMarketingMetadata;
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
+const signupUrl = `${appUrl}/login?mode=register&return_to=%2Fwelcome`;
 const pricingUrl = `${appUrl}/pricing`;
 const topStocksUrl = `${appUrl}/leaderboards#top-stocks`;
 
@@ -127,12 +131,13 @@ async function loadPlanConfig(): Promise<PlanConfig | null> {
   }
 }
 
-async function loadTopStocks(): Promise<HomepageRanking> {
+async function loadRankings(): Promise<LeaderboardDashboardResponse | null> {
   try {
-    // No viewer cookies: reuse the product's public, score-redacted top-three teaser.
-    return publicHomepageRanking(await landingFetchJson<unknown>("/api/leaderboards/preview", undefined, 2500));
+    const { token } = await optionalPageAuthState();
+    if (token) return await getLeaderboardDashboard({authToken: token, source: "LandingPage"});
+    return await landingFetchJson<LeaderboardDashboardResponse>("/api/leaderboards/preview", {version: 2}, 2500, "no-store");
   } catch {
-    return {items: [], generatedAt: null};
+    return null;
   }
 }
 
@@ -280,7 +285,9 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 }
 
 export default async function LandingPage() {
-  const [planConfig, topStocks] = await Promise.all([loadPlanConfig(), loadTopStocks()]);
+  const [planConfig, rankings] = await Promise.all([loadPlanConfig(), loadRankings()]);
+  const unlocked = rankings?.top_stocks.locked_ranks?.length === 0;
+  const topStocks = publicHomepageRanking(rankings, unlocked);
   const researchExample = await loadResearchExample(topStocks);
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
   const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");
@@ -301,9 +308,9 @@ export default async function LandingPage() {
               {homepageContent.hero.description}
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <HomepageCtaLink href={`${appUrl}/screener`} eventName="open_screener_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">Open Screener</HomepageCtaLink>
+              <HomepageCtaLink href={unlocked ? topStocksUrl : signupUrl} eventName="top_stocks_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">See today&apos;s #1 and #2 stocks</HomepageCtaLink>
               <HomepageCtaLink href={topStocksUrl} eventName="see_top_performers_click" className="inline-flex items-center justify-center px-5 py-3 text-sm font-semibold text-emerald-200 underline underline-offset-4 hover:text-emerald-100">
-                View Leaderboards
+                Explore Top-Ranked Stocks
               </HomepageCtaLink>
               <a href={`${appUrl}/strategies`} className="inline-flex items-center justify-center px-5 py-3 text-sm font-semibold text-emerald-200 underline underline-offset-4 hover:text-emerald-100">
                 Explore Strategies
@@ -311,7 +318,7 @@ export default async function LandingPage() {
             </div>
             <div id="analyze-a-stock" className="scroll-mt-28">
               <LandingSearch appUrl={appUrl} buttonLabel="Analyze a Stock" buttonOutside subduedButton placeholder="Search a company or ticker" className="mt-6 max-w-3xl" featuredSuggestion={heroFeaturedTicker} submitEventName="analyze_stock_click" />
-              <p className="mt-2 text-xs leading-5 text-slate-400">Start free. Paid plans unlock deeper research.</p>
+              <p className="mt-2 text-xs leading-5 text-slate-400">Free account: Top 5 ideas. Premium: more ideas, more often, and the evidence behind them.</p>
             </div>
             <p className="mt-4 flex max-w-4xl flex-wrap gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
               {heroEvidenceSources.map((source, index) => (
@@ -333,27 +340,42 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Live product preview</SectionEyebrow>
           <div className="mt-3 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div><h2 className="text-3xl font-semibold text-white sm:text-4xl">Top-Ranked Stocks</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">Start with three companies from Walnut&apos;s stored ranking, built from the Bullish Confirmation screener. Then investigate the evidence.</p></div>
+            <div><h2 className="text-3xl font-semibold text-white sm:text-4xl">Top-Ranked Stocks</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">Walnut scans the evidence and ranks the strongest stock ideas. {unlocked ? "Your Top 5 ideas are unlocked." : "Ranks #3–#5 are a public preview. Create a free account to unlock #1 and #2."}</p></div>
             <HomepageCtaLink href={topStocksUrl} eventName="top_stocks_click" className="shrink-0 text-sm font-semibold text-emerald-200 underline underline-offset-4">View Full Rankings →</HomepageCtaLink>
           </div>
           <p className="mt-3 text-xs text-slate-500">Ranking snapshot: {homepageDate(topStocks.generatedAt)} (UTC)</p>
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {!unlocked && <RankingLocks signupUrl={signupUrl} stocks />}
             {topStocks.items.map(stock => <article data-homepage-ranked-stock={stock.symbol} key={stock.symbol} className="min-w-0 rounded-lg border border-white/10 bg-slate-950/85 p-5">
               <p className="font-mono text-sm font-semibold text-emerald-300">#{stock.rank}</p>
               <h3 className="mt-3 font-mono text-2xl font-semibold text-white">{stock.symbol}</h3>
               <p className="mt-1 min-h-12 break-words text-sm leading-6 text-slate-400">{stock.companyName}</p>
-              <p className="mt-4 text-xs leading-5 text-slate-400">Activity in snapshot: {stock.drivers.join(" · ") || "See the ranked company in Walnut"}</p>
+              <p className="mt-4 text-sm font-semibold text-slate-200">Why this ranked</p>
+              <p className="mt-2 text-xs leading-5 text-slate-300">{stock.whyRanked}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-400">{stock.drivers.join(" · ") || "See the ranked company in Walnut"}</p>
               <p className="mt-3 text-xs text-slate-500">Confirmation Score · Premium</p>
               <HomepageCtaLink href={`${appUrl}/ticker/${encodeURIComponent(stock.symbol)}`} eventName="analyze_stock_click" className="mt-4 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">View Analysis →</HomepageCtaLink>
             </article>)}
           </div>
           {!topStocks.items.length && <p className="mt-5 text-sm text-slate-400">The ranked preview is unavailable right now. Open the screener to continue your research.</p>}
-          <p className="mt-4 text-xs leading-5 text-slate-500">Guests and Free accounts see up to three ranked stocks. Full rankings, Confirmation Scores and protected datasets retain their existing plan access.</p>
+          {!unlocked && <a href={signupUrl} className="mt-5 inline-flex rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950">Unlock the Top 2 · Create Free Account</a>}
+          <p className="mt-4 text-xs leading-5 text-slate-500">Free: #1–#5 and optional weekly Top 5 delivery. Premium: more ideas, daily or weekly delivery, Confirmation Score and detailed evidence. Pro: the highest limits and advanced datasets.</p>
         </div>
       </section>
 
       <HomepageResearchExample example={researchExample} appUrl={appUrl} rankingAt={topStocks.generatedAt} />
       <PortfolioBlueprint appUrl={appUrl} />
+
+      <section className="border-b border-white/10 px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl"><SectionEyebrow>Historical performers</SectionEyebrow><h2 className="mt-3 text-3xl font-semibold text-white">Explore the leaderboard previews.</h2>
+          <p className="mt-3 text-sm text-slate-400">{unlocked ? "Your free account unlocks ranks #1–#5." : "Ranks #3–#5 are a public preview. Unlock the Top 2 with a free account."} Detailed performance and deeper rankings follow your plan.</p>
+          {([['Congress', rankings?.congress], ['Insiders', rankings?.insiders], ['Institutions', rankings?.institutions]] as const).map(([label, snapshot]) => <div key={label} className="mt-8"><h3 className="text-xl font-semibold text-white">{label}</h3><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {!unlocked && <RankingLocks signupUrl={signupUrl} />}
+            {snapshot?.items.filter(row => typeof row.rank === 'number' && row.rank >= (unlocked ? 1 : 3) && row.rank <= 5).map(row => <article key={String(row.rank)} className="min-w-0 rounded-lg border border-white/10 p-5"><p className="font-mono text-emerald-300">#{String(row.rank)}</p><p className="mt-3 break-words font-semibold text-white">{typeof row.name === 'string' ? row.name : 'Participant'}</p></article>)}
+          </div>{!snapshot?.items.length && <p className="mt-3 text-sm text-slate-400">Ranking snapshot unavailable.</p>}</div>)}
+          <a href={`${appUrl}/leaderboards`} className="mt-6 inline-flex text-sm font-semibold text-emerald-200 underline underline-offset-4">View Leaderboards →</a>
+        </div>
+      </section>
 
       <section id="monitoring" className="border-b border-white/10 px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-6 sm:flex sm:items-start sm:justify-between sm:gap-8">
@@ -381,7 +403,7 @@ export default async function LandingPage() {
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
               <LandingPlanPrice display={freePrice} />
-              <p className="mt-3 text-sm leading-6 text-slate-400">Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context.</p>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Get the Top 5 stock ideas, short reasons and source labels. Choose weekly Top 5 email delivery. Explore core ticker research, Congress disclosures and insider activity.</p>
             </article>
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.04] p-6">
               <div className="flex items-center justify-between gap-3">
@@ -392,7 +414,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={premiumPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Elevate your stock research with Walnut premium and start evaluating the fundamentals, technicals, Congress trades, insider trades, catalysts, risks, and Walnut&apos;s proprietary confirmation score all in one place.
+                Get more ideas, more often, and see the evidence behind them. Unlock up to 10 ideas, daily or weekly delivery, Confirmation Score, Cross-Source Divergence, Similar Historical Setups and detailed Why This Ranked. Source access follows your plan.
               </p>
             </article>
             <article className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.035] p-6">
@@ -404,7 +426,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                See the data most investors miss with Walnut Pro, including institutional activity, options flow, and macro positioning that can show whether buying interest is building or fading.
+                Get up to 25 ranked ideas, the highest result limits, institutional activity, options flow, advanced alternative data and deeper analysis. Follow strategies where entitled. Future API and automation workflows are not yet included.
               </p>
             </article>
           </div>

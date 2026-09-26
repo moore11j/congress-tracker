@@ -1296,6 +1296,7 @@ export type BillingLocation = {
 };
 
 export type AccountNotificationSettings = {
+  top_stock_ideas_frequency?: "off" | "weekly" | "daily";
   alerts_enabled: boolean;
   email_notifications_enabled: boolean;
   watchlist_activity_notifications: boolean;
@@ -2816,6 +2817,12 @@ export async function updateAccountNotifications(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTopIdeasPreference(frequency: "off" | "weekly" | "daily"): Promise<{frequency: string}> {
+  return fetchJson(buildApiUrl("/api/account/top-ideas"), {
+    method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({frequency}),
   });
 }
 
@@ -6338,6 +6345,8 @@ export type CongressTraderLeaderboardResponse = {
 export type CachedLeaderboardSection = "top-stocks" | "congress_members" | "insiders" | "institutions";
 
 export type CachedLeaderboardResponse = {
+  locked_ranks?: number[];
+  preview?: boolean;
   key?: string;
   items: Record<string, unknown>[];
   generated_at: string | null;
@@ -6357,9 +6366,9 @@ export type LeaderboardDashboardResponse = {
   can_view_institutions: boolean;
 };
 
-/** Reads the public three-row teaser from already-prepared daily snapshots. */
+/** Reads true ranks #3–#5 from already-prepared daily snapshots. */
 export async function getLeaderboardPreview(params?: { source?: string }): Promise<LeaderboardDashboardResponse> {
-  const url = buildApiUrl("/api/leaderboards/preview");
+  const url = buildApiUrl("/api/leaderboards/preview", { version: 2 });
   const request = () => fetchJson<LeaderboardDashboardResponse>(url, {
     cache: "no-store",
     next: { revalidate: 0 },

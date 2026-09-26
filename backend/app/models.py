@@ -1144,6 +1144,7 @@ class UserAccount(Base):
     deletion_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     alerts_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     email_notifications_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    top_stock_ideas_frequency: Mapped[str] = mapped_column(Text, default="off", server_default="off", nullable=False)
     watchlist_activity_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     signals_notifications: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

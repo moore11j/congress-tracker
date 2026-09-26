@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
 import {
   getAccountSettings,
+  getEntitlements,
   getMe,
   updateAccountNotifications,
   updateAccountPassword,
@@ -19,6 +20,7 @@ import { PasswordStrengthMeter } from "@/components/auth/PasswordStrengthMeter";
 import { EmailVerificationBadge, EmailVerificationBanner } from "@/components/auth/EmailVerificationNotice";
 
 const emptyNotifications: AccountNotificationSettings = {
+  top_stock_ideas_frequency: "off",
   alerts_enabled: true,
   email_notifications_enabled: true,
   watchlist_activity_notifications: true,
@@ -41,6 +43,7 @@ function fieldClassName(disabled = false) {
 export function AccountSettingsPanel() {
   const searchParams = useSearchParams();
   const [user, setUser] = useState<AccountUser | null>(null);
+  const [dailyIdeasAllowed, setDailyIdeasAllowed] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [country, setCountry] = useState("");
@@ -74,6 +77,7 @@ export function AccountSettingsPanel() {
         if (cancelled) return;
         const fallback = splitName(response.user.name);
         setUser(response.user);
+        getEntitlements().then(value => { if (!cancelled) setDailyIdeasAllowed(value.features.includes("leaderboards")); }).catch(() => undefined);
         setFirstName(response.user.first_name ?? fallback.firstName);
         setLastName(response.user.last_name ?? fallback.lastName);
         setCountry(response.user.country ?? "");
@@ -222,7 +226,7 @@ export function AccountSettingsPanel() {
     }
   };
 
-  const toggleNotification = (key: keyof AccountNotificationSettings) => {
+  const toggleNotification = (key: "watchlist_activity_notifications" | "signals_notifications") => {
     setNotifications((current) => ({ ...current, [key]: !current[key] }));
   };
 
@@ -408,6 +412,11 @@ export function AccountSettingsPanel() {
           Choose the delivery cadence available across your monitored sources. Transactional account and billing emails stay separate.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="text-sm text-slate-200">Top Stock Ideas
+            <select value={notifications.top_stock_ideas_frequency ?? "off"} onChange={event => setNotifications(current => ({...current, top_stock_ideas_frequency: event.target.value as "off" | "weekly" | "daily"}))} className={fieldClassName()}>
+              <option value="off">Off</option><option value="weekly">Weekly · Top 5 free</option><option value="daily" disabled={!dailyIdeasAllowed}>Daily · Premium / Pro</option>
+            </select><span className="mt-2 block text-xs text-slate-400">Free: weekly Top 5. Premium / Pro: daily or weekly, with more ideas and fuller evidence. Email verification required.</span>
+          </label>
           <ToggleRow
             label="Daily monitoring digest"
             checked={notifications.watchlist_activity_notifications}

@@ -501,6 +501,9 @@ def run_digest_job(
     dry_run: bool = False,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
+    if kind == "top_ideas":
+        from app.services.top_ideas_digest import run_top_ideas_digest
+        return run_top_ideas_digest(db, limit=limit, dry_run=dry_run, now=now)
     since, window_end = daily_digest_window(lookback_days=lookback_days, now=now)
     if not force and not monitoring_email_send_day(now=now):
         return []

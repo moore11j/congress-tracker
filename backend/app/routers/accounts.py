@@ -172,6 +172,11 @@ class NotificationSettingsPayload(BaseModel):
     email_notifications_enabled: bool
     watchlist_activity_notifications: bool
     signals_notifications: bool
+    top_stock_ideas_frequency: Literal["off", "weekly", "daily"] | None = None
+
+
+class TopIdeasPreferencePayload(BaseModel):
+    frequency: Literal["off", "weekly", "daily"]
 
 
 class AdminCustomPricePayload(BaseModel):
@@ -270,7 +275,7 @@ class AdminBillingStatementSendTestPayload(BaseModel):
 
 
 class AdminDigestRunNowPayload(BaseModel):
-    kind: Literal["monitoring"]
+    kind: Literal["monitoring", "top_ideas"]
     lookback_days: int = Field(default=1, ge=1, le=30)
     limit: int = Field(default=100, ge=1, le=500)
     force: bool = False
@@ -952,12 +957,13 @@ def _require_password_meets_account_rules(value: str, *, label: str = "Password"
     raise HTTPException(status_code=422, detail=PASSWORD_RULES_DETAIL.replace("Password", label, 1))
 
 
-def _notification_settings(user: UserAccount) -> dict[str, bool]:
+def _notification_settings(user: UserAccount) -> dict:
     return {
         "alerts_enabled": bool(user.alerts_enabled),
         "email_notifications_enabled": bool(user.email_notifications_enabled),
         "watchlist_activity_notifications": bool(user.watchlist_activity_notifications),
         "signals_notifications": bool(user.signals_notifications),
+        "top_stock_ideas_frequency": user.top_stock_ideas_frequency or "off",
     }
 
 
@@ -4596,6 +4602,8 @@ def update_account_notifications(
     db: Session = Depends(get_db),
 ):
     user = current_user(db, request, required=True)
+    if payload.top_stock_ideas_frequency is not None:
+        _set_top_ideas_preference(db, user, payload.top_stock_ideas_frequency)
     # The two delivery preferences below replace the legacy master switches.
     # Restore those switches on save so existing opt-outs migrate safely when a
     # user next confirms their delivery choices.
@@ -4607,6 +4615,21 @@ def update_account_notifications(
     db.commit()
     db.refresh(user)
     return _notification_settings(user)
+
+
+def _set_top_ideas_preference(db: Session, user: UserAccount, frequency: str) -> None:
+    from app.entitlements import entitlements_for_user
+    if frequency == "daily" and not entitlements_for_user(db, user).has_feature("leaderboards"):
+        raise HTTPException(status_code=403, detail="Daily Top Stock Ideas requires Premium. Free accounts can choose Weekly.")
+    user.top_stock_ideas_frequency = frequency
+
+
+@router.patch("/account/top-ideas", dependencies=[Depends(rate_limit_notification_mutation)])
+def update_top_ideas_preference(payload: TopIdeasPreferencePayload, request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=True)
+    _set_top_ideas_preference(db, user, payload.frequency)
+    db.commit()
+    return {"frequency": user.top_stock_ideas_frequency}
 
 
 @router.post("/account/delete")

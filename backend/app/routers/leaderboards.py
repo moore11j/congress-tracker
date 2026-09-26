@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.entitlements import current_entitlements, require_feature
+from app.auth import current_user
+from app.services.ranking_access import project_ranking
+from app.entitlements import current_entitlements
 from app.services.leaderboard_snapshots import CONGRESS_LEADERBOARD_KEY, INSTITUTION_LEADERBOARD_KEY, INSIDER_LEADERBOARD_KEY, read_leaderboard_snapshot
 from app.services.top_stocks import build_top_stocks_response
 
@@ -12,25 +14,13 @@ router = APIRouter(tags=["leaderboards"])
 
 
 def _preview_snapshot(snapshot: dict, *, key: str) -> dict:
-    """Expose a deliberately small public teaser from an already-built snapshot."""
-    preview = dict(snapshot)
-    items = [dict(item) for item in list(snapshot.get("items") or [])[:3] if isinstance(item, dict)]
-    if key == "top_stocks":
-        # Confirmation Score is a Premium signal. The guest teaser can show
-        # the ranked companies without serializing the proprietary score.
-        for item in items:
-            item.pop("confirmation_score", None)
-    preview["items"] = items
-    # Filter variants are a Premium interaction. The public page shows the
-    # filters as disabled affordances and receives only the all-stocks teaser.
-    preview.pop("filter_items", None)
-    return preview
+    return project_ranking(snapshot, authenticated=False, stocks=key == "top_stocks")
 
 
 @router.get("/leaderboards/preview")
 def leaderboard_preview(response: Response, db: Session = Depends(get_db)):
-    """Serve a cacheable three-row preview without evaluating any rankings."""
-    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+    """Serve only true ranks three through five; never serialize the winners."""
+    response.headers["Cache-Control"] = "no-store"
     return {
         "top_stocks": _preview_snapshot(build_top_stocks_response(db), key="top_stocks"),
         "congress": _preview_snapshot(read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY), key=CONGRESS_LEADERBOARD_KEY),
@@ -51,14 +41,15 @@ def leaderboard_dashboard(request: Request, response: Response, db: Session = De
     page-load waterfall of individually authenticated API requests.
     """
     entitlements = current_entitlements(request, db)
+    authenticated = current_user(db, request) is not None
     can_view_performance = entitlements.has_feature("leaderboards")
     can_view_institutions = entitlements.has_feature("institutional_feed")
     response.headers["Cache-Control"] = "private, no-store"
     return {
-        "top_stocks": build_top_stocks_response(db, entitlements=entitlements),
-        "congress": read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY) if can_view_performance else None,
-        "insiders": read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY) if can_view_performance else None,
-        "institutions": read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY) if can_view_institutions else None,
+        "top_stocks": project_ranking(build_top_stocks_response(db, entitlements=entitlements), authenticated=authenticated, entitlements=entitlements, stocks=True, full=can_view_performance),
+        "congress": project_ranking(read_leaderboard_snapshot(db, CONGRESS_LEADERBOARD_KEY), authenticated=authenticated, full=can_view_performance),
+        "insiders": project_ranking(read_leaderboard_snapshot(db, INSIDER_LEADERBOARD_KEY), authenticated=authenticated, full=can_view_performance),
+        "institutions": project_ranking(read_leaderboard_snapshot(db, INSTITUTION_LEADERBOARD_KEY), authenticated=authenticated, full=can_view_institutions),
         "can_view_performance": can_view_performance,
         "can_view_institutions": can_view_institutions,
     }
@@ -67,14 +58,16 @@ def leaderboard_dashboard(request: Request, response: Response, db: Session = De
 @router.get("/leaderboards/{section}")
 def leaderboard_section(section: str, request: Request, response: Response, db: Session = Depends(get_db)):
     normalized = (section or "").strip().lower()
-    response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=3600"
+    entitlements = current_entitlements(request, db)
+    authenticated = current_user(db, request) is not None
+    response.headers["Cache-Control"] = "private, no-store"
     if normalized == "top-stocks":
         response.headers["Cache-Control"] = "private, no-store"
-        return build_top_stocks_response(db, entitlements=current_entitlements(request, db))
+        return project_ranking(build_top_stocks_response(db, entitlements=entitlements), authenticated=authenticated, entitlements=entitlements, stocks=True, full=entitlements.has_feature("leaderboards"))
     if normalized in {CONGRESS_LEADERBOARD_KEY, INSIDER_LEADERBOARD_KEY}:
-        require_feature(current_entitlements(request, db), "leaderboards", message="Leaderboards are included with Premium.")
+        full = entitlements.has_feature("leaderboards")
     elif normalized == INSTITUTION_LEADERBOARD_KEY:
-        require_feature(current_entitlements(request, db), "institutional_feed", message="Institutional performance is included with Pro.")
+        full = entitlements.has_feature("institutional_feed")
     else:
         raise HTTPException(status_code=404, detail="Unknown leaderboard section.")
-    return read_leaderboard_snapshot(db, normalized)
+    return project_ranking(read_leaderboard_snapshot(db, normalized), authenticated=authenticated, full=full)

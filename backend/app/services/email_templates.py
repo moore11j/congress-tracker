@@ -226,6 +226,29 @@ def walnut_email_text(
 
 DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
+        "template_key": "alerts.top_stock_ideas",
+        "name": "Top Stock Ideas",
+        "category": "alerts",
+        "from_name": ALERTS_FROM_NAME,
+        "from_email": ALERTS_FROM_EMAIL,
+        "reply_to": SUPPORT_EMAIL,
+        "subject": "Your Walnut Top Stock Ideas",
+        "preheader": "Walnut filters the evidence and surfaces the strongest stock ideas.",
+        "variables": ["first_name", "summary", "items_text", "items_html", "digest_url", "preferences_url"],
+        "body_text": walnut_email_text(
+            greeting="Hello {{first_name}},", intro="{{summary}}",
+            sections=["{{items_text}}", "You requested Top Stock Ideas. Turn these emails off or change frequency: {{preferences_url}}"],
+            cta_label="See the ideas and evidence", cta_url="digest_url", sender=ALERTS_FROM_NAME,
+            include_investment_disclaimer=True,
+        ),
+        "body_html": walnut_email_html(
+            sender=ALERTS_FROM_NAME, eyebrow="Top Stock Ideas", title="Your strongest ranked ideas",
+            intro="Hello {{first_name}}, {{summary}}",
+            content_html='{{{items_html}}}<p>You requested Top Stock Ideas. <a href="{{preferences_url}}">Turn off or manage these emails</a>.</p>',
+            cta_label="See the ideas and evidence", cta_url="digest_url", include_investment_disclaimer=True,
+        ),
+    },
+    {
         "template_key": "growth.video_review", "name": "AI Growth video review", "category": "admin",
         "from_name": "Walnut", "from_email": SUPPORT_EMAIL, "reply_to": SUPPORT_EMAIL,
         "subject": "Walnut video: {{video_status}}", "preheader": "{{video_title}}",

@@ -1656,10 +1656,10 @@ def _largest_event_rows(db: Session, clauses: list[Any], *, limit: int) -> list[
     return [_activity_payload(row, company_names) for row in rows]
 
 
-def _cluster_buying(db: Session, *, since: datetime, symbols: set[str] | None = None, limit: int = 8) -> list[dict[str, Any]]:
+def _cluster_buying(db: Session, *, since: datetime, symbols: set[str] | None = None, limit: int = 8, before: date | None = None) -> list[dict[str, Any]]:
     owner_key = func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, InsiderTransactionNormalized.reporting_owner_name)
     symbol_key = func.upper(InsiderTransactionNormalized.ticker_normalized)
-    clauses = [*_insider_transaction_filters(since=since.date(), symbols=symbols), _insider_side_clause("buy")]
+    clauses = [*_insider_transaction_filters(since=since.date(), before=before, symbols=symbols), _insider_side_clause("buy")]
     rows = db.execute(
         select(symbol_key, func.max(InsiderTransactionNormalized.issuer_name), func.count(func.distinct(owner_key)), func.sum(InsiderTransactionNormalized.value), func.max(InsiderTransactionNormalized.transaction_date))
         .where(*clauses, owner_key.is_not(None), symbol_key.is_not(None))

@@ -5,7 +5,7 @@ set -u
 kind="${1:-}"
 
 case "$kind" in
-  monitoring) ;;
+  monitoring|top_ideas) ;;
   *)
     echo "email_digest_schedule_invalid_kind kind=$kind"
     exit 64

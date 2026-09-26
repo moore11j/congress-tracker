@@ -56,8 +56,8 @@ test("validation blocks submission and both auth methods preserve ticker follow 
   h.set(n => n.props?.autoComplete === "email", "reader@example.com");
   h.set(n => n.props?.autoComplete === "new-password", "Password123!");
   await h.render().find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
-  assert.deepEqual(h.navigation, [returnTo]);
+  assert.deepEqual(h.navigation, [`/welcome?return_to=${encodeURIComponent(returnTo)}`]);
   const google = harness(returnTo);
   await google.render().find(n => n.type === "button" && Array.isArray(n.props.children) && n.props.children.includes("Continue with Google")).props.onClick();
-  assert.equal(google.calls[0].google, returnTo);
+  assert.equal(google.calls[0].google, `/welcome?return_to=${encodeURIComponent(returnTo)}`);
 });

@@ -7,6 +7,8 @@ There are two user-facing notification modes:
 - Intraday Alerts: high-priority watchlist activity and high-conviction signal matches during market hours only.
 - Daily Digests: daily summaries of watchlist activity and ranked monitoring candidates, including lower and medium-priority items that did not qualify for intraday alerts.
 
+Top Stock Ideas is a separate explicit opt-in preference (Off / Weekly / Daily), default Off. Free receives weekly Top 5; Premium/Pro can receive weekday daily or weekly ideas at their ranking limit. It uses the same digest delivery infrastructure with `--kind top_ideas`, runs at 13:10 Pacific with :25/:40/:55 retries, and selects weekly recipients on Fridays. It respects email verification and existing master opt-outs. See [Top Stock Ideas implementation and release notes](../top-stock-ideas-2026-09-26.md).
+
 ## Current Automatic Scheduling State
 
 The repository schedules daily digest delivery with a separate Fly `cron` process group in `backend/fly.toml`. The web `app` process serves requests only; it does not run email jobs in request threads.

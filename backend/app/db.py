@@ -3403,6 +3403,7 @@ def ensure_event_columns() -> None:
                 "password_reset_expires_at": "TIMESTAMP",
                 "alerts_enabled": "BOOLEAN NOT NULL DEFAULT 1",
                 "email_notifications_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+                "top_stock_ideas_frequency": "TEXT NOT NULL DEFAULT 'off'",
                 "watchlist_activity_notifications": "BOOLEAN NOT NULL DEFAULT 1",
                 "signals_notifications": "BOOLEAN NOT NULL DEFAULT 1",
                 "subscription_cancel_at_period_end": "BOOLEAN NOT NULL DEFAULT 0",
@@ -3900,6 +3901,7 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             }
             user_columns = {
                 "stripe_price_id": "TEXT",
+                "top_stock_ideas_frequency": "TEXT NOT NULL DEFAULT 'off'",
                 "current_plan_amount_cents": "INTEGER",
                 "current_plan_currency": "TEXT",
                 "subscription_interval": "TEXT",
@@ -3979,6 +3981,7 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             conn.execute(text("SET LOCAL lock_timeout = '2s'"))
             conn.execute(text("SET LOCAL statement_timeout = '10s'"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS stripe_price_id TEXT"))
+            conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS top_stock_ideas_frequency TEXT NOT NULL DEFAULT 'off'"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS current_plan_amount_cents INTEGER"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS current_plan_currency TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS subscription_interval TEXT"))

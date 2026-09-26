@@ -8,7 +8,7 @@ export const homepageContent = {
     eyebrow: "Insider Trading Tracker & Stock Research",
     title: "Follow the Insiders. Know More Before You Buy.",
     description:
-      "Track reported insider buying and selling alongside Congress trades, institutional holdings, financials and technicals—all in one place. See where the data agrees before making your next move.",
+      "Walnut filters reported insider buying and selling, Congress trades, institutional holdings, financials and technicals to surface the strongest stock ideas. Get ranked ideas, see why they ranked, and follow what changes.",
   },
   metadata: {
     title: "Insider Trading Tracker & Stock Research | Walnut Markets",
@@ -38,6 +38,6 @@ export const homepageContent = {
       "Explore strategies built from Walnut datasets, including Congress activity, insider activity, fundamentals, technical conditions, and multi-source confirmation. Historical and backtested results are research context, not forecasts.",
   },
   pricing: {
-    title: "Start free. Unlock deeper research when you need it.",
+    title: "Start with the best ideas. Go deeper when you need to.",
   },
 } as const;

@@ -71,8 +71,9 @@ test("research briefs use reusable CTA and events", () => {
 });
 
 test("signup redirects and completion events preserve campaign route context", () => {
-  assert.match(loginPanel, /destination = resolvedReturnTo \? nextPath : "\/account\/settings\?registered=1"/);
-  assert.match(loginPanel, /recordSignupCompleteEvents\(destination\)/);
+  assert.match(loginPanel, /destination = signupPath/);
+  assert.match(loginPanel, /encodeURIComponent\(signupReturnPath\)/);
+  assert.match(loginPanel, /recordSignupCompleteEvents\(signupReturnPath\)/);
   assert.match(loginPanel, /reddit_signup_complete/);
   assert.match(loginPanel, /compare_signup_complete/);
   assert.match(loginPanel, /research_brief_signup_complete/);

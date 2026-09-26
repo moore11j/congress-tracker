@@ -3,28 +3,27 @@ type Data = Record<string, any>;
 const record = (value: unknown): Data => value && typeof value === "object" && !Array.isArray(value) ? value as Data : {};
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const text = (value: unknown, max = 300): string => typeof value === "string" ? value.trim().slice(0, max) : "";
-const categories = ["Analysts", "Government contracts", "Institutions", "Options flow", "Congress", "Insiders", "Confirmation Score"];
+const categories = ["Analysts", "Government contracts", "Government Contracts", "Institutions", "Institutional Activity", "Options flow", "Options Flow", "Congress", "Insiders", "Signals", "Price / Volume", "Fundamentals", "Macro Positioning", "Confirmation Score", "Insider clusters", "Congress + insider clusters", "Strategy entries"];
 
 export function publicDate(value: unknown): string | null {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
-export type HomepageStock = {rank: number; symbol: string; companyName: string; drivers: string[]; updatedAt: string | null};
+export type HomepageStock = {rank: number; symbol: string; companyName: string; drivers: string[]; whyRanked?: string; updatedAt: string | null};
 export type HomepageRanking = {items: HomepageStock[]; generatedAt: string | null};
 export type HomepageEvidence = {category: string; title: string; description: string; dataAsOf: string | null; source: string; anchor: string; details: string[]};
 export type HomepageResearch = {stock: HomepageStock; generatedAt: string; supporting: HomepageEvidence[]; risks: HomepageEvidence[]; watch: string[]};
 
-export function publicHomepageRanking(response: unknown): HomepageRanking {
+export function publicHomepageRanking(response: unknown, authenticated = false): HomepageRanking {
   const raw = record(record(response).top_stocks);
   const seen = new Set<string>();
-  // Slice before validation: a malformed teaser must never be backfilled with #4.
-  const items = list(raw.items).slice(0, 3).flatMap(value => {
+  const items = list(raw.items).filter(value => { const rank = record(value).rank; return Number.isInteger(rank) && rank >= (authenticated ? 1 : 3) && rank <= 5; }).slice(0, authenticated ? 5 : 3).flatMap(value => {
     const item = record(value), symbol = text(item.symbol, 16);
-    if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(symbol) || seen.has(symbol) || !Number.isInteger(item.rank) || item.rank < 1 || item.rank > 3) return [];
+    if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(symbol) || seen.has(symbol)) return [];
     seen.add(symbol);
     return [{rank: item.rank, symbol, companyName: text(item.company_name, 160) || symbol,
       drivers: list(item.key_drivers).filter((v): v is string => typeof v === "string" && categories.includes(v)).slice(0, 4),
-      updatedAt: publicDate(item.updated_at)}];
+      whyRanked: text(item.why_ranked, 140), updatedAt: publicDate(item.updated_at)}];
   });
   return {items, generatedAt: publicDate(raw.generated_at)};
 }

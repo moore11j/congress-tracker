@@ -12,6 +12,7 @@ from app.models import LeaderboardSnapshot, TickerContextBundleCache
 from app.services.confirmation_context import TICKER_CONFIRMATION_CONTEXT_VERSION, build_ticker_confirmation_context
 from app.services.confirmation_score import SOURCE_LABELS
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, matches_confirmation_filters
+from app.services.top_ideas_context import load_idea_context
 
 TOP_STOCKS_LEADERBOARD_KEY = "top_stocks"
 TOP_STOCKS_PARAMS = ScreenerParams(
@@ -92,9 +93,11 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
         # even when the daily discovery job ran after that cache was built.
         if update:
             bundle, row["updated_at"] = update
-        if source_entitlements is not None:
-            bundle = _redact_locked_ticker_confirmation_sources(bundle, source_entitlements)
         row["confirmation"] = bundle
+        if source_entitlements is not None and entitlements.has_feature("ticker_confirmation"):
+            row["visible_confirmation"] = _redact_locked_ticker_confirmation_sources(bundle, source_entitlements)
+    # Rank the canonical evidence once. Tier projection must never change a
+    # stock's true position; only the inspectable evidence changes by plan.
     return _ranked_payload(candidates, generated_at=payload.get("generated_at"))
 
 
@@ -105,8 +108,13 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
     reads, and any enrichment work remain confined to the scheduled job.
     """
     generated_at = _utc(now or datetime.now(timezone.utc))
+    snapshot = db.execute(select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)).scalar_one_or_none()
+    previous = _payload(snapshot.payload_json) if snapshot else None
+    age_hours = (generated_at - _utc(snapshot.generated_at)).total_seconds() / 3600 if snapshot else 0
+    baseline = {row["symbol"]: row.get("confirmation_bundle", {}).get("score") for row in previous.get("candidate_rows", [])} if previous and previous.get("score_context_version") == TICKER_CONFIRMATION_CONTEXT_VERSION and 6 <= age_hours <= 168 else {}
     rows = build_screener_rows(db, TOP_STOCKS_PARAMS, requested_rows=MAX_FETCH_ROWS, apply_confirmation_filters=False)
     bundles = build_ticker_confirmation_context(db, [row["symbol"] for row in rows])["bundles"]
+    idea_context = load_idea_context(db, [row["symbol"] for row in rows], generated_at)
     candidates = []
     for original in rows:
         row = deepcopy(original)
@@ -116,6 +124,7 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
             raise ValueError(f"Missing ticker confirmation for {row['symbol']}")
         row["confirmation"] = bundle
         row["confirmation_bundle"] = bundle
+        row["ranking_context"] = {**idea_context.get(row["symbol"], {}), "baseline_score": baseline.get(row["symbol"])}
         row["updated_at"] = _iso(generated_at)
         candidates.append(row)
     payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
@@ -135,11 +144,11 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
 
 def _ranked_payload(candidates: list[dict[str, Any]], *, generated_at: str | None) -> dict[str, Any]:
     rows = [row for row in candidates if matches_confirmation_filters(row, TOP_STOCKS_PARAMS)]
-    rows.sort(key=lambda row: (row["confirmation"].get("score", 0), _market_cap(row), row["symbol"]), reverse=True)
+    rows.sort(key=_ranking_key, reverse=True)
     filter_rows = {
         key: [
             _item_from_screener_row(row, rank=index, updated_at=row.get("updated_at") or generated_at)
-            for index, row in enumerate(_rows_for_filter(rows, key)[:10], start=1)
+            for index, row in enumerate(_rows_for_filter(rows, key)[:25], start=1)
         ]
         for key in TOP_STOCKS_FILTERS
     }
@@ -162,7 +171,20 @@ def _item_from_screener_row(
     rank: int,
     updated_at: str,
 ) -> dict[str, Any]:
-    confirmation = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
+    canonical = row.get("confirmation") if isinstance(row.get("confirmation"), dict) else {}
+    confirmation = row.get("visible_confirmation", canonical)
+    drivers = _drivers_from_screener_row({**row, "confirmation": canonical})
+    context = row.get("ranking_context") or {}
+    reason = "Strong multi-source confirmation" if len(drivers) >= 3 else "Strong confirmation in available evidence"
+    if context.get("insider_cluster_count", 0) >= 2:
+        drivers.append("Insider clusters")
+        reason = "Insider buying cluster with strong confirmation"
+        if _bullish(canonical, "congress"):
+            drivers.append("Congress + insider clusters")
+            reason = "Insider cluster with Congress confirmation"
+    if context.get("strategy_entries", 0):
+        drivers.append("Strategy entries")
+    sources = confirmation.get("sources") or {}
     symbol = str(row.get("symbol") or "").strip().upper()
     return {
         "rank": rank,
@@ -175,10 +197,37 @@ def _item_from_screener_row(
         "market_cap": row.get("market_cap"),
         "sector": row.get("sector"),
         "country": row.get("country"),
-        "key_drivers": _drivers_from_screener_row(row),
+        "key_drivers": drivers,
+        "why_ranked": reason,
+        "why_this_ranked": [
+            {"source": SOURCE_LABELS[key], "direction": source.get("direction"),
+             "summary": source.get("summary") or source.get("detail") or source.get("label"), "freshness_days": source.get("freshness_days")}
+            for key, source in sources.items() if key in SOURCE_LABELS and isinstance(source, dict) and source.get("present") is True
+        ],
         "updated_at": updated_at,
         "ticker_url": str(row.get("ticker_url") or f"/ticker/{symbol}"),
     }
+
+
+def _bullish(bundle, source):
+    data = (bundle.get("sources") or {}).get(source) or {}
+    return data.get("present") is True and data.get("direction") == "bullish"
+
+
+def _ranking_key(row):
+    """Canonical score first; observed changes and corroboration break ties.
+
+    No separate public score. Missing optional evidence earns no tie-break.
+    """
+    bundle = row["confirmation"]
+    context = row.get("ranking_context") or {}
+    baseline = context.get("baseline_score")
+    acceleration = bundle.get("score", 0) - baseline if isinstance(baseline, (int, float)) else 0
+    aligned = sum(_bullish(bundle, source) for source in SOURCE_LABELS)
+    cluster = context.get("insider_cluster_count", 0)
+    return (bundle.get("score", 0), acceleration, aligned,
+            bool(cluster >= 2 and _bullish(bundle, "congress")), cluster,
+            context.get("strategy_entries", 0), _market_cap(row), row["symbol"])
 
 
 def _rows_for_filter(rows: list[dict[str, Any]], filter_key: str) -> list[dict[str, Any]]:

@@ -9,7 +9,7 @@ import React from "react";
 import {renderToStaticMarkup} from "react-dom/server";
 
 const require = createRequire(import.meta.url);
-function modules({fetch, consent = true, events = []} = {}) {
+function modules({fetch, consent = true, events = [], authenticated = false, dashboard} = {}) {
   const cache = new Map();
   function load(file) {
     if (cache.has(file)) return cache.get(file);
@@ -21,7 +21,8 @@ function modules({fetch, consent = true, events = []} = {}) {
     vm.runInNewContext(js, {exports, process: {env: {}}, URL, URLSearchParams, Date, Intl, AbortController, setTimeout, clearTimeout,
       window: {location: {pathname: "/"}}, fetch,
       require(name) {
-        if (name === "@/lib/api") return {API_BASE: "https://api.test"};
+        if (name === "@/lib/api") return {API_BASE: "https://api.test", getLeaderboardDashboard: async () => dashboard};
+        if (name === "@/lib/serverAuth") return {optionalPageAuthState: async () => ({token: authenticated ? "test-session" : null})};
         if (name === "@/lib/googleAnalytics") return {recordGoogleAnalyticsEvent: (...args) => events.push(args)};
         if (name === "@/lib/privacyConsent") return {hasPrivacyConsent: () => consent};
         if (name === "@/components/landing/LandingSearch") return {LandingSearch: () => React.createElement("input", {"aria-label": "Ticker search"})};
@@ -39,7 +40,7 @@ function modules({fetch, consent = true, events = []} = {}) {
 }
 const model = modules()("lib/homepagePreview.ts");
 const at = "2026-09-12T01:00:00Z";
-const ranking = {top_stocks: {generated_at: at, filter_items: {secret: ["PRO_ONLY"]}, items: ["TSM", "AMZN", "BWFG", "SECRET4", "SECRET5"].map((symbol, i) => ({
+const ranking = {top_stocks: {locked_ranks: [1, 2], generated_at: at, filter_items: {secret: ["PRO_ONLY"]}, items: ["SECRET1", "SECRET2", "BWFG", "AMZN", "TSM"].map((symbol, i) => ({
   rank: i + 1, symbol, company_name: symbol, confirmation_score: 98.7654, key_drivers: ["Congress"], updated_at: at, premium_metric: "PRO_ONLY",
 }))}};
 function context(symbol, risks = true) {
@@ -61,14 +62,15 @@ test("public projection caps at three and omits scores, extra rows, filters and 
   const result = model.publicHomepageRanking(ranking);
   assert.equal(result.items.length, 3);
   assert.equal(result.items[1].symbol, "AMZN");
-  assert.doesNotMatch(JSON.stringify(result), /98\.7654|PRO_ONLY|SECRET4|SECRET5|filter_items|confirmation_score/);
+  assert.deepEqual(Array.from(result.items, row => row.rank), [3, 4, 5]);
+  assert.doesNotMatch(JSON.stringify(result), /98\.7654|PRO_ONLY|SECRET1|SECRET2|filter_items|confirmation_score/);
   const invalid = structuredClone(ranking);
-  invalid.top_stocks.items[0].symbol = "<script>";
+  invalid.top_stocks.items[2].symbol = "<script>";
   assert.equal(model.publicHomepageRanking(invalid).items.length, 2);
   assert.deepEqual(JSON.parse(JSON.stringify(model.publicHomepageRanking(null))), {items: [], generatedAt: null});
 });
 
-test("research selects a real top-three company with both supporting and conflicting evidence", () => {
+test("research selects a real preview company with both supporting and conflicting evidence", () => {
   const stocks = model.publicHomepageRanking(ranking).items;
   const examples = stocks.slice(0, 2).map((stock, index) => model.publicHomepageResearch(stock, context(stock.symbol, index === 1)));
   const selected = model.selectHomepageResearch(examples);
@@ -87,7 +89,7 @@ test("missing entitlements, locked sources, mismatched tickers and missing dates
   assert.equal(model.selectHomepageResearch([null]), null);
 });
 
-test("rendered homepage has eight workflow sections and serializes no paid metrics or fourth stock", async () => {
+test("rendered homepage locks the top two and serializes only ranks three to five without paid metrics", async () => {
   const calls = [];
   const load = modules({fetch: async (url, options) => {
     calls.push({url: String(url), options});
@@ -99,7 +101,7 @@ test("rendered homepage has eight workflow sections and serializes no paid metri
   }});
   const html = renderToStaticMarkup(await load("app/landing/page.tsx").default());
   assert.match(html, /Follow the Insiders\. Know More Before You Buy\./);
-  assert.equal((html.match(/<section/g) || []).length, 8);
+  assert.equal((html.match(/<section/g) || []).length, 9);
   assert.equal((html.match(/data-homepage-ranked-stock=/g) || []).length, 3);
   assert.match(html, /Why is AMZN near the top/);
   assert.match(html, /Supportive fundamentals/);
@@ -110,8 +112,10 @@ test("rendered homepage has eight workflow sections and serializes no paid metri
   assert.ok(sequence.every((value, i) => value >= 0 && (i === 0 || value > sequence[i - 1])));
   const hero = html.slice(html.indexOf("data-walnut-homepage"), html.indexOf('id="top-stock-opportunities"'));
   assert.equal((hero.match(/bg-emerald-300 /g) || []).length, 1);
-  assert.match(hero, />Open Screener<\/a>/);
-  assert.match(hero, /View Leaderboards/);
+  assert.match(hero, /See today&#x27;s #1 and #2 stocks/);
+  assert.match(hero, /Explore Top-Ranked Stocks/);
+  assert.match(html, /Ranks #3–#5 are a public preview/);
+  assert.match(html, /Unlock the Top 2/);
   assert.match(hero, /Explore Strategies/);
   assert.ok(calls.every(call => !/\/top-stocks|\/strategies/.test(call.url)));
   assert.ok(calls.every(call => !call.options.headers.Cookie && !call.options.headers.Authorization));
@@ -124,6 +128,17 @@ test("source outages keep the working navigation and never fabricate an example"
   assert.match(html, /source-backed example is not available/);
   assert.doesNotMatch(html, /data-homepage-ranked-stock=/);
   assert.match(html, />Open Screener<\/a>/);
+});
+
+test("signed-in homepage unlocks all five while stripping extra evidence from rendered output", async () => {
+  const dashboard = structuredClone(ranking);
+  dashboard.top_stocks.locked_ranks = [];
+  const load = modules({authenticated: true, dashboard, fetch: async () => ({ok: true, json: async () => ({})})});
+  const html = renderToStaticMarkup(await load("app/landing/page.tsx").default());
+  assert.equal((html.match(/data-homepage-ranked-stock=/g) || []).length, 5);
+  assert.match(html, /SECRET1/);
+  assert.match(html, /SECRET2/);
+  assert.doesNotMatch(html, /98\.7654|PRO_ONLY|Unlock the Top 2/);
 });
 
 test("CTA analytics preserve event names and consent without blocking navigation", () => {
