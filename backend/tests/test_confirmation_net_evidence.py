@@ -59,9 +59,9 @@ def test_ba_release_inputs_have_signed_auditable_net_score():
     result = calculate(inputs)
     math = result['score_calculation']
     assert result['direction'] == 'bullish'
-    assert result['score'] == 30
+    assert result['score'] == 48
     assert math['net_weight'] == pytest.approx(math['aligned_weight'] - math['opposing_weight'], abs=.0001)
-    assert sum(s['confirmation_contribution'] for s in result['sources'].values()) == pytest.approx(math['raw_score'], abs=.001)
+    assert sum(s['confirmation_contribution'] for s in result['sources'].values()) == pytest.approx(math['net_weight'], abs=.001)
     assert result['sources']['congress']['confirmation_contribution'] < 0
     assert result['sources']['macro_positioning']['confirmation_contribution'] < 0
     assert result['sources']['price_volume']['confirmation_contribution'] == 0
@@ -71,8 +71,8 @@ def test_ba_release_inputs_have_signed_auditable_net_score():
 
 def test_single_source_cannot_claim_full_confirmation_and_mixed_only_has_none():
     single = calculate({'fundamentals': source('bullish')})
-    assert single['score'] == 30
-    assert single['score_calculation']['single_source_cap_applied'] is False
+    assert single['score'] == 39
+    assert single['score_calculation']['single_source_cap_applied'] is True
     mixed = calculate({'fundamentals': source('mixed'), 'price_volume': source('mixed')})
     assert mixed['score'] == 0
     assert all(s['confirmation_contribution'] == 0 for s in mixed['sources'].values())
@@ -89,7 +89,7 @@ def test_source_availability_rebuild_refreshes_signed_contributions():
     assert after['sources']['institutional_activity']['confirmation_contribution'] == 0
     assert after['sources']['institutional_activity']['status'] == 'unavailable'
     assert after['sources']['congress']['confirmation_contribution'] == before['sources']['congress']['confirmation_contribution']
-    assert sum(s['confirmation_contribution'] for s in after['sources'].values()) == pytest.approx(after['score_calculation']['raw_score'], abs=.001)
+    assert sum(s['confirmation_contribution'] for s in after['sources'].values()) == pytest.approx(after['score_calculation']['net_weight'], abs=.001)
 
 
 def test_full_confirmation_requires_every_weighted_source_at_full_strength():
@@ -100,11 +100,11 @@ def test_full_confirmation_requires_every_weighted_source_at_full_strength():
     for key, maximum in SOURCE_MAX_POINTS.items():
         missing = deepcopy(inputs)
         del missing[key]
-        assert calculate(missing)['score'] == round(100 - maximum)
+        assert calculate(missing)['score'] == min(99, round(100 * ((100 - maximum) / 100) ** .5))
         for state in ('mixed', 'neutral'):
             incomplete = deepcopy(inputs)
             incomplete[key]['direction'] = state
-            assert calculate(incomplete)['score'] == round(100 - maximum)
+            assert calculate(incomplete)['score'] == calculate(missing)['score']
     almost = deepcopy(inputs)
     almost['government_contracts']['strength'] = 99
     assert calculate(almost)['score'] == 99  # Rounding cannot manufacture 100.
@@ -113,8 +113,8 @@ def test_full_confirmation_requires_every_weighted_source_at_full_strength():
 def test_two_unanimous_low_weight_sources_cannot_compete_with_broad_confirmation():
     thin = calculate({'analysts': source('bullish'), 'macro_positioning': source('bullish')})
     broad = calculate({key: source('bullish') for key in ('fundamentals', 'institutional_activity', 'price_volume', 'congress', 'insiders', 'analysts')})
-    assert thin['score'] == 11
-    assert broad['score'] == 87
+    assert thin['score'] == 33
+    assert broad['score'] == 94
     assert thin['score_calculation']['aligned_source_count'] == 2
     assert broad['score_calculation']['aligned_source_count'] == 6
 
@@ -123,7 +123,7 @@ def test_paid_redaction_preserves_canonical_score_but_removes_locked_math():
     from app.services.confirmation_score import redact_confirmation_bundle_sources
     bundle = calculate({key: source('bullish') for key in ('fundamentals', 'institutional_activity', 'price_volume')})
     redacted = redact_confirmation_bundle_sources(bundle, {'institutional_activity'})
-    assert redacted['score'] == bundle['score'] == 63
+    assert redacted['score'] == bundle['score'] == 79
     assert redacted['score_calculation'] is None
     assert redacted['sources']['institutional_activity']['strength'] is None
 
@@ -141,3 +141,38 @@ def test_fundamentals_transfer_is_equal_across_all_other_sources():
     full = calculate({key: source('bullish') for key in previous})
     assert full['score_calculation']['raw_score'] == 100
     assert full['score'] == 100
+
+
+@pytest.mark.parametrize('symbol, inputs, expected', [
+    ('TSM', dict(fundamentals=('bullish',64,69,0), price_volume=('bullish',75,82,1),
+                 congress=('bullish',50,57,3), insiders=('bullish',93,92,19),
+                 analysts=('bullish',44,69,0), macro_positioning=('bullish',70,77,11)), 80),
+    ('BRK-B', dict(fundamentals=('bullish',55,67,5), price_volume=('mixed',25,82,1),
+                   congress=('bullish',50,57,16), insiders=('bullish',100,92,5),
+                   analysts=('bullish',25,58,0), macro_positioning=('bullish',70,77,32),
+                   signals=('bullish',66,82,5)), 74),
+    ('AZO', dict(analysts=('bullish',42,69,0), macro_positioning=('bullish',80,85,32),
+                 fundamentals=('mixed',29,57,12), price_volume=('mixed',25,82,1)), 30),
+])
+def test_approved_saved_examples_use_same_formula_for_every_symbol(symbol, inputs, expected):
+    payload = {key: source(*values) for key, values in inputs.items()}
+    bundle = confirmation_score_bundle_from_source_payloads(symbol, sources_payload=payload)
+    assert bundle['score'] == expected
+    assert calculate(payload)['score'] == expected
+    assert bundle['score_calculation']['agreement'] == 1
+
+
+def test_empty_and_conflicted_sources_cannot_earn_agreement_or_coverage():
+    from app.services.confirmation_evidence import net_confirmation
+    for direction in ('neutral', 'mixed'):
+        result = net_confirmation({'fundamentals': source('bullish'), 'institutional_activity': source('bearish')}, direction)
+        assert result['score'] == result['agreement'] == result['weighted_coverage'] == 0
+    assert net_confirmation({}, 'bullish')['score'] == 0
+
+
+def test_stronger_aligned_evidence_improves_quality_without_inventing_coverage():
+    weak = calculate({'fundamentals': source('bullish', 40, 40), 'price_volume': source('bullish', 40, 40)})
+    strong = calculate({'fundamentals': source('bullish'), 'price_volume': source('bullish')})
+    assert strong['score'] > weak['score']
+    assert strong['score_calculation']['weighted_coverage'] == weak['score_calculation']['weighted_coverage']
+    assert strong['score_calculation']['evidence_quality'] > weak['score_calculation']['evidence_quality']

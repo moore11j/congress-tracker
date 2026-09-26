@@ -1,7 +1,7 @@
 """Shared material-evidence weights for confirmation and its divergence display."""
 from __future__ import annotations
 
-from math import isfinite
+from math import isfinite, sqrt
 from typing import Any
 
 MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
@@ -114,11 +114,11 @@ def confirmation_conflict_ceiling(sources: dict[str, dict[str, Any]], direction:
 
 
 def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict[str, Any]:
-    """Weighted full-source confirmation on a fixed 100-point capacity.
+    """Agreement and evidence quality, discounted for limited weighted coverage.
 
-    A fixed direction is monotonic in each eligible source's evidence weight.
-    No activity, breadth, quality or freshness bonuses are added separately.
-    Quality and freshness already affect each source's evidence magnitude.
+    Source contributions remain signed evidence weights, not additive pieces of
+    the nonlinear final score. Strength, quality and freshness enter once through
+    the evidence weights. A lone source cannot reach moderate confirmation.
     """
     sources = {key: sources.get(key, {}) for key in SOURCE_MAX_POINTS}
     weights = {key: evidence_magnitude(source, key)
@@ -132,18 +132,29 @@ def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict
     total = aligned + opposing
     net = aligned - opposing
     capacity = 100.0
-    raw_score = max(0.0, 100 * net / capacity)
+    aligned_keys = [key for key, value in signed.items() if value > 0]
+    aligned_capacity = sum(SOURCE_MAX_POINTS[key] for key in aligned_keys)
+    coverage = min(1.0, aligned_capacity / capacity)
+    agreement = max(0.0, net / total) if total else 0.0
+    quality = min(1.0, aligned / aligned_capacity) if aligned_capacity else 0.0
+    raw_score = (80.0 * agreement + 20.0 * quality) * sqrt(coverage) if total else 0.0
     score = max(0, min(100, int(round(raw_score))))
+    single_source_cap_applied = len(aligned_keys) < 2 and score > 39
+    if single_source_cap_applied:
+        score = 39
     # Neither missing coverage nor near-perfect inputs may round up to 100.
     if not all(signed[key] >= maximum for key, maximum in SOURCE_MAX_POINTS.items()):
         score = min(score, 99)
-    aligned_count = sum(value > 0 for value in signed.values())
-    return {"method": "weighted_full_source_confirmation", "aligned_weight": round(aligned, 4),
+    aligned_count = len(aligned_keys)
+    return {"method": "agreement_quality_weighted_coverage", "aligned_weight": round(aligned, 4),
             "opposing_weight": round(opposing, 4), "net_weight": round(net, 4), "total_weight": round(total, 4),
             "capacity_weight": capacity, "aligned_source_count": aligned_count,
+            "aligned_capacity": round(aligned_capacity, 4),
+            "agreement": round(agreement, 6), "evidence_quality": round(quality, 6),
+            "weighted_coverage": round(coverage, 6), "coverage_multiplier": round(sqrt(coverage), 6),
             "source_count": len(SOURCE_MAX_POINTS),
             "raw_score": round(raw_score, 4), "score": score,
-            "single_source_cap_applied": False,
+            "single_source_cap_applied": single_source_cap_applied,
             "source_weights": {key: round(value, 4) for key, value in weights.items()},
             "source_contributions": {key: round(100 * value / capacity, 4)
                                      for key, value in signed.items()}}

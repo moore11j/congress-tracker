@@ -81,8 +81,8 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v8_fundamentals_30"
-CONFIRMATION_SCORING_VERSION = "confirmation_score_v7_fundamentals_30"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v9_agreement_coverage"
+CONFIRMATION_SCORING_VERSION = "confirmation_score_v8_agreement_coverage"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0
@@ -2150,9 +2150,9 @@ def _score_bundle(
     drivers = _driver_bullets(sources, direction)
     status = _status_text(active_count, direction)
     explanation = _explanation(sources, drivers, direction)
-    explanation += f" {calculation['aligned_source_count']} of {calculation['source_count']} sources aligned; quiet, mixed and unavailable sources earn no confirmation points."
+    explanation += f" {calculation['aligned_source_count']} of {calculation['source_count']} sources aligned. The score combines agreement and evidence quality, discounted for limited weighted coverage."
     if calculation["opposing_weight"] > 0:
-        explanation += f" Opposing evidence is deducted directly; net confirmation is {score}/100."
+        explanation += f" Opposing evidence reduces agreement; confirmation is {score}/100."
 
     return ConfirmationScoreBundle(
         ticker=ticker,

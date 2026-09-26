@@ -2159,7 +2159,7 @@ function analystSourceSupport(source: ConfirmationScoreBundle["sources"]["analys
   const points = source.confirmation_contribution ?? source.score_contribution;
   const contribution = typeof points === "number" ? points : null;
   return contribution !== null
-    ? `Score contribution ${contribution > 0 ? "+" : ""}${contribution.toFixed(1)}`
+    ? `Evidence weight ${contribution > 0 ? "+" : ""}${contribution.toFixed(1)}`
     : "Directional confirmation input";
 }
 

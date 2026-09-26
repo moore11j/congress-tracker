@@ -6748,7 +6748,7 @@ def admin_ticker_cross_source_divergence(symbol: str, request: Request, response
     }
 
 
-_TICKER_CONTEXT_BUNDLE_VERSION = 14
+_TICKER_CONTEXT_BUNDLE_VERSION = 15
 _TICKER_CONTEXT_BUNDLE_INFLIGHT_LOCK = threading.Lock()
 _TICKER_CONTEXT_BUNDLE_INFLIGHT: dict[str, dict[str, Any]] = {}
 _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK = threading.Lock()

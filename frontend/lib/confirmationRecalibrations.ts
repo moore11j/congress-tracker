@@ -2,9 +2,9 @@
 // Daily score history uses UTC dates; keep these annotations on that same axis.
 export const confirmationRecalibrations = [
   {
-    version: "confirmation-v7-fundamentals-30",
+    version: "confirmation-v8-agreement-coverage",
     effectiveAt: "2026-09-26T00:00:00Z",
-    description: "Confirmation now uses a fixed weighted 100-point model, with 30 points allocated to fundamentals. Quiet, mixed and missing sources earn no points; full confirmation requires all sources. Historical scores are unchanged.",
+    description: "Confirmation now combines evidence agreement and quality with a weighted coverage discount. Fundamentals retains its 30-point allocation; 100 requires full confirmation. Historical scores are unchanged.",
   },
   {
     version: "confirmation-v4-source-priorities",

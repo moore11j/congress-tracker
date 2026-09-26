@@ -56,7 +56,7 @@ OUTCOMES_LEDGER_MISSING_PRICE_KEY = "outcome_ledger_missing_reference_prices"
 OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_prices"
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
-CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v7-fundamentals-30"
+CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v8-agreement-coverage"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OutcomeEntriesBySnapshot = dict[int, OutcomeEntry]
@@ -67,7 +67,7 @@ DateSpreadItem = TypeVar("DateSpreadItem")
 OUTCOME_QUALIFICATION_MIN_SCORE = 40
 OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v13-fundamentals-30"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v14-agreement-coverage"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -207,8 +207,11 @@ def current_methodology_configuration() -> dict[str, Any]:
         "source_max_points": dict(SOURCE_MAX_POINTS),
         "insider_max_points": dict(INSIDER_MAX_POINTS),
         "application_policy": "New calculations only; never reweight or relabel recorded historical scores or outcomes.",
-        "score_formula": "round(aligned_weight - opposing_weight), clamped to 0..100 against a fixed 100-point full-source capacity; only a full 100 net points can display 100",
-        "contribution_units": "Signed points out of a fixed 100-point source capacity; missing sources never shrink the denominator.",
+        "score_formula": "round((80 * agreement + 20 * evidence_quality) * sqrt(weighted_coverage)); a single aligned source is capped at 39; only full coverage at full quality with no opposition can display 100",
+        "agreement_formula": "max(0, (aligned_weight - opposing_weight) / (aligned_weight + opposing_weight)); zero without directional evidence",
+        "evidence_quality_formula": "aligned_weight / aligned_source_capacity; zero without aligned evidence",
+        "weighted_coverage_formula": "aligned_source_capacity / 100",
+        "contribution_units": "Signed evidence weights from the 100-point source allocation, not additive contributions to the nonlinear final score.",
         "lookback_days": 30,
         "source_order": list(SOURCE_ORDER),
         "score_bands": {
@@ -218,7 +221,7 @@ def current_methodology_configuration() -> dict[str, Any]:
             "strong": [60, 79],
             "exceptional": [80, 100],
         },
-        "notes": "Confirmation v6 measures weighted full-source confirmation. Fundamentals and institutions have 20 points each, price/volume 15, Congress and insider buying 10 each, analysts 8, signals/options/macro 5 each, and contracts 2. Strength, quality and freshness determine earned points. Routine insider selling remains capped at 1 opposing point. Mixed, quiet, missing, stale and immaterial sources earn zero. Opposition subtracts. Existing historical snapshots and outcomes retain their original methodology; this score is not a return probability.",
+        "notes": "Confirmation v8 combines 80% agreement and 20% evidence quality, multiplied by the square root of weighted aligned coverage. Fundamentals retains 30 points; all other source allocations retain the approved equal reductions. Strength, quality and freshness determine evidence weights. Routine insider selling remains capped at 1 opposing point. Mixed, quiet, missing, stale and immaterial sources supply no aligned coverage. Existing historical snapshots and outcomes retain their original methodology; this score is not a return probability.",
         "outcome_target": {
             "primary_horizon": "30D",
             "primary_metric": "directional accuracy and excess return versus SPY",

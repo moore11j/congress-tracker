@@ -209,6 +209,11 @@ export type ConfirmationScoreBundle = {
     net_weight: number;
     total_weight: number;
     capacity_weight?: number;
+    aligned_capacity?: number;
+    agreement?: number;
+    evidence_quality?: number;
+    weighted_coverage?: number;
+    coverage_multiplier?: number;
     aligned_source_count?: number;
     source_count?: number;
     raw_score: number;
