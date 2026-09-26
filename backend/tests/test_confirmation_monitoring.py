@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.services.confirmation_score import CONFIRMATION_CLASSIFICATION_VERSION
 from app.db import Base
 from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot, Security, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_monitoring import (
@@ -57,6 +58,21 @@ def test_confirmation_monitoring_ignores_tiny_score_moves():
     after = _state(score=57, band="moderate", direction="bullish", source_count=2, status="2-source bullish confirmation")
 
     assert decide_confirmation_monitoring_event(before, after) is None
+
+
+def test_methodology_change_rebaselines_without_emitting_market_alerts(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr("app.services.confirmation_monitoring.get_confirmation_score_bundles_for_tickers", lambda *a, **k: {
+        "TSM": {"score": 50, "band": "moderate", "direction": "bullish", "classification_version": CONFIRMATION_CLASSIFICATION_VERSION,
+                "sources": {"fundamentals": {"present": True, "direction": "bullish"}, "price_volume": {"present": True, "direction": "bullish"}}}})
+    with Session(engine) as db:
+        db.add(ConfirmationMonitoringSnapshot(user_id=1, watchlist_id=1, ticker="TSM", score=100, band="exceptional", direction="bullish", source_count=6, status="6-source bullish", observed_at=now))
+        db.commit()
+        result = refresh_watchlist_confirmation_monitoring(db, user_id=1, watchlist_id=1, tickers=["TSM"], now=now)
+        assert result["initialized"] == 1 and result["generated"] == 0
+        assert db.query(ConfirmationMonitoringEvent).count() == 0
 
 
 def test_confirmation_monitoring_detects_direction_flip():
@@ -155,6 +171,7 @@ def test_refresh_emits_once_for_same_after_state_inside_dedupe_window(monkeypatc
         direction="bullish",
         source_count=1,
         status="Single-source bullish",
+        source_states_json=json.dumps({"__methodology": {"classification_version": CONFIRMATION_CLASSIFICATION_VERSION}}),
         observed_at=now - timedelta(hours=2),
     )
 
@@ -236,6 +253,7 @@ def test_scheduled_refresh_checks_monitored_watchlists_with_per_watchlist_commit
                 direction="bullish",
                 source_count=1,
                 status="Single-source bullish",
+        source_states_json=json.dumps({"__methodology": {"classification_version": CONFIRMATION_CLASSIFICATION_VERSION}}),
                 observed_at=now - timedelta(hours=2),
             )
         )

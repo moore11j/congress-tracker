@@ -1434,7 +1434,7 @@ def test_ticker_confirmation_context_merges_fresh_public_context(monkeypatch):
     assert bundle["sources"]["price_volume"]["direction"] == "mixed"
     assert bundle["sources"]["institutional_activity"]["present"] is True
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] >= 58
+    assert bundle["score"] == 32
 
 
 def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):

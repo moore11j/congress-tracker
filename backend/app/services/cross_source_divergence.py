@@ -19,7 +19,7 @@ from app.services.confirmation_evidence import (
 )
 
 
-CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION = "divergence-v4-source-priorities"
+CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION = "divergence-v5-weighted-coverage"
 # Analysts and other capped-but-directional sources can contribute two points
 # to confirmation. They remain real, current evidence and belong in the
 # agreement view; this floor excludes only de minimis one-point noise.

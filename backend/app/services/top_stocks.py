@@ -21,9 +21,9 @@ TOP_STOCKS_PARAMS = ScreenerParams(
     sort="confirmation_score",
     sort_dir="desc",
     lookback_days=30,
-    confirmation_score_min=60,
+    confirmation_score_min=20,
     confirmation_direction="bullish",
-    confirmation_band="strong_plus",
+    confirmation_band=None,
 )
 
 TOP_STOCKS_FILTERS = {
@@ -143,7 +143,8 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
 
 
 def _ranked_payload(candidates: list[dict[str, Any]], *, generated_at: str | None) -> dict[str, Any]:
-    rows = [row for row in candidates if matches_confirmation_filters(row, TOP_STOCKS_PARAMS)]
+    rows = [row for row in candidates if matches_confirmation_filters(row, TOP_STOCKS_PARAMS)
+            and (row["confirmation"].get("score_calculation") or {}).get("aligned_source_count", row["confirmation"].get("source_count", 0)) >= 2]
     rows.sort(key=_ranking_key, reverse=True)
     filter_rows = {
         key: [
@@ -175,10 +176,11 @@ def _item_from_screener_row(
     confirmation = row.get("visible_confirmation", canonical)
     drivers = _drivers_from_screener_row({**row, "confirmation": canonical})
     context = row.get("ranking_context") or {}
-    reason = "Strong multi-source confirmation" if len(drivers) >= 3 else "Strong confirmation in available evidence"
+    strong = canonical.get("score", 0) >= 60
+    reason = ("Strong multi-source confirmation" if strong else "Developing multi-source bullish confirmation") if len(drivers) >= 3 else ("Strong confirmation in available evidence" if strong else "Developing bullish confirmation")
     if context.get("insider_cluster_count", 0) >= 2:
         drivers.append("Insider clusters")
-        reason = "Insider buying cluster with strong confirmation"
+        reason = "Insider buying cluster with strong confirmation" if strong else "Insider buying cluster with bullish confirmation"
         if _bullish(canonical, "congress"):
             drivers.append("Congress + insider clusters")
             reason = "Insider cluster with Congress confirmation"
@@ -193,6 +195,7 @@ def _item_from_screener_row(
         "confirmation_score": confirmation.get("score"),
         "confirmation_band": confirmation.get("band") or "inactive",
         "confirmation_direction": confirmation.get("direction") or "neutral",
+        "confirmation_coverage": {key: (canonical.get("score_calculation") or {}).get(key) for key in ("aligned_source_count", "source_count")},
         "price": row.get("price"),
         "market_cap": row.get("market_cap"),
         "sector": row.get("sector"),
@@ -282,6 +285,7 @@ def _qualification() -> dict[str, Any]:
         "confirmation_score_min": TOP_STOCKS_PARAMS.confirmation_score_min,
         "confirmation_direction": TOP_STOCKS_PARAMS.confirmation_direction,
         "confirmation_band": TOP_STOCKS_PARAMS.confirmation_band,
+        "aligned_sources_min": 2,
         "lookback_days": TOP_STOCKS_PARAMS.lookback_days,
     }
 

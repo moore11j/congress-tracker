@@ -32,6 +32,9 @@ def build_top_ideas_digest(db, user, *, now=None):
                  " · ".join(item.get("key_drivers") or [])]
         if "confirmation_score" in item:
             lines.append(f"Confirmation Score: {item['confirmation_score']}")
+            coverage = item.get("confirmation_coverage") or {}
+            if isinstance(coverage.get("aligned_source_count"), int):
+                lines.append(f"{coverage['aligned_source_count']} of {coverage['source_count']} sources aligned")
             lines.extend(f"{e['source']}: {e['summary']}" for e in item.get("why_this_ranked", []) if e.get("summary"))
         lines.append(f"{_frontend_base_url()}/ticker/{item['symbol']}")
         sections.append("\n".join(lines))

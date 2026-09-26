@@ -444,6 +444,11 @@ def evaluate_rule(db: Session, rule: WatchlistAlertRule, ticker: str, state: Wat
     results: list[dict[str, Any]] = []
     fingerprints: list[str] = []
     values: dict[str, Any] = {}
+    if any(c.get("metric") in {"confirmation_score", "cross_source_count", "bullish_state", "bearish_state"} or c.get("comparison_metric") in {"confirmation_score", "cross_source_count", "bullish_state", "bearish_state"} for c in conditions):
+        from app.services.confirmation_score import CONFIRMATION_CLASSIFICATION_VERSION
+        values["__confirmation_version"] = CONFIRMATION_CLASSIFICATION_VERSION
+        if old_values.get("__confirmation_version") != CONFIRMATION_CLASSIFICATION_VERSION:
+            old_values = {}
     for index, condition in enumerate(conditions):
         value, event_ids = _metric_value(db, ticker, condition, now)
         target: float | None
@@ -528,7 +533,8 @@ def evaluate_watchlist_custom_alerts(
             last_evaluated_at = state.last_evaluated_at if state is not None else None
             if last_evaluated_at is not None and last_evaluated_at.tzinfo is None:
                 last_evaluated_at = last_evaluated_at.replace(tzinfo=timezone.utc)
-            if not daily_price_rule and (state is None or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
+            version_changed = bool(result.values.get("__confirmation_version") and result.values["__confirmation_version"] != (_loads(state.values_json, {}) if state else {}).get("__confirmation_version"))
+            if not daily_price_rule and (state is None or version_changed or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
                 if state is None:
                     db.add(WatchlistAlertRuleState(rule_id=rule.id, ticker=ticker, previous_result=result.matched, current_result=result.matched, last_evaluated_at=current, values_json=json.dumps(result.values)))
                 else:

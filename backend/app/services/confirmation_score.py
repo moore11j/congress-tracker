@@ -81,8 +81,8 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v6_net_evidence"
-CONFIRMATION_SCORING_VERSION = "confirmation_score_v5_net_evidence"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v7_weighted_coverage"
+CONFIRMATION_SCORING_VERSION = "confirmation_score_v6_weighted_coverage"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0
@@ -260,7 +260,7 @@ def redact_confirmation_bundle_sources(
     lock_state: str = "pro_locked",
     required_plan: str = "pro",
 ) -> dict:
-    """Remove locked source payloads and recompute derived bundle score fields."""
+    """Remove locked evidence while retaining the canonical v6 headline score."""
     if not isinstance(bundle, dict):
         return bundle
     locked = {source for source in locked_sources if source in SOURCE_ORDER}
@@ -313,6 +313,14 @@ def redact_confirmation_bundle_sources(
         }
         redacted["source_details"][key] = f"{label} requires {source_required_plan.title()}."
     redacted["active_sources"] = [source for source in redacted.get("active_sources", []) if source not in all_locked]
+    if bundle.get("scoring_version") == CONFIRMATION_SCORING_VERSION:
+        for key in ("score", "band", "direction", "status", "classification_version", "scoring_version", "score_context_version"):
+            if key in bundle:
+                redacted[key] = bundle[key]
+        # The headline is shared across paid plans; per-source totals must not
+        # disclose locked evidence. Detail fields above contain visible inputs only.
+        redacted["score_calculation"] = None
+        redacted["explanation"] = "The score uses the complete weighted source model. Supporting details are shown according to your plan."
     return redacted
 
 
@@ -2142,6 +2150,7 @@ def _score_bundle(
     drivers = _driver_bullets(sources, direction)
     status = _status_text(active_count, direction)
     explanation = _explanation(sources, drivers, direction)
+    explanation += f" {calculation['aligned_source_count']} of {calculation['source_count']} sources aligned; quiet, mixed and unavailable sources earn no confirmation points."
     if calculation["opposing_weight"] > 0:
         explanation += f" Opposing evidence is deducted directly; net confirmation is {score}/100."
 

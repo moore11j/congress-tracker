@@ -7,23 +7,26 @@ from typing import Any
 MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
 MIN_MATERIAL_CONTRIBUTION = 2.0
 
-# Approved maximum source contributions. Other source priorities stay at their
-# existing neutral reference weight; price/volume retains its 12-point maximum.
+# Full-source bullish capacity totals 100. Missing evidence never shrinks it.
 SOURCE_MAX_POINTS = {
     "fundamentals": 20.0,
-    "institutional_activity": 16.0,
+    "institutional_activity": 20.0,
+    "price_volume": 15.0,
     "congress": 10.0,
+    "insiders": 10.0,
     "analysts": 8.0,
-    "government_contracts": 5.0,
-    "price_volume": 12.0,
+    "signals": 5.0,
+    "options_flow": 5.0,
+    "macro_positioning": 5.0,
+    "government_contracts": 2.0,
 }
-INSIDER_MAX_POINTS = {"bullish": 12.0, "bearish": 1.0, "mixed": 3.0}
+INSIDER_MAX_POINTS = {"bullish": 10.0, "bearish": 1.0, "mixed": 3.0}
 
 
 def source_max_points(key: str, direction: str) -> float:
     if key == "insiders":
         return INSIDER_MAX_POINTS.get(direction, 0.0)
-    return SOURCE_MAX_POINTS.get(key, 10.0)
+    return SOURCE_MAX_POINTS.get(key, 0.0)
 
 
 def freshness_score(days: int | None) -> int:
@@ -108,12 +111,13 @@ def confirmation_conflict_ceiling(sources: dict[str, dict[str, Any]], direction:
 
 
 def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict[str, Any]:
-    """Signed consensus: opposition subtracts; missing/mixed inputs earn nothing.
+    """Weighted full-source confirmation on a fixed 100-point capacity.
 
     A fixed direction is monotonic in each eligible source's evidence weight.
     No activity, breadth, quality or freshness bonuses are added separately.
     Quality and freshness already affect each source's evidence magnitude.
     """
+    sources = {key: sources.get(key, {}) for key in SOURCE_MAX_POINTS}
     weights = {key: round(evidence_magnitude(source, key), 2)
                if evidence_exclusion(source) is None else 0.0
                for key, source in sources.items()}
@@ -124,19 +128,19 @@ def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict
     opposing = round(-sum(value for value in signed.values() if value < 0), 2)
     total = round(aligned + opposing, 2)
     net = round(aligned - opposing, 2)
-    raw_score = max(0.0, 100 * net / total) if total else 0.0
+    capacity = sum(SOURCE_MAX_POINTS.values())
+    raw_score = max(0.0, 100 * net / capacity)
     score = max(0, min(100, int(round(raw_score))))
-    # Rounding must never make real opposition disappear at the 100 boundary.
-    if opposing > 0:
+    # Neither missing coverage nor near-perfect inputs may round up to 100.
+    if net < capacity:
         score = min(score, 99)
-    eligible_count = sum(weight > 0 for weight in weights.values())
-    single_source_cap = eligible_count == 1 and score > 39
-    if single_source_cap:
-        score = 39
-    return {"method": "net_directional_evidence", "aligned_weight": aligned,
+    aligned_count = sum(value > 0 for value in signed.values())
+    return {"method": "weighted_full_source_confirmation", "aligned_weight": aligned,
             "opposing_weight": opposing, "net_weight": net, "total_weight": total,
+            "capacity_weight": capacity, "aligned_source_count": aligned_count,
+            "source_count": len(SOURCE_MAX_POINTS),
             "raw_score": round(raw_score, 4), "score": score,
-            "single_source_cap_applied": single_source_cap,
+            "single_source_cap_applied": False,
             "source_weights": weights,
-            "source_contributions": {key: round(100 * value / total, 4) if total else 0.0
+            "source_contributions": {key: round(100 * value / capacity, 4)
                                      for key, value in signed.items()}}

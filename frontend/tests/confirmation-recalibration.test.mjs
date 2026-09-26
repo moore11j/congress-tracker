@@ -29,9 +29,18 @@ test("recalibrations align with irregular daily observations and include endpoin
 });
 
 test("annotations disappear outside the displayed window or without usable dates", () => {
-  for (const points of [[], [{ date: "2026-09-17" }], [{ date: "2026-09-01" }, { date: "2026-09-15" }], [{ date: "2026-09-18" }, { date: "2026-10-01" }], [{ date: "bad" }, { date: "2026-09-17" }]]) {
+  for (const points of [[], [{ date: "2026-09-17" }], [{ date: "2026-09-01" }, { date: "2026-09-15" }], [{ date: "2026-09-18" }, { date: "2026-09-25" }], [{ date: "bad" }, { date: "2026-09-17" }]]) {
     assert.deepEqual(scoreRecalibrationsInRange(points), []);
   }
+});
+
+test("weighted coverage rollout is marked without recalculating past scores", () => {
+  const history = [{ date: "2026-09-25", score: 100 }, { date: "2026-09-26", score: 49 }];
+  const events = scoreRecalibrationsInRange(history);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].version, "confirmation-v6-weighted-coverage");
+  assert.match(events[0].description, /fixed weighted 100-point/);
+  assert.deepEqual(history.map(point => point.score), [100, 49]);
 });
 
 test("rendered graph explains methodology changes accessibly without replacing history", () => {

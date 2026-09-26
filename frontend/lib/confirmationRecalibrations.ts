@@ -1,6 +1,11 @@
-// Recorded deployment dates from confirmation_methodology_versions.
+// Methodology rollout dates; daily history uses the rollout's UTC date.
 // Daily score history uses UTC dates; keep these annotations on that same axis.
 export const confirmationRecalibrations = [
+  {
+    version: "confirmation-v6-weighted-coverage",
+    effectiveAt: "2026-09-26T00:00:00Z",
+    description: "Confirmation now uses a fixed weighted 100-point model. Quiet, mixed and missing sources earn no points; full confirmation requires all sources. Historical scores are unchanged.",
+  },
   {
     version: "confirmation-v4-source-priorities",
     effectiveAt: "2026-09-16T17:40:48.293741Z",

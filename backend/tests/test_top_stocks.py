@@ -54,7 +54,7 @@ def test_old_incompatible_snapshot_is_not_served(monkeypatch):
 
 def test_refresh_scores_before_qualification_and_persists_all_candidates(monkeypatch):
     with _session() as db:
-        result = _refresh(db, monkeypatch, [_row("AMZN", 77), _row("NEW", 20), _row("OUT", 90)], {"AMZN": 100, "NEW": 85, "OUT": 40})
+        result = _refresh(db, monkeypatch, [_row("AMZN", 77), _row("NEW", 20), _row("OUT", 90)], {"AMZN": 100, "NEW": 85, "OUT": 19})
         assert [(r["symbol"], r["confirmation_score"]) for r in result["items"]] == [("AMZN", 100), ("NEW", 85)]
         assert result["filter_items"]["tech"] == result["items"]
         stored = json.loads(db.scalar(select(LeaderboardSnapshot)).payload_json)
@@ -182,3 +182,15 @@ def test_tier_evidence_projection_does_not_reorder_canonical_ranks():
     second = _row("SECOND", 85, visible_confirmation=_bundle("SECOND", 80))
     payload = top_stocks._ranked_payload([second, first], generated_at="2026-09-25T20:00:00Z")
     assert [(item["rank"], item["symbol"], item["confirmation_score"]) for item in payload["items"]] == [(1, "FIRST", 65), (2, "SECOND", 80)]
+
+
+def test_relative_ranking_keeps_absolute_strength_labels_and_requires_corroboration():
+    developing = _row("DEVELOPING", 38)
+    too_thin = _row("THIN", 19)
+    single = _row("SINGLE", 20)
+    single["confirmation"]["source_count"] = 1
+    strong = _row("STRONG", 70)
+    payload = top_stocks._ranked_payload([too_thin, single, developing, strong], generated_at="2026-09-26T20:00:00Z")
+    assert [row["symbol"] for row in payload["items"]] == ["STRONG", "DEVELOPING"]
+    assert payload["items"][0]["why_ranked"].startswith("Strong")
+    assert payload["items"][1]["why_ranked"].startswith("Developing")

@@ -189,8 +189,8 @@ def test_methodology_seed_and_single_current_version():
         current_rows = db.execute(
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.is_current.is_(True))
         ).scalars().all()
-        assert current.version == "confirmation-v5-net-evidence"
-        assert [row.version for row in current_rows] == ["confirmation-v5-net-evidence"]
+        assert current.version == "confirmation-v6-weighted-coverage"
+        assert [row.version for row in current_rows] == ["confirmation-v6-weighted-coverage"]
 
 
 def test_current_methodology_promotes_deployed_version_over_existing_current():
@@ -211,8 +211,8 @@ def test_current_methodology_promotes_deployed_version_over_existing_current():
             select(ConfirmationMethodologyVersion).where(ConfirmationMethodologyVersion.version == "confirmation-v1")
         ).scalar_one()
 
-        assert current.version == "confirmation-v5-net-evidence"
-        assert [row.version for row in current_rows] == ["confirmation-v5-net-evidence"]
+        assert current.version == "confirmation-v6-weighted-coverage"
+        assert [row.version for row in current_rows] == ["confirmation-v6-weighted-coverage"]
         assert retired_v1.is_current is False
         assert retired_v1.retired_at is not None
 
@@ -708,7 +708,7 @@ def test_backfill_history_creates_matured_rows_from_monitoring_events():
         # Activating the new rules must neither duplicate nor relabel this row.
         original_id, original_hash, original_sources = imported.id, imported.input_hash, imported.source_contributions_json
         current = current_confirmation_methodology(db)
-        assert current.version == "confirmation-v5-net-evidence"
+        assert current.version == "confirmation-v6-weighted-coverage"
         again = backfill_outcome_ledger_history(db, since_days=120, limit=10, min_score=40, min_source_count=1, hydrate_prices=False)
         assert again["created"] == 0
         db.refresh(imported)

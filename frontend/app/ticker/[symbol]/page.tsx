@@ -1729,7 +1729,7 @@ function overviewHeadline(bundle: ConfirmationScoreBundle): string {
 
 function overviewSubheadline(alignedSources: ConfirmationSourceKey[]): string {
   if (alignedSources.length <= 0) return "No active sources aligned.";
-  return `${alignedSources.length} active source${alignedSources.length === 1 ? "" : "s"} aligned.`;
+  return `${alignedSources.length} of ${confirmationSourceOrder.length} sources visibly aligned. The score uses the full weighted source model.`;
 }
 
 function capitalizeWord(value: string): string {

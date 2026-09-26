@@ -4,7 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 STOCK_BASIC = {"rank", "symbol", "company_name", "key_drivers", "why_ranked", "updated_at", "ticker_url"}
-STOCK_PAID = STOCK_BASIC | {"confirmation_score", "confirmation_band", "confirmation_direction", "price", "market_cap", "sector", "country", "why_this_ranked"}
+STOCK_PAID = STOCK_BASIC | {"confirmation_score", "confirmation_band", "confirmation_direction", "confirmation_coverage", "price", "market_cap", "sector", "country", "why_this_ranked"}
 SNAPSHOT_BASIC = {"key", "generated_at", "universe_generated_at", "timeframe_label", "methodology", "empty_message", "source"}
 PARTICIPANT_BASIC = {"rank", "name", "party", "chamber", "company_name", "role", "symbol", "reporting_cik", "cik", "href"}
 

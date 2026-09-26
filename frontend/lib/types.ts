@@ -208,6 +208,9 @@ export type ConfirmationScoreBundle = {
     opposing_weight: number;
     net_weight: number;
     total_weight: number;
+    capacity_weight?: number;
+    aligned_source_count?: number;
+    source_count?: number;
     raw_score: number;
     score: number;
     single_source_cap_applied: boolean;

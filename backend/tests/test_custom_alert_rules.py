@@ -58,6 +58,36 @@ def test_bullish_and_bearish_states_use_boolean_conditions() -> None:
     assert conditions[0]["comparison_value"] is None
 
 
+def test_score_methodology_rollout_rebaselines_custom_rule_without_alert(monkeypatch):
+    from app.models import WatchlistAlertRuleState
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+    current_value = [40]
+    monkeypatch.setattr("app.services.custom_alert_rules._metric_value", lambda *a: (current_value[0], []))
+    with Session(engine) as db:
+        user = UserAccount(email="methodology@example.test")
+        watchlist = Watchlist(name="Coverage", owner_user_id=1)
+        security = Security(symbol="TEST", name="Test", asset_class="equity")
+        db.add_all([user, watchlist, security]); db.flush()
+        watchlist.owner_user_id = user.id
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id, target_type="ticker"))
+        rule = WatchlistAlertRule(user_id=user.id, watchlist_id=watchlist.id, name="Score below 60", enabled=True,
+            scope_type="any_watchlist_ticker", match_type="all", delivery="both",
+            conditions_json=json.dumps(validate_conditions([{"metric": "confirmation_score", "operator": "lt", "comparison_type": "value", "comparison_value": 60}])))
+        db.add(rule); db.flush()
+        db.add(WatchlistAlertRuleState(rule_id=rule.id, ticker="TEST", current_result=False, previous_result=False,
+            last_evaluated_at=now, values_json=json.dumps({"0": 100})))
+        db.commit()
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now)["triggered"] == 0
+        db.commit()
+        current_value[0] = 65
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=5))["triggered"] == 0
+        db.commit()
+        current_value[0] = 50
+        assert evaluate_watchlist_custom_alerts(db, user_id=user.id, watchlist_id=watchlist.id, now=now + timedelta(minutes=10))["triggered"] == 1
+
+
 def test_worker_triggers_once_then_rearms_after_the_condition_resets() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

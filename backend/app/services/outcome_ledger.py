@@ -56,7 +56,7 @@ OUTCOMES_LEDGER_MISSING_PRICE_KEY = "outcome_ledger_missing_reference_prices"
 OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_prices"
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
-CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v5-net-evidence"
+CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v6-weighted-coverage"
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OutcomeEntriesBySnapshot = dict[int, OutcomeEntry]
@@ -67,7 +67,7 @@ DateSpreadItem = TypeVar("DateSpreadItem")
 OUTCOME_QUALIFICATION_MIN_SCORE = 40
 OUTCOME_QUALIFICATION_MIN_SOURCES = 1
 OUTCOME_LEDGER_CACHE_SYMBOL = "__OUTCOME_LEDGER__"
-OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v11-net-evidence"
+OUTCOME_LEDGER_CACHE_PREFIX = "outcome-ledger:v12-weighted-coverage"
 V2_FEATURES_KEY = "__v2_features"
 SECTOR_PROXY_BY_NAME = {
     "communication services": "XLC",
@@ -207,8 +207,8 @@ def current_methodology_configuration() -> dict[str, Any]:
         "source_max_points": dict(SOURCE_MAX_POINTS),
         "insider_max_points": dict(INSIDER_MAX_POINTS),
         "application_policy": "New calculations only; never reweight or relabel recorded historical scores or outcomes.",
-        "score_formula": "round(100 * (aligned_weight - opposing_weight) / (aligned_weight + opposing_weight)), clamped to 0..100; one eligible source capped at 39; any opposition prevents 100",
-        "contribution_units": "Signed percentage points before rounding and the single-source cap; source priorities are relative evidence weights.",
+        "score_formula": "round(aligned_weight - opposing_weight), clamped to 0..100 against a fixed 100-point full-source capacity; only a full 100 net points can display 100",
+        "contribution_units": "Signed points out of a fixed 100-point source capacity; missing sources never shrink the denominator.",
         "lookback_days": 30,
         "source_order": list(SOURCE_ORDER),
         "score_bands": {
@@ -218,7 +218,7 @@ def current_methodology_configuration() -> dict[str, Any]:
             "strong": [60, 79],
             "exceptional": [80, 100],
         },
-        "notes": "Confirmation v5 deducts opposing evidence directly, with no separate activity bonuses. Mixed, neutral, missing, stale and immaterial sources contribute zero. Approved relative source priorities are unchanged. New calculations only; existing snapshots and outcomes retain their original methodology. Scores measure net evidence agreement, not return probabilities or absolute evidence coverage.",
+        "notes": "Confirmation v6 measures weighted full-source confirmation. Fundamentals and institutions have 20 points each, price/volume 15, Congress and insider buying 10 each, analysts 8, signals/options/macro 5 each, and contracts 2. Strength, quality and freshness determine earned points. Routine insider selling remains capped at 1 opposing point. Mixed, quiet, missing, stale and immaterial sources earn zero. Opposition subtracts. Existing historical snapshots and outcomes retain their original methodology; this score is not a return probability.",
         "outcome_target": {
             "primary_horizon": "30D",
             "primary_metric": "directional accuracy and excess return versus SPY",

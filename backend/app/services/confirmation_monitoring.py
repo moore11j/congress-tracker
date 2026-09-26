@@ -330,6 +330,11 @@ def refresh_watchlist_confirmation_monitoring(
             continue
 
         before = _state_from_snapshot(snapshot)
+        if before.classification_version != after.classification_version:
+            # A methodology rollout is a new baseline, not a market event.
+            _apply_state_to_snapshot(snapshot, after)
+            initialized += 1
+            continue
         decision = decide_confirmation_monitoring_event(before, after)
         if decision is not None:
             if _recent_duplicate_exists(db, user_id=user_id, watchlist_id=watchlist_id, ticker=symbol, decision=decision, now=observed_at):
@@ -677,7 +682,7 @@ def _snapshot_from_state(
         direction=state.direction,
         source_count=state.source_count,
         status=state.status,
-        source_states_json=json.dumps(state.source_states, sort_keys=True),
+        source_states_json=json.dumps({**state.source_states, "__methodology": {"classification_version": state.classification_version}}, sort_keys=True),
         observed_at=state.observed_at,
     )
 
@@ -703,6 +708,7 @@ def _state_from_snapshot(snapshot: ConfirmationMonitoringSnapshot) -> Confirmati
         status=snapshot.status or "Inactive",
         source_states=source_states,
         observed_at=snapshot.observed_at,
+        classification_version=str((source_states.get("__methodology") or {}).get("classification_version") or "legacy"),
     )
 
 
@@ -712,7 +718,7 @@ def _apply_state_to_snapshot(snapshot: ConfirmationMonitoringSnapshot, state: Co
     snapshot.direction = state.direction
     snapshot.source_count = state.source_count
     snapshot.status = state.status
-    snapshot.source_states_json = json.dumps(state.source_states, sort_keys=True)
+    snapshot.source_states_json = json.dumps({**state.source_states, "__methodology": {"classification_version": state.classification_version}}, sort_keys=True)
     snapshot.observed_at = state.observed_at
     snapshot.updated_at = state.observed_at
 
