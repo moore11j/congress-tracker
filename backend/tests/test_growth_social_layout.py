@@ -47,6 +47,9 @@ def test_tutorial_is_source_bound_and_requires_review(db,monkeypatch,tutorial):
     assert original['article']['key_points'][0] not in board['narration']
     bad=copy.deepcopy(item);bad['payload']['creative']['narration']='Guaranteed returns'
     with pytest.raises(ValueError):daily.validate(bad,db)
+    revision=daily.create_job(db,original,1,parent=item,feedback='Review another take')
+    assert daily.validate(revision,db)['tutorial_id']==tutorial
+    assert revision['parent_id']==item['id']
 
 
 def test_mix_repeats_three_research_then_one_tutorial_without_counting_failures(db,monkeypatch):

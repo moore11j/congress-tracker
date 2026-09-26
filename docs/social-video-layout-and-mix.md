@@ -37,13 +37,14 @@ do not advance it. Existing jobs and approved publishing records are immutable.
 
 ## September 26 delivery
 
-Deployed image: `registry.fly.io/congress-tracker-api:social-layout-20260926`.
+Deployed image: `registry.fly.io/congress-tracker-api:social-layout-20260926-v2`.
 Built from production `dc9c8f74f0883051af5fd79fa534125ec46a6f9f` plus only the
 six video service files changed for this task; healthy app/cron/video machines.
 Validation: 133 relevant tests plus an additional publish-event integration
-test; complete Microsoft preview audio/video decode passed.
+test; complete Microsoft preview audio/video decode passed. Tutorial revisions
+retain their selected tutorial format (34 affected tests passed after that safeguard).
 
-Review drafts:
+All three production renders completed successfully and are ready for review:
 
 - ASML layout revision: `gv_7b8519a6de504f4b8c170ed07a1b2111`.
 - Research tutorial: `gv_04d74788d74d4101892b710c04db4bd7`.

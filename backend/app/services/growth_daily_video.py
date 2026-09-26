@@ -129,6 +129,8 @@ def validate(item, db=None):
 
 
 def create_job(db, source, actor, *, parent=None, feedback="", tutorial=None):
+    if tutorial is None and parent:
+        tutorial = parent['payload'].get('creative', {}).get('tutorial_id')
     board = creative(source, tutorial=tutorial)
     store.consume_budget(db, "creatives", store.config(db)["creative_limit"])
     key = CAMPAIGN + ":" + source["id"] + ":" + source_fingerprint(source)
