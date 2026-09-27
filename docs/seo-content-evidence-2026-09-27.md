@@ -163,4 +163,20 @@ Each quarter's official information-table URL is retained in `backend/app/jobs/d
 - 16 targeted frontend SEO tests passed.
 - Public preview, sitemap discovery and correction-preservation regression tests passed.
 - An unrelated existing institutional test fixture passes `object()` as a database session; the unchanged institution route calls `.get()` and fails. That test was excluded from the focused inactive-SSR rerun; other guard tests pass. No unrelated institution behavior was altered.
-- Deployment and live crawl validation results follow below when completed.
+
+### Production deployment and live validation
+
+- Deployed commits `91a2dc23`, `81e91697`, and `06e785d5`. The frontend reported `06e785d52b17a6de27c0e0309d108354134428a5` through its live version endpoint. Fly's existing four machines are running the updated backend; application health checks pass. No compute plan or subscription changed.
+- Live anonymous requests returned HTTP 200 for NVDA, CART, the insider tracker, the corrected NVIDIA article, and NBIS–CRWV. Each has its expected self-referencing canonical and no `noindex` header or meta directive.
+- NVIDIA's initial HTML now includes named insider rows. Production verification caught provider identity fields nested in stored payloads; the follow-up normalization fix exposes only the explicitly permitted public fields and has a regression test.
+- The insider tracker shows five dated transaction rows with five direct SEC filing links. The NVIDIA article displays all nine cited SEC sources; the old six-source display cap was removed.
+- The NVIDIA correction was applied at `2026-09-27T17:16:41.587633+00:00`. Its original publication date, slug and access settings were preserved. The original payload is backed up on the backend volume at `/data/editorial-backups/rb_1789221682029_a265ac-d72578ec35cbc271.json`.
+- Google's actual live URL Inspection test for NVDA at 10:21 Pacific on September 27 reported **URL is available to Google / Page can be indexed**. Tested HTML contains both activity tables, including Timothy S Teter and Mark A Stevens, without the unavailable state. It also retains the Premium score restriction.
+- CART's fresh Google live test at 10:24 Pacific also reported **URL is available to Google / Page can be indexed**. This establishes live eligibility, not that Google has added the URL to its index.
+- The NVDA indexing request was rejected with **Quota exceeded** for the account's daily submissions. No new request was accepted, and no further manual submissions were attempted after that response. The existing submitted sitemap index remains the discovery route; repeated resubmission is unnecessary.
+- CART is now present in the live ticker sitemap. Its snapshot plus 250 additional missing ticker snapshots were committed. The first batch committed 83 entries before the rolling deployment disconnected its session; the resumed batch completed the remaining 167 with `status: ok`, `failed: 0`. Existing nightly batches continue filling eligible stored-data pages.
+- Final freshly generated sitemap XML returns HTTP 200 with **1,330 URLs**, up from 1,079, including CART and no `www` entries. At the same check, the normal cached sitemap URL still returned its earlier valid 1,263-entry response, also including CART. The final 67 additions will appear there after the existing cache expires; this is cache propagation, not a failed backfill. Both responses are recorded in `artifacts/seo-content-audit-2026-09-27/final-sitemap-validation.json`.
+- Additional newly discovered ticker spot checks (PHIN, IBEX and SATL) returned HTTP 200, a single self-referencing canonical, `index, follow`, and no `X-Robots-Tag` restriction.
+- The homepage hero and paid-access rules remain unchanged. This deployment fixes observed crawl/render and evidence problems; it does not establish a ranking recovery or a guaranteed indexing date.
+
+Live fetch evidence is saved in `artifacts/seo-content-audit-2026-09-27/release-validation.json` and the accompanying `*-after.html` / `*-after.txt` files. The Google-tested HTML was inspected separately in Search Console.
