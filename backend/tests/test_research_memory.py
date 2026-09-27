@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -16,6 +18,7 @@ from app.models import (
     ConfirmationScoreSnapshot,
     FeatureGate,
     FundamentalsCache,
+    InsightsSnapshot,
     PlanLimit,
     ResearchThesis,
     ResearchThesisCatalyst,
@@ -29,6 +32,7 @@ from app.models import (
 )
 from app.routers.research_memory import router as research_memory_router
 from app.services.openai_request_audit import _request_metadata
+from app.services import research_memory
 from app.services.research_memory import (
     activate,
     create_draft,
@@ -50,6 +54,7 @@ def db():
         Security.__table__,
         TickerMeta.__table__,
         FundamentalsCache.__table__,
+        InsightsSnapshot.__table__,
         ConfirmationScoreSnapshot.__table__,
         ResearchThesis.__table__,
         ResearchThesisClaim.__table__,
@@ -105,6 +110,122 @@ def test_unknown_coverage_is_rejected():
         assert exc.status_code == 422
     else:
         raise AssertionError("Unsupported coverage must fail validation.")
+
+
+def _assert_strict_schema(schema):
+    if schema.get("type") == "object":
+        assert schema.get("additionalProperties") is False
+        assert schema.get("properties")
+        assert set(schema["required"]) == set(schema["properties"])
+        for child in schema["properties"].values():
+            _assert_strict_schema(child)
+    elif schema.get("type") == "array":
+        _assert_strict_schema(schema["items"])
+
+
+def test_compiler_schema_defines_every_nested_object():
+    schema = research_memory._compiler_schema()
+    _assert_strict_schema(schema)
+    # Each nested contract must cover the fields accepted by persistence.
+    template = research_memory.validate_draft(template_draft("revenue_growth", symbol="MU"))
+    for collection in ("claims", "catalysts", "risks", "invalidators"):
+        item_schema = schema["properties"][collection]["items"]
+        assert set(item_schema["required"]) == set(template[collection][0])
+    assert schema["properties"]["invalidators"]["items"]["properties"]["threshold"]["type"] == ["string", "null"]
+
+
+@pytest.mark.parametrize("quote_age", [None, timedelta(minutes=5), timedelta(days=2)])
+@pytest.mark.parametrize("ticker,company,asset,symbol,group,provider_name,original", [
+    ("BMNR", "BitMine Immersion Technologies", "Ethereum", "ETHUSD", "crypto", "coingecko", "Price of etheruem will continue in an uptrend"),
+    ("NEM", "Newmont", "Gold", "GCUSD", "commodities", "silv", "Gold prices will continue in an uptrend"),
+    ("FCX", "Freeport-McMoRan", "Copper", "HGUSD", "commodities", "silv", "Copper prices will rise and support the company"),
+    ("PAAS", "Pan American Silver", "Silver", "SILUSD", "commodities", "silv", "Silver prices will continue rising"),
+])
+def test_external_asset_compile_reviews_and_saves_without_market_provider_calls(
+    db, monkeypatch, quote_age, ticker, company, asset, symbol, group, provider_name, original,
+):
+    owner, _, security = _seed_user_and_security(db)
+    security.symbol, security.name = ticker, company
+    owner.manual_tier_override = "premium"
+    if quote_age is not None:
+        as_of = datetime.now(timezone.utc) - quote_age
+        db.add(InsightsSnapshot(
+            kind=f"insights-quote:{group}:{symbol}:{provider_name}", source="market_quote", fetched_at=as_of,
+            payload_json=json.dumps({"symbol": symbol, "label": asset, "price": 2500,
+                                     "change_percent": 2.5, "as_of": as_of.isoformat(), "status": "ok"}),
+        ))
+    db.commit()
+    seed_feature_gates(db)
+    output = {
+        "title": f"{ticker}: {asset} uptrend", "summary": original, "orientation": "bullish", "target_horizon": None,
+        "claims": [{"claim_type": "asset_price", "subject": asset, "metric": f"{symbol} price",
+                    "expected_direction": "increase", "expected_magnitude": None, "expected_timeframe": None,
+                    "importance": "high", "monitoring_mode": "manual", "coverage_level": "manual_review_required"}],
+        "catalysts": [], "risks": [], "invalidators": [],
+    }
+    monkeypatch.setattr(research_memory, "resolved_setting_value", lambda *_: "test-key")
+
+    def no_market_calls(*args, **kwargs):
+        raise AssertionError("Compile must only read the prepared Insights cache")
+
+    monkeypatch.setattr(research_memory.requests, "get", no_market_calls)
+
+    def provider(**kwargs):
+        payload = kwargs["payload"]
+        _assert_strict_schema(payload["text"]["format"]["schema"])
+        context = json.loads(payload["input"])
+        assert context["user_thesis"] == original
+        assert context["security"]["symbol"] == ticker
+        quote = next(q for q in context["walnut_context"]["market_context"]["quotes"] if q["symbol"] == symbol)
+        fresh = quote_age == timedelta(minutes=5)
+        assert quote["group"] == group
+        assert quote["price"] == (2500 if fresh else None)
+        assert quote["status"] == ("available" if fresh else "unavailable")
+        assert "Commodity and crypto price assumptions" in payload["instructions"]
+        assert "manual_review_required" in payload["instructions"]
+        assert payload["store"] is False
+        return SimpleNamespace(status_code=200, json=lambda: {"status": "completed", "output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "message", "content": [{"type": "output_text", "text": json.dumps(output)}]},
+        ]})
+
+    monkeypatch.setattr(research_memory, "audited_openai_request", provider)
+    api = FastAPI()
+    api.include_router(research_memory_router)
+    from app.db import get_db
+    api.dependency_overrides[get_db] = lambda: db
+    client = TestClient(api)
+    client.cookies.set(SESSION_COOKIE_NAME, sign_session_payload({"uid": owner.id, "email": owner.email}))
+    response = client.post("/research-memory/compile", json={"ticker": ticker, "original_text": original})
+    assert response.status_code == 200, response.text
+    structure = response.json()["structure"]
+    assert structure["original_text"] == original
+    assert structure["claims"][0]["subject"] == asset
+    assert structure["claims"][0]["metric"] == f"{symbol} price"
+    assert structure["target_horizon"] is None
+    assert structure["invalidators"] == []
+    assert db.query(ResearchThesis).count() == 0  # Review precedes saving/activation.
+    saved = client.post("/research-memory/drafts", json={"ticker": ticker, "structure": structure})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "draft"
+    assert saved.json()["claims"][0]["metric"] == f"{symbol} price"
+
+
+@pytest.mark.parametrize("provider_output", [
+    {"status": "incomplete", "output_text": "{}"},
+    {"status": "completed", "output_text": "not json"},
+    {"status": "completed", "output": [{"content": [{"type": "refusal", "refusal": "Unavailable"}]}]},
+])
+def test_compiler_unusable_response_is_retryable(db, monkeypatch, provider_output):
+    _, _, security = _seed_user_and_security(db)
+    monkeypatch.setattr(research_memory, "resolved_setting_value", lambda *_: "test-key")
+    monkeypatch.setattr(research_memory, "audited_openai_request", lambda **_: SimpleNamespace(
+        status_code=200, json=lambda: provider_output,
+    ))
+    with pytest.raises(HTTPException) as error:
+        research_memory.compile_custom_thesis(db, security=security, original_text="Ethereum should rise")
+    assert error.value.status_code == 502
+    assert "Please retry" in error.value.detail
 
 
 def test_draft_persists_children_and_explicit_activation(db: Session):
