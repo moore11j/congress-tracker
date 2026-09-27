@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { cache, Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getPublicActivity, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -180,11 +180,13 @@ type TickerActivityData = {
   signalsUnavailable: SignalGateState | null;
   congressEvents: EventsResponse["items"];
   congressEventsTotal: number | null;
+  congressEventsStatus: string;
   congressEventsPage: number;
   congressEventsLimit: number;
   congressEventsHasNext: boolean;
   insiderEvents: EventsResponse["items"];
   insiderEventsTotal: number | null;
+  insiderEventsStatus: string;
   insiderEventsPage: number;
   insiderEventsLimit: number;
   insiderEventsHasNext: boolean;
@@ -2820,11 +2822,13 @@ async function resolveTickerActivityData({
     signalsUnavailable: signalsResult.unavailable,
     congressEvents,
     congressEventsTotal: congressActivityPage.total,
+    congressEventsStatus: congressEventsRes.status ?? "ok",
     congressEventsPage: congressActivityPage.page,
     congressEventsLimit: congressActivityPage.limit,
     congressEventsHasNext: congressActivityPage.hasNext,
     insiderEvents,
     insiderEventsTotal: insiderActivityPage.total,
+    insiderEventsStatus: insiderEventsRes.status ?? "ok",
     insiderEventsPage: insiderActivityPage.page,
     insiderEventsLimit: insiderActivityPage.limit,
     insiderEventsHasNext: insiderActivityPage.hasNext,
@@ -2914,11 +2918,13 @@ async function DeferredTickerContent({
     signalsUnavailable,
     congressEvents,
     congressEventsTotal,
+    congressEventsStatus,
     congressEventsPage,
     congressEventsLimit,
     congressEventsHasNext,
     insiderEvents,
     insiderEventsTotal,
+    insiderEventsStatus,
     insiderEventsPage,
     insiderEventsLimit,
     insiderEventsHasNext,
@@ -3251,7 +3257,7 @@ async function DeferredTickerContent({
               </div>
               <div className="space-y-3">
                 {congressEvents.length === 0 ? (
-                  <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
+                  hasAuthForEntitlementDisplay ? <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} /> : <p className="text-sm text-slate-400">{congressEventsStatus === "unavailable" ? "Congress activity is temporarily unavailable." : "No congress trades in the selected window."}</p>
                 ) : (
                   <>
                     <TickerActivityTable ariaLabel="Congress activity" minWidthClassName="min-w-[74rem]" headers={["Trader", "Chamber", "Party", "Signal weight", "Dates", "Price", "Trade value", "Side", "Score"]}>
@@ -3265,7 +3271,7 @@ async function DeferredTickerContent({
                         const partyValue = resolveCongressParty(event);
                         const party = partyBadge(partyValue);
                         const signal = resolveSmartSignalValue(event as Record<string, unknown>);
-                        const strengthLabel = formatSignalStrengthText(signal.band);
+                        const strengthLabel = signal.band ? formatSignalStrengthText(signal.band) : "—";
                         const displayPrice = resolveCongressTradePrice(event);
                         const pnl = readNumeric(event.pnl_pct);
 
@@ -3331,7 +3337,7 @@ async function DeferredTickerContent({
               </div>
               <div className="space-y-3">
                 {insiderEvents.length === 0 ? (
-                  <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
+                  hasAuthForEntitlementDisplay ? <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} /> : <p className="text-sm text-slate-400">{insiderEventsStatus === "unavailable" ? "Insider activity is temporarily unavailable." : "No insider trades in the selected window."}</p>
                 ) : (
                   <>
                     <TickerActivityTable ariaLabel="Insider activity" minWidthClassName="min-w-[68rem]" headers={["Insider", "Role", "Signal weight", "Filed", "Price", "Trade value", "Side", "Score"]}>
@@ -3340,7 +3346,7 @@ async function DeferredTickerContent({
                         const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
                         const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
                         const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
-                        const strengthLabel = formatSignalStrengthText(display.signal.band);
+                        const strengthLabel = display.signal.band ? formatSignalStrengthText(display.signal.band) : "—";
 
                         return (
                         <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
@@ -3652,17 +3658,12 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
         return {
           congress:
             source === "all" || source === "congress"
-              ? getEvents({
+              ? getPublicActivity({
                   symbol: normalizedSymbol,
                   recent_days: lookbackDays,
                   limit: ACTIVITY_FETCH_SIZE,
                   offset: congressPage * ACTIVITY_PAGE_SIZE,
-                  enrich_prices: 1,
                   tape: "congress",
-                  source: "TickerCongressActivity",
-                  requestSource: "ssr",
-                  routeFamily: "ticker",
-                  stalePageCache: false,
                   ...(tradeType ? { trade_type: tradeType } : {}),
                 }).catch((error) => {
                   console.error("[ticker-congress-activity] unavailable", {
@@ -3670,22 +3671,17 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
                     status: error instanceof ApiError ? error.status : null,
                     name: error instanceof Error ? error.name : "unknown",
                   });
-                  return emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE);
+                  return { ...emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE), status: "unavailable" as const };
                 })
               : Promise.resolve(undefined),
           insider:
             source === "all" || source === "insider"
-              ? getEvents({
+              ? getPublicActivity({
                   symbol: normalizedSymbol,
                   recent_days: lookbackDays,
                   limit: ACTIVITY_FETCH_SIZE,
                   offset: insiderPage * ACTIVITY_PAGE_SIZE,
-                  enrich_prices: 1,
                   tape: "insider",
-                  source: "TickerInsiderActivity",
-                  requestSource: "ssr",
-                  routeFamily: "ticker",
-                  stalePageCache: false,
                   ...(tradeType ? { trade_type: tradeType } : {}),
                 }).catch((error) => {
                   console.error("[ticker-insider-activity] unavailable", {
@@ -3693,7 +3689,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
                     status: error instanceof ApiError ? error.status : null,
                     name: error instanceof Error ? error.name : "unknown",
                   });
-                  return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
+                  return { ...emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE), status: "unavailable" as const };
                 })
               : Promise.resolve(undefined),
           government:

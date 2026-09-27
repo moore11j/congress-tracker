@@ -244,7 +244,10 @@ def _ticker_batch_candidates(db: Session, limit: int, *, include_existing: bool)
         .outerjoin(event_counts, event_counts.c.symbol == ticker_symbol)
         .outerjoin(index_counts, index_counts.c.symbol == ticker_symbol)
         .where(TickerMeta.company_name.is_not(None))
-        .where((event_count > 0) | (index_count > 0))
+        # A named, priced ticker is eligible even without disclosure activity or
+        # index membership (for example CART). Match snapshot indexability.
+        .where(func.trim(TickerMeta.company_name) != "")
+        .where(ticker_symbol.not_in(existing) if existing else True)
         .order_by(desc(event_count), desc(latest_price.c.latest_price_at), TickerMeta.symbol)
         .limit(limit * 4)
     ).all()
@@ -428,7 +431,7 @@ def refresh_ticker_seo_snapshot(db: Session, symbol: str) -> dict[str, Any]:
         ],
     }
     payload["links"] = [item for item in payload["links"] if item]
-    indexable = bool(company_name and (latest_price or recent_events))
+    indexable = bool(_clean_text(getattr(meta, "company_name", None)) and (latest_price or recent_events))
     return _upsert_snapshot(
         db,
         entity_type="ticker",

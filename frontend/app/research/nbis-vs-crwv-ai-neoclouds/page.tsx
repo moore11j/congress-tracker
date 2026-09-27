@@ -10,7 +10,7 @@ export const dynamic = "force-static";
 const canonicalUrl = "https://walnutmarkets.com/research/nbis-vs-crwv-ai-neoclouds";
 const pageTitle = "NBIS vs CRWV: Which AI Neocloud Trade Has Better Risk/Reward?";
 const pageDescription =
-  "Compare Nebius and CoreWeave across revenue, backlog, margins, debt, capex, Nvidia alignment, and Walnut market data. Research only, not investment advice.";
+  "A July 23, 2026 comparison of Nebius and CoreWeave using Q1 results and July 22 market data: revenue, backlog, margins, debt and capex. Historical research.";
 
 const nbisTerminalHref = "https://app.walnutmarkets.com/ticker/NBIS";
 const crwvTerminalHref = "https://app.walnutmarkets.com/ticker/CRWV";
@@ -58,7 +58,7 @@ const articleSchema = {
   headline: pageTitle,
   description: pageDescription,
   datePublished: "2026-07-23",
-  dateModified: "2026-07-23",
+  dateModified: "2026-09-27",
   author: {
     "@type": "Organization",
     name: "Walnut Markets",
@@ -94,7 +94,7 @@ const headlineMetrics = [
 ] as const;
 
 const comparisonRows = [
-  ["Latest quarter revenue", "Q1 2026: $399.0M, +684% YoY", "Q1 2026: $2.078B, +112% YoY"],
+  ["Q1 2026 revenue", "Q1 2026: $399.0M, +684% YoY", "Q1 2026: $2.078B, +112% YoY"],
   ["Adjusted EBITDA", "Q1 2026: $129.5M", "Q1 2026: $1.157B"],
   ["Adjusted EBITDA margin", "About 32.5% of Q1 revenue", "56% in Q1 2026"],
   ["GAAP net income / loss", "Net income from continuing operations of $621.2M, helped by investment revaluation gains; adjusted net loss was $100.3M", "Net loss of $740M"],
@@ -104,22 +104,22 @@ const comparisonRows = [
   ["Customer concentration", "2025 revenue included customers at 25% and 15%; 2026 disclosed long-term contracts with Microsoft and Meta", "2025 10-K disclosed Microsoft at about 67% of revenue"],
   ["Nvidia relationship", "$2B Nvidia private placement and broader strategic collaboration disclosed in March 2026", "$2B Nvidia Class A investment and expanded relationship to build more than 5 GW of AI factories by 2030"],
   ["Walnut confirmation score", "54, moderate bearish, 3-source bearish confirmation", "57, moderate bearish, 3-source bearish confirmation"],
-  ["Walnut price / volume", "Bearish tape confirmation; latest close $218.22, volume 0.81x 30D average, RSI near neutral, MACD bearish crossover", "Bearish tape confirmation; latest close $82.63, volume 0.55x 30D average, RSI below neutral, MACD bearish crossover"],
+  ["Walnut price / volume", "Bearish tape confirmation; July 22 close $218.22, volume 0.81x 30D average, RSI near neutral, MACD bearish crossover", "Bearish tape confirmation; July 22 close $82.63, volume 0.55x 30D average, RSI below neutral, MACD bearish crossover"],
   ["Reported insider / Congress activity in Walnut", "Reported insider activity active: 0 buys / 14 sells; no qualifying Congress trades in the 30-day context window", "Reported insider activity active: 0 buys / 200 sells; no qualifying Congress trades in the 30-day context window"],
 ] as const;
 
 const nbisBull = [
-  "Nebius is growing from a smaller base, but the latest reported growth rate is much faster: Q1 revenue rose 684% year over year to $399.0M.",
+  "Nebius is growing from a smaller base, but the Q1 2026 reported growth rate is much faster: Q1 revenue rose 684% year over year to $399.0M.",
   "Adjusted EBITDA was positive at $129.5M, and management said it remained on track for roughly 40% adjusted EBITDA margin in 2026.",
-  "The balance sheet has more visible flexibility than CRWV on the current data: $9.3B of cash and equivalents against about $8.45B of debt at quarter end.",
+  "The balance sheet has more visible flexibility than CRWV in the Q1 2026 data: $9.3B of cash and equivalents against about $8.45B of debt at quarter end.",
   "Nvidia alignment is explicit through a $2B private placement and strategic collaboration tied to AI cloud expansion.",
 ] as const;
 
 const nbisBear = [
-  "The scale gap is large. CoreWeave's latest quarterly revenue is more than five times Nebius' consolidated Q1 revenue.",
+  "The scale gap is large. CoreWeave's Q1 2026 revenue is more than five times Nebius' consolidated Q1 revenue.",
   "Large hyperscaler contracts can create execution risk, service-level commitments, and customer concentration risk as deployments ramp.",
   "Q1 capex was heavy for the size of the business, and new owned sites increase delivery and financing complexity.",
-  "Walnut currently shows bearish price/volume confirmation and reported insider selling activity in the 30-day context window.",
+  "The July 23 Walnut snapshot showed bearish price/volume confirmation and reported insider selling activity in the 30-day context window.",
 ] as const;
 
 const crwvBull = [
@@ -133,7 +133,7 @@ const crwvBear = [
   "The debt and capex burden is the central risk: about $24.86B of current and non-current debt and $7.695B of Q1 PPE purchases.",
   "Customer concentration remains material. The 2025 10-K disclosed Microsoft at about 67% of revenue.",
   "Adjusted EBITDA is strong, but GAAP losses and interest expense still matter; Q1 net loss was $740M and net interest expense was $536M.",
-  "Walnut currently shows stronger bearish tape confirmation than NBIS and reported insider selling activity in the 30-day context window.",
+  "The July 23 Walnut snapshot showed stronger bearish tape confirmation than NBIS and reported insider selling activity in the 30-day context window.",
 ] as const;
 
 const watchItems = [
@@ -190,6 +190,9 @@ export default function NbisCrwvAiNeocloudsPage() {
               Walnut DD Brief
             </div>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-tight text-white sm:text-5xl">{pageTitle}</h1>
+            <p className="mt-4 rounded-lg border border-white/15 bg-white/5 p-4 text-sm leading-6 text-slate-300">
+              Historical comparison — July 23, 2026. Financial figures below use Q1 2026 results; prices and trading indicators are through July 22. They are not current quotes or the latest earnings. The date labels were clarified September 27, 2026; the underlying analysis has not been refreshed. Open either ticker for current data.
+            </p>
             <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
               The AI infrastructure trade is getting more selective. CRWV has scale and backlog. NBIS may offer a cleaner risk/reward if the market starts rewarding profitability, balance sheet flexibility, and Nvidia alignment.
             </p>
@@ -234,7 +237,7 @@ export default function NbisCrwvAiNeocloudsPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">The Issue</p>
           <h2 className="mt-3 text-2xl font-semibold text-white">CRWV is larger. NBIS may be cleaner.</h2>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            CRWV has the larger revenue base and the huge backlog. NBIS is smaller, but the latest data shows a profitability inflection, a large cash balance, and explicit Nvidia support.
+            CRWV has the larger revenue base and the huge backlog. NBIS is smaller, but the Q1 2026 data showed a profitability inflection, a large cash balance, and explicit Nvidia support.
           </p>
           <p className="mt-4 text-sm leading-7 text-slate-400">
             The risk is not theoretical. Both companies need heavy infrastructure buildouts, large customers, GPU supply, power access, and demand durability to convert AI infrastructure appetite into durable economics.
@@ -317,16 +320,16 @@ export default function NbisCrwvAiNeocloudsPage() {
 
       <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.9fr] lg:px-8">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300">The Call</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300">The July 23 Assessment</p>
           <h2 className="mt-3 text-2xl font-semibold text-white">CRWV for scale. NBIS for cleaner risk/reward.</h2>
           <p className="mt-4 text-sm leading-7 text-slate-400">
             CoreWeave has the stronger scale case: larger revenue, massive backlog, large customer wins, and clear Nvidia alignment. That is the cleanest argument for CRWV.
           </p>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            Nebius has the cleaner risk/reward if the market starts rewarding balance sheet flexibility, profitability inflection, and Nvidia alignment. That view depends on execution, continued demand, and whether price/volume and reported activity improve from the current Walnut read.
+            Nebius has the cleaner risk/reward if the market starts rewarding balance sheet flexibility, profitability inflection, and Nvidia alignment. That view depends on execution, continued demand, and whether price/volume and reported activity improve from the July 23 Walnut snapshot.
           </p>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            Our call: CRWV for scale. NBIS for cleaner risk/reward.
+            Our July 23 assessment: CRWV for scale. NBIS for cleaner risk/reward.
           </p>
           <p className="mt-4 text-xs leading-5 text-slate-500">This is research only. It is not a buy, sell, or hold recommendation.</p>
         </div>

@@ -77,6 +77,24 @@ from app.request_guards import (
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
 
+
+@router.get("/public/activity", dependencies=[Depends(rate_limit_provider_backed)])
+def public_activity_preview(
+    response: Response,
+    tape: Literal["congress", "insider"],
+    symbol: str | None = Query(None, max_length=24, pattern=r"^[A-Za-z0-9.^_-]+$"),
+    recent_days: int = Query(365, ge=1, le=365),
+    limit: int = Query(21, ge=1, le=21),
+    offset: int = Query(0, ge=0, le=2000),
+    trade_type: Literal["purchase", "sale"] | None = None,
+    db: Session = Depends(get_db),
+):
+    from app.services.public_activity import public_activity
+
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=3600"
+    return public_activity(db, tape=tape, symbol=symbol, recent_days=recent_days,
+                           limit=limit, offset=offset, trade_type=trade_type)
+
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 MAX_SUGGEST_LIMIT = 50

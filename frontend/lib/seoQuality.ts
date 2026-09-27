@@ -33,7 +33,7 @@ export const seoPilotPages = {
     { type: "department", path: "/departments/nasa", lastmod: "2026-08-01", rationale: "Department pilot with public-company contract exposure." },
   ],
   research: [
-    { type: "research", path: "/research/nbis-vs-crwv-ai-neoclouds", lastmod: "2026-07-23", rationale: "Published Walnut research brief with original analysis." },
+    { type: "research", path: "/research/nbis-vs-crwv-ai-neoclouds", lastmod: "2026-09-27", rationale: "Historical July comparison; clarified snapshot dates and context." },
     { type: "research", path: "/research/ai-earnings-dd", lastmod: "2026-07-23", rationale: "Published Walnut research brief with original analysis." },
     { type: "research", path: "/research/mu-dd", lastmod: "2026-07-23", rationale: "Published Walnut research brief with original analysis." },
   ],

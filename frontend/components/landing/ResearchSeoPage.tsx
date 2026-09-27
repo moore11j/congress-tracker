@@ -37,7 +37,7 @@ const companyFooterLinks = [
   { label: "Privacy", href: "/privacy" },
 ] as const;
 
-export function ResearchSeoPage({ page }: { page: SeoLandingPage }) {
+export function ResearchSeoPage({ page, preview }: { page: SeoLandingPage; preview?: import("react").ReactNode }) {
   const structuredData = seoLandingPageJsonLd(page);
 
   return (
@@ -113,6 +113,7 @@ export function ResearchSeoPage({ page }: { page: SeoLandingPage }) {
         </div>
       </section>
 
+      {preview}
       <section className="px-4 py-14 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1fr_280px]">
           <div className="space-y-6">

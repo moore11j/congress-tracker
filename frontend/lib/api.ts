@@ -5725,6 +5725,14 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
   return response;
 }
 
+export async function getPublicActivity(params: { tape: "congress" | "insider"; symbol?: string; recent_days?: number; limit?: number; offset?: number; trade_type?: "purchase" | "sale" }): Promise<EventsResponse> {
+  const payload = await fetchPublicJson<unknown>(buildApiUrl("/api/public/activity", params), {
+    cache: "force-cache", next: { revalidate: 300 },
+    source: "PublicDisclosurePreview", requestSource: "ssr",
+  });
+  return normalizeEventsResponse(payload, params.recent_days ?? 365);
+}
+
 export async function getEvents(params: QueryParamsWithRequestOptions & { tape?: string }): Promise<EventsResponse> {
   const { tape: rawTape, signal, source: sourceLabel, authToken: rawAuthToken, requestSource, routeFamily, stalePageCache, ...queryParams } = params;
   const nextParams: QueryParams = {};

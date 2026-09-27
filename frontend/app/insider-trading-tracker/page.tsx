@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ResearchSeoPage } from "@/components/landing/ResearchSeoPage";
 import { marketingSeoPageMetadata } from "@/lib/marketingMetadata";
 import { seoLandingPages } from "@/lib/seoLandingPages";
+import { InsiderActivityPreview } from "@/components/landing/InsiderActivityPreview";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +14,5 @@ export const metadata: Metadata = marketingSeoPageMetadata(page.pathname, {
 });
 
 export default function InsiderTradingTrackerPage() {
-  return <ResearchSeoPage page={page} />;
+  return <ResearchSeoPage page={page} preview={<InsiderActivityPreview />} />;
 }

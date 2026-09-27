@@ -1,0 +1,134 @@
+{
+  "title": "Who is buying NVIDIA stock in the latest 13F filings?",
+  "subtitle": "Q2 2026 filing check: Fidelity added shares; Amundi and two T. Rowe Price filers reduced. Corrected September 27, 2026.",
+  "summary": "FMR LLC (Fidelity) increased its reported NVIDIA holding by 32,198,580 shares between March 31 and June 30, 2026. Amundi and the two reviewed T. Rowe Price filers reduced their holdings. These four filing comparisons do not establish market-wide net buying.",
+  "preview_body": "FMR LLC (Fidelity) increased its reported NVIDIA holding by 32,198,580 shares between March 31 and June 30, 2026. Amundi and the two reviewed T. Rowe Price filers reduced their holdings. These four filing comparisons do not establish market-wide net buying.",
+  "sections": [
+    {
+      "key": "quick_answer",
+      "heading": "Who increased NVIDIA holdings in Q2 2026?",
+      "body_markdown": "FMR LLC (Fidelity) increased its reported NVIDIA holding by 32,198,580 shares between March 31 and June 30, 2026. Amundi and the two reviewed T. Rowe Price filers reduced their holdings. These four filing comparisons do not establish market-wide net buying. A 13F reports quarter-end holdings, not real-time purchases or the prices paid. The comparison below uses the same NVIDIA common-stock CUSIP, 67066G104, in each manager’s two quarterly filings."
+    },
+    {
+      "key": "filing_comparison",
+      "heading": "Four managers, two reporting dates",
+      "body_markdown": "| Reporting manager | March 31 shares | June 30 shares | Share change | Change |\n| --- | --- | --- | --- | --- |\n| FMR LLC | 993,852,968 | 1,026,051,548 | +32,198,580 | +3.24% |\n| Amundi | 133,768,018 | 129,523,550 | -4,244,468 | -3.17% |\n| Price T Rowe Associates | 370,102,688 | 369,829,781 | -272,907 | -0.07% |\n| T. Rowe Price Investment Management | 19,437,830 | 16,865,766 | -2,572,064 | -13.23% |\n\nFMR’s Q1 and Q2 reports were filed May 15 and August 13, respectively. Both T. Rowe Price filers submitted their Q1 reports May 15 and Q2 reports August 14. Amundi’s original reports were filed May 18 and August 11. All dates are in 2026; they are filing dates, not trade execution dates."
+    },
+    {
+      "key": "interpretation",
+      "heading": "What the changes tell us",
+      "body_markdown": "Fidelity is a verified example of a manager reporting more NVIDIA common shares at the second quarter end: 1,026,051,548 versus 993,852,968. Amundi remained a large holder at 129,523,550 shares after a 4,244,468-share reduction. Price T Rowe Associates reported 369,829,781 shares, down 272,907. T. Rowe Price Investment Management reported 16,865,766 shares, down 2,572,064.\n\nWe treat the two T. Rowe Price filers separately and do not add these four managers together into a market-flow total. Shared discretion, related-manager reporting, corporate actions and transfers can complicate aggregation. A change in reported holdings is not an execution-level trading record. Nor does a holding’s reported market value tell us how much money a manager spent or received."
+    },
+    {
+      "key": "amendments",
+      "heading": "Why the Amundi amendment does not show an NVIDIA exit",
+      "body_markdown": "Amundi’s August 26 amendment for June 30 is marked NEW HOLDINGS. It supplements the original report instead of replacing every existing position. Its lack of an NVIDIA row is therefore not evidence that Amundi sold its entire NVIDIA position. The original June 30 information table contains 14 NVIDIA common-stock rows, totaling 129,523,550 shares.\n\nThe earlier version of this brief incorrectly called Amundi’s position an exit and described a roughly $74 billion T. Rowe Price holding value as a reduction. Those statements are withdrawn. T. Rowe Price Investment Management was also incorrectly described as an adder; the two filings show a reduction."
+    },
+    {
+      "key": "methodology",
+      "heading": "Coverage and how to reproduce this check",
+      "body_markdown": "This is a focused four-filer comparison, not a complete ranking of NVIDIA buyers or owners. For each original quarterly information table, sum shares for CUSIP 67066G104 with share type SH and no put/call flag, then subtract March 31 from June 30. Source links for both quarters are listed below. Inspect amendments and their type before treating any missing row as an exit. We reviewed the SEC filing inventory and documents on September 27, 2026.\n\nThe earlier 80-versus-20 holder count and a separate Q4 2025 cluster are not used to claim Q2 net accumulation. Counts of managers increasing and decreasing positions do not measure aggregate share flows. Unverified holder rankings, ownership percentages, the Situational Awareness exit claim and stale earnings commentary have also been removed from this ownership brief.\n\nQuarterly 13F disclosures are delayed, cover only reportable securities and do not reveal a manager’s entire portfolio or short exposure. They cannot tell us who is buying NVIDIA today."
+    },
+    {
+      "key": "workflow",
+      "heading": "Check NVIDIA’s research and ownership in Walnut",
+      "body_markdown": "Open the [NVDA ticker page](https://app.walnutmarkets.com/ticker/NVDA), choose Research to find this brief, and use Ownership to inspect the institutional dataset. Compare the reporting period and source filing before interpreting an increase, reduction or exit. Congress and corporate-insider disclosures answer different questions and should be checked separately.\n\nOur read: the verified examples are mixed. Fidelity increased its position, while three reviewed filers reduced theirs. This supports a more specific conclusion than a blanket claim that institutions are buying more than they are selling. Research only; not an investment recommendation."
+    }
+  ],
+  "source_links": [
+    {
+      "label": "FMR LLC — holdings at 2026-03-31",
+      "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626001390/xslForm13F_X02/20260515_FMRLLC.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "FMR LLC — holdings at 2026-06-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626002260/xslForm13F_X02/20260814_FMRLLC.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "Amundi — holdings at 2026-03-31",
+      "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/xslForm13F_X02/infotable.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "Amundi — holdings at 2026-06-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/xslForm13F_X02/infotable.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "Price T Rowe Associates — holdings at 2026-03-31",
+      "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/xslForm13F_X02/infotable.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "Price T Rowe Associates — holdings at 2026-06-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/xslForm13F_X02/infotable.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "T. Rowe Price Investment Management — holdings at 2026-03-31",
+      "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000460/xslForm13F_X02/infotable.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "T. Rowe Price Investment Management — holdings at 2026-06-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000578/xslForm13F_X02/infotable.xml",
+      "source_type": "official_filing"
+    },
+    {
+      "label": "Amundi June 30 amendment — NEW HOLDINGS, filed August 26",
+      "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/xslForm13F_X02/primary_doc.xml",
+      "source_type": "official_filing"
+    }
+  ],
+  "key_points": [
+    "FMR LLC increased its reported NVDA common shares by 32,198,580 (+3.24%) in Q2 2026.",
+    "Amundi retained 129,523,550 shares; its NEW HOLDINGS amendment does not establish an exit.",
+    "Both reviewed T. Rowe Price filers reduced reported NVDA share counts.",
+    "Four filers are a focused sample, not proof of market-wide net accumulation."
+  ],
+  "judgment": "mixed",
+  "walnut_call": "Mixed",
+  "confidence": "medium",
+  "confirmation_score_included": false,
+  "current_data_as_of": "2026-06-30",
+  "data_freshness": [
+    "Holdings dates: March 31 and June 30, 2026.",
+    "Q2 original filings: August 11–14, 2026; Amundi supplemental amendment: August 26.",
+    "SEC evidence reviewed and article corrected September 27, 2026."
+  ],
+  "missing_data_notes": [
+    "No complete market-wide aggregation or execution-level purchase/sale record is asserted."
+  ],
+  "catalysts": [],
+  "risks": [
+    "Filings are delayed and may be amended.",
+    "Holdings changes need not be open-market transactions.",
+    "Related-manager positions may overlap and must not be blindly summed."
+  ],
+  "watch_items": [
+    "The next quarter’s comparable common-share counts.",
+    "Restatements versus supplemental NEW HOLDINGS amendments."
+  ],
+  "reading_minutes": 5,
+  "preview_section_count": 6,
+  "suggested_card": {
+    "title": "NVIDIA buyers: a four-manager filing check",
+    "description": "FMR LLC (Fidelity) increased its reported NVIDIA holding by 32,198,580 shares between March 31 and June 30, 2026. Amundi and the two reviewed T. Rowe Price filers reduced their holdings. These four filing comparisons do not establish market-wide net buying.",
+    "judgment": "Mixed",
+    "tickers": [
+      "NVDA"
+    ]
+  },
+  "seo": {
+    "title": "Who Is Buying NVIDIA? Q2 2026 13F Share Changes | Walnut",
+    "description": "Fidelity added 32.2M NVIDIA shares in Q2 2026. Compare four managers’ March and June holdings, SEC sources and the correction to Amundi’s reported exit."
+  },
+  "paywall_copy": {
+    "heading": "NVIDIA holdings: verified changes",
+    "description": "FMR LLC (Fidelity) increased its reported NVIDIA holding by 32,198,580 shares between March 31 and June 30, 2026. Amundi and the two reviewed T. Rowe Price filers reduced their holdings. These four filing comparisons do not establish market-wide net buying.",
+    "cta_label": "Read the filing comparison"
+  },
+  "reddit_post": "Fidelity reported more NVIDIA shares in Q2 2026; Amundi and the two reviewed T. Rowe Price filers reported fewer. The dated SEC comparison and correction are in the brief: https://walnutmarkets.com/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings"
+}
