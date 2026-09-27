@@ -33,3 +33,9 @@ test("historical references, old quotes, splits, and methodology changes are lab
   const html = render({ ...market, baseline: { ...point, kind: "historical" }, current: { ...point, is_stale: true }, score_methodology_changed: true, score_change: null, price_change: null, price_change_percent: null, price_change_unavailable_reason: "split_review_required" });
   for (const value of ["Historical reference", "reconstructed", "Update overdue", "Scoring method changed", "Stock split", "excludes dividends"]) assert.ok(html.includes(value), value);
 });
+
+test("small nonzero price movements remain visible instead of rounding to negative zero", () => {
+  const html = render({ ...market, price_change: -0.02, price_change_percent: -0.0044 });
+  assert.match(html, /-0.0044%/);
+  assert.doesNotMatch(html, /-0.00%/);
+});

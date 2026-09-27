@@ -7,7 +7,8 @@ function money(value: number | null | undefined, signed = false) {
 }
 function change(value: number | null | undefined, suffix: string) {
   if (value == null || !Number.isFinite(value)) return "Unavailable";
-  return `${value > 0 ? "+" : ""}${value.toFixed(suffix === " pts" ? 0 : 2)}${suffix}`;
+  const decimals = suffix === " pts" ? 0 : value !== 0 && Math.abs(value) < 0.01 ? 4 : 2;
+  return `${value > 0 ? "+" : ""}${value.toFixed(decimals)}${suffix}`;
 }
 function color(value: number | null | undefined) {
   return value == null || value === 0 ? "text-slate-300" : value > 0 ? "text-emerald-300" : "text-rose-300";
@@ -17,7 +18,7 @@ function score(value: number | null | undefined) { return value == null ? "Unava
 export function ResearchThesisMarket({ market }: { market?: ResearchMemoryMarket }) {
   if (!market) return <p className="mt-4 text-xs text-slate-500">Ticker price and creation snapshot unavailable.</p>;
   const { baseline, current } = market;
-  return <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-slate-950/40 p-3" aria-label="Ticker performance since thesis creation">
+  return <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-slate-950/40 p-3">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><p className="text-[11px] uppercase tracking-wider text-slate-500">Latest ticker price · USD</p><p className="mt-1 text-xl font-semibold tabular-nums text-white">{money(current.price)}</p><p className={`mt-1 text-xs tabular-nums ${color(current.day_change)}`}>Daily: {money(current.day_change, true)} {current.day_change_percent != null ? `(${change(current.day_change_percent, "%")})` : ""}</p></div>
       <div className="text-right"><p className="text-[11px] uppercase tracking-wider text-slate-500">Since thesis creation</p><p className={`mt-1 font-semibold tabular-nums ${color(market.price_change)}`}>{money(market.price_change, true)}</p><p className={`mt-1 text-sm tabular-nums ${color(market.price_change_percent)}`}>{change(market.price_change_percent, "%")}</p></div>
