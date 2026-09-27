@@ -28,6 +28,23 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const sitemap = fs.readFileSync(path.join(root, "public/sitemap.xml"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
 
+test("production ticker filters stay crawlable without weakening private or preview exclusions", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const request = (host, route) => new NextRequest(`https://${host}${route}`, {headers:{host,"user-agent":"Google-InspectionTool"}});
+  for (const route of ["/ticker/CART", "/ticker/CART?tab=research", "/ticker/NVDA?source=insider&side=buy", "/ticker/AAPL?utm_source=reddit"]) {
+    const response = await middleware(request("app.walnutmarkets.com",route));
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get("x-robots-tag"),null);
+  }
+  for (const route of ["/admin", "/watchlists", "/members?page=2"]) {
+    const response = await middleware(request("app.walnutmarkets.com",route));
+    assert.match(response.headers.get("x-robots-tag"),/noindex/);
+  }
+  const preview = await middleware(request("walnut-preview.vercel.app","/ticker/CART?tab=research"));
+  assert.match(preview.headers.get("x-robots-tag"),/noindex/);
+});
+
 test("anonymous screener rewrites retain noindex for clean and filtered URLs", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");

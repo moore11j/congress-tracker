@@ -341,7 +341,7 @@ async function routeRequest(request: NextRequest) {
   const prefetch = isPrefetchRequest(request);
   const bot = isBotUserAgent(userAgent);
   const family = routeFamily(pathname);
-  const shouldNoindex = host === appHost && (isNoindexAppRoute(pathname) || hasNonCanonicalQueryState(search));
+  const shouldNoindex = host === appHost && (isNoindexAppRoute(pathname) || (!isPublicTickerRoute(pathname) && hasNonCanonicalQueryState(search)));
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   const requestProto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
   const isHttpCanonicalMarketingRequest = host === canonicalMarketingHost && requestProto === "http";

@@ -100,14 +100,13 @@ test("sitemap XML includes lastmod for controlled pilot pages", () => {
   assert.match(seoQuality, /<lastmod>\$\{page\.lastmod\}<\/lastmod>/);
 });
 
-test("canonical entity metadata does not index query-state variants", () => {
+test("non-ticker entity metadata does not index query-state variants", () => {
   assert.match(seoQuality, /function hasNonCanonicalSearchParams/);
   assert.match(seoQuality, /key\.startsWith\("utm_"\)/);
   assert.match(seoQuality, /function conciseSeoTitle/);
   assert.match(seoQuality, /function conciseSeoDescription/);
 
   for (const routePath of [
-    "app/ticker/[symbol]/page.tsx",
     "app/member/[slug]/page.tsx",
     "lib/insiderSeo.ts",
     "app/institution/[cik]/page.tsx",

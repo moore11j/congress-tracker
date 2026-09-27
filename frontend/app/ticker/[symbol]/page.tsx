@@ -73,7 +73,6 @@ import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/l
 import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
-import { hasNonCanonicalSearchParams, tickerHasIndexableContent } from "@/lib/seoQuality";
 import { hasResolvedTickerProfile, usablePublicTickerSnapshot, tickerSeoTitle, tickerSeoDescription } from "@/lib/tickerSeo";
 
 type Props = {
@@ -340,15 +339,15 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const companyName = resolved
     ? tickerCompanyName(context.profile!.ticker, context.bundle?.identity)
     : typeof snapshot?.payload.company_name === "string" ? snapshot.payload.company_name : null;
-  const indexable = resolved
-    ? Boolean(snapshot?.indexable && tickerHasIndexableContent(context.profile))
-    : snapshotOnly;
   return appPageMetadata(canonicalPath, {
     title: resolved || snapshotOnly ? tickerSeoTitle(normalizedSymbol, snapshotOnly) : `${normalizedSymbol} Stock Research Unavailable | Walnut`,
     description: resolved || snapshotOnly
       ? tickerSeoDescription(normalizedSymbol, companyName, snapshotOnly)
       : `Stock research for ${normalizedSymbol} is currently unavailable. Try again later or search for another ticker on Walnut Markets.`,
-    robots: { index: indexable && !hasNonCanonicalSearchParams(sp), follow: true },
+    // Public ticker indexing must not fluctuate with snapshot availability,
+    // cache warmth, module coverage, or the selected tab/filter. Query variants
+    // consolidate through the clean ticker canonical supplied above.
+    robots: { index: true, follow: true },
   });
 }
 
