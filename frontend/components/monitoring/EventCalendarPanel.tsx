@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { UpgradeImpression, UpgradeLink } from "@/components/billing/UpgradeLink";
+
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -366,15 +367,15 @@ function CalendarUpgradePreview() {
           </div>
         </div>
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/45 px-5 text-center backdrop-blur-[2px]">
-          <div className="max-w-md">
+          <UpgradeImpression feature="event_calendar" className="max-w-md">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Premium feature</p>
             <h3 className="mt-2 text-xl font-semibold text-white">Unlock the event calendar</h3>
             <p className="mt-2 text-sm leading-6 text-slate-300">Plan around watchlist earnings, dividends, IPOs, splits, and market-moving economic releases.</p>
             <div className="mt-4 flex justify-center gap-2">
-              <Link href="/account/billing" prefetch={false} className="inline-flex h-10 items-center justify-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/20">Upgrade to Premium</Link>
-              <Link href="/account/billing#compare" prefetch={false} className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white">Compare plans</Link>
+              <UpgradeLink feature="event_calendar" className="inline-flex h-10 items-center justify-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/20">Upgrade to Premium</UpgradeLink>
+              <UpgradeLink feature="event_calendar" compare className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 px-4 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white">Compare plans</UpgradeLink>
             </div>
-          </div>
+          </UpgradeImpression>
         </div>
       </div>
     </section>

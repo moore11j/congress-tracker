@@ -84,7 +84,7 @@ export function ScreenerExportButton({
         closeLabel="Close export upgrade prompt"
         panelClassName="max-w-md"
       >
-        <UpgradePrompt title={`Export screener results with ${planLabel}`} body={resolvedLockedReason} compact={true} />
+        <UpgradePrompt gatedFeature="screener_export" tier={planLabel.toLowerCase() === "premium" ? "Premium" : "Pro"} title={`Export screener results with ${planLabel}`} body={resolvedLockedReason} compact={true} />
       </WalnutModal>
     </div>
   );

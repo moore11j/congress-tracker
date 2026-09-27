@@ -17,7 +17,9 @@ function renderFunction(file, name, props = {}) {
   }).outputText;
   const module = { exports: {} };
   const Link = ({ children, prefetch, ...attributes }) => React.createElement("a", attributes, children);
-  new Function("require", "exports", "Link", code)(require, module.exports, Link);
+  const UpgradeLink = ({ feature, tier = "Premium", children, ...attributes }) => React.createElement("a", { ...attributes, href: `/pricing?plan=${tier.toLowerCase()}` }, children);
+  const UpgradeImpression = ({ children, className }) => React.createElement("div", { className }, children);
+  new Function("require", "exports", "Link", "UpgradeLink", "UpgradeImpression", code)(require, module.exports, Link, UpgradeLink, UpgradeImpression);
   return renderToStaticMarkup(React.createElement(module.exports[name], props));
 }
 
@@ -30,7 +32,7 @@ test("Valuation upgrade label matches Ownership typography without altering its 
   assert.doesNotMatch(valuation, /uppercase|tracking-/);
   assert.match(valuation, /Full valuation details/);
   assert.match(valuation, /blur-\[7px\]/);
-  assert.match(valuation, /href="\/pricing"/);
+  assert.match(valuation, /href="\/pricing\?plan=pro"/);
 });
 
 test("Analyst Premium callout uses Macro layout and keeps the full feature description", () => {
@@ -44,7 +46,7 @@ test("Analyst Premium callout uses Macro layout and keeps the full feature descr
   }
   assert.match(html, /Analyst detail requires Premium/);
   assert.match(html, /Upgrade to Premium/);
-  assert.match(html, /href="\/account\/billing"/);
+  assert.match(html, /href="\/pricing\?plan=premium"/);
   for (const copy of ["current summary", "full consensus trail", "rating distribution", "target dispersion", "trend changes", "upgrade\/downgrade history"]) assert.ok(html.includes(copy));
   assert.doesNotMatch(html, /grid-cols|17rem|Upgrade to Pro/);
 });

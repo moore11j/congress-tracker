@@ -49,7 +49,7 @@ export function ScreenerUpgradeOverlay({
         closeLabel="Close upgrade prompt"
         panelClassName="max-w-md"
       >
-        <UpgradePrompt title={title} body={body} compact={true} />
+        <UpgradePrompt gatedFeature="screener_intelligence" title={title} body={body} compact={true} />
       </WalnutModal>
     </>
   );

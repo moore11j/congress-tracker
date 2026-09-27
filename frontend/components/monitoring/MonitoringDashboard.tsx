@@ -842,7 +842,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
       {!entitlementsLoading && hiddenSourceCount > 0 ? (
         <div className="order-2">
-          <UpgradePrompt
+          <UpgradePrompt gatedFeature="monitoring_sources"
           title="Monitor every source with Premium"
           body={`Free monitors ${monitoringLimit} sources in the inbox. ${hiddenSourceCount} saved source${hiddenSourceCount === 1 ? " is" : "s are"} waiting behind the Premium limit.`}
           />

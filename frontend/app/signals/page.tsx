@@ -349,7 +349,7 @@ export default async function SignalsPage({
           />
         ) : (
           <div className={`${card} min-h-[32rem] overflow-hidden p-4`}>
-            <PremiumFeatureGate body="Signals are included with Premium. Upgrade to unlock unusual trade radar results." />
+            <PremiumFeatureGate feature="signals_results" body="Signals are included with Premium. Upgrade to unlock unusual trade radar results." />
           </div>
         )}
       </div>

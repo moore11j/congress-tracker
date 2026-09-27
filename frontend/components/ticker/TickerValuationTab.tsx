@@ -1,7 +1,7 @@
 import type { TickerValuationResponse } from "@/lib/api";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { UpgradeImpression, UpgradeLink } from "@/components/billing/UpgradeLink";
 
 type Props = {
   data: TickerValuationResponse;
@@ -160,17 +160,17 @@ function dilutionRiskLabel(data: TickerValuationResponse): string {
 
 function ProBlur({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`relative overflow-hidden rounded-lg ${className}`}>
+    <UpgradeImpression feature="ticker_valuation" tier="Pro" className={`relative overflow-hidden rounded-lg ${className}`}>
       <div className="pointer-events-none select-none blur-[7px] saturate-50 opacity-45" aria-hidden="true">
         {children}
       </div>
       <div className="absolute inset-0 grid place-items-center bg-slate-950/70 backdrop-blur-[4px]">
-        <Link href="/pricing" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-center shadow-[0_0_22px_rgba(16,185,129,0.14)] transition hover:border-emerald-200/50 hover:bg-emerald-300/15">
+        <UpgradeLink feature="ticker_valuation" tier="Pro" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-center shadow-[0_0_22px_rgba(16,185,129,0.14)] transition hover:border-emerald-200/50 hover:bg-emerald-300/15">
           <p className="text-sm font-semibold text-emerald-100">Upgrade to Pro</p>
           <p className="mt-1 text-xs font-semibold text-slate-100">Full valuation details</p>
-        </Link>
+        </UpgradeLink>
       </div>
-    </div>
+    </UpgradeImpression>
   );
 }
 

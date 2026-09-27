@@ -384,9 +384,13 @@ def list_strategy_cards(
     statement = select(StrategyDefinition)
     if not include_drafts:
         statement = statement.where(StrategyDefinition.status == "published")
-    if category:
-        statement = statement.where(StrategyDefinition.category == category)
     strategies = db.execute(statement.order_by(StrategyDefinition.sort_order.asc(), StrategyDefinition.name.asc())).scalars().all()
+    # Facets describe the visible catalog, not only the selected category.
+    category_counts: dict[str, int] = {}
+    for strategy in strategies:
+        category_counts[strategy.category] = category_counts.get(strategy.category, 0) + 1
+    if category:
+        strategies = [strategy for strategy in strategies if strategy.category == category]
 
     items: list[dict[str, Any]] = []
     for strategy in strategies:
@@ -405,6 +409,7 @@ def list_strategy_cards(
             "sort": sort,
             "category": category,
             "includeDrafts": include_drafts,
+            "categoryCounts": category_counts,
             "count": len(items),
             "storage": "persisted_strategy_snapshots",
         },

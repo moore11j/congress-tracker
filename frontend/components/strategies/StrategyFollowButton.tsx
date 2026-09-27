@@ -113,7 +113,7 @@ export function StrategyFollowButton({ slug, compact = false, panel = false }: P
   if (panel) {
     const canManage = entitlementsLoaded && hasEntitlement(entitlements, "notification_digests");
     if (!entitlementsLoaded) return <p className="py-4 text-sm text-slate-500">Loading alert preferences...</p>;
-    if (!canManage) return <UpgradePrompt title="Follow this strategy" body="Premium includes the complete model portfolio and daily strategy-update emails." compact />;
+    if (!canManage) return <UpgradePrompt gatedFeature="strategy_follow" title="Follow this strategy" body="Premium includes the complete model portfolio and daily strategy-update emails." compact />;
     return <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -138,13 +138,13 @@ export function StrategyFollowButton({ slug, compact = false, panel = false }: P
       <button type="button" onClick={saveSubscription} disabled={loading || eventTypes.length === 0} className="w-full rounded-md bg-emerald-400/20 px-3 py-2.5 text-sm font-semibold text-emerald-50 ring-1 ring-emerald-300/35 hover:bg-emerald-400/30 disabled:cursor-wait disabled:opacity-60">{loading ? "Saving..." : following ? "Save alert settings" : "Follow strategy"}</button>
       {following ? <button type="button" onClick={toggleFollowing} disabled={loading} className="w-full text-sm font-semibold text-slate-400 hover:text-rose-200 disabled:opacity-60">Unfollow strategy</button> : null}
       {message ? <p className={`text-xs leading-5 ${message === "Daily alert settings saved." ? "text-emerald-200" : "text-rose-200"}`}>{message}</p> : null}
-      {upgradeOpen ? <UpgradePrompt title="Follow this strategy" body="Premium includes the complete model portfolio and daily strategy-update emails." compact /> : null}
+      {upgradeOpen ? <UpgradePrompt gatedFeature="strategy_follow" title="Follow this strategy" body="Premium includes the complete model portfolio and daily strategy-update emails." compact /> : null}
     </div>;
   }
 
   return <div className={compact ? "" : "w-full"}>
     <button type="button" onClick={toggleFollowing} disabled={loading} className={`${compact ? "" : "w-full"} rounded-md px-3 py-2 text-sm font-semibold disabled:cursor-wait disabled:opacity-60 ${following ? "border border-white/15 text-slate-200 hover:border-rose-300/50 hover:text-rose-100" : "bg-emerald-400/20 text-emerald-50 ring-1 ring-emerald-300/35 hover:bg-emerald-400/30"}`}>{loading ? "Loading..." : following ? "Following strategy" : "Follow strategy"}</button>
     {message ? <p className="mt-2 text-xs leading-5 text-rose-200">{message}</p> : null}
-    {upgradeOpen ? <div className="mt-3"><UpgradePrompt title="Follow this strategy" body="Get daily position, exit, and rebalance updates with Premium." compact /></div> : null}
+    {upgradeOpen ? <div className="mt-3"><UpgradePrompt gatedFeature="strategy_follow" title="Follow this strategy" body="Get daily position, exit, and rebalance updates with Premium." compact /></div> : null}
   </div>;
 }

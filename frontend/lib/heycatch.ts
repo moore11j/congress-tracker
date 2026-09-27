@@ -22,16 +22,19 @@ export function ensureHeyCatch(): boolean {
 
 export function identifyHeyCatchUser(user: AccountUser) {
   try {
-    if (!ensureHeyCatch() || identified === String(user.id)) return;
-    const plan = user.current_plan || user.subscription_plan || user.entitlement_tier || user.plan;
+    if (!ensureHeyCatch()) return;
+    const plan = user.entitlement_tier || user.current_plan || user.subscription_plan || user.plan || "free";
+    const isInternal = Boolean(user.is_admin || user.role === "admin");
+    const identityKey = `${user.id}:${plan}:${isInternal}`;
+    if (identified === identityKey) return;
     analytics.setIdentity(
       String(user.id),
       {
-        ...(plan ? { plan } : {}),
+        plan, current_plan: plan, is_internal: isInternal,
       },
       acquisitionProperties(),
     );
-    identified = String(user.id);
+    identified = identityKey;
   } catch {
     // Analytics must never affect authentication or navigation.
   }

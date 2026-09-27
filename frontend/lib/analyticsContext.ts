@@ -2,13 +2,13 @@ import { isProductionAnalyticsHost } from "./analyticsEnvironment";
 import { hasPrivacyConsent } from "./privacyConsent";
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null>;
-let identity: AnalyticsProperties = { authenticated: null, current_plan: "unknown" };
+let identity: AnalyticsProperties = { authenticated: null, current_plan: "unknown", is_internal: null };
 let memorySession = "";
 let lastActivity = 0;
 let memoryAcquisition: AnalyticsProperties | null = null;
 
-export function setAnalyticsIdentity(user: { id: number; current_plan?: string | null; entitlement_tier?: string | null; plan?: string | null } | null) {
-  identity = { authenticated: Boolean(user), current_plan: user?.entitlement_tier || user?.current_plan || user?.plan || "free" };
+export function setAnalyticsIdentity(user: { id: number; current_plan?: string | null; entitlement_tier?: string | null; plan?: string | null; is_admin?: boolean; role?: string } | null) {
+  identity = { authenticated: Boolean(user), current_plan: user?.entitlement_tier || user?.current_plan || user?.plan || "free", is_internal: Boolean(user?.is_admin || user?.role === "admin") };
 }
 
 export function analyticsIdentity() { return { ...identity }; }

@@ -1,5 +1,7 @@
 "use client";
 
+import { UpgradeImpression, UpgradeLink } from "@/components/billing/UpgradeLink";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Form from "next/form";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
@@ -364,7 +366,7 @@ function contributionRows(snapshot?: OutcomeSnapshot) {
 function ExportGateModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="outcomes-export-gate-title">
-      <div className="w-full max-w-md rounded-md border border-emerald-300/20 bg-slate-950 p-5 shadow-2xl shadow-black/40">
+      <UpgradeImpression feature="outcomes_export" tier="Pro" className="w-full max-w-md rounded-md border border-emerald-300/20 bg-slate-950 p-5 shadow-2xl shadow-black/40">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">Pro Feature</p>
@@ -383,11 +385,11 @@ function ExportGateModal({ onClose }: { onClose: () => void }) {
           <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5">
             Not now
           </button>
-          <a href="/pricing" className="rounded-md border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-50 hover:bg-emerald-400/25">
+          <UpgradeLink feature="outcomes_export" tier="Pro" className="rounded-md border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-50 hover:bg-emerald-400/25">
             Upgrade to Pro
-          </a>
+          </UpgradeLink>
         </div>
-      </div>
+      </UpgradeImpression>
     </div>
   );
 }
@@ -395,7 +397,7 @@ function ExportGateModal({ onClose }: { onClose: () => void }) {
 function OutcomeTableGateModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="outcomes-table-gate-title">
-      <div className="w-full max-w-md rounded-md border border-emerald-300/20 bg-slate-950 p-5 shadow-2xl shadow-black/40">
+      <UpgradeImpression feature="outcomes_table" tier="Premium" className="w-full max-w-md rounded-md border border-emerald-300/20 bg-slate-950 p-5 shadow-2xl shadow-black/40">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">Premium Feature</p>
@@ -414,11 +416,11 @@ function OutcomeTableGateModal({ onClose }: { onClose: () => void }) {
           <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5">
             Not now
           </button>
-          <a href="/pricing" className="rounded-md border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-50 hover:bg-emerald-400/25">
+          <UpgradeLink feature="outcomes_table" tier="Premium" className="rounded-md border border-emerald-300/40 bg-emerald-400/15 px-4 py-2 text-sm font-bold text-emerald-50 hover:bg-emerald-400/25">
             Upgrade to Premium
-          </a>
+          </UpgradeLink>
         </div>
-      </div>
+      </UpgradeImpression>
     </div>
   );
 }

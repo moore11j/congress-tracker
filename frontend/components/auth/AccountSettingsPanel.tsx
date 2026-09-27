@@ -1,5 +1,6 @@
 "use client";
 
+import { UpgradeImpression, UpgradeLink } from "@/components/billing/UpgradeLink";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
@@ -43,7 +44,7 @@ function fieldClassName(disabled = false) {
 export function AccountSettingsPanel() {
   const searchParams = useSearchParams();
   const [user, setUser] = useState<AccountUser | null>(null);
-  const [dailyIdeasAllowed, setDailyIdeasAllowed] = useState(false);
+  const [dailyIdeasAllowed, setDailyIdeasAllowed] = useState<boolean | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [country, setCountry] = useState("");
@@ -412,11 +413,12 @@ export function AccountSettingsPanel() {
           Choose the delivery cadence available across your monitored sources. Transactional account and billing emails stay separate.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="text-sm text-slate-200">Top Stock Ideas
-            <select value={notifications.top_stock_ideas_frequency ?? "off"} onChange={event => setNotifications(current => ({...current, top_stock_ideas_frequency: event.target.value as "off" | "weekly" | "daily"}))} className={fieldClassName()}>
+          <div className="text-sm text-slate-200"><label htmlFor="top-stock-ideas-frequency">Top Stock Ideas</label>
+            <select id="top-stock-ideas-frequency" value={notifications.top_stock_ideas_frequency ?? "off"} onChange={event => setNotifications(current => ({...current, top_stock_ideas_frequency: event.target.value as "off" | "weekly" | "daily"}))} className={fieldClassName()}>
               <option value="off">Off</option><option value="weekly">Weekly · Top 5 free</option><option value="daily" disabled={!dailyIdeasAllowed}>Daily · Premium / Pro</option>
             </select><span className="mt-2 block text-xs text-slate-400">Free: weekly Top 5. Premium / Pro: daily or weekly, with more ideas and fuller evidence. Email verification required.</span>
-          </label>
+            {dailyIdeasAllowed === false && <UpgradeImpression feature="top_ideas_daily" className="mt-2 text-xs"><UpgradeLink feature="top_ideas_daily" className="inline-flex min-h-11 items-center font-semibold text-emerald-200 hover:text-emerald-100">Unlock daily Top Stock Ideas with Premium →</UpgradeLink></UpgradeImpression>}
+          </div>
           <ToggleRow
             label="Daily monitoring digest"
             checked={notifications.watchlist_activity_notifications}

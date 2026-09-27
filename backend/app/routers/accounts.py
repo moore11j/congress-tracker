@@ -6309,7 +6309,7 @@ _FUNNEL_PROPERTY_KEYS = {
     "route", "source_page", "destination_page", "ticker", "entity_type", "entity_id",
     "leaderboard_type", "strategy_id", "gated_feature", "current_plan", "authenticated",
     "acquisition_source", "utm_source", "utm_medium", "utm_campaign", "utm_content", "target_plan",
-    "billing_interval", "method", "placement", "destination_type", "destination_id",
+    "billing_interval", "method", "placement", "destination_type", "destination_id", "is_internal",
 }
 
 
@@ -6429,7 +6429,12 @@ def record_product_event(payload: ProductEventPayload, request: Request, db: Ses
         from app.paid_analytics import safe_ga_context
         metadata["ga_context"] = safe_ga_context(payload.ga_context)
     if event_name in _CANONICAL_FUNNEL_EVENTS:
-        metadata["properties"].update({"authenticated": bool(user), "current_plan": normalize_tier(user.entitlement_tier) if user else "free"})
+        excluded_ids = {value.strip() for value in os.getenv("ANALYTICS_EXCLUDED_USER_IDS", "").split(",")}
+        metadata["properties"].update({
+            "authenticated": bool(user),
+            "current_plan": normalize_tier(user.entitlement_tier) if user else "free",
+            "is_internal": bool(user and (is_admin_user(user) or str(user.id) in excluded_ids)),
+        })
     row = PageViewEvent(
         user_id=user.id if user else None,
         session_id_hash=session_hash,

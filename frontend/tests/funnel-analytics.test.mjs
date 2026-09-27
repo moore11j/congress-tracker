@@ -101,13 +101,16 @@ test("first-touch attribution survives navigation and session ID survives identi
 });
 test("homepage CTAs and contextual gates preserve required destinations", () => {
   const home = fs.readFileSync("app/landing/page.tsx", "utf8");
-  assert.match(home, /href=\{`\$\{appUrl\}\/screener`\}[^>]*>Open Screener/);
+  assert.match(home, /label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
+  assert.match(home, /href=\{unlocked \? topStocksUrl : signupUrl\}/);
   assert.match(home, /View Leaderboards/);
   assert.match(home, /Explore Strategies/);
   const gates = fs.readFileSync("components/leaderboards/LeaderboardsDashboard.tsx", "utf8");
-  assert.equal((gates.match(/rows.slice\(0, 3\)/g) || []).length, 4);
+  assert.match(gates, /guest \? 3 : 1/);
+  assert.match(gates, /number\(row, "rank"\).*<= 5/);
+  for (const feature of ["top_stocks", "congress_leaderboard", "insider_leaderboard", "institutional_leaderboard"]) assert.ok(gates.includes(`feature="${feature}"`));
   assert.match(gates, /allowed \? <div className="flex items-center/);
-  assert.match(gates, /tier="Pro" label="Unlock the complete institutional ranking"/);
+  assert.match(gates, /tier="Pro" feature="institutional_leaderboard"/);
   const pricing = fs.readFileSync("components/billing/PricingActions.tsx", "utf8");
   assert.match(pricing, /mode=register&return_to=/);
   assert.match(pricing, /signupQuery.set\("plan", tier\)/);
@@ -152,7 +155,7 @@ test("ticker discoveries are backed by activity or actual comparable tickers and
   assert.match(institutional, /href="#institutional-activity"/);
   const signals = fs.readFileSync("components/ticker/TickerSignalsSourceCardClient.tsx", "utf8");
   assert.match(signals, /href="#signals-activity"/);
-  const gate = fs.readFileSync("components/billing/ContextualUpgrade.tsx", "utf8");
+  const gate = fs.readFileSync("components/billing/UpgradeLink.tsx", "utf8");
   assert.match(gate, /name="upgrade_prompt_viewed"/);
   assert.match(gate, /trackEvent\("upgrade_prompt_clicked"/);
 });

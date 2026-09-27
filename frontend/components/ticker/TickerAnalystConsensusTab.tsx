@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { UpgradeImpression, UpgradeLink } from "@/components/billing/UpgradeLink";
+
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   TickerAnalystGradeEvent,
@@ -531,15 +532,15 @@ function RatingsMixChart({
 
 function PremiumLocked() {
   return (
-    <section className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-5">
+    <UpgradeImpression feature="ticker_analyst_consensus" tier="Premium" className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-5">
       <p className="text-sm font-semibold text-emerald-100">Analyst detail requires Premium.</p>
       <p className="mt-2 text-sm leading-6 text-slate-300">
         Free users get the current summary. Premium adds the full consensus trail: rating distribution, target dispersion, trend changes, and upgrade/downgrade history.
       </p>
-      <Link href="/account/billing" prefetch={false} className="mt-4 inline-flex rounded-xl border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
+      <UpgradeLink feature="ticker_analyst_consensus" tier="Premium" className="mt-4 inline-flex rounded-xl border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
         Upgrade to Premium
-      </Link>
-    </section>
+      </UpgradeLink>
+    </UpgradeImpression>
   );
 }
 

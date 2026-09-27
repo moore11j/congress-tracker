@@ -1282,7 +1282,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
         />
       ) : (
         <section id="screener-results" className={`${cardClassName} scroll-mt-6`}>
-          <PremiumFeatureGate body="The stock screener results are included with Premium. Upgrade to run screens and unlock the full discovery workflow." />
+          <PremiumFeatureGate feature="screener_results" body="The stock screener results are included with Premium. Upgrade to run screens and unlock the full discovery workflow." />
         </section>
       )}
     </div>

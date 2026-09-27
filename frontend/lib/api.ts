@@ -3211,6 +3211,7 @@ export type StrategyListResponse = {
     sort: string;
     category?: string | null;
     includeDrafts?: boolean;
+    categoryCounts?: Record<string, number>;
     count: number;
     storage: string;
   };

@@ -29,7 +29,7 @@ def test_anonymous_to_account_identity_retains_session_and_safe_source():
         assert rows[0].session_id_hash == rows[1].session_id_hash
         assert rows[0].user_id is None and rows[1].user_id == user.id
         assert rows[0].path == "/login"
-        assert json.loads(rows[0].metadata_json)["properties"] == {"utm_source": "reddit", "authenticated": False, "current_plan": "free"}
+        assert json.loads(rows[0].metadata_json)["properties"] == {"utm_source": "reddit", "authenticated": False, "current_plan": "free", "is_internal": False}
 
 
 def test_production_rejects_local_preview_file_and_missing_origin(monkeypatch):
@@ -73,3 +73,15 @@ def test_canonical_schema_matches_browser():
     source = (Path(__file__).parents[2] / "frontend/lib/funnelEvents.ts").read_text()
     names = set(re.findall(r'"([a-z_]+)"', source.split("] as const;")[0]))
     assert api._CANONICAL_FUNNEL_EVENTS == names
+
+
+def test_internal_segment_is_server_owned_and_includes_configured_test_users(monkeypatch):
+    with _session() as db:
+        admin = _user(db, "segment-admin@example.com", role="admin")
+        tester = _user(db, "segment-tester@example.com")
+        customer = _user(db, "segment-customer@example.com")
+        monkeypatch.setenv("ANALYTICS_EXCLUDED_USER_IDS", f" {tester.id}, invalid ")
+        for user, supplied in [(admin, False), (tester, False), (customer, True)]:
+            api.record_product_event(api.ProductEventPayload(event_name="upgrade_prompt_viewed", path="/ticker/MSFT", properties={"is_internal": supplied}), _request_for_user(user), db)
+        rows = db.execute(select(PageViewEvent).order_by(PageViewEvent.id)).scalars().all()
+        assert [json.loads(row.metadata_json)["properties"]["is_internal"] for row in rows] == [True, True, False]

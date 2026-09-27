@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { UpgradeImpression, UpgradeLink } from "@/components/billing/UpgradeLink";
+import { trackEvent } from "@/lib/productAnalytics";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, createCheckoutSession, recordProductEvent } from "@/lib/api";
 import { currentCampaignProperties, registerHref } from "@/lib/campaignAttribution";
@@ -83,6 +85,7 @@ export function PremiumResearchGate({
 
   const startCheckout = async () => {
     if (loading) return;
+    trackEvent("upgrade_prompt_clicked", { gated_feature: "research_brief", target_plan: checkoutPlan, destination_type: "checkout" });
     setLoading(true);
     setStatus(null);
     recordProductEvent({
@@ -115,7 +118,7 @@ export function PremiumResearchGate({
   };
 
   return (
-    <section className="relative overflow-hidden rounded-lg border border-emerald-300/25 bg-slate-950/80 p-5 shadow-[0_18px_70px_-48px_rgba(16,185,129,0.7)] sm:p-6">
+    <UpgradeImpression feature="research_brief" tier={checkoutPlan === "pro" ? "Pro" : "Premium"} className="relative overflow-hidden rounded-lg border border-emerald-300/25 bg-slate-950/80 p-5 shadow-[0_18px_70px_-48px_rgba(16,185,129,0.7)] sm:p-6">
       <div className="pointer-events-none absolute inset-x-0 -top-12 h-16 bg-gradient-to-b from-transparent to-slate-950/80" aria-hidden="true" />
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">{checkoutPlan === "pro" ? "Pro Research" : "Premium Research"}</p>
       <h2 className="mt-3 text-2xl font-semibold text-white">{heading}</h2>
@@ -128,6 +131,7 @@ export function PremiumResearchGate({
             href={signupHref}
             className={primaryClassName}
             onClick={() => {
+              trackEvent("upgrade_prompt_clicked", { gated_feature: "research_brief", target_plan: checkoutPlan, destination_type: "signup", destination_page: "/login" });
               recordProductEvent({
                 event_name: "research_paywall_cta_clicked",
                 path: returnTo,
@@ -148,8 +152,7 @@ export function PremiumResearchGate({
           </button>
         )}
         {secondaryCtaLabel ? (
-          <Link
-            href="/pricing"
+          <UpgradeLink feature="research_brief" tier={checkoutPlan === "pro" ? "Pro" : "Premium"} returnTo={returnTo}
             className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:text-white"
             onClick={() => {
               recordProductEvent({
@@ -160,11 +163,11 @@ export function PremiumResearchGate({
             }}
           >
             {secondaryCtaLabel}
-          </Link>
+          </UpgradeLink>
         ) : null}
       </div>
       {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
-    </section>
+    </UpgradeImpression>
   );
 }
 

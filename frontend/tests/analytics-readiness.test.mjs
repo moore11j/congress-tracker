@@ -44,7 +44,7 @@ test("installed browser SDK preserves custom event names and tags them for disco
   const body = sdk.match(/function al\(t,e,r\)\{([\s\S]*?)\}function ul/)[1];
   const calls = [];
   const send = vm.runInNewContext(`(function(t,e,r){${body}})`, { ft: () => true, Re: () => true, Fe: { capture: (...args) => calls.push(args) }, Ih: () => ({}), console });
-  for (const name of ["homepage_viewed", "screener_opened", "ticker_viewed", "leaderboard_viewed", "pricing_viewed", "signup_started", "signup_completed", "checkout_started"]) {
+  for (const name of ["homepage_viewed", "screener_opened", "ticker_viewed", "leaderboard_viewed", "pricing_viewed", "upgrade_prompt_viewed", "upgrade_prompt_clicked", "signup_started", "signup_completed", "checkout_started"]) {
     send(name, { route: "/fixture", authenticated: false });
     const [actual, props] = calls.at(-1);
     assert.equal(actual, name);

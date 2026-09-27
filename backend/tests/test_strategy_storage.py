@@ -680,3 +680,22 @@ def test_strategy_detail_prefers_persisted_three_year_transaction_history():
         assert payload["transactionHistoryStartDate"] == "2023-08-15"
     finally:
         db.close()
+
+
+def test_category_facets_stay_available_after_filtering_without_exposing_drafts():
+    SessionLocal, _ = _session()
+    with SessionLocal() as db:
+        for slug, category, status in [("congress-one", "congress", "published"), ("insider-one", "insider", "published"), ("private-theme", "theme", "draft")]:
+            db.add(StrategyDefinition(slug=slug, name=slug, category=category, status=status, access_tier="premium", methodology_version="v1"))
+        db.flush()
+        for category in [None, "insider", "missing"]:
+            result = list_strategy_cards(db, entitlements=ENTITLEMENTS["free"], category=category)
+            assert result["metadata"]["categoryCounts"] == {"congress": 1, "insider": 1}
+            if category:
+                assert all(item["category"] == category for item in result["items"])
+                assert len(result["items"]) == (1 if category == "insider" else 0)
+            else:
+                assert len(result["items"]) == 2
+            assert all(item["slug"] != "private-theme" for item in result["items"])
+        admin = list_strategy_cards(db, entitlements=ENTITLEMENTS["pro"], category="theme", include_drafts=True)
+        assert admin["metadata"]["categoryCounts"]["theme"] == 1

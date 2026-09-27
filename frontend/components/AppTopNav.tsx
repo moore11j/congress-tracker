@@ -248,7 +248,7 @@ export function AppTopNav() {
   }
 
   return (
-    <div className="relative order-3 min-w-0 max-w-full basis-full overflow-hidden lg:order-none lg:min-w-[34rem] lg:flex-1 lg:basis-0">
+    <div className="relative order-3 min-w-0 max-w-full basis-full overflow-hidden lg:order-none lg:flex-1 lg:basis-0">
       <nav
         ref={scrollRef}
         onScroll={updateScrollState}
@@ -495,7 +495,7 @@ export function AppTopNav() {
           ) : null}
         </div>
       </nav>
-      <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} />
+      <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} className="" />
     </div>
   );
 }
