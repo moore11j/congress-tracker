@@ -5,13 +5,13 @@
  */
 export const homepageContent = {
   hero: {
-    eyebrow: "Insider Trading Tracker & Stock Research",
+    eyebrow: "Stock Analysis · Insider Trading · Stock Research",
     title: "Follow the Insiders. Know More Before You Buy.",
     description:
-      "Walnut filters reported insider buying and selling, Congress trades, institutional holdings, financials and technicals to surface the strongest stock ideas. Get ranked ideas, see why they ranked, and follow what changes.",
+      "Stock analysis that brings insider trades, institutional holdings, financials and technicals together. Discover ranked stock ideas, understand what supports them, and follow what changes.",
   },
   metadata: {
-    title: "Insider Trading Tracker & Stock Research | Walnut Markets",
+    title: "Stock Analysis & Insider Trading Tracker | Walnut Markets",
     description:
       "Track reported insider buying and selling, Congress trades and institutional holdings alongside financials and technicals. Start researching stocks free.",
     socialDescription:

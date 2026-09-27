@@ -22,10 +22,10 @@ const content = load("lib/homepageContent.ts").homepageContent;
 
 test("homepage metadata fits snippets and keeps the requested positioning", () => {
   assert.equal(content.hero.title, "Follow the Insiders. Know More Before You Buy.");
-  assert.equal(content.metadata.title, "Insider Trading Tracker & Stock Research | Walnut Markets");
+  assert.equal(content.metadata.title, "Stock Analysis & Insider Trading Tracker | Walnut Markets");
   assert.ok(content.metadata.title.length <= 65);
   assert.ok(content.metadata.description.length <= 165);
-  assert.match(content.hero.description, /reported insider buying and selling/);
+  assert.match(content.hero.description, /Stock analysis that brings insider trades/);
   assert.match(content.hero.description, /institutional holdings/);
 });
 
