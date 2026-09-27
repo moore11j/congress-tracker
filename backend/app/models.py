@@ -758,6 +758,15 @@ class ResearchThesis(Base):
     paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ResearchThesisMarketBaseline(Base):
+    """Creation-time market context; edits and activation never reset it."""
+    __tablename__ = "research_thesis_market_baselines"
+
+    thesis_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ResearchThesisClaim(Base):
     __tablename__ = "research_thesis_claims"
     __table_args__ = (

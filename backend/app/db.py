@@ -2651,6 +2651,7 @@ def ensure_research_memory_schema(bind=engine) -> None:
     """Add the Phase 1 private research-memory tables without touching public caches."""
     from app.models import (
         ResearchThesis,
+        ResearchThesisMarketBaseline,
         ResearchThesisCatalyst,
         ResearchThesisClaim,
         ResearchThesisInvalidator,
@@ -2664,6 +2665,7 @@ def ensure_research_memory_schema(bind=engine) -> None:
             bind=conn,
             tables=[
                 ResearchThesis.__table__,
+                ResearchThesisMarketBaseline.__table__,
                 ResearchThesisClaim.__table__,
                 ResearchThesisCatalyst.__table__,
                 ResearchThesisRisk.__table__,

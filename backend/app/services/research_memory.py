@@ -36,6 +36,7 @@ from app.models import (
 from app.services.ai_marketing import OPENAI_API_KEY, resolved_setting_value
 from app.services.openai_request_audit import audited_openai_request
 from app.services.insights_quote_overview import get_insights_quote_overview, QUOTE_STALE_TTL
+from app.services.research_memory_market import capture_baseline, market_context, thesis_market
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -204,14 +205,14 @@ def validate_draft(value: dict[str, Any], *, source_type: str | None = None, com
     return {"title": _clean_text(value.get("title"), field="thesis title", limit=240), "summary": _clean_text(value.get("summary"), field="thesis summary", limit=2000), "orientation": _choice(value.get("orientation"), ORIENTATIONS, field="orientation", default="neutral"), "target_horizon": _clean_text(value.get("target_horizon"), field="target horizon", required=False, limit=160), "original_text": original_text, "source_type": source, "template_id": _clean_text(value.get("template_id"), field="template id", required=False, limit=120), "claims": [_validate_claim(row) for row in lists["claims"]], "catalysts": [_validate_catalyst(row) for row in lists["catalysts"]], "risks": [_validate_risk(row) for row in lists["risks"]], "invalidators": [_validate_invalidator(row, original_text=original_text, enforce_source_threshold=compiler_output) for row in lists["invalidators"]]}
 
 
-def _serialize_thesis(db: Session, thesis: ResearchThesis) -> dict[str, Any]:
+def _serialize_thesis(db: Session, thesis: ResearchThesis, *, current_market=None) -> dict[str, Any]:
     claims = db.execute(select(ResearchThesisClaim).where(ResearchThesisClaim.thesis_id == thesis.id).order_by(ResearchThesisClaim.created_at)).scalars().all()
     catalysts = db.execute(select(ResearchThesisCatalyst).where(ResearchThesisCatalyst.thesis_id == thesis.id).order_by(ResearchThesisCatalyst.created_at)).scalars().all()
     risks = db.execute(select(ResearchThesisRisk).where(ResearchThesisRisk.thesis_id == thesis.id).order_by(ResearchThesisRisk.created_at)).scalars().all()
     invalidators = db.execute(select(ResearchThesisInvalidator).where(ResearchThesisInvalidator.thesis_id == thesis.id).order_by(ResearchThesisInvalidator.created_at)).scalars().all()
     security = db.get(Security, thesis.security_id)
     def iso(v: Any) -> str | None: return v.isoformat() if v else None
-    return {"id": thesis.id, "security_id": thesis.security_id, "ticker": thesis.ticker_at_creation, "company_name": security.name if security else thesis.ticker_at_creation, "title": thesis.title, "original_text": thesis.original_text, "summary": thesis.summary, "orientation": thesis.orientation, "target_horizon": thesis.target_horizon, "status": thesis.status, "source_type": thesis.source_type, "template_id": thesis.template_id, "created_at": iso(thesis.created_at), "updated_at": iso(thesis.updated_at), "started_monitoring_at": iso(thesis.started_monitoring_at), "paused_at": iso(thesis.paused_at), "claims": [{"id": x.id, "claim_type": x.claim_type, "subject": x.subject, "metric": x.metric, "expected_direction": x.expected_direction, "expected_magnitude": x.expected_magnitude, "expected_timeframe": x.expected_timeframe, "importance": x.importance, "monitoring_mode": x.monitoring_mode, "coverage_level": x.coverage_level, "user_confirmed": x.user_confirmed} for x in claims], "catalysts": [{"id": x.id, "title": x.title, "catalyst_type": x.catalyst_type, "expected_date": iso(x.expected_date), "expected_window_start": iso(x.expected_window_start), "expected_window_end": iso(x.expected_window_end), "status": x.status, "monitoring_mode": x.monitoring_mode, "importance": x.importance} for x in catalysts], "risks": [{"id": x.id, "title": x.title, "risk_type": x.risk_type, "severity": x.severity, "monitoring_mode": x.monitoring_mode} for x in risks], "invalidators": [{"id": x.id, "description": x.description, "condition_type": x.condition_type, "metric": x.metric, "operator": x.operator, "threshold": x.threshold, "time_window": x.time_window, "severity": x.severity, "monitoring_mode": x.monitoring_mode} for x in invalidators], "phase_one_notice": "Research Memory created. Continuous evidence monitoring will be added in the next phase."}
+    return {"market": thesis_market(db, thesis, current_market), "id": thesis.id, "security_id": thesis.security_id, "ticker": thesis.ticker_at_creation, "company_name": security.name if security else thesis.ticker_at_creation, "title": thesis.title, "original_text": thesis.original_text, "summary": thesis.summary, "orientation": thesis.orientation, "target_horizon": thesis.target_horizon, "status": thesis.status, "source_type": thesis.source_type, "template_id": thesis.template_id, "created_at": iso(thesis.created_at), "updated_at": iso(thesis.updated_at), "started_monitoring_at": iso(thesis.started_monitoring_at), "paused_at": iso(thesis.paused_at), "claims": [{"id": x.id, "claim_type": x.claim_type, "subject": x.subject, "metric": x.metric, "expected_direction": x.expected_direction, "expected_magnitude": x.expected_magnitude, "expected_timeframe": x.expected_timeframe, "importance": x.importance, "monitoring_mode": x.monitoring_mode, "coverage_level": x.coverage_level, "user_confirmed": x.user_confirmed} for x in claims], "catalysts": [{"id": x.id, "title": x.title, "catalyst_type": x.catalyst_type, "expected_date": iso(x.expected_date), "expected_window_start": iso(x.expected_window_start), "expected_window_end": iso(x.expected_window_end), "status": x.status, "monitoring_mode": x.monitoring_mode, "importance": x.importance} for x in catalysts], "risks": [{"id": x.id, "title": x.title, "risk_type": x.risk_type, "severity": x.severity, "monitoring_mode": x.monitoring_mode} for x in risks], "invalidators": [{"id": x.id, "description": x.description, "condition_type": x.condition_type, "metric": x.metric, "operator": x.operator, "threshold": x.threshold, "time_window": x.time_window, "severity": x.severity, "monitoring_mode": x.monitoring_mode} for x in invalidators], "phase_one_notice": "Research Memory created. Continuous evidence monitoring will be added in the next phase."}
 
 
 def _persist_children(db: Session, thesis_id: str, structure: dict[str, Any]) -> None:
@@ -236,7 +237,9 @@ def resolve_security(db: Session, symbol: str) -> Security:
 def create_draft(db: Session, *, user: UserAccount, security: Security, structure: dict[str, Any]) -> dict[str, Any]:
     valid = validate_draft(structure)
     thesis = ResearchThesis(id=_id("rt"), user_id=user.id, security_id=security.id, ticker_at_creation=security.symbol or "", title=valid["title"], original_text=valid["original_text"], summary=valid["summary"], orientation=valid["orientation"], target_horizon=valid["target_horizon"], status="draft", source_type=valid["source_type"], template_id=valid["template_id"])
-    db.add(thesis); db.flush(); _persist_children(db, thesis.id, valid); db.commit()
+    db.add(thesis); db.flush(); _persist_children(db, thesis.id, valid)
+    capture_baseline(db, thesis)
+    db.commit()
     return _serialize_thesis(db, thesis)
 
 
@@ -266,7 +269,13 @@ def owned_thesis(db: Session, *, user: UserAccount, thesis_id: str) -> ResearchT
 
 def list_user_theses(db: Session, *, user: UserAccount) -> list[dict[str, Any]]:
     rows = db.execute(select(ResearchThesis).where(ResearchThesis.user_id == user.id).order_by(ResearchThesis.updated_at.desc())).scalars().all()
-    return [_serialize_thesis(db, row) for row in rows]
+    current = {}
+    result = []
+    for row in rows:
+        if row.security_id not in current:
+            current[row.security_id] = market_context(db, row, _now())
+        result.append(_serialize_thesis(db, row, current_market=current[row.security_id]))
+    return result
 
 
 def list_active_theses_for_security(db: Session, *, user: UserAccount, security_id: int) -> list[dict[str, Any]]:
