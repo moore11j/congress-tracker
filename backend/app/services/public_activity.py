@@ -22,6 +22,18 @@ PUBLIC_PAYLOAD_KEYS = (
 )
 
 
+def _public_text(payload, *keys):
+    # Providers use different field names. Read only specified public fields;
+    # never return the full raw filing/provider envelope.
+    for record in (payload, payload.get("payload"), payload.get("raw")):
+        if isinstance(record, dict):
+            for key in keys:
+                value = record.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
 def public_activity(db, *, tape, symbol=None, recent_days=365, limit=21, offset=0, trade_type=None):
     if tape not in PUBLIC_TYPES:
         raise ValueError("Only public Congress and insider disclosures are supported")
@@ -48,15 +60,24 @@ def public_activity(db, *, tape, symbol=None, recent_days=365, limit=21, offset=
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
+        public_payload = {key: payload[key] for key in PUBLIC_PAYLOAD_KEYS if key in payload}
+        member_name = event.member_name
+        if event.event_type == "insider_trade":
+            member_name = _public_text(payload, "insider_name", "insiderName", "reporting_name", "reportingName", "reporting_owner_name", "reportingOwnerName", "owner_name", "ownerName") or event.member_name
+            public_payload["insider_name"] = member_name
+            public_payload["role"] = _public_text(payload, "role", "relationship", "title", "typeOfOwner", "officerTitle", "insiderRole", "position")
+            public_payload["reporting_cik"] = _public_text(payload, "reporting_cik", "reportingCik", "reportingCIK", "rptOwnerCik")
+        public_payload["transaction_date"] = _public_text(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
+        public_payload["filing_date"] = _public_text(payload, "filing_date", "filingDate", "report_date", "reportDate")
         items.append({
             "id": event.id, "event_type": event.event_type, "ts": event.ts,
-            "symbol": event.symbol, "member_name": event.member_name,
+            "symbol": event.symbol, "member_name": member_name,
             "member_bioguide_id": event.member_bioguide_id,
             "chamber": event.chamber, "party": event.party,
             "trade_type": event.trade_type, "amount_min": event.amount_min,
             "amount_max": event.amount_max, "source": event.source,
-            "url": event.source_document_url or payload.get("url") or payload.get("link") or payload.get("filing_url") or payload.get("document_url"),
-            "payload": {key: payload[key] for key in PUBLIC_PAYLOAD_KEYS if key in payload},
+            "url": event.source_document_url or _public_text(payload, "url", "source_url", "sourceUrl", "filing_url", "filingUrl", "report_url", "reportUrl", "document_url", "documentUrl", "sec_url", "secUrl", "finalLink", "link"),
+            "payload": public_payload,
         })
     return {"items": items, "has_more": len(rows) > limit, "limit": limit, "offset": offset,
             "status": "ok" if items else "empty", "window_days": recent_days}

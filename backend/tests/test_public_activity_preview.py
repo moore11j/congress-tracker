@@ -57,6 +57,22 @@ def test_preview_bounded_pagination_and_empty_are_truthful(db):
         public_activity(db, tape="institutional")
 
 
+def test_preview_normalizes_raw_public_identity_without_exposing_raw_payload(db):
+    db.add(event(1, member_name=None, payload_json=json.dumps({
+        "insider_name": None, "role": None, "raw": {
+            "reportingName": "Teter Timothy S.", "typeOfOwner": "EVP General Counsel",
+            "reportingCik": "0001696841", "transactionDate": "2026-09-21",
+            "filingDate": "2026-09-23", "link": "https://www.sec.gov/Archives/filing.xml",
+            "internal_note": "do not expose"}})))
+    db.commit()
+    row = public_activity(db, tape="insider")["items"][0]
+    assert row["member_name"] == "Teter Timothy S."
+    assert row["payload"]["role"] == "EVP General Counsel"
+    assert row["payload"]["filing_date"] == "2026-09-23"
+    assert row["url"] == "https://www.sec.gov/Archives/filing.xml"
+    assert "raw" not in row["payload"] and "internal_note" not in row["payload"]
+
+
 def test_priced_named_ticker_without_events_or_index_membership_is_discoverable(db):
     db.add_all([TickerMeta(symbol="CART", company_name="Maplebear Inc."),
                 PriceCache(symbol="CART", date="2026-09-25", close=40)])
