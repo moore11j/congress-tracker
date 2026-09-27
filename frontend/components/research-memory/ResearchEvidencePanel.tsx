@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { getResearchMemoryMatches, getTickerOperationalIntelligence, type ResearchMemoryEvidenceMatch, type ResearchMemoryThesis, type ResearchSourceCoverage } from "@/lib/api";
 import { researchDate, researchSourceHref, researchSourceLabels } from "@/lib/researchEvidence";
 import { ResearchCoverage } from "./ResearchCoverage";
+import { ResearchMarketPrices } from "./ResearchMarketPrices";
+import { researchMarketAssets } from "@/lib/researchMarketPrices";
 
 const relationships: Record<string, { title: string; color: string }> = {
   supports: { title: "Supports an assumption", color: "text-emerald-200 bg-emerald-300/10" },
@@ -13,6 +15,7 @@ const relationships: Record<string, { title: string; color: string }> = {
 };
 
 export function ResearchEvidencePanel({ thesis }: { thesis: ResearchMemoryThesis }) {
+  const marketAssets = researchMarketAssets(thesis.claims);
   const [items, setItems] = useState<ResearchMemoryEvidenceMatch[] | null>(null);
   const [coverage, setCoverage] = useState<ResearchSourceCoverage[]>([]);
   const [failed, setFailed] = useState(false);
@@ -31,7 +34,8 @@ export function ResearchEvidencePanel({ thesis }: { thesis: ResearchMemoryThesis
     <h2 className="mt-2 text-xl font-semibold text-white">What changed—and why it matters</h2>
     <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Each development is linked to the assumption it affects. This is not a thesis-health score.</p>
     <p className="mt-2 text-xs leading-5 text-slate-500">News and press-release evidence uses provider excerpts. Open the original source for full context.</p>
-    {coverage.length ? <div className="mt-4"><ResearchCoverage items={coverage}/></div> : <p className="mt-3 text-xs text-slate-500">Source coverage is currently unavailable.</p>}
+    {coverage.length || marketAssets.length ? <div className="mt-4"><ResearchCoverage items={coverage} priceCards={marketAssets.length ? <ResearchMarketPrices assets={marketAssets}/> : undefined}/></div> : null}
+    {!coverage.length ? <p className="mt-3 text-xs text-slate-500">Document source coverage is currently unavailable.</p> : null}
     {thesis.status !== "active" ? <p className="mt-3 text-sm text-amber-200">{thesis.status === "draft" ? "Activate this thesis to begin matching new evidence." : "Matching is paused. Previously matched evidence remains available."}</p> : null}
     <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Filter matched evidence">{[["all", "All evidence"], ["supports", "Supporting"], ["contradicts", "Challenging"], ["related", "Context"]].map(([value, title]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`min-h-10 rounded-lg border px-3 text-xs font-semibold transition ${filter === value ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-400 hover:text-white"}`}>{title}</button>)}</div>
     {failed ? <div className="mt-4 text-sm text-slate-400">Matched evidence is temporarily unavailable. <button type="button" onClick={() => setRetry((value) => value + 1)} className="font-semibold text-emerald-200">Try again</button></div> : items === null ? <p className="mt-4 animate-pulse text-sm text-slate-400" role="status">Loading matched evidence…</p> : !visible.length ? <p className="mt-4 rounded-lg border border-dashed border-white/10 p-4 text-sm leading-6 text-slate-400">No matching evidence in this view yet. This does not confirm or disprove your thesis. New evidence is compared with eligible assumptions after activation.</p> : <div className="mt-4 space-y-4">{visible.map((item) => {
