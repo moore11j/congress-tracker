@@ -589,7 +589,7 @@ function SourceList({ items }: { items: Array<{ label: string; url: string; sour
     <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Sources</p>
       <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
-        {items.slice(0, 6).map((item) => (
+        {items.map((item) => (
           <li key={`${item.label}:${item.url}`}>
             <a href={safeLinkHref(item.url)} className={linkClassName()}>
               {cleanInlineText(item.label)}
