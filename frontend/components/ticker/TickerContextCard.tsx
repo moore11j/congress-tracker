@@ -34,6 +34,7 @@ import { formatDateShort } from "@/lib/format";
 import { cardClassName } from "@/lib/styles";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { HorizontalScrollIndicators, useHorizontalScrollAffordance } from "@/components/ui/HorizontalScrollAffordance";
 import { TickerFinancialsPanel, TickerFinancialsSkeleton } from "@/components/ticker/TickerFinancialsPanel";
 import { TickerOwnershipPanel, TickerOwnershipSkeleton } from "@/components/ticker/TickerOwnershipPanel";
 import { TickerAnalystConsensusSkeleton, TickerAnalystConsensusTab } from "@/components/ticker/TickerAnalystConsensusTab";
@@ -534,6 +535,8 @@ export function TickerContextCard(props: Props) {
 
 function TickerContextContents({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
+  const { scrollRef, canScrollLeft, canScrollRight, updateScrollState } =
+    useHorizontalScrollAffordance<HTMLDivElement>();
 
   useEffect(() => {
     const selectLinkedTab = () => {
@@ -1162,73 +1165,80 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
 
   return (
     <section id="ticker-research-panels" className={`${cardClassName} scroll-mt-24 min-w-0 max-w-full overflow-hidden !rounded-lg !p-0 ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
-      <div className="overflow-x-auto border-b border-white/10 bg-slate-950/55 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex min-w-max">
-          <button
-            type="button"
-            onClick={() => setActiveTab("overview")}
-            className={`${TAB_CLASS} ${activeTab === "overview" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("news")}
-            className={`${TAB_CLASS} ${activeTab === "news" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            News
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("financials")}
-            className={`${TAB_CLASS} ${activeTab === "financials" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            Financials
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("ownership")}
-            className={`${TAB_CLASS} ${activeTab === "ownership" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            Ownership
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("events")}
-            className={`${TAB_CLASS} ${activeTab === "events" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            Events / Filings
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("macro")}
-            className={`${TAB_CLASS} ${activeTab === "macro" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            <span>Macro Positioning</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("valuation")}
-            className={`${TAB_CLASS} ${activeTab === "valuation" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            <span>Valuation</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("consensus")}
-            className={`${TAB_CLASS} ${activeTab === "consensus" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-          >
-            <span>Analysts</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("research")}
-            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "research" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
-          >
-            <span>Research</span>
-            <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
-          </button>
+      <div className="relative border-b border-white/10 bg-slate-950/55">
+        <div
+          ref={scrollRef}
+          onScroll={updateScrollState}
+          className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div className="flex min-w-max">
+            <button
+              type="button"
+              onClick={() => setActiveTab("overview")}
+              className={`${TAB_CLASS} ${activeTab === "overview" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("news")}
+              className={`${TAB_CLASS} ${activeTab === "news" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              News
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("financials")}
+              className={`${TAB_CLASS} ${activeTab === "financials" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              Financials
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("ownership")}
+              className={`${TAB_CLASS} ${activeTab === "ownership" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              Ownership
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("events")}
+              className={`${TAB_CLASS} ${activeTab === "events" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              Events / Filings
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("macro")}
+              className={`${TAB_CLASS} ${activeTab === "macro" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              <span>Macro Positioning</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("valuation")}
+              className={`${TAB_CLASS} ${activeTab === "valuation" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              <span>Valuation</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("consensus")}
+              className={`${TAB_CLASS} ${activeTab === "consensus" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+            >
+              <span>Analysts</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("research")}
+              className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "research" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+            >
+              <span>Research</span>
+              <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
+            </button>
+          </div>
         </div>
+        <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} />
       </div>
 
       <div className="relative p-4 xl:flex-1 xl:min-h-0">
