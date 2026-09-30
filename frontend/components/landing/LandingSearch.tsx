@@ -5,6 +5,7 @@ import { getEntitlements, type SearchSuggestResult } from "@/lib/api";
 import { defaultEntitlements, type Entitlements } from "@/lib/entitlements";
 import { recordGoogleAnalyticsEvent } from "@/lib/googleAnalytics";
 import { hasPrivacyConsent } from "@/lib/privacyConsent";
+import { trackEvent } from "@/lib/productAnalytics";
 import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
 import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref } from "@/lib/searchNavigation";
 
@@ -152,6 +153,7 @@ export function LandingSearch({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    trackEvent("research_entry_clicked", {placement: submitEventName, ticker: bestResult?.kind === "ticker" ? bestResult.symbol ?? null : null});
     track(submitEventName, bestResult?.kind === "ticker" ? bestResult.symbol : null);
     if (!trimmedQuery) {
       window.location.href = appUrl;
@@ -220,6 +222,7 @@ export function LandingSearch({
                   key={`${result.kind}:${result.id}:${result.href}`}
                   href={absoluteAppHref(appUrl, routeForSearchResult(result))}
                   onClick={() => {
+                    trackEvent("research_entry_clicked", {placement: "homepage_suggestion", ticker: result.kind === "ticker" ? result.symbol ?? null : null});
                     if (result.kind === "ticker") track("homepage_ticker_selected", result.symbol);
                   }}
                   className="flex items-center justify-between gap-4 px-4 py-3 text-sm transition hover:bg-white/[0.04]"

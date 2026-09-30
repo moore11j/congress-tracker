@@ -41,7 +41,7 @@ export function CompareContextualCta(props: Props) {
       ? "Keep following this matchup."
       : "Save this matchup.";
   const copy = isLoggedOut
-    ? "Create a free account to save this matchup, compare more stocks and follow what changes."
+    ? "Create a free account to save these stocks to your watchlist. Full stock comparisons require Premium; institutional comparisons require Pro."
     : plan === "free"
       ? "Add both stocks to your watchlist so you can return when the data or stronger stock changes."
       : "Add both stocks to a watchlist so you can return when the data or stronger stock changes.";

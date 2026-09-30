@@ -25,8 +25,8 @@ test("homepage metadata fits snippets and keeps the requested positioning", () =
   assert.equal(content.metadata.title, "Stock Analysis & Insider Trading Tracker | Walnut Markets");
   assert.ok(content.metadata.title.length <= 65);
   assert.ok(content.metadata.description.length <= 165);
-  assert.match(content.hero.description, /Stock analysis that brings insider trades/);
-  assert.match(content.hero.description, /institutional holdings/);
+  assert.match(content.hero.description, /reported insider trades/);
+  assert.match(content.hero.description, /financials and price trends/);
 });
 
 test("ticker fallback rejects unavailable, mismatched and undated public snapshots", () => {

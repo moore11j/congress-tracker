@@ -22,6 +22,7 @@ import {
 } from "@/lib/marketingMetadata";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 import { homepageContent } from "@/lib/homepageContent";
+import { planBenefits, futureFeaturesCopy, emailAccessCopy } from "@/lib/planBenefits";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { getLeaderboardDashboard, type LeaderboardDashboardResponse } from "@/lib/api";
 import { RankingLocks } from "@/components/landing/RankingLocks";
@@ -150,7 +151,7 @@ async function loadResearchExample(ranking: HomepageRanking) {
       return null;
     }
   }));
-  return selectHomepageResearch(candidates);
+  return candidates;
 }
 
 function planPriceFor(config: PlanConfig | null, tier: PlanTier, interval: BillingInterval): PlanPrice | undefined {
@@ -288,7 +289,8 @@ export default async function LandingPage() {
   const [planConfig, rankings] = await Promise.all([loadPlanConfig(), loadRankings()]);
   const unlocked = rankings?.top_stocks.locked_ranks?.length === 0;
   const topStocks = publicHomepageRanking(rankings, unlocked);
-  const researchExample = await loadResearchExample(topStocks);
+  const researchExamples = await loadResearchExample(topStocks);
+  const researchExample = selectHomepageResearch(researchExamples);
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
   const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");
   const proPrice = landingPlanPriceDisplay(planConfig, "pro");
@@ -304,21 +306,23 @@ export default async function LandingPage() {
             <h1 className="mt-4 max-w-5xl text-balance text-[2.35rem] font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
               {homepageContent.hero.title}
             </h1>
-            <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
+            <p className="mt-5 max-w-3xl text-lg font-semibold text-emerald-100">{homepageContent.hero.hook}</p>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300 sm:text-xl sm:leading-8">
               {homepageContent.hero.description}
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <HomepageCtaLink href={unlocked ? topStocksUrl : signupUrl} eventName="top_stocks_click" className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">See today&apos;s #1 and #2 stocks</HomepageCtaLink>
+            <div id="analyze-a-stock" className="mt-7 scroll-mt-28">
+              <LandingSearch appUrl={appUrl} buttonLabel="Analyze a Stock" buttonOutside placeholder="Which stock are you considering?" className="max-w-3xl" featuredSuggestion={heroFeaturedTicker} submitEventName="analyze_stock_click" />
+              <p className="mt-2 text-xs leading-5 text-slate-400">Explore public stock research first. Create a free account to save stocks. No credit card needed.</p>
+              <a href="#research-example" className="mt-3 inline-flex text-sm font-semibold text-emerald-200 underline underline-offset-4">See a real research example ↓</a>
+            </div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <HomepageCtaLink href={`${appUrl}/screener`} eventName="open_screener_click" className="inline-flex items-center justify-center px-5 py-3 text-sm font-semibold text-emerald-200 underline underline-offset-4">Open Screener</HomepageCtaLink>
               <HomepageCtaLink href={topStocksUrl} eventName="see_top_performers_click" className="inline-flex items-center justify-center px-5 py-3 text-sm font-semibold text-emerald-200 underline underline-offset-4 hover:text-emerald-100">
-                Explore Top-Ranked Stocks
+                View Leaderboards
               </HomepageCtaLink>
               <a href={`${appUrl}/strategies`} className="inline-flex items-center justify-center px-5 py-3 text-sm font-semibold text-emerald-200 underline underline-offset-4 hover:text-emerald-100">
                 Explore Strategies
               </a>
-            </div>
-            <div id="analyze-a-stock" className="scroll-mt-28">
-              <LandingSearch appUrl={appUrl} buttonLabel="Analyze a Stock" buttonOutside subduedButton placeholder="Search a company or ticker" className="mt-6 max-w-3xl" featuredSuggestion={heroFeaturedTicker} submitEventName="analyze_stock_click" />
-              <p className="mt-2 text-xs leading-5 text-slate-400">Free account: Top 5 ideas. Premium: more ideas, more often, and the evidence behind them.</p>
             </div>
             <p className="mt-4 flex max-w-4xl flex-wrap gap-x-2 gap-y-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
               {heroEvidenceSources.map((source, index) => (
@@ -335,6 +339,8 @@ export default async function LandingPage() {
         </div>
       </section>
 
+
+      <HomepageResearchExample example={researchExample} appUrl={appUrl} rankingAt={topStocks.generatedAt} />
 
       <section id="top-stock-opportunities" className="scroll-mt-24 border-b border-white/10 px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
@@ -363,7 +369,6 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <HomepageResearchExample example={researchExample} appUrl={appUrl} rankingAt={topStocks.generatedAt} />
       <PortfolioBlueprint appUrl={appUrl} />
 
       <section className="border-b border-white/10 px-4 py-12 sm:px-6 lg:px-8">
@@ -403,16 +408,18 @@ export default async function LandingPage() {
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
               <LandingPlanPrice display={freePrice} />
+              <p className="mt-3 font-semibold text-white">{planBenefits.free.purpose}</p>
               <p className="mt-3 text-sm leading-6 text-slate-400">Get the Top 5 stock ideas, short reasons and source labels. Choose weekly Top 5 email delivery. Explore core ticker research, Congress disclosures and insider activity.</p>
             </article>
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.04] p-6">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-xl font-semibold text-white">Premium</h3>
                 <span className="rounded border border-emerald-300/35 bg-emerald-300/10 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-100">
-                  Popular
+                  Recommended
                 </span>
               </div>
               <LandingPlanPrice display={premiumPrice} />
+              <p className="mt-3 font-semibold text-white">{planBenefits.premium.purpose}</p>
               <p className="mt-3 text-sm leading-6 text-slate-400">
                 Get more ideas, more often, and see the evidence behind them. Unlock up to 10 ideas, daily or weekly delivery, Confirmation Score, Cross-Source Divergence, Similar Historical Setups and detailed Why This Ranked. Source access follows your plan.
               </p>
@@ -425,11 +432,14 @@ export default async function LandingPage() {
                 </span>
               </div>
               <LandingPlanPrice display={proPrice} />
+              <p className="mt-3 font-semibold text-white">{planBenefits.pro.purpose}</p>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Get the Top 10 with deeper evidence, the highest research result limits, institutional activity, options flow and advanced alternative data. Follow strategies where entitled. Future API and automation workflows are not yet included.
+                Everything in Premium, plus reported institutional activity, macro positioning, Walnut Strategies and higher limits. Options flow, API access and webhooks are coming soon.
               </p>
             </article>
           </div>
+          <p className="mt-5 text-sm leading-6 text-slate-400">{emailAccessCopy}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{futureFeaturesCopy}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a
               href={pricingUrl}

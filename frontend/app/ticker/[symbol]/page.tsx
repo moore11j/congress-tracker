@@ -3149,7 +3149,7 @@ async function DeferredTickerContent({
                   title="Options Flow"
                   icon="flow"
                   requiredPlan="pro"
-                  support="Options flow unlocks with Pro."
+                  support="Options flow is coming soon and is not available today."
                 />
               ) : (
                 <OptionsActivityCard summary={optionsFlow} />

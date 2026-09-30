@@ -138,8 +138,8 @@ export function LoginRegisterPanel({
   }, [mode, nextPath]);
 
   const headline = useMemo(
-    () => (mode === "register" ? "See today's #1 and #2 stocks." : "Welcome back."),
-    [mode],
+    () => (mode === "register" ? (/^\/ticker\//.test(nextPath) ? "Save this stock. Keep following what changes." : "Start with a stock. Keep your research together.") : "Welcome back."),
+    [mode, nextPath],
   );
   const validateSubmit = () => {
     const normalizedEmail = email.trim();

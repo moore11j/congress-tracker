@@ -279,18 +279,18 @@ export const commercialFeaturePages = {
     pathname: "/alternative-data-stock-analysis",
     title: "Alternative Data Stock Analysis | Walnut Markets",
     description:
-      "Use Walnut Markets to research alternative stock data including Congress activity, insider activity, institutional filings, government contracts, and available options context.",
+      "Use Walnut Markets to research alternative stock data including Congress activity, insider activity, institutional filings, and government contracts.",
     breadcrumbLabel: "Alternative Data Stock Analysis",
     eyebrow: "Alternative data stock analysis",
     h1: "Alternative data stock analysis without losing the ticker context.",
     intro:
       "Walnut helps investors examine nontraditional market data next to price, volume, fundamentals, and research judgment instead of treating alternative data as a shortcut.",
     targetUser:
-      "Best for investors who want to use Congress, insider, institutional, contract, or options-related context carefully, with the limitations visible.",
+      "Best for investors who want to use Congress, insider, institutional, or contract data carefully, with the limitations visible.",
     imageAlt: "Walnut Markets product screen showing stock research context and comparison evidence.",
     highlights: [
       "Congress activity, insider activity, institutional filings, and government contracts",
-      "Options flow where available and plan-gated",
+      "Options flow is coming soon; it is not available today",
       "Interpretation that keeps alternative data tied to the stock thesis",
     ],
     problem: [
@@ -298,13 +298,13 @@ export const commercialFeaturePages = {
       "The useful question is not whether a data point is unusual. It is whether it changes the research case.",
     ],
     approach: [
-      "Walnut keeps alternative data close to the ticker. Congress disclosures, insider filings, institutional holdings, government contracts, and available options context can be compared against price and volume, fundamentals, and research notes.",
+      "Walnut keeps alternative data close to the ticker. Congress disclosures, insider filings, institutional holdings, and government contracts can be checked alongside price and volume, fundamentals, and research notes.",
       "Walnut's decision layer focuses on interpretation: what the data says, what changed, what could weaken the thesis, and what to watch next.",
     ],
     workflow: [
       {
         title: "Start with the data source",
-        body: "Review the disclosure, filing, contract, or available options context and keep timing limitations visible.",
+        body: "Review the disclosure, filing, or contract and keep timing limitations visible.",
         href: "/stock-analysis-tools",
       },
       {
@@ -326,7 +326,7 @@ export const commercialFeaturePages = {
       "Use the research brief or monitoring workflow if the data changes the thesis.",
     ],
     access:
-      "Congress, insider, and contract research are part of Walnut's public research surface. Institutional activity, market pressure, and options-related data are Pro-oriented or availability-gated where applicable.",
+      "Congress, insider, and contract research are part of Walnut's public research surface. Institutional activity and market pressure require Pro. Options flow is coming soon and is not available today.",
     relatedLinks: [
       { title: "Congress trades tracker", body: "Understand reported Congress disclosures and timing limits.", href: "/congress-trades" },
       { title: "Institutional activity tracker", body: "See the Phase 2 page focused on institutional holdings and filing lag.", href: "/institutional-activity-tracker" },
@@ -335,7 +335,7 @@ export const commercialFeaturePages = {
     faq: [
       {
         question: "What alternative data does Walnut include?",
-        answer: "Walnut includes Congress activity, insider activity, institutional activity, government contracts, and options context where available.",
+        answer: "Walnut includes Congress activity, insider activity, institutional activity, and government contracts. Access depends on your plan. Options flow is coming soon.",
       },
       {
         question: "Is alternative data enough to make a trade?",
@@ -343,7 +343,7 @@ export const commercialFeaturePages = {
       },
       {
         question: "Does Walnut include options flow?",
-        answer: "Options flow is treated as an availability-gated Pro data layer where available, not the center of Walnut's product positioning.",
+        answer: "Options flow is coming soon. It is not an available feature in any plan today.",
       },
     ],
     primaryCta: { label: "Research LMT in Walnut", href: `${appUrl}/ticker/LMT` },

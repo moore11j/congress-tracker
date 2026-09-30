@@ -1820,6 +1820,7 @@ export type AdminPageAnalyticsRow = {
 };
 
 export type AdminPageAnalyticsResponse = {
+  journey?: { sources: Array<{ source: string; sessions: number; stock_sessions: number; new_accounts: number; stock_before_signup: number; saved_accounts: number; returned_accounts: number; checkout_accounts: number; paid_accounts: number }>; attributed_new_accounts: number; unattributed_new_accounts: number; truncated: boolean; events_examined: number };
   period: AdminPageAnalyticsPeriod;
   generated_at: string;
   include_internal: boolean;

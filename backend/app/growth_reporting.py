@@ -13,6 +13,7 @@ from sqlalchemy import case, func, or_, select
 from app.auth import is_admin_user
 from app.models import BillingTransaction, PageViewEvent, UserAccount
 from app.paid_analytics import metadata, production_enabled
+from app.growth_journey import acquisition_journey
 
 
 def page_analytics(db, *, start, period, limit, include_internal=False):
@@ -92,7 +93,10 @@ def page_analytics(db, *, start, period, limit, include_internal=False):
         else:
             live_invoices.append(invoice)
     paid_ids = {row.user_id for row in live_invoices if row.user_id is not None}
+    journey_rows = db.scalars(select(PageViewEvent).where(*filters).order_by(PageViewEvent.created_at, PageViewEvent.id).limit(50001)).all()
+    journey = acquisition_journey(journey_rows[:50000], eligible, live_invoices, start, truncated=len(journey_rows) > 50000)
     return {
+        "journey": journey,
         "period": period, "generated_at": datetime.now(timezone.utc), "include_internal": include_internal,
         "totals": {key: int(getattr(totals, key) or 0) for key in ("views", "accounts", "sessions", "views_without_session", "pages")},
         "top_pages": [serialize(row) for row in top], "low_usage_pages": [serialize(row) for row in low],

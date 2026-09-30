@@ -113,6 +113,11 @@ export function TickerFollowButton({ symbol }: Props) {
           track("ticker_follow_impression", nextEntitlements);
         }
         await loadFollowingState(nextEntitlements);
+        if (!cancelled && followIntent && !nextEntitlements.user && !continuationHandledRef.current) {
+          continuationHandledRef.current = true;
+          setAuthPromptOpen(true);
+          track("ticker_follow_auth_prompt_view", nextEntitlements);
+        }
         if (!cancelled && followIntent && nextEntitlements.user && !continuationHandledRef.current) {
           continuationHandledRef.current = true;
           await completeFollow(nextEntitlements, true);
@@ -180,7 +185,7 @@ export function TickerFollowButton({ symbol }: Props) {
       <WalnutModal
         open={authPromptOpen}
         title={`Follow ${normalizedSymbol} with Walnut`}
-        description={`We’ll monitor ${normalizedSymbol} and alert you when something important changes.`}
+        description={`Save ${normalizedSymbol} to your free watchlist so you can return to its research. Monitoring sources and email alerts depend on your plan and settings.`}
         eyebrow="Ongoing monitoring"
         tone="success"
         onClose={() => setAuthPromptOpen(false)}
@@ -207,12 +212,12 @@ export function TickerFollowButton({ symbol }: Props) {
         }
       >
         <ul className="space-y-2 text-sm leading-5 text-slate-200">
-          <li>✓ Confirmation Score changes</li>
-          <li>✓ Insider activity</li>
-          <li>✓ Congress trades</li>
-          <li>✓ Institutional activity</li>
-          <li>✓ Major fundamental changes</li>
+          <li>✓ Save the stock and return to its research</li>
+          <li>✓ Review reported insider activity and Congress trades</li>
+          <li>Premium: Confirmation Score changes and research email alerts</li>
+          <li>Pro: Institutional activity and additional monitoring sources</li>
         </ul>
+        <p className="mt-3 text-xs leading-5 text-slate-400">Following a stock does not enable every alert or subscribe you to email. Choose the available sources and opt in to delivery in your settings.</p>
       </WalnutModal>
     </div>
   );

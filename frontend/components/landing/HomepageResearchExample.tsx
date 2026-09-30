@@ -15,15 +15,15 @@ function Evidence({items, tickerUrl}: {items: HomepageEvidence[]; tickerUrl: str
   </li>)}</ul>;
 }
 
-export function HomepageResearchExample({example, appUrl, rankingAt}: {example: HomepageResearch | null; appUrl: string; rankingAt: string | null}) {
+export function HomepageResearchExample({example, appUrl, rankingAt, ranked = true}: {example: HomepageResearch | null; appUrl: string; rankingAt: string | null; ranked?: boolean}) {
   const tickerUrl = example ? `${appUrl}/ticker/${encodeURIComponent(example.stock.symbol)}` : `${appUrl}/screener`;
   return <section id="research-example" className="border-b border-white/10 px-4 py-12 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-7xl">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">From ranking to research</p>
-      <h2 className="mt-3 max-w-4xl text-3xl font-semibold text-white sm:text-4xl">{example ? `Why is ${example.stock.symbol} near the top—and what could challenge it?` : "What supports a ranking—and what could challenge it?"}</h2>
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">A real stock check</p>
+      <h2 className="mt-3 max-w-4xl text-3xl font-semibold text-white sm:text-4xl">{example ? `Considering ${example.stock.symbol}? Here is what deserves a closer look.` : "Look beyond the headline before you buy."}</h2>
       {example ? <>
-        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">{example.stock.companyName} is #{example.stock.rank} in the ranking shown above. Here is what the available public evidence supports, and what to investigate before adding it to a portfolio.</p>
-        <p className="mt-3 text-xs leading-5 text-slate-500">Ranking snapshot: {homepageDate(rankingAt)} · Research assembled: {homepageDate(example.generatedAt)} (UTC). Sources update on different schedules; newer evidence can differ from the ranking snapshot.</p>
+        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">{example.stock.companyName}{ranked ? ` is #${example.stock.rank} in the ranking below.` : ": a worked example using available public data."} Check what supports the stock, what could weaken the case, and what to follow next.</p>
+        <p className="mt-3 text-xs leading-5 text-slate-500">{ranked && <>Ranking snapshot: {homepageDate(rankingAt)} · </>}Research assembled: {homepageDate(example.generatedAt)} (UTC). Sources update on different schedules; check each underlying date.</p>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <article className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.035] p-5 sm:p-6">
             <h3 className="text-base font-semibold text-emerald-200">Supporting evidence</h3><Evidence items={example.supporting} tickerUrl={tickerUrl}/>
@@ -35,7 +35,7 @@ export function HomepageResearchExample({example, appUrl, rankingAt}: {example: 
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-white/10 p-5"><h3 className="text-sm font-semibold text-white">Check the historical context</h3><p className="mt-2 text-sm leading-6 text-slate-400">Compare historical results with their benchmark, measurement dates and methodology in the full research. A past result is context for your decision, not a forecast.</p><a href={`${appUrl}/outcomes`} className="mt-3 inline-flex text-sm text-emerald-200 underline underline-offset-4">Explore historical outcomes</a></div>
-          <div className="rounded-lg border border-white/10 p-5"><h3 className="text-sm font-semibold text-white">Decide what to monitor</h3><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-400">{(example.watch.length ? example.watch : ["Review new disclosures and price changes as they become available."]).map(item => <li key={item}>{item}</li>)}</ul><a href={`${appUrl}/watchlists`} className="mt-3 inline-flex text-sm text-emerald-200 underline underline-offset-4">Save and monitor in a watchlist</a></div>
+          <div className="rounded-lg border border-white/10 p-5"><h3 className="text-sm font-semibold text-white">What would change your view?</h3><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-400">{(example.watch.length ? example.watch : ["Review new disclosures and price changes as they become available."]).map(item => <li key={item}>{item}</li>)}</ul><HomepageCtaLink href={`${tickerUrl}?follow=1`} eventName="save_stock_click" className="mt-3 inline-flex text-sm text-emerald-200 underline underline-offset-4">Save {example.stock.symbol} to your watchlist →</HomepageCtaLink><p className="mt-2 text-xs leading-5 text-slate-400">Free account required to save. Alert sources and delivery depend on your plan.</p></div>
         </div>
       </> : <p className="mt-4 max-w-3xl text-base leading-7 text-slate-400">A source-backed example is not available right now. Open a ranked stock to inspect its evidence, risks and historical context, then decide what you want to monitor.</p>}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">

@@ -102,7 +102,7 @@ test("first-touch attribution survives navigation and session ID survives identi
 test("homepage CTAs and contextual gates preserve required destinations", () => {
   const home = fs.readFileSync("app/landing/page.tsx", "utf8");
   assert.match(home, /label: "Stock Screener", href: `\$\{appUrl\}\/screener`/);
-  assert.match(home, /href=\{unlocked \? topStocksUrl : signupUrl\}/);
+  assert.match(home, /buttonLabel="Analyze a Stock"/);
   assert.match(home, /View Leaderboards/);
   assert.match(home, /Explore Strategies/);
   const gates = fs.readFileSync("components/leaderboards/LeaderboardsDashboard.tsx", "utf8");

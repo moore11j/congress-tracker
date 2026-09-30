@@ -49,7 +49,7 @@ test("commercial feature copy keeps required limitations visible", () => {
   assert.match(data, /not reliably on its own/i);
   assert.match(data, /do not show live buying or selling/i);
   assert.match(data, /No\. Public institutional filings are delayed and historical/);
-  assert.match(data, /Options flow is treated as an availability-gated Pro data layer/);
+  assert.match(data, /Options flow is coming soon\. It is not an available feature in any plan today/);
   assert.doesNotMatch(data, /macro positioning.*confirmation score|confirmation score.*macro positioning/i);
   assert.doesNotMatch(data, /Unlock the power of|game-changing|revolutionary|fast-paced market|vibes/i);
 });

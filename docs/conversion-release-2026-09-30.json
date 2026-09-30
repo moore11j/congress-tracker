@@ -1,0 +1,31 @@
+{
+  "purpose": "Make the first useful stock check easy to reach, set accurate plan expectations, and measure the path to a real customer.",
+  "approved_changes": [
+    "Keep the existing H1 and all four requested actions; make Analyze a Stock primary.",
+    "Add an emotional supporting hook and show a dated public research example before ranking signup prompts.",
+    "Continue the selected stock through signup and explain free saving versus paid monitoring.",
+    "Use shared benefits-led plan descriptions and consistently mark options flow, API access and webhooks as future features.",
+    "Provide editable plain-text sharing drafts, a finding/caveat evidence table, sources and canonical article URLs with channel attribution.",
+    "Improve existing stock-analysis and insider-trading landing pages with a worked example and practical next steps.",
+    "Add acquisition reporting with ordered stock-before-signup checks and separate post-signup save, return, checkout and verified-payment outcomes."
+  ],
+  "keyword_evidence": {
+    "recorded_date": "2026-09-21",
+    "files": ["docs/keyword-indexing-priorities-2026-09-21.md", "docs/homepage-keyword-direction-2026-09-21.md"],
+    "selected_intents": ["stock analysis", "insider trading tracker"],
+    "limitation": "Saved Keyword Planner ranges support category demand, not predicted Walnut traffic, organic difficulty or guaranteed conversions. No new keyword volume claim is made by this release."
+  },
+  "measurement": {
+    "location": "Admin page analytics: Acquisition and new-account progress",
+    "primary": "New non-internal accounts and verified positive live Stripe payments",
+    "diagnostics": ["Sessions reaching a ticker", "Stock viewed before signup in a qualifying session", "New accounts saving a stock", "New accounts returning at least 24 hours later", "Checkout starts after signup"],
+    "interpretation": "Compare sources over equivalent periods, report counts alongside rates, and avoid headline changes based on a handful of visits. A before/after comparison is observational, not a randomized experiment.",
+    "limitations": "Consent, blockers and missing session identity leave accounts unattributed. Shared-account sessions are not stitched. Paid grants and test invoices are not purchases. Reports explicitly flag the 50,000-event cap. No production test purchase was made."
+  },
+  "boundaries": ["No entitlement or pricing changes", "No automatic social publishing", "No forced email enrollment", "No indexing or viral-growth guarantee"],
+  "validation": {
+    "backend": "14 focused tests passed: funnel analytics, account/payment reconciliation and acquisition cohorts.",
+    "frontend": "Focused homepage, privacy, attribution, signup, pricing, upgrades, sharing and commercial SEO checks passed.",
+    "known_preexisting_test": "admin-research-briefs public archive test expects getPublishedResearchBriefs directly in the route, while unchanged HEAD uses loadResearchArchive. The two admin-editor tests passed."
+  }
+}

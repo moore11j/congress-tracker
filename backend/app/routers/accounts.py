@@ -6303,7 +6303,7 @@ def admin_sales_ledger(
     }
 
 
-_CANONICAL_FUNNEL_EVENTS = {'strategy_followed', 'signin_completed', 'ticker_added_to_watchlist', 'subscription_completed', 'upgrade_prompt_clicked', 'insider_activity_viewed', 'watchlist_created', 'ticker_related_content_viewed', 'screener_opened', 'confirmation_score_viewed', 'pricing_viewed', 'congress_trades_viewed', 'ticker_viewed', 'signup_started', 'signup_submitted', 'signup_validation_failed', 'signup_failed',  'screener_result_clicked', 'strategy_viewed', 'checkout_started', 'upgrade_prompt_viewed', 'ticker_related_content_clicked', 'leaderboard_entity_clicked', 'outcomes_viewed', 'homepage_viewed', 'signin_started', 'strategy_list_viewed', 'alert_created', 'leaderboard_viewed', 'signup_completed', 'institutional_activity_viewed'}
+_CANONICAL_FUNNEL_EVENTS = {'research_entry_clicked', 'strategy_followed', 'signin_completed', 'ticker_added_to_watchlist', 'subscription_completed', 'upgrade_prompt_clicked', 'insider_activity_viewed', 'watchlist_created', 'ticker_related_content_viewed', 'screener_opened', 'confirmation_score_viewed', 'pricing_viewed', 'congress_trades_viewed', 'ticker_viewed', 'signup_started', 'signup_submitted', 'signup_validation_failed', 'signup_failed',  'screener_result_clicked', 'strategy_viewed', 'checkout_started', 'upgrade_prompt_viewed', 'ticker_related_content_clicked', 'leaderboard_entity_clicked', 'outcomes_viewed', 'homepage_viewed', 'signin_started', 'strategy_list_viewed', 'alert_created', 'leaderboard_viewed', 'signup_completed', 'institutional_activity_viewed'}
 
 _FUNNEL_PROPERTY_KEYS = {
     "route", "source_page", "destination_page", "ticker", "entity_type", "entity_id",

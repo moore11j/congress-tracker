@@ -3,6 +3,7 @@
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { recordGoogleAnalyticsEvent } from "@/lib/googleAnalytics";
 import { hasPrivacyConsent } from "@/lib/privacyConsent";
+import { trackEvent } from "@/lib/productAnalytics";
 
 type HomepageCtaLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   eventName: string;
@@ -25,6 +26,7 @@ export function HomepageCtaLink({ eventName, children, onClick, ...props }: Home
           pathname: window.location.pathname,
           source_page_type: "homepage",
         });
+        trackEvent("research_entry_clicked", {placement: eventName, destination_page: props.href || "/"});
       }}
     >
       {children}

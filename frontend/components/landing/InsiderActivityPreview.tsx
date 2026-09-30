@@ -37,6 +37,15 @@ export async function InsiderActivityPreview() {
         </table> : <p className="p-5 text-sm text-slate-400">{response ? "No recorded insider purchases or sales in this preview window." : "The public preview is temporarily unavailable. You can still open the insider activity feed."}</p>}
       </div>
       <a href="https://app.walnutmarkets.com/feed?mode=insider" className="mt-4 inline-block text-sm font-semibold text-emerald-200">Explore insider activity →</a>
+      <div className="mt-6 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-5">
+        <h3 className="font-semibold text-white">An insider trade is a starting point. What would you check next?</h3>
+        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-300">
+          <li>Open the filing: confirm who traded, the transaction type and both dates.</li>
+          <li>Open the stock: compare the disclosure with its financials and price trend.</li>
+          <li>Save the stock to follow new information. A purchase alone does not establish future performance.</li>
+        </ol>
+        <p className="mt-3 text-xs text-slate-400">Free accounts can save stocks. Deeper comparisons and alert delivery depend on your plan.</p>
+      </div>
     </section>
   );
 }

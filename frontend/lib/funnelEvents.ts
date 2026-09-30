@@ -1,4 +1,5 @@
 export const funnelEvents = [
+  "research_entry_clicked",
   "ticker_related_content_viewed", "ticker_related_content_clicked",
   "homepage_viewed", "screener_opened", "screener_result_clicked", "leaderboard_viewed", "leaderboard_entity_clicked",
   "strategy_list_viewed", "strategy_viewed", "ticker_viewed", "congress_trades_viewed", "insider_activity_viewed",

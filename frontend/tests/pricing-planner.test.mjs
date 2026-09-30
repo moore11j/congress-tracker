@@ -13,7 +13,7 @@ const entitlementConfig = fs.readFileSync(path.join(process.cwd(), "lib", "entit
 
 test("annual pricing badge derives rounded-up months free from configured prices", () => {
   assert.match(source, /Math\.ceil\(\(\(monthlyYear - annualAmount\) \/ monthlyAmount\) \* 2\) \/ 2/);
-  assert.match(source, /return `\$\{formattedMonths\} \$\{monthsFree === 1 \? "month" : "months"\} free`;/);
+  assert.match(source, /return `Save \$\{formattedSavings\}\/year · \$\{formattedMonths\} \$\{monthsFree === 1 \? "month" : "months"\} free`;/);
   assert.doesNotMatch(source, /Save \$\{percent\}%/);
 
   const annualSavingsLabel = (monthlyCents, annualCents) => {
@@ -199,7 +199,7 @@ test("pricing page renders a static public shell and refreshes live config clien
   assert.match(pricingPage, /defaultPlanConfig\.plan_prices/);
   assert.match(pricingPage, /<PricingPlannerDeferred \/>/);
   assert.match(pricingDeferred, /dynamic\(/);
-  assert.match(pricingDeferred, /ssr: false/);
+  assert.match(pricingDeferred, /ssr: true/);
   assert.match(pricingDeferred, /loading: \(\) => <PricingFallback \/>/);
   assert.match(pricingDeferred, /defaultPlanConfig/);
   assert.match(pricingDeferred, /<PricingPlanner config=\{defaultPlanConfig\} \/>/);
@@ -207,7 +207,8 @@ test("pricing page renders a static public shell and refreshes live config clien
   assert.match(source, /setActiveConfig\(configResult\.value\)/);
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "no-store"/);
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?headers: \{ "Cache-Control": "no-cache" \}/);
-  assert.doesNotMatch(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "force-cache"/);
+  const planConfigFunction = apiSource.slice(apiSource.indexOf("export async function getPlanConfig"), apiSource.indexOf("\nexport ", apiSource.indexOf("export async function getPlanConfig") + 1));
+  assert.doesNotMatch(planConfigFunction, /cache: "force-cache"/);
 });
 
 test("fallback plan config starts with current public prices", () => {

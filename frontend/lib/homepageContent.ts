@@ -7,8 +7,9 @@ export const homepageContent = {
   hero: {
     eyebrow: "Stock Analysis · Insider Trading · Stock Research",
     title: "Follow the Insiders. Know More Before You Buy.",
+    hook: "Before you buy, see what the headlines leave out.",
     description:
-      "Stock analysis that brings insider trades, institutional holdings, financials and technicals together. Discover ranked stock ideas, understand what supports them, and follow what changes.",
+      "Check reported insider trades alongside financials and price trends. See what supports a stock—and what deserves a second look.",
   },
   metadata: {
     title: "Stock Analysis & Insider Trading Tracker | Walnut Markets",

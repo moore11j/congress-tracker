@@ -300,7 +300,7 @@ function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { 
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">{requiredPlanLabel} Feature</p>
           <h2 className="mt-3 text-2xl font-semibold text-white">One comparison answers today's question.</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">
-            Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts. Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro.
+            See how these stocks differ in business performance, price trends and available disclosure context. Premium unlocks the comparison and Confirmation Score; institutional activity requires Pro. Options flow is coming soon.
           </p>
           <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
             <CompareTrackedLink

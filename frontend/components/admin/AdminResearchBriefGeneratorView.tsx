@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ResearchDistributionDraft } from "./ResearchDistributionDraft";
 import {
   applyAdminResearchBriefDraftCorrections,
   approveScheduledAdminResearchBriefDraft,
@@ -2743,6 +2744,7 @@ function EditorPanel({
             {busy === "apply-corrections" ? "Applying changes..." : "Apply changes with AI"}
           </Button>
         </div>
+        <ResearchDistributionDraft article={activeArticle} published={draft.status === "published"} />
         {false && activeArticle.reddit_post ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">

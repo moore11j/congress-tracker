@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createCustomerPortalSession, getMe, getPlanConfig, refreshBillingSubscription, type AccountUser, type PlanConfig, type PlanConfigFeature, type PlanConfigTier, type PlanPrice } from "@/lib/api";
 import { PricingActions } from "@/components/billing/PricingActions";
 import type { Entitlements } from "@/lib/entitlements";
+import { planBenefits, pricingFeatureCopy, emailAccessCopy, futureFeaturesCopy } from "@/lib/planBenefits";
 
 type BillingInterval = "monthly" | "annual";
 type PlanTier = "free" | "premium" | "pro";
@@ -240,7 +241,7 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Plans & Pricing</p>
             <h1 className="mt-2 text-3xl font-semibold text-white">Walnut Market Terminal plans</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Compact access, limits, and workflow capacity for Free, Premium, and Pro.
+              Start with a stock. Choose the research depth and monitoring you need to keep following it.
             </p>
           </div>
           <div className="inline-grid grid-cols-2 rounded-lg border border-white/10 bg-slate-900 p-1 text-sm font-semibold text-slate-300">
@@ -291,6 +292,8 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
         </div>
       </section>
 
+      <p className="text-sm leading-6 text-slate-300">{emailAccessCopy}</p>
+      <p className="text-xs leading-5 text-slate-400">{futureFeaturesCopy}</p>
       <section className="overflow-hidden rounded-lg border border-white/10 bg-slate-900/70">
         <div className="overflow-x-auto">
           <div className="min-w-[760px]">
@@ -308,8 +311,8 @@ export function PricingPlanner({ config }: { config: PlanConfig }) {
                 {features.map((feature) => (
                   <div key={feature.feature_key} className="grid grid-cols-[1.25fr_0.75fr_0.75fr_0.75fr] gap-3 border-t border-white/10 px-4 py-3 text-sm">
                     <div>
-                      <div className="font-semibold text-white">{feature.label}</div>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">{publicFeatureCopy(feature.description)}</p>
+                      <div className="font-semibold text-white">{pricingFeatureCopy(feature.feature_key, feature.label, feature.description ?? "").label}</div>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">{publicFeatureCopy(pricingFeatureCopy(feature.feature_key, feature.label, feature.description ?? "").description)}</p>
                     </div>
                     {planOrder.map((tier) => {
                       const included = feature.kind === "limit" ? (feature.limits[tier] ?? 0) > 0 : featureIncluded(feature, tier);
@@ -361,7 +364,8 @@ function PlanCard({
         {tier === "pro" ? <span className="rounded-md border border-cyan-300/30 px-2 py-1 text-xs font-semibold text-cyan-100">Professional datasets</span> : null}
         {tier === "premium" ? <span className="rounded-md border border-emerald-300/30 px-2 py-1 text-xs font-semibold text-emerald-100">Recommended</span> : null}
       </div>
-      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-400">{tier === "premium" ? "The default choice for self-directed investors exploring stocks, rankings, and historical performance." : tier === "pro" ? "Everything in Premium, plus professional-grade datasets and higher limits." : plan?.description}</p>
+      <p className="mt-2 min-h-[48px] text-sm leading-6 text-slate-300">{planBenefits[tier].purpose}</p>
+      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-400">{planBenefits[tier].benefits.map(benefit => <li key={benefit}>✓ {benefit}</li>)}</ul>
       <div className="mt-4 flex items-end gap-2">
         <span className="text-4xl font-semibold text-white">{formatMoney(price)}</span>
         <span className="pb-1 text-sm text-slate-500">{tier === "free" ? "forever" : billingInterval === "annual" ? "/yr" : "/mo"}</span>

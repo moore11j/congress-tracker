@@ -24,8 +24,9 @@ function modules({fetch, consent = true, events = [], authenticated = false, das
         if (name === "@/lib/api") return {API_BASE: "https://api.test", getLeaderboardDashboard: async () => dashboard};
         if (name === "@/lib/serverAuth") return {optionalPageAuthState: async () => ({token: authenticated ? "test-session" : null})};
         if (name === "@/lib/googleAnalytics") return {recordGoogleAnalyticsEvent: (...args) => events.push(args)};
+        if (name === "@/lib/productAnalytics") return {trackEvent: () => {}};
         if (name === "@/lib/privacyConsent") return {hasPrivacyConsent: () => consent};
-        if (name === "@/components/landing/LandingSearch") return {LandingSearch: () => React.createElement("input", {"aria-label": "Ticker search"})};
+        if (name === "@/components/landing/LandingSearch") return {LandingSearch: ({buttonLabel}) => React.createElement("button", {className: "bg-emerald-300 primary-search"}, buttonLabel)};
         if (name === "@/components/landing/MarketingHeader") return {MarketingHeader: () => React.createElement("nav", null, "Navigation")};
         if (name.startsWith("@/")) {
           const base = name.slice(2);
@@ -103,17 +104,17 @@ test("rendered homepage locks the top two and serializes only ranks three to fiv
   assert.match(html, /Follow the Insiders\. Know More Before You Buy\./);
   assert.equal((html.match(/<section/g) || []).length, 9);
   assert.equal((html.match(/data-homepage-ranked-stock=/g) || []).length, 3);
-  assert.match(html, /Why is AMZN near the top/);
+  assert.match(html, /Considering AMZN/);
   assert.match(html, /Supportive fundamentals/);
   assert.match(html, /Weak price confirmation/);
   assert.match(html, /https:\/\/app\.walnutmarkets\.com\/ticker\/AMZN/);
   assert.doesNotMatch(html, /SECRET|PRO_ONLY|PREMIUM_CONSENSUS|98\.7654|recalculat|audit|Research Memory|founder|Jarod/i);
-  const sequence = ["data-walnut-homepage", 'id="top-stock-opportunities"', 'id="research-example"', 'id="whats-working"', 'id="monitoring"', 'id="confirmation-score"', 'id="pricing"', 'id="homepage-faq"'].map(value => html.indexOf(value));
+  const sequence = ["data-walnut-homepage", 'id="research-example"', 'id="top-stock-opportunities"', 'id="whats-working"', 'id="monitoring"', 'id="confirmation-score"', 'id="pricing"', 'id="homepage-faq"'].map(value => html.indexOf(value));
   assert.ok(sequence.every((value, i) => value >= 0 && (i === 0 || value > sequence[i - 1])));
-  const hero = html.slice(html.indexOf("data-walnut-homepage"), html.indexOf('id="top-stock-opportunities"'));
+  const hero = html.slice(html.indexOf("data-walnut-homepage"), html.indexOf('id="research-example"'));
   assert.equal((hero.match(/bg-emerald-300 /g) || []).length, 1);
-  assert.match(hero, /See today&#x27;s #1 and #2 stocks/);
-  assert.match(hero, /Explore Top-Ranked Stocks/);
+  assert.match(hero, /Analyze a Stock/);
+  assert.match(hero, /Open Screener/);
   assert.match(html, /Ranks #3–#5 are a public preview/);
   assert.match(html, /Unlock the Top 2/);
   assert.match(hero, /Explore Strategies/);

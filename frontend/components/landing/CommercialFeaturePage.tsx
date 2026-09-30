@@ -3,6 +3,7 @@ import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { publicResearchTools } from "@/lib/publicResearchTools";
 import { commercialFeaturePageJsonLd, type CommercialFeaturePage as CommercialFeaturePageData } from "@/lib/commercialFeaturePages";
 import { WALNUT_REDDIT_URL, WALNUT_X_HANDLE, WALNUT_X_URL } from "@/lib/marketingMetadata";
+import type { ReactNode } from "react";
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const productImage = "/landing/compare-nvda-mu-production.png";
@@ -23,7 +24,7 @@ const footerResearchLinks = [
   { label: "Government Contracts", href: "/government-contracts" },
 ] as const;
 
-export function CommercialFeaturePage({ page }: { page: CommercialFeaturePageData }) {
+export function CommercialFeaturePage({ page, example }: { page: CommercialFeaturePageData; example?: ReactNode }) {
   const structuredData = commercialFeaturePageJsonLd(page);
   const analyticsProperties = { page: page.key, route: page.pathname };
 
@@ -109,6 +110,7 @@ export function CommercialFeaturePage({ page }: { page: CommercialFeaturePageDat
         </div>
       </section>
 
+      {example}
       <section className="px-4 py-14 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1fr_300px]">
           <div className="space-y-6">

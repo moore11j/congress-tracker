@@ -29,6 +29,17 @@ function GrowthMeasurement({ data }: { data: AdminPageAnalyticsResponse }) {
         </ul>
       </details>
       <details className="rounded-lg border border-white/10 p-4" open>
+        <summary className="cursor-pointer text-sm font-semibold text-slate-200">Acquisition and new-account progress</summary>
+        <p className="my-3 text-xs leading-5 text-slate-400">Consent-based browser sessions are not people. Signup attribution requires a session spanning account creation with exactly one identified account. Stock before signup is ordered; saved, returned, checkout and paid are separate outcomes after signup, not mandatory consecutive steps. Returned means an authenticated page visit at least 24 hours later. Payment uses verified live invoices.</p>
+        {data.journey ? <>
+          <p className="mb-3 text-xs text-slate-400">{data.journey.attributed_new_accounts} new accounts attributed; {data.journey.unattributed_new_accounts} lack a qualifying tracked session. {data.journey.truncated ? "Partial report: first 50,000 events only; attribution and outcomes may be incomplete." : "All recorded events in this period examined."}</p>
+          <div className="overflow-x-auto"><table className="min-w-full text-left text-xs text-slate-300">
+            <thead><tr>{["Source", "Sessions", "Viewed stock", "New accounts", "Stock before signup", "Saved", "Returned", "Checkout", "Paid"].map(label => <th className="p-2" key={label}>{label}</th>)}</tr></thead>
+            <tbody>{data.journey.sources.map(row => <tr className="border-t border-white/10" key={row.source}>{[row.source, row.sessions, row.stock_sessions, row.new_accounts, row.stock_before_signup, row.saved_accounts, row.returned_accounts, row.checkout_accounts, row.paid_accounts].map((value, index) => <td className="p-2" key={index}>{value}</td>)}</tr>)}</tbody>
+          </table></div>
+        </> : <p className="mt-3 text-xs text-slate-400">Acquisition reporting is not available from this backend yet.</p>}
+      </details>
+      <details className="rounded-lg border border-white/10 p-4" open>
         <summary className="cursor-pointer text-sm font-semibold text-slate-200">Product actions and signup steps</summary>
         <p className="my-3 text-xs text-slate-400">Event reach, not an ordered funnel. Signup started means the form was shown; submitted means a valid form was sent. Failed can include session verification after account creation. Counts depend on consent and can include repeated attempts. New-account records above are the source of truth for account creation.</p>
         <div className="overflow-x-auto"><table className="min-w-full text-left text-sm text-slate-300">
