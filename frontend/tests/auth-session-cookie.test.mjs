@@ -58,7 +58,7 @@ test("login and google callback verify auth\/me before success navigation", () =
   assert.match(apiSource, /export async function verifyAuthenticatedSession/);
   assert.match(apiSource, /throw new Error\("We couldn't keep you signed in\. Please try again\."\)/);
   assert.match(loginPanelSource, /setLoadingLabel\("Verifying session\.\.\."\);[\s\S]*await verifyAuthenticatedSession\(mode === "register" \? "RegisterPanel" : "LoginPanel"\);[\s\S]*setStatus\(`You're in\. Opening the \$\{destinationLabel\}\.\.\.`\);/);
-  assert.match(googleCallbackSource, /setStatus\("Verifying your session\.\.\."\);[\s\S]*return verifyAuthenticatedSession\("GoogleCallbackPage"\)/);
+  assert.match(googleCallbackSource, /setStatus\("Verifying your session\.\.\."\);[\s\S]*return withAuthTimeout\(verifyAuthenticatedSession\("GoogleCallbackPage"\)/);
 });
 
 test("logout calls backend logout and clears legacy transition storage", () => {

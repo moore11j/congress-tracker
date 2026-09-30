@@ -13,7 +13,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
       "connect-src 'self' https://congress-tracker-api.fly.dev https:",
       "frame-src 'self' https://accounts.google.com https://*.stripe.com https://checkout.stripe.com https://js.stripe.com https:",
-      "form-action 'self' https://accounts.google.com https://*.stripe.com https://checkout.stripe.com",
+      "form-action 'self' https://app.walnutmarkets.com https://accounts.google.com https://*.stripe.com https://checkout.stripe.com",
     ].join("; "),
   },
   {

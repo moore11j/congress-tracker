@@ -50,7 +50,7 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.match(monitoringSource, /void refreshInbox\(\);\s*void refreshWatchlists\(\);/);
   assert.match(monitoringSource, /Mark all new read/);
   assert.match(monitoringSource, /markMonitoringSourceRead/);
-  assert.match(monitoringSource, /refresh: true/);
+  assert.doesNotMatch(monitoringSource, /getMonitoringInbox\([^;]*refresh: true/);
   assert.match(monitoringSource, /inboxSourceCounts/);
   assert.match(monitoringSource, /additionalInboxSources/);
   assert.match(monitoringSource, /sourceTypeLabel/);

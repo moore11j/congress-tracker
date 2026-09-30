@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, getGoogleAuthUrl, getMe, login, recordProductEvent, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
+import { rememberGoogleReturnPath, withAuthTimeout } from "@/lib/authRecovery";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 import { campaignParamKeys } from "@/lib/campaignAttribution";
 import { trackEvent } from "@/lib/productAnalytics";
@@ -207,7 +208,9 @@ export function LoginRegisterPanel({
     setLoadingLabel("Starting Google sign-in...");
     setStatus(null);
     try {
-      const response = await getGoogleAuthUrl(mode === "register" ? signupPath : nextPath);
+      const destination = mode === "register" ? signupPath : nextPath;
+      rememberGoogleReturnPath(destination);
+      const response = await withAuthTimeout(getGoogleAuthUrl(destination), 15_000);
       setLoadingLabel("Opening Google...");
       window.location.href = response.authorization_url;
     } catch (error) {

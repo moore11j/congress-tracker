@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-30",
+  "problem": "QNT returned HTTP 200 with an unavailable shell; public context cache and SEO snapshot were missing. Google reported a soft 404, not a noindex block.",
+  "data_repair": "Refreshed QNT persisted SEO snapshot and prewarmed the canonical 365-day public ticker context. Existing metadata identifies Quantinuum on NASDAQ; 82 stored price rows and insider disclosures were present.",
+  "changes": [
+    "Anonymous ticker readiness reads only persisted public snapshot/context; no provider rebuilds. If neither is usable, return non-cacheable HTTP 503 with Retry-After 60 before streaming.",
+    "Existing public snapshots remain readable with dated research copy when fresh context is unavailable.",
+    "Missing snapshots are not cached by the API; ticker snapshot reads do not retain missing results in the Next data cache.",
+    "No entitlement or ticker noindex rules changed."
+  ],
+  "validation": {
+    "frontend_focused": "30 passed",
+    "backend_public_cache": "6 passed",
+    "production_build": "Passed Next.js compilation, type checks, and all 67 static pages."
+  },
+  "limitation": "Google indexing remains a separate Google decision; this release repairs the page response and data availability."
+}

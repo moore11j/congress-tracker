@@ -6405,6 +6405,7 @@ def seo_entity_snapshot(entity_type: str, entity_key: str, response: Response, d
     response.headers["Cache-Control"] = "public, max-age=300, s-maxage=1800, stale-while-revalidate=21600"
     snapshot = get_seo_snapshot(db, normalized_type, entity_key)
     if snapshot is None:
+        response.headers["Cache-Control"] = "no-store"
         return {
             "status": "missing",
             "entity_type": normalized_type,

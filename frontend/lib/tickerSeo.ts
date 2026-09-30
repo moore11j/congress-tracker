@@ -29,7 +29,7 @@ export function tickerSeoDescription(symbol: string, companyName?: string | null
   const name = companyName?.trim();
   const identity = name && name.toUpperCase() !== symbol.toUpperCase() ? `${name} (${symbol})` : symbol;
   const description = snapshotOnly
-    ? `Review ${identity} with dated public market data and disclosure context. Current stock research is temporarily unavailable.`
+    ? `Review ${identity} with dated public market data and disclosure context from Walnut's saved research snapshot.`
     : `Analyze ${identity} with fundamentals, technicals, insider activity, Congress trades, analyst data and institutional holdings on Walnut.`;
   return description.length <= 165 || identity === symbol
     ? description

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isBioguideId, nameToSlug } from "./lib/memberSlug";
 import { isApprovedSeoPilotPath } from "./lib/seoQuality";
 import { departmentHref } from "./lib/departments";
+import { publicTickerReady, unavailableTickerResponse } from "./lib/publicTickerReadiness";
 
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
@@ -527,6 +528,17 @@ async function routeRequest(request: NextRequest) {
     appUrl.protocol = "https:";
     appUrl.host = appHost;
     return NextResponse.redirect(appUrl, 307);
+  }
+
+  // Set the status before Next streams the page. Empty 200 shells become soft
+  // 404s in Search Console; a cache-only outage is temporary, not a noindex rule.
+  const tickerMatch = pathname.match(/^\/ticker\/([A-Za-z0-9.^_-]+)\/?$/);
+  if (host === appHost && tickerMatch && !hasBackendSession && !hasAuthHint) {
+    const ready = await publicTickerReady(API_BASE, tickerMatch[1].toUpperCase(), request.nextUrl.searchParams);
+    if (!ready) {
+      const unavailable = unavailableTickerResponse();
+      return new NextResponse(unavailable.body, { status: unavailable.status, headers: unavailable.headers });
+    }
   }
 
   if (

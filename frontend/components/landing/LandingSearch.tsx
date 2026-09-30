@@ -64,6 +64,9 @@ export function LandingSearch({
 }: LandingSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const homepageViewTrackedRef = useRef(false);
@@ -112,15 +115,23 @@ export function LandingSearch({
   }, []);
 
   const track = (eventName: string, ticker?: string | null) => {
-    if (!hasPrivacyConsent("analytics")) return;
-    recordGoogleAnalyticsEvent(eventName, {
-      pathname: window.location.pathname,
-      ticker: ticker || undefined,
-      source_page_type: "homepage",
-      auth_state: entitlements.user ? "authenticated" : "anonymous",
-      plan: planForAnalytics(entitlements),
-    });
+    try {
+      if (!hasPrivacyConsent("analytics")) return;
+      recordGoogleAnalyticsEvent(eventName, {
+        pathname: window.location.pathname,
+        ticker: ticker || undefined,
+        source_page_type: "homepage",
+        auth_state: entitlements.user ? "authenticated" : "anonymous",
+        plan: planForAnalytics(entitlements),
+      });
+    } catch { /* Blocked analytics must not prevent a search. */ }
   };
+
+  useEffect(() => {
+    const resume = () => setSubmitting(false);
+    window.addEventListener("pageshow", resume);
+    return () => window.removeEventListener("pageshow", resume);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,12 +164,16 @@ export function LandingSearch({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    trackEvent("research_entry_clicked", {placement: submitEventName, ticker: bestResult?.kind === "ticker" ? bestResult.symbol ?? null : null});
-    track(submitEventName, bestResult?.kind === "ticker" ? bestResult.symbol : null);
+    if (submitting) return;
     if (!trimmedQuery) {
-      window.location.href = appUrl;
+      setValidationMessage("Enter a ticker or company name to research.");
+      inputRef.current?.focus();
       return;
     }
+    setValidationMessage(null);
+    setSubmitting(true);
+    trackEvent("research_entry_clicked", {placement: submitEventName, ticker: bestResult?.kind === "ticker" ? bestResult.symbol ?? null : null});
+    track(submitEventName, bestResult?.kind === "ticker" ? bestResult.symbol : null);
     if (bestResult && isHighConfidenceSearchResult(bestResult, trimmedQuery)) {
       if (bestResult.kind === "ticker") track("homepage_ticker_selected", bestResult.symbol);
       window.location.href = absoluteAppHref(appUrl, routeForSearchResult(bestResult));
@@ -179,13 +194,18 @@ export function LandingSearch({
 
   return (
     <div ref={rootRef} className={`relative z-[80] w-full ${reassuranceCopy ? "sm:pb-5 " : ""}${className || "mx-auto mt-4 max-w-2xl sm:mt-8"}`}>
-      <form onSubmit={submit} className={formClassName}>
+      <form action={absoluteAppHref(appUrl, "/search")} method="get" onSubmit={submit} className={formClassName} aria-busy={submitting}>
         <label className={inputShellClassName}>
           <SearchIcon />
           <input
+            ref={inputRef}
+            name="q"
+            type="search"
+            required
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
+              setValidationMessage(null);
               if (event.target.value.trim() && !searchInputTrackedRef.current) {
                 searchInputTrackedRef.current = true;
                 track("homepage_search_input");
@@ -204,12 +224,13 @@ export function LandingSearch({
           />
         </label>
         <div className="flex min-w-0 flex-col items-stretch sm:relative">
-          <button type="submit" className={`${buttonClassName} w-full`}>
-            {buttonLabel}
+          <button type="submit" disabled={submitting} className={`${buttonClassName} w-full disabled:cursor-wait disabled:opacity-70`}>
+            {submitting ? "Opening research..." : buttonLabel}
           </button>
           {reassuranceCopy ? <p className="mt-1.5 whitespace-nowrap text-center text-xs font-medium text-slate-500 sm:absolute sm:right-0 sm:top-full sm:text-right">{reassuranceCopy}</p> : null}
         </div>
       </form>
+      {validationMessage ? <p role="alert" className="mt-2 text-sm text-emerald-100">{validationMessage}</p> : null}
 
       {open ? (
         <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[1400] overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">

@@ -41,3 +41,21 @@ def test_public_and_active_requests_do_not_share_response_cache_key():
     active = main._normalized_ticker_context_bundle_public_query(request())
     assert public != active
     assert dict(public)['cached_only'] == '1'
+
+
+def test_missing_snapshot_is_not_cached_after_background_warm(monkeypatch):
+    from fastapi import Response
+    monkeypatch.setattr(main, 'get_seo_snapshot', lambda *args: None)
+    response = Response()
+    result = main.seo_entity_snapshot('ticker', 'QNT', response, db=object())
+    assert result['status'] == 'missing'
+    assert response.headers['Cache-Control'] == 'no-store'
+
+
+def test_existing_public_snapshot_retains_shared_cache(monkeypatch):
+    from fastapi import Response
+    monkeypatch.setattr(main, 'get_seo_snapshot', lambda *args: {'entity_key': 'QNT'})
+    response = Response()
+    result = main.seo_entity_snapshot('ticker', 'QNT', response, db=object())
+    assert result['status'] == 'ok'
+    assert 's-maxage=1800' in response.headers['Cache-Control']

@@ -6761,7 +6761,9 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
 
 export async function getSeoSnapshot(entityType: SeoSnapshotEntityType, entityKey: string, options?: { source?: string; signal?: AbortSignal; stalePageCache?: boolean }): Promise<SeoSnapshotResponse> {
   return fetchJson<SeoSnapshotResponse>(buildApiUrl(`/api/seo-snapshots/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`), {
-    ...publicStalePageFetchInit(options?.stalePageCache),
+    // The endpoint already reads persisted snapshots. Do not retain a missing
+    // ticker in Next's data cache after a background refresh creates it.
+    ...(entityType === "ticker" ? { cache: "no-store" as const } : publicStalePageFetchInit(options?.stalePageCache)),
     signal: options?.signal,
     source: options?.source ?? "SeoSnapshot",
     requestSource: "ssr",

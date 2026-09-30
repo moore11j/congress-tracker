@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
@@ -605,6 +605,12 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   }, [currentInboxPage, filteredInboxItems, inboxPageSize]);
   const selectedItemSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds]);
   const hasSelection = selectedItemIds.length > 0;
+  const inboxListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // A new page must start at its first update, not the previous page's scroll offset.
+    if (inboxListRef.current) inboxListRef.current.scrollTop = 0;
+  }, [currentInboxPage, inboxCategoryFilter, inboxFilter, inboxPageSize, inboxSourceFilter]);
 
   const refreshInbox = async () => {
     setInboxStatus(null);
@@ -984,14 +990,19 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
             ) : null}
           </div>
 
+          {inboxFilter !== "all" || inboxSourceFilter !== "all" || inboxCategoryFilter !== "all" ? (
+            <button type="button" onClick={() => { setInboxFilter("all"); setInboxSourceFilter("all"); setInboxCategoryFilter("all"); }} className="mt-2 rounded-md px-2.5 py-1 text-xs font-semibold text-emerald-200 hover:bg-white/[0.06]">
+              Reset filters
+            </button>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-slate-950/40 p-2">
-              <button type="button" onClick={selectAllVisible} className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white">
+              <button type="button" disabled={pagedInboxItems.length === 0} onClick={selectAllVisible} className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-40">
               Select all visible
             </button>
-            <button type="button" onClick={clearSelection} className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white">
+            <button type="button" disabled={!hasSelection} onClick={clearSelection} title="Uncheck selected updates; filters stay unchanged" className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40">
               Clear selection
             </button>
-            <span className="text-xs text-slate-500">{selectedItemIds.length} selected</span>
+            <span role="status" className="text-xs text-slate-500">{selectedItemIds.length} selected</span>
             <div className="ml-auto flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1020,7 +1031,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
             </div>
           </div>
 
-          <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1" aria-busy={inboxLoading}>
+          <div ref={inboxListRef} className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1" aria-busy={inboxLoading}>
             {inboxStatus ? (
               <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-5">
                 <h3 className="font-semibold text-amber-100">Monitoring updates could not load.</h3>
@@ -1119,8 +1130,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
             )}
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
-            <span className="text-xs text-slate-500">
-              Page {currentInboxPage} of {totalInboxPages}
+            <span role="status" className="text-xs text-slate-400">
+              Page {currentInboxPage} of {totalInboxPages} · {filteredInboxItems.length === 0 ? 0 : (currentInboxPage - 1) * inboxPageSize + 1}–{Math.min(currentInboxPage * inboxPageSize, filteredInboxItems.length)} of {filteredInboxItems.length} updates
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <button

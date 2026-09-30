@@ -3752,7 +3752,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
     return (
       <div className="space-y-5 py-6">
         <h1 className="break-words text-2xl font-semibold text-white">{normalizedSymbol} Stock Research</h1>
-        <p className="text-sm text-slate-300">Current ticker research is temporarily unavailable. Please try again shortly.</p>
+        <p className="text-sm text-slate-300">{available ? "Explore the latest saved public research and disclosures for this stock." : "Current ticker research is temporarily unavailable. Please try again shortly."}</p>
         {available && snapshot ? (
           <section className={cardClassName}>
             <h2 className="text-xl font-semibold text-white">{String(snapshot.payload.company_name)}</h2>

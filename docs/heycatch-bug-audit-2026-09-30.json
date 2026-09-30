@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-30",
+  "baseline_commit": "1488308c6379ed9c37c0d5388d6cf4793b7de307",
+  "scope": "Investigated five HeyCatch recommendations; approved fixes included in the combined QNT reliability release. HeyCatch recommendations were not marked completed.",
+  "findings": [
+    {
+      "report": "Google sign-in silent failures",
+      "result": "Historical failure not confirmed; missing recovery and bounded UI waits confirmed in code.",
+      "evidence": [
+        "Live Google start endpoint returns accounts.google.com, response_type=code, configured client ID and state, and https://app.walnutmarkets.com/auth/google/callback.",
+        "Backend token exchange has a 20-second timeout and logs rejection reasons; frontend callback previously had no deadline and only a generic Continue link.",
+        "Nine existing backend Google tests passed, including callback/session-cookie behavior. No real user was signed out, registered, or charged for testing."
+      ],
+      "changes": [
+        "Google start waits at most 15 seconds, callback completion 45 seconds, and session verification 15 seconds.",
+        "Cancelled or failed callbacks display a retry link to login; the requested safe app destination is retained in session storage and after callback success.",
+        "OAuth query parameters are removed from the visible callback URL, and no automatic code replay is attempted.",
+        "Successful navigation still requires a verified authenticated session."
+      ],
+      "limitation": "These checks do not establish why the specific historical visitor stopped. No historical session replay or matching failure log was available from the recommendation itself."
+    },
+    {
+      "report": "Monitoring Next button",
+      "result": "Works in current production; confusing retained list-scroll position confirmed in code.",
+      "evidence": "Live Next changed page 1 of 448 to page 2 of 448 with different alerts.",
+      "changes": "Reset the inbox list scroll on pagination/filter changes; announce page number and visible update range."
+    },
+    {
+      "report": "Monitoring Clear selection",
+      "result": "Clears selected checkboxes in production; it does not reset filters, contrary to HeyCatch's interpretation.",
+      "evidence": "Live Select all visible checked five alerts; Clear selection unchecked all five and returned the count to zero. No alerts were marked read or deleted.",
+      "changes": "Disable Clear selection at zero selections, clarify its purpose, announce the selection count, disable Select all visible on an empty page, and provide a separate Reset filters button when filters are active."
+    },
+    {
+      "report": "Homepage Research a Stock form",
+      "result": "Current Analyze a Stock form opened NVDA successfully in production. Missing native form fallback and blank-query behavior were confirmed in code.",
+      "changes": "Add a native GET action to the app search route with a named required query input, preserve the existing suggestion navigation, add blank/whitespace validation and pending feedback, restore submission state on browser back, and isolate search tracking exceptions. Allow the exact app origin in form-action CSP for the cross-host fallback.",
+      "limitation": "The native fallback submits to the search page; that page still uses JavaScript to fetch search results. The six historical homepage-only sessions were not reproduced."
+    },
+    {
+      "report": "Monitoring Research reload loop",
+      "result": "Not reproduced; no automatic document reload or index/detail redirect cycle found in this flow.",
+      "evidence": [
+        "Live index loaded and a saved Research Memory opened successfully and remained on its detail route.",
+        "The index refreshes its data API every 60 seconds and on focus, without navigation.",
+        "The detail's explicit Activate action performs one document reload after success; it is not a timer.",
+        "PageAnalyticsTracker is driven by route/query/consent changes, not the research data-refresh timer."
+      ],
+      "changes": "None. Repeated visits alone do not prove an automatic reload loop."
+    }
+  ],
+  "validation": {
+    "production_build": "Passed: Next.js compilation, type checking, and static generation.",
+    "frontend": "54 tests run: 50 passed, 4 failed. The same four failures reproduced against unchanged HEAD sources; all nine new behavioral tests passed.",
+    "backend_google_auth": "9 passed, 128 deselected.",
+    "local_browser": "Built callback cancellation showed a visible retry link, scrubbed query parameters, and opened login. Empty and whitespace-only homepage submissions showed validation and stayed on the page.",
+    "preexisting_test_failures": [
+      "visible feed results load client-side with bounded gain/loss enrichment",
+      "feed list defaults to compact table while preserving card view",
+      "watchlist activity unlocks premium metrics for entitled users",
+      "monitoring source cards share styling and make whole source rows clickable"
+    ],
+    "test_maintenance": "Updated the auth callback assertion for its timeout wrapper and removed the stale monitoring expectation that inbox loading performs a provider refresh."
+  }
+}
