@@ -7,7 +7,8 @@ video, and interleave useful app tutorials with search-led research videos.
 
 ## Composition
 
-- `social_v1` is the default navigation-video layout (template version 5).
+- `social_v1` was the September 26 layout (template version 5). The current
+  default is `motion_v1` (template version 6); see the September 30 update.
 - Full-bleed atmosphere remains 1080×1920. Essential content occupies
   x48–912, y270–1390. These conservative bounds derive from the supplied mobile
   screenshots; native app chrome can vary by device and viewing mode.
@@ -63,3 +64,30 @@ Pacific. The revised version requires review before replacing that queued post;
 never overwrite its approved media asset in place or publish both versions.
 Already published Microsoft media remains unchanged. The local comparison
 uses its original footage and narration in `artifacts/social-video-refresh/`.
+
+## September 30 motion design
+
+The approved motion design is now `motion_v1`, navigation template version 6,
+used by newly generated schema 4/5 navigation videos. Previous presentation
+names remain available for reproducible older renders.
+
+- Dark graphite background with a subtle grid and green chapter accents.
+- NVDA keeps the related server-room image at 12% opacity; other tickers use
+  the neutral dark plate rather than unrelated stock imagery.
+- Short scene headings wrap without dropping words. Chrome fades in over
+  220 ms, with a restrained chapter-line reveal and timed progress segments.
+- Actual recorded product pixels, navigation actions, narration timestamps,
+  and word-aligned captions remain intact. Captions do not bounce or fade.
+- Original logo, a concise closing card, tight captions, and fine-print
+  research/paid-plan notices stay within the existing social safe area.
+- Decorative motion does not imply price movement or invent financial data.
+
+This deploy changes presentation only. It does not change voice providers,
+worker capacity, tutorial cadence, approval gates, publishing permissions,
+or existing approved/scheduled media. The earlier local concept preview used
+retained Grace audio; production continues using its configured narration.
+
+Validation includes safe-area/source-pixel tests and a full native render
+using the retained Microsoft footage and audio. Timing, action alignment,
+caption count and research provenance are compared with the previous render.
+The local comparison is in `artifacts/walnut-motion-production-2026-09-30/`.

@@ -72,17 +72,22 @@ def navigation_crop(shot,index,asset):
  return target
 
 
-def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='social_v1'):
+def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='motion_v1'):
  import imageio_ffmpeg
- if presentation not in {'classic','cinematic_v1','cinematic_v2','cinematic_v3','social_v1'}:raise ValueError('Unknown navigation presentation.')
- social=presentation=='social_v1'
- refined=presentation in {'cinematic_v2','cinematic_v3','social_v1'}
+ if presentation not in {'classic','cinematic_v1','cinematic_v2','cinematic_v3','social_v1','motion_v1'}:raise ValueError('Unknown navigation presentation.')
+ motion=presentation=='motion_v1'
+ social=presentation in {'social_v1','motion_v1'}
+ refined=presentation in {'cinematic_v2','cinematic_v3','social_v1','motion_v1'}
  cinema=None
  if presentation.startswith('cinematic_') or social:
   from app.services.growth_cinematic_style import BACKGROUND,NVIDIA_BACKGROUND,CinematicStyle,entrance_offset,tight_caption
   background=NVIDIA_BACKGROUND if presentation=='cinematic_v3' and creative.get('campaign_id')=='nvda_navigation_v4' else BACKGROUND
   if creative.get('schema_version')==5:background=NVIDIA_BACKGROUND if creative.get('ticker')=='NVDA' else None
-  cinema=CinematicStyle((W,H),brightness=.45 if refined else 1.0,background=background)
+  if motion:
+   from app.services.growth_motion_layout import MotionStyle
+   background=NVIDIA_BACKGROUND if creative.get('ticker')=='NVDA' or creative.get('campaign_id')=='nvda_navigation_v4' else None
+   cinema=MotionStyle((W,H),background=background)
+  else:cinema=CinematicStyle((W,H),brightness=.45 if refined else 1.0,background=background)
  ffmpeg=imageio_ffmpeg.get_ffmpeg_exe();scenes,captions,duration=timeline(creative,audio)
  expected={s['shot'] for s in scenes if s['walnut_url']}
  if not expected.issubset(captures):raise ValueError('Missing navigation footage.')
@@ -96,6 +101,8 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
  if social:
   # No burned-in top masthead or bottom footer beneath native app chrome.
   from app.services.growth_social_layout import PANEL, SAFE, focus_crop, decorate
+  if motion:
+   from app.services.growth_motion_layout import PANEL, SAFE, focus_crop, decorate
   base=Image.new('RGBA',(W,H),(0,0,0,0))
  with tempfile.TemporaryDirectory(prefix='walnut-nav-render-') as folder:
   root=Path(folder);voice=root/'voice.mp3';voice.write_bytes(read_asset(audio));decoded={};knots={}
@@ -159,7 +166,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
       centered(d,creative['cta'],1220,brand_font(31),MINT)
      caption=next((c for c in captions if c['start']<=t<c['end']),None)
      if social:
-      decorate(im,scene,scenes,creative,caption,closing=shot not in decoded,logo=logo)
+      decorate(im,scene,scenes,creative,caption,closing=shot not in decoded,logo=logo,**({'elapsed':elapsed} if motion else {}))
      elif caption:
       if refined:
        tight_caption(d,caption['text'],brand_font(52,True))
@@ -180,9 +187,9 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
   content=output.read_bytes()
   if content[4:8]!=b'ftyp' or len(content)>200*1024*1024:raise ValueError('Invalid navigation export.')
   return content,{'provider':'walnut_native','width':W,'height':H,'duration':duration,'frame_rate':FPS,'encoding':'h264_intra',
-   'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':5 if social else 4,'font':Path(brand_font(24).path).name,
-   'brand_accent':MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
+   'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':6 if motion else 5 if social else 4,'font':Path(brand_font(24).path).name,
+   'brand_accent':'#29D981' if motion else MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
    'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
-   'presentation':presentation,'safe_content_bounds':list(SAFE) if social else None,'brand_placement':'closing_card_only' if social else 'masthead','background_brightness':.45 if refined else 1.0,
-   'caption_box':'text_bounds_16x10_padding' if refined else 'fixed','scene_transition':'cut','foreground_motion':'none',
+   'presentation':presentation,'safe_content_bounds':list(SAFE) if social else None,'brand_placement':'closing_card_only' if social else 'masthead','background_brightness':.12 if motion and background else None if motion else .45 if refined else 1.0,
+   'caption_box':'text_bounds_16x10_padding' if refined else 'fixed','scene_transition':'cut_with_220ms_chrome_fade' if motion else 'cut','foreground_motion':'chapter_accent_and_progress' if motion else 'none',
    'background_asset':cinema.background.name if cinema and cinema.background else None,'background_is_illustrative':bool(cinema)}
