@@ -48,7 +48,8 @@ export default function DailyResearchSeo() {
         <label className="text-sm">Timezone<input className={input} value={config.timezone} onChange={e => setConfig({ ...config, timezone: e.target.value })} placeholder="America/Los_Angeles" /></label>
       </div>
       <p className="mt-4 text-sm">Review email: <strong>{status?.review_email}</strong>. Email follows successful draft generation, not at the exact start time. Open the draft to preview, approve, edit directly, or ask AI for changes.</p>
-      <p className="mt-2 text-xs leading-5 text-slate-400">Up to five candidates per discovery; one discovery attempt per day. No automatic daily discovery retry after failure. Generation uses the existing bounded correction flow. Topics below the editorial threshold ({config.minimum_score}/100) are skipped. Seven unreviewed drafts pause new generation.</p>
+      <p className="mt-2 text-xs leading-5 text-slate-400">Up to eight candidates per discovery; one discovery attempt per day. No automatic daily discovery retry after failure. Generation uses the existing bounded correction flow. Topics below the editorial threshold ({config.minimum_score}/100) are skipped. Seven unreviewed drafts pause new generation.</p>
+      <p className="mt-2 text-xs leading-5 text-slate-400">Topics rotate across research areas, with at most two briefs per subject area in the recent seven-brief window. Saved manual edits guide wording in future drafts; each new brief must still use its own verified facts.</p>
       <p className="mt-2 text-xs text-slate-400">{status?.metric_note}</p>
       <div className="mt-5 flex flex-wrap gap-3">
         <button className={`${button} bg-emerald-300 text-slate-950`} disabled={busy} onClick={() => action("save")}>Save Daily SEO</button>

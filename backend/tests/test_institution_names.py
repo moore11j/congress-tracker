@@ -7,6 +7,9 @@ from app.utils.institution_names import institution_display_name, normalize_arti
 
 @pytest.mark.parametrize("raw,expected", [
     ("GOLDMAN SACHS GROUP INC", "Goldman Sachs Group Inc"),
+    ("PRICE T ROWE ASSOCIATES INC /MD/", "T. Rowe Price Associates Inc /MD/"),
+    ("Price t Rowe", "T. Rowe Price"),
+    ("T Rowe Price", "T. Rowe Price"),
     ("JPMORGAN CHASE & CO", "JPMorgan Chase & Co"),
     ("BLACKROCK, INC.", "BlackRock, Inc."),
     ("FMR LLC", "FMR LLC"), ("UBS GROUP AG", "UBS Group AG"),
@@ -53,3 +56,13 @@ def test_approved_draft_read_keeps_schedule_and_approval():
     assert result["article"]["title"] == "State Street Corp increased its stake."
     for key in ("id", "status", "scheduled_at", "approved_at"):
         assert result[key] == before[key]
+
+
+def test_short_filing_order_alias_is_fixed_even_with_canonical_context():
+    context = {"holder_name": "T. Rowe Price Associates Inc /MD/"}
+    article = {"title": "Price t Rowe added shares", "sections": [{"body_markdown": "Price T. Rowe increased its stake."}],
+               "source_links": [{"url": "https://example.com/Price-T-Rowe"}]}
+    normalized = normalize_article_institution_names(article, context)
+    assert normalized["title"] == "T. Rowe Price added shares"
+    assert normalized["sections"][0]["body_markdown"] == "T. Rowe Price increased its stake."
+    assert normalized["source_links"] == article["source_links"]

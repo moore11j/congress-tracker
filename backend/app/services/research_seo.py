@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from app.models import UserAccount
 from app.services import research_briefs as briefs
+from app.services.research_editorial import topic_family
 
 logger = logging.getLogger(__name__)
 DEFAULTS = {"enabled": False, "draft_time": "07:00", "timezone": "America/Los_Angeles",
@@ -75,12 +76,19 @@ def _same_topic(candidate, old):
         # The same question about a different company is a different article.
         if old.get("ticker") and candidate.get("ticker") != old["ticker"]:
             return False
+        if old.get("ticker") and topic_family(candidate) == topic_family(old) == "institutions":
+            # Rewording 'who bought' as 'are institutions accumulating' is not
+            # a new story. Explicitly different quarters can justify an update.
+            period = lambda item: re.findall(r"\bq[1-4]\s*20\d{2}\b", _query_key(item.get("target_keyword")))
+            return not (period(candidate) and period(old) and period(candidate) != period(old))
         old = old.get("target_keyword", "")
     return SequenceMatcher(None, _query_key(candidate.get("target_keyword")), _query_key(old)).ratio() >= 0.85
 
 
-def rank_candidates(candidates, interest, recent, minimum_score, google=None):
+def rank_candidates(candidates, interest, recent, minimum_score, google=None, recent_mix=None):
     demand = {row["ticker"]: row["searches"] for row in interest}
+    # recent_mix is newest first and counts actual drafts once, not campaign + draft.
+    families = [topic_family(row) for row in (recent_mix or [])[:7]]
     ranked = []
     for candidate in candidates:
         # Legacy non-ticker campaigns still produce a manual placeholder, not a
@@ -91,6 +99,10 @@ def rank_candidates(candidates, interest, recent, minimum_score, google=None):
         if not key or not candidate.get("source_urls") or not candidate.get("walnut_angle"):
             continue
         if any(_same_topic(candidate, old) for old in recent):
+            continue
+        family = topic_family(candidate)
+        repeats = families.count(family)
+        if repeats >= 2:
             continue
         # Editorial score is a heuristic, not measured volume or promised traffic.
         base = max(0, min(100, int(candidate.get("opportunity_score") or 0)))
@@ -105,13 +117,20 @@ def rank_candidates(candidates, interest, recent, minimum_score, google=None):
         score = min(100, score + min(10, int(google_impressions // 25)))
         from app.services.keyword_planner import priority_bonus
         score = min(100, score + priority_bonus(candidate))
+        # Keep quality eligibility separate from the diversity preference.
+        score -= repeats * 12
         volume = (candidate.get("keyword_metrics") or {}).get("avg_monthly_searches")
-        ranked.append({**candidate, "priority_score": score, "customer_searches_30d": searches,
+        ranked.append({**candidate, "topic_family": family, "recent_family_count": repeats,
+                       "diversity_penalty": repeats * 12, "priority_score": score, "customer_searches_30d": searches,
                        "selection_reason": f"Editorial score {base}/100; {searches} matching on-site search events in 30 days. "
                        + (f"{google_impressions:g} Google impressions for this exact query in the synced 28-day period. " if matches else "")
-                       + (f"Google Keyword Planner: approximately {volume:,} monthly US searches including close variants. " if volume is not None else "")
+                       + (f"Google Keyword Planner: approximately {volume:,} monthly US searches including close variants. " if volume is not None else "Google search volume unknown for this phrase. ")
+                       + f"Organic competition: {candidate.get('competition_assessment') or 'unknown'} (directional web assessment, not Ads competition). "
+                       + f"Topic family {family}: {repeats} of the last seven briefs; diversity penalty {repeats * 12}. "
                        + str(candidate.get("rationale") or "")})
-    return sorted(ranked, key=lambda row: (-row["priority_score"], row["target_keyword"]))
+    return sorted(ranked, key=lambda row: (-row["priority_score"],
+        -((row.get("keyword_metrics") or {}).get("avg_monthly_searches") or 0),
+        {"lower": 0, "moderate": 1, "unknown": 2, "higher": 3}.get(row.get("competition_assessment"), 2), row["target_keyword"]))
 
 
 def _runs(db):
@@ -197,21 +216,32 @@ def run_daily_plan(db, *, now=None):
         interest = customer_interest(db, now)
         from app.services.search_console import planning_signals
         google = planning_signals(db)
+        from app.services.keyword_planner import planning_signals as keyword_signals
+        keyword_demand = keyword_signals(db)
+        recent_mix = [dict(row) for row in db.execute(text("""SELECT primary_ticker AS ticker,
+            target_keyword, payload_json FROM research_brief_drafts
+            WHERE status NOT IN ('rejected', 'deleted') ORDER BY COALESCE(published_at, updated_at) DESC LIMIT 30""")).mappings()]
+        for row in recent_mix:
+            draft = json.loads(row.pop("payload_json"))
+            row["title"] = (draft.get("article") or {}).get("title", "")
+        recent_mix = recent_mix[:7]
         recent = [dict(row) for row in db.execute(text("""SELECT ticker, target_keyword FROM research_campaign_items
             WHERE created_at >= :since UNION SELECT primary_ticker AS ticker, target_keyword FROM research_brief_drafts
             WHERE status = 'published' OR updated_at >= :since"""), {"since": (now-timedelta(days=90)).isoformat()}).mappings()
                   if row["target_keyword"]]
         discovery = briefs.discover_research_keyword_opportunities(db, admin, {
             "seed_topics": [topic.strip()[:120] for topic in config["topics"].split(",") if topic.strip()][:12],
-            "tickers": config["tickers"] or [row["ticker"] for row in interest], "max_candidates": 5,
+            "tickers": config["tickers"] or [row["ticker"] for row in interest], "max_candidates": 8,
             "customer_interest": interest, "excluded_queries": recent[-100:],
             "search_console": google,
+            "keyword_planner": keyword_demand, "recent_topic_mix": recent_mix,
             "ticker_articles_only": True,
         })
         from app.services.keyword_planner import enrich_candidates
         candidates = enrich_candidates(db, discovery["items"])
-        ranked = rank_candidates(candidates, interest, recent, config["minimum_score"], google)
-        detail = {"candidates": ranked, "customer_interest": interest, "market_note": discovery.get("market_note", "")}
+        ranked = rank_candidates(candidates, interest, recent, config["minimum_score"], google, recent_mix)
+        detail = {"candidates": ranked, "recent_topic_mix": recent_mix, "keyword_demand": keyword_demand,
+                  "customer_interest": interest, "market_note": discovery.get("market_note", "")}
         if not ranked:
             _finish(db, day, "skipped", {**detail, "note": "No distinct, sourced opportunity cleared the quality threshold. No draft generated."})
             return {"status": "skipped"}

@@ -172,3 +172,28 @@ def test_admin_routes_deny_anonymous_access(db):
                            ("callback", {"code": "code", "state": "gads_" + "x"*40})]:
             assert client.post("/admin/research-briefs/keyword-planner/"+path, json=body).status_code in {401,403}
         assert client.delete("/admin/research-briefs/keyword-planner").status_code in {401,403}
+
+
+def test_discovery_signals_keep_unknown_and_stale_volume_honest(db):
+    seed(db)
+    now = datetime.now(timezone.utc)
+    for keyword, stamp, volume in [("earnings growth", now, 1000), ("old ownership", now-timedelta(days=31), 99999),
+                                   ("unknown", now, None)]:
+        metric = {"keyword": keyword, "avg_monthly_searches": volume, "fetched_at": stamp.isoformat()}
+        db.execute(text("INSERT INTO research_keyword_metrics VALUES (:k,:t,:m)"), {"k": keyword, "t": stamp.isoformat(), "m": json.dumps(metric)})
+    db.commit()
+    signals = kp.planning_signals(db)
+    assert [m["keyword"] for m in signals["keywords"]] == ["earnings growth"]
+    assert "Advertising competition is not organic SEO difficulty" in signals["note"]
+
+
+def test_planning_keeps_fresh_seed_demand_outside_admin_recent_fifty(db):
+    seed(db)
+    now = datetime.now(timezone.utc)
+    for n in range(51):
+        stamp = (now - timedelta(days=1 if n == 50 else 0)).isoformat()
+        metric = {"keyword": f"phrase {n}", "avg_monthly_searches": 1000 if n == 50 else None, "fetched_at": stamp}
+        db.execute(text("INSERT INTO research_keyword_metrics VALUES (:k,:t,:m)"),
+                   {"k": metric["keyword"], "t": stamp, "m": json.dumps(metric)})
+    db.commit()
+    assert [m["keyword"] for m in kp.planning_signals(db)["keywords"]] == ["phrase 50"]

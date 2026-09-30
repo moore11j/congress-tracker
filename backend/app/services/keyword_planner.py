@@ -31,7 +31,8 @@ HISTORICAL = f"{API}/customers/{CUSTOMER}:generateKeywordHistoricalMetrics"
 ACCOUNT = f"{API}/customers/{CUSTOMER}/googleAds:search"
 TARGETING = {"country": "United States", "language": "English", "network": "Google Search"}
 NOTE = "Google Keyword Planner estimates, averaged over the returned months and including close variants; not exact counts or guaranteed SEO traffic. Advertising competition is not organic SEO difficulty."
-SEEDS = ["institutional ownership", "insider buying", "congress stock trades", "Nvidia institutional ownership"]
+SEEDS = ["stock analysis", "stock valuation", "earnings growth", "free cash flow", "government contracts stocks",
+         "insider buying", "congress stock trades", "institutional ownership", "Nvidia institutional ownership"]
 
 
 def ensure_schema(db):
@@ -254,10 +255,29 @@ def lookup(db, values, *, now=None):
 
 def enrich_candidates(db, candidates):
     values = [k for c in candidates for k in [c.get("target_keyword", ""), *(c.get("secondary_keywords") or [])[:3]]]
-    metrics = lookup(db, values)
+    metrics = lookup(db, values + SEEDS)
     return [{**c, "keyword_metrics": metrics.get(normalize(c.get("target_keyword", ""))),
              "secondary_keyword_metrics": [metrics[normalize(k)] for k in (c.get("secondary_keywords") or [])[:3] if normalize(k) in metrics]}
             for c in candidates]
+
+
+def planning_signals(db):
+    """Feed measured demand into discovery, not just scoring after discovery.
+
+    Read the fresh cache without consuming the lookup claim needed for newly
+    discovered phrases. Seed metrics refresh in the same bounded lookup later.
+    """
+    status = get_status(db)
+    # The admin table shows only the 50 most recently fetched rows. Discovery
+    # must also see still-fresh seed terms, even after several daily lookups.
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    cached = [json.loads(row[0]) for row in db.execute(text(
+        "SELECT metrics_json FROM research_keyword_metrics WHERE fetched_at >= :cutoff"), {"cutoff": cutoff})]
+    metrics = [m for m in cached if m.get("avg_monthly_searches") is not None]
+    metrics.sort(key=lambda m: -(m["avg_monthly_searches"] or 0))
+    return {"connected": status["connected"], "error": status["error"], "targeting": TARGETING,
+            "note": NOTE, "keywords": metrics[:30],
+            "demand_status": "measured" if metrics else "unknown; no fresh Keyword Planner volume available"}
 
 
 def priority_bonus(candidate):

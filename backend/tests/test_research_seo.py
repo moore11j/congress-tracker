@@ -194,3 +194,25 @@ def test_daily_generation_does_not_replace_api_failure_with_a_draft(monkeypatch)
     monkeypatch.setattr(seo.briefs, "generate_research_brief", fail)
     with pytest.raises(HTTPException):
         seo.briefs._generate_campaign_brief_with_corrections(None, None, {}, review_first=True)
+
+
+def test_variety_blocks_third_ownership_story_across_different_tickers():
+    recent = [{"ticker": "APP", "title": "Who is buying APP stock in the latest SEC filings?"},
+              {"ticker": "ASML", "title": "Are institutions still buying ASML stock?"}]
+    valuation = candidate(id="valuation", target_keyword="Is NVDA overvalued?", recommended_theme="valuation", opportunity_score=78)
+    rows = seo.rank_candidates([candidate(opportunity_score=100), valuation], [], [], 70, recent_mix=recent)
+    assert [row["id"] for row in rows] == ["valuation"]
+    assert seo.rank_candidates([candidate()], [], [], 70, recent_mix=recent) == []
+
+
+def test_same_ticker_ownership_rewording_is_not_a_new_topic():
+    recent = [{"ticker": "NVDA", "target_keyword": "Who is buying NVDA stock in the latest SEC filings?"}]
+    assert seo.rank_candidates([candidate()], [], recent, 70) == []
+    assert seo.rank_candidates([candidate(target_keyword="NVDA institutional ownership Q3 2026")], [],
+        [{"ticker": "NVDA", "target_keyword": "NVDA institutional ownership Q2 2026"}], 70)
+
+
+def test_measured_demand_breaks_ties_without_ad_competition_becoming_seo_difficulty():
+    low = candidate(id="low", keyword_metrics={"avg_monthly_searches": 10, "advertising_competition": "LOW"})
+    high = candidate(id="high", target_keyword="NVDA institutional holders", keyword_metrics={"avg_monthly_searches": 10000, "advertising_competition": "HIGH"})
+    assert seo.rank_candidates([low, high], [], [], 70)[0]["id"] == "high"

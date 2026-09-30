@@ -12,6 +12,8 @@ def institution_display_name(value):
     if not isinstance(value, str) or not value.strip():
         return None
     value = " ".join(value.split())
+    # SEC filing-order names are identities, not the reader-facing brand order.
+    value = re.sub(r"\bPRICE\s+T\.?\s+ROWE\b|\bT\.?\s+ROWE\s+PRICE\b", "T. Rowe Price", value, flags=re.I)
     # Respect existing mixed-case branding rather than guessing its spelling.
     def word(match):
         token = match.group()
@@ -49,6 +51,8 @@ def institutional_names_in_context(context):
 def normalize_article_institution_names(article, context):
     """Change only known institution names in reader-facing text, not metadata/URLs."""
     names = institutional_names_in_context(context)
+    if any("rowe" in name.lower() and "price" in name.lower() for name in names):
+        names.update({"Price T Rowe", "Price T. Rowe", "T Rowe Price", "T. Rowe Price"})
     replacements = {name.casefold(): institution_display_name(name) for name in names}
     if not names:
         return deepcopy(article)
