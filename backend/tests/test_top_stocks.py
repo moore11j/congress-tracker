@@ -164,17 +164,47 @@ def test_obsolete_scoring_snapshot_is_not_presented_as_current(monkeypatch):
         assert top_stocks.build_top_stocks_response(db)["items"] == []
 
 
-def test_canonical_evidence_breaks_ties_without_a_new_public_score():
-    high = _row("HIGH", 95)
-    steady = _row("STEADY", 80, ranking_context={"baseline_score": 80})
-    accelerating = _row("RISING", 80, ranking_context={"baseline_score": 70})
-    clustered = _row("CLUSTER", 80, ranking_context={"baseline_score": 70, "insider_cluster_count": 3})
+def test_score_then_market_cap_then_average_volume_break_ties():
+    high = _row("HIGH", 95, market_cap=1, avg_volume=1)
+    large = _row("ZZZ", 80, market_cap=30_000_000_000, avg_volume=1)
+    liquid = _row("LIQUID", 80, avg_volume=2_000_000)
+    steady = _row("STEADY", 80, avg_volume=1_000_000)
+    clustered = _row("AAA", 80, market_cap=1_000_000_000, avg_volume=10_000_000,
+                     ranking_context={"baseline_score": 70, "insider_cluster_count": 3, "strategy_entries": 5})
     clustered["confirmation"]["sources"] = {"congress": {"present": True, "direction": "bullish"}}
-    payload = top_stocks._ranked_payload([steady, accelerating, clustered, high], generated_at="2026-09-25T20:00:00Z")
-    assert [item["symbol"] for item in payload["items"]] == ["HIGH", "CLUSTER", "RISING", "STEADY"]
-    assert payload["items"][1]["why_ranked"] == "Insider cluster with Congress confirmation"
+    payload = top_stocks._ranked_payload([steady, liquid, clustered, large, high], generated_at="2026-09-25T20:00:00Z")
+    expected = ["HIGH", "ZZZ", "LIQUID", "STEADY", "AAA"]
+    for key in ("all", "us", "tech"):
+        assert [(item["rank"], item["symbol"]) for item in payload["filter_items"][key]] == list(enumerate(expected, 1))
+    assert [item["symbol"] for item in payload["filter_items"]["large_cap"]] == ["ZZZ", "LIQUID", "STEADY"]
+    assert payload["items"][-1]["why_ranked"] == "Insider cluster with Congress confirmation"
     assert "baseline_score" not in json.dumps(payload)
     assert "idea_score" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("missing", [None, 0, -1, float("nan"), float("inf"), "unknown", True])
+def test_missing_market_data_sorts_last_and_exact_ties_use_ticker(missing):
+    rows = [
+        _row("MISSING", 80, market_cap=missing, avg_volume=1_000_000),
+        _row("ZULU", 80, market_cap=100, avg_volume=10),
+        _row("NO_VOLUME", 80, market_cap=100, avg_volume=missing),
+        _row("ALPHA", 80, market_cap=100, avg_volume=10),
+    ]
+    for candidates in (rows, list(reversed(rows))):
+        result = top_stocks._ranked_payload(candidates, generated_at="2026-10-03T20:00:00Z")
+        assert [item["symbol"] for item in result["items"]] == ["ALPHA", "ZULU", "NO_VOLUME", "MISSING"]
+
+
+def test_stored_candidates_and_new_ticker_scores_use_market_tiebreaks(monkeypatch):
+    with _session() as db:
+        rows = [_row("AAA", 80, market_cap=1_000_000_000),
+                _row("ZZZ", 80, avg_volume=1_000_000),
+                _row("YYY", 80, avg_volume=2_000_000)]
+        refreshed = _refresh(db, monkeypatch, rows, {row["symbol"]: 80 for row in rows})
+        assert [item["symbol"] for item in refreshed["items"]] == ["YYY", "ZZZ", "AAA"]
+        assert top_stocks.build_top_stocks_response(db) == refreshed
+        _cache(db, "AAA", 90)
+        assert [item["symbol"] for item in top_stocks.build_top_stocks_response(db)["items"]] == ["AAA", "YYY", "ZZZ"]
 
 
 def test_tier_evidence_projection_does_not_reorder_canonical_ranks():

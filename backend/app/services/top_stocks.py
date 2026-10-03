@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Any
 
 from sqlalchemy import JSON, cast, select, type_coerce
@@ -108,10 +109,6 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
     reads, and any enrichment work remain confined to the scheduled job.
     """
     generated_at = _utc(now or datetime.now(timezone.utc))
-    snapshot = db.execute(select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)).scalar_one_or_none()
-    previous = _payload(snapshot.payload_json) if snapshot else None
-    age_hours = (generated_at - _utc(snapshot.generated_at)).total_seconds() / 3600 if snapshot else 0
-    baseline = {row["symbol"]: row.get("confirmation_bundle", {}).get("score") for row in previous.get("candidate_rows", [])} if previous and previous.get("score_context_version") == TICKER_CONFIRMATION_CONTEXT_VERSION and 6 <= age_hours <= 168 else {}
     rows = build_screener_rows(db, TOP_STOCKS_PARAMS, requested_rows=MAX_FETCH_ROWS, apply_confirmation_filters=False)
     bundles = build_ticker_confirmation_context(db, [row["symbol"] for row in rows])["bundles"]
     idea_context = load_idea_context(db, [row["symbol"] for row in rows], generated_at)
@@ -124,7 +121,7 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
             raise ValueError(f"Missing ticker confirmation for {row['symbol']}")
         row["confirmation"] = bundle
         row["confirmation_bundle"] = bundle
-        row["ranking_context"] = {**idea_context.get(row["symbol"], {}), "baseline_score": baseline.get(row["symbol"])}
+        row["ranking_context"] = idea_context.get(row["symbol"], {})
         row["updated_at"] = _iso(generated_at)
         candidates.append(row)
     payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
@@ -145,7 +142,7 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
 def _ranked_payload(candidates: list[dict[str, Any]], *, generated_at: str | None) -> dict[str, Any]:
     rows = [row for row in candidates if matches_confirmation_filters(row, TOP_STOCKS_PARAMS)
             and (row["confirmation"].get("score_calculation") or {}).get("aligned_source_count", row["confirmation"].get("source_count", 0)) >= 2]
-    rows.sort(key=_ranking_key, reverse=True)
+    rows.sort(key=_ranking_key)
     filter_rows = {
         key: [
             _item_from_screener_row(row, rank=index, updated_at=row.get("updated_at") or generated_at)
@@ -218,19 +215,12 @@ def _bullish(bundle, source):
 
 
 def _ranking_key(row):
-    """Canonical score first; observed changes and corroboration break ties.
+    """Score, market cap, and average volume descending; exact ties use A–Z.
 
-    No separate public score. Missing optional evidence earns no tie-break.
+    Unavailable market data sorts after positive values within the same score.
     """
-    bundle = row["confirmation"]
-    context = row.get("ranking_context") or {}
-    baseline = context.get("baseline_score")
-    acceleration = bundle.get("score", 0) - baseline if isinstance(baseline, (int, float)) else 0
-    aligned = sum(_bullish(bundle, source) for source in SOURCE_LABELS)
-    cluster = context.get("insider_cluster_count", 0)
-    return (bundle.get("score", 0), acceleration, aligned,
-            bool(cluster >= 2 and _bullish(bundle, "congress")), cluster,
-            context.get("strategy_entries", 0), _market_cap(row), row["symbol"])
+    return (-row["confirmation"].get("score", 0), -_market_cap(row),
+            -_positive_number(row.get("avg_volume")), row["symbol"])
 
 
 def _rows_for_filter(rows: list[dict[str, Any]], filter_key: str) -> list[dict[str, Any]]:
@@ -255,8 +245,11 @@ def _rows_for_filter(rows: list[dict[str, Any]], filter_key: str) -> list[dict[s
 
 
 def _market_cap(row: dict[str, Any]) -> float:
-    value = row.get("market_cap")
-    return float(value) if isinstance(value, (int, float)) else 0.0
+    return _positive_number(row.get("market_cap"))
+
+
+def _positive_number(value: Any) -> float:
+    return float(value) if type(value) in (int, float) and isfinite(value) and value > 0 else 0.0
 
 
 def _sector(row: dict[str, Any]) -> str:
