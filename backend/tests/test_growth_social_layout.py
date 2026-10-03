@@ -4,6 +4,7 @@ from PIL import Image, ImageChops
 from app.services.growth_social_layout import SAFE, PANEL, focus_crop, decorate
 from app.services import growth_daily_video as daily, growth_video_automation as automation
 from app.services import growth_video_store as store
+from app.services.growth_feature_tutorial import TUTORIALS, FEATURE_LESSONS
 from test_growth_video_automation import db, source
 from sqlalchemy import text
 
@@ -36,7 +37,7 @@ def test_focus_preserves_all_financial_columns_and_tracks_vertical_action():
     assert focus_crop(1,asset)==asset['frames'][1]['camera']
 
 
-@pytest.mark.parametrize('tutorial',['research','ownership'])
+@pytest.mark.parametrize('tutorial',TUTORIALS)
 def test_tutorial_is_source_bound_and_requires_review(db,monkeypatch,tutorial):
     original=source(db,monkeypatch)
     item=daily.create_job(db,original,1,tutorial=tutorial)
@@ -60,11 +61,11 @@ def test_mix_repeats_three_research_then_one_tutorial_without_counting_failures(
         db.execute(text("INSERT INTO growth_video_brief_events (brief_id,status,trigger_source,created_at,updated_at,attempts) VALUES (:id,:status,'test',:at,:at,1)"),{'id':name,'status':status,'at':at})
     db.commit()
     formats=[]
-    for i in range(8):
+    for i in range(28):
         formats.append(automation.next_tutorial(db,cfg))
         db.execute(text("INSERT INTO growth_video_brief_events (brief_id,status,trigger_source,created_at,updated_at,attempts) VALUES (:id,'CREATED','test',:at,:at,1)"),{'id':f'new-{i}','at':'2026-09-26 12:00:00+00:00' if i%2 else '2026-09-26T12:00:00+00:00'})
         db.commit()
-    assert formats==[None,None,None,'research',None,None,None,'ownership']
+    assert formats==[value for lesson in (*TUTORIALS, TUTORIALS[0]) for value in (None,None,None,lesson)]
     assert automation.next_tutorial(db,{'tutorial_every':0}) is None
 
 
@@ -82,3 +83,30 @@ def test_publish_events_create_a_real_tutorial_on_fourth_brief(db,monkeypatch):
     boards=[daily.validate(store.job(db,row['job_id']),db) for row in result['created']]
     assert [b.get('tutorial_id') for b in boards]==[None,None,None,'research']
     assert automation.process_publish_events(db)['created']==[]
+
+
+@pytest.mark.parametrize('tutorial',FEATURE_LESSONS)
+def test_new_lessons_capture_the_feature_not_the_research_brief(db,monkeypatch,tutorial):
+    from app.services.growth_navigation_capture import FEATURE_SHOTS
+    item=daily.create_job(db,source(db,monkeypatch),1,tutorial=tutorial)
+    board=daily.validate(item,db)
+    assert [s['shot'] for s in board['scenes']]==['daily_search','tutorial_'+tutorial,'daily_cta']
+    assert 'tutorial_'+tutorial in FEATURE_SHOTS
+    assert all(s['walnut_url'].endswith('/ticker/NVDA') for s in board['scenes'] if s['walnut_url'])
+    assert 25<=board['target_duration_seconds']<=40
+    assert 'not investment advice' in board['narration']
+    assert 'paid plan' in board['caption']
+
+
+@pytest.mark.parametrize('tutorial',['congress','insiders'])
+def test_updated_activity_lessons_preserve_older_drafts(db,monkeypatch,tutorial):
+    original=source(db,monkeypatch)
+    item=daily.create_job(db,original,1,tutorial=tutorial)
+    new=daily.validate(item,db)
+    assert new['tutorial_version']==2
+    assert 'Click Buys, then Sells' in new['narration']
+    old=daily.creative(original,tutorial=tutorial,tutorial_version=1)
+    item['payload'].update(creative=old,campaign_hash=store.digest(old))
+    assert daily.validate(item,db)==old
+    revision=daily.create_job(db,original,1,parent=item,feedback='Match the displayed date and filters')
+    assert daily.validate(revision,db)['tutorial_version']==2

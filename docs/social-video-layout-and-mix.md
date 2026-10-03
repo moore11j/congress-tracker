@@ -39,6 +39,52 @@ review queue. Enabling this mix does not approve or publish any new video.
 Successful event acknowledgements determine the cadence; failed/retried events
 do not advance it. Existing jobs and approved publishing records are immutable.
 
+## October 2 feature tutorial expansion
+
+The 3 research / 1 tutorial cadence now rotates through six lessons, in order:
+research, ownership, financials, Congress activity, insider activity, and analyst
+expectations. The latter four teach a different product task rather than opening
+another brief. Each uses a problem-led hook, actual clicks in Walnut, what to
+check on the screen, and a short research-only CTA. They use the same motion
+layout, safe areas, logo, and configured narration as the existing videos.
+
+- Financials: compare Revenue Trend and Earnings Trend with reporting periods.
+- Congress: select the Activity View filter, inspect the displayed date and
+  reported value range, then click Buys and Sells to separate direction.
+- Insiders: select the Activity View filter and inspect the person, role, and
+  filed date, then click Buys and Sells. Filing dates can differ from trade dates.
+- Analysts: compare rating distribution and the target range, with coverage and
+  freshness context. Targets are expectations, not promised returns.
+
+No new financial claims are generated. Captures preserve actual values and wait
+for lazy-loaded activity records (including a valid zero-event state); unavailable
+data cannot pass as a loaded demo. Existing tutorial scripts, approved media,
+scheduled posts, publishing permissions, and generation budgets are unchanged.
+New videos still enter the review queue before social scheduling.
+
+Deployed as `registry.fly.io/congress-tracker-api:feature-tutorials-20261002-v3`,
+an overlay of production `d05dc6d3f58af745baf3b18391ea201382fe6542` containing
+only the tutorial catalog, version-aware validation, and navigation capture
+changes. All four Fly machines passed rollout checks. The 58 focused workflow
+tests passed, including duplicate directory/filter link labels and preservation
+of existing script versions. Activity lesson version 2 matches the logged-in
+tables' actual date columns and demonstrates the direction filters.
+
+Initial MSFT product demonstration jobs (new drafts, not publication approvals):
+
+- Financials: `gv_9879cf0a363e43d18e61ba0cd5bc9e8a`.
+- Congress: `gv_76af723adffc400b8b1879a4a8d0cc86`.
+- Insiders: `gv_676c7f9f546a4e6889d84c0c4ee42db9`.
+- Analysts: `gv_84db3b9c60734d96b8224cc23841e638`.
+
+The first Congress draft and failed insider capture are retained as rejected
+versions. Corrected review revisions are:
+
+- Congress version 2: `gv_b03bd692265f4e5d80f6d3d3b0981ee1`.
+- Insiders version 2: `gv_0f61514698374cba930c6e3aaf07b333`.
+
+The five-render daily cap is unchanged; excess work waits for the next UTC day.
+
 ## September 26 delivery
 
 Deployed image: `registry.fly.io/congress-tracker-api:social-layout-20260926-v2`.

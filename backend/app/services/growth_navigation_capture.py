@@ -17,10 +17,59 @@ SHOTS={'v4_search','v4_ownership','v4_activity','v4_manager','v4_filings','v4_in
 PAGE_TIMEOUT_MS=120000
 FRAME_TIMEOUT_MS=90000
 CAPTURE_SECONDS=900
+FEATURE_SHOTS={'tutorial_financials','tutorial_congress','tutorial_insiders','tutorial_analysts'}
 
 
 class CaptureTimeout(TimeoutError):
  pass
+
+
+def capture_feature_lesson(page,r,shot,position,version=1):
+ """Record one real product task; retain empty states and all source values."""
+ if shot not in FEATURE_SHOTS:raise ValueError('Unknown feature lesson capture.')
+ if shot in {'tutorial_congress','tutorial_insiders'}:
+  congress=shot=='tutorial_congress'
+  label='Congress' if congress else 'Insiders'
+  section=page.locator('#congress-activity' if congress else '#insider-activity')
+  # Exact activity-filter link, not the profile menu or a trade-row link.
+  source='congress' if congress else 'insider'
+  control=page.get_by_role('link',name=label,exact=True).and_(page.locator(f'a[href*="source={source}"]'))
+  position(control,top=270);r.hold(3);r.mark('Click '+label)
+  r.click(control,'Activity View '+label)
+  heading=section.get_by_role('heading',name='Congress activity' if congress else 'Insider activity',exact=True)
+  heading.wait_for(timeout=PAGE_TIMEOUT_MS)
+  r.scroll_to(heading,top=210,steps=16)
+  # Lazy-loaded records start only once visible. Never finish on a skeleton.
+  status=page.locator('#congress-activity-status' if congress else '#insider-activity-status')
+  status.filter(has_text=re.compile(r'^\d+ events?$')).wait_for(timeout=PAGE_TIMEOUT_MS)
+  r.circle(heading);r.hold(18)
+  if version >= 2:
+   for spoken in ('Buys','Sells'):
+    r.mark(spoken)
+    control=section.get_by_role('link',name=re.compile('^'+spoken+r'\s+\d+',re.I))
+    r.click(control,'Activity '+spoken+' filter')
+    heading.wait_for(timeout=PAGE_TIMEOUT_MS)
+    r.scroll_to(heading,top=210,steps=12)
+    status.filter(has_text=re.compile(r'^\d+ events?$')).wait_for(timeout=PAGE_TIMEOUT_MS)
+    r.hold(12)
+  return section.inner_text()
+ label='Financials' if shot=='tutorial_financials' else 'Analysts'
+ panel=page.locator('#ticker-research-panels')
+ control=panel.get_by_role('button',name=label,exact=True)
+ position(control,top=260);r.hold(3);r.mark('Click '+label)
+ r.click(control,'Ticker '+label+' tab')
+ if shot=='tutorial_financials':
+  first=panel.get_by_role('heading',name='Revenue Trend',exact=True)
+  second=panel.get_by_role('heading',name='Earnings Trend',exact=True)
+  phrase='Earnings Trend'
+ else:
+  first=panel.get_by_text('Rating Distribution',exact=True)
+  second=panel.get_by_text('Price Targets',exact=True)
+  phrase='Price Targets'
+ first.wait_for(timeout=PAGE_TIMEOUT_MS);second.wait_for(timeout=PAGE_TIMEOUT_MS)
+ r.scroll_to(first,top=240,steps=14);r.circle(first);r.hold(8)
+ r.mark(phrase);r.scroll_to(second,top=270,steps=12);r.circle(second);r.hold(16)
+ return panel.inner_text()
 
 
 def pointer_arc(start,end,steps=8,bend=18):
@@ -150,7 +199,7 @@ class Recorder:
 def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  from playwright.sync_api import sync_playwright
  import imageio_ffmpeg
- shots={'daily_search','daily_insights','daily_research','daily_brief','daily_takeaway','tutorial_ownership'} if daily else SHOTS
+ shots=({'daily_search','daily_insights','daily_research','daily_brief','daily_takeaway','tutorial_ownership'} | FEATURE_SHOTS) if daily else SHOTS
  if shot not in shots or owner_id is None:raise ValueError('Authorized navigation capture required.')
  ticker=daily['ticker'] if daily else 'NVDA'
  ticker_url=f'https://app.walnutmarkets.com/ticker/{ticker}' if daily else TICKER_URL
@@ -164,6 +213,7 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
  if daily:initial=INSIGHTS_URL if shot in {'daily_search','daily_brief'} else ticker_url if shot=='daily_insights' else brief_url
  ticker_research=bool(daily and daily.get('walkthrough_version',1)>=2)
  if ticker_research and shot in {'daily_search','daily_research','daily_brief','tutorial_ownership'}:initial=ticker_url
+ if daily and shot in FEATURE_SHOTS:initial=ticker_url
  with tempfile.TemporaryDirectory(prefix='walnut-navigation-') as folder,sync_playwright() as pw:
   root=Path(folder);browser=pw.chromium.launch(headless=True)
   context=browser.new_context(viewport=VIEWPORT,device_scale_factor=1,color_scheme='dark',locale='en-US',timezone_id='UTC')
@@ -224,6 +274,8 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    result.wait_for(timeout=30000);r.click(result,'Open '+ticker)
    page.get_by_role('heading',level=1).filter(has_text=ticker).wait_for(timeout=60000)
    page.wait_for_timeout(1200);r.hold(15)
+  elif shot in FEATURE_SHOTS:
+   source_text.append(capture_feature_lesson(page,r,shot,position,version=daily.get('tutorial_version',1)))
   elif shot=='tutorial_ownership':
    ownership=page.get_by_role('button',name='Ownership',exact=True)
    ownership.wait_for(timeout=PAGE_TIMEOUT_MS);position(ownership,top=260)

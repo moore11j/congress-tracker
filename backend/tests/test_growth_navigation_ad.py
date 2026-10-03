@@ -8,6 +8,32 @@ from app.services import growth_navigation_ad as nav, growth_product_ad as produ
 from app.services.growth_navigation_capture import pointer_arc
 
 
+@pytest.mark.parametrize('kind,label',[('congress','Congress'),('insider','Insiders')])
+def test_feature_capture_selects_activity_filter_not_matching_directory_link(kind,label):
+ from unittest.mock import Mock
+ from app.services.growth_navigation_capture import capture_feature_lesson
+ class Loc:
+  def __init__(self,values):self.values=values
+  def and_(self,other):return Loc([v for v in self.values if v in other.values])
+  def filter(self,*,has_text):return self
+  def wait_for(self,**kw):assert len(self.values)==1
+  def get_by_role(self,*a,**kw):return Loc(['heading'])
+  def inner_text(self):return 'Reported records, dates, and transaction types'
+ class Page:
+  def get_by_role(self,*a,**kw):return Loc(['activity-filter','directory-link'])
+  def locator(self,selector):
+   if selector.startswith('a['):
+    assert f'source={kind}' in selector
+    return Loc(['activity-filter'])
+   return Loc([selector])
+ r=Mock()
+ def position(control,**kw):assert control.values==['activity-filter']
+ result=capture_feature_lesson(Page(),r,'tutorial_'+('insiders' if kind=='insider' else kind),position)
+ assert r.click.call_args.args[0].values==['activity-filter']
+ assert r.mark.call_args.args==('Click '+label,)
+ assert 'Reported records' in result
+
+
 def test_still_holds_capture_once_preserving_frame_indices_and_clicks(tmp_path):
  import io
  from PIL import Image

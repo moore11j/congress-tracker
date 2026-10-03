@@ -53,7 +53,7 @@ def excerpt(source):
     raise ValueError("The brief needs a self-contained takeaway (8–65 words) for narration.")
 
 
-def creative(source, walkthrough_version=2, *, tutorial=None):
+def creative(source, walkthrough_version=2, *, tutorial=None, tutorial_version=None):
     if walkthrough_version not in {1, 2}:
         raise ValueError("Unsupported daily walkthrough version.")
     takeaway = excerpt(source)
@@ -108,7 +108,7 @@ def creative(source, walkthrough_version=2, *, tutorial=None):
         board["caption"] = board["caption"].replace("Insights → Research Briefs", f"{ticker} ticker → Research")
     if tutorial:
         from app.services.growth_feature_tutorial import adapt
-        return adapt(board, tutorial)
+        return adapt(board, tutorial, version=tutorial_version)
     return board
 
 
@@ -116,7 +116,8 @@ def validate(item, db=None):
     p = item["payload"]
     source = p.get("research_source", {})
     expected = creative(source, (p.get("creative") or {}).get("walkthrough_version", 1),
-                        tutorial=(p.get("creative") or {}).get("tutorial_id"))
+                        tutorial=(p.get("creative") or {}).get("tutorial_id"),
+                        tutorial_version=(p.get("creative") or {}).get("tutorial_version", 1))
     if p.get("creative") != expected or p.get("campaign_hash") != digest(expected):
         raise ValueError("Daily creative changed. Create a new video revision.")
     if p.get("research_source_hash") != source_fingerprint(source):
