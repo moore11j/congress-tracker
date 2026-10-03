@@ -57,6 +57,9 @@ checkpoint*.attach-scratch.txt
 load_tests
 
 # Local screenshots/debug images; keep product assets under frontend/public tracked.
+# Private incorporation verification documents and their generated preview.
+/output/pdf/Walnut_Intelligence_Certificate_of_Incorporation.pdf
+/tmp/pdfs/certificate-preview.png
 /screenshots/
 /codex-app-window-*.png
 /screener-*.png
