@@ -84,6 +84,12 @@ versions. Corrected review revisions are:
 - Insiders version 2: `gv_0f61514698374cba930c6e3aaf07b333`.
 
 The five-render daily cap is unchanged; excess work waits for the next UTC day.
+Financials, analysts, and insiders version 2 reached `READY_FOR_REVIEW` and
+passed full MP4 decoding plus beginning/middle/closing frame review. Their
+durations are 23.70, 24.80, and 25.06 seconds. The insider capture includes real
+Activity View, Buys, and Sells clicks. Congress version 2 is `BUDGET_WAITING`
+until `2026-10-04T00:00:00+00:00` (October 3, 5 p.m. Pacific). No new video has
+been approved or scheduled by this change.
 
 ## September 26 delivery
 
