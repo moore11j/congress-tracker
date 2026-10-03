@@ -8,14 +8,14 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import LeaderboardSnapshot, TickerContextBundleCache
+from app.models import FundamentalsCache, LeaderboardSnapshot, TickerContextBundleCache
 from app.services import top_stocks
 from app.services.confirmation_score import confirmation_band_for_score
 
 
 def _session():
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine, tables=[LeaderboardSnapshot.__table__, TickerContextBundleCache.__table__])
+    Base.metadata.create_all(bind=engine, tables=[FundamentalsCache.__table__, LeaderboardSnapshot.__table__, TickerContextBundleCache.__table__])
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
 
 
@@ -28,12 +28,9 @@ def _row(symbol, score, **kwargs):
 
 
 def _refresh(db, monkeypatch, rows, scores):
-    def discover(_db, params, **kwargs):
-        assert params == top_stocks.TOP_STOCKS_PARAMS
-        assert kwargs["apply_confirmation_filters"] is False
-        assert kwargs["requested_rows"] == top_stocks.MAX_FETCH_ROWS
+    def discover(_db):
         return rows
-    monkeypatch.setattr(top_stocks, "build_screener_rows", discover)
+    monkeypatch.setattr(top_stocks, "cached_screener_rows", discover)
     monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context", lambda _db, symbols: {"bundles": {s: _bundle(s, scores[s]) for s in symbols}})
     return top_stocks.refresh_top_stocks_leaderboard(db, now=datetime.now(timezone.utc) - timedelta(minutes=10))
 
@@ -64,6 +61,61 @@ def test_refresh_scores_before_qualification_and_persists_all_candidates(monkeyp
         assert "confirmation_bundle" not in json.dumps(result)
 
 
+def test_refresh_ranks_late_alphabet_stocks_beyond_screener_limit(monkeypatch):
+    from app.entitlements import ENTITLEMENTS
+    from app.services.ranking_access import project_ranking
+
+    now = datetime.now(timezone.utc)
+    early_symbols = [f"A{i:04}" for i in range(600)]
+    symbols = early_symbols + ["META", "ZZZ"]
+    batches = []
+
+    def score(_db, batch):
+        batches.append(batch)
+        return {"bundles": {symbol: _bundle(symbol, {"META": 90, "ZZZ": 85}.get(symbol, 40)) for symbol in batch}}
+
+    monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context", score)
+    with _session() as db:
+        db.add_all(FundamentalsCache(symbol=symbol, provider="fmp", status="ok", fetched_at=now,
+                                    sector="Technology", country="US") for symbol in symbols + ["[SYMBOL]", "%INVALID"])
+        db.add(FundamentalsCache(symbol="FAILED", provider="fmp", status="failed", fetched_at=now))
+        db.add(FundamentalsCache(symbol="OTHER", provider="other", status="ok", fetched_at=now))
+        db.commit()
+        result = top_stocks.refresh_top_stocks_leaderboard(db, now=now)
+        assert len(batches) > 1
+        assert all(len(batch) <= top_stocks.TOP_STOCKS_SCORE_BATCH_SIZE for batch in batches)
+        assert [symbol for batch in batches for symbol in batch] == symbols
+        stored = json.loads(db.scalar(select(LeaderboardSnapshot)).payload_json)
+        assert len(stored["candidate_rows"]) == 602
+        assert result["returned"] == 25
+        assert [row["symbol"] for row in result["items"][:2]] == ["META", "ZZZ"]
+        assert result["filter_items"]["tech"] == result["items"]
+        assert result["filter_items"]["us"] == result["items"]
+        served = top_stocks.build_top_stocks_response(db)
+        assert served == result
+        # Both the landing page and dashboard consume these shared projections.
+        for tier in ("free", "premium", "pro"):
+            projected = project_ranking(served, authenticated=True, stocks=True,
+                                        entitlements=ENTITLEMENTS[tier], full=tier != "free")
+            assert [(row["rank"], row["symbol"]) for row in projected["items"][:2]] == [(1, "META"), (2, "ZZZ")]
+        preview = project_ranking(served, authenticated=False, stocks=True)
+        assert [row["rank"] for row in preview["items"]] == [3, 4, 5]
+
+
+def test_failed_later_scoring_batch_keeps_previous_complete_snapshot(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row("OLD", 80)], {"OLD": 80})
+        previous = db.scalar(select(LeaderboardSnapshot)).payload_json
+        monkeypatch.setattr(top_stocks, "TOP_STOCKS_SCORE_BATCH_SIZE", 1)
+        monkeypatch.setattr(top_stocks, "cached_screener_rows", lambda _db: [_row("NEW", 90), _row("ZZZ", 95)])
+        monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context",
+                            lambda _db, symbols: {"bundles": {"NEW": _bundle("NEW", 90)} if symbols == ["NEW"] else {}})
+        with pytest.raises(ValueError, match="Missing ticker confirmation for ZZZ"):
+            top_stocks.refresh_top_stocks_leaderboard(db)
+        db.expire_all()
+        assert db.scalar(select(LeaderboardSnapshot)).payload_json == previous
+
+
 def test_get_uses_ticker_cache_reranks_and_removes_nonqualifiers_without_scoring(monkeypatch):
     with _session() as db:
         _refresh(db, monkeypatch, [_row("AMZN", 77), _row("NEW", 50), _row("OUT", 90)], {"AMZN": 77, "NEW": 50, "OUT": 90})
@@ -72,7 +124,7 @@ def test_get_uses_ticker_cache_reranks_and_removes_nonqualifiers_without_scoring
         _cache(db, "OUT", 59, direction="mixed")
         def forbidden(*args, **kwargs):
             raise AssertionError("GET must not calculate scores or write")
-        monkeypatch.setattr(top_stocks, "build_screener_rows", forbidden)
+        monkeypatch.setattr(top_stocks, "cached_screener_rows", forbidden)
         monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context", forbidden)
         monkeypatch.setattr(db, "commit", forbidden)
         result = top_stocks.build_top_stocks_response(db)
@@ -111,7 +163,7 @@ def test_daily_refresh_matches_real_ticker_calculation_and_tier_projection(monke
         _seed_score_contract_fixture(db)
         db.commit()
         symbols = ["AAPL", "MSTR", "NBIS"]
-        monkeypatch.setattr(top_stocks, "build_screener_rows", lambda *_args, **_kwargs: [_row(s, 1) for s in symbols])
+        monkeypatch.setattr(top_stocks, "cached_screener_rows", lambda *_args, **_kwargs: [_row(s, 1) for s in symbols])
         top_stocks.refresh_top_stocks_leaderboard(db)
         stored = json.loads(db.scalar(select(LeaderboardSnapshot)).payload_json)
         for row in stored["candidate_rows"]:

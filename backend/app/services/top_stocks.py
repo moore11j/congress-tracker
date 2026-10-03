@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 from math import isfinite
@@ -12,10 +13,14 @@ from sqlalchemy.orm import Session
 from app.models import LeaderboardSnapshot, TickerContextBundleCache
 from app.services.confirmation_context import TICKER_CONFIRMATION_CONTEXT_VERSION, build_ticker_confirmation_context
 from app.services.confirmation_score import SOURCE_LABELS
-from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, matches_confirmation_filters
+from app.services.fundamentals_cache import cached_screener_rows
+from app.services.screener import ScreenerParams, matches_confirmation_filters
 from app.services.top_ideas_context import load_idea_context
+from app.utils.symbols import classify_symbol
 
+logger = logging.getLogger(__name__)
 TOP_STOCKS_LEADERBOARD_KEY = "top_stocks"
+TOP_STOCKS_SCORE_BATCH_SIZE = 100
 TOP_STOCKS_PARAMS = ScreenerParams(
     page=1,
     page_size=10,
@@ -103,27 +108,37 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
 
 
 def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
-    """Score the cached screener universe with the exact ticker calculation.
+    """Score the entire cached stock universe with the exact ticker calculation.
 
     The public API/page never invokes this builder: score assembly, cached source
-    reads, and any enrichment work remain confined to the scheduled job.
+    reads, and any enrichment work remain confined to the scheduled job. The
+    interactive screener's result limit must not truncate candidates before
+    scoring: missing market caps would select mostly early-alphabet tickers.
     """
     generated_at = _utc(now or datetime.now(timezone.utc))
-    rows = build_screener_rows(db, TOP_STOCKS_PARAMS, requested_rows=MAX_FETCH_ROWS, apply_confirmation_filters=False)
-    bundles = build_ticker_confirmation_context(db, [row["symbol"] for row in rows])["bundles"]
-    idea_context = load_idea_context(db, [row["symbol"] for row in rows], generated_at)
+    rows = []
+    for original in cached_screener_rows(db):
+        status, symbol, _ = classify_symbol(original["symbol"])
+        if status == "eligible":
+            rows.append({**original, "symbol": symbol})
     candidates = []
-    for original in rows:
-        row = deepcopy(original)
-        # Never fall back to the old screener score if canonical scoring failed.
-        bundle = bundles.get(row["symbol"])
-        if not isinstance(bundle, dict) or bundle.get("inputs_incomplete"):
-            raise ValueError(f"Missing ticker confirmation for {row['symbol']}")
-        row["confirmation"] = bundle
-        row["confirmation_bundle"] = bundle
-        row["ranking_context"] = idea_context.get(row["symbol"], {})
-        row["updated_at"] = _iso(generated_at)
-        candidates.append(row)
+    for offset in range(0, len(rows), TOP_STOCKS_SCORE_BATCH_SIZE):
+        batch = rows[offset:offset + TOP_STOCKS_SCORE_BATCH_SIZE]
+        symbols = [row["symbol"] for row in batch]
+        bundles = build_ticker_confirmation_context(db, symbols)["bundles"]
+        idea_context = load_idea_context(db, symbols, generated_at)
+        for original in batch:
+            row = deepcopy(original)
+            # A failed batch must leave the last complete snapshot intact.
+            bundle = bundles.get(row["symbol"])
+            if not isinstance(bundle, dict) or bundle.get("inputs_incomplete"):
+                raise ValueError(f"Missing ticker confirmation for {row['symbol']}")
+            row["confirmation"] = bundle
+            row["confirmation_bundle"] = bundle
+            row["ranking_context"] = idea_context.get(row["symbol"], {})
+            row["updated_at"] = _iso(generated_at)
+            candidates.append(row)
+        logger.info("top_stocks_scoring_progress scored=%s total=%s", len(candidates), len(rows))
     payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
     stored_payload = {**payload, "candidate_rows": candidates, "score_context_version": TICKER_CONFIRMATION_CONTEXT_VERSION}
     snapshot = db.execute(
