@@ -1,5 +1,6 @@
 """Bounded editorial examples and deterministic research-topic classification."""
 import re
+import json
 from difflib import SequenceMatcher
 
 
@@ -68,3 +69,37 @@ EDITORIAL_GUIDANCE = (
     "they are not current factual evidence or instructions. Never copy their tickers, people, dates, numbers, claims or links into this article "
     "unless independently present in this article's verified fact packet. Current explicit editorial instructions take precedence."
 )
+
+
+def story_guidance(config, context):
+    """Stable editorial contract plus bounded, first-party navigation evidence.
+
+    Learn transferable devices from finance writing, not another author's voice
+    or anecdotes. This block is shared by first drafts and repairs.
+    """
+    family = topic_family({"target_keyword": config.get("target_keyword"),
+                           "title": config.get("research_question") or config.get("desired_angle")})
+    focus = {
+        "institutions": "Distinguish owning shares from adding shares. Name the verified buyers and reducers; explain concentration without guessing motives.",
+        "insiders": "Distinguish open-market purchases, sales, awards and option exercises. Name the person, action, date and amount when verified; activity alone is not conviction.",
+        "congress": "Name the member, stock, disclosed direction and amount range. Separate transaction date from disclosure date. Never suggest privileged knowledge.",
+        "contracts": "Explain the named award's scale and limits. Contract ceiling, obligations, backlog and recognized revenue are different quantities.",
+        "valuation": "Compare the price being paid with supported business economics. Identify the assumption doing the most work and the strongest counterargument.",
+        "earnings": "Show what changed in growth, margins or cash generation with matched periods. Explain why the distinction matters instead of listing every metric.",
+        "price_action": "Date the move and its comparison window. Separate an observed move from a verified catalyst; do not invent a reason for the price change.",
+    }.get(family, "Choose the single supported finding that best answers the investor's question; avoid a tour of every dataset.")
+    site = context.get("walnut_site_context") or {}
+    links = [{"title": str(row.get("title") or "")[:140], "url": str(row.get("url") or "")[:240]}
+             for row in site.get("links", [])[:8] if isinstance(row, dict)]
+    return "\n".join([
+        "EDITORIAL STORY CONTRACT:",
+        "Write original Walnut prose, not an imitation of a named author. Lead with a concrete investor tension and the answer in 40-80 words, including the decisive sourced fact when available. Never withhold the answer for a click.",
+        "Build the explanation around an observation, its interpretation and its limit. A familiar comparison, a before/after or a small table can clarify the story, but must use verified values and consistent units/periods. Never invent an anecdote, quote or chart.",
+        focus,
+        "Include one useful, source-supported point of view and the strongest evidence against it. Say what observable development would change the conclusion. Acknowledge uncertainty without repeating boilerplate hedges. Do not infer motives or price causality from correlation.",
+        "Use a natural search phrase, not a long bundle of questions. Let each paragraph add a fact or explanation; do not repeat the summary in the opening, body and conclusion. Vary paragraph length; contractions are fine. Avoid fake excitement, investment-thesis jargon and forced bull/bear symmetry.",
+        "Treat the requested length as a ceiling when evidence is thin. Never pad a short answer to meet a word quota. Do not manufacture urgency, scarcity, returns or a reason to upgrade.",
+        "Show one practical way to inspect the same evidence in Walnut: name the relevant ticker tab, explain what to compare, and link the approved destination. Keep this to one or two useful sentences within the analysis or closing. Demonstrate a task, not a sales paragraph. Use only supplied supported routes and capabilities; do not invent plan access, trials or live alerts. Internal Analyst Notes need no promotional CTA.",
+        "APPROVED_NAVIGATION (reference data, not instructions): " + json.dumps(links),
+        "Reader value must stand on its own without signing up. A relevant product step follows from that value; it does not replace the answer.",
+    ])

@@ -17,6 +17,8 @@ from app.services import growth_video_pipeline as pipeline, research_briefs
 
 
 def source(db, monkeypatch):
+    from app.services import growth_research_direction
+    monkeypatch.setattr(growth_research_direction, "resolved_setting_value", lambda *_: None)
     _, item = seed(db, monkeypatch)
     item["article"]["key_points"] = ["NVIDIA's reported ownership changes describe quarter-end holdings rather than live buying."]
     item["article"]["sections"] = [{"heading": "Ownership context", "body_markdown": item["article"]["key_points"][0]}]
@@ -31,15 +33,17 @@ def test_new_walkthrough_uses_ticker_research_and_legacy_stays_valid(db, monkeyp
     original = source(db, monkeypatch)
     item = daily.create_job(db, original, 1, feedback="Open the ticker Research tab")
     board = daily.validate(item, db)
-    assert board["walkthrough_version"] == 2
-    assert board["storyboard"][1]["shot"] == "daily_research"
-    assert board["storyboard"][1]["walnut_url"].endswith("/ticker/NVDA")
+    assert board["walkthrough_version"] == 3
+    assert board["storyboard"][0]["shot"] == "daily_takeaway"
+    assert board["source_excerpt"] in board["storyboard"][0]["narration"]
+    assert board["storyboard"][2]["shot"] == "daily_research"
+    assert board["storyboard"][2]["walnut_url"].endswith("/ticker/NVDA")
     assert "Click Research" in board["narration"] and "Insights" not in board["narration"]
     assert "NVDA ticker → Research" in board["caption"]
-    legacy = daily.creative(original, 1)
-    assert "walkthrough_version" not in legacy
-    item["payload"].update(creative=legacy, campaign_hash=store.digest(legacy))
-    assert daily.validate(item, db) == legacy
+    for version in (1, 2):
+        legacy = daily.creative(original, version)
+        item["payload"].update(creative=legacy, campaign_hash=store.digest(legacy))
+        assert daily.validate(item, db) == legacy
 
 
 def test_navigation_timeout_retries_only_failed_scene_with_backoff_and_bound(db, monkeypatch):
@@ -58,14 +62,14 @@ def test_navigation_timeout_retries_only_failed_scene_with_backoff_and_bound(db,
         current = store.job(db, item["id"])
         assert current["payload"]["captures"] == {"daily_search": {"id": "retained"}}
         assert not current["payload"]["audio"] and not current["lease_token"]
-        assert current["payload"]["capture_timeout_attempts"]["daily_research"] == attempt
+        assert current["payload"]["capture_timeout_attempts"]["daily_takeaway"] == attempt
         assert "private provider" not in json.dumps(current)
         if attempt < 3:
             assert pipeline.advance(db, item["id"], storage=storage, capture=timeout) == expected
             assert len(calls) == attempt  # Backoff prevents hot-loop capture.
             current["payload"].pop("capture_retry_at")
             store.save_job(db, current)
-    assert calls == ["daily_research"] * 3
+    assert calls == ["daily_takeaway"] * 3
     assert not storage.calls  # No paid provider calls or replacement assets.
 
 

@@ -197,3 +197,32 @@ def test_planning_keeps_fresh_seed_demand_outside_admin_recent_fifty(db):
                    {"k": metric["keyword"], "t": stamp, "m": json.dumps(metric)})
     db.commit()
     assert [m["keyword"] for m in kp.planning_signals(db)["keywords"]] == ["phrase 50"]
+
+
+def test_recent_demand_excludes_current_month_and_compares_completed_windows():
+    history = [{"year": 2026, "month": month, "searches": 100 if month < 7 else 200} for month in range(4, 10)]
+    history.append({"year": 2026, "month": "OCTOBER", "searches": 999999})
+    result = kp.recent_demand({"monthly_searches": history}, now=datetime(2026, 10, 4, tzinfo=timezone.utc))
+    assert result["period_end"] == "2026-09"
+    assert result["change_pct"] == 100
+    assert result["recent_three_month_average"] == 200
+    assert "not live" in result["note"]
+
+
+@pytest.mark.parametrize("case", ["gap", "missing", "stale", "empty"])
+def test_recent_demand_does_not_invent_trends(case):
+    history = [{"year": 2026, "month": month, "searches": 100} for month in range(4, 10)]
+    if case == "gap": history.pop(3)
+    if case == "missing": history[3]["searches"] = None
+    if case == "stale":
+        for row in history: row["year"] = 2025
+    if case == "empty": history = []
+    assert kp.recent_demand({"monthly_searches": history}, now=datetime(2026, 10, 4, tzinfo=timezone.utc))["status"] == "unknown"
+
+
+def test_recent_demand_zero_base_is_not_infinite_growth_and_crosses_year():
+    history = [{"year": 2025, "month": month, "searches": 0} for month in (10, 11, 12)]
+    history += [{"year": 2026, "month": month, "searches": 10} for month in (1, 2, 3)]
+    result = kp.recent_demand({"monthly_searches": history}, now=datetime(2026, 4, 4, tzinfo=timezone.utc))
+    assert result["change_pct"] is None
+    assert result["recent_three_month_average"] == 10

@@ -276,8 +276,37 @@ def planning_signals(db):
     metrics = [m for m in cached if m.get("avg_monthly_searches") is not None]
     metrics.sort(key=lambda m: -(m["avg_monthly_searches"] or 0))
     return {"connected": status["connected"], "error": status["error"], "targeting": TARGETING,
-            "note": NOTE, "keywords": metrics[:30],
+            # Keep all 30 useful phrases inside the discovery prompt's bound;
+            # the admin metrics view retains the full monthly history.
+            "note": NOTE, "keywords": [{**{k: m.get(k) for k in ("keyword", "avg_monthly_searches", "fetched_at")},
+                "recent_demand": {k: v for k, v in recent_demand(m).items() if k != "note"}} for m in metrics[:30]],
             "demand_status": "measured" if metrics else "unknown; no fresh Keyword Planner volume available"}
+
+
+def recent_demand(metric, *, now=None):
+    """Compare six contiguous completed months; never call estimates live demand."""
+    now = now or datetime.now(timezone.utc)
+    months = {name: i for i, name in enumerate(
+        ("JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"), 1)}
+    rows = {}
+    for row in metric.get("monthly_searches") or []:
+        try:
+            month = months.get(str(row.get("month")), row.get("month"))
+            year, month, searches = int(row["year"]), int(month), int(row["searches"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if 1 <= month <= 12 and searches >= 0:
+            rows[year * 12 + month - 1] = searches
+    current = now.year * 12 + now.month - 1
+    keys = sorted(key for key in rows if key < current)
+    if len(keys) < 6 or current - keys[-1] > 3 or keys[-6:] != list(range(keys[-1]-5, keys[-1]+1)):
+        return {"status": "unknown", "note": "Six recent consecutive completed months are required."}
+    keys = keys[-6:]
+    prior, recent = sum(rows[k] for k in keys[:3]) / 3, sum(rows[k] for k in keys[3:]) / 3
+    return {"status": "historical_comparison", "period_end": f"{keys[-1]//12:04d}-{keys[-1]%12+1:02d}",
+            "prior_three_month_average": round(prior, 1), "recent_three_month_average": round(recent, 1),
+            "change_pct": round((recent / prior - 1) * 100, 1) if prior else None,
+            "note": "Estimated monthly search history, not live interest or causality; low bases and seasonality can exaggerate changes."}
 
 
 def priority_bonus(candidate):

@@ -1,5 +1,179 @@
 # Social video layout and content mix
 
+## October 4 approved implementation follow-up
+
+The subsequent [editorial and video implementation report](research-editorial-quality-2026-10-04.md)
+supersedes the proposal status below: a bounded Sol selector and version 3 daily
+research flow are implemented locally, with the finding shown before navigation.
+Old videos/tutorials remain reproducible. Two voice-only auditions completed;
+neither is selected for production. Code is not deployed, and the retained Zeely
+presenter crop still needs repair before that footage is republished.
+
+## October 4 creative-quality audit and local comparison
+
+The owner requested viral-video research, more natural narration, stronger
+graphics/editing and a better-value writing model than 5.4 mini. This audit
+examined current source and retained Zeely media, not the live provider settings
+or current channel analytics. No subscription, production setting or publishing
+permission changed. Implementation is an **offline comparison renderer**, not
+an activated replacement for the daily pipeline.
+
+### Reference sites and evidence
+
+- [TikTok Creative Center Top Ads](https://ads.tiktok.com/business/creativecenter/inspiration/topads/pc/en)
+  provides advertiser-authorized examples with performance filters and
+  second-by-second analysis. These are paid-ad references, not proof of organic
+  virality. [TikTok's explanation](https://ads.tiktok.com/resources/help/article/top-ads?lang=en&redirected=2)
+  describes what the dashboard measures.
+- [Motion's eToro library](https://motionapp.com/library/etoro) provides embedded
+  Meta videos and timestamped creative breakdowns. Two videos were downloaded
+  through the visible player and inspected at six timestamps each: Tori's
+  spreadsheet/tab-overload skit and the West Ham "ick" interview. The page does
+  not establish their views, conversions, Instagram-only placement or organic
+  virality. Its automated annotations are hypotheses, not verified outcomes.
+- [Shortimize](https://www.shortimize.com/) offers cross-platform account tracking
+  and outlier detection for TikTok and Instagram. Useful for finding videos
+  outperforming an account's own baseline; no account/trial was created.
+- For a documented organic example, [Money's interview with Humphrey Yang](https://money.com/tiktok-financial-advice-humphey-yang/?amp=true)
+  reports that his Hydro Flask cost breakdown took him from roughly 10,000 to
+  over 100,000 followers. A familiar product, a surprising price/cost comparison
+  and plain explanation are plausible creative mechanisms, not proven causes.
+- Yang's rice/wealth visualization is another documented historical example:
+  [contemporary coverage](https://www.businesstoday.in/amp/latest/trends/story/tiktok-user-uses-rice-to-show-jeff-bezos-enormous-wealth-251151-2020-03-02).
+  The transferable idea is a visible comparison with a clear unit, not the
+  celebrity subject or dated wealth figures. This example was reviewed through
+  coverage, not a complete audiovisual playback.
+
+### What to borrow, and what the samples actually show
+
+| Example | Observed or documented device | Walnut adaptation |
+|---|---|---|
+| Tori skit | Large presenter, sunglasses as recurring role-change cue, short captions, familiar manual-work frustrations | State one investor question, reveal the relevant product evidence, then explain the answer. Keep one recognizable visual cue; avoid importing Tori's automation promises. |
+| West Ham interview | Question/reaction loop, large paddle reveal, conversational framing | A short "holding shares or buying more?" reveal followed by actual quarter/date labels. Do not fabricate interviews or testimonials. |
+| Hydro Flask breakdown | Familiar object and surprising price/cost gap, with reported audience growth | Compare a headline with the financial evidence behind it. Show the difference rather than narrating a full article. |
+| Rice visualization | Concrete visual scale makes a large number comprehensible | Use accurately scaled, labeled comparisons from verified data; never decorative fake price charts. |
+
+These are testable creative hypotheses. Public examples do not isolate editing
+from distribution, existing audience, paid spend, topic demand or luck.
+
+### Specific Walnut findings
+
+The retained September Google/Grace export keeps essentially the same dense
+4:5 panel throughout. The changing lower callouts are much smaller than the
+main composition, and most data is difficult to read at phone size. At the
+16-second sample, the presenter circle contains artwork instead of a face:
+source tracking is a separate QA failure and must not be carried into a new
+publishable render. This does not establish that every current export has it.
+
+Current source confirms three distinct systems:
+
+1. `growth_daily_video.py` builds an extractive title/navigation/takeaway script
+   with a fixed sequence; it does not invoke the creative-writing model. It
+   hardcodes an ElevenLabs voice ID and `eleven_v3` in the board.
+2. `growth_video_pipeline.py` uses the configured model to select existing
+   statement IDs. `growth_video_domain.py` restricts hooks to generic approved
+   copy; a better model cannot write a new hook under that contract.
+3. Zeely's Grace workflow is separate. Its proprietary writing/voice settings
+   were not inspected live. Changing Walnut's OpenAI model does not replace
+   Zeely's voice, avatar or lip-sync.
+
+Local defaults are `gpt-5.6-sol` for general AI Growth and `gpt-6-astra` for the
+generic video configuration. Stored production overrides may differ; there is
+no basis in this audit to assert that all current videos use 5.4 mini.
+
+### Proposed production direction
+
+- Open with a specific question or useful distinction in the first 1–2 seconds.
+  Deliver an initial answer before a long navigation sequence. For tutorials,
+  show the real clicks; for research stories, lead with the actual finding.
+- Use one claim per scene, a meaningful visual change around every 2–4 seconds,
+  and longer holds when reading numbers requires them. Test 20–35 seconds first;
+  these are design hypotheses rather than algorithmic thresholds.
+- Use hard cuts on thought changes and restrained 120–200 ms transitions only
+  for context changes. No bouncing text, random zooms or constant cursor motion.
+  Keep one continuous voice take across edits; align captions and highlights
+  to actual timestamps, not estimated reading speed.
+- Make the selected row/figure large. Preserve source, period and metric label.
+  Use true-to-data comparison graphics and actual Walnut screens. Dim related
+  background footage, such as server racks, so it never competes with evidence.
+- Keep the approved logo, system font and mint/dark palette. A closing card
+  should take roughly 1–2 seconds and ask for one action tied to the story.
+  Preserve platform disclosure and owner review. Do not impersonate a human
+  analyst to make generated media appear authentic.
+
+**Voice:** audition the same 12–15-second script in the current voice and two
+licensed alternatives. Aim for a calm, conversational researcher with varied
+sentence rhythm, clear company names and short pauses, not an announcer or
+manufactured excitement. Test current ElevenLabs v4 against the existing v3
+path where the account supports it; [the provider now recommends that comparison](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices).
+Verify timestamp compatibility and pronunciation before integration. With a
+visible Grace avatar, regenerate matching lip-sync for any replacement audio;
+do not dub unrelated speech over existing mouth movement. A voice-only concept
+is an alternative experiment, not a silent presenter change. No audition was
+generated or voice selected during this audit.
+
+**Writer:** test `gpt-6.1-sol` at low reasoning for one bounded creative pass
+containing three hooks, one script and one shot list. Use the model for
+storytelling and source-linked interpretation; keep numeric/date checks in
+code. Reserve Astra for occasional difficult concepts or failed editorial
+reviews, and reuse the approved script when re-rendering layout.
+[Official Sol documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+lists standard USD $2 input / $10 output per million tokens;
+[Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) lists $10/$50.
+At 4,000 input and 2,000 total billed output tokens, that is about $0.028 versus
+$0.14 per pass, or $2.80 versus $14 per 100 passes. This illustration includes
+reasoning only if it fits within that output allowance; it excludes retries,
+tools, audio, rendering, storage and tax. Availability in Walnut's API project
+is unverified. Neither text model directly generates the finished video/audio.
+
+Do not simply remove existing statement validation. Add a separate source-bound
+creative draft contract with claim IDs, source dates, shot instructions and
+manual approval. Unmatched names/numbers or unsupported causal conclusions
+must block rendering. Keep source/media hashes and immutable approved versions.
+
+### Concrete next concept and experiment
+
+Tutorial script (draft, approximately 30 seconds; record real navigation):
+
+> That fund owns Nvidia. But did it buy more—or is it just a big existing
+> holder? Those are different stories. Open Nvidia in Walnut and check
+> Ownership. Look for changes in shares, then check the reporting quarter and
+> filing date. Thirteen-F filings are delayed snapshots, not live trades.
+> Now you know what the headline leaves out. Check the company you're
+> researching at Walnut Markets.
+
+Shot plan: question over a real ownership heading → date/quarter close-up →
+same-holder comparison if available → filing-date limitation → short CTA.
+Capture only fields the actual page supports. This tutorial does not claim
+who bought recently; a "top three buyers" research story must name the three
+verified managers and the ranking metric early in the video.
+
+Test two opening hooks with the same body, footage and voice, then test voice
+separately on the stronger concept. Rotate story structures (a surprising
+comparison, a misconception, a named finding, a useful tutorial), rather than
+only changing tickers. Inspect 24-hour and seven-day retention, average watch
+time as a fraction of duration, completion, saves/shares per view, qualified
+visits and attributable signups. Separate platforms and paid from organic;
+report denominators. A 0–200-view sample is exploratory, not proof of a winner.
+
+### Local deliverable and validation
+
+`scripts/render_social_evidence_review.py` adds a reusable offline comparison
+compositor with explicit screenshot crop bounds and scene times. It changes
+only the upper evidence panel, preserving the retained lower presenter/callout
+band and the original audio stream. The local Google example uses eight
+evidence scenes and is prominently labeled historical / not for posting.
+This is an editing comparison, not fresh research or a completed voice upgrade.
+Its source's presenter defect remains visible; fixing source tracking and a
+fresh phone-size audiovisual review are prerequisites for publication.
+
+Output: `artifacts/video-creative-audit-2026-10-04/walnut-evidence-edit-review.mp4`.
+Reference and comparison contact sheets are beside it. FFmpeg fully decoded
+the export and verified the copied audio's SHA-256 matches the original.
+Sampled frames were visually inspected. No claim of full listening review or
+measured performance improvement is made. The artifact directory is ignored;
+this tracked document preserves conclusions, while media remains local.
+
 ## October 4 readability feedback
 
 The October 4 zoom review is saved in `artifacts/social-closeups-2026-10-04/`:

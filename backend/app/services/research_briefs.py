@@ -50,9 +50,9 @@ from app.services.email_delivery import send_email
 from app.services.openai_request_audit import audited_openai_request
 from app.utils.symbols import normalize_symbol
 from app.utils.institution_names import institution_display_name, normalize_article_institution_names
-from app.services.research_editorial import EDITORIAL_GUIDANCE, editing_examples, record_edits
+from app.services.research_editorial import EDITORIAL_GUIDANCE, editing_examples, record_edits, story_guidance
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v8_editorial_evidence"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v9_native_story"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -61,12 +61,13 @@ IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
 STORE_ENV = "RESEARCH_BRIEF_DRAFT_STORE_PATH"
 MOCK_ENV = "RESEARCH_BRIEF_GENERATOR_MOCK"
 DETERMINISTIC_DRAFTS_ENV = "RESEARCH_BRIEF_ALLOW_DETERMINISTIC_DRAFTS"
-DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.4-mini"
-DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.4-mini"]
-# Full research briefs need more capability than headline classification, but the
-# previous 5.6 choices are no longer permitted for this cost-sensitive workflow.
+DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-6.1-sol"
+DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-6.1-sol", "gpt-5.4-mini"]
+# Sol is the approved editorial default. Mini remains an explicit budget option;
+# historical 5.6 selections resolve to the current default, never silently retry.
 RETIRED_RESEARCH_BRIEF_MODELS = {"gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"}
 RESEARCH_BRIEF_MODEL_LABELS = {
+    "gpt-6.1-sol": "GPT-6.1 Sol",
     "gpt-5.4-mini": "GPT-5.4 mini",
 }
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS = "RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SEC
 RESEARCH_BRIEF_JOB_STALE_SECONDS = "RESEARCH_BRIEF_JOB_STALE_SECONDS"
 RESEARCH_BRIEF_QUALITY_REPAIR_ATTEMPTS = "RESEARCH_BRIEF_QUALITY_REPAIR_ATTEMPTS"
 RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
+    "gpt-6.1-sol": "Recommended: evidence-led writing and analysis",
     "gpt-5.4-mini": "Cost-efficient grounded research",
 }
 
@@ -2320,9 +2322,13 @@ def _keyword_discovery_prompt(payload: dict[str, Any]) -> str:
     return "\n".join(
         [
             "You are Walnut Markets' SEO and answer-engine research strategist.",
+            f"EDITORIAL_DATE_UTC: {datetime.now(timezone.utc).date().isoformat()}",
             "Use web search before answering. Look for fresh investor attention and explainable search intent using a mix of current reporting, Google Trends pages/results when available, and relevant Reddit discussion. Prefer primary company, filing, regulatory, or reputable market sources for factual claims.",
             "Do not claim exact Google search volume, keyword difficulty, CPC, or Reddit engagement unless a source explicitly provides it. Google Trends is relative-interest evidence only. Treat competition as a directional SERP assessment, not a verified commercial keyword metric.",
             "Only suggest queries Walnut can answer with an original angle from its own evidence: congressional trades, insider activity, institutional ownership, government contracts, confirmations, fundamentals, or price/volume context.",
+            "For each idea, explain the dated catalyst or evergreen investor problem, the specific Walnut dataset needed, and what the reader will be able to check. Current attention must cite a dated source actually read; an old crawl date or annual search average does not establish a trend today. Do not infer AI demand from ownership changes alone.",
+            "Choose the short natural query with measured demand as target_keyword when it matches the story's intent. Put the specific reporting period and question in topic/walnut_angle instead of appending 'latest SEC filings 2026' to every search phrase. Do not change ownership into buying, or attach a high-volume unrelated term just to increase the score.",
+            "When monthly history is supplied, distinguish recent demand changes from the annual average and seasonal or low-base spikes. A cached measurement is historical evidence, never real-time search volume.",
             "Avoid generic stock-picking queries, unsupported financial promises, and candidates that would merely rewrite a current news headline. Return distinct, answerable long-tail opportunities that have a clear investor question.",
             f"SEED_TOPICS: {seed_text}",
             f"MANUAL_TICKERS: {ticker_text}",
@@ -2450,6 +2456,7 @@ def discover_research_keyword_opportunities(db: Session, admin: UserAccount, pay
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before discovering keyword opportunities.")
     request_payload = {
             "model": _keyword_discovery_model(db),
+            **({"reasoning": {"effort": "low"}} if _keyword_discovery_model(db).startswith("gpt-6") else {}),
             "input": _keyword_discovery_prompt(payload),
             "tools": [{"type": "web_search", "search_context_size": "medium"}],
             "tool_choice": "required",
@@ -2550,6 +2557,7 @@ def regenerate_research_keyword_opportunity(
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before regenerating a keyword opportunity.")
     request_payload = {
             "model": _keyword_discovery_model(db),
+            **({"reasoning": {"effort": "low"}} if _keyword_discovery_model(db).startswith("gpt-6") else {}),
             "input": _keyword_opportunity_regeneration_prompt(existing, str(instructions or "")),
             "tools": [{"type": "web_search", "search_context_size": "medium"}],
             "tool_choice": "required",
@@ -3287,6 +3295,7 @@ def _revision_prompt(
             "Use the natural keyword question in the title and opening. Keep the final call aligned with the confirmation-score direction.",
             "Write active, human prose. Avoid AI filler, forbidden watermark language, and unnecessary dashes. Do not describe Walnut's systems, prompts, caches, data availability, or editorial process.",
             EDITORIAL_GUIDANCE,
+            story_guidance(config, context),
             "EDITOR_EDIT_EXAMPLES: " + json.dumps(context.get("editorial_edit_examples") or [], default=str),
             _ownership_writing_requirements(context),
             "EDITOR REVISION REQUEST:",
@@ -3314,6 +3323,7 @@ def _call_openai_revision(
     request_payload = {
             "model": model,
             "input": _revision_prompt(config, prior_article, correction_note, context),
+            **({"reasoning": {"effort": "low"}} if model.startswith("gpt-6") else {}),
             "store": False,
             "max_output_tokens": min(_max_output_tokens(config["length"]), 6000),
             "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
@@ -4478,11 +4488,14 @@ def retrieve_walnut_site_context(db: Session, *, symbol: str, target_keyword: st
                 related.append({"title": title or slug, "url": f"/research/{slug}", "source_type": "related_research"})
     links = [
         {"title": f"{symbol} ticker research", "url": f"/ticker/{symbol}", "source_type": "ticker_page"},
+        {"title": f"{symbol} Financials: compare reported revenue, margins and cash flow", "url": f"https://app.walnutmarkets.com/ticker/{symbol}#financials", "source_type": "ticker_tab"},
+        {"title": f"{symbol} Ownership: inspect reported holders and ownership trends", "url": f"https://app.walnutmarkets.com/ticker/{symbol}#ownership", "source_type": "ticker_tab"},
+        {"title": f"{symbol} Research: read related published briefs", "url": f"https://app.walnutmarkets.com/ticker/{symbol}#research", "source_type": "ticker_tab"},
         {"title": "Research Briefs", "url": "/research", "source_type": "research_hub"},
         {"title": "Walnut Confirmation Score", "url": "/stock-confirmation-score", "source_type": "methodology"},
         *related[:3],
     ]
-    return {"query": target_keyword, "search_intent": search_intent, "links": links[:5], "related_research": related[:3]}
+    return {"query": target_keyword, "search_intent": search_intent, "links": links[:8], "related_research": related[:3]}
 
 
 def potential_research_overlap(db: Session, *, symbol: str, target_keyword: str, search_intent: str, exclude_draft_id: str | None = None) -> list[dict[str, str]]:
@@ -6157,6 +6170,7 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
     request_payload = {
             "model": model,
             "input": _prompt(config, context),
+            **({"reasoning": {"effort": "low"}} if model.startswith("gpt-6") else {}),
             "store": False,
             "max_output_tokens": max_output_tokens,
             "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
@@ -6288,6 +6302,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Use a company's full legal name only in the title or first reference. In the body, use the common company name or ticker: write 'Nebius' or 'NBIS,' never 'Nebius Group N.V.' after the opening. Drop legal suffixes such as Inc., Corp., Ltd., N.V., plc, and S.A. from ordinary prose.",
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             EDITORIAL_GUIDANCE,
+            story_guidance(config, context),
             "EDITOR_EDIT_EXAMPLES: " + json.dumps(context.get("editorial_edit_examples") or [], default=str),
             # Keep the named evidence before the size-limited general context.
             _ownership_writing_requirements(context),
@@ -6361,8 +6376,8 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
             "Core Walnut tone: Assess the data, not the hype.",
             "Write like an experienced investor explaining the setup to another experienced investor: concise, human, skeptical, data-first, specific, conversational without getting sloppy, and opinionated only where the evidence supports it.",
-            "Answer the headline question in the opening 2-4 short paragraphs. Get to the data quickly. Use real numbers. Acknowledge conflicting evidence. Clearly separate fact from interpretation. Do not pretend every stock has a strong conclusion.",
-            "For ticker question briefs, prefer natural sections such as Quick answer, What earnings changed, What our data is seeing, Fundamentals, Price / technical context, Bull case, Bear case, What to watch next, and Bottom line. Do not force every Walnut dataset into the article.",
+            "Answer the headline question in the first paragraph. Get to the data quickly. Use real numbers. Acknowledge conflicting evidence. Clearly separate fact from interpretation. Do not pretend every stock has a strong conclusion.",
+            "For ticker question briefs, use specific headings that advance this article's question. Include only the datasets needed to explain the finding and its counterargument. Do not reuse a fixed checklist of Fundamentals, Bull case, Bear case and Bottom line in every article.",
             "If Congress, insider, institutional, contracts, options, macro, or analyst data is unavailable or irrelevant, omit that section. Do not turn missing data into paragraphs.",
             "Strict copy rules: never write 'The reviewed record supplied for this brief does not contain', 'The available information is insufficient to assess', 'Investors should carefully consider', 'In today's rapidly evolving market', 'Unlock', 'Delve', 'Robust', 'Comprehensive', 'Holistic', 'Investment case', or 'Vibes'. Never use these AI-watermark words: furthermore, moreover, in conclusion, strictly speaking, fundamentally, inherently, delve, leverage, utilize, foster, optimize, revolutionize, underscore, crucial, paramount, meticulous, bespoke, testament.",
             "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'the central question,' 'against this backdrop,' 'on balance,' 'evidence suggests,' 'the appropriate next step,' 'credible bull case requires,' 'we reserve judgment,' 'It is important to note,' 'Looking ahead,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
@@ -6402,7 +6417,7 @@ def _section_format_instructions(section_format: str) -> str:
         return "Write as a concise X thread draft with numbered posts, each source-backed and readable without hype."
     if section_format == "Internal Analyst Note":
         return "Write as an internal analyst note. Thumbnail generation is optional and the tone can be more terse, but unsupported claims still fail validation."
-    return "Use Walnut Research Brief sections with a clear thesis, data, risks, catalysts, conclusion, sources, and data limitations."
+    return "Use a question-led Walnut Research Brief: direct answer, the decisive evidence, what it means and what could change the conclusion. Choose concrete headings for this story rather than repeating a universal section template. Retain sources and material limitations."
 
 
 def article_schema() -> dict[str, Any]:

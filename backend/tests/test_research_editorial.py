@@ -119,3 +119,30 @@ def test_edit_history_is_never_in_public_article_payload():
     assert "editorial_edits" not in public
     assert "editorial_edit_examples" not in (public.get("research_context") or {})
     assert draft["editorial_edits"]
+
+
+def test_editorial_contract_and_real_navigation_survive_revision(monkeypatch):
+    monkeypatch.setattr(briefs, "_db_drafts", lambda *a, **kw: [])
+    context = ownership_context()
+    context["walnut_site_context"] = briefs.retrieve_walnut_site_context(
+        None, symbol="NVDA", target_keyword="nvidia institutional ownership", search_intent="Who holds shares?")
+    config = {"ticker": "NVDA", "target_keyword": "nvidia institutional ownership"}
+    first = briefs._prompt(config, context)
+    revision = briefs._revision_prompt(config, {"title": "Who owns NVIDIA?"}, "Improve the opening", context)
+    for prompt in (first, revision):
+        assert "EDITORIAL STORY CONTRACT" in prompt
+        assert "Distinguish owning shares from adding shares" in prompt
+        assert "https://app.walnutmarkets.com/ticker/NVDA#ownership" in prompt
+        assert "https://app.walnutmarkets.com/ticker/NVDA#research" in prompt
+        assert "T. Rowe Price" in prompt and "3000" in prompt
+        assert "Never withhold the answer for a click" in prompt
+
+
+def test_sol_cost_estimate_uses_current_standard_rates(monkeypatch):
+    from app.services import ai_marketing
+    for key in (ai_marketing.OPENAI_INPUT_USD_PER_1M, ai_marketing.OPENAI_CACHED_INPUT_USD_PER_1M,
+                ai_marketing.OPENAI_OUTPUT_USD_PER_1M):
+        monkeypatch.delenv(key, raising=False)
+    estimate = ai_marketing._estimate_openai_response_cost("gpt-6.1-sol", {
+        "usage": {"input_tokens": 12000, "output_tokens": 3000}})
+    assert estimate["cost_usd"] == 0.054

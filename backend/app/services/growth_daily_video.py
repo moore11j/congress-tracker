@@ -20,7 +20,7 @@ def source_fingerprint(source):
     return digest({k: source.get(k) for k in ("id", "primary_ticker", "article", "research_context")})
 
 
-def excerpt(source):
+def excerpt_candidates(source):
     article = source.get("article") or {}
     if source.get("status") != "published":
         raise ValueError("Daily videos require published research.")
@@ -42,6 +42,7 @@ def excerpt(source):
         for paragraph in re.split(r"\n\s*\n", body):
             candidates.append(paragraph)
             candidates.extend(re.split(r"(?<=[.!?])\s+(?=[A-Z])", paragraph))
+    usable = []
     for value in candidates:
         if not isinstance(value, str):
             continue
@@ -49,14 +50,26 @@ def excerpt(source):
         dependent = re.match(r"^(Together|Those|These|This|That|They|Their|It|Its|Both|However|But|Also|Meanwhile)\b", value, re.I)
         if (8 <= len(value.split()) <= 65 and not dependent and not value.endswith("?")
                 and not re.search(r"https?://|[<>\[\]*|]", value) and value[0].isalpha()):
-            return value
+            if value not in usable:
+                usable.append(value)
+    if usable:
+        return usable[:8]
     raise ValueError("The brief needs a self-contained takeaway (8–65 words) for narration.")
 
 
-def creative(source, walkthrough_version=2, *, tutorial=None, tutorial_version=None):
-    if walkthrough_version not in {1, 2}:
+def excerpt(source):
+    return excerpt_candidates(source)[0]
+
+
+def creative(source, walkthrough_version=2, *, tutorial=None, tutorial_version=None, direction=None):
+    if walkthrough_version not in {1, 2, 3}:
         raise ValueError("Unsupported daily walkthrough version.")
     takeaway = excerpt(source)
+    if walkthrough_version == 3:
+        from app.services.growth_research_direction import checked_plan
+        candidates = excerpt_candidates(source)
+        direction = checked_plan(direction, candidates)
+        takeaway = candidates[direction["excerpt_index"]]
     article = source["article"]
     ticker = source.get("primary_ticker", "")
     if not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,9}", ticker):
@@ -83,7 +96,7 @@ def creative(source, walkthrough_version=2, *, tutorial=None, tutorial_version=N
                    visual_type="walnut_recording" if page else "brand_card", transition="cut",
                    statement_ids=[shot], evidence_ids=["published_brief:" + source["id"]])
               for i, (shot, voice, head, sub, page) in enumerate(beats, 1)]
-    if walkthrough_version == 2:
+    if walkthrough_version >= 2:
         scenes[1].update(shot="daily_research", capture_target="daily_research",
                          narration="Click Research on the ticker page to see its related briefs.",
                          subhead=f"{ticker} → Research", walnut_url=ticker_url,
@@ -103,9 +116,27 @@ def creative(source, walkthrough_version=2, *, tutorial=None, tutorial_version=N
                           "Check the brief's dates, source limitations and risks before approving.",
                           "Real admin navigation; account identity is masked. Background and voice are AI assisted."],
                 caption_statement_ids=[], evidence_ids=[source["id"]])
-    if walkthrough_version == 2:
-        board["walkthrough_version"] = 2
+    if walkthrough_version >= 2:
+        board["walkthrough_version"] = walkthrough_version
         board["caption"] = board["caption"].replace("Insights → Research Briefs", f"{ticker} ticker → Research")
+    if walkthrough_version == 3:
+        hooks = {"title": hook, "finding": f"Here's what stood out in {ticker}'s research.",
+                 "question": f"What matters in {ticker}'s latest research?"}
+        opening = hooks[direction["hook_style"]]
+        # Evidence first, then show how to find it. Each line still describes
+        # the actual recorded destination, with one continuous voice track.
+        scenes[3].update(narration=f"{opening} {takeaway}", on_screen_text=f"{ticker}: the finding",
+                         duration_seconds=max(3, round(len((opening + ' ' + takeaway).split()) / 2.5)))
+        scenes[0].update(narration=f"Want to check it yourself? Search {ticker} in Walnut and open the ticker.",
+                         duration_seconds=6)
+        scenes[2].update(narration="Open this brief for the supporting numbers and risks.", duration_seconds=4)
+        scenes[4].update(narration="The full analysis is linked in the caption. Explore Walnut Markets.", duration_seconds=5)
+        scenes = [scenes[3], scenes[0], scenes[1], scenes[2], scenes[4]]
+        for i, scene in enumerate(scenes, 1):
+            scene["sequence"] = i
+        board.update(direction=direction, storyboard=scenes, scenes=scenes, hook=opening,
+                     narration=" ".join(s["narration"] for s in scenes),
+                     target_duration_seconds=sum(s["duration_seconds"] for s in scenes))
     if tutorial:
         from app.services.growth_feature_tutorial import adapt
         return adapt(board, tutorial, version=tutorial_version)
@@ -117,7 +148,8 @@ def validate(item, db=None):
     source = p.get("research_source", {})
     expected = creative(source, (p.get("creative") or {}).get("walkthrough_version", 1),
                         tutorial=(p.get("creative") or {}).get("tutorial_id"),
-                        tutorial_version=(p.get("creative") or {}).get("tutorial_version", 1))
+                        tutorial_version=(p.get("creative") or {}).get("tutorial_version", 1),
+                        direction=(p.get("creative") or {}).get("direction"))
     if p.get("creative") != expected or p.get("campaign_hash") != digest(expected):
         raise ValueError("Daily creative changed. Create a new video revision.")
     if p.get("research_source_hash") != source_fingerprint(source):
@@ -132,8 +164,15 @@ def validate(item, db=None):
 def create_job(db, source, actor, *, parent=None, feedback="", tutorial=None):
     if tutorial is None and parent:
         tutorial = parent['payload'].get('creative', {}).get('tutorial_id')
+    # Validate before reserving a creative attempt or contacting a provider.
+    candidates = excerpt_candidates(source)
     board = creative(source, tutorial=tutorial)
     store.consume_budget(db, "creatives", store.config(db)["creative_limit"])
+    metadata = {"provider": "extractive_published_research", "version": 1}
+    if not tutorial:
+        from app.services.growth_research_direction import select_direction
+        direction, metadata = select_direction(db, source, candidates)
+        board = creative(source, 3, direction=direction)
     key = CAMPAIGN + ":" + source["id"] + ":" + source_fingerprint(source)
     if tutorial:key += ':tutorial:' + tutorial
     opp = {"id": "co_" + digest(key)[:32], "topic": board.get('tutorial_title') or source["article"]["title"],
@@ -149,7 +188,7 @@ def create_job(db, source, actor, *, parent=None, feedback="", tutorial=None):
         reviewed_product={"campaign_id": CAMPAIGN, "product_hook": "daily", "creative": board,
                           "campaign_hash": digest(board), "research_source": source,
                           "research_source_hash": source_fingerprint(source), "daily_automation": True,
-                          "model_metadata": {"provider": "extractive_published_research", "version": 1}})
+                          "model_metadata": metadata})
     item["status"] = "CAPTURE_PENDING"
     store.save_job(db, item)
     return item

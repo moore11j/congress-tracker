@@ -700,7 +700,11 @@ def _openai_ledger_spent_usd(db: Session | None) -> float:
 
 def _model_pricing_usd_per_1m(model: str) -> dict[str, float]:
     normalized = str(model or "").strip().lower()
-    if "sol" in normalized:
+    if normalized == "gpt-6.1-sol":
+        # Standard token rates verified October 4, 2026; this ledger is an
+        # estimate, not the provider invoice (cache writes may cost extra).
+        pricing = {"input": 2.0, "cached_input": 0.1, "output": 10.0}
+    elif "sol" in normalized:
         pricing = {"input": 5.0, "cached_input": 0.5, "output": 30.0}
     elif "terra" in normalized:
         pricing = {"input": 2.5, "cached_input": 0.25, "output": 15.0}

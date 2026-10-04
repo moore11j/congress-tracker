@@ -70,6 +70,16 @@ This review inspected code, test sources, Git history and dated repository repor
 
 ### R3 — Keep research claims, SEO and distribution accurate (P0/P1)
 
+**October 4 creative/editorial follow-up — local implementation:** the
+[writing and search-demand report](research-editorial-quality-2026-10-04.md)
+records a Sol research default, shared writing contract, historical demand
+comparison and source-bound video direction that shows the finding first.
+108 focused tests and TypeScript checks pass; broader pre-existing test failures
+are documented. Two voice auditions completed. Production deployment, live
+writing evaluation and voice selection remain outstanding. The earlier
+[video comparison](social-video-layout-and-mix.md#october-4-creative-quality-audit-and-local-comparison)
+is an offline prototype; retained Zeely footage still needs presenter-crop repair.
+
 **Work:** maintain repaired public pages, review current research/source-date claims and video output, and measure post-release discovery. Grow useful examples around the stock-analysis journey.
 
 **Done when:**
@@ -130,6 +140,20 @@ Consider live directional options flow, dedicated dark-pool feeds, lobbying and 
 **Done when, before implementation scheduling:** each proposal has a user problem, source/rights/cost review, coverage/latency sample, entitlement design, success metric and explicit go/no-go decision. No plan currently promises delivery.
 
 ## Measurement and release rules
+
+### October 4 competitive proposal assessment — recommendations only
+
+Source review at `c7bb0b56` clarifies the owner's TradingView/Koyfin proposal; this is not an approved implementation schedule or a fresh production verification.
+
+| Proposal | Current source evidence | Recommended extension / dependency |
+|---|---|---|
+| Embedded technical charts with alternative-data overlays | [PremiumTickerChart](../frontend/components/ticker/PremiumTickerChart.tsx) already uses TradingView Lightweight Charts, Congress/insider/contract markers, moving averages, RSI and MACD. | Improve existing event exploration/discoverability first. Consider Advanced Charts only for demonstrated drawing/indicator needs, subject to suitable access terms and integration costs. |
+| Contextual fundamentals | [Financial panel](../frontend/components/ticker/TickerFinancialsPanel.tsx) already includes revenue trends, FCF, leverage and source-qualified forward P/E; [valuation](../frontend/components/ticker/TickerValuationTab.tsx) supplies model context. | Proposed compact summary near existing evidence: growth, cash generation, leverage and valuation, each with source/as-of/missing states. Historical forward-P/E comparisons require comparable historical estimates and coverage; do not substitute trailing multiples silently. |
+| No-code signal mixer | [Backtest models](../backend/app/services/backtesting/models.py) support Congress, insiders, watchlists, saved screens and custom tickers with SPY/default benchmark; [engine](../backend/app/services/backtesting/engine.py) explicitly excludes costs/slippage. | Proposed bounded trigger + confirmation + time-window workflow, then save/monitor. R6 dependencies include information-availability timestamps, execution assumptions, historical coverage and fresh validation. Show sample sizes, median benchmark-relative returns, loss distribution and overlapping-event handling alongside horizon win rates. Do not promise instant arbitrary combinations or proven alpha. |
+
+Official sources checked October 4: [TradingView product comparison](https://www.tradingview.com/charting-library-docs/latest/getting_started/product-comparison/) says widgets cannot accept custom data and libraries supply no market data; [FAQ](https://www.tradingview.com/charting-library-docs/latest/getting_started/Frequently-Asked-Questions/) excludes Pine Script; [introduction](https://www.tradingview.com/charting-library-docs/latest/introduction/) describes public/non-paywalled and attribution conditions for free Advanced Charts. These require evaluation before adopting it for paid Walnut surfaces. [Koyfin fundamentals documentation](https://www.koyfin.com/help/global-equities-fundamentals-valuatiion/) supports its depth in statements and valuation, but does not establish that competitors cannot reproduce Walnut workflows.
+
+Recommendation: preserve R1/R2 foundations, favor the compact fundamentals extension for near-term scope, and develop the mixer incrementally with R6 and R5. No pricing change, chart migration or community launch is approved by this assessment.
 
 | Outcome | Measure | Acceptance / interpretation |
 |---|---|---|

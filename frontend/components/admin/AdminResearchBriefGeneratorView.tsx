@@ -159,12 +159,14 @@ const fallbackOptions: ResearchBriefOptions = {
     "X Thread",
     "Internal Analyst Note",
   ],
-  model_options: ["gpt-5.4-mini"],
-  model_default: "gpt-5.4-mini",
+  model_options: ["gpt-6.1-sol", "gpt-5.4-mini"],
+  model_default: "gpt-6.1-sol",
   model_descriptions: {
+    "gpt-6.1-sol": "Recommended: evidence-led writing and analysis",
     "gpt-5.4-mini": "Cost-efficient grounded research",
   },
   model_labels: {
+    "gpt-6.1-sol": "GPT-6.1 Sol",
     "gpt-5.4-mini": "GPT-5.4 mini",
   },
   sections: DEFAULT_SECTIONS,

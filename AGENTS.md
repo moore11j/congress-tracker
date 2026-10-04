@@ -59,6 +59,7 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 4. **Backtests:** the current general engine explicitly excludes transaction costs/slippage. Do not call realistic execution bands complete because strategies store cost metadata.
 5. **Provider economics:** evaluate direct public-record sources and licensed replacement prices with parity/rollback criteria before a provider migration.
 6. **Validation:** historical release reports contain pre-existing suite failures. No full-suite pass was established on October 4; verify relevant tests on the current revision.
+7. **Editorial/video quality:** October 4 [local implementation](docs/research-editorial-quality-2026-10-04.md) adds Sol as research default, a shared writing contract, historical search-demand comparison and source-bound video direction. Two voice auditions completed; deployment/effective overrides, live draft quality and voice selection are unverified. The earlier [creative audit](docs/social-video-layout-and-mix.md#october-4-creative-quality-audit-and-local-comparison) found a retained Zeely presenter-crop defect; repair it before publication and label historical footage.
 
 ## Working checks
 
@@ -69,7 +70,7 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
-- **2026-10-04 — Commit and deploy:** owner explicitly authorized the roadmap/context release. All seven documents were committed and pushed to `main` as `104aa382`.
-- Result: Vercel Production succeeded; both public domains returned exact revision `104aa38224c3953c619b8f4e0817d866f5041aea`. This checkpoint and its log are the documentation receipt for that verified release; a subsequent receipt-only commit may advance the frontend revision.
-- Validation: 80 local links and preserved archive passed; `git diff --check` passed; backend `/ready` returned `status: ok`, `database: ok`. No application code changed or backend restart occurred. No full application regression suite was run. See the context log for the deployment link.
-- Next suggested work: roadmap R1 reliability baseline and R2 acquisition/paid-measurement reconciliation; the owner has not selected an implementation task yet.
+- **2026-10-04 — Editorial release:** owner authorized committing and deploying the implemented research/video improvements. Release preflight confirmed GitHub main `c7bb0b56`, four running Fly machines on `80aaa7f7`, and matching existing compute sizes. API model overrides are unset, so the new Sol default can take effect.
+- Checks: prior 108 focused tests, six model/generation checks and TypeScript passed; broader baseline failures are documented. `git diff --check` passed before release. Separate competitor recommendations remain documentation only and are preserved in the context log/roadmap.
+- State: release being committed for Vercel and the existing Fly deployment workflow; completion/revision and health evidence will be recorded after rollout. No new voice selection or social publication is part of deployment.
+- Next: verify deployed revisions, backend health and effective model, then retain live writing-quality, voice and presenter-crop evaluation as open follow-ups.
