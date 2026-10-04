@@ -24,6 +24,31 @@ def _session():
     return Session()
 
 
+def test_contract_context_filters_dates_before_limiting_and_explains_proxies():
+    from app.models import GovernmentContract
+
+    today = datetime.now(timezone.utc).date()
+    with _session() as db:
+        for index in range(10):
+            db.add(GovernmentContract(symbol="BA", award_date=today + timedelta(days=index + 1), award_amount=1e9))
+        db.add_all([
+            GovernmentContract(symbol="BA", award_id="CURRENT", award_date=today,
+                               period_start=today, period_end=today + timedelta(days=700), award_amount=100),
+            GovernmentContract(symbol="BA", award_date=today - timedelta(days=365), award_amount=50),
+            GovernmentContract(symbol="BA", award_date=today - timedelta(days=366), award_amount=999),
+            GovernmentContract(symbol="MSFT", award_date=today, award_amount=999),
+        ])
+        db.commit()
+        context = service._government_contracts(db, "BA")
+    assert context["recent_count"] == 2
+    assert context["recent_award_amount"] == 150
+    assert context["items"][0]["award_id"] == "CURRENT"
+    assert context["items"][0]["period_end"] == (today + timedelta(days=700)).isoformat()
+    assert context["window_end"] == today.isoformat()
+    assert "performance-start proxies" in context["date_basis"]
+    assert "not new obligations" in context["amount_basis"]
+
+
 def test_research_brief_schema_migrates_legacy_drafts_before_keyword_index(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     db = _session()

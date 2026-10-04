@@ -84,7 +84,7 @@ class MotionStyle:
         image.paste(pic, xy)
 
 
-def decorate(image, scene, scenes, creative, caption, *, elapsed=0., closing=False, logo=None):
+def decorate(image, scene, scenes, creative, caption, *, elapsed=0., closing=False, logo=None, closeup=False):
     """A stable layout with progressive chapter marks and tight aligned captions."""
     layer = Image.new('RGBA', image.size)
     d = ImageDraw.Draw(layer)
@@ -100,9 +100,10 @@ def decorate(image, scene, scenes, creative, caption, *, elapsed=0., closing=Fal
         text(d, scene['on_screen_text'], 337, 60)
         text(d, scene['subhead'], 468, 22, color=MUTED, max_lines=1)
         # Reveal only the panel accent, never erase or blend financial figures.
-        length = round((PANEL[2]-PANEL[0])*ease(elapsed/.65))
+        panel = (70, 510, 894, 1310) if closeup else PANEL
+        length = round((panel[2]-panel[0])*ease(elapsed/.65))
         if length:
-            d.line((PANEL[0], PANEL[1]-9, PANEL[0]+length, PANEL[1]-9), fill=GREEN, width=3)
+            d.line((panel[0], panel[1]-9, panel[0]+length, panel[1]-9), fill=GREEN, width=3)
 
     # Dissolve presentation chrome only. Product pixels, pointer and captions
     # remain live throughout so the first narrated action is never hidden.
@@ -112,7 +113,7 @@ def decorate(image, scene, scenes, creative, caption, *, elapsed=0., closing=Fal
     image.paste(layer, (0, 0), layer)
     d = ImageDraw.Draw(image)
     if caption:
-        tight_caption(d, caption['text'], brand_font(52, True), y=1060, width=964, max_width=790)
+        tight_caption(d, caption['text'], brand_font(52, True), y=1360 if closeup else 1060, width=964, max_width=790)
 
     current = next(i for i, s in enumerate(scenes) if s['sequence'] == scene['sequence'])
     duration = max(.001, scene['end']-scene['start'])
@@ -121,12 +122,13 @@ def decorate(image, scene, scenes, creative, caption, *, elapsed=0., closing=Fal
     width = (824-gap*(len(scenes)-1))/len(scenes)
     for i in range(len(scenes)):
         x = 70+i*(width+gap)
-        d.rounded_rectangle((x, 1230, x+width, 1234), radius=2, fill=EDGE)
+        bar_y = 1500 if closeup else 1230
+        d.rounded_rectangle((x, bar_y, x+width, bar_y+4), radius=2, fill=EDGE)
         progress = 1 if i < current else phase if i == current else 0
         if progress:
-            d.rounded_rectangle((x, 1230, x+width*progress, 1234), radius=2, fill=GREEN)
+            d.rounded_rectangle((x, bar_y, x+width*progress, bar_y+4), radius=2, fill=GREEN)
     text(d, 'walnutmarkets.com' if closing else 'ACTUAL WALNUT SCREENS · PUBLISHED RESEARCH',
-         1270, 21, color=GREEN, center=closing, max_lines=1)
-    text(d, 'Research only · Not investment advice', 1330, 18, color=MUTED, center=closing)
-    text(d, 'Some features require a paid plan', 1360, 16, color=MUTED, center=closing)
+         1530 if closeup else 1270, 21, color=GREEN, center=closing, max_lines=1)
+    text(d, 'Research only · Not investment advice', 1570 if closeup else 1330, 18, color=MUTED, center=closing)
+    text(d, 'Some features require a paid plan', 1600 if closeup else 1360, 16, color=MUTED, center=closing)
     return image

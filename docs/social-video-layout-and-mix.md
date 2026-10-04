@@ -1,5 +1,64 @@
 # Social video layout and content mix
 
+## October 4 readability feedback
+
+The October 4 zoom review is saved in `artifacts/social-closeups-2026-10-04/`:
+`walnut-zoomed-review.mp4` and `before-after.jpg`. It reuses the retained,
+dated September Microsoft research footage and narration as a layout comparison,
+not a fresh research publication. No social post was published by the preview.
+
+The opt-in `closeup_v1` renderer (template 7) expands the evidence panel from
+824×490 to 824×800 and moves captions from y1060 to y1360. The final footer
+moves down 240 pixels, reducing the unused space above the native account area.
+Essential content stays within x48–912, y270–1640. These are review bounds based
+on the supplied screenshots, not a guarantee across every platform display.
+Every recorded frame requires an explicit, bounded `evidence_camera` crop;
+the renderer rejects missing or out-of-source rectangles before encoding.
+For this sample, the complete Quick answer and What changed cards occupy a
+638-pixel source column, enlarging their text about 1.9× relative to the earlier
+wide view. Navigation scenes retain broader context where necessary. Captions,
+audio, action alignment and research provenance are retained.
+
+The owner's subsequent commit-and-deploy approval activates `motion_v2`
+(template 7) for new renders. It uses the same expanded panel and lower captions
+as the reviewed sample. New research captures frame the search control, the
+published brief title and its takeaway from their actual browser bounds; the
+takeaway zoom starts as soon as the evidence has scrolled into view. Complete
+element widths are retained and rectangles stay inside the source viewport.
+Old recordings without focused camera metadata retain their source context in
+the taller layout; they are not cropped around a guessed cursor position.
+`motion_v1` and the strict per-frame `closeup_v1` review mode remain available.
+Existing approved/published media and schedules are not rewritten.
+
+Release validation: 153 tests passed and the opt-in browser integration test was
+skipped. Seven research-suite failures match the independently reproduced
+pre-change baseline recorded in the Boeing correction verification package;
+all video layout/navigation checks and new contract safeguards passed. The
+28.32-second default-render sample retains the original narration, action timing,
+caption count and source ID, and is fully decoded before release.
+
+Owner-reported baseline: Instagram 35 followers; TikTok 17, with most videos
+at 0–200 views. Treat these as an early audience baseline, not a measured
+verdict on the product or a reason to increase posting volume.
+
+The ASML Reel made the app too small to read. For the next review version,
+use tightly cropped real evidence screens, one claim per scene, and narration
+that names the visible figure, its date, source, and meaning. Briefly establish
+the page, then enlarge the relevant rows or metric. Preserve enough headers
+and date labels to explain the evidence. Review at phone size; if the evidence
+cannot be read without pausing or pinching, reframe before approval. Reuse the
+configured narrator; a presenter change needs an explicit owner request.
+
+For Reddit source questions, prepare a direct answer naming the actual source
+for the claim and linking the original record. Explain reporting delays and
+distinguish source data from Walnut's interpretation. Do not claim all feeds
+are real time. The owner has not requested posting replies in this feedback.
+
+The Boeing brief's contract-date correction must be reflected in any new
+social draft. Do not reuse the $1.55B “recent awards” hook or its bullish
+conclusion. See the verified record package in
+`artifacts/boeing-date-correction-2026-10-04/`.
+
 Owner feedback, September 26, 2026: native TikTok/Instagram controls obscure
 the masthead and lower captions; repeated account branding is distracting.
 Keep the content and voice, recompose the scene instead of scaling the full
@@ -7,10 +66,11 @@ video, and interleave useful app tutorials with search-led research videos.
 
 ## Composition
 
-- `social_v1` was the September 26 layout (template version 5). The current
-  default is `motion_v1` (template version 6); see the September 30 update.
+- `social_v1` was the September 26 layout (template version 5), followed by
+  `motion_v1` (template version 6). The October 4 release defaults to `motion_v2`
+  (template version 7), with the expanded bounds documented above.
 - Full-bleed atmosphere remains 1080×1920. Essential content occupies
-  x48–912, y270–1390. These conservative bounds derive from the supplied mobile
+  x48–912, y270–1390 in the older layouts. These bounds derive from the supplied mobile
   screenshots; native app chrome can vary by device and viewing mode.
 - Real app footage occupies a focused panel above a caption band at y1060.
   Preserve table columns; follow the recorded vertical action or evidence crop.

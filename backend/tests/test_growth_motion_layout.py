@@ -54,4 +54,4 @@ def test_headings_preserve_every_word_and_reject_unbounded_copy():
 
 
 def test_production_renderer_defaults_to_approved_motion_layout():
-    assert inspect.signature(render_navigation_video).parameters['presentation'].default == 'motion_v1'
+    assert inspect.signature(render_navigation_video).parameters['presentation'].default == 'motion_v2'

@@ -72,12 +72,14 @@ def navigation_crop(shot,index,asset):
  return target
 
 
-def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='motion_v1'):
+def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=None,presentation='motion_v2'):
  import imageio_ffmpeg
- if presentation not in {'classic','cinematic_v1','cinematic_v2','cinematic_v3','social_v1','motion_v1'}:raise ValueError('Unknown navigation presentation.')
- motion=presentation=='motion_v1'
- social=presentation in {'social_v1','motion_v1'}
- refined=presentation in {'cinematic_v2','cinematic_v3','social_v1','motion_v1'}
+ if presentation not in {'classic','cinematic_v1','cinematic_v2','cinematic_v3','social_v1','motion_v1','motion_v2','closeup_v1'}:raise ValueError('Unknown navigation presentation.')
+ closeup=presentation=='closeup_v1'
+ expanded=presentation in {'motion_v2','closeup_v1'}
+ motion=presentation in {'motion_v1','motion_v2','closeup_v1'}
+ social=presentation in {'social_v1','motion_v1','motion_v2','closeup_v1'}
+ refined=presentation in {'cinematic_v2','cinematic_v3','social_v1','motion_v1','motion_v2','closeup_v1'}
  cinema=None
  if presentation.startswith('cinematic_') or social:
   from app.services.growth_cinematic_style import BACKGROUND,NVIDIA_BACKGROUND,CinematicStyle,entrance_offset,tight_caption
@@ -103,6 +105,12 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
   from app.services.growth_social_layout import PANEL, SAFE, focus_crop, decorate
   if motion:
    from app.services.growth_motion_layout import PANEL, SAFE, focus_crop, decorate
+  if expanded:
+   from app.services.growth_closeup_layout import PANEL, SAFE, captured_focus_crop as focus_crop, decorate
+  if closeup:
+   from app.services.growth_closeup_layout import PANEL, SAFE, focus_crop, decorate
+   for shot in expected:
+    for index in range(len(captures[shot]['frames'])):focus_crop(index,captures[shot])
   base=Image.new('RGBA',(W,H),(0,0,0,0))
  with tempfile.TemporaryDirectory(prefix='walnut-nav-render-') as folder:
   root=Path(folder);voice=root/'voice.mp3';voice.write_bytes(read_asset(audio));decoded={};knots={}
@@ -187,7 +195,7 @@ def render_navigation_video(creative,captures,audio,read_asset,*,frame_observer=
   content=output.read_bytes()
   if content[4:8]!=b'ftyp' or len(content)>200*1024*1024:raise ValueError('Invalid navigation export.')
   return content,{'provider':'walnut_native','width':W,'height':H,'duration':duration,'frame_rate':FPS,'encoding':'h264_intra',
-   'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':6 if motion else 5 if social else 4,'font':Path(brand_font(24).path).name,
+   'continuous_narration':True,'shot_count':len(scenes),'caption_count':len(captions),'template_version':7 if expanded else 6 if motion else 5 if social else 4,'font':Path(brand_font(24).path).name,
    'brand_accent':'#29D981' if motion else MINT,'logo_asset':LOGO.name,'research_brief_id':creative['source_research_brief_id'],'action_alignment':knots,
    'navigation_events':{shot:captures[shot]['navigation_events'] for shot in expected},'rendered_cursor':'recorded_curved_travel_pause_circle_click',
    'presentation':presentation,'safe_content_bounds':list(SAFE) if social else None,'brand_placement':'closing_card_only' if social else 'masthead','background_brightness':.12 if motion and background else None if motion else .45 if refined else 1.0,

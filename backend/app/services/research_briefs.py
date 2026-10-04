@@ -4282,10 +4282,13 @@ def _institutional_ownership_detail(db: Session, symbol: str) -> dict[str, Any]:
 
 
 def _government_contracts(db: Session, symbol: str) -> dict[str, Any]:
+    today = datetime.now(timezone.utc).date()
+    since = today - timedelta(days=365)
     rows = (
         db.execute(
             select(GovernmentContract)
             .where(func.upper(GovernmentContract.symbol) == symbol)
+            .where(GovernmentContract.award_date >= since, GovernmentContract.award_date <= today)
             .order_by(desc(GovernmentContract.award_date))
             .limit(8)
         )
@@ -4294,11 +4297,19 @@ def _government_contracts(db: Session, symbol: str) -> dict[str, Any]:
     )
     total = sum(float(row.award_amount or 0) for row in rows)
     return {
+        "window_start": since.isoformat(),
+        "window_end": today.isoformat(),
+        "selection_limit": 8,
+        "date_basis": "Stored dates may be performance-start proxies, not signing or announcement dates. Verify date_signed in the original award record before describing an award as new or recent.",
+        "amount_basis": "Selected award-level amounts; not new obligations in this window, recognized revenue, or company backlog.",
         "recent_count": len(rows),
         "recent_award_amount": total,
         "items": [
             {
                 "award_date": _iso(row.award_date),
+                "period_start": _iso(row.period_start),
+                "period_end": _iso(row.period_end),
+                "award_id": row.award_id,
                 "award_amount": row.award_amount,
                 "awarding_agency": row.awarding_agency,
                 "description": row.description,
@@ -6315,6 +6326,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Walnut site context contains only approved first-party pages. Use 2-4 relevant internal links where they genuinely help a reader navigate; do not create random keyword links or link every sentence.",
             "If core earnings research is unavailable, do not write around it. The backend should stop generation before this prompt. Never write paragraphs saying Walnut needs to go find the data.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
+            "For government contracts, honor date_basis and amount_basis. Performance start/end dates are not signing or announcement dates. Never call future-dated records latest awards. Award-level amounts may include historical modifications; do not equate their sum with new funding, remaining backlog, or near-term revenue. Verify signing dates and dated transaction obligations in primary sources for claims about recent awards or new funding.",
             "Do not say an item was 'not independently verified in reviewed primary sources' when the item is present in Walnut context or marked available in data_availability.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
             "Only include our proprietary confirmation score if include_confirmation_score is true. If include_confirmation_score is true, publish the primary ticker score from Walnut context; do not look for it in external reviewed sources. If include_confirmation_score is false, omit it entirely and do not explain that we do not publish it.",

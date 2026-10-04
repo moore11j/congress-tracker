@@ -20,6 +20,14 @@ CAPTURE_SECONDS=900
 FEATURE_SHOTS={'tutorial_financials','tutorial_congress','tutorial_insiders','tutorial_analysts'}
 
 
+def evidence_bounds(box, *, min_width=560, min_height=540):
+ """Frame the actual element, retaining its width and nearby source context."""
+ w=min(VIEWPORT['width'],max(min_width,box['width']+40))
+ h=min(VIEWPORT['height'],max(min_height,box['height']+140))
+ return {'x':max(0,min(VIEWPORT['width']-w,box['x']-20)),
+         'y':max(0,min(VIEWPORT['height']-h,box['y']-70)),'width':w,'height':h}
+
+
 class CaptureTimeout(TimeoutError):
  pass
 
@@ -97,6 +105,9 @@ class Recorder:
 
  def mark(self,phrase):
   self.markers.append({'phrase':phrase,'frame':len(self.frames)})
+
+ def focus(self,loc,**kwargs):
+  self.camera=evidence_bounds(self.box(loc),**kwargs)
 
  def frame(self):
   if time.monotonic()>self.deadline:raise CaptureTimeout('Navigation capture exceeded its time budget.')
@@ -266,12 +277,13 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    ticker_brief.wait_for(timeout=PAGE_TIMEOUT_MS)
   if shot=='daily_search':
    r.hold(4);r.mark('Search')
-   search=page.get_by_role('combobox',name='Global search');r.click(search,'Global search')
+   search=page.get_by_role('combobox',name='Global search');r.focus(search);r.click(search,'Global search')
    search.fill(ticker);r.hold(5)
    # Company labels may omit the symbol while insider results include it.
    # Select the ticker category, then verify the actual destination heading.
    result=page.get_by_role('option').filter(has=page.get_by_text('Ticker',exact=True)).first
    result.wait_for(timeout=30000);r.click(result,'Open '+ticker)
+   r.camera=None
    page.get_by_role('heading',level=1).filter(has_text=ticker).wait_for(timeout=60000)
    page.wait_for_timeout(1200);r.hold(15)
   elif shot in FEATURE_SHOTS:
@@ -303,11 +315,12 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
    r.hold(3);r.mark('Open the brief')
    r.click(link,'Published research brief')
    heading=page.get_by_role('heading',level=1,name=source_title,exact=True);heading.wait_for(timeout=60000)
-   page.wait_for_timeout(700);r.hold(15);source_text.append(heading.inner_text())
+   page.wait_for_timeout(700);r.focus(heading,min_width=800,min_height=760);r.hold(15);source_text.append(heading.inner_text())
   elif shot=='daily_takeaway':
    page.get_by_role('heading',level=1,name=source_title,exact=True).wait_for(timeout=60000)
    takeaway=page.get_by_text(daily['source_excerpt'],exact=False).filter(visible=True).first
    takeaway.wait_for(timeout=30000);r.hold(3);r.scroll_to(takeaway,top=210,steps=22)
+   r.focus(takeaway,min_height=620)
    r.move(takeaway);r.hold(6);source_text.append(takeaway.inner_text())
    last_position=-1
    for link in takeaway.get_by_role('link').all()[:4]:
@@ -315,7 +328,7 @@ def capture_navigation_shot(shot,*,owner_id,session_token=None,daily=None):
     if phrase and position_in_voice>last_position:
      r.mark(phrase);r.circle(link);last_position=position_in_voice
    r.hold(10)
-   b=r.box(takeaway);r.camera={'x':max(0,b['x']-20),'y':max(0,b['y']-70),'width':min(1000,b['width']+40),'height':min(700,b['height']+180)};r.hold(12)
+   r.focus(takeaway,min_height=620);r.hold(12)
   elif shot=='v4_search':
    r.hold(8);r.mark('Search')
    search=page.get_by_role('combobox',name='Global search');r.click(search,'Global search')
