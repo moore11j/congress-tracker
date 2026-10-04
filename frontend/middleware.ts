@@ -530,10 +530,10 @@ async function routeRequest(request: NextRequest) {
     return NextResponse.redirect(appUrl, 307);
   }
 
-  // Set the status before Next streams the page. Empty 200 shells become soft
-  // 404s in Search Console; a cache-only outage is temporary, not a noindex rule.
+  // Crawlers need a truthful status before streaming. Interactive visitors must
+  // reach the app so a cold public cache can recover through its client loaders.
   const tickerMatch = pathname.match(/^\/ticker\/([A-Za-z0-9.^_-]+)\/?$/);
-  if (host === appHost && tickerMatch && !hasBackendSession && !hasAuthHint) {
+  if (host === appHost && tickerMatch && !hasBackendSession && !hasAuthHint && !isInteractiveBrowserUserAgent(userAgent) && !prefetch) {
     const ready = await publicTickerReady(API_BASE, tickerMatch[1].toUpperCase(), request.nextUrl.searchParams);
     if (!ready) {
       const unavailable = unavailableTickerResponse();

@@ -57,6 +57,7 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
   const [loading, setLoading] = useState(Boolean(initialQuery));
   const [deepSettled, setDeepSettled] = useState(!initialQuery);
   const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
   const query = initialQuery.trim();
 
   useEffect(() => {
@@ -80,13 +81,20 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
       controller.abort();
       if (!active) return;
       setLoading(false);
+      setDeepSettled(true);
       setError(true);
     }, 8000);
     setLoading(true);
     setDeepSettled(false);
     setError(false);
+    setResults([]);
 
     searchSuggest(query, 20, { signal: controller.signal, source: "SearchPageClient" })
+      .catch((requestError) => {
+        if (controller.signal.aborted) throw requestError;
+        // Mobile networks/privacy filters may block the direct API host.
+        return searchSuggest(query, 20, { signal: controller.signal, source: "SearchPageClientRetry", sameOrigin: true });
+      })
       .then((response) => {
         if (!active) return;
         const fastResults = dedupeResults(response.items ?? []);
@@ -98,7 +106,7 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
       })
       .then((response) => {
         if (!active || !response) return;
-        setResults(dedupeResults(response.items ?? []));
+        setResults((current) => dedupeResults([...(response.items ?? []), ...current]));
         setError(false);
       })
       .catch((requestError) => {
@@ -118,7 +126,7 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [query]);
+  }, [query, retry]);
 
   const groups = useMemo(() => groupedResults(results), [results]);
   const topResult = results[0];
@@ -127,6 +135,10 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextQuery = inputValue.trim();
+    if (nextQuery === query) {
+      setRetry((value) => value + 1);
+      return;
+    }
     router.push(nextQuery ? searchResultsHref(nextQuery) : "/search");
   }
 
@@ -139,6 +151,9 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
           <form onSubmit={submit} className="mt-6 flex flex-col gap-3 sm:flex-row">
             <input
               name="q"
+              type="search"
+              aria-label="Search Walnut"
+              enterKeyHint="search"
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
               placeholder="Search tickers, companies, institutions, members, insiders, departments..."
@@ -152,7 +167,12 @@ export function SearchResultsClient({ initialQuery }: { initialQuery: string }) 
 
         {!query ? <section className="py-10 text-sm text-slate-400">Enter a company, ticker, institution, member, insider, or department to search Walnut.</section> : null}
         {query && loading && results.length === 0 ? <section className="py-10 text-sm text-slate-400">Searching...</section> : null}
-        {query && error ? <section className="rounded-lg border border-amber-300/25 bg-amber-300/[0.06] p-4 text-sm text-amber-100">Search results are taking longer than expected.</section> : null}
+        {query && error && results.length === 0 ? (
+          <section role="status" className="rounded-lg border border-white/10 bg-slate-900/70 p-4 text-sm text-slate-300">
+            Search couldn’t finish loading.{" "}
+            <button type="button" className="text-emerald-200 underline underline-offset-4" onClick={() => setRetry((value) => value + 1)}>Try again</button>
+          </section>
+        ) : null}
 
         {query && showDidYouMean && topResult ? (
           <section className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.06] p-4">

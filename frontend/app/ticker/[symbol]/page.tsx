@@ -3746,7 +3746,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const [entitlements, relatedResearch] = await Promise.all([entitlementsRequest, relatedResearchRequest]);
   const profile = contextBundleResult.profile;
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
-  if (!useAnonymousTickerSsrShell && !hasResolvedTickerProfile(profile)) {
+  if (!useAnonymousTickerSsrShell && !hasResolvedTickerProfile(profile) && !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"))) {
     const snapshot = await loadPublicTickerSnapshot(normalizedSymbol);
     const available = usablePublicTickerSnapshot(snapshot, normalizedSymbol);
     return (
@@ -4012,11 +4012,6 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
         </div>
       </div>
-      {shellFallbackMessage ? (
-        <div className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-medium text-amber-100">
-          {shellFallbackMessage}
-        </div>
-      ) : null}
       <Suspense fallback={<DeferredTickerSummarySkeleton />}>
         <DeferredTickerContent
           activityPromise={activityPromise}
