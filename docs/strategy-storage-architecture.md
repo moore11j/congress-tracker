@@ -1,5 +1,7 @@
 # Strategy Storage Architecture
 
+> **October 4, 2026 status:** the draft below records the original design. Refresh writers, version review/activation, subscriptions and delivery now exist in `backend/app/services/strategy_refresh.py`, `strategy_versions.py`, `strategy_scheduler.py` and `strategy_subscriptions.py`. “Not implemented in this phase” below is historical. See the [current strategy roadmap](strategy-monitoring-roadmap.md) and [product roadmap](roadmap.md) for remaining work.
+
 Draft status: storage/read path only. Backtest refresh writers and user-facing pages should be reviewed before launch.
 
 ## Goals

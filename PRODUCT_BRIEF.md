@@ -1,5 +1,7 @@
 # Congress & Smart Money Flow Intelligence Platform
 
+> **Current planning source (October 4, 2026):** [Walnut Markets roadmap](docs/roadmap.md). This brief preserves the original vision and early phases; its “Already Built,” tiers and phase lists are not a current inventory. Read [AGENTS.md](AGENTS.md) for current project context.
+
 ## Product Vision
 Build a premium investor intelligence platform that tracks:
 
