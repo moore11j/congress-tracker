@@ -8,7 +8,8 @@ Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops ther
 - **Preflight:** memory re-read; working tree contains only intended documentation changes; GitHub main remains `80aaa7f7`. Existing GitHub deployment history confirms Vercel Production deployments follow main commits.
 - **Release plan:** commit and push to `main`, verify the resulting Vercel production deployment and both public app-version endpoints. Backend source is unchanged, so no Fly restart is needed; check backend readiness without deploying it.
 - **Checks:** documentation link/archive checks and `git diff --check`; no application regression suite for Markdown-only edits.
-- **State:** release and verification pending. No product capabilities, pricing, account settings or delivery preferences changed.
+- **Verified release:** committed and pushed all seven documents as `104aa38224c3953c619b8f4e0817d866f5041aea`. [Vercel Production deployment](https://vercel.com/moore11js-projects/congress-tracker/tN3mm5tgNUzHM6qtfuReHH1ngQfG) reported success; both `walnutmarkets.com/api/app-version` and `app.walnutmarkets.com/api/app-version` returned that exact revision. Backend `/ready` returned `status: ok`, `database: ok`.
+- **Receipt:** this log and `AGENTS.md` record the verified release in a follow-up documentation commit, which may advance the frontend revision. No product capabilities, pricing, account settings or delivery preferences changed. Backend was not redeployed because its files are unchanged.
 
 ## 2026-10-04 — Roadmap reconciliation and project memory
 

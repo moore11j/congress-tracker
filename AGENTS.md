@@ -69,7 +69,7 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
-- **2026-10-04 — Commit and deploy:** owner explicitly authorized committing and deploying the roadmap/context work. Re-read memory and verified only the seven intended documentation files are pending; GitHub main still matches baseline `80aaa7f7`.
-- Result: preparing the documentation release on `main` through the existing GitHub → Vercel production integration. Backend source is unchanged; no Fly restart is required for these documents.
-- Validation: documentation links, archive preservation and diff checks; application regression tests are not required for these documentation-only edits. Deployment verification is pending and will be recorded in the context log.
+- **2026-10-04 — Commit and deploy:** owner explicitly authorized the roadmap/context release. All seven documents were committed and pushed to `main` as `104aa382`.
+- Result: Vercel Production succeeded; both public domains returned exact revision `104aa38224c3953c619b8f4e0817d866f5041aea`. This checkpoint and its log are the documentation receipt for that verified release; a subsequent receipt-only commit may advance the frontend revision.
+- Validation: 80 local links and preserved archive passed; `git diff --check` passed; backend `/ready` returned `status: ok`, `database: ok`. No application code changed or backend restart occurred. No full application regression suite was run. See the context log for the deployment link.
 - Next suggested work: roadmap R1 reliability baseline and R2 acquisition/paid-measurement reconciliation; the owner has not selected an implementation task yet.
