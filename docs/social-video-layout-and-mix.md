@@ -4,9 +4,9 @@
 
 The subsequent [editorial and video implementation report](research-editorial-quality-2026-10-04.md)
 supersedes the proposal status below: a bounded Sol selector and version 3 daily
-research flow are implemented locally, with the finding shown before navigation.
+research flow were deployed October 4 as `fdafb86f`, with the finding shown before navigation.
 Old videos/tutorials remain reproducible. Two voice-only auditions completed;
-neither is selected for production. Code is not deployed, and the retained Zeely
+neither is selected for production. API/cron/video model settings were verified; the retained Zeely
 presenter crop still needs repair before that footage is republished.
 
 ## October 4 creative-quality audit and local comparison

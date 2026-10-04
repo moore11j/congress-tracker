@@ -70,12 +70,13 @@ This review inspected code, test sources, Git history and dated repository repor
 
 ### R3 — Keep research claims, SEO and distribution accurate (P0/P1)
 
-**October 4 creative/editorial follow-up — local implementation:** the
+**October 4 creative/editorial follow-up — deployed `fdafb86f`:** the
 [writing and search-demand report](research-editorial-quality-2026-10-04.md)
 records a Sol research default, shared writing contract, historical demand
 comparison and source-bound video direction that shows the finding first.
 108 focused tests and TypeScript checks pass; broader pre-existing test failures
-are documented. Two voice auditions completed. Production deployment, live
+are documented. Vercel/Fly rollout, effective API/cron/video models and Sol API
+access were verified October 4. Two voice auditions completed; live generated
 writing evaluation and voice selection remain outstanding. The earlier
 [video comparison](social-video-layout-and-mix.md#october-4-creative-quality-audit-and-local-comparison)
 is an offline prototype; retained Zeely footage still needs presenter-crop repair.

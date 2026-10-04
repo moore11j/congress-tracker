@@ -1,6 +1,8 @@
 # Research writing and video direction — October 4, 2026
 
-Status: implemented locally against `c7bb0b56`; not committed or deployed. The owner approved the prior creative proposal and requested a better research model, stronger finance writing, current search relevance and useful demonstrations of Walnut's native data.
+Status: deployed October 4 as `fdafb86fd855552ebc897b6da64397d098c93c1c`, built against `c7bb0b56`. The owner approved the prior creative proposal and requested a better research model, stronger finance writing, current search relevance and useful demonstrations of Walnut's native data.
+
+Release verification: Vercel succeeded and both public domains reported the release SHA. Fly workflow [37240643427](https://github.com/moore11j/congress-tracker/actions/runs/37240643427) succeeded; all four machines run the release image. Readiness and anonymous Premium-route denial checks passed. API/cron/video effective configuration returns Sol and the v9 prompt; authenticated read-only Sol model access returned HTTP 200. No content generation, new voice selection or publication was performed in this rollout. A documentation receipt may subsequently advance the frontend revision.
 
 ## What the evidence says
 
@@ -30,7 +32,7 @@ These are historical estimates including close variants, not current-day searche
 
 The practical implication is to explore valuation, earnings/cash conversion, contracts, ownership, insider and Congress angles according to native evidence and the reader's intent. “Microsoft ownership” cannot be relabeled “who is buying” simply to borrow its volume. A short measured query can support a specific article question; the title need not be a 25-word keyword bundle. Broad “stock screener” demand belongs primarily to the product workflow, not an unrelated ticker brief.
 
-## Local implementation
+## Implementation
 
 - Research default and admin fallback: `gpt-6.1-sol`; mini remains an explicit budget choice. Existing environment overrides and saved explicit selections are honored. No silent model fallback. Drafts, revisions and default discovery use low reasoning with existing output bounds.
 - Shared editorial contract for drafting and repair: direct answer with a decisive fact; observation → interpretation → limitation; relevant counterevidence; an observable condition that could change the conclusion; specific headings and varied sentence rhythm. Thin evidence does not justify padding. Existing claim/source, naming, entitlement and buyer-detail guards remain.
@@ -39,7 +41,7 @@ The practical implication is to explore valuation, earnings/cash conversion, con
 - New daily research videos use version 3: one bounded Sol selection from eligible exact published excerpts and three permitted hooks; show the finding before navigation; demonstrate ticker → Research → brief; link the analysis in the caption. The model cannot introduce financial prose or figures. Missing key/provider failure yields a documented deterministic selection without automatic retries. Existing creative budgets apply. The call is capped at 900 output tokens; input is at most eight short excerpts plus metadata.
 - Old version 1/2 video boards remain reproducible. Feature tutorials retain their previous flow; existing approvals, renders and scheduled posts are not modified. The production voice, presenter and render design are not replaced by a text-model change.
 
-Model and cost sources: [official Sol model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [migration guide](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart). The local usage estimator now recognizes Sol's standard $2/M input, $0.10/M cached input and $10/M output token rates. An illustrative 12,000 input + 3,000 output tokens is $0.054 before search, cache-write adjustments or repairs. This is an estimate, not an observed draft invoice. Production account access/overrides still need deployment-time verification.
+Model and cost sources: [official Sol model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [migration guide](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart). The usage estimator now recognizes Sol's standard $2/M input, $0.10/M cached input and $10/M output token rates. An illustrative 12,000 input + 3,000 output tokens is $0.054 before search, cache-write adjustments or repairs. This is an estimate, not an observed draft invoice. Production account model access and effective defaults were verified during deployment; actual generated-output quality remains a follow-up.
 
 ## Voice comparison
 
@@ -50,6 +52,6 @@ Two completed, voice-only review samples use the same approximately 200-characte
 - Python 3.14.2 with isolated SQLite and workspace pytest temporary directories: 108 focused editorial, keyword, scheduler, creative, navigation and social-layout tests passed.
 - Broader research run: 137 passed, seven failed. All seven failures reproduced against an isolated archive of unchanged `c7bb0b56`: schema test double missing `bind`; quality-repair wording expectation; campaign ticker replanning; NBIS revision identity expectation; external source revenue expectation; CXW fallback multiple; cash-flow period derivation. These require separate diagnosis and are not a full-suite pass.
 - Frontend: six of seven selected static tests passed; the unchanged public archive test expects the removed `getPublishedResearchBriefs` helper. Its inputs and test are unchanged from HEAD. TypeScript `tsc --noEmit --incremental false` passed.
-- New media generation succeeded at the provider. No full listening review, live Sol-generated brief evaluation, full end-to-end video render, conversion experiment, commit, deployment, email or social publication occurred.
+- During implementation, new audition media generation succeeded at the provider. No full listening review, live Sol-generated brief evaluation, full end-to-end video render or conversion experiment was performed. Commit/deployment subsequently completed as recorded above; no email or social publication occurred.
 
-Before declaring production quality improved: deploy within authorization, verify effective model settings/API access, review three diverse native-data briefs for factual accuracy and unnecessary edits, render one new research video, listen to both auditions, and inspect mobile captions/navigation/presenter crop. Measure editing effort, qualified product clicks, saves/signups and paid conversions with the existing analytics safeguards. Keep the separate retained-Zeely crop repair open.
+Before declaring production quality improved: review three diverse native-data briefs for factual accuracy and unnecessary edits, render one new research video, listen to both auditions, and inspect mobile captions/navigation/presenter crop. Measure editing effort, qualified product clicks, saves/signups and paid conversions with the existing analytics safeguards. Keep the separate retained-Zeely crop repair open.
