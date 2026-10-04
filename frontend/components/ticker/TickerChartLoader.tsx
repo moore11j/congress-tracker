@@ -137,17 +137,24 @@ function waitForHydrationWindow(signal: AbortSignal): Promise<void> {
   });
 }
 
-export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol: string; days: number; deferLoad?: boolean }) {
+export function TickerChartLoader({ symbol, days: initialDays, deferLoad = false, eager = false }: { symbol: string; days: number; deferLoad?: boolean; eager?: boolean }) {
+  const [days, setDays] = useState(initialDays);
+  useEffect(() => setDays(initialDays), [initialDays, symbol]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [bundle, setBundle] = useState<TickerChartBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [shouldLoad, setShouldLoad] = useState(false);
+  useEffect(() => setBundle(null), [symbol]);
 
   useEffect(() => {
     if (deferLoad) return;
     if (shouldLoad) return;
+    if (eager) {
+      setShouldLoad(true);
+      return;
+    }
     const node = rootRef.current;
     let initialLoadTimer: number | undefined;
     const scheduleLoad = () => {
@@ -178,12 +185,11 @@ export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol:
       if (initialLoadTimer !== undefined) window.clearTimeout(initialLoadTimer);
       observer.disconnect();
     };
-  }, [deferLoad, shouldLoad]);
+  }, [deferLoad, eager, shouldLoad]);
 
   useEffect(() => {
     if (!shouldLoad) return;
     const controller = new AbortController();
-    setBundle(null);
     setLoading(true);
     setFailed(false);
 
@@ -236,6 +242,7 @@ export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol:
 
     loadChartAfterHydration()
       .then((response) => {
+        if (controller.signal.aborted) return;
         setBundle(response);
         setFailed(false);
       })
@@ -251,10 +258,20 @@ export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol:
     return () => controller.abort();
   }, [attempt, days, shouldLoad, symbol]);
 
-  if (!shouldLoad || loading) {
+  const rangeControls = <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Chart time range">
+    <span className="mr-1 text-xs font-medium text-slate-400">Range</span>
+    {([[1, "1D"], [5, "5D"], [30, "1M"], [90, "3M"], [180, "6M"], [365, "1Y"]] as const).map(([value, label]) => (
+      <button key={value} type="button" aria-pressed={days === value} onClick={() => { setDays(value); setShouldLoad(true); }}
+        className={`rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${days === value ? "bg-cyan-300/15 text-cyan-100 ring-1 ring-cyan-300/30" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>{label}</button>
+    ))}
+    <span className="text-[11px] text-slate-500">Daily prices</span>
+    {loading && bundle ? <span role="status" className="text-xs text-cyan-200">Updating range…</span> : null}
+  </div>;
+
+  if (!shouldLoad || (loading && !bundle)) {
     return (
       <div ref={rootRef}>
-        <PremiumTickerChartSkeleton />
+        <PremiumTickerChartSkeleton headerControls={rangeControls} />
       </div>
     );
   }
@@ -262,6 +279,7 @@ export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol:
     return (
       <div ref={rootRef}>
         <section className={cardClassName}>
+          {rangeControls}
           <h2 className="text-lg font-semibold text-white">Ticker chart</h2>
           <p className="mt-2 text-sm text-slate-400">Chart unavailable.</p>
           <button
@@ -276,8 +294,8 @@ export function TickerChartLoader({ symbol, days, deferLoad = false }: { symbol:
     );
   }
   return (
-    <div ref={rootRef}>
-      <PremiumTickerChart bundle={bundle} />
+    <div ref={rootRef} aria-busy={loading}>
+      <PremiumTickerChart bundle={bundle} headerControls={rangeControls} />
     </div>
   );
 }

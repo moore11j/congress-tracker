@@ -2,6 +2,22 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-04 — Ticker preview image
+
+Release follow-up: the owner approved commit and deployment. Preflight confirmed GitHub main equals local `98e65467` and the backend still runs the prior editorial release. Reusing the completed build, TypeScript, 66 backend and 99 frontend passes with five reproduced baseline failures; no application code changed since that validation. Production rollout and verification are in progress.
+
+- **Request/result:** show a preview image; inspected and presented the existing `artifacts/ticker-ux-20261004/research-cards.jpg` screenshot, explicitly labeled synthetic sample data.
+- **Checks/state:** image opens and shows colored research cards; no code changes or new application tests, no deployment. No durable product decision changed. Next remains user review and any authorized release/coverage verification.
+
+## 2026-10-04 — Ticker UX, contextual fundamentals and Signal Mixer
+
+- **Request:** implement the competitive recommendations and make the ticker easier to scan; move the chart above research tabs, keep side cards and chart markers, move time ranges inside the chart, remove redundant outer source/side controls, and distinguish catalysts/risks/watch items without deleting research features.
+- **Result:** chart-first layout and chart-local ranges with preserved overlay choices; icon/color/border hierarchy and expandable full research text; sourced growth/cash/leverage/valuation snapshot; Premium Signal Mixer combining explicit purchase disclosures with earlier purchases, contract observations or analyst upgrades, optional buyer clustering/SMA50, costs and 30/90/365-day benchmark-relative diagnostics.
+- **Boundaries:** no scoring change, new chart library, price-plan change or live mixer monitoring. Contracts use observation timing when publication timing is unknown. The existing portfolio backtester still lacks cost/slippage modeling. Historical forward-P/E comparisons remain deferred. Details and code links: `docs/ticker-ux-and-signal-mixer-2026-10-04.md`.
+- **Checks:** production build and TypeScript passed; build API bases explicitly targeted the local fixture service. 66 Python tests passed in isolated SQLite on 3.14.2. Focused frontend selection: 99 passed/five failures; all five reproduced on unchanged `98e65467`. Desktop and 390px mobile component/interaction QA used synthetic local data and confirmed no page-level horizontal overflow. Temporary preview route removed; test/build logs and screenshots remain local artifacts.
+- **Delivery:** local implementation only; no commit, push or deployment. A read-only public cached AAPL context probe returned a cache miss; no production data/settings changed. Prior editorial release and its receipt were preserved.
+- **Next:** authorized release and production-shaped source-coverage/authenticated layout checks. Saved rules/live alerts and R6 execution realism remain open.
+
 ## 2026-10-04 — Commit and deploy editorial/video improvements
 
 - **Authorization:** owner explicitly requested commit and deployment of the implemented improvements.

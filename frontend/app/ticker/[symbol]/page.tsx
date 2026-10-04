@@ -27,6 +27,7 @@ import {
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
 import { TickerDecisionPanels } from "@/components/ticker/TickerDecisionPanels";
+import { TickerFundamentalsSnapshot } from "@/components/ticker/TickerFundamentalsSnapshot";
 import { TickerSourceAlignment } from "@/components/ticker/TickerSourceAlignment";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
@@ -1334,6 +1335,7 @@ function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHisto
 }
 
 function TickerOverviewPanel({
+  fundamentals,
   confirmationBundle,
   sourceDisplayBundle = confirmationBundle,
   decisionLayer,
@@ -1342,6 +1344,7 @@ function TickerOverviewPanel({
   similarHistoricalSetups,
   symbol,
 }: {
+  fundamentals: TickerFundamentalsSummary;
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
   decisionLayer?: TickerDecisionLayer | null;
@@ -1387,7 +1390,9 @@ function TickerOverviewPanel({
         </div>
       </section>
 
+      <TickerFundamentalsSnapshot summary={fundamentals} />
       <TickerDecisionPanels layer={layer} locked={confirmationLocked} />
+      <Link href="/backtesting?strategy=mixer#signal-mixer" className="mt-4 inline-flex rounded-lg border border-sky-300/20 bg-sky-300/5 px-3 py-2 text-xs font-semibold text-sky-300 hover:bg-sky-300/10">Explore signal combinations →</Link>
       {similarHistoricalSetupsLocked ? (
         <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
       ) : (
@@ -3026,15 +3031,17 @@ async function DeferredTickerContent({
   return (
     <>
       <section className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,366px)] xl:items-stretch">
-        <div className="min-w-0 xl:flex xl:min-h-0 xl:h-full">
+        <div className="min-w-0 space-y-4">
+          <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} deferLoad={deferHeavyTickerLoads} eager />
           <TickerContextCard
             key={normalizedSymbol}
             symbol={normalizedSymbol}
             canViewOwnership={canViewProTickerContext}
             researchItems={tickerResearch}
-            className="min-w-0 xl:h-full xl:w-full"
+            className="min-w-0 w-full"
             overview={
               <TickerOverviewPanel
+                fundamentals={fundamentalsContext}
                 confirmationBundle={confirmationBundle}
                 sourceDisplayBundle={visibleConfirmationBundle}
                 decisionLayer={decisionLayer}
@@ -3162,78 +3169,6 @@ async function DeferredTickerContent({
           </div>
         </div>
       </section>
-      <div className="grid gap-3 lg:grid-cols-[minmax(28rem,1fr)_max-content_max-content]">
-        <div className={`${cardClassName} min-w-0 p-4`}>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-widest text-slate-400">Activity view</p>
-            <p className="text-xs text-slate-500">All / Congress / Insiders / Signals / Institutional / Gov Contracts</p>
-          </div>
-          <div className="mt-3 flex flex-wrap rounded-xl border border-white/10 bg-slate-950/80 p-1">
-            {([
-              ["all", "All"],
-              ["congress", "Congress"],
-              ["insider", "Insiders"],
-              ["signals", "Signals"],
-              ["institutional", "Institutional"],
-              ["government_contract", "Gov Contracts"],
-            ] as const).map(([value, label]) => (
-              <Link
-                key={value}
-                href={hrefWithFilters(normalizedSymbol, lookback, value, side)}
-                prefetch={false}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                  source === value
-                    ? "bg-emerald-400/15 text-emerald-200"
-                    : "text-slate-300 hover:bg-white/5"
-                }`}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        </div>
-        <div className={`${cardClassName} p-4 lg:w-[25rem]`}>
-          <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Chart range</p>
-          <div className="flex flex-wrap gap-2">
-            {(["1", "5", "30", "90", "180", "365"] as const).map((value) => (
-              <Link
-                key={value}
-                href={hrefWithFilters(normalizedSymbol, value, source, side)}
-                prefetch={false}
-                scroll={false}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                  lookback === value
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                    : "border-white/10 bg-slate-900/60 text-slate-300"
-                }`}
-              >
-                {value}D
-              </Link>
-            ))}
-          </div>
-        </div>
-        <div className={`${cardClassName} p-4 lg:w-[17rem]`}>
-          <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Trade side</p>
-          <div className="flex flex-wrap gap-2">
-            {(["all", "buy", "sell"] as const).map((value) => (
-              <Link
-                key={value}
-                href={hrefWithFilters(normalizedSymbol, lookback, source, value)}
-                prefetch={false}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
-                  side === value
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                    : "border-white/10 bg-slate-900/60 text-slate-300"
-                }`}
-              >
-                {value}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} deferLoad={deferHeavyTickerLoads} />
       <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -3635,8 +3570,8 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
   const { symbol } = await params;
   const sp = (await searchParams) ?? {};
   const lookback = clampLookback(one(sp, "lookback"));
-  const source = clampSource(one(sp, "source"));
-  const side = clampSide(one(sp, "side"));
+  const source: SourceFilter = "all";
+  const side: SideFilter = "all";
   const congressPage = clampPage(one(sp, "congress_page"));
   const insiderPage = clampPage(one(sp, "insider_page"));
   const institutionalPage = clampPage(one(sp, "institutional_page"));

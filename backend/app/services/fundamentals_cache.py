@@ -855,6 +855,11 @@ def fundamentals_summary_from_cache_row(
         "updated_at": row.fetched_at.isoformat() if isinstance(row.fetched_at, datetime) else None,
         "freshness_days": freshness_days,
         "data_state": "stale" if stale else "fresh",
+        # Descriptive context only: do not add these values to scored_states.
+        "context": {
+            "provider": row.provider,
+            "free_cash_flow": _row_number(row, "free_cash_flow"),
+        },
         "metrics": metrics,
         "data_quality": {
             "available": scored_count >= 3,

@@ -460,10 +460,11 @@ function readoutForDate(
   };
 }
 
-export function PremiumTickerChartSkeleton() {
+export function PremiumTickerChartSkeleton({ headerControls }: { headerControls?: import("react").ReactNode } = {}) {
   return (
     <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d]">
       <div className="border-b border-white/10 p-4">
+        {headerControls ? <div className="mb-4">{headerControls}</div> : null}
         <div className="h-3 w-40 animate-pulse rounded bg-white/10" />
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-8">
           {Array.from({ length: 8 }).map((_, idx) => (
@@ -486,6 +487,7 @@ export function PremiumTickerChart({
   subtitle,
   allowedMarkerKinds,
   showMarkerControls = true,
+  headerControls,
   emptyTitle = "No daily price history available.",
   emptyMessage = "The chart will render once daily closes are available for this ticker.",
 }: {
@@ -495,6 +497,7 @@ export function PremiumTickerChart({
   subtitle?: string;
   allowedMarkerKinds?: TickerChartMarker["kind"][];
   showMarkerControls?: boolean;
+  headerControls?: import("react").ReactNode;
   emptyTitle?: string;
   emptyMessage?: string;
 }) {
@@ -1124,6 +1127,7 @@ export function PremiumTickerChart({
   if (bundle && freshnessBlocksChart) {
     return (
       <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d] p-5">
+        {headerControls ? <div className="mb-4">{headerControls}</div> : null}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
@@ -1147,6 +1151,7 @@ export function PremiumTickerChart({
   if (!bundle || normalized.areaData.length === 0) {
     return (
       <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d] p-5">
+        {headerControls ? <div className="mb-4">{headerControls}</div> : null}
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
         <div className="mt-4 rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-6">
           <p className="text-sm font-semibold text-slate-100">{emptyTitle}</p>
@@ -1159,6 +1164,7 @@ export function PremiumTickerChart({
   return (
     <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d] shadow-[0_24px_80px_rgba(2,6,23,0.34)]">
       <div className="border-b border-white/10 p-4">
+        {headerControls ? <div className="mb-4 border-b border-white/10 pb-4">{headerControls}</div> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
@@ -1184,7 +1190,7 @@ export function PremiumTickerChart({
             <span>Daily</span>
           </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-8">
+        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 2xl:grid-cols-8">
           {stats.map((stat) => (
             <div key={stat.label} className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{stat.label}</p>

@@ -94,6 +94,19 @@ is an offline prototype; retained Zeely footage still needs presenter-crop repai
 
 ## NEXT — complete retention and research depth
 
+### October 4 ticker UX and Signal Mixer — implemented locally
+
+The owner authorized the competitive follow-up and ticker simplification. The
+[implementation and validation report](ticker-ux-and-signal-mixer-2026-10-04.md)
+records a chart-first layout, in-chart ranges, clearer expandable research
+categories, a sourced fundamentals snapshot and a Premium historical Signal
+Mixer with explicit source timing, cost inputs and 30/90/365-day SPY comparisons.
+Source baseline: `98e65467`; changes are local and not production-verified.
+The mixer uses contract observation dates where public timing is unknown and
+exposes sample/coverage limitations. Saved mixer rules and live alerts remain
+unimplemented; general portfolio execution realism in R6 remains partial.
+Advanced Charts migration and historical forward-P/E averages remain deferred.
+
 ### R4 — Finish Research Memory monitoring (P1)
 
 **Work:** connect permitted evidence ingestion and matching to a reliable per-thesis monitoring lifecycle and useful alerts. Improve source completeness before claiming comprehensive coverage.

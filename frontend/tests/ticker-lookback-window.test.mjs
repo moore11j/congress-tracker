@@ -17,8 +17,8 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /const lookback = clampLookback\(one\(sp, "lookback"\)\)/);
   assert.match(tickerPage, /type Lookback = "1" \| "5" \| "30" \| "90" \| "180" \| "365"/);
   assert.match(tickerPage, /v === "1" \|\| v === "5" \|\| v === "30"/);
-  assert.match(tickerPage, /\(\["1", "5", "30", "90", "180", "365"\] as const\)\.map/);
-  assert.match(tickerPage, /href=\{hrefWithFilters\(normalizedSymbol, value, source, side\)\}[\s\S]*?scroll=\{false\}/);
+  assert.match(chartLoader, /\[1, "1D"\], \[5, "5D"\], \[30, "1M"\], \[90, "3M"\], \[180, "6M"\], \[365, "1Y"\]/);
+  assert.match(chartLoader, /headerControls=\{rangeControls\}/);
   assert.match(tickerPage, /const SIGNAL_WINDOW_DAYS = 30/);
   assert.match(tickerPage, /const lookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /recent_days: lookbackDays/);
@@ -32,15 +32,17 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /const selectedLookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /normalizeOptionsFlowSummary\(optionsFlowSummary, normalizedSymbol, effectiveLookbackDays\)/);
   assert.match(tickerPage, /optionsFlow = \{ \.\.\.optionsFlow, lookback_days: effectiveLookbackDays \}/);
-  assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} deferLoad=\{deferHeavyTickerLoads\} \/>/);
+  assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} deferLoad=\{deferHeavyTickerLoads\} eager \/>/);
   assert.doesNotMatch(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{lookbackDays\}/);
   assert.doesNotMatch(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: SIGNAL_WINDOW_DAYS/);
 });
 
-test("ticker activity filters keep small controls compact", () => {
-  assert.match(tickerPage, /lg:grid-cols-\[minmax\(28rem,1fr\)_max-content_max-content\]/);
-  assert.match(tickerPage, /lg:w-\[25rem\]/);
-  assert.match(tickerPage, /lg:w-\[17rem\]/);
+test("ticker shows the chart before research and removes redundant table filters", () => {
+  assert.ok(tickerPage.indexOf("<TickerChartLoader") < tickerPage.indexOf("<TickerContextCard"));
+  assert.doesNotMatch(tickerPage, />Activity view<|>Trade side<|>Chart range</);
+  assert.match(tickerPage, /const source: SourceFilter = "all"/);
+  assert.match(tickerPage, /const side: SideFilter = "all"/);
+  assert.match(chartLoader, /aria-label="Chart time range"/);
 });
 
 test("ticker participant leaderboards rank the live activity tapes by trades and net flow", () => {

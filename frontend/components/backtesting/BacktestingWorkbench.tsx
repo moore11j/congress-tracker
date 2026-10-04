@@ -26,6 +26,7 @@ import { hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import type { TickerProfilesMap } from "@/lib/types";
 import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName, tickerMonoLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
+import { SignalMixerWorkbench } from "./SignalMixerWorkbench";
 
 type Props = {
   initialEntitlements: Entitlements;
@@ -667,6 +668,10 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
 
   return (
     <div className="space-y-8">
+      <details id="signal-mixer" open={initialQuery?.strategy === "mixer"} className={`${cardClassName} scroll-mt-24`}>
+        <summary className="cursor-pointer text-lg font-semibold text-sky-300">Signal Mixer <span className="ml-2 text-sm font-normal text-slate-400">Combine disclosures and test what followed</span></summary>
+        <SignalMixerWorkbench canRun={canRun && !entitlementsLoading} today={today} />
+      </details>
       <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
         <div className={`${cardClassName} space-y-5`}>
           <div>

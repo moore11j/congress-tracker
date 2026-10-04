@@ -12,9 +12,17 @@ from app.entitlements import current_entitlements, require_feature
 from app.rate_limit import rate_limit_backtest_run
 from app.models import SavedScreen, Watchlist, WatchlistItem
 from app.services.backtesting.engine import run_backtest
+from app.services.backtesting.signal_mixer import SignalMixerConfig, run_signal_mixer
 from app.services.backtesting.models import DEFAULT_BENCHMARK, HOLD_DAY_OPTIONS, BacktestStrategyConfig, benchmark_options_payload
 
 router = APIRouter(tags=["backtests"])
+
+
+@router.post("/backtests/signal-mixer", dependencies=[Depends(rate_limit_backtest_run)])
+def signal_mixer_run(payload: SignalMixerConfig, request: Request, db: Session = Depends(get_db)):
+    current_user(db, request, required=True)
+    require_feature(current_entitlements(request, db), "backtesting", message="Signal Mixer is included with Premium.")
+    return run_signal_mixer(db, payload)
 
 
 @router.get("/backtests/presets")

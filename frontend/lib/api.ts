@@ -5095,6 +5095,7 @@ export type MacroPositioningFeedResponse = {
 
 export type FundamentalsMetricState = "bullish" | "neutral" | "bearish" | "unavailable" | string;
 export type TickerFundamentalsSummary = {
+  context?: { provider?: string | null; free_cash_flow?: number | null };
   symbol?: string | null;
   status?: "bullish" | "mixed" | "bearish" | "unavailable" | string;
   headline?: string | null;
@@ -5732,6 +5733,42 @@ export async function getPublicActivity(params: { tape: "congress" | "insider"; 
     source: "PublicDisclosurePreview", requestSource: "ssr",
   });
   return normalizeEventsResponse(payload, params.recent_days ?? 365);
+}
+
+export type SignalMixerConfig = {
+  trigger: "insider" | "congress";
+  confirmation: "insider" | "congress" | "government_contract" | "analyst_upgrade";
+  window_days: number;
+  minimum_buyers: number;
+  above_sma50: boolean;
+  start_date: string;
+  end_date: string;
+  fee_bps: number;
+  slippage_bps: number;
+};
+export type SignalMixerResult = {
+  methodology_version: string;
+  config: SignalMixerConfig;
+  matched_setups: number;
+  diagnostics: Record<string, number>;
+  assumptions: string[];
+  horizons: Array<{
+    days: number;
+    sample_size: number;
+    positive_return_rate_pct: number | null;
+    beat_spy_rate_pct: number | null;
+    median_net_return_pct: number | null;
+    median_excess_return_pct: number | null;
+    worst_return_pct: number | null;
+    loss_count: number;
+    exclusions: Record<string, number>;
+    examples: Array<{ symbol: string; signal_date: string; trigger_id: string; confirmation_id: string; confirmation_date: string; entry_date: string; exit_date: string; net_return_pct: number; spy_return_pct: number; excess_return_pct: number }>;
+  }>;
+};
+export function runSignalMixer(payload: SignalMixerConfig): Promise<SignalMixerResult> {
+  return fetchJson<SignalMixerResult>(buildApiUrl("/api/backtests/signal-mixer"), {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
 }
 
 export async function getEvents(params: QueryParamsWithRequestOptions & { tape?: string }): Promise<EventsResponse> {
