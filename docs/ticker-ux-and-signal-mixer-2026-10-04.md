@@ -4,7 +4,13 @@
 
 The owner authorized implementing the competitive recommendations and simplifying the ticker page: chart first, research tabs below, source cards alongside, ranges inside the chart, clearer catalysts/risks/watch items, and removal of redundant table/source and buy/sell controls. Existing research tabs, activity tables, chart markers and entitlements remain available.
 
-Implemented against the October 4 source; validation baseline archived from `98e65467`. The owner approved commit and deployment after preview review; rollout verification is in progress. The separate editorial release `fdafb86f` remains recorded in the context log.
+Implemented against the October 4 source; validation baseline archived from `98e65467`. The owner approved commit and deployment after preview review. Release `bfb7602d63fbc18a1a00aa5ad47e51f9d1f2e2a6` was pushed and deployed October 4. The separate editorial release `fdafb86f` remains preserved.
+
+Production verification: [Vercel deployment](https://vercel.com/moore11js-projects/congress-tracker/7d5G8MrU6fJHVxxr8hSMkPL9d7Sz) and [Fly workflow 37242718354](https://github.com/moore11j/congress-tracker/actions/runs/37242718354) succeeded. Both public `/api/app-version` endpoints returned the release SHA; all four API/cron/video machines run its image. `/ready` returned status/database `ok`; anonymous Signal Mixer POST returned 401. Signed-in AAPL showed chart-first layout, sidebar, retained marker controls, and Congress staying disabled after a range change. The workflow had a non-fatal Git cleanup annotation; deployment and verification steps succeeded. A later documentation receipt may advance the frontend version without application changes.
+
+Live data limitations: refreshed AAPL context includes `free_cash_flow: null`; the existing public projection strips provider identity, so the snapshot currently displays unavailable cash/source context. Broad mixer studies returned explicit source-record/company-limit errors. These are open data/UX limitations, not a claim of comprehensive historical coverage. Saved rules and live alerts remain unimplemented.
+
+A bounded signed-in production study completed: September 1–October 4, 2026, Congress purchases following recorded contracts within seven days, zero fees and 10 bps slippage. From 236 trigger rows, 155 lacked prior confirmation and 79 were duplicate symbol/day rows; two setups matched. Both remain pending at 30/90/365-day horizons, with no shortened or invented outcomes. This verifies the deployed study/diagnostics path, not mature historical return coverage.
 
 ## Ticker changes
 
@@ -41,4 +47,4 @@ TradingView Advanced Charts migration and historical forward-P/E comparisons rem
 - Local-only screenshots, mock API, preview source and test/build logs are in ignored `artifacts/ticker-ux-20261004/`. The temporary preview route was removed before the build. This is populated component QA, not a production-authenticated ticker/data-coverage audit.
 - A read-only public cached AAPL context request returned `public_context_cache_miss`; no production data, account settings, subscriptions or delivery configuration were changed. No paid generation or external messages.
 
-Before a release claim: review production-shaped source coverage and authenticated ticker layout after an authorized deployment, and retain the broader suite's known baseline failures as open validation work.
+Release verification above supersedes the original local-only delivery boundary. Broader source coverage, fundamentals source wording/data availability, practical mixer defaults and the known suite failures remain follow-up work.

@@ -94,14 +94,20 @@ is an offline prototype; retained Zeely footage still needs presenter-crop repai
 
 ## NEXT — complete retention and research depth
 
-### October 4 ticker UX and Signal Mixer — implemented locally
+### October 4 ticker UX and Signal Mixer — deployed, partial capability
 
 The owner authorized the competitive follow-up and ticker simplification. The
 [implementation and validation report](ticker-ux-and-signal-mixer-2026-10-04.md)
 records a chart-first layout, in-chart ranges, clearer expandable research
 categories, a sourced fundamentals snapshot and a Premium historical Signal
 Mixer with explicit source timing, cost inputs and 30/90/365-day SPY comparisons.
-Source baseline: `98e65467`; changes are local and not production-verified.
+Release `bfb7602d` deployed October 4; Vercel and Fly workflow `37242718354`
+succeeded, with both frontend versions, all four backend images, readiness,
+anonymous mixer denial and signed-in ticker layout verified. Source baseline:
+`98e65467`. Live AAPL cash flow remains null and the public projection hides
+provider identity; source wording/data completeness remain follow-up work.
+Broad live study windows hit the explicit source/company limits, so practical
+defaults and longer-window coverage need further work.
 The mixer uses contract observation dates where public timing is unknown and
 exposes sample/coverage limitations. Saved mixer rules and live alerts remain
 unimplemented; general portfolio execution realism in R6 remains partial.

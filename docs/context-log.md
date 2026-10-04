@@ -2,9 +2,14 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
-## 2026-10-04 — Ticker preview image
+## 2026-10-04 — Commit and deploy ticker UX and Signal Mixer
 
-Release follow-up: the owner approved commit and deployment. Preflight confirmed GitHub main equals local `98e65467` and the backend still runs the prior editorial release. Reusing the completed build, TypeScript, 66 backend and 99 frontend passes with five reproduced baseline failures; no application code changed since that validation. Production rollout and verification are in progress.
+- **Authorization/result:** owner approved commit and deployment after preview. Pushed `bfb7602d63fbc18a1a00aa5ad47e51f9d1f2e2a6`; [Vercel](https://vercel.com/moore11js-projects/congress-tracker/7d5G8MrU6fJHVxxr8hSMkPL9d7Sz) and [Fly workflow 37242718354](https://github.com/moore11j/congress-tracker/actions/runs/37242718354) succeeded. Both public version endpoints and all four backend machine images match. Readiness/database and anonymous mixer 401 checks passed.
+- **Validation:** reused completed build, TypeScript, 66 backend and 99 frontend passes with five reproduced baseline failures; no application code changed since validation. Signed-in AAPL chart-first layout, sidebar, research cards, chart range and preserved marker choice verified. Local screenshot: `artifacts/ticker-ux-20261004/production-chart.png`.
+- **Live study:** September 1–October 4, Congress trigger plus government contract within seven preceding days, zero fees and 10 bps slippage: 236 trigger rows, 155 without prior confirmation, 79 duplicate symbol/day rows, two matched setups. Both setups pending at 30/90/365 days; no fabricated shortened outcomes. Completed through the signed-in production UI. No mature live-return validation claimed.
+- **Limits/next:** refreshed AAPL cash flow is null and public projection strips provider identity; source wording and data completeness need follow-up. Broad live mixer studies hit documented source/company limits; practical defaults and longer windows need work. No full-suite or comprehensive live-data pass. No account, subscription, delivery or voice changes.
+
+## 2026-10-04 — Ticker preview image
 
 - **Request/result:** show a preview image; inspected and presented the existing `artifacts/ticker-ux-20261004/research-cards.jpg` screenshot, explicitly labeled synthetic sample data.
 - **Checks/state:** image opens and shows colored research cards; no code changes or new application tests, no deployment. No durable product decision changed. Next remains user review and any authorized release/coverage verification.
