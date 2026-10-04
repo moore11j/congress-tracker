@@ -5,6 +5,7 @@ from math import isfinite, sqrt
 from typing import Any
 
 MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
+MACRO_EVIDENCE_MAX_FRESHNESS_DAYS = 10
 MIN_MATERIAL_CONTRIBUTION = 2.0
 
 # Full-source bullish capacity totals 100. Missing evidence never shrinks it.
@@ -80,12 +81,14 @@ def evidence_magnitude(source: dict[str, Any], key: str) -> float:
     return source_max_points(key, str(source.get("direction") or "neutral").lower()) * strength_fraction
 
 
-def evidence_exclusion(source: Any) -> str | None:
+def evidence_exclusion(source: Any, key: str | None = None) -> str | None:
     if not isinstance(source, dict) or source.get("present") is not True:
         return "inactive"
     if str(source.get("direction") or "neutral").lower() not in {"bullish", "bearish"}:
         return "neutral_or_mixed"
     age = evidence_freshness(source)
+    if key == "macro_positioning" and (age is None or age > MACRO_EVIDENCE_MAX_FRESHNESS_DAYS):
+        return "stale"
     if age is not None and (age < 0 or age > MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS):
         return "stale"
     # Test input materiality before applying priority: credible insider selling
@@ -100,7 +103,7 @@ def confirmation_conflict_ceiling(sources: dict[str, dict[str, Any]], direction:
     aligned = opposing = 0.0
     if direction in {"bullish", "bearish"}:
         for key, source in sources.items():
-            if evidence_exclusion(source) is not None:
+            if evidence_exclusion(source, key) is not None:
                 continue
             if str(source["direction"]).lower() == direction:
                 aligned += round(evidence_magnitude(source, key), 2)
@@ -122,7 +125,7 @@ def net_confirmation(sources: dict[str, dict[str, Any]], direction: str) -> dict
     """
     sources = {key: sources.get(key, {}) for key in SOURCE_MAX_POINTS}
     weights = {key: evidence_magnitude(source, key)
-               if evidence_exclusion(source) is None else 0.0
+               if evidence_exclusion(source, key) is None else 0.0
                for key, source in sources.items()}
     signed = {key: (weight if sources[key].get("direction") == direction else -weight)
               if direction in {"bullish", "bearish"} else 0.0

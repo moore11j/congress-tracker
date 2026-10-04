@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.models import LeaderboardSnapshot, TickerContextBundleCache
 from app.services.confirmation_context import TICKER_CONFIRMATION_CONTEXT_VERSION, build_ticker_confirmation_context
-from app.services.confirmation_score import SOURCE_LABELS
+from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION, SOURCE_LABELS
 from app.services.fundamentals_cache import cached_screener_rows
+from app.services.leaderboard_market_data import enrich_leaderboard_market_data
 from app.services.screener import ScreenerParams, matches_confirmation_filters
 from app.services.top_ideas_context import load_idea_context
 from app.utils.symbols import classify_symbol
@@ -89,7 +90,8 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
     latest = {}
     for cache in caches:
         bundle = cache.bundle
-        if cache.symbol not in latest and isinstance(bundle, dict) and bundle.get("lookback_days") == 30:
+        if (cache.symbol not in latest and isinstance(bundle, dict) and bundle.get("lookback_days") == 30
+                and bundle.get("scoring_version") == CONFIRMATION_SCORING_VERSION):
             latest[cache.symbol] = (bundle, _iso(cache.generated_at))
     source_entitlements = _ticker_context_source_entitlements(entitlements) if entitlements is not None else None
     for row in candidates:
@@ -139,6 +141,7 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
             row["updated_at"] = _iso(generated_at)
             candidates.append(row)
         logger.info("top_stocks_scoring_progress scored=%s total=%s", len(candidates), len(rows))
+    enrich_leaderboard_market_data(db, candidates, now=generated_at)
     payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
     stored_payload = {**payload, "candidate_rows": candidates, "score_context_version": TICKER_CONFIRMATION_CONTEXT_VERSION}
     snapshot = db.execute(
@@ -210,6 +213,9 @@ def _item_from_screener_row(
         "confirmation_coverage": {key: (canonical.get("score_calculation") or {}).get(key) for key in ("aligned_source_count", "source_count")},
         "price": row.get("price"),
         "market_cap": row.get("market_cap"),
+        "avg_volume": row.get("avg_volume"),
+        "market_cap_as_of": row.get("market_cap_as_of"),
+        "avg_volume_as_of": row.get("avg_volume_as_of"),
         "sector": row.get("sector"),
         "country": row.get("country"),
         "key_drivers": drivers,

@@ -17,13 +17,14 @@ from sqlalchemy.orm import Session
 
 from app.models import AppSetting, FundamentalsCache, InsightsSnapshot, MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent, Security, TickerMeta
 from app.services.openai_request_audit import audited_openai_request
+from app.services.confirmation_evidence import MACRO_EVIDENCE_MAX_FRESHNESS_DAYS
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "macro_positioning_mappings.json"
 _BIAS_SCORES = {"bearish": -1.0, "neutral": 0.0, "bullish": 1.0}
-_INSIGHTS_STALE_AFTER_DAYS = 10
+_INSIGHTS_STALE_AFTER_DAYS = MACRO_EVIDENCE_MAX_FRESHNESS_DAYS
 _CFTC_TIMEOUT_SECONDS = float(os.getenv("MACRO_POSITIONING_CFTC_TIMEOUT_SECONDS", "20"))
 _CFTC_FINANCIAL_FUTURES_URL = os.getenv("MACRO_POSITIONING_CFTC_FINANCIAL_URL", "https://www.cftc.gov/dea/newcot/FinFutWk.txt")
 _CFTC_DISAGG_FUTURES_URL = os.getenv("MACRO_POSITIONING_CFTC_DISAGG_URL", "https://www.cftc.gov/dea/newcot/f_disagg.txt")

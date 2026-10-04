@@ -501,6 +501,22 @@ def fetch_bulk_price_target_summary(*, timeout_s: int = 60) -> list[dict[str, An
     )
 
 
+def fetch_batch_market_capitalization(*, symbols: list[str], timeout_s: int = 30) -> list[dict[str, Any]]:
+    if not symbols:
+        return []
+    return _request_stable_rows(
+        "market-capitalization-batch", params={"symbols": ",".join(symbols)},
+        category="market-capitalization", timeout_s=timeout_s,
+    )
+
+
+def fetch_company_profile(*, symbol: str, timeout_s: int = 15) -> list[dict[str, Any]]:
+    return _request_stable_rows(
+        "profile", params={"symbol": symbol}, category="fundamentals:profile",
+        symbol=symbol, timeout_s=timeout_s,
+    )
+
+
 def fetch_market_capitalization(
     *,
     symbol: str,

@@ -98,7 +98,7 @@ def build_cross_source_divergence(bundle: dict[str, Any] | None) -> dict[str, An
     excluded = {"inactive": 0, "neutral_or_mixed": 0, "stale": 0, "immaterial": 0}
     for key in SOURCE_ORDER:
         source = raw_sources.get(key)
-        reason = evidence_exclusion(source)
+        reason = evidence_exclusion(source, key)
         if reason is not None:
             excluded[reason] += 1
             continue

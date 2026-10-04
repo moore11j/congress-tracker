@@ -13,7 +13,7 @@ import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.clients.fmp import FMP_BASE_URL, FMPClientError, fetch_company_screener
+from app.clients.fmp import FMP_BASE_URL, FMPClientError, fetch_company_profile, fetch_company_screener
 from app.models import Event, FundamentalsCache
 from app.utils.symbols import normalize_symbol
 
@@ -73,6 +73,7 @@ CACHE_ROW_FIELDS = (
 )
 
 IDENTITY_CACHE_FIELDS = {"company_name", "sector", "industry", "country", "exchange"}
+PRESERVED_MARKET_FIELDS = {"market_cap", "avg_volume"}
 
 
 @dataclass(frozen=True)
@@ -458,7 +459,7 @@ def normalize_fundamentals_payload(
         "market_cap": _first_number(screener_row.get("marketCap"), quote_row.get("marketCap")),
         "price": _first_number(screener_row.get("price"), quote_row.get("price")),
         "volume": _first_number(screener_row.get("volume"), quote_row.get("volume")),
-        "avg_volume": _first_number(screener_row.get("avgVolume"), quote_row.get("avgVolume"), quote_row.get("averageVolume")),
+        "avg_volume": _first_number(screener_row.get("averageVolume"), screener_row.get("avgVolume"), quote_row.get("avgVolume"), quote_row.get("averageVolume")),
         "beta": _first_number(screener_row.get("beta"), quote_row.get("beta")),
         "dividend_yield": _first_percent(screener_row.get("dividendYield"), quote_row.get("dividendYield")),
         "trailing_pe": _first_number(
@@ -580,12 +581,12 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
     try:
         screener_row = None
         try:
-            for row in fetch_company_screener(filters={"symbol": normalized_symbol}, limit=10):
+            for row in fetch_company_profile(symbol=normalized_symbol):
                 if normalize_symbol(row.get("symbol")) == normalized_symbol:
                     screener_row = row
                     break
         except Exception as exc:
-            logger.info("fundamentals screener snapshot unavailable symbol=%s error=%s", normalized_symbol, exc)
+            logger.info("fundamentals profile unavailable symbol=%s error_type=%s", normalized_symbol, type(exc).__name__)
         quote_row = next(iter(_request_rows("historical-price-eod/light", params={"symbol": normalized_symbol})), {})
         ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
         metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
@@ -638,6 +639,8 @@ def upsert_fundamentals_cache(db: Session, values: dict[str, Any]) -> bool:
         return True
     for key, value in payload.items():
         if key in IDENTITY_CACHE_FIELDS and value is None and getattr(row, key, None) is not None:
+            continue
+        if key in PRESERVED_MARKET_FIELDS and (_number(value) is None or _number(value) <= 0):
             continue
         setattr(row, key, value)
     return True

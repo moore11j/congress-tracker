@@ -161,7 +161,7 @@ def test_fetch_fundamentals_continues_when_screener_snapshot_is_blocked(monkeypa
             return [{"date": "2025-09-27", "operatingProfitMargin": 0.319}]
         return []
 
-    monkeypatch.setattr("app.services.fundamentals_cache.fetch_company_screener", blocked_screener)
+    monkeypatch.setattr("app.services.fundamentals_cache.fetch_company_profile", blocked_screener)
     monkeypatch.setattr("app.services.fundamentals_cache._request_rows", rows)
 
     result = fetch_fundamentals_for_symbol("AAPL")
@@ -321,6 +321,27 @@ def test_fundamentals_update_does_not_clear_existing_identity_fields():
     assert row.company_name == "Strategy Inc"
     assert row.sector == "Technology"
     assert row.industry == "Software - Application"
+
+
+def test_profile_supplies_market_cap_and_average_volume(monkeypatch):
+    monkeypatch.setattr('app.services.fundamentals_cache.fetch_company_profile',
+                        lambda **kwargs: [{'symbol': 'ALAB', 'marketCap': 60e9, 'averageVolume': 8e6}])
+    monkeypatch.setattr('app.services.fundamentals_cache._request_rows', lambda *args, **kwargs: [])
+    result = fetch_fundamentals_for_symbol('ALAB')
+    assert result.status == 'ok'
+    assert result.values['market_cap'] == 60e9
+    assert result.values['avg_volume'] == 8e6
+
+
+def test_partial_fundamentals_do_not_erase_repaired_market_fields():
+    with Session(_engine()) as db:
+        _seed_cache(db, 'ALAB', market_cap=60e9, avg_volume=8e6)
+        db.commit()
+        upsert_fundamentals_cache(db, _values('ALAB', market_cap=None, avg_volume=None))
+        db.flush()
+        row = db.query(FundamentalsCache).filter_by(symbol='ALAB').one()
+        assert row.market_cap == 60e9
+        assert row.avg_volume == 8e6
 
 
 def test_screener_reads_cached_fundamentals_without_provider_call(monkeypatch):

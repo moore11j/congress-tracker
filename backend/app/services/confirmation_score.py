@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Any, Literal, Sequence
@@ -34,6 +34,7 @@ from app.services.signal_score import calculate_smart_score
 from app.services.why_now import slim_why_now_bundle
 from app.services.confirmation_evidence import (
     MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS,
+    MACRO_EVIDENCE_MAX_FRESHNESS_DAYS,
     confirmation_conflict_ceiling,
     evidence_magnitude,
     evidence_exclusion,
@@ -81,8 +82,8 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v9_agreement_coverage"
-CONFIRMATION_SCORING_VERSION = "confirmation_score_v8_agreement_coverage"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v10_macro_freshness"
+CONFIRMATION_SCORING_VERSION = "confirmation_score_v9_macro_freshness"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0
@@ -1166,6 +1167,8 @@ def _macro_positioning_source(summary: dict | None) -> ConfirmationSourceSummary
         return _empty_source("Macro Positioning locked")
     if summary.get("active") is not True:
         return _empty_source("No macro positioning signal")
+    if _is_future_date(summary.get("updated")):
+        return _empty_source("Macro Positioning date invalid")
     overall = summary.get("overall") if summary.get("overall") in {"bullish", "bearish", "neutral"} else "neutral"
     rating = _clamp_int(float(summary.get("rating") or 3), minimum=1, maximum=5)
     summary_text = summary.get("summary") if isinstance(summary.get("summary"), str) else None
@@ -1514,6 +1517,8 @@ def _institutional_context_source(context: dict[str, Any] | None) -> Confirmatio
 def _macro_positioning_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
     if not isinstance(context, dict) or context.get("active") is not True:
         return _empty_source("No macro positioning signal")
+    if _is_future_date(context.get("updated")):
+        return _empty_source("Macro Positioning date invalid")
     overall = context.get("overall") if context.get("overall") in {"bullish", "bearish", "neutral"} else "neutral"
     rating = _clamp_int(float(context.get("rating") or 3), minimum=1, maximum=5)
     summary = _context_text(context, "summary", "subtitle")
@@ -2083,7 +2088,7 @@ def classify_confirmation_direction(
 def _directional_evidence_weight(key: ConfirmationSourceKey, source: ConfirmationSourceSummary) -> float:
     # Retain the classifier's existing 0–100 reference scale and horizon
     # adjustments while sharing the source priorities with score and divergence.
-    if evidence_exclusion(source.as_dict()) is not None:
+    if evidence_exclusion(source.as_dict(), key) is not None:
         return 0.0
     weight = evidence_magnitude(source.as_dict(), key) * 10.0
     if key in THIRTY_DAY_DURABLE_SOURCES:
@@ -2118,6 +2123,13 @@ def _score_bundle(
     lookback_days: int,
     sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary],
 ) -> ConfirmationScoreBundle:
+    macro = sources.get("macro_positioning")
+    if macro is not None and evidence_exclusion(macro.as_dict(), "macro_positioning") == "stale":
+        sources = {**sources, "macro_positioning": replace(
+            macro, present=False, direction="neutral", strength=0, quality=0, score_contribution=0,
+            label="Macro Positioning stale",
+            summary=f"Macro evidence needs a valid observation within {MACRO_EVIDENCE_MAX_FRESHNESS_DAYS} days to contribute.",
+        )}
     present_sources = [source for source in sources.values() if source.present]
     active_count = len(present_sources)
     active_source_keys = [key for key in SOURCE_ORDER if sources[key].present]

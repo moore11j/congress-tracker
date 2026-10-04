@@ -10,7 +10,13 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.models import FundamentalsCache, LeaderboardSnapshot, TickerContextBundleCache
 from app.services import top_stocks
-from app.services.confirmation_score import confirmation_band_for_score
+from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION, confirmation_band_for_score
+
+
+@pytest.fixture(autouse=True)
+def no_provider_market_enrichment(monkeypatch):
+    # Market enrichment is exercised with real database rows in its own suite.
+    monkeypatch.setattr(top_stocks, "enrich_leaderboard_market_data", lambda *args, **kwargs: None)
 
 
 def _session():
@@ -20,7 +26,7 @@ def _session():
 
 
 def _bundle(symbol, score, direction="bullish"):
-    return {"ticker": symbol, "lookback_days": 30, "score": score, "band": confirmation_band_for_score(score), "direction": direction, "status": "3-source confirmation", "source_count": 3}
+    return {"ticker": symbol, "lookback_days": 30, "score": score, "scoring_version": CONFIRMATION_SCORING_VERSION, "band": confirmation_band_for_score(score), "direction": direction, "status": "3-source confirmation", "source_count": 3}
 
 
 def _row(symbol, score, **kwargs):
@@ -151,6 +157,18 @@ def test_older_unexpired_ticker_cache_matches_what_ticker_currently_displays(mon
         snapshot.payload_json = json.dumps(payload)
         db.commit()
         assert top_stocks.build_top_stocks_response(db)["items"][0]["confirmation_score"] == 88
+
+
+def test_prior_scoring_version_cannot_override_refreshed_leaderboard(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row("APH", 70)], {"APH": 70})
+        _cache(db, "APH", 75)
+        cached = db.scalar(select(TickerContextBundleCache))
+        payload = json.loads(cached.payload_json)
+        payload['confirmation_score_bundle']['scoring_version'] = 'confirmation_score_v8_agreement_coverage'
+        cached.payload_json = json.dumps(payload)
+        db.commit()
+        assert top_stocks.build_top_stocks_response(db)['items'][0]['confirmation_score'] == 70
 
 
 def test_daily_refresh_matches_real_ticker_calculation_and_tier_projection(monkeypatch):

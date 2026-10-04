@@ -14,6 +14,24 @@ def calculate(sources):
     return confirmation_score_bundle_from_source_payloads('TEST', sources_payload=sources)
 
 
+@pytest.mark.parametrize('age', [11, 39, None, -1])
+def test_stale_or_undated_macro_does_not_confirm_or_drive_the_score(age):
+    inputs = {'fundamentals': source('bullish'), 'price_volume': source('bullish')}
+    baseline = calculate(inputs)
+    result = calculate({**inputs, 'macro_positioning': source('bullish', age=age)})
+    assert result['score'] == baseline['score']
+    assert result['score_calculation'] == baseline['score_calculation']
+    assert result['sources']['macro_positioning']['present'] is False
+    assert 'macro_positioning' not in result['active_sources']
+
+
+@pytest.mark.parametrize('age', [0, 10])
+def test_macro_within_weekly_freshness_window_still_contributes(age):
+    result = calculate({'fundamentals': source('bullish'), 'macro_positioning': source('bullish', age=age)})
+    assert result['sources']['macro_positioning']['present'] is True
+    assert result['score_calculation']['source_weights']['macro_positioning'] > 0
+
+
 @pytest.mark.parametrize('side,opposite', [('bullish', 'bearish'), ('bearish', 'bullish')])
 @pytest.mark.parametrize('key', ['congress', 'insiders', 'signals', 'price_volume',
                                   'options_flow', 'macro_positioning', 'government_contracts'])
@@ -59,11 +77,11 @@ def test_ba_release_inputs_have_signed_auditable_net_score():
     result = calculate(inputs)
     math = result['score_calculation']
     assert result['direction'] == 'bullish'
-    assert result['score'] == 48
+    assert result['score'] == 52
     assert math['net_weight'] == pytest.approx(math['aligned_weight'] - math['opposing_weight'], abs=.0001)
     assert sum(s['confirmation_contribution'] for s in result['sources'].values()) == pytest.approx(math['net_weight'], abs=.001)
     assert result['sources']['congress']['confirmation_contribution'] < 0
-    assert result['sources']['macro_positioning']['confirmation_contribution'] < 0
+    assert result['sources']['macro_positioning']['confirmation_contribution'] == 0
     assert result['sources']['price_volume']['confirmation_contribution'] == 0
     rebuilt = calculate(deepcopy(result['sources']))
     assert rebuilt['score_calculation'] == math
@@ -146,20 +164,22 @@ def test_fundamentals_transfer_is_equal_across_all_other_sources():
 @pytest.mark.parametrize('symbol, inputs, expected', [
     ('TSM', dict(fundamentals=('bullish',64,69,0), price_volume=('bullish',75,82,1),
                  congress=('bullish',50,57,3), insiders=('bullish',93,92,19),
-                 analysts=('bullish',44,69,0), macro_positioning=('bullish',70,77,11)), 80),
+                 analysts=('bullish',44,69,0), macro_positioning=('bullish',70,77,11)), 78),
     ('BRK-B', dict(fundamentals=('bullish',55,67,5), price_volume=('mixed',25,82,1),
                    congress=('bullish',50,57,16), insiders=('bullish',100,92,5),
                    analysts=('bullish',25,58,0), macro_positioning=('bullish',70,77,32),
-                   signals=('bullish',66,82,5)), 74),
+                   signals=('bullish',66,82,5)), 71),
     ('AZO', dict(analysts=('bullish',42,69,0), macro_positioning=('bullish',80,85,32),
-                 fundamentals=('mixed',29,57,12), price_volume=('mixed',25,82,1)), 30),
+                 fundamentals=('mixed',29,57,12), price_volume=('mixed',25,82,1)), 0),
 ])
 def test_approved_saved_examples_use_same_formula_for_every_symbol(symbol, inputs, expected):
+    # Re-evaluate saved inputs under the current freshness rule; recorded
+    # historical observations are not rewritten by this calculation.
     payload = {key: source(*values) for key, values in inputs.items()}
     bundle = confirmation_score_bundle_from_source_payloads(symbol, sources_payload=payload)
     assert bundle['score'] == expected
     assert calculate(payload)['score'] == expected
-    assert bundle['score_calculation']['agreement'] == 1
+    assert bundle['score_calculation']['agreement'] == (1 if expected else 0)
 
 
 def test_empty_and_conflicted_sources_cannot_earn_agreement_or_coverage():
