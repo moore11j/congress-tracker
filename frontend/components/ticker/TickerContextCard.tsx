@@ -722,7 +722,11 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
       setLoadingFinancials(false);
       return;
     }
-    if (financials || financialsAbortRef.current) return;
+    if (financials) {
+      setLoadingFinancials(false);
+      return;
+    }
+    if (financialsAbortRef.current) return;
 
     const controller = new AbortController();
     abortRequest(financialsAbortRef);
@@ -765,7 +769,13 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
       setLoadingOwnership(false);
       return;
     }
-    if (ownership || ownershipAbortRef.current) return;
+    // Storing the response reruns this effect and clears the request ref in
+    // cleanup, so the previous request's finally may not clear its loading flag.
+    if (ownership) {
+      setLoadingOwnership(false);
+      return;
+    }
+    if (ownershipAbortRef.current) return;
 
     const controller = new AbortController();
     abortRequest(ownershipAbortRef);
@@ -813,7 +823,11 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
       setLoadingMacroPositioning(false);
       return;
     }
-    if (macroPositioning || macroAbortRef.current) return;
+    if (macroPositioning) {
+      setLoadingMacroPositioning(false);
+      return;
+    }
+    if (macroAbortRef.current) return;
 
     const controller = new AbortController();
     abortRequest(macroAbortRef);
@@ -860,7 +874,11 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
       setLoadingValuation(false);
       return;
     }
-    if (valuation || valuationAbortRef.current) return;
+    if (valuation) {
+      setLoadingValuation(false);
+      return;
+    }
+    if (valuationAbortRef.current) return;
 
     const controller = new AbortController();
     abortRequest(valuationAbortRef);
@@ -923,7 +941,11 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
       setLoadingAnalystConsensus(false);
       return;
     }
-    if (analystConsensus || analystConsensusAbortRef.current) return;
+    if (analystConsensus) {
+      setLoadingAnalystConsensus(false);
+      return;
+    }
+    if (analystConsensusAbortRef.current) return;
 
     const controller = new AbortController();
     abortRequest(analystConsensusAbortRef);

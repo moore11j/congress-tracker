@@ -25,4 +25,10 @@ Implemented against `7681f15f`; the owner subsequently approved commit and deplo
 
 ## Release acceptance
 
-Deployment is authorized. Verify the deployed default/tab deep links and signed-in Ownership/Signals. Capture desktop/mobile screenshots when browser capture is available. Existing source completeness and broader backtesting limitations are unchanged.
+## Approved deployment receipt
+
+- Committed/pushed `9d3ea81d6d737374f7fa3e7b076d65f11f1043ff`. [Vercel production](https://vercel.com/moore11js-projects/congress-tracker/H8Lk1Pe9hXhK6jMhMUTyiaJPUPQZ) succeeded; both public app-version endpoints returned that exact revision. API readiness/database returned `ok`. Frontend-only release; Fly was not redeployed.
+- Rebuilt after the newer strategy release; production build/type checking passed. Signed-in live AAPL verification used the existing browser session. Overview, chart controls, populated Signals and Congress panels, institutional holders/activity and institutional pagination (1–20 → 21–40 with the Ownership tab retained) were checked.
+- Live mobile viewport measured 390px, document/scroll width 375px. Navigation → compact price/volume → selected content is visible. Screenshot saved locally under ignored `artifacts/ticker-tabs-20261004/production-mobile.jpg`; viewport override reset.
+- Live checking exposed an existing lazy-request cleanup race: Ownership retained its loading skeleton after receiving data until a tab switch. Follow-up clears loading state when cached data arrives in Ownership, Financials, Macro, Valuation and Analysts. Production build passed; focused rerun had 26 passes and the same two baseline assertion failures. Follow-up deployment verification is recorded below when complete.
+- Concurrent navigation work appeared during verification and is preserved separately; only the loading-state fix is included in the follow-up. No account preferences, source data or delivery settings changed. Broader role coverage and source completeness remain separate.
