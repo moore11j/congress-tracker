@@ -2507,7 +2507,7 @@ function InstitutionalActivityRow({
       <td className={`${tickerActivityCellClassName} max-w-[22rem] text-slate-400`}>
         {summary ? <span className="block line-clamp-2">{summary}</span> : "—"}
       </td>
-      <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><Badge tone={institutionalTone(event)}>{action}</Badge></td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] ${institutionalTone(event) === "pos" ? "text-emerald-300" : institutionalTone(event) === "neg" ? "text-rose-300" : "text-slate-300"}`}>{action}</td>
     </tr>
   );
 }
@@ -3028,152 +3028,9 @@ async function DeferredTickerContent({
     .filter((item) => item.tickers.map((ticker) => ticker.toUpperCase()).includes(normalizedSymbol))
     .slice(0, 3);
 
-  return (
-    <>
-      <section className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,366px)] xl:items-stretch">
-        <div className="min-w-0 space-y-4">
-          <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} deferLoad={deferHeavyTickerLoads} eager />
-          <TickerContextCard
-            key={normalizedSymbol}
-            symbol={normalizedSymbol}
-            canViewOwnership={canViewProTickerContext}
-            researchItems={tickerResearch}
-            className="min-w-0 w-full"
-            overview={
-              <TickerOverviewPanel
-                fundamentals={fundamentalsContext}
-                confirmationBundle={confirmationBundle}
-                sourceDisplayBundle={visibleConfirmationBundle}
-                decisionLayer={decisionLayer}
-                confirmationGate={tickerConfirmationGate}
-                divergence={crossSourceDivergence}
-                similarHistoricalSetups={similarHistoricalSetups}
-                symbol={normalizedSymbol}
-              />
-            }
-          />
-        </div>
-
-        <div className="min-w-0 xl:flex xl:min-h-0 xl:h-full">
-          <div className="grid gap-3 xl:h-full xl:w-full xl:auto-rows-min">
-            <div className="grid items-stretch gap-3">
-              <div className={`${cardClassName} h-full !rounded-lg p-5`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className={technicalToneClass(priceVolume.tone)}>
-                      <IntelligenceIcon kind="price-volume" />
-                    </span>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
-                  </div>
-                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
-                    {priceVolume.state}
-                  </p>
-                </div>
-                <div className="mt-3 flex items-end gap-3">
-                  <p className="text-3xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)}</p>
-                  <p className={`pb-1 text-sm font-semibold tabular-nums ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)}</p>
-                </div>
-                <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
-                <div className="mt-3 grid gap-1.5">
-                  {priceVolume.diagnostics.slice(2).map((diagnostic) => (
-                    <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
-                  ))}
-                </div>
-              </div>
-              <FundamentalsCard summary={fundamentalsContext} />
-            </div>
-
-            <div className="grid gap-3 xl:h-full xl:auto-rows-min">
-              <SourceEvidenceCard
-                title="Insiders"
-                icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
-                source={insiderCardSource}
-                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
-                support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
-                discovery={insiderCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#insider-activity" destinationType="insider_activity">Recent insider activity for {normalizedSymbol}</TickerDiscoveryLink> : null}
-              />
-              <SourceEvidenceCard
-                title="Congress"
-                icon="congress"
-                source={congressCardSource}
-                body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
-                support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
-                discovery={congressCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#congress-activity" destinationType="congress_activity">Congress trades involving {normalizedSymbol}</TickerDiscoveryLink> : null}
-              />
-              <SourceEvidenceCard
-                title="Analysts"
-                icon="signals"
-                source={confirmationBundle.sources.analysts}
-                body={analystSourceBody(confirmationBundle.sources.analysts, confirmationLookbackDays)}
-                support={analystSourceSupport(confirmationBundle.sources.analysts)}
-              />
-              {institutionalCardLocked ? (
-                <LockedSourceEvidenceCard
-                  title="Institutional"
-                  icon="people"
-                  requiredPlan="pro"
-                  support="Institutional activity unlocks with Pro."
-                />
-              ) : (
-                <TickerInstitutionalSourceCardClient
-                  symbol={normalizedSymbol}
-                  side={side}
-                  lookbackDays={confirmationLookbackDays}
-                  initialSource={confirmationBundle.sources.institutional_activity}
-                  canViewInstitutional={canViewProTickerContext}
-                  initialResolved={canReuseSignalSummary}
-                />
-              )}
-              {signalsCardLocked ? (
-                <LockedSourceEvidenceCard
-                  title="Signals"
-                  icon="signals"
-                  requiredPlan="premium"
-                  support="Signal stack details unlock with Premium."
-                />
-              ) : (
-                <TickerSignalsSourceCardClient
-                  symbol={normalizedSymbol}
-                  side={side}
-                  lookbackDays={confirmationLookbackDays}
-                  lookbackStartKey={lookbackStartDateKey(confirmationLookbackDays)}
-                  initialSource={signalsCardSource}
-                  initialResolved={canReuseSignalSummary}
-                  deferLoad={deferHeavyTickerLoads}
-                  initialTopSignal={
-                    topSignal
-                      ? {
-                          smart_score: topSignal.smart_score ?? null,
-                          smart_band: topSignal.smart_band ?? null,
-                          trade_type: topSignal.trade_type ?? null,
-                        }
-                      : null
-                  }
-                />
-              )}
-              {optionsFlowCardLocked ? (
-                <LockedSourceEvidenceCard
-                  title="Options Flow"
-                  icon="flow"
-                  requiredPlan="pro"
-                  support="Options flow is coming soon and is not available today."
-                />
-              ) : (
-                <OptionsActivityCard summary={optionsFlow} />
-              )}
-              <GovernmentContractsCard
-                source={confirmationBundle.sources.government_contracts}
-                lookbackDays={confirmationLookbackDays}
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-      <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-6">
-          {showCongress ? (
+  const congressActivity = (
+<>
+{showCongress ? (
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
               <VisibleEvent name="congress_trades_viewed" properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
               <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
@@ -3247,8 +3104,19 @@ async function DeferredTickerContent({
               </div>
             </section>
           ) : null}
+<TickerParticipantLeaderboards kind="congress"
+          symbol={normalizedSymbol}
+          lookbackDays={selectedLookbackDays}
+          side={side}
+          initialCongressEvents={congressEvents}
+          initialInsiderEvents={insiderEvents}
+        />
+</>
+  );
 
-          {showInsider ? (
+  const insiderActivity = (
+<>
+{showInsider ? (
             <section id="insider-activity" className={`${cardClassName} scroll-mt-6`}>
               <VisibleEvent name="insider_activity_viewed" properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
               <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-start">
@@ -3319,8 +3187,18 @@ async function DeferredTickerContent({
               </div>
             </section>
           ) : null}
+<TickerParticipantLeaderboards kind="insider"
+          symbol={normalizedSymbol}
+          lookbackDays={selectedLookbackDays}
+          side={side}
+          initialCongressEvents={congressEvents}
+          initialInsiderEvents={insiderEvents}
+        />
+</>
+  );
 
-          {showSignals && (signalsAuthPending || !signalsUnavailable) ? (
+  const signalActivity = (
+showSignals && (signalsAuthPending || !signalsUnavailable) ? (
             <div id="signals-activity" className="scroll-mt-6">
               <TickerSignalActivityClient
                 symbol={normalizedSymbol}
@@ -3463,9 +3341,11 @@ async function DeferredTickerContent({
                 )}
               </div>
             </section>
-          ) : null}
+          ) : null
+  );
 
-          {showInstitutional ? (
+  const institutionalActivity = (
+showInstitutional ? (
             <section id="institutional-activity" className={`${cardClassName} scroll-mt-6`}>
               <VisibleEvent name="institutional_activity_viewed" enabled={canViewProTickerContext} properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
               <div className="mb-4 flex items-center justify-between">
@@ -3516,9 +3396,11 @@ async function DeferredTickerContent({
                 )}
               </div>
             </section>
-          ) : null}
+          ) : null
+  );
 
-          {showGovernmentContracts ? (
+  const contractsActivity = (
+showGovernmentContracts ? (
             <section id="government-contracts-activity" className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
@@ -3551,17 +3433,170 @@ async function DeferredTickerContent({
                 )}
               </div>
             </section>
-          ) : null}
+          ) : null
+  );
+
+  return (
+    <>
+      <section className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,366px)]">
+        <div className="min-w-0 space-y-4">
+          <TickerContextCard
+            key={normalizedSymbol}
+            symbol={normalizedSymbol}
+            canViewOwnership={canViewProTickerContext}
+            researchItems={tickerResearch}
+            className="min-w-0 w-full"
+            chart={<TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} deferLoad={deferHeavyTickerLoads} eager />}
+            congressActivity={congressActivity}
+            insiderActivity={insiderActivity}
+            signalActivity={signalActivity}
+            institutionalActivity={institutionalActivity}
+            contractsActivity={contractsActivity}
+            mobileQuote={
+              <div aria-label="Price and volume summary" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/10 bg-slate-950/40 px-4 py-3 xl:hidden">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Latest close · {normalizedSymbol}</p>
+                  <p className="text-xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)} <span className={`ml-2 text-xs ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)} <span className="text-slate-500">1D</span></span></p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500">Volume vs 30D avg</p>
+                  <p className="text-sm font-semibold tabular-nums text-slate-200">{formatUpperCardMultiple(priceVolumeContext?.volume_vs_avg)}</p>
+                </div>
+              </div>
+            }
+            overview={
+              <TickerOverviewPanel
+                fundamentals={fundamentalsContext}
+                confirmationBundle={confirmationBundle}
+                sourceDisplayBundle={visibleConfirmationBundle}
+                decisionLayer={decisionLayer}
+                confirmationGate={tickerConfirmationGate}
+                divergence={crossSourceDivergence}
+                similarHistoricalSetups={similarHistoricalSetups}
+                symbol={normalizedSymbol}
+              />
+            }
+          />
         </div>
 
-        <TickerParticipantLeaderboards
-          symbol={normalizedSymbol}
-          lookbackDays={selectedLookbackDays}
-          side={side}
-          initialCongressEvents={congressEvents}
-          initialInsiderEvents={insiderEvents}
-        />
-      </div>
+        <div className="min-w-0 xl:flex xl:min-h-0 xl:h-full">
+          <div className="grid gap-3 xl:h-full xl:w-full xl:auto-rows-min">
+            <div className="grid items-stretch gap-3">
+              <div className={`${cardClassName} h-full !rounded-lg p-5`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className={technicalToneClass(priceVolume.tone)}>
+                      <IntelligenceIcon kind="price-volume" />
+                    </span>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
+                  </div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
+                    {priceVolume.state}
+                  </p>
+                </div>
+                <div className="mt-3 flex items-end gap-3">
+                  <p className="text-3xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)}</p>
+                  <p className={`pb-1 text-sm font-semibold tabular-nums ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)}</p>
+                </div>
+                <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
+                <div className="mt-3 grid gap-1.5">
+                  {priceVolume.diagnostics.slice(2).map((diagnostic) => (
+                    <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
+                  ))}
+                </div>
+              </div>
+              <FundamentalsCard summary={fundamentalsContext} />
+            </div>
+
+            <div className="grid gap-3 xl:h-full xl:auto-rows-min">
+              <SourceEvidenceCard
+                title="Insiders"
+                icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
+                source={insiderCardSource}
+                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
+                support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
+                discovery={insiderCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#insider-activity" destinationType="insider_activity">Recent insider activity for {normalizedSymbol}</TickerDiscoveryLink> : null}
+              />
+              <SourceEvidenceCard
+                title="Congress"
+                icon="congress"
+                source={congressCardSource}
+                body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
+                support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+                discovery={congressCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#congress-activity" destinationType="congress_activity">Congress trades involving {normalizedSymbol}</TickerDiscoveryLink> : null}
+              />
+              <SourceEvidenceCard
+                title="Analysts"
+                icon="signals"
+                source={confirmationBundle.sources.analysts}
+                body={analystSourceBody(confirmationBundle.sources.analysts, confirmationLookbackDays)}
+                support={analystSourceSupport(confirmationBundle.sources.analysts)}
+              />
+              {institutionalCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Institutional"
+                  icon="people"
+                  requiredPlan="pro"
+                  support="Institutional activity unlocks with Pro."
+                />
+              ) : (
+                <TickerInstitutionalSourceCardClient
+                  symbol={normalizedSymbol}
+                  side={side}
+                  lookbackDays={confirmationLookbackDays}
+                  initialSource={confirmationBundle.sources.institutional_activity}
+                  canViewInstitutional={canViewProTickerContext}
+                  initialResolved={canReuseSignalSummary}
+                />
+              )}
+              {signalsCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Signals"
+                  icon="signals"
+                  requiredPlan="premium"
+                  support="Signal stack details unlock with Premium."
+                />
+              ) : (
+                <TickerSignalsSourceCardClient
+                  symbol={normalizedSymbol}
+                  side={side}
+                  lookbackDays={confirmationLookbackDays}
+                  lookbackStartKey={lookbackStartDateKey(confirmationLookbackDays)}
+                  initialSource={signalsCardSource}
+                  initialResolved={canReuseSignalSummary}
+                  deferLoad={deferHeavyTickerLoads}
+                  initialTopSignal={
+                    topSignal
+                      ? {
+                          smart_score: topSignal.smart_score ?? null,
+                          smart_band: topSignal.smart_band ?? null,
+                          trade_type: topSignal.trade_type ?? null,
+                        }
+                      : null
+                  }
+                />
+              )}
+              {optionsFlowCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Options Flow"
+                  icon="flow"
+                  requiredPlan="pro"
+                  support="Options flow is coming soon and is not available today."
+                />
+              ) : (
+                <OptionsActivityCard summary={optionsFlow} />
+              )}
+              <GovernmentContractsCard
+                source={confirmationBundle.sources.government_contracts}
+                lookbackDays={confirmationLookbackDays}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+      <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
+
+
     </>
   );
 }

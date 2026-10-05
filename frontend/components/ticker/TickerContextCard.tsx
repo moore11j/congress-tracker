@@ -46,12 +46,43 @@ import { ResearchMemoryAccessProvider } from "@/components/research-memory/Resea
 type Props = {
   symbol: string;
   overview: ReactNode;
+  chart?: ReactNode;
+  congressActivity?: ReactNode;
+  insiderActivity?: ReactNode;
+  signalActivity?: ReactNode;
+  institutionalActivity?: ReactNode;
+  contractsActivity?: ReactNode;
+  mobileQuote?: ReactNode;
   canViewOwnership?: boolean;
   researchItems?: PublicResearchBriefCard[];
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus" | "research";
+type ContextTab = "chart" | "congress" | "insiders" | "signals" | "contracts" | "filings" | "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus" | "research";
+
+const CONTEXT_TABS: { key: ContextTab; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "chart", label: "Chart" },
+  { key: "news", label: "News" },
+  { key: "financials", label: "Financials" },
+  { key: "ownership", label: "Ownership" },
+  { key: "congress", label: "Congress activity" },
+  { key: "insiders", label: "Insider activity" },
+  { key: "signals", label: "Signals" },
+  { key: "contracts", label: "Government contracts" },
+  { key: "events", label: "Events" },
+  { key: "filings", label: "Filings" },
+  { key: "macro", label: "Macro Positioning" },
+  { key: "valuation", label: "Valuation" },
+  { key: "consensus", label: "Analysts" },
+  { key: "research", label: "Research" },
+];
+const ACTIVITY_TAB_ALIASES: Record<string, ContextTab> = {
+  "congress-activity": "congress", "top-congress-traders": "congress",
+  "insider-activity": "insiders", "top-insiders": "insiders",
+  "signals-activity": "signals", "institutional-activity": "ownership",
+  "government-contracts-activity": "contracts",
+};
 
 const TAB_CLASS = "relative flex h-12 shrink-0 items-center px-5 text-sm font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
@@ -67,7 +98,7 @@ const NEWS_EMPTY_MESSAGE = "No recent headlines found.";
 const PRESS_EMPTY_MESSAGE = "No press releases found.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings found.";
 const ACTIVITY_EMPTY_MESSAGE = "No disclosure activity found for this ticker.";
-const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found.";
+const EVENTS_EMPTY_MESSAGE = "No recent press releases or disclosure activity found.";
 const TICKER_NEWS_PANEL_SOURCE = "TickerNewsPanel";
 const TICKER_FINANCIALS_PANEL_SOURCE = "TickerFinancialsPanel";
 const TICKER_OWNERSHIP_PANEL_SOURCE = "TickerOwnershipPanel";
@@ -533,23 +564,57 @@ export function TickerContextCard(props: Props) {
   return <ResearchMemoryAccessProvider><TickerOperationalIntelligenceProvider symbol={props.symbol}><TickerContextContents {...props} /></TickerOperationalIntelligenceProvider></ResearchMemoryAccessProvider>;
 }
 
-function TickerContextContents({ symbol, overview, canViewOwnership = false, researchItems = [], className }: Props) {
+function TickerContextContents({ symbol, overview, chart, congressActivity, insiderActivity, signalActivity, institutionalActivity, contractsActivity, mobileQuote, canViewOwnership = false, researchItems = [], className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
+  const [chartVisited, setChartVisited] = useState(false);
   const { scrollRef, canScrollLeft, canScrollRight, updateScrollState } =
     useHorizontalScrollAffordance<HTMLDivElement>();
 
   useEffect(() => {
     const selectLinkedTab = () => {
-      const tab = window.location.hash.slice(1);
-      if (["overview", "news", "financials", "ownership", "events", "macro", "valuation", "consensus", "research"].includes(tab)) {
+      const hash = window.location.hash.slice(1);
+      const tab = ACTIVITY_TAB_ALIASES[hash] ?? hash;
+      if (CONTEXT_TABS.some((item) => item.key === tab)) {
         setActiveTab(tab as ContextTab);
-        document.getElementById("ticker-research-panels")?.scrollIntoView({ block: "start" });
-      }
+        if (tab === "chart") setChartVisited(true);
+      } else if (!hash) setActiveTab("overview");
     };
     selectLinkedTab();
     window.addEventListener("hashchange", selectLinkedTab);
-    return () => window.removeEventListener("hashchange", selectLinkedTab);
+    window.addEventListener("popstate", selectLinkedTab);
+    return () => {
+      window.removeEventListener("hashchange", selectLinkedTab);
+      window.removeEventListener("popstate", selectLinkedTab);
+    };
   }, [symbol]);
+
+  useEffect(() => {
+    const tab = document.getElementById(`ticker-tab-${activeTab}`);
+    if (tab && scrollRef.current) {
+      const left = tab.offsetLeft - scrollRef.current.offsetLeft;
+      const right = left + tab.offsetWidth;
+      if (left < scrollRef.current.scrollLeft) scrollRef.current.scrollLeft = left;
+      else if (right > scrollRef.current.scrollLeft + scrollRef.current.clientWidth) {
+        scrollRef.current.scrollLeft = right - scrollRef.current.clientWidth;
+      }
+      updateScrollState();
+    }
+  }, [activeTab, scrollRef, updateScrollState]);
+
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!ACTIVITY_TAB_ALIASES[hash]) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab]);
+
+  function selectTab(tab: ContextTab) {
+    setActiveTab(tab);
+    if (tab === "chart") setChartVisited(true);
+    window.history.pushState(null, "", `#${tab}`);
+  }
 
   const [newsPages, setNewsPages] = useState<InsightsNewsResponse[]>([]);
   const [loadingNews, setLoadingNews] = useState(false);
@@ -941,7 +1006,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
   }, [activeTab, pressPages.length, symbol]);
 
   useEffect(() => {
-    if (activeTab !== "events") {
+    if (activeTab !== "filings") {
       abortRequest(secAbortRef);
       setLoadingSec(false);
       return;
@@ -1064,7 +1129,6 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
 
   const secResponse = secPages[secPages.length - 1] ?? null;
   const secItems = secPages.flatMap((page) => page.items);
-  const showSecSection = true;
   const filingsMessage = userFacingMessage(
     secResponse?.message,
     secResponse?.status === "loading"
@@ -1079,8 +1143,8 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
       : eventsStatus === "unavailable"
         ? ACTIVITY_UNAVAILABLE_MESSAGE
         : ACTIVITY_EMPTY_MESSAGE;
-  const eventsSettled = !loadingPress && !loadingSec && !loadingEvents && Boolean(pressResponse) && Boolean(secResponse) && Boolean(eventsStatus);
-  const allEventsSourcesEmpty = eventsSettled && pressItems.length === 0 && secItems.length === 0 && disclosureEvents.length === 0;
+  const eventsSettled = !loadingPress && !loadingEvents && Boolean(pressResponse) && Boolean(eventsStatus);
+  const allEventsSourcesEmpty = eventsSettled && pressItems.length === 0 && disclosureEvents.length === 0;
 
   const loadMoreNews = async () => {
     if (!newsResponse?.has_next || loadingNews) return;
@@ -1171,87 +1235,45 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           onScroll={updateScrollState}
           className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          <div className="flex min-w-max">
-            <button
-              type="button"
-              onClick={() => setActiveTab("overview")}
-              className={`${TAB_CLASS} ${activeTab === "overview" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              Overview
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("news")}
-              className={`${TAB_CLASS} ${activeTab === "news" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              News
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("financials")}
-              className={`${TAB_CLASS} ${activeTab === "financials" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              Financials
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("ownership")}
-              className={`${TAB_CLASS} ${activeTab === "ownership" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              Ownership
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("events")}
-              className={`${TAB_CLASS} ${activeTab === "events" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              Events / Filings
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("macro")}
-              className={`${TAB_CLASS} ${activeTab === "macro" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              <span>Macro Positioning</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("valuation")}
-              className={`${TAB_CLASS} ${activeTab === "valuation" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              <span>Valuation</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("consensus")}
-              className={`${TAB_CLASS} ${activeTab === "consensus" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-            >
-              <span>Analysts</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("research")}
-              className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "research" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
-            >
-              <span>Research</span>
-              <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
-            </button>
+          <div className="flex min-w-max" role="tablist" aria-label="Ticker research sections">
+            {CONTEXT_TABS.map(({ key, label }, index) => (
+              <button
+                key={key}
+                id={`ticker-tab-${key}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === key}
+                aria-controls={`ticker-panel-${key}`}
+                tabIndex={activeTab === key ? 0 : -1}
+                onClick={() => selectTab(key)}
+                onKeyDown={(event) => {
+                  const next = event.key === "ArrowRight" ? (index + 1) % CONTEXT_TABS.length
+                    : event.key === "ArrowLeft" ? (index - 1 + CONTEXT_TABS.length) % CONTEXT_TABS.length
+                    : event.key === "Home" ? 0 : event.key === "End" ? CONTEXT_TABS.length - 1 : null;
+                  if (next === null) return;
+                  event.preventDefault();
+                  document.getElementById(`ticker-tab-${CONTEXT_TABS[next].key}`)?.focus();
+                }}
+                className={`${TAB_CLASS} focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-amber-300 ${activeTab === key ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-        <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} />
+        <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} className="" />
       </div>
 
-      <div className="relative p-4 xl:flex-1 xl:min-h-0">
-        <div
-          className={`${
-            activeTab === "overview" ? "relative" : "hidden xl:block xl:invisible xl:pointer-events-none xl:select-none"
-          } xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${SCROLL_REGION_CLASS}`}
-          aria-hidden={activeTab !== "overview"}
-        >
-          {overview}
-        </div>
+      {mobileQuote}
+      <div className="min-w-0 p-3 sm:p-4" role="tabpanel" id={`ticker-panel-${activeTab}`} aria-labelledby={`ticker-tab-${activeTab}`}>
+        {activeTab === "overview" ? <div>{overview}</div> : null}
+        {chartVisited ? <div hidden={activeTab !== "chart"}>{chart}</div> : null}
+        {activeTab === "congress" ? <div className="space-y-4">{congressActivity}</div> : null}
+        {activeTab === "insiders" ? <div className="space-y-4">{insiderActivity}</div> : null}
+        {activeTab === "signals" ? signalActivity : null}
+        {activeTab === "contracts" ? contractsActivity : null}
         {activeTab === "news" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">News</p>
@@ -1290,7 +1312,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           </div>
         ) : null}
         {activeTab === "financials" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Financials</p>
@@ -1306,7 +1328,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           </div>
         ) : null}
         {activeTab === "valuation" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Valuation</p>
@@ -1322,7 +1344,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           </div>
         ) : null}
         {activeTab === "consensus" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Analyst Consensus</p>
@@ -1342,7 +1364,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           </div>
         ) : null}
         {activeTab === "research" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-4">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <h2 className="text-xl font-semibold text-slate-100">Walnut research</h2>
@@ -1368,7 +1390,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
           </div>
         ) : null}
         {activeTab === "ownership" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Ownership</p>
@@ -1383,10 +1405,11 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
                 <TickerOwnershipPanel data={ownership} locked={!canViewOwnership} />
               )}
             </div>
+            {institutionalActivity}
           </div>
         ) : null}
         {activeTab === "macro" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Macro Positioning</p>
@@ -1468,51 +1491,15 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
             </div>
           </div>
         ) : null}
-        {activeTab === "events" ? (
-          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden xl:absolute xl:inset-0">
-            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events / Filings</p>
-                <p className="mt-2 text-sm text-slate-400">Latest press releases, filings, and disclosure activity.</p>
-              </div>
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Latest available.</span>
-            </div>
-            <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
-              <EventsSection title={pressSectionTitle}>
-                {loadingPress && pressPages.length === 0 ? (
-                  <TabSkeleton rows={2} />
-                ) : (
-                  <>
-                    <NewsArticleList
-                      items={pressArticleItems}
-                      status={pressArticleItems.length > 0 ? undefined : pressResponse?.status}
-                      message={pressMessage}
-                      emptyMessage={PRESS_EMPTY_MESSAGE}
-                      showSymbol={false}
-                      showImage
-                      compact
-                    />
-                    {canLoadMorePress ? (
-                      <div className="mt-3">
-                        <LoadMoreButton
-                          disabled={loadingPress}
-                          label={loadingPress ? "Loading..." : "Load more press releases"}
-                          onClick={loadMorePress}
-                        />
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </EventsSection>
-
-              {showSecSection ? (
+        {activeTab === "filings" ? (
+          <div className="min-w-0 space-y-4">
                 <EventsSection title="SEC Filings" meta="Latest available">
                   {loadingSec && secPages.length === 0 ? (
                     <TabSkeleton rows={3} />
                   ) : secItems.length > 0 ? (
                     <>
-                      <div className="overflow-hidden rounded-xl border border-white/10">
-                        <div className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      <div className="overflow-x-auto rounded-xl border border-white/10">
+                        <div className="grid min-w-[36rem] grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                           <span>Date</span>
                           <span>Form</span>
                           <span>Title</span>
@@ -1521,7 +1508,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
                         {secItems.map((item) => (
                           <div
                             key={`${item.form_type}-${item.filing_date}-${item.url ?? item.title ?? "row"}`}
-                            className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
+                            className="grid min-w-[36rem] grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
                           >
                             <span>{formatDateShort(item.filing_date ?? null)}</span>
                             <span className="font-semibold text-slate-100">{item.form_type}</span>
@@ -1554,14 +1541,53 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
                     <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
                   )}
                 </EventsSection>
-              ) : null}
+          </div>
+        ) : null}
+        {activeTab === "events" ? (
+          <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events</p>
+                <p className="mt-2 text-sm text-slate-400">Latest press releases and disclosure activity. SEC documents are in Filings.</p>
+              </div>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Latest available.</span>
+            </div>
+            <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              <EventsSection title={pressSectionTitle}>
+                {loadingPress && pressPages.length === 0 ? (
+                  <TabSkeleton rows={2} />
+                ) : (
+                  <>
+                    <NewsArticleList
+                      items={pressArticleItems}
+                      status={pressArticleItems.length > 0 ? undefined : pressResponse?.status}
+                      message={pressMessage}
+                      emptyMessage={PRESS_EMPTY_MESSAGE}
+                      showSymbol={false}
+                      showImage
+                      compact
+                    />
+                    {canLoadMorePress ? (
+                      <div className="mt-3">
+                        <LoadMoreButton
+                          disabled={loadingPress}
+                          label={loadingPress ? "Loading..." : "Load more press releases"}
+                          onClick={loadMorePress}
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </EventsSection>
+
+
 
               <EventsSection title="Disclosure Activity" meta="365D">
                 {loadingEvents && !eventsStatus ? (
                   <TabSkeleton rows={2} />
                 ) : disclosureEvents.length > 0 ? (
-                  <div className="overflow-hidden rounded-xl border border-white/10">
-                    <div className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <div className="overflow-x-auto rounded-xl border border-white/10">
+                    <div className="grid min-w-[36rem] grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                       <span>Date</span>
                       <span>Type</span>
                       <span>Title</span>
@@ -1572,7 +1598,7 @@ function TickerContextContents({ symbol, overview, canViewOwnership = false, res
                       return (
                         <div
                           key={event.id}
-                          className="grid grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
+                          className="grid min-w-[36rem] grid-cols-[8rem_7rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
                         >
                           <span>{formatDateShort(event.ts ?? null)}</span>
                           <span className="font-semibold text-slate-100">{disclosureTypeLabel(event.event_type)}</span>

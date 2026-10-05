@@ -177,12 +177,14 @@ function ParticipantLeaderboard({
 
 export function TickerParticipantLeaderboards({
   symbol,
+  kind,
   lookbackDays,
   side,
   initialCongressEvents,
   initialInsiderEvents,
 }: {
   symbol: string;
+  kind?: ActivityKind;
   lookbackDays: number;
   side: SideFilter;
   initialCongressEvents: EventItem[];
@@ -226,7 +228,7 @@ export function TickerParticipantLeaderboards({
         signal: controller.signal,
         source: `ticker-${tape}-leaderboard`,
       });
-      Promise.all([request("congress"), request("insider")])
+      Promise.all([kind === "insider" ? Promise.resolve({ items: [] }) : request("congress"), kind === "congress" ? Promise.resolve({ items: [] }) : request("insider")])
         .then(([congress, insiders]) => {
           if (!alive || controller.signal.aborted) return;
           setCongressEvents(Array.isArray(congress.items) ? congress.items.slice(0, RANKING_LIMIT) : []);
@@ -254,14 +256,14 @@ export function TickerParticipantLeaderboards({
       observer?.disconnect();
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [lookbackDays, side, symbol]);
+  }, [kind, lookbackDays, side, symbol]);
 
   const congressParticipants = useMemo(() => rankParticipants("congress", congressEvents), [congressEvents]);
   const insiderParticipants = useMemo(() => rankParticipants("insider", insiderEvents), [insiderEvents]);
   return (
     <div ref={markerRef} className="min-w-0 space-y-5">
-      <ParticipantLeaderboard title="Top Congress traders" kind="congress" participants={congressParticipants} loading={loading} unavailable={unavailable} />
-      <ParticipantLeaderboard title="Top insiders" kind="insider" participants={insiderParticipants} loading={loading} unavailable={unavailable} />
+      {kind !== "insider" ? <ParticipantLeaderboard title="Top Congress traders" kind="congress" participants={congressParticipants} loading={loading} unavailable={unavailable} /> : null}
+      {kind !== "congress" ? <ParticipantLeaderboard title="Top insiders" kind="insider" participants={insiderParticipants} loading={loading} unavailable={unavailable} /> : null}
     </div>
   );
 }

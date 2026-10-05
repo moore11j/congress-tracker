@@ -52,8 +52,8 @@ test("ticker context starts on overview and loads heavy tabs only after tab acti
   assert.ok(pressEffect.indexOf('if (activeTab !== "events")') < pressEffect.indexOf("getTickerPressReleases(symbol"));
 
   const filingsEffect = effectBlockStartingWith('getTickerSecFilings(symbol');
-  assert.match(filingsEffect, /if \(activeTab !== "events"\)/);
-  assert.ok(filingsEffect.indexOf('if (activeTab !== "events")') < filingsEffect.indexOf("getTickerSecFilings(symbol"));
+  assert.match(filingsEffect, /if \(activeTab !== "filings"\)/);
+  assert.ok(filingsEffect.indexOf('if (activeTab !== "filings")') < filingsEffect.indexOf("getTickerSecFilings(symbol"));
 
   const disclosureEffect = effectBlockStartingWith("const response = await getEvents");
   assert.match(disclosureEffect, /if \(activeTab !== "events"\)/);
@@ -102,7 +102,7 @@ test("ownership tab is a pro lazy tab", () => {
   const api = read("lib/api.ts");
   const panel = read("components/ticker/TickerOwnershipPanel.tsx");
 
-  assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events" \| "macro"/);
+  assert.match(card, /key: "ownership", label: "Ownership"/);
   assert.match(card, /canViewOwnership\?: boolean/);
   assert.match(card, /<TickerOwnershipPanel data=\{ownership\} locked=\{!canViewOwnership\} \/>/);
   assert.match(page, /canViewOwnership=\{canViewProTickerContext\}/);
@@ -119,9 +119,8 @@ test("analyst consensus tab is lazy and shows free summary with premium detail g
   const api = read("lib/api.ts");
   const panel = read("components/ticker/TickerAnalystConsensusTab.tsx");
 
-  assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events" \| "macro" \| "valuation" \| "consensus"/);
-  assert.match(card, /onClick=\{\(\) => setActiveTab\("consensus"\)\}/);
-  assert.match(card, /<span>Analysts<\/span>\s*<span className="ml-2 rounded bg-indigo-400 px-1\.5 py-0\.5 text-\[9px\] font-bold uppercase tracking-\[0\.08em\] text-white">New<\/span>/);
+  assert.match(card, /key: "consensus", label: "Analysts"/);
+  assert.match(card, /onClick=\{\(\) => selectTab\(key\)\}/);
   assert.match(card, /<TickerAnalystConsensusTab data=\{analystConsensus\} symbol=\{symbol\} \/>/);
   assert.match(api, /export async function getTickerAnalystConsensus/);
   assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/consensus/);

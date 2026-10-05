@@ -30,7 +30,7 @@ function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
 function activityHref(symbol: string, lookback: Lookback, source: ActivitySource, side: Exclude<SideFilter, "all">): string {
   const base = tickerHref(symbol) ?? `/ticker/${encodeURIComponent(symbol)}`;
   const query = new URLSearchParams({ lookback, source, side });
-  return `${base}?${query.toString()}`;
+  return `${base}?${query.toString()}#${source}-activity`;
 }
 
 function ActivityHeaderStat({ href, label, value, toneClass }: { href: string; label: string; value: number; toneClass: string }) {

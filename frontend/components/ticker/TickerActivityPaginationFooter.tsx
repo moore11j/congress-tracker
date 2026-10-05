@@ -70,7 +70,7 @@ export function TickerActivityPaginationFooter({
 
   function goToPage(event: MouseEvent<HTMLAnchorElement>, nextPage: number) {
     event.preventDefault();
-    const nextUrl = buildHref(nextPage);
+    const nextUrl = buildHref(nextPage, true);
     window.sessionStorage.setItem(pendingScrollKey, `${sectionId}:${nextPage}`);
     router.push(nextUrl, { scroll: false });
   }
