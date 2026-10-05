@@ -4,11 +4,11 @@ from datetime import date, datetime, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import ConfirmationScoreSnapshot, Security, StrategyDefinition
+from app.models import ConfirmationScoreSnapshot, OutcomeEntry, Security, StrategyDefinition
 from app.services.strategy_versions import (
     approve_strategy_version,
     create_strategy_version,
@@ -57,6 +57,10 @@ def _snapshot(db, security: Security) -> None:
             calculation_type="live",
         )
     )
+    db.flush()
+    snapshot = db.execute(select(ConfirmationScoreSnapshot).where(ConfirmationScoreSnapshot.security_id == security.id)).scalar_one()
+    at = datetime(2026, 8, 10, 14, 30, tzinfo=timezone.utc)
+    db.add(OutcomeEntry(snapshot_id=snapshot.id, security_id=security.id, ticker_at_time=security.symbol, entry_key="version-preview-entry", qualifying_event_at=at, evidence_cutoff_at=at, entry_session_date=date(2026, 8, 10), entry_price=125, entry_price_at=at, entry_price_source="fixture", adjustment_type="split_adjusted_price_return", benchmark_entry_price=100, benchmark_entry_price_at=at, benchmark_price_source="fixture", methodology_version="test", audit_version="test"))
     db.commit()
 
 

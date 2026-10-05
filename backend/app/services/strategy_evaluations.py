@@ -16,6 +16,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.services.strategy_portfolio_policy import POLICY_VERSION, position_limit, select_candidates
+from app.services.strategy_prices import position_prices
 from app.models import Security, StrategyDefinition, StrategyEvaluationRun, StrategyEvent, StrategyLiveHolding, StrategyTrade, StrategyVersion
 
 
@@ -114,7 +116,8 @@ def _refresh_live_holdings(db: Session, *, strategy_id: int, run_id: int, evalua
         key=lambda trade: (-float((latest_rebalance.get(trade.symbol.upper()) or trade).weight_pct or 0.0), trade.symbol),
     )
     for rank, opening in enumerate(ranked, start=1):
-        current = latest_rebalance.get(opening.symbol.upper()) or opening
+        rebalance = latest_rebalance.get(opening.symbol.upper())
+        current = rebalance if rebalance and rebalance.id > opening.id else opening
         security = db.get(Security, current.security_id or opening.security_id) if (current.security_id or opening.security_id) else None
         rows.append(
             StrategyLiveHolding(
@@ -169,11 +172,15 @@ def evaluate_strategy_candidates(
     if version is None or int(version.strategy_id) != int(strategy_id):
         raise ValueError("Strategy version must belong to the evaluated strategy.")
 
+    rules = json.loads(version.rules_json or "{}")
     normalized = {candidate.normalized_symbol: candidate for candidate in candidates}
     if len(normalized) != len(candidates) or any(not symbol for symbol in normalized):
         raise ValueError("Candidates must contain unique, non-empty symbols.")
     if any(float(candidate.weight_pct) <= 0 for candidate in candidates):
         raise ValueError("Candidate weights must be positive.")
+    eligible_symbols = set(normalized)
+    candidates = select_candidates(candidates, rules)
+    normalized = {candidate.normalized_symbol: candidate for candidate in candidates}
 
     run_key = idempotency_key or f"strategy:{strategy_id}:version:{strategy_version_id}:evaluation:{evaluation_date.isoformat()}"
     existing = db.execute(
@@ -212,6 +219,9 @@ def evaluate_strategy_candidates(
             return _run_payload(existing, idempotent=True)
         raise
 
+    latest_weights = {}
+    for trade in db.execute(select(StrategyTrade).where(StrategyTrade.strategy_id == strategy_id, StrategyTrade.action == "rebalance").order_by(StrategyTrade.id.desc())).scalars():
+        latest_weights.setdefault(trade.symbol.upper(), trade)
     open_positions = {
         trade.symbol.upper(): trade
         for trade in db.execute(
@@ -222,6 +232,12 @@ def evaluate_strategy_candidates(
             )
         ).scalars()
     }
+    # Fill previously scheduled entries once their session prices exist.
+    for prior in open_positions.values():
+        resolved = position_prices(db, symbol=prior.symbol, entry_date=prior.effective_date, as_of=evaluation_date)
+        if prior.entry_price is None and resolved["entryPrice"] is not None:
+            prior.entry_price = resolved["entryPrice"]
+            prior.effective_date = resolved["entryDate"]
     prices = {symbol.strip().upper(): price for symbol, price in (closing_prices or {}).items()}
     changes = {"added": 0, "exited": 0, "rebalanced": 0}
 
@@ -229,7 +245,8 @@ def evaluate_strategy_candidates(
         prior = open_positions[symbol]
         prior.status = "closed"
         prior.exit_price = prices.get(symbol)
-        prior.exit_reason = "no_longer_qualifies"
+        exit_reason = "portfolio_capacity" if symbol in eligible_symbols else "no_longer_qualifies"
+        prior.exit_reason = exit_reason
         exit_trade = StrategyTrade(
             strategy_id=strategy_id,
             strategy_version_id=strategy_version_id,
@@ -241,11 +258,12 @@ def evaluate_strategy_candidates(
             status="completed",
             signal_date=evaluation_date,
             effective_date=evaluation_date,
+            entry_price=prior.entry_price,
             exit_price=prices.get(symbol),
             weight_pct=prior.weight_pct,
             score_at_exit=prior.score_at_entry,
             qualification_snapshot_json=_json({"priorTradeId": int(prior.id)}),
-            exit_reason="no_longer_qualifies",
+            exit_reason=exit_reason,
         )
         db.add(exit_trade)
         db.flush()
@@ -256,15 +274,17 @@ def evaluate_strategy_candidates(
                 strategy_version_id=strategy_version_id,
                 run_id=run.id,
                 trade=exit_trade,
-                event_type="trade_exited",
+                event_type="position_removed_by_policy" if exit_reason == "portfolio_capacity" and len(open_positions) > position_limit(rules) else "trade_exited",
                 occurred_at=occurred_at,
                 dedupe_key=f"strategy:{strategy_id}:run:{run.id}:trade_exited:{symbol}",
-                payload={"reason": "no_longer_qualifies", "weightPct": prior.weight_pct},
+                payload={"reason": exit_reason, "weightPct": prior.weight_pct},
             )
         changes["exited"] += 1
 
     for symbol, candidate in sorted(normalized.items()):
         prior = open_positions.get(symbol)
+        last_rebalance = latest_weights.get(symbol)
+        prior_weight = last_rebalance.weight_pct if last_rebalance and prior and last_rebalance.id > prior.id else (prior.weight_pct if prior else None)
         effective_date = candidate.effective_date or evaluation_date
         if prior is None:
             trade = StrategyTrade(
@@ -299,7 +319,7 @@ def evaluate_strategy_candidates(
                     payload={"weightPct": candidate.weight_pct, "score": candidate.score, "sourceCount": candidate.source_count},
                 )
             changes["added"] += 1
-        elif abs(float(prior.weight_pct or 0) - float(candidate.weight_pct)) > 0.0001:
+        elif abs(float(prior_weight or 0) - float(candidate.weight_pct)) > 0.0001:
             trade = StrategyTrade(
                 strategy_id=strategy_id,
                 strategy_version_id=strategy_version_id,
@@ -328,13 +348,13 @@ def evaluate_strategy_candidates(
                     event_type="position_rebalanced",
                     occurred_at=occurred_at,
                     dedupe_key=f"strategy:{strategy_id}:run:{run.id}:position_rebalanced:{symbol}",
-                    payload={"previousWeightPct": prior.weight_pct, "weightPct": candidate.weight_pct},
+                    payload={"previousWeightPct": prior_weight, "weightPct": candidate.weight_pct},
                 )
             changes["rebalanced"] += 1
 
     run.status = "completed"
     run.executed_at = datetime.now(timezone.utc)
-    run.metadata_json = _json({"changes": changes, "candidateSymbols": sorted(normalized), "initialization": bool(initialize)})
+    run.metadata_json = _json({"changes": changes, "candidateSymbols": sorted(normalized), "initialization": bool(initialize), "portfolioPolicy": POLICY_VERSION, "maxPositions": position_limit(rules)})
     db.flush()
     _refresh_live_holdings(db, strategy_id=strategy_id, run_id=int(run.id), evaluation_date=evaluation_date)
     if not initialize:
@@ -347,7 +367,7 @@ def evaluate_strategy_candidates(
             event_type="rebalance_completed",
             occurred_at=occurred_at,
             dedupe_key=f"strategy:{strategy_id}:run:{run.id}:rebalance_completed",
-            payload={"evaluationDate": evaluation_date.isoformat(), "changes": changes, "qualifyingCount": len(normalized)},
+            payload={"evaluationDate": evaluation_date.isoformat(), "changes": changes, "qualifyingCount": len(normalized), "maxPositions": position_limit(rules), "portfolioPolicy": POLICY_VERSION},
         )
     db.commit()
     return _run_payload(run, idempotent=False)

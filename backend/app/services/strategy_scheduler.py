@@ -7,7 +7,7 @@ import os
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AppSetting, StrategyDefinition, StrategyEvaluationRun, StrategyVersion
@@ -112,13 +112,17 @@ def run_active_strategy_evaluations(
         _write_status(db, payload)
         return payload
 
+    last_completed = select(func.max(StrategyEvaluationRun.executed_at)).where(
+        StrategyEvaluationRun.strategy_version_id == StrategyVersion.id,
+        StrategyEvaluationRun.status == "completed",
+    ).correlate(StrategyVersion).scalar_subquery()
     active = db.execute(
         select(StrategyDefinition, StrategyVersion)
         .join(StrategyVersion, StrategyVersion.strategy_id == StrategyDefinition.id)
         .where(StrategyDefinition.status == "published", StrategyVersion.status == "active")
         .where((StrategyVersion.effective_from.is_(None)) | (StrategyVersion.effective_from <= evaluation_date))
         .where((StrategyVersion.effective_to.is_(None)) | (StrategyVersion.effective_to >= evaluation_date))
-        .order_by(StrategyDefinition.sort_order.asc(), StrategyDefinition.id.asc(), StrategyVersion.version.desc())
+        .order_by(last_completed.asc().nullsfirst(), StrategyDefinition.sort_order.asc(), StrategyDefinition.id.asc(), StrategyVersion.version.desc())
         .limit(limit)
     ).all()
     results: list[dict] = []
@@ -127,7 +131,7 @@ def run_active_strategy_evaluations(
         try:
             is_initialization = db.execute(
                 select(StrategyEvaluationRun.id)
-                .where(StrategyEvaluationRun.strategy_id == strategy.id, StrategyEvaluationRun.strategy_version_id == version.id)
+                .where(StrategyEvaluationRun.strategy_id == strategy.id, StrategyEvaluationRun.status == "completed")
                 .limit(1)
             ).scalar_one_or_none() is None
             resolution = resolve_strategy_candidates(

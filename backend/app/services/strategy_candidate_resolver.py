@@ -14,6 +14,7 @@ from app.models import ConfirmationScoreSnapshot, Event, OutcomeEntry, PriceCach
 from app.services.outcome_integrity import adjusted_price, as_utc
 from app.services.replicated_portfolios import _portfolio_event_from_event
 from app.services.strategy_evaluations import StrategyEvaluationCandidate
+from app.services.strategy_portfolio_policy import position_limit
 
 
 class UnsupportedStrategyCandidateSource(ValueError):
@@ -50,6 +51,7 @@ def _available_at(evaluation_date: date, value: datetime | None) -> datetime:
 
 
 def validate_strategy_candidate_rules(rules: dict[str, Any]) -> None:
+    position_limit(rules)
     source = str(rules.get("candidate_source") or "").strip()
     if source == "congress_member_disclosures":
         if not str(rules.get("member_bioguide_id") or "").strip():
@@ -128,19 +130,13 @@ def _candidate_from_event(
     symbol = portfolio_event.symbol
     security = db.execute(select(Security).where(func.upper(Security.symbol) == symbol)).scalars().first()
     execution_floor = evaluation_date + timedelta(days=1)
-    price_row = db.execute(
-        select(PriceCache)
-        .where(PriceCache.symbol == symbol, PriceCache.date >= execution_floor.isoformat())
-        .order_by(PriceCache.date.asc())
-        .limit(1)
-    ).scalar_one_or_none()
     return StrategyEvaluationCandidate(
         symbol=symbol,
         ticker_at_time=symbol,
         security_id=int(security.id) if security else None,
         weight_pct=1.0,
-        entry_price=_canonical_open(price_row),
-        effective_date=date.fromisoformat(price_row.date) if price_row else execution_floor,
+        entry_price=None,
+        effective_date=execution_floor,
         source_count=source_count,
         qualification_snapshot={
             "source": source,
@@ -302,23 +298,16 @@ def _resolve_congress_member_candidates(
         event, portfolio_event = open_positions[symbol]
         security = securities.get(symbol)
         execution_floor = evaluation_date + timedelta(days=1)
-        price_row = db.execute(
-            select(PriceCache)
-            .where(PriceCache.symbol == symbol, PriceCache.date >= execution_floor.isoformat())
-            .order_by(PriceCache.date.asc())
-            .limit(1)
-        ).scalar_one_or_none()
-        effective_date = date.fromisoformat(price_row.date) if price_row is not None else execution_floor
-        entry_price = _canonical_open(price_row)
+        effective_date = execution_floor
+        entry_price = None
         candidates.append(
             StrategyEvaluationCandidate(
                 symbol=symbol,
                 ticker_at_time=symbol,
                 security_id=int(security.id) if security else None,
                 weight_pct=weight,
-                # The first cached market date after daily ingestion controls the
-                # model execution. If the price has not arrived yet, preserve the
-                # next-day schedule without inventing an execution price.
+                # Record the next-session schedule; its open is reconciled
+                # only after that trading session has actually occurred.
                 entry_price=entry_price,
                 effective_date=effective_date,
                 source_count=1,
@@ -330,7 +319,7 @@ def _resolve_congress_member_candidates(
                     "publicDate": portfolio_event.public_date.isoformat(),
                     "ingestedAt": event.created_at.isoformat() if event.created_at else None,
                     "execution": "next_trading_session_official_open",
-                    "executionPriceDate": effective_date.isoformat() if price_row is not None else None,
+                    "executionPriceDate": None,
                     "exitRule": "matching_reported_sale",
                     "companyName": security.name if security else None,
                     "sector": security.sector if security else None,
@@ -397,7 +386,7 @@ def resolve_strategy_candidates(
     direction = "bullish"
     min_score = max(0, min(100, int(rules.get("min_score") or 60)))
     min_sources = max(0, int(rules.get("min_active_sources") or 1))
-    max_positions = max(1, min(100, int(rules.get("max_positions") or 10)))
+    max_positions = position_limit(rules)
     max_snapshot_age_days = max(0, min(30, int(rules.get("max_snapshot_age_days") or 3)))
     cutoff = evaluation_date - timedelta(days=max_snapshot_age_days)
 

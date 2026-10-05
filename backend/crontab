@@ -46,9 +46,11 @@ CRON_TZ=America/Los_Angeles
 52 16 * * 1-5 cd /app && python -m app.refresh_institutional_performance_cache --calls-per-minute 400 --progress-every 50
 20 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_consensus --sleep-seconds 0.2
 35 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_events --limit 250 --pages 1 --sleep-seconds 0.3
+# Canonical entry/mark repair rotates through a bounded batch after market close.
+2,22,42 17-20 * * 1-5 cd /app && python -m app.jobs.refresh_strategy_prices
 40 16 * * 1-5 cd /app && python -m app.jobs.evaluate_strategies
-45 16 * * 1-5 cd /app && python -m app.jobs.queue_strategy_event_deliveries
-50 16 * * 1-5 cd /app && python -m app.jobs.deliver_strategy_event_emails
+*/10 * * * * cd /app && python -m app.jobs.queue_strategy_event_deliveries
+5-55/10 * * * * cd /app && python -m app.jobs.deliver_strategy_event_emails
 20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache
 45 13 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning
 # Global operating-company evidence only. It processes each changed source once,

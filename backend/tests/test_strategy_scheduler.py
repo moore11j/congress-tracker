@@ -112,3 +112,15 @@ def test_activation_requires_published_strategy_and_deactivates_prior_version():
         assert first.status == "approved"
     finally:
         db.close()
+
+
+def test_scheduler_rotates_beyond_batch_limit(monkeypatch):
+    with _session()() as db:
+        _strategy(db, "first")
+        _strategy(db, "second")
+        monkeypatch.setenv("STRATEGY_EVALUATIONS_ENABLED", "true")
+        monkeypatch.setenv("STRATEGY_EVALUATIONS_MAX_STRATEGIES", "1")
+        now = datetime(2026, 10, 2, 23, tzinfo=timezone.utc)
+        first = run_active_strategy_evaluations(db, scheduled_for=now)
+        second = run_active_strategy_evaluations(db, scheduled_for=now)
+        assert first["results"][0]["slug"] != second["results"][0]["slug"]

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import ConfirmationScoreSnapshot, Event, PriceCache, Security, StrategyDefinition, StrategyVersion
+from app.models import ConfirmationScoreSnapshot, Event, OutcomeEntry, PriceCache, Security, StrategyDefinition, StrategyVersion
 from app.services.strategy_candidate_resolver import UnsupportedStrategyCandidateSource, resolve_strategy_candidates
 
 
@@ -65,6 +65,9 @@ def test_confirmation_resolver_uses_only_visible_fresh_snapshots_and_equal_weigh
         _snapshot(db, nvda, snapshot_id=2, symbol="NVDA", score=95, sources=4, market_date=day, calculated_at=datetime(2026, 8, 10, 18, tzinfo=timezone.utc))
         _snapshot(db, msft, snapshot_id=3, symbol="MSFT", score=85, sources=2, market_date=day, calculated_at=datetime(2026, 8, 10, 14, tzinfo=timezone.utc))
         _snapshot(db, stale, snapshot_id=4, symbol="OLD", score=99, sources=5, market_date=date(2026, 8, 1), calculated_at=datetime(2026, 8, 1, 14, tzinfo=timezone.utc))
+        for snapshot_id, security in [(1, nvda), (3, msft)]:
+            at = datetime(2026, 8, 10, 14, 30, tzinfo=timezone.utc)
+            db.add(OutcomeEntry(snapshot_id=snapshot_id, security_id=security.id, ticker_at_time=security.symbol, entry_key=f"test-{snapshot_id}", qualifying_event_at=at, evidence_cutoff_at=at, entry_session_date=day, entry_price=100, entry_price_at=at, entry_price_source="fixture", adjustment_type="split_adjusted_price_return", benchmark_entry_price=100, benchmark_entry_price_at=at, benchmark_price_source="fixture", methodology_version="test", audit_version="test"))
         db.commit()
 
         resolution = resolve_strategy_candidates(
@@ -156,7 +159,7 @@ def test_congress_member_resolver_replays_only_publicly_ingested_post_activation
         assert resolution.universe_count == 1
         assert [candidate.symbol for candidate in resolution.candidates] == ["NVDA"]
         assert resolution.candidates[0].effective_date == date(2026, 8, 11)
-        assert resolution.candidates[0].entry_price == 190.0
+        assert resolution.candidates[0].entry_price is None  # Next session is not yet observable.
         assert resolution.candidates[0].qualification_snapshot["memberBioguideId"] == "F000110"
     finally:
         db.close()

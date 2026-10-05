@@ -180,12 +180,27 @@ def queue_strategy_event_deliveries(
 
 def queue_recent_strategy_event_deliveries(db: Session, *, limit: int = 100, lookback_hours: int = 48) -> dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, lookback_hours))
-    events = db.execute(
-        select(StrategyEvent)
-        .where(StrategyEvent.created_at >= cutoff)
-        .order_by(StrategyEvent.created_at.asc(), StrategyEvent.id.asc())
-        .limit(max(1, min(limit, 500)))
-    ).scalars().all()
+    # Apply the batch limit to undelivered, opted-in events. Limiting the global
+    # event stream first repeatedly selected the same unrelated rebalances.
+    subscriptions = db.execute(select(StrategySubscription, UserAccount)
+        .join(UserAccount, UserAccount.id == StrategySubscription.user_id)
+        .where(StrategySubscription.is_active.is_(True), StrategySubscription.email_enabled.is_(True), UserAccount.email_notifications_enabled.is_(True))).all()
+    pending = {}
+    batch_limit = max(1, min(limit, 500))
+    for subscription, user in subscriptions:
+        if not _has_active_prospective_version(db, strategy_id=subscription.strategy_id) or not entitlements_for_user(db, user).has_feature("notification_digests"):
+            continue
+        delivered = select(StrategyEventDelivery.id).where(StrategyEventDelivery.strategy_event_id == StrategyEvent.id, StrategyEventDelivery.subscription_id == subscription.id).exists()
+        events = db.execute(select(StrategyEvent).where(
+            StrategyEvent.strategy_id == subscription.strategy_id,
+            StrategyEvent.created_at >= cutoff,
+            StrategyEvent.created_at >= subscription.created_at,
+            StrategyEvent.event_type.in_(_event_types(subscription.event_types_json)),
+            ~delivered,
+        ).order_by(StrategyEvent.created_at.asc(), StrategyEvent.id.asc()).limit(batch_limit)).scalars()
+        for event in events:
+            pending[event.id] = event
+    events = sorted(pending.values(), key=lambda event: event.id)[:batch_limit]
     result = queue_strategy_event_deliveries(db, events=events)
     return {"events": len(events), **result}
 
@@ -263,6 +278,12 @@ def _strategy_event_context(*, strategy: StrategyDefinition, event: StrategyEven
     symbol = (event.ticker_at_time or event.symbol or "").strip().upper()
     base_url = os.getenv("APP_BASE_URL", "https://app.walnutmarkets.com").strip().rstrip("/")
     event_description = f"Walnut recorded a new position in {symbol} for {strategy.name}." if event.event_type == "trade_added" and symbol else f"Walnut recorded a {event_label.lower()} for {strategy.name}."
+    if event.event_type == "rebalance_completed":
+        details = _loads_object(event.payload_json)
+        changes = details.get("changes") or {}
+        event_description = f"Walnut evaluated {strategy.name}: {changes.get('added', 0)} added, {changes.get('exited', 0)} removed, {changes.get('rebalanced', 0)} reweighted. Current model: {details.get('qualifyingCount', 0)} positions."
+        if details.get("maxPositions"):
+            event_description += f" Position limit: {details['maxPositions']}; removals can reflect portfolio capacity as well as eligibility changes."
     subject = f"{strategy.name}: new position in {symbol}" if event.event_type == "trade_added" and symbol else f"{strategy.name}: {event_label.lower()}"
     return {
         "first_name": _first_name(user), "strategy_name": strategy.name, "strategy_slug": strategy.slug,
@@ -332,6 +353,7 @@ def process_pending_strategy_event_deliveries(db: Session, *, limit: int = 50, n
             or not _has_active_prospective_version(db, strategy_id=int(strategy.id))
             or not subscription.is_active
             or not subscription.email_enabled
+            or event.event_type not in _event_types(subscription.event_types_json)
             or not user.email_notifications_enabled
             or not entitlements_for_user(db, user).has_feature("notification_digests")
         ):

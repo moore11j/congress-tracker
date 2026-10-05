@@ -3021,6 +3021,10 @@ export type StrategyHolding = {
   sourceSignals?: Array<Record<string, unknown>>;
   payload?: Record<string, unknown>;
   asOfDate?: string | null;
+  entryPrice?: number | null;
+  priceAsOfDate?: string | null;
+  priceStatus?: string;
+
 };
 
 export type StrategyEquityPoint = {
@@ -3066,6 +3070,7 @@ export type StrategyDefinitionPayload = {
 };
 
 export type StrategyDetailPayload = StrategyDefinitionPayload & {
+  monitoring?: { lastEvaluatedDate: string | null; lastExecutedAt: string | null; status: string; maxPositions: number | null; historicalPerformanceThrough: string | null };
   equityCurve?: StrategyEquityPoint[];
   currentHoldings?: StrategyHolding[];
   currentHoldingsCount?: number;

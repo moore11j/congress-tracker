@@ -1,0 +1,34 @@
+# Strategy reliability audit — October 4, 2026
+
+## Verified production findings
+
+Read-only Fly/PostgreSQL inspection of release `bfb7602d` on October 4 (America/Los_Angeles). Queries used read-only transactions and bounded statement timeouts. No production data, subscriptions or email preferences were changed; no email worker was invoked.
+
+- All 20 active strategies completed October 2 evaluations. Twenty completed each weekday September 28–October 2. September 25 had only four completed evaluations; this audit does not establish a full historical reliability baseline.
+- Cleo Fields had four prospective positions. October 2 recorded three additions, no exits and one rebalance. Insider Open-Market Buys had 494 prospective positions; October 2 recorded 12 additions, one exit and 482 rebalances. These are model decisions from ingested public evidence, not proof of actual contemporaneous brokerage trades.
+- Both reported subscriptions are active with selected additions/exits/daily summaries, strategy email enabled and master email enabled. No identifying customer fields are retained here.
+- The entire strategy delivery table is empty. Canonical events exist (941 additions, 291 exits, 10,929 rebalances and 525 summaries), but zero delivery records exist. The latest delivery job reported zero due/processed, not successful subscriber delivery.
+- All 694 current prospective holdings lacked entry prices. The resolver schedules a future opening price; no later reconciliation populated it. Some cached daily bars lack a canonical split-adjusted basis as well.
+- Stored historical performance ends July 22–30 for the generic strategies and August 14 for most member portfolios. The chart is not a prospective performance series. UTC date parsing also made August 14 appear as August 13 in a negative-offset browser timezone.
+- A broad source-ingestion aggregate exceeded the 20-second statement timeout. It was not retried unbounded; this audit does not certify comprehensive source ingestion.
+
+## Root causes and local repairs
+
+1. **Alert queue starvation and timing.** The old queue limited the entire event stream to the oldest 100 records before subscriber filtering, repeatedly scanning unrelated/already-handled records. Evaluations took long enough that the once-daily queue and sender ran before their completion. The new queue selects subscribed, eligible, undelivered event types before bounding each batch. Queue/sender run every ten minutes in staggered slots, preserving opt-in, tier checks, deduplication and provider idempotency. Sending rechecks event preferences. This retains individual selected-event emails; it is not a consolidated one-email-per-day digest.
+2. **Practical portfolios.** Prospective selection defaults to 25 symbols and clamps explicit limits to 50. Oversized sets prioritize most recent public disclosure, then source count, score and symbol, with equal weights after trimming. Smaller configured portfolios are retained. Both resolver previews and the evaluator enforce the cap. Decisions record `focused_portfolio_v1` and their limit; historical runs/returns remain unchanged. The first oversized-portfolio reduction records capacity removals separately from new filing exits, with a portfolio summary, to avoid hundreds of misleading sale alerts. Subsequent ordinary capacity replacements still emit exit events.
+3. **Rebalance noise.** Compare new weights with the latest rebalance for the current opening trade instead of its original buy weight; ignore rebalances from previous closed/reopened positions.
+4. **Price completion.** Reconcile scheduled entry prices only after their actual exchange session, require canonical split-adjusted OHLC, and never substitute a later available open for a missing execution-day open. A bounded rotating price-repair job reuses the existing provider hydrator, 25 symbols per invocation after close. Portfolio reads expose entry price, latest close, close date and same-basis price return when verifiable. Pending execution or unavailable canonical bars remain explicit gaps, never fabricated prices. Existing closed-trade price gaps are not comprehensively backfilled by this repair.
+5. **Truthful records.** Show successful evaluation dates independently of historical chart dates. An evaluated empty portfolio stays empty instead of resurrecting old backtest holdings. Merge newer prospective trades with historical records before pagination and label their provenance. Historical backtests remain dated research; no new live equity/return curve is manufactured.
+6. **Scheduling.** Prefer least-recently completed active versions when a strategy batch is bounded. Initialization is based on completed strategy evaluations so a failed first attempt does not turn baseline holdings into subscriber alerts.
+7. **Charts.** Shared strategy/backtest chart uses ticker-chart cyan `#22d3ee`, matching fill and tooltip color. Date labels include the year and use UTC to preserve date-only values.
+
+## Validation and deployment boundary
+
+- Python 3.14.2 (`backend/.research-ops-venv`), isolated SQLite: 47 focused strategy tests passed across evaluation, subscription, storage, resolver, version, refresh, replicated portfolios, performance metrics and new reliability regressions. Older confirmation-preview fixtures were corrected to include required executable OutcomeEntry records; the disclosure fixture no longer expects a future close to be a known entry.
+- Two frontend strategy route checks passed; TypeScript passed; optimized Next.js production build passed. Existing Browserslist age notice remains. No comprehensive browser/mobile visual pass or full application suite was established.
+- `git diff --check` passed. Other concurrent research-tool/Signal Mixer work exists in the shared checkout and was preserved. Generated TypeScript build metadata is left intact because other work is active.
+- **Local implementation only:** no commit, push, deployment, production portfolio mutation, provider price hydration or subscriber email send in this task.
+
+## Release acceptance / remaining work
+
+Deploy the reviewed changes, evaluate the current models to apply the cap, observe canonical price hydration and inspect resulting position/return coverage. Verify a real opted-in delivery through provider acceptance and receipt; the legacy `delivered` database status alone reflects provider acceptance, not inbox delivery. Do not replay the historical backlog indiscriminately; current scheduling only considers the existing 48-hour window. Any historical recovery notice requires its own reviewed content and sending authorization. Preserve the original backtests and label them historical; refreshing or building capped prospective performance is separate work requiring reproducible execution accounting. Continue observing source freshness and missed evaluations, particularly the September 25 gap.

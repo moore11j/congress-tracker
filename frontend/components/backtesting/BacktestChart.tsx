@@ -10,13 +10,13 @@ type Props = { timeline: BacktestTimelinePoint[] };
 
 function dateLabel(value: string) {
   const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : value;
+  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : value;
 }
 
 export function BacktestChart({ timeline }: Props) {
   const chartData = useMemo(() => timeline.map((point) => ({ label: dateLabel(point.date) })), [timeline]);
   const series = useMemo(() => [
-    { key: "strategy", label: "Strategy value", color: "rgba(110,231,183,0.96)", areaGradient: { top: "rgba(74,222,128,0.34)", bottom: "rgba(74,222,128,0)" }, values: timeline.map((point) => point.strategy_value) },
+    { key: "strategy", label: "Strategy value", color: "#22d3ee", areaGradient: { top: "rgba(34,211,238,0.28)", bottom: "rgba(34,211,238,0.02)" }, values: timeline.map((point) => point.strategy_value) },
     { key: "benchmark", label: "Benchmark value", color: "rgba(226,232,240,0.78)", dashed: true, values: timeline.map((point) => point.benchmark_value) },
   ], [timeline]);
 
@@ -28,7 +28,7 @@ export function BacktestChart({ timeline }: Props) {
     <div className="rounded-2xl border border-white/10 bg-[#07111d] p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />Strategy</span>
+          <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-cyan-400" />Strategy</span>
           <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-slate-300" />S&amp;P 500</span>
         </div>
         <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Portfolio Value ($)</span>
@@ -41,7 +41,7 @@ export function BacktestChart({ timeline }: Props) {
           formatValue={(value) => formatChartCurrency(value, 0)}
           renderTooltip={(index) => {
             const point = timeline[index];
-            return <><div className="text-xs uppercase tracking-[0.18em] text-slate-500">{dateLabel(point.date)}</div><div className="mt-3 space-y-2"><TooltipRow label="Strategy value" value={formatChartCurrency(point.strategy_value)} tone="text-emerald-200" /><TooltipRow label="Benchmark value" value={formatChartCurrency(point.benchmark_value)} /><TooltipRow label="Active tickers" value={String(point.active_positions)} /></div></>;
+            return <><div className="text-xs uppercase tracking-[0.18em] text-slate-500">{dateLabel(point.date)}</div><div className="mt-3 space-y-2"><TooltipRow label="Strategy value" value={formatChartCurrency(point.strategy_value)} tone="text-cyan-200" /><TooltipRow label="Benchmark value" value={formatChartCurrency(point.benchmark_value)} /><TooltipRow label="Active tickers" value={String(point.active_positions)} /></div></>;
           }}
         />
       </WalnutChartContainer>

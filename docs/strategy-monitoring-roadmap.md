@@ -23,6 +23,10 @@ Default subscribed event types are `trade_added`, `trade_exited` and `rebalance_
 
 **Next acceptance:** verify follow → eligible prospective event → deduplicated delivery → return to fresh holdings using safe fixtures and authorized opted-in accounts; exercise disabled delivery, retries, downgrade and unsubscribe. Then define the customer event schema and rollout separately. No brokerage execution is introduced by this plan.
 
+## October 4 operational audit follow-up
+
+[Live audit and local repairs](strategy-reliability-audit-2026-10-04.md): evaluations run, but zero delivery records exist. Local repairs add eligible-event queuing, recurring delivery, 25-default/50-hard-cap portfolios, canonical price completion and truthful current/historical records. Deployment, coverage and actual opted-in receipt remain pending; historical charts are not prospective performance.
+
 ## Historical proposal — August 2, 2026
 
 ## Near-term review flow

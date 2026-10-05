@@ -2,6 +2,15 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-04 — Strategy freshness, alerts and practical portfolios
+
+- **Request:** investigate stale Cleo Fields/Insider charts, absent subscribed alerts, oversized portfolios and missing records; cap positions and match ticker-chart blue.
+- **Evidence/decisions:** read-only production audit confirms October 2 evaluation of 20 active strategies and additions in both named models, but zero strategy deliveries. Local fixes address queue starvation/timing, repeated rebalances, missing entry reconciliation, false historical fallback and hidden prospective transactions. Default 25/hard maximum 50; preserve historical returns and disclose dates. Shared chart uses cyan and UTC dates.
+- **Files/result:** strategy services, portfolio policy/price helper/repair job, cron, UI/API types and regression tests. [Audit and rollout acceptance](strategy-reliability-audit-2026-10-04.md). Roadmap records verified delivery failure with local repairs awaiting deployment.
+- **Checks:** 47 strategy pytest passes on Python 3.14.2/isolated SQLite; two frontend route passes, TypeScript, production build and diff checks pass. No full-suite or comprehensive visual QA claim. A bounded broad source query timed out; source completeness remains unverified.
+- **State/next:** no commit, deployment, production data edits, emails or provider hydration. Concurrent edits preserved. Next: reviewed deployment, cap application, price coverage and opted-in receipt verification; no indiscriminate backlog email replay or manufactured live performance curve.
+
+
 ## 2026-10-04 — Commit and deploy ticker UX and Signal Mixer
 
 - **Authorization/result:** owner approved commit and deployment after preview. Pushed `bfb7602d63fbc18a1a00aa5ad47e51f9d1f2e2a6`; [Vercel](https://vercel.com/moore11js-projects/congress-tracker/7d5G8MrU6fJHVxxr8hSMkPL9d7Sz) and [Fly workflow 37242718354](https://github.com/moore11j/congress-tracker/actions/runs/37242718354) succeeded. Both public version endpoints and all four backend machine images match. Readiness/database and anonymous mixer 401 checks passed.

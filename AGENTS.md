@@ -61,6 +61,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 6. **Validation:** historical release reports contain pre-existing suite failures. No full-suite pass was established on October 4; verify relevant tests on the current revision.
 7. **Editorial/video quality:** October 4 [release `fdafb86f`](docs/research-editorial-quality-2026-10-04.md) deployed Sol research defaults, a shared writing contract, historical search-demand comparison and source-bound video direction. API/cron/video effective models and Sol API access were verified. Two voice auditions completed; live generated-draft quality and voice selection remain open. The earlier [creative audit](docs/social-video-layout-and-mix.md#october-4-creative-quality-audit-and-local-comparison) found a retained Zeely presenter-crop defect; repair it before publication and label historical footage.
 
+8. **Strategies:** October 4 [live audit/local repair](docs/strategy-reliability-audit-2026-10-04.md) confirms daily evaluations but zero delivery records, oversized models and absent entry prices. Reviewed local fixes require deployment, capped evaluation, price-coverage checks and opted-in delivery receipt verification. Historical charts remain dated research; no fresh prospective performance curve is claimed.
+
 ## Working checks
 
 - From `frontend`: `npm.cmd test`; focused checks use `node --test tests/<file>.test.mjs`; build with `npm.cmd run build`; type-check with `npx.cmd tsc --noEmit` when appropriate.
@@ -70,6 +72,7 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- **2026-10-04 — Strategy reliability audit/local fixes:** live October 2 evaluations updated all 20 active strategies, but strategy deliveries are empty; both reported subscriptions are enabled. Found 494 Insider Open-Market Buys positions and missing entry prices across 694 live holdings. Local repairs add 25-default/50-hard-cap portfolios, eligible alert queue selection/retries, canonical entry/mark repair, current-versus-historical status/records and cyan charts. 47 focused Python tests, two frontend checks, TypeScript and build pass. No deployment or emails; see [audit and release acceptance](docs/strategy-reliability-audit-2026-10-04.md).
 - **2026-10-04 — Approved ticker release:** committed/pushed `bfb7602d`; Vercel and Fly workflow `37242718354` succeeded. Both public app-version endpoints reported the release; all four backend machines run its image and readiness/database checks passed. Report: `docs/ticker-ux-and-signal-mixer-2026-10-04.md`.
 - Checks: reused build/TypeScript, 66 Python passes on 3.14.2 and 99 frontend passes/five baseline failures. Live signed-in AAPL chart-first layout, retained sidebar/markers and marker state after range changes verified; anonymous mixer returns 401. A bounded Congress/contract study completed with two setups, both pending at every horizon. No full-suite or comprehensive data-coverage pass.
 - Live limitations: AAPL cash flow is null in the refreshed context; existing public projection omits provider identity. Broad mixer windows hit the documented source/company limits. Follow up on fundamentals availability/source wording and practical study defaults before claiming comprehensive context or long-window coverage.

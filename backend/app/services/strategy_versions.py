@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import StrategyDefinition, StrategyVersion
+from app.services.strategy_portfolio_policy import select_candidates
 from app.services.strategy_candidate_resolver import (
     UnsupportedStrategyCandidateSource,
     resolve_strategy_candidates,
@@ -157,6 +158,7 @@ def preview_strategy_version(
         )
     except (UnsupportedStrategyCandidateSource, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    candidates = select_candidates(resolution.candidates, _loads(version.rules_json))
     return {
         "strategyId": int(strategy.id),
         "version": _payload(version),
@@ -165,7 +167,7 @@ def preview_strategy_version(
         "availableAt": resolution.available_at.isoformat(),
         "source": resolution.source,
         "universeCount": resolution.universe_count,
-        "qualifyingCount": len(resolution.candidates),
+        "qualifyingCount": len(candidates),
         "candidates": [
             {
                 "symbol": candidate.symbol,
@@ -175,6 +177,6 @@ def preview_strategy_version(
                 "entryPrice": candidate.entry_price,
                 "qualificationSnapshot": candidate.qualification_snapshot,
             }
-            for candidate in resolution.candidates
+            for candidate in candidates
         ],
     }

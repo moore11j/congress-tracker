@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.entitlements import TierEntitlements
 from app.models import (
     StrategyBacktestRun,
+    StrategyEvaluationRun,
     StrategyCurrentHolding,
     StrategyDefinition,
     StrategyEquityCurvePoint,
@@ -25,6 +26,10 @@ from app.models import (
     HouseAnnualDisclosureDocument,
     HouseAnnualDisclosureHolding,
 )
+
+from app.services.strategy_prices import position_prices
+from app.services.price_lookup import get_expected_latest_market_date
+from app.services.strategy_portfolio_policy import position_limit
 
 STRATEGY_SORT_FIELDS = {
     "walnut_score": "walnut_strategy_score",
@@ -523,6 +528,17 @@ def strategy_detail(
     history_limit = max(1, min(100, int(history_limit)))
     reported_offset = max(0, int(reported_offset))
     reported_limit = max(1, min(100, int(reported_limit)))
+    latest_evaluation = db.execute(select(StrategyEvaluationRun).where(
+        StrategyEvaluationRun.strategy_id == int(strategy.id), StrategyEvaluationRun.status == "completed"
+    ).order_by(StrategyEvaluationRun.evaluation_date.desc(), StrategyEvaluationRun.id.desc()).limit(1)).scalars().first()
+    active_version = db.execute(select(StrategyVersion).where(StrategyVersion.strategy_id == strategy.id, StrategyVersion.status == "active").order_by(StrategyVersion.version.desc()).limit(1)).scalars().first()
+    payload["monitoring"] = {
+        "lastEvaluatedDate": _iso(latest_evaluation.evaluation_date) if latest_evaluation else None,
+        "lastExecutedAt": _iso(latest_evaluation.executed_at) if latest_evaluation else None,
+        "status": ("current" if (date.today() - latest_evaluation.evaluation_date).days <= 3 else "stale") if latest_evaluation else "awaiting_evaluation",
+        "maxPositions": position_limit(_json_loads(active_version.rules_json, {})) if active_version else None,
+        "historicalPerformanceThrough": _iso(run.backtest_end_date) if run else None,
+    }
     live_holdings_count = int(
         db.execute(
             select(func.count()).select_from(StrategyLiveHolding).where(StrategyLiveHolding.strategy_id == int(strategy.id))
@@ -531,7 +547,7 @@ def strategy_detail(
     )
     # A newly activated version has no daily evaluation ledger yet. Preserve the
     # last reproducible model portfolio until live monitoring produces one.
-    use_live_holdings = bool(payload["prospectiveActive"] and live_holdings_count > 0)
+    use_live_holdings = bool(payload["prospectiveActive"] and (latest_evaluation is not None or live_holdings_count > 0))
     holdings_model = StrategyLiveHolding if use_live_holdings else StrategyCurrentHolding
     current_holdings_count = int(
         db.execute(
@@ -557,6 +573,7 @@ def strategy_detail(
             .limit(holdings_limit)
         ).scalars().all()
         if use_live_holdings:
+            marks = {row.symbol: position_prices(db, symbol=row.symbol, entry_date=row.entry_date, as_of=get_expected_latest_market_date()) for row in holdings}
             current_holdings = [
                 {
                     "symbol": row.symbol,
@@ -564,9 +581,12 @@ def strategy_detail(
                     "sector": row.sector,
                     "rank": row.rank,
                     "weightPct": row.weight_pct,
-                    "entryDate": _iso(row.entry_date),
-                    "lastPrice": row.entry_price,
-                    "returnPct": None,
+                    "entryDate": _iso(marks[row.symbol]["entryDate"]),
+                    "entryPrice": marks[row.symbol]["entryPrice"] or row.entry_price,
+                    "lastPrice": marks[row.symbol]["lastPrice"],
+                    "priceAsOfDate": marks[row.symbol]["priceAsOfDate"],
+                    "priceStatus": "priced" if marks[row.symbol]["entryPrice"] and marks[row.symbol]["lastPrice"] else "awaiting_canonical_price",
+                    "returnPct": (marks[row.symbol]["lastPrice"] / marks[row.symbol]["entryPrice"] - 1) * 100 if marks[row.symbol]["entryPrice"] and marks[row.symbol]["lastPrice"] else None,
                     "sourceSignalCount": row.source_count or 0,
                     "sourceSignals": [],
                     "payload": _json_loads(row.qualification_snapshot_json, {}),
@@ -650,11 +670,10 @@ def strategy_detail(
                     "sourceType": row.source_type,
                     "confidence": row.confidence,
                 }
-                for row in historical_rows[history_offset : history_offset + history_limit]
+                for row in historical_rows
             ]
-        elif model_trades:
-            transaction_total = len(model_trades)
-            transaction_history = [
+        if model_trades:
+            transaction_history += [
                 {
                     "recordType": "model_trade",
                     "symbol": row.symbol,
@@ -664,12 +683,13 @@ def strategy_detail(
                     "effectiveDate": _iso(row.effective_date),
                     "entryPrice": row.entry_price,
                     "exitPrice": row.exit_price,
+                    "returnPct": (row.exit_price / row.entry_price - 1) * 100 if row.entry_price and row.exit_price else None,
                     "weightPct": row.weight_pct,
                     "exitReason": row.exit_reason,
                 }
-                for row in model_trades[history_offset : history_offset + history_limit]
+                for row in model_trades
             ]
-        else:
+        if not model_trades and not historical_rows:
             transaction_total = len(source_positions)
             transaction_history = [
                 {
@@ -684,8 +704,11 @@ def strategy_detail(
                     "sourceType": row.source_type,
                     "confidence": row.confidence,
                 }
-                for row in source_positions[history_offset : history_offset + history_limit]
+                for row in source_positions
             ]
+    transaction_total = len(transaction_history)
+    transaction_history.sort(key=lambda row: (row.get("effectiveDate") or "", row.get("recordType") == "model_trade"), reverse=True)
+    transaction_history = transaction_history[history_offset : history_offset + history_limit]
     payload["transactionHistory"] = transaction_history
     payload["transactionHistoryTotal"] = transaction_total
     payload["transactionHistoryOffset"] = history_offset
