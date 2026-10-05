@@ -156,3 +156,14 @@ def test_skipped_exit_keeps_requiring_prices_after_planned_sale_date():
     assert d(6) not in needed['AAPL']
     simulate(d(1),schedules,d(6),prices,requirements=needed)
     assert d(6) in needed['AAPL']
+
+
+def test_weekend_activation_does_not_invent_a_prior_session_or_performance():
+    with _session()() as db:
+        s,v=_strategy(db)
+        db.add(StrategyEvaluationRun(strategy_id=s.id,strategy_version_id=v.id,idempotency_key='new-weekend',evaluation_date=d(4),status='completed'))
+        db.commit()
+        payload=refresh_chart(db,s.id,as_of=d(2))
+        assert payload['startedOn']=='2026-10-04'
+        assert payload['status']=='awaiting_first_session'
+        assert payload['points']==[] and payload['through'] is None

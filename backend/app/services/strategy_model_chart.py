@@ -74,8 +74,6 @@ def load_decisions(db, strategy_id):
                 execution = max(execution, session_on_or_after(floor))
             schedules[execution] = dict(targets)
     start = runs[0].evaluation_date if runs else None
-    while start and not is_market_trading_day(start):
-        start -= timedelta(days=1)
     return start, schedules, [r.id for r in runs]
 
 
@@ -216,7 +214,7 @@ def build_chart(db, strategy_id, *, as_of=None):
     return {'methodology': METHODOLOGY, 'source': 'recorded_model_decisions',
             'expectedThrough': end.isoformat(), 'through': points[-1]['date'] if points else None,
             'startedOn': start.isoformat() if start else None,
-            'status': ('partial_coverage' if unfilled or stale_marks or skipped else 'current') if points and points[-1]['date'] == end.isoformat() else 'price_gap' if missing else 'awaiting_evaluation',
+            'status': ('partial_coverage' if unfilled or stale_marks or skipped else 'current') if points and points[-1]['date'] == end.isoformat() else 'price_gap' if missing else 'awaiting_first_session' if start and start > end else 'awaiting_evaluation',
             'points': points, 'missingPrices': missing, 'unfilledOrders': unfilled, 'staleMarks': stale_marks, 'skippedRebalances': skipped, 'runIds': run_ids,
             'decisionHash': hashlib.sha256(json.dumps({str(k): v for k,v in schedules.items()}, sort_keys=True).encode()).hexdigest(),
             'assumptions': 'Reconstructed recorded model decisions and versioned equal-weight targets; next-session opens, fractional shares, uninvested cash earns zero. Split-adjusted price returns; dividends, fees and slippage excluded. Unpriced entry orders remain cash. Rebalances without all required opens are skipped. Existing holdings may use a labeled last close for at most three trading sessions; longer gaps stop valuation. Annual reported holdings are not opening balances.',

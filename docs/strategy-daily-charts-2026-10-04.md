@@ -30,6 +30,22 @@ The 2025 annual reports for Dwight Evans (document 10077377, 34 rows) and Cleo F
 - Python 3.14.2: 43 focused chart/evaluation/storage/reliability checks pass. Expanded strategy/replicated-portfolio checks: 182 pass; two failed because the default `/data/app.db` path is not usable on this Windows host, then both pass with isolated in-memory SQLite. No full application suite claim.
 - Two frontend strategy route checks pass. The isolated candidate frontend passes the optimized Next.js build, including type checking and all 67 static pages. Shared-workspace generated ticker-preview types caused a separate check failure; concurrent ticker changes are excluded from this release.
 - Local browser review verifies daily/historical switching, separate metrics, dates and retained chart selection in record links. Live replay verifies data; the UI fixture is synthetic and is not performance evidence.
-- All 20 production-data replays reach the expected session. Daily refresh/cache publication and deployment receipt are pending at this checkpoint.
+- All 20 production-data replays reach the expected session. Daily refresh/cache publication and live receipt are verified below.
 
 No subscriber email was sent, no preferences changed, and no actual security trade was placed in this follow-up. Canonical price-cache repairs are the only production writes before deployment. Source ingestion completeness, subsequent scheduled-run observation, closed-trade record pricing and realistic execution costs remain open.
+
+
+## Deployed receipt
+
+Release `4da74293427e17a4eedf7a72400d56ca470a3dd6` was committed and pushed. [Fly workflow 37250156241](https://github.com/moore11j/congress-tracker/actions/runs/37250156241) and [Vercel deployment](https://vercel.com/moore11js-projects/congress-tracker/GwpjQb5RFrRhpET11vHsTVV9WXeT) succeeded. Both public frontend version endpoints and all four started Fly machines match the revision; readiness/database checks pass.
+
+The deployed job ran successfully, hydrated four further symbol histories with zero exceptions, and published all 20 active caches through October 2. Live public HTTP checks confirm matching final point dates and no paid holdings/private run metadata exposure. Insider SMA/technical each disclose one unfilled historical symbol. Open-Market Buys discloses nine unfilled symbols, six prior-close marks and five skipped rebalances. These counts describe the reconstruction window, not today's number of holdings. Supercronic validates the deployed weekday schedule and Los Angeles timezone.
+
+Live browser review confirms the October 2 daily chart on Cleo Fields, Insider SMA50/SMA200 and Dwight Evans. Cleo shows +5.2% model price return; the insider trend shows +1.4% with its coverage notice; Dwight's model remains flat cash against a changing SPY benchmark. These are checked display values, not investment-performance validation. No new authenticated/mobile visual pass is claimed.
+
+The broad public check initially found **21 catalog entries but only 20 active models**. Blake Moore (`congress-portfolio-m001213-1095d`) had no version or evaluation at all. The existing activation job's dry run identified only that supported entry; its standard daily Congress disclosure rules were activated effective October 4. Baseline run 571/version 22 completed with no qualifying filings, trades or subscriber events. All 21 catalog strategies are now enrolled; the scheduler limit is 25. This was a missed setup, not a reason to invent an earlier ledger.
+
+A final guard removes backward weekend dating for a new model. A Sunday activation waits for its first completed market session; the UI explains this. The existing 20 curves remain through October 2. The expanded focused suite now has 44 passes; the guard's final isolated frontend build passes. Guard deployment is pending.
+
+
+Shared memory/roadmap/context records and this final receipt are updated locally. Automatic approval review rejected partial staging of shared documents because it could exclude concurrent ticker changes; the safe release included only the 11 strategy-specific implementation/test/report files. Concurrent ticker files and shared documentation were preserved intact. Subsequent scheduled-run observation, source completeness, new-model first-session observation and realistic execution costs remain open.
