@@ -2,6 +2,21 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-04 — Approved Signal Mixer and tool refresh deployment
+
+- **Request:** owner approved the reviewed implementation for commit/deployment.
+- **Result:** pushed `ab8642a7`; Vercel and Fly workflow `37246391059` succeeded. Both frontend versions, all four backend release images and readiness/database checks passed. Preserved separately deployed strategy release `9fbd61c1` and unrelated local edits.
+- **Live checks:** old Mixer link redirects to its standalone page; default run returned 55 matches with 38/26/10 complete outcomes. Exact September 1–October 4 run returned seven matches, no mature priced outcomes and clear pending/coverage text. Neither hit a capacity error. Separate Backtesting controls loaded. Anonymous API returned 401 and page redirected to login.
+- **Validation/state:** reused 49 backend/22 frontend checks, TypeScript/build and prior desktop/mobile layout review because application code was unchanged. Deployment receipt: [report](signal-mixer-and-tool-refresh-2026-10-04.md). No full-suite claim, source-data mutation, billing changes or email. Remaining: live Free/Premium account matrix, concurrency, longest-window/source coverage and price completeness.
+
+## 2026-10-04 — Signal Mixer reliability and standalone research tools
+
+- **Request:** fix capacity failures on default/short studies; make Mixer its own tool; align Backtesting, Compare and Screener with the retirement/options calculator design.
+- **Result:** dedicated authenticated route and navigation, old-link redirect, shared visual hierarchy, complete streaming/batched studies, disclosure-window versus outcome cutoff separation and explanatory no-match/pending states. Analyst-upgrade → insider purchase is the initial recipe because it has stored historical coverage, not because it outperformed. Existing feature/access boundaries retained.
+- **Evidence:** candidate ran in memory against production under read-only transactions. Original contract default now completes but has zero matching pairs; analyst default completes in 15.71 seconds with 55 matches and 38/26/10 mature outcomes. Short September window completes in 2.33 seconds, with seven matches and no mature outcomes. Full details and source timing in [the repair report](signal-mixer-and-tool-refresh-2026-10-04.md).
+- **Checks:** 49 focused Python 3.14.2/SQLite tests and 22 frontend checks pass. Actual routes/components reviewed at 1440px and 390px using synthetic UI fixtures; those fixtures are not the production-data evidence. TypeScript and the production build passed after isolating generated preview types. No full-suite claim.
+- **State/next:** local implementation only; no commit, deployment, production writes, emails, paid data or provider hydration. Temporary QA login route removed and fixture services stopped. Concurrent strategy edits preserved. Next: separately authorized deployment, default/short public HTTP and access verification, then concurrency/long-window observation.
+
 ## 2026-10-04 — Strategy freshness, alerts and practical portfolios
 
 - **Request:** investigate stale Cleo Fields/Insider charts, absent subscribed alerts, oversized portfolios and missing records; cap positions and match ticker-chart blue.
@@ -9,7 +24,6 @@ Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops ther
 - **Files/result:** strategy services, portfolio policy/price helper/repair job, cron, UI/API types and regression tests. [Audit and rollout acceptance](strategy-reliability-audit-2026-10-04.md). Roadmap records verified delivery failure with local repairs awaiting deployment.
 - **Checks:** 47 strategy pytest passes on Python 3.14.2/isolated SQLite; two frontend route passes, TypeScript, production build and diff checks pass. No full-suite or comprehensive visual QA claim. A bounded broad source query timed out; source completeness remains unverified.
 - **State/next:** no commit, deployment, production data edits, emails or provider hydration. Concurrent edits preserved. Next: reviewed deployment, cap application, price coverage and opted-in receipt verification; no indiscriminate backlog email replay or manufactured live performance curve.
-
 
 ## 2026-10-04 — Commit and deploy ticker UX and Signal Mixer
 

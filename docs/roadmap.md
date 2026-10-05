@@ -106,26 +106,30 @@ succeeded, with both frontend versions, all four backend images, readiness,
 anonymous mixer denial and signed-in ticker layout verified. Source baseline:
 `98e65467`. Live AAPL cash flow remains null and the public projection hides
 provider identity; source wording/data completeness remain follow-up work.
-Broad live study windows hit the explicit source/company limits, so practical
-defaults and longer-window coverage need further work.
+Broad live study windows initially hit explicit source/company limits; the
+standalone follow-up below repairs those limits and verifies a useful default.
 The mixer uses contract observation dates where public timing is unknown and
 exposes sample/coverage limitations. Saved mixer rules and live alerts remain
 unimplemented; general portfolio execution realism in R6 remains partial.
 Advanced Charts migration and historical forward-P/E averages remain deferred.
 
-### October 4 follow-up — standalone Mixer and tool formatting, local candidate
+### October 4 follow-up — standalone Mixer and tool formatting, deployed
 
 The owner reported that even a short study failed and requested a dedicated Mixer
 page plus calculator-style Backtesting, Compare and Screener formatting. The
-[local repair and validation report](signal-mixer-and-tool-refresh-2026-10-04.md)
+[repair and deployment report](signal-mixer-and-tool-refresh-2026-10-04.md)
 replaces raw-record/company rejection with complete streamed queries and price
 batches, separates disclosure dates from outcome maturity, and adds explicit
 no-match/pending states. The analyst-upgrade → insider-purchase default completed
 a read-only production-data check in 15.71 seconds: 55 matches, with 38/26/10
 completed 30/90/365-day outcomes. The September short window completed in 2.33
-seconds. These are candidate-service checks, not public-endpoint deployment.
+seconds. These timings are candidate-service checks. Release `ab8642a7` then
+deployed successfully on Vercel and Fly (workflow `37246391059`); signed-in live
+default and September-window runs returned 55 and seven matches respectively,
+without capacity errors. Both frontend revisions, four backend images,
+readiness, old-link redirect and anonymous denial were verified.
 49 backend and 22 frontend focused tests passed; local desktop/mobile layouts
-were reviewed. Deployment and HTTP/access acceptance remain pending. Contract
+were reviewed. The live Free/Premium account matrix remains unchecked. Contract
 observation coverage, broad longest-window latency and realistic portfolio
 execution remain open; this does not complete R6 or enable live rule monitoring.
 
@@ -185,7 +189,7 @@ Source review at `c7bb0b56` clarifies the owner's TradingView/Koyfin proposal; t
 |---|---|---|
 | Embedded technical charts with alternative-data overlays | [PremiumTickerChart](../frontend/components/ticker/PremiumTickerChart.tsx) already uses TradingView Lightweight Charts, Congress/insider/contract markers, moving averages, RSI and MACD. | Improve existing event exploration/discoverability first. Consider Advanced Charts only for demonstrated drawing/indicator needs, subject to suitable access terms and integration costs. |
 | Contextual fundamentals | [Financial panel](../frontend/components/ticker/TickerFinancialsPanel.tsx) already includes revenue trends, FCF, leverage and source-qualified forward P/E; [valuation](../frontend/components/ticker/TickerValuationTab.tsx) supplies model context. | Proposed compact summary near existing evidence: growth, cash generation, leverage and valuation, each with source/as-of/missing states. Historical forward-P/E comparisons require comparable historical estimates and coverage; do not substitute trailing multiples silently. |
-| No-code signal mixer | October 4 [deployed event study](ticker-ux-and-signal-mixer-2026-10-04.md) supports trigger + confirmation + time window, costs, SPY and horizon outcomes. [Local follow-up](signal-mixer-and-tool-refresh-2026-10-04.md) adds a dedicated page and repairs capacity/default usability, verified with read-only production data. | Deploy and verify the local repair before expanding to save/monitor. R6 dependencies still include historical coverage, realistic portfolio execution and fresh validation. Retain sample sizes, benchmark-relative returns, losses and overlap diagnostics. Do not promise instant arbitrary combinations or proven alpha. |
+| No-code signal mixer | October 4 [deployed event study](ticker-ux-and-signal-mixer-2026-10-04.md) supports trigger + confirmation + time window, costs, SPY and horizon outcomes. [Deployed follow-up `ab8642a7`](signal-mixer-and-tool-refresh-2026-10-04.md) adds a dedicated page and repairs capacity/default usability; live default and short-window studies passed. | Observe concurrency and broad source/window coverage before expanding to save/monitor. R6 dependencies still include historical coverage, realistic portfolio execution and fresh validation. Retain sample sizes, benchmark-relative returns, losses and overlap diagnostics. Do not promise instant arbitrary combinations or proven alpha. |
 
 Official sources checked October 4: [TradingView product comparison](https://www.tradingview.com/charting-library-docs/latest/getting_started/product-comparison/) says widgets cannot accept custom data and libraries supply no market data; [FAQ](https://www.tradingview.com/charting-library-docs/latest/getting_started/Frequently-Asked-Questions/) excludes Pine Script; [introduction](https://www.tradingview.com/charting-library-docs/latest/introduction/) describes public/non-paywalled and attribution conditions for free Advanced Charts. These require evaluation before adopting it for paid Walnut surfaces. [Koyfin fundamentals documentation](https://www.koyfin.com/help/global-equities-fundamentals-valuatiion/) supports its depth in statements and valuation, but does not establish that competitors cannot reproduce Walnut workflows.
 
