@@ -6,7 +6,7 @@ _VALID_SYMBOL_RE = re.compile(r"^[A-Z\^][A-Z0-9./-]{0,14}$")
 _MUTUAL_FUND_RE = re.compile(r"^[A-Z]{5}X$")
 _CUSIP_LIKE_RE = re.compile(r"^[A-Z0-9]{9}$")
 _SHARE_CLASS_RE = re.compile(r"^([A-Z]{1,6})[./-]([A-Z])$")
-_INVALID_SYMBOL_PLACEHOLDERS = {"[SYMBOL]", "SYMBOL", "UNKNOWN", "NULL", "NONE"}
+_INVALID_SYMBOL_PLACEHOLDERS = {"[SYMBOL]", "SYMBOL", "UNKNOWN", "NULL", "NONE", "N/A", "NOTAVAILABLE"}
 
 
 def canonical_symbol(raw: str | None) -> str | None:

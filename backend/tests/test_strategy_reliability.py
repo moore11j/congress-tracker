@@ -8,6 +8,7 @@ from app.services.strategies import strategy_detail
 from app.services.strategy_evaluations import StrategyEvaluationCandidate as Candidate, evaluate_strategy_candidates
 from app.services.strategy_portfolio_policy import select_candidates
 from app.services.strategy_prices import position_prices
+from app.utils.symbols import symbol_variants
 from app.services.strategy_subscriptions import queue_recent_strategy_event_deliveries, upsert_strategy_subscription
 from test_strategy_evaluations import _session, _strategy
 from test_strategy_subscriptions import _strategy_and_user, _event
@@ -21,6 +22,17 @@ def test_position_caps_preserve_deterministic_newest_disclosures():
     assert sum(c.weight_pct for c in chosen) == 100
     assert len(select_candidates(candidates, {"max_positions": 999})) == 50
     assert len(select_candidates(candidates, {"max_positions": 12})) == 12
+
+
+def test_missing_ticker_cannot_become_share_class_or_priced_position():
+    assert symbol_variants("N/A") == []
+    chosen = select_candidates([Candidate("N/A", 50), Candidate("AAPL", 50)], {})
+    assert [(c.symbol, c.weight_pct) for c in chosen] == [("AAPL", 100)]
+    with _session()() as db:
+        db.add(PriceCache(symbol="N/A", date="2026-10-02", close=110, open_price=100, adjustment_status="split_adjusted_price_return"))
+        db.commit()
+        marks = position_prices(db, symbol="N/A", entry_date=date(2026, 10, 2), as_of=date(2026, 10, 2))
+        assert marks["entryPrice"] is None and marks["lastPrice"] is None
 
 
 def test_rebalance_is_not_repeated_against_original_buy_weight():

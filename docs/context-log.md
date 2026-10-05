@@ -2,6 +2,16 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-04 — Approved strategy deployment and operational repair
+
+- **Request:** owner approved the reviewed strategy release and live cap/price/delivery verification.
+- **Release:** pushed `9fbd61c1`; Fly workflow `37246026041` and Vercel succeeded. Frontend versions, all four images and readiness verified. Current concurrent release `ab8642a7` retains these changes. Other task changes preserved.
+- **Result:** all 20 strategies evaluated October 4, none failed; Insider Open-Market Buys 494 → 24 valid positions after cap/placeholder repair. All models ≤25, hard maximum 50. First capacity reductions were policy events rather than a flood of sale alerts. Blue charts and explicit historical/current dates are live.
+- **Prices/delivery:** bounded canonical repair refreshed 61 symbols; 84 valid matured positions priced, 30 await Monday, zero matured gaps. Filled 71 remaining null current opening records. Eighteen opted-in deliveries accepted with no failures; receipt from both named strategies confirmed in Gmail. One invalid N/A position quarantined; its 4% allocation remains cash until the next evaluation. No preference changes or historical backlog replay.
+- **Checks:** 48 focused Python 3.14.2 tests, two frontend checks, TypeScript and exact staged frontend production build passed. Production price coverage and delivery queries verified. First repair interrupted by concurrent deployment; resumed successfully after a transient database connection failure. No full-suite/comprehensive visual/source-coverage claim.
+- **Files/next:** [release receipt](strategy-reliability-audit-2026-10-04.md), roadmap, sub-roadmap and memory updated. Observe next scheduled refresh/delivery; historical curves, closed-trade price gaps and prospective performance accounting remain unfinished. No brokerage execution.
+
+
 ## 2026-10-04 — Approved Signal Mixer and tool refresh deployment
 
 - **Request:** owner approved the reviewed implementation for commit/deployment.

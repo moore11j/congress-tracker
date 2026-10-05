@@ -25,7 +25,7 @@ Default subscribed event types are `trade_added`, `trade_exited` and `rebalance_
 
 ## October 4 operational audit follow-up
 
-[Live audit and local repairs](strategy-reliability-audit-2026-10-04.md): evaluations run, but zero delivery records exist. Local repairs add eligible-event queuing, recurring delivery, 25-default/50-hard-cap portfolios, canonical price completion and truthful current/historical records. Deployment, coverage and actual opted-in receipt remain pending; historical charts are not prospective performance.
+[Deployed repair and live receipt](strategy-reliability-audit-2026-10-04.md), `9fbd61c1`: all 20 models refreshed with default 25/hard cap 50; all 84 valid matured positions have canonical prices, and 30 await October 5. Eighteen opted-in emails were accepted, with inbox receipt verified for both reported strategies. Observe subsequent scheduled runs and source completeness; historical charts are not prospective performance, and closed-trade gaps remain.
 
 ## Historical proposal — August 2, 2026
 

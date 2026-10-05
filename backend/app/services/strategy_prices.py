@@ -6,12 +6,15 @@ from sqlalchemy import select
 from app.models import PriceCache
 from app.services.outcome_integrity import adjusted_price
 from app.services.price_lookup import is_market_trading_day
+from app.utils.symbols import classify_symbol
 
 
 def position_prices(db, *, symbol: str, entry_date: date | None, as_of: date) -> dict:
     session_date = entry_date or as_of
     while not is_market_trading_day(session_date):
         session_date += timedelta(days=1)
+    if classify_symbol(symbol)[0] != "eligible":
+        return {"entryPrice": None, "entryDate": session_date, "lastPrice": None, "priceAsOfDate": None}
     rows = db.execute(select(PriceCache).where(
         PriceCache.symbol == symbol,
         PriceCache.date <= as_of.isoformat(),

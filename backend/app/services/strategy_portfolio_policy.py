@@ -1,5 +1,6 @@
 """Bounded prospective portfolios; historical research is never rewritten."""
 from dataclasses import replace
+from app.utils.symbols import classify_symbol
 
 DEFAULT_MAX_POSITIONS = 25
 HARD_MAX_POSITIONS = 50
@@ -13,9 +14,10 @@ def position_limit(rules: dict) -> int:
 def select_candidates(candidates: list, rules: dict) -> list:
     # Newest public disclosure first, then corroboration/score, then symbol.
     # No historical returns or future prices participate in selection.
-    if len(candidates) <= position_limit(rules):
+    eligible = [c for c in candidates if classify_symbol(c.normalized_symbol)[0] == "eligible"]
+    if len(eligible) == len(candidates) and len(candidates) <= position_limit(rules):
         return candidates
-    ranked = sorted(candidates, key=lambda c: (
+    ranked = sorted(eligible, key=lambda c: (
         -int(str(c.qualification_snapshot.get("publicDate") or "0000-00-00").replace("-", "")),
         -int(c.source_count or 0), -float(c.score or 0), c.normalized_symbol,
     ))[:position_limit(rules)]
