@@ -113,6 +113,22 @@ exposes sample/coverage limitations. Saved mixer rules and live alerts remain
 unimplemented; general portfolio execution realism in R6 remains partial.
 Advanced Charts migration and historical forward-P/E averages remain deferred.
 
+### October 4 follow-up — standalone Mixer and tool formatting, local candidate
+
+The owner reported that even a short study failed and requested a dedicated Mixer
+page plus calculator-style Backtesting, Compare and Screener formatting. The
+[local repair and validation report](signal-mixer-and-tool-refresh-2026-10-04.md)
+replaces raw-record/company rejection with complete streamed queries and price
+batches, separates disclosure dates from outcome maturity, and adds explicit
+no-match/pending states. The analyst-upgrade → insider-purchase default completed
+a read-only production-data check in 15.71 seconds: 55 matches, with 38/26/10
+completed 30/90/365-day outcomes. The September short window completed in 2.33
+seconds. These are candidate-service checks, not public-endpoint deployment.
+49 backend and 22 frontend focused tests passed; local desktop/mobile layouts
+were reviewed. Deployment and HTTP/access acceptance remain pending. Contract
+observation coverage, broad longest-window latency and realistic portfolio
+execution remain open; this does not complete R6 or enable live rule monitoring.
+
 ### R4 — Finish Research Memory monitoring (P1)
 
 **Work:** connect permitted evidence ingestion and matching to a reliable per-thesis monitoring lifecycle and useful alerts. Improve source completeness before claiming comprehensive coverage.
@@ -169,7 +185,7 @@ Source review at `c7bb0b56` clarifies the owner's TradingView/Koyfin proposal; t
 |---|---|---|
 | Embedded technical charts with alternative-data overlays | [PremiumTickerChart](../frontend/components/ticker/PremiumTickerChart.tsx) already uses TradingView Lightweight Charts, Congress/insider/contract markers, moving averages, RSI and MACD. | Improve existing event exploration/discoverability first. Consider Advanced Charts only for demonstrated drawing/indicator needs, subject to suitable access terms and integration costs. |
 | Contextual fundamentals | [Financial panel](../frontend/components/ticker/TickerFinancialsPanel.tsx) already includes revenue trends, FCF, leverage and source-qualified forward P/E; [valuation](../frontend/components/ticker/TickerValuationTab.tsx) supplies model context. | Proposed compact summary near existing evidence: growth, cash generation, leverage and valuation, each with source/as-of/missing states. Historical forward-P/E comparisons require comparable historical estimates and coverage; do not substitute trailing multiples silently. |
-| No-code signal mixer | [Backtest models](../backend/app/services/backtesting/models.py) support Congress, insiders, watchlists, saved screens and custom tickers with SPY/default benchmark; [engine](../backend/app/services/backtesting/engine.py) explicitly excludes costs/slippage. | Proposed bounded trigger + confirmation + time-window workflow, then save/monitor. R6 dependencies include information-availability timestamps, execution assumptions, historical coverage and fresh validation. Show sample sizes, median benchmark-relative returns, loss distribution and overlapping-event handling alongside horizon win rates. Do not promise instant arbitrary combinations or proven alpha. |
+| No-code signal mixer | October 4 [deployed event study](ticker-ux-and-signal-mixer-2026-10-04.md) supports trigger + confirmation + time window, costs, SPY and horizon outcomes. [Local follow-up](signal-mixer-and-tool-refresh-2026-10-04.md) adds a dedicated page and repairs capacity/default usability, verified with read-only production data. | Deploy and verify the local repair before expanding to save/monitor. R6 dependencies still include historical coverage, realistic portfolio execution and fresh validation. Retain sample sizes, benchmark-relative returns, losses and overlap diagnostics. Do not promise instant arbitrary combinations or proven alpha. |
 
 Official sources checked October 4: [TradingView product comparison](https://www.tradingview.com/charting-library-docs/latest/getting_started/product-comparison/) says widgets cannot accept custom data and libraries supply no market data; [FAQ](https://www.tradingview.com/charting-library-docs/latest/getting_started/Frequently-Asked-Questions/) excludes Pine Script; [introduction](https://www.tradingview.com/charting-library-docs/latest/introduction/) describes public/non-paywalled and attribution conditions for free Advanced Charts. These require evaluation before adopting it for paid Walnut surfaces. [Koyfin fundamentals documentation](https://www.koyfin.com/help/global-equities-fundamentals-valuatiion/) supports its depth in statements and valuation, but does not establish that competitors cannot reproduce Walnut workflows.
 

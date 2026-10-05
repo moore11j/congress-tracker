@@ -1,4 +1,5 @@
 import { BacktestingWorkbench } from "@/components/backtesting/BacktestingWorkbench";
+import { redirect } from "next/navigation";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { getBacktestPresets, getEntitlements } from "@/lib/api";
 import { defaultEntitlements, entitlementsFromTierHint } from "@/lib/entitlements";
@@ -101,6 +102,7 @@ function fallbackPresets() {
 
 export default async function BacktestingPage({ searchParams }: Props) {
   const sp = (await searchParams) ?? {};
+  if (one(sp.strategy) === "mixer") redirect("/signal-mixer");
   const returnTo = buildReturnTo("/backtesting", sp);
   const authState = await requirePageAuthState(returnTo);
   const authToken = authState.token;

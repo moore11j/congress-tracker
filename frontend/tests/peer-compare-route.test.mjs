@@ -29,13 +29,13 @@ test("peer compare page renders report and selector recovery", () => {
   assert.match(comparePage, /Compare two tickers/);
   assert.match(comparePage, /Search for two tickers to compare\./);
   assert.match(comparePage, /Search for a first ticker to compare\./);
-  assert.match(comparePage, /Compare tickers to see which setup has stronger support/);
+  assert.match(comparePage, /Put two companies side by side/);
   assert.match(comparePage, /Our Call/);
 });
 
-test("peer compare uses the full app width and shared loading treatment", () => {
-  assert.match(comparePage, /min-h-screen bg-\[#06111f\] py-6 text-slate-100/);
-  assert.match(compareLoading, /min-h-screen bg-\[#06111f\] py-6 text-slate-100/);
+test("peer compare uses the shared research-tool layout and loading treatment", () => {
+  assert.match(comparePage, /research-tool min-h-screen text-slate-100/);
+  assert.match(compareLoading, /research-tool min-h-screen text-slate-100/);
   assert.doesNotMatch(comparePage, /px-4 py-6 text-slate-100 sm:px-6 lg:px-8/);
   assert.doesNotMatch(compareLoading, /px-4 py-6 text-slate-100 sm:px-6 lg:px-8/);
   assert.match(comparePage, /mx-auto w-full max-w-none space-y-5/);
@@ -60,8 +60,8 @@ test("peer compare page renders compact locked state and pricing return CTAs", (
   assert.match(comparePage, /const requiredPlan = data\.access\?\.required_plan === "pro" \? "pro" : "premium"/);
   assert.match(comparePage, /Unlock Compare with \$\{requiredPlanLabel\}/);
   assert.match(comparePage, /One comparison answers today's question\./);
-  assert.match(comparePage, /Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts\./);
-  assert.match(comparePage, /Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro\./);
+  assert.match(comparePage, /Premium unlocks the comparison and Confirmation Score; institutional activity requires Pro\./);
+  assert.match(comparePage, /Options flow is coming soon\./);
   assert.match(comparePage, /Categories Walnut evaluates/);
   assert.match(comparePage, /Walnut&apos;s proprietary confirmation score summarizes whether the available data supports or conflicts with each stock setup\./);
   assert.match(comparePage, /pricingHref\(currentPath\)/);

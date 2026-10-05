@@ -196,7 +196,7 @@ export function PeerCompareSelector({ leftSymbol, rightSymbol }: Props) {
   }
 
   return (
-    <div className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/55 p-3 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end">
+    <div className="tool-panel tool-panel-accent grid gap-4 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end">
       <SuggestInput label="Ticker 1" value={left} otherValue={right} onCommit={(symbol) => navigate(symbol, right || "_")} />
       <button
         type="button"

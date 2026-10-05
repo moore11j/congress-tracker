@@ -1,4 +1,4 @@
-"""Bounded disclosure-based event study; separate from portfolio simulation."""
+"""Batched disclosure-based event study; separate from portfolio simulation."""
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
@@ -9,7 +9,6 @@ from math import isfinite
 from statistics import median
 from typing import Literal
 
-from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,14 +20,14 @@ from app.services.backtesting.queries import (
 )
 from app.utils.symbols import normalize_symbol
 
-MAX_EVENTS = 20_000
-MAX_SYMBOLS = 500
+SOURCE_BATCH_SIZE = 2_000
+PRICE_BATCH_SIZE = 50
 HORIZONS = (30, 90, 365)
 
 
 class SignalMixerConfig(BaseModel):
     trigger: Literal["insider", "congress"] = "insider"
-    confirmation: Literal["congress", "insider", "government_contract", "analyst_upgrade"] = "government_contract"
+    confirmation: Literal["congress", "insider", "government_contract", "analyst_upgrade"] = "analyst_upgrade"
     window_days: int = Field(default=30, ge=1, le=90)
     minimum_buyers: int = Field(default=1, ge=1, le=5)
     above_sma50: bool = False
@@ -56,20 +55,26 @@ class MixerEvent:
     actor: str = ""
 
 
-def _bounded_rows(db: Session, query):
-    rows = db.execute(query.limit(MAX_EVENTS + 1)).scalars().all()
-    if len(rows) > MAX_EVENTS:
-        raise HTTPException(422, "Too many source records. Choose a shorter study window.")
-    return rows
+def _source_rows(db: Session, query):
+    # Stream the full requested population: raw sales, duplicate records and
+    # unrelated awards must not consume a quota before purchase qualification.
+    result = db.execute(query.execution_options(yield_per=SOURCE_BATCH_SIZE))
+    try:
+        yield from result.scalars()
+    finally:
+        result.close()
 
 
-def load_mixer_events(db: Session, kind: str, start: date, end: date) -> tuple[list[MixerEvent], int]:
+def load_mixer_events(db: Session, kind: str, start: date, end: date, *, symbols: list[str] | None = None) -> tuple[list[MixerEvent], int]:
     start_ts = datetime.combine(start, time.min, tzinfo=timezone.utc)
     end_ts = datetime.combine(end + timedelta(days=1), time.min, tzinfo=timezone.utc)
     events: list[MixerEvent] = []
     missing_dates = 0
     if kind in {"insider", "congress"}:
-        rows = _bounded_rows(db, select(Event).where(Event.event_type == f"{kind}_trade", Event.ts >= start_ts, Event.ts < end_ts).order_by(Event.ts, Event.id))
+        query = select(Event).where(Event.event_type == f"{kind}_trade", Event.ts >= start_ts, Event.ts < end_ts)
+        if symbols is not None:
+            query = query.where(Event.symbol.in_(symbols))
+        rows = _source_rows(db, query.order_by(Event.ts, Event.id))
         for row in rows:
             payload = parse_payload(row.payload_json)
             if not is_buy_like_entry(row, payload):
@@ -84,14 +89,20 @@ def load_mixer_events(db: Session, kind: str, start: date, end: date) -> tuple[l
             if symbol and start <= day <= end:
                 events.append(MixerEvent(symbol, day, f"event:{row.id}", actor.strip().lower()))
     elif kind == "government_contract":
-        rows = _bounded_rows(db, select(GovernmentContract).where(GovernmentContract.created_at >= start_ts, GovernmentContract.created_at < end_ts, GovernmentContract.award_amount > 0).order_by(GovernmentContract.created_at, GovernmentContract.id))
+        query = select(GovernmentContract).where(GovernmentContract.created_at >= start_ts, GovernmentContract.created_at < end_ts, GovernmentContract.award_amount > 0)
+        if symbols is not None:
+            query = query.where(GovernmentContract.symbol.in_(symbols))
+        rows = _source_rows(db, query.order_by(GovernmentContract.created_at, GovernmentContract.id))
         for row in rows:
             day = max(row.award_date, row.created_at.date())
             symbol = normalize_symbol(row.symbol)
             if symbol and start <= day <= end:
                 events.append(MixerEvent(symbol, day, f"contract:{row.id}"))
     else:
-        rows = _bounded_rows(db, select(AnalystGradeEvent).where(AnalystGradeEvent.published_date >= start, AnalystGradeEvent.published_date <= end).order_by(AnalystGradeEvent.published_date, AnalystGradeEvent.id))
+        query = select(AnalystGradeEvent).where(AnalystGradeEvent.published_date >= start, AnalystGradeEvent.published_date <= end)
+        if symbols is not None:
+            query = query.where(AnalystGradeEvent.symbol.in_(symbols))
+        rows = _source_rows(db, query.order_by(AnalystGradeEvent.published_date, AnalystGradeEvent.id))
         for row in rows:
             if (row.action or "").strip().lower() not in {"upgrade", "upgraded"}:
                 continue
@@ -148,7 +159,7 @@ def select_setups(config: SignalMixerConfig, triggers: list[MixerEvent], confirm
     return selected, dict(counts)
 
 
-def evaluate_setups(config: SignalMixerConfig, setups, prices: dict[str, dict[str, float]]):
+def evaluate_setups(config: SignalMixerConfig, setups, prices: dict[str, dict[str, float]], *, all_examples: bool = False):
     spy = prices.get("SPY", {})
     cost = (config.fee_bps + config.slippage_bps) / 10_000
     setups = sorted(setups, key=lambda pair: (pair[0].day, pair[0].symbol, pair[0].event_id))
@@ -179,7 +190,7 @@ def evaluate_setups(config: SignalMixerConfig, setups, prices: dict[str, dict[st
                 continue
             exit_index = bisect_left(days, target.isoformat())
             if exit_index >= len(days) or (date.fromisoformat(days[exit_index]) - target).days > 7:
-                counts["missing_exit_prices"] += 1
+                counts["pending" if config.end_date < target + timedelta(days=7) else "missing_exit_prices"] += 1
                 continue
             entry_key, exit_key = entry.isoformat(), days[exit_index]
             occupied_until[event.symbol] = date.fromisoformat(exit_key)
@@ -187,29 +198,62 @@ def evaluate_setups(config: SignalMixerConfig, setups, prices: dict[str, dict[st
             net = (history[exit_key] * (1 - cost) / (history[entry_key] * (1 + cost)) - 1) * 100
             benchmark = (spy[exit_key] * (1 - cost) / (spy[entry_key] * (1 + cost)) - 1) * 100
             outcomes.append({"symbol": event.symbol, "signal_date": event.day.isoformat(), "trigger_id": event.event_id, "confirmation_id": confirmation.event_id, "confirmation_date": confirmation.day.isoformat(), "entry_date": entry_key, "exit_date": exit_key, "gross_return_pct": round(gross, 4), "net_return_pct": round(net, 4), "spy_return_pct": round(benchmark, 4), "excess_return_pct": round(net - benchmark, 4)})
-        n = len(outcomes)
-        net_returns = [row["net_return_pct"] for row in outcomes]
-        excess = [row["excess_return_pct"] for row in outcomes]
-        horizons.append({"days": horizon, "sample_size": n, "positive_return_rate_pct": round(sum(value > 0 for value in net_returns) / n * 100, 2) if n else None, "beat_spy_rate_pct": round(sum(value > 0 for value in excess) / n * 100, 2) if n else None, "median_net_return_pct": round(median(net_returns), 4) if n else None, "median_excess_return_pct": round(median(excess), 4) if n else None, "worst_return_pct": min(net_returns) if n else None, "loss_count": sum(value < 0 for value in net_returns), "exclusions": dict(counts), "examples": outcomes[:50]})
+        horizons.append(_summarize_outcomes(horizon, outcomes, counts, all_examples=all_examples))
     return horizons
+
+
+def _summarize_outcomes(horizon, outcomes, counts, *, all_examples=False):
+    n = len(outcomes)
+    net_returns = [row["net_return_pct"] for row in outcomes]
+    excess = [row["excess_return_pct"] for row in outcomes]
+    return {"days": horizon, "sample_size": n, "positive_return_rate_pct": round(sum(value > 0 for value in net_returns) / n * 100, 2) if n else None, "beat_spy_rate_pct": round(sum(value > 0 for value in excess) / n * 100, 2) if n else None, "median_net_return_pct": round(median(net_returns), 4) if n else None, "median_excess_return_pct": round(median(excess), 4) if n else None, "worst_return_pct": min(net_returns) if n else None, "loss_count": sum(value < 0 for value in net_returns), "exclusions": dict(counts), "examples": outcomes if all_examples else sorted(outcomes, key=lambda row: (row["signal_date"], row["symbol"], row["trigger_id"]))[:50]}
 
 
 def run_signal_mixer(db: Session, config: SignalMixerConfig):
     start = config.start_date - timedelta(days=config.window_days)
     triggers, missing_trigger_dates = load_mixer_events(db, config.trigger, start, config.end_date)
-    confirmations, missing_confirmation_dates = load_mixer_events(db, config.confirmation, start, config.end_date)
     symbols = sorted({event.symbol for event in triggers})
-    if len(symbols) > MAX_SYMBOLS:
-        raise HTTPException(422, "Too many matching companies. Choose a shorter study window.")
-    prices = load_price_histories(db, symbols + ["SPY"], start - timedelta(days=150), config.end_date)
-    setups, diagnostics = select_setups(config, triggers, confirmations, prices)
+    # Date inputs select disclosures, not a forced early liquidation date. Older
+    # signals can mature after the selected window, using only stored prices.
+    outcomes_as_of = datetime.now(timezone.utc).date()
+    evaluation_config = config.model_copy(update={"end_date": outcomes_as_of})
+    triggers_by_symbol = defaultdict(list)
+    for event in triggers:
+        triggers_by_symbol[event.symbol].append(event)
+    diagnostics = Counter()
+    missing_confirmation_dates = matched_setups = 0
+    outcome_rows = {days: [] for days in HORIZONS}
+    exclusion_counts = {days: Counter() for days in HORIZONS}
+    for offset in range(0, len(symbols), PRICE_BATCH_SIZE):
+        batch = symbols[offset:offset + PRICE_BATCH_SIZE]
+        batch_triggers = [event for symbol in batch for event in triggers_by_symbol[symbol]]
+        confirmations, missing = load_mixer_events(db, config.confirmation, start, config.end_date, symbols=batch)
+        missing_confirmation_dates += missing
+        # Match evidence before loading any price history. This avoids fetching
+        # years of prices for companies that can never qualify.
+        candidates, counts = select_setups(config.model_copy(update={"above_sma50": False}), batch_triggers, confirmations, {})
+        diagnostics.update(counts)
+        if not candidates:
+            continue
+        matched_symbols = sorted({event.symbol for event, _ in candidates})
+        price_end = min(outcomes_as_of, config.end_date + timedelta(days=max(HORIZONS) + 14))
+        prices = load_price_histories(db, matched_symbols + ["SPY"], start - timedelta(days=150), price_end)
+        if config.above_sma50:
+            candidates, sma_counts = select_setups(config, batch_triggers, confirmations, prices)
+            diagnostics.update({key: value for key, value in sma_counts.items() if key in {"missing_sma_history", "below_sma50"}})
+        matched_setups += len(candidates)
+        for horizon in evaluate_setups(evaluation_config, candidates, prices, all_examples=True):
+            outcome_rows[horizon["days"]].extend(horizon["examples"])
+            exclusion_counts[horizon["days"]].update(horizon["exclusions"])
     return {
-        "methodology_version": "signal-mixer-event-study-v1",
+        "methodology_version": "signal-mixer-event-study-v2",
         "config": config.model_dump(mode="json"),
-        "matched_setups": len(setups),
+        "outcomes_as_of": outcomes_as_of.isoformat(),
+        "matched_setups": matched_setups,
         "diagnostics": {**diagnostics, "missing_trigger_filing_dates": missing_trigger_dates, "missing_confirmation_filing_dates": missing_confirmation_dates},
-        "horizons": evaluate_setups(config, setups, prices),
+        "horizons": [_summarize_outcomes(days, outcome_rows[days], exclusion_counts[days]) for days in HORIZONS],
         "assumptions": [
+            "The selected dates filter purchase disclosures. Outcomes use available stored prices through the stated outcomes-as-of date, including after the selected disclosure window. Every qualifying record is processed in batches; the study does not sample or truncate the population.",
             "Historical event study, not a capital-constrained portfolio or evidence of predictive alpha. No live rule monitoring is enabled by running this study.",
             "Purchases require an explicit filing/report date. Transaction dates and records with missing filing dates are excluded. Same-day confirmations are excluded because their order is unknown.",
             "Contracts use the later of award date and first recorded observation in Walnut, not an inferred public announcement date. This limits historical contract coverage.",

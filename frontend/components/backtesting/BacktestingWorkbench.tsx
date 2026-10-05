@@ -26,7 +26,7 @@ import { hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import type { TickerProfilesMap } from "@/lib/types";
 import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName, tickerMonoLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
-import { SignalMixerWorkbench } from "./SignalMixerWorkbench";
+import { ResearchToolHeader } from "@/components/tools/ResearchToolHeader";
 
 type Props = {
   initialEntitlements: Entitlements;
@@ -268,7 +268,7 @@ function BacktestPositionSymbol({ symbol }: { symbol?: string | null }) {
 
 function MetricCard({ item }: { item: SummaryItem }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+    <div className="tool-metric rounded-xl border border-white/10 px-4 py-3">
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
       <p className={`mt-3 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
     </div>
@@ -667,17 +667,14 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   }
 
   return (
-    <div className="space-y-8">
-      <details id="signal-mixer" open={initialQuery?.strategy === "mixer"} className={`${cardClassName} scroll-mt-24`}>
-        <summary className="cursor-pointer text-lg font-semibold text-sky-300">Signal Mixer <span className="ml-2 text-sm font-normal text-slate-400">Combine disclosures and test what followed</span></summary>
-        <SignalMixerWorkbench canRun={canRun && !entitlementsLoading} today={today} />
-      </details>
-      <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-        <div className={`${cardClassName} space-y-5`}>
+    <div className="research-tool space-y-6">
+      <ResearchToolHeader active="backtesting" title="Portfolio Backtesting" description="Explore how a portfolio could have performed. Choose your stocks or disclosure strategy, set your investment and contributions, then compare the journey with a benchmark." />
+      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <div className="tool-panel tool-panel-accent space-y-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Premium Research</p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">Backtest Signals &amp; Portfolios</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-400">Run capital-constrained historical simulations across watchlists, screens, Signals, Congress filings, and insider disclosures.</p>
+            <p className="text-xs font-semibold text-emerald-300">01 · Build your portfolio</p>
+            <h2 className="mt-2 text-lg font-semibold text-white">Start with a research source</h2>
+            <p className="mt-2 text-xs leading-5 text-slate-400">Use a watchlist, saved screen, disclosures or your own stock selection.</p>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -846,10 +843,10 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
           </div>
         </div>
 
-        <div className={`${cardClassName} space-y-4`}>
+        <div className="tool-panel tool-results space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Results</p>
+              <p className="text-xs font-semibold text-sky-300">02 · Explore your results</p>
               <h2 className="mt-1 text-xl font-semibold text-white">Strategy vs {resultBenchmarkLabel}</h2>
               <p className="mt-2 max-w-2xl text-sm text-slate-400">This is a capital-constrained portfolio simulation. Individual trade returns may be large, but portfolio performance is based on actual allocated capital over time.</p>
               <p className="mt-2 max-w-2xl text-sm text-slate-400">Total exposure is capped at 100%, with equal-weight allocations unless custom weights are provided.</p>

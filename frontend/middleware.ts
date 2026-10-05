@@ -9,7 +9,7 @@ const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
 const anonymousPublicRenderHeaderName = "x-walnut-anonymous-public-render";
 const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidate=300";
-const protectedPrefixes = ["/admin", "/account", "/backtesting", "/watchlists", "/monitoring"];
+const protectedPrefixes = ["/admin", "/account", "/backtesting", "/signal-mixer", "/watchlists", "/monitoring"];
 const publicStaticPaths = new Set([
   "/retirement-calculator",
   "/options-calculator",
@@ -68,7 +68,7 @@ const noindexAppRoutePrefixes = [
   "/account",
   "/billing",
   "/admin",
-  "/backtesting",
+  "/backtesting", "/signal-mixer",
   "/search",
 ];
 
@@ -587,7 +587,7 @@ export const config = {
     "/admin/:path*",
     "/account/:path*",
     "/screener",
-    "/backtesting",
+    "/backtesting", "/signal-mixer",
     "/((?!_next/static|_next/image|favicon.ico|apple-icon.png|icon.png).*)",
   ],
 };

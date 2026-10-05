@@ -1,3 +1,4 @@
+import { ResearchToolHeader } from "@/components/tools/ResearchToolHeader";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ApiError, getEntitlements, getPeerCompare, type PeerCompareCategory, type PeerCompareMetric, type PeerCompareResponse } from "@/lib/api";
@@ -137,7 +138,7 @@ function SideHeader({ side, winner, tone }: { side: PeerCompareResponse["left"];
   const href = tickerHref(side.symbol);
   return (
     <div
-      className={`min-w-0 rounded-lg border p-4 ${winner ? "bg-white/[0.04]" : "border-white/10 bg-slate-950/45"}`}
+      className={`min-w-0 rounded-2xl border p-5 ${winner ? "bg-white/[0.04]" : "border-white/10 bg-slate-950/45"}`}
       style={winner ? { borderColor: alpha(tone, 0.5), boxShadow: `inset 0 0 0 1px ${alpha(tone, 0.14)}` } : undefined}
     >
       <div className="flex items-center justify-between gap-3">
@@ -169,7 +170,7 @@ function proLockCopy(category: PeerCompareCategory) {
 
 function CategoryCard({ category, data, upgradeHref }: { category: PeerCompareCategory; data: PeerCompareResponse; upgradeHref: string }) {
   return (
-    <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+    <section className="tool-panel tool-results">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-white">{category.label}</h2>
@@ -231,7 +232,7 @@ function CompareReport({ data, upgradeHref }: { data: PeerCompareResponse; upgra
     <div className="space-y-5">
       <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr_1fr]">
         <SideHeader side={data.left} winner={leftWinner} tone={TICKER_COLORS.left} />
-        <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4 text-center">
+        <div className="tool-panel tool-results text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Our Call</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">
             {winner === "even" ? "Too close to call" : `${data.call.symbol} leads`}
@@ -257,7 +258,7 @@ function CompareReport({ data, upgradeHref }: { data: PeerCompareResponse; upgra
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+        <section className="tool-panel tool-results">
           <h2 className="text-sm font-semibold text-white">Tradeoffs</h2>
           {data.tradeoffs.length ? (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -271,7 +272,7 @@ function CompareReport({ data, upgradeHref }: { data: PeerCompareResponse; upgra
             <p className="mt-2 text-sm text-slate-400">No material counter-edge in the visible categories.</p>
           )}
         </section>
-        <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+        <section className="tool-panel tool-results">
           <h2 className="text-sm font-semibold text-white">Data Notes</h2>
           {data.notes.length ? (
             <ul className="mt-2 space-y-1 text-sm text-slate-400">
@@ -321,7 +322,7 @@ function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { 
         </section>
         <SideHeader side={data.right} winner={false} tone={TICKER_COLORS.right} />
       </div>
-      <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+      <section className="tool-panel tool-results">
         <h2 className="text-sm font-semibold text-white">Categories Walnut evaluates</h2>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {categories.map((category) => (
@@ -386,16 +387,10 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
   }
 
   return (
-    <main className="min-h-screen bg-[#06111f] py-6 text-slate-100">
+    <main className="research-tool min-h-screen text-slate-100">
       <div className="mx-auto w-full max-w-none space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Peer Compare</p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">{pageTitle}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-              Compare tickers to see which setup has stronger support across fundamentals, valuation, price action, catalysts, risks and Walnut&apos;s proprietary confirmation score.
-            </p>
-          </div>
+          <ResearchToolHeader active="compare" title={pageTitle} description="Put two companies side by side. Compare business fundamentals, valuation and market evidence, then inspect the sources behind each difference." />
           {data && canCreateResearch ? (
             <ResearchActions
               canCreateResearch={canCreateResearch}

@@ -1392,7 +1392,7 @@ function TickerOverviewPanel({
 
       <TickerFundamentalsSnapshot summary={fundamentals} />
       <TickerDecisionPanels layer={layer} locked={confirmationLocked} />
-      <Link href="/backtesting?strategy=mixer#signal-mixer" className="mt-4 inline-flex rounded-lg border border-sky-300/20 bg-sky-300/5 px-3 py-2 text-xs font-semibold text-sky-300 hover:bg-sky-300/10">Explore signal combinations →</Link>
+      <Link href="/signal-mixer" className="mt-4 inline-flex rounded-lg border border-sky-300/20 bg-sky-300/5 px-3 py-2 text-xs font-semibold text-sky-300 hover:bg-sky-300/10">Explore signal combinations →</Link>
       {similarHistoricalSetupsLocked ? (
         <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
       ) : (

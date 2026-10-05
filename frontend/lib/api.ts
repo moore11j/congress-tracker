@@ -5753,6 +5753,7 @@ export type SignalMixerConfig = {
 };
 export type SignalMixerResult = {
   methodology_version: string;
+  outcomes_as_of?: string;
   config: SignalMixerConfig;
   matched_setups: number;
   diagnostics: Record<string, number>;

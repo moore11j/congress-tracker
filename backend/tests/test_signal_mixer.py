@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, insert
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
@@ -91,6 +91,16 @@ def test_missing_benchmark_and_stale_prices_are_excluded():
     assert evaluate_setups(config(), [(event(), event("2024-01-09"))], history)[0]["sample_size"] == 0
 
 
+def test_horizon_waits_for_next_close_before_marking_exit_missing():
+    history = {symbol: {"2024-01-11": 100, "2024-02-09": 105} for symbol in ("AAA", "SPY")}
+    setups = [(event(), event("2024-01-09"))]
+    # Thirty days lands on Saturday. The exit's seven-day allowance is still open.
+    cfg = config().model_copy(update={"end_date": date(2024, 2, 11)})
+    assert evaluate_setups(cfg, setups, history)[0]["exclusions"] == {"pending": 1}
+    expired = cfg.model_copy(update={"end_date": date(2024, 2, 18)})
+    assert evaluate_setups(expired, setups, history)[0]["exclusions"] == {"missing_exit_prices": 1}
+
+
 @pytest.mark.parametrize("values", [{"trigger": "insider", "confirmation": "insider"}, {"slippage_bps": float("nan")}, {"fee_bps": -1}, {"window_days": 91}, {"minimum_buyers": 0}])
 def test_invalid_configs(values):
     with pytest.raises(ValidationError):
@@ -111,7 +121,7 @@ def test_explicit_filing_dates_and_contract_observation():
         assert events[0].day == date(2024, 1, 10)
         contracts, _ = load_mixer_events(db, "government_contract", date(2024, 1, 1), date(2024, 2, 1))
         assert contracts[0].day == date(2024, 1, 10)
-        result = run_signal_mixer(db, config())
+        result = run_signal_mixer(db, config(confirmation="government_contract"))
         assert result["matched_setups"] == 0  # same-day contract excluded
 
 
@@ -148,7 +158,7 @@ def test_database_end_to_end_returns_real_fixture_outcomes():
             for day, close in history.items():
                 db.add(PriceCache(symbol=symbol, date=day, close=close))
         db.commit()
-        result = run_signal_mixer(db, config())
+        result = run_signal_mixer(db, config(confirmation="government_contract"))
         assert result["matched_setups"] == 1
         assert result["horizons"][0]["sample_size"] == 1
         assert result["horizons"][0]["examples"][0]["confirmation_date"] == "2024-01-04"
@@ -162,3 +172,56 @@ def test_cash_context_does_not_change_fundamental_score():
     assert positive["status"] == negative["status"]
     assert positive["metrics"] == negative["metrics"]
     assert negative["context"]["free_cash_flow"] == -100
+
+
+def test_large_raw_window_is_streamed_before_purchase_qualification():
+    """Reproduce the old 20,000-record failure with irrelevant sales first."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    stamp = datetime(2024, 1, 10, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        sale = dict(event_type="insider_trade", ts=stamp, symbol="AAA", source="fixture", trade_type="sale", payload_json='{"filing_date":"2024-01-10"}')
+        db.execute(insert(Event), [sale.copy() for _ in range(20_010)])
+        db.execute(insert(Event), [{**sale, "trade_type": "purchase"}])
+        db.commit()
+        rows, missing = load_mixer_events(db, "insider", date(2024, 1, 1), date(2024, 2, 1))
+        assert len(rows) == 1 and missing == 0
+
+
+def test_more_than_500_companies_are_complete_and_prices_are_batched(monkeypatch):
+    from app.services.backtesting import signal_mixer as mixer
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    symbols = [f"CO{i}" for i in range(505)]
+    price_batches = []
+    def prices_for_batch(db, requested, start, end):
+        price_batches.append(requested)
+        assert len(requested) <= mixer.PRICE_BATCH_SIZE + 1
+        return {symbol: {"2024-01-11": 100, "2024-02-10": 120 if symbol != "SPY" else 105} for symbol in requested}
+    monkeypatch.setattr(mixer, "load_price_histories", prices_for_batch)
+    with Session(engine) as db:
+        db.execute(insert(Event), [dict(event_type="insider_trade", ts=datetime(2024, 1, 10, tzinfo=timezone.utc), symbol=symbol, source="fixture", trade_type="purchase", payload_json='{"filing_date":"2024-01-10"}') for symbol in symbols])
+        db.execute(insert(GovernmentContract), [dict(symbol=symbol, award_date=date(2024, 1, 3), award_amount=100, created_at=datetime(2024, 1, 4, tzinfo=timezone.utc)) for symbol in symbols])
+        db.commit()
+        # Disclosures stop in January. February outcomes must still be included.
+        result = run_signal_mixer(db, SignalMixerConfig(start_date=date(2024, 1, 1), end_date=date(2024, 1, 31), slippage_bps=0, confirmation="government_contract"))
+        assert result["matched_setups"] == 505
+        assert result["horizons"][0]["sample_size"] == 505
+        assert result["horizons"][0]["median_net_return_pct"] == 20
+        assert result["horizons"][0]["median_excess_return_pct"] == 15
+        assert len(result["horizons"][0]["examples"]) == 50  # display cap only
+        assert len(price_batches) == 11
+
+
+def test_unrelated_contracts_and_unmatched_prices_are_not_loaded(monkeypatch):
+    from app.services.backtesting import signal_mixer as mixer
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(Event(event_type="insider_trade", ts=datetime(2024, 1, 10, tzinfo=timezone.utc), symbol="AAA", source="fixture", trade_type="purchase", payload_json='{"filing_date":"2024-01-10"}'))
+        db.execute(insert(GovernmentContract), [dict(symbol="OTHER", award_date=date(2024, 1, 3), award_amount=100, created_at=datetime(2024, 1, 4, tzinfo=timezone.utc)) for _ in range(20_010)])
+        db.commit()
+        monkeypatch.setattr(mixer, "load_price_histories", lambda *args: pytest.fail("No matches should load no prices"))
+        result = run_signal_mixer(db, config(confirmation="government_contract"))
+        assert result["matched_setups"] == 0
+        assert result["diagnostics"]["no_prior_confirmation"] == 1

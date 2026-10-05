@@ -1,4 +1,5 @@
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import "@/components/tools/research-tools.css";
 
 const loadingMessages = [
   "Loading peer fundamentals",
@@ -13,7 +14,7 @@ const loadingMessages = [
 
 export default function PeerCompareLoading() {
   return (
-    <main className="min-h-screen bg-[#06111f] py-6 text-slate-100">
+    <main className="research-tool min-h-screen text-slate-100">
       <div className="mx-auto w-full max-w-none space-y-5">
         <section className="space-y-3" aria-busy="true">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Peer Compare</p>
@@ -31,7 +32,7 @@ export default function PeerCompareLoading() {
           </div>
         </section>
 
-        <section className="rounded-md border border-white/10 bg-slate-900/45 p-3 shadow-card sm:p-4">
+        <section className="tool-panel tool-panel-accent">
           <div className="mb-4 space-y-2">
             <SkeletonBlock className="h-8 w-56" />
             <SkeletonBlock className="h-4 w-80 max-w-full" />
@@ -50,7 +51,7 @@ export default function PeerCompareLoading() {
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 9 }).map((_, index) => (
-            <section key={index} className="rounded-md border border-white/10 bg-slate-900/45 p-3 shadow-card sm:p-4">
+            <section key={index} className="tool-panel tool-results">
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <SkeletonBlock className="h-4 w-36" />

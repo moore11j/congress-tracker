@@ -1,3 +1,4 @@
+import { ResearchToolHeader } from "@/components/tools/ResearchToolHeader";
 import { confirmationLabel } from "@/lib/confirmationLabel";
 import { screenerMetadata } from "@/lib/screenerMetadata";
 
@@ -926,17 +927,11 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
   const fundamentalFiltersOpen = hasActiveFundamentalFilters(params);
 
   const content = (
-    <div className="space-y-8">
+    <div className="research-tool space-y-6">
       <EntitlementHintRefresh enabled={!authToken && authState.entitlementHint != null} renderedTier={entitlements.tier} />
       <ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey={resultsTriggerKey} />
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
-          <h1 className="mt-2 text-3xl font-semibold text-white">Stock Screener</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Market data filtered through Walnut activity overlays, government contracts, options flow, institutional context, confirmation, Why Now, and freshness signals.
-          </p>
-        </div>
+        <ResearchToolHeader active="screener" title="Stock Screener" description="Find companies that fit your research. Start with market and financial filters, add disclosure evidence, then save or compare the stocks that stand out." />
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={compactBadgeClassName + " border-slate-800 bg-slate-950/30 text-slate-300"}>
             plan <span className="text-white">{entitlements.tier}</span>
@@ -950,7 +945,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
         </div>
       </div>
 
-      <div className={`${cardClassName} space-y-4`}>
+      <div className="tool-panel tool-panel-accent space-y-4">
         <SavedViewsBar
           surface="screener"
           paramKeys={PARAM_KEYS}
@@ -1087,7 +1082,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
             storageKey="screener-section-intelligence"
           >
             <div className="grid gap-3 xl:grid-cols-3">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+              <div className="tool-step">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <FilterSelect name="congress_activity" label="Congress" value={params.congress_activity} options={ACTIVITY_FILTER_OPTIONS} />
@@ -1095,7 +1090,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+              <div className="tool-step">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <FilterSelect name="government_contracts_active" label="Contracts" value={params.government_contracts_active} options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
@@ -1105,7 +1100,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
               </div>
 
               {canUseIntelligence ? (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <div className="tool-step">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
                     <FilterSelect name="confirmation_score_min" label="Score" value={params.confirmation_score_min} options={CONFIRMATION_SCORE_OPTIONS} />
@@ -1119,7 +1114,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                   body="Confirmation score, direction, band, Why Now, and freshness filters are included with Premium."
                   className="rounded-2xl"
                 >
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 opacity-70 blur-[1.5px]">
+                  <div className="tool-step opacity-70 blur-[1.5px]">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <FilterSelect name="confirmation_score_locked" label="Score" value="" options={CONFIRMATION_SCORE_OPTIONS} />
@@ -1131,7 +1126,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
               )}
 
               {canUseIntelligence ? (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <div className="tool-step">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Analysts</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
                     <FilterSelect name="analyst_consensus_active" label="Analysts" value={params.analyst_consensus_active} options={BOOLEAN_ACTIVITY_OPTIONS} />
@@ -1147,7 +1142,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                   body="Analyst consensus filters and sorts are included with Premium."
                   className="rounded-2xl"
                 >
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 opacity-70 blur-[1.5px]">
+                  <div className="tool-step opacity-70 blur-[1.5px]">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Analysts</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <FilterSelect name="analyst_consensus_locked" label="Analysts" value="" options={BOOLEAN_ACTIVITY_OPTIONS} />
@@ -1159,7 +1154,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
               )}
 
               {canUseIntelligence ? (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <div className="tool-step">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <FilterSelect name="why_now_state" label="Why now" value={params.why_now_state} options={WHY_NOW_OPTIONS} />
@@ -1172,7 +1167,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                   body="Why Now and freshness filters are included with Premium."
                   className="rounded-2xl"
                 >
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 opacity-70 blur-[1.5px]">
+                  <div className="tool-step opacity-70 blur-[1.5px]">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-2">
                       <FilterSelect name="why_now_locked" label="Why now" value="" options={WHY_NOW_OPTIONS} />
@@ -1182,7 +1177,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                 </ScreenerUpgradeOverlay>
               )}
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+              <div className="tool-step">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Activity</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <FilterSelect name="options_flow_active" label="Options flow" value={params.options_flow_active} options={BOOLEAN_ACTIVITY_OPTIONS} disabled={!optionsFlowFilterable} />
@@ -1198,7 +1193,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
                 {optionsFlowFilterable ? <p className="mt-3 text-xs leading-5 text-slate-500">Cached samples cover one expiration per ticker. Call-heavy / put-heavy is premium activity, not bullish / bearish confirmation.</p> : null}
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+              <div className="tool-step">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <FilterSelect name="institutional_activity_type" label="Activity" value={params.institutional_activity_type} options={INSTITUTIONAL_ACTIVITY_TYPE_OPTIONS} disabled={!institutionalActivityFilterable} />
@@ -1281,7 +1276,7 @@ export async function ScreenerPageRenderer({ searchParams, requestHeaders }: Scr
           activeColumns={activeColumns}
         />
       ) : (
-        <section id="screener-results" className={`${cardClassName} scroll-mt-6`}>
+        <section id="screener-results" className="tool-panel tool-results scroll-mt-6">
           <PremiumFeatureGate feature="screener_results" body="The stock screener results are included with Premium. Upgrade to run screens and unlock the full discovery workflow." />
         </section>
       )}
@@ -1307,19 +1302,19 @@ export default async function ScreenerPage(props: ScreenerPageProps) {
 function TechnicalFiltersContent({ params, locked = false }: { params: Record<string, string | number>; locked?: boolean }) {
   return (
     <fieldset disabled={locked} className={`grid gap-3 lg:grid-cols-2 xl:grid-cols-3 ${locked ? "opacity-70 blur-[1.5px]" : ""}`}>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <PairedNumberInputs minName="rel_volume_min" maxName="rel_volume_max" label="Volume vs Avg" params={params} placeholderMin="1" placeholderMax="2" />
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <PairedNumberInputs minName="price_move_min" maxName="price_move_max" label="Price Move %" params={params} placeholderMin="-10" placeholderMax="10" />
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <PairedNumberInputs minName="rsi_min" maxName="rsi_max" label="RSI" params={params} placeholderMin="30" placeholderMax="70" />
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <FilterSelect name="macd_state" label="MACD" value={params.macd_state} options={MACD_STATE_OPTIONS} />
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <FilterSelect name="trend_state" label="Trend" value={params.trend_state} options={TREND_STATE_OPTIONS} />
       </div>
     </fieldset>
@@ -1329,7 +1324,7 @@ function TechnicalFiltersContent({ params, locked = false }: { params: Record<st
 function FundamentalFiltersContent({ params, locked = false }: { params: Record<string, string | number>; locked?: boolean }) {
   return (
     <fieldset disabled={locked} className={`grid gap-3 xl:grid-cols-2 ${locked ? "opacity-70 blur-[1.5px]" : ""}`}>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Valuation</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <PairedNumberInputs minName="trailing_pe_min" maxName="trailing_pe_max" label="Trailing P/E" params={params} />
@@ -1338,7 +1333,7 @@ function FundamentalFiltersContent({ params, locked = false }: { params: Record<
           <PairedNumberInputs minName="ev_to_ebitda_min" maxName="ev_to_ebitda_max" label="EV/EBITDA" params={params} />
         </div>
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Profitability / Quality</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <PairedNumberInputs minName="gross_margin_min" maxName="gross_margin_max" label="Gross Margin" params={params} />
@@ -1348,7 +1343,7 @@ function FundamentalFiltersContent({ params, locked = false }: { params: Record<
           <PairedNumberInputs minName="roic_min" maxName="roic_max" label="ROIC" params={params} />
         </div>
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Growth</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <PairedNumberInputs minName="revenue_growth_min" maxName="revenue_growth_max" label="Revenue Growth" params={params} />
@@ -1357,7 +1352,7 @@ function FundamentalFiltersContent({ params, locked = false }: { params: Record<
           <PairedNumberInputs minName="fcf_growth_min" maxName="fcf_growth_max" label="FCF Growth" params={params} />
         </div>
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+      <div className="tool-step">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Balance Sheet</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <PairedNumberInputs minName="debt_to_equity_min" maxName="debt_to_equity_max" label="Debt/Equity" params={params} />
@@ -1365,7 +1360,7 @@ function FundamentalFiltersContent({ params, locked = false }: { params: Record<
           <PairedNumberInputs minName="net_debt_to_ebitda_min" maxName="net_debt_to_ebitda_max" label="Net Debt / EBITDA" params={params} />
         </div>
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 xl:col-span-2">
+      <div className="tool-step xl:col-span-2">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Earnings / Cash Flow Quality</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <PairedNumberInputs minName="eps_ttm_min" maxName="eps_ttm_max" label="EPS TTM" params={params} />
@@ -1406,7 +1401,7 @@ function ScreenerResults({
   const colSpan = 7 + activeColumns.length;
 
   return (
-    <div id="screener-results" className={`${cardClassName} min-h-[34rem] scroll-mt-6 overflow-hidden p-0`}>
+    <div id="screener-results" className="tool-panel tool-results min-h-[34rem] scroll-mt-6 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/50 px-4 py-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Results</h2>
