@@ -27,6 +27,7 @@ from app.models import (
     HouseAnnualDisclosureHolding,
 )
 
+from app.services.strategy_model_chart import chart_payload
 from app.services.strategy_prices import position_prices
 from app.services.price_lookup import get_expected_latest_market_date
 from app.services.strategy_portfolio_policy import position_limit
@@ -613,6 +614,7 @@ def strategy_detail(
                 for row in holdings
             ]
 
+    payload["modelChart"] = chart_payload(db, int(strategy.id), period=period) if payload["prospectiveActive"] else None
     payload["equityCurve"] = equity_curve
     payload["currentHoldings"] = current_holdings
     payload["currentHoldingsCount"] = current_holdings_count

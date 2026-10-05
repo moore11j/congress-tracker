@@ -3908,3 +3908,10 @@ class StrategyEventDelivery(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class StrategyModelChart(Base):
+    """Rebuildable daily accounting cache; never replaces a historical research run."""
+    __tablename__ = "strategy_model_charts"
+    strategy_id: Mapped[int] = mapped_column(primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)

@@ -3034,6 +3034,7 @@ export type StrategyEquityPoint = {
   drawdownPct?: number | null;
   activeHoldings?: number | null;
   activeLots?: number | null;
+  cash?: number | null;
 };
 
 export type StrategyDefinitionPayload = {
@@ -3070,6 +3071,11 @@ export type StrategyDefinitionPayload = {
 };
 
 export type StrategyDetailPayload = StrategyDefinitionPayload & {
+  modelChart?: {
+    source: string; status: string; startedOn?: string | null; through?: string | null;
+    expectedThrough?: string | null; updatedAt?: string | null; assumptions?: string;
+    staleMarkCount?: number; skippedRebalanceCount?: number; unfilledSymbolCount?: number; missingPriceCount?: number; points: StrategyEquityPoint[]; performance?: StrategyPerformanceSnapshot;
+  } | null;
   monitoring?: { lastEvaluatedDate: string | null; lastExecutedAt: string | null; status: string; maxPositions: number | null; historicalPerformanceThrough: string | null };
   equityCurve?: StrategyEquityPoint[];
   currentHoldings?: StrategyHolding[];

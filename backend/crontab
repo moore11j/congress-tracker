@@ -46,6 +46,8 @@ CRON_TZ=America/Los_Angeles
 52 16 * * 1-5 cd /app && python -m app.refresh_institutional_performance_cache --calls-per-minute 400 --progress-every 50
 20 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_consensus --sleep-seconds 0.2
 35 17 * * 1-5 cd /app && python -m app.jobs.refresh_analyst_events --limit 250 --pages 1 --sleep-seconds 0.3
+# Daily model curves: recorded decisions, canonical closes and SPY, after EOD availability.
+12,32,52 17-22 * * 1-5 cd /app && timeout 1100 python -m app.jobs.refresh_strategy_model_charts
 # Canonical entry/mark repair rotates through a bounded batch after market close.
 2,22,42 17-20 * * 1-5 cd /app && python -m app.jobs.refresh_strategy_prices
 40 16 * * 1-5 cd /app && python -m app.jobs.evaluate_strategies

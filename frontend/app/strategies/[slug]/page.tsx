@@ -35,5 +35,5 @@ export default async function StrategyPage({ params, searchParams }: Props) {
     authToken: token,
   }).catch(() => null);
   if (!strategy) notFound();
-  return <StrategyDetail strategy={strategy} period={period} positionsMode={positions} holdingsPage={holdingsPage} historyPage={historyPage} reportedPage={reportedPage} />;
+  return <StrategyDetail chartMode={one(resolvedSearchParams?.chart) === "historical" ? "historical" : "daily"} strategy={strategy} period={period} positionsMode={positions} holdingsPage={holdingsPage} historyPage={historyPage} reportedPage={reportedPage} />;
 }

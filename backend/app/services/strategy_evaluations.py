@@ -354,7 +354,7 @@ def evaluate_strategy_candidates(
 
     run.status = "completed"
     run.executed_at = datetime.now(timezone.utc)
-    run.metadata_json = _json({"changes": changes, "candidateSymbols": sorted(normalized), "initialization": bool(initialize), "portfolioPolicy": POLICY_VERSION, "maxPositions": position_limit(rules)})
+    run.metadata_json = _json({"changes": changes, "candidateSymbols": sorted(normalized), "targetWeights": {symbol: candidate.weight_pct for symbol, candidate in normalized.items()}, "initialization": bool(initialize), "portfolioPolicy": POLICY_VERSION, "maxPositions": position_limit(rules)})
     db.flush()
     _refresh_live_holdings(db, strategy_id=strategy_id, run_id=int(run.id), evaluation_date=evaluation_date)
     if not initialize:
