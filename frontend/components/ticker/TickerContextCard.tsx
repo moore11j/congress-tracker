@@ -58,26 +58,26 @@ type Props = {
   className?: string;
 };
 
-type ContextTab = "chart" | "congress" | "insiders" | "signals" | "contracts" | "filings" | "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus" | "research";
+type ContextTab = "chart" | "congress" | "insiders" | "signals" | "contracts" | "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation" | "consensus" | "research";
 
 const CONTEXT_TABS: { key: ContextTab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "chart", label: "Chart" },
   { key: "news", label: "News" },
+  { key: "events", label: "Events/Filings" },
   { key: "financials", label: "Financials" },
   { key: "ownership", label: "Ownership" },
-  { key: "congress", label: "Congress activity" },
-  { key: "insiders", label: "Insider activity" },
-  { key: "signals", label: "Signals" },
+  { key: "congress", label: "Congress" },
+  { key: "insiders", label: "Insider" },
   { key: "contracts", label: "Government contracts" },
-  { key: "events", label: "Events" },
-  { key: "filings", label: "Filings" },
+  { key: "signals", label: "Signals" },
   { key: "macro", label: "Macro Positioning" },
-  { key: "valuation", label: "Valuation" },
+  { key: "valuation", label: "Valuations" },
   { key: "consensus", label: "Analysts" },
   { key: "research", label: "Research" },
 ];
 const ACTIVITY_TAB_ALIASES: Record<string, ContextTab> = {
+  "filings": "events",
   "congress-activity": "congress", "top-congress-traders": "congress",
   "insider-activity": "insiders", "top-insiders": "insiders",
   "signals-activity": "signals", "institutional-activity": "ownership",
@@ -567,7 +567,7 @@ export function TickerContextCard(props: Props) {
 function TickerContextContents({ symbol, overview, chart, congressActivity, insiderActivity, signalActivity, institutionalActivity, contractsActivity, mobileQuote, canViewOwnership = false, researchItems = [], className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
   const [chartVisited, setChartVisited] = useState(false);
-  const { scrollRef, canScrollLeft, canScrollRight, updateScrollState } =
+  const { scrollRef, canScrollLeft, canScrollRight, updateScrollState, scrollByPage } =
     useHorizontalScrollAffordance<HTMLDivElement>();
 
   useEffect(() => {
@@ -591,11 +591,16 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
   useEffect(() => {
     const tab = document.getElementById(`ticker-tab-${activeTab}`);
     if (tab && scrollRef.current) {
-      const left = tab.offsetLeft - scrollRef.current.offsetLeft;
-      const right = left + tab.offsetWidth;
-      if (left < scrollRef.current.scrollLeft) scrollRef.current.scrollLeft = left;
-      else if (right > scrollRef.current.scrollLeft + scrollRef.current.clientWidth) {
-        scrollRef.current.scrollLeft = right - scrollRef.current.clientWidth;
+      const node = scrollRef.current;
+      const bounds = tab.getBoundingClientRect();
+      const viewport = node.getBoundingClientRect();
+      const delta = bounds.left < viewport.left ? bounds.left - viewport.left
+        : bounds.right > viewport.right ? bounds.right - viewport.right : 0;
+      if (delta) {
+        node.scrollBy({
+          left: delta,
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        });
       }
       updateScrollState();
     }
@@ -1028,7 +1033,7 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
   }, [activeTab, pressPages.length, symbol]);
 
   useEffect(() => {
-    if (activeTab !== "filings") {
+    if (activeTab !== "events") {
       abortRequest(secAbortRef);
       setLoadingSec(false);
       return;
@@ -1165,8 +1170,8 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
       : eventsStatus === "unavailable"
         ? ACTIVITY_UNAVAILABLE_MESSAGE
         : ACTIVITY_EMPTY_MESSAGE;
-  const eventsSettled = !loadingPress && !loadingEvents && Boolean(pressResponse) && Boolean(eventsStatus);
-  const allEventsSourcesEmpty = eventsSettled && pressItems.length === 0 && disclosureEvents.length === 0;
+  const eventsSettled = !loadingPress && !loadingSec && !loadingEvents && Boolean(pressResponse) && Boolean(secResponse) && Boolean(eventsStatus);
+  const allEventsSourcesEmpty = eventsSettled && pressItems.length === 0 && secItems.length === 0 && disclosureEvents.length === 0;
 
   const loadMoreNews = async () => {
     if (!newsResponse?.has_next || loadingNews) return;
@@ -1253,9 +1258,10 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
     <section id="ticker-research-panels" className={`${cardClassName} scroll-mt-24 min-w-0 max-w-full overflow-hidden !rounded-lg !p-0 ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
       <div className="relative border-b border-white/10 bg-slate-950/55">
         <div
+          id="ticker-tab-strip"
           ref={scrollRef}
           onScroll={updateScrollState}
-          className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="mx-9 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           <div className="flex min-w-max" role="tablist" aria-label="Ticker research sections">
             {CONTEXT_TABS.map(({ key, label }, index) => (
@@ -1283,7 +1289,14 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
             ))}
           </div>
         </div>
-        <HorizontalScrollIndicators canScrollLeft={canScrollLeft} canScrollRight={canScrollRight} className="" />
+        <HorizontalScrollIndicators
+          canScrollLeft={canScrollLeft}
+          canScrollRight={canScrollRight}
+          onScrollLeft={() => scrollByPage(-1)}
+          onScrollRight={() => scrollByPage(1)}
+          ariaControls="ticker-tab-strip"
+          className=""
+        />
       </div>
 
       {mobileQuote}
@@ -1513,64 +1526,12 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
             </div>
           </div>
         ) : null}
-        {activeTab === "filings" ? (
-          <div className="min-w-0 space-y-4">
-                <EventsSection title="SEC Filings" meta="Latest available">
-                  {loadingSec && secPages.length === 0 ? (
-                    <TabSkeleton rows={3} />
-                  ) : secItems.length > 0 ? (
-                    <>
-                      <div className="overflow-x-auto rounded-xl border border-white/10">
-                        <div className="grid min-w-[36rem] grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          <span>Date</span>
-                          <span>Form</span>
-                          <span>Title</span>
-                          <span>Link</span>
-                        </div>
-                        {secItems.map((item) => (
-                          <div
-                            key={`${item.form_type}-${item.filing_date}-${item.url ?? item.title ?? "row"}`}
-                            className="grid min-w-[36rem] grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
-                          >
-                            <span>{formatDateShort(item.filing_date ?? null)}</span>
-                            <span className="font-semibold text-slate-100">{item.form_type}</span>
-                            <span className="truncate">{getSecFormTitle(item.form_type, item.title)}</span>
-                            <span>
-                              {item.url ? (
-                                <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
-                                  Open
-                                </a>
-                              ) : (
-                                <span className="text-slate-500">-</span>
-                              )}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-3">
-                        <LoadMoreButton
-                          disabled={!secResponse?.has_next || loadingSec}
-                          label={loadingSec ? "Loading..." : "Load more filings"}
-                          onClick={loadMoreSec}
-                        />
-                      </div>
-                    </>
-                  ) : secResponse?.status === "loading" ? (
-                    <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
-                  ) : secResponse?.status === "unavailable" ? (
-                    <div className="text-sm text-slate-400">{filingsMessage}</div>
-                  ) : (
-                    <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
-                  )}
-                </EventsSection>
-          </div>
-        ) : null}
         {activeTab === "events" ? (
           <div className="relative flex min-h-0 flex-col space-y-4 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events</p>
-                <p className="mt-2 text-sm text-slate-400">Latest press releases and disclosure activity. SEC documents are in Filings.</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Events/Filings</p>
+                <p className="mt-2 text-sm text-slate-400">Latest press releases, SEC filings and disclosure activity.</p>
               </div>
               <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Latest available.</span>
             </div>
@@ -1603,6 +1564,55 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
               </EventsSection>
 
 
+
+              <EventsSection title="SEC Filings" meta="Latest available">
+                {loadingSec && secPages.length === 0 ? (
+                  <TabSkeleton rows={3} />
+                ) : secItems.length > 0 ? (
+                  <>
+                    <div className="overflow-x-auto rounded-xl border border-white/10">
+                      <div className="grid min-w-[36rem] grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        <span>Date</span>
+                        <span>Form</span>
+                        <span>Title</span>
+                        <span>Link</span>
+                      </div>
+                      {secItems.map((item) => (
+                        <div
+                          key={`${item.form_type}-${item.filing_date}-${item.url ?? item.title ?? "row"}`}
+                          className="grid min-w-[36rem] grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
+                        >
+                          <span>{formatDateShort(item.filing_date ?? null)}</span>
+                          <span className="font-semibold text-slate-100">{item.form_type}</span>
+                          <span className="truncate">{getSecFormTitle(item.form_type, item.title)}</span>
+                          <span>
+                            {item.url ? (
+                              <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
+                                Open
+                              </a>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3">
+                      <LoadMoreButton
+                        disabled={!secResponse?.has_next || loadingSec}
+                        label={loadingSec ? "Loading..." : "Load more filings"}
+                        onClick={loadMoreSec}
+                      />
+                    </div>
+                  </>
+                ) : secResponse?.status === "loading" ? (
+                  <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
+                ) : secResponse?.status === "unavailable" ? (
+                  <div className="text-sm text-slate-400">{filingsMessage}</div>
+                ) : (
+                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
+                )}
+              </EventsSection>
 
               <EventsSection title="Disclosure Activity" meta="365D">
                 {loadingEvents && !eventsStatus ? (

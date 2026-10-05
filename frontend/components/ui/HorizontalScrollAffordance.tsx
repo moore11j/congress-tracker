@@ -26,6 +26,15 @@ export function useHorizontalScrollAffordance<T extends HTMLElement>() {
     });
   }, []);
 
+  const scrollByPage = useCallback((direction: -1 | 1) => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollBy({
+      left: direction * Math.max(120, node.clientWidth * 0.75),
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, []);
+
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
@@ -54,6 +63,7 @@ export function useHorizontalScrollAffordance<T extends HTMLElement>() {
     canScrollLeft: state.canScrollLeft,
     canScrollRight: state.canScrollRight,
     updateScrollState,
+    scrollByPage,
   };
 }
 
@@ -61,7 +71,36 @@ export function HorizontalScrollIndicators({
   canScrollLeft,
   canScrollRight,
   className = "lg:hidden",
-}: ScrollAffordanceState & { className?: string }) {
+  onScrollLeft,
+  onScrollRight,
+  ariaControls,
+}: ScrollAffordanceState & {
+  className?: string;
+  onScrollLeft?: () => void;
+  onScrollRight?: () => void;
+  ariaControls?: string;
+}) {
+  if (onScrollLeft && onScrollRight) {
+    return (
+      <>
+        {(["left", "right"] as const).map((direction) => (
+          <button
+            key={direction}
+            type="button"
+            aria-label={`Scroll tabs ${direction}`}
+            aria-controls={ariaControls}
+            disabled={direction === "left" ? !canScrollLeft : !canScrollRight}
+            onClick={direction === "left" ? onScrollLeft : onScrollRight}
+            className={`absolute inset-y-0 z-10 flex w-9 items-center justify-center bg-slate-950 text-emerald-300 transition-colors hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-amber-300 disabled:cursor-default disabled:text-slate-600 disabled:hover:bg-slate-950 ${direction === "left" ? "left-0" : "right-0"} ${className}`}
+          >
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d={direction === "left" ? "M15 18l-6-6 6-6" : "M9 6l6 6-6 6"} />
+            </svg>
+          </button>
+        ))}
+      </>
+    );
+  }
   return (
     <>
       {canScrollLeft ? (

@@ -52,8 +52,8 @@ test("ticker context starts on overview and loads heavy tabs only after tab acti
   assert.ok(pressEffect.indexOf('if (activeTab !== "events")') < pressEffect.indexOf("getTickerPressReleases(symbol"));
 
   const filingsEffect = effectBlockStartingWith('getTickerSecFilings(symbol');
-  assert.match(filingsEffect, /if \(activeTab !== "filings"\)/);
-  assert.ok(filingsEffect.indexOf('if (activeTab !== "filings")') < filingsEffect.indexOf("getTickerSecFilings(symbol"));
+  assert.match(filingsEffect, /if \(activeTab !== "events"\)/);
+  assert.ok(filingsEffect.indexOf('if (activeTab !== "events")') < filingsEffect.indexOf("getTickerSecFilings(symbol"));
 
   const disclosureEffect = effectBlockStartingWith("const response = await getEvents");
   assert.match(disclosureEffect, /if \(activeTab !== "events"\)/);
