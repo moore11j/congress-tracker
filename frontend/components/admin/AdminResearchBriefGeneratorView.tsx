@@ -2746,6 +2746,23 @@ function EditorPanel({
             {busy === "apply-corrections" ? "Applying changes..." : "Apply changes with AI"}
           </Button>
         </div>
+        <details className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-emerald-200">Headline and sidebar corrections</summary>
+          <p className="mt-2 text-xs leading-5 text-slate-400">These fields also appear on the public article. Review them when correcting the body so an older claim does not remain in the headline, search preview or sidebar.</p>
+          <div className="mt-3 space-y-3">
+            <label className="block text-sm text-slate-300">Article subtitle
+              <textarea value={article.subtitle || ""} onChange={(event) => onArticleChange("subtitle", event.target.value)} className={fieldClassName("mt-2 min-h-20")} />
+            </label>
+            <label className="block text-sm text-slate-300">Search description
+              <textarea value={article.seo?.description || ""} onChange={(event) => onArticleChange("seo", { ...article.seo, description: event.target.value })} className={fieldClassName("mt-2 min-h-20")} />
+            </label>
+            {([
+              ["catalysts", "Catalysts"], ["risks", "Risks"], ["watch_items", "What to watch"],
+            ] as const).map(([field, label]) => <label key={field} className="block text-sm text-slate-300">{label} (one per line)
+              <textarea value={(article[field] || []).join("\n")} onChange={(event) => onArticleChange(field, event.target.value.split("\n"))} className={fieldClassName("mt-2 min-h-24")} />
+            </label>)}
+          </div>
+        </details>
         <ResearchDistributionDraft article={activeArticle} published={draft.status === "published"} />
         {false && activeArticle.reddit_post ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
