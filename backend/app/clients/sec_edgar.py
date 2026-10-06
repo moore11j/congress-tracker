@@ -159,6 +159,24 @@ def _information_table_filenames(*, cik: str, accession_number: str) -> list[str
     return preferred + [name for name in xml_names if name not in preferred]
 
 
+def fetch_13f_amendment_type(*, cik: str, accession_number: str) -> str | None:
+    """Read the cover, never infer replacement semantics from the /A suffix."""
+    filenames = _information_table_filenames(cik=cik, accession_number=accession_number)
+    for filename in sorted(filenames, key=lambda name: ("primary" not in name.lower(), name)):
+        payload = _request(_archive_url(cik, accession_number, filename), expect_json=False)
+        if not isinstance(payload, bytes):
+            continue
+        try:
+            root = ET.fromstring(payload)
+        except ET.ParseError:
+            continue
+        value = _text(root, ".//{*}amendmentType")
+        if value:
+            value = value.upper().strip()
+            return value if value in {"RESTATEMENT", "NEW HOLDINGS"} else None
+    return None
+
+
 def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict[str, Any]]:
     """Fetch an SEC XML information table and normalize values to USD."""
     normalized_cik = normalize_cik(cik)
@@ -185,6 +203,9 @@ def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict
                 {
                     "cusip": cusip,
                     "issuerName": _text(item, "{*}nameOfIssuer"),
+                    "titleOfClass": _text(item, "{*}titleOfClass"),
+                    "shareType": _text(item, "{*}shrsOrPrnAmt/{*}sshPrnamtType"),
+                    "sourceUrl": _archive_url(normalized_cik, accession_number, filename),
                     "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
                     # The XML information-table values returned for the
                     # recovered filings are already dollar-denominated.

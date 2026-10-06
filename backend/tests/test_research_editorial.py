@@ -13,6 +13,7 @@ from app.services.research_editorial import record_edits, editing_examples, topi
 
 def ownership_context():
     return {"primary": {"identity": {"symbol": "NVDA", "company_name": "NVIDIA"}, "institutional_ownership_detail": {
+        "verification": "sec_matched_share_pairs_v1", "comparisons": [{"holder_name": "fixture"}],
         "reporting_period": "Q2 2026", "accumulator_ranking_basis": "shares added",
         "top_accumulators": [{"holder_name": name, "shares_delta": shares, "change_type": "increase", "filing_date": "2026-08-14"}
             for name, shares in [("T. Rowe Price Associates Inc /MD/", 3000), ("BlackRock, Inc.", 2000), ("Vanguard Group Inc", 1000)]]}},
@@ -70,7 +71,7 @@ def test_families_do_not_treat_congress_or_insiders_as_institutional_buyers():
     assert topic_family("Which Congress members bought NVDA?") == "congress"
 
 
-def test_live_change_rows_override_cached_value_ranking_and_include_share_deltas():
+def test_unverified_change_rows_and_cached_ranking_are_not_editorial_evidence():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -83,9 +84,9 @@ def test_live_change_rows_override_cached_value_ranking_and_include_share_deltas
                 shares_delta=shares, value_delta_usd=value))
         db.commit()
         detail = briefs._institutional_ownership_detail(db, "NVDA")
-        assert [row["holder_name"] for row in detail["top_accumulators"]] == ["BlackRock", "Vanguard", "T. Rowe Price"]
-        assert [row["shares_delta"] for row in detail["top_accumulators"]] == [300, 200, 100]
-        assert detail["accumulator_ranking_basis"] == "shares added"
+        assert detail["top_accumulators"] == []
+        assert detail["comparisons"] == []
+        assert detail["verified_holder_count"] == 0
     engine.dispose()
 
 

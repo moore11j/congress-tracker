@@ -2448,9 +2448,10 @@ def test_context_filters_missing_notes_against_walnut_available_data(tmp_path, m
     assert context["data_availability"]["debt"] is True
     assert context["data_availability"]["revenue consensus"] is True
     assert context["data_availability"]["eps consensus"] is True
-    assert context["data_availability"]["reported institutional activity"] is True
+    assert context["data_availability"]["reported institutional activity"] is False
+    assert context["primary"]["institutional_activity"] == []
     assert context["primary"]["financials"]["forecasts"]["nextQuarter"]["revenueEstimate"] == 101_000_000_000
-    assert context["missing_data_notes"] == ["guidance: Not found in reviewed sources"]
+    assert context["missing_data_notes"] == ["reported institutional activity: Not found in reviewed sources", "guidance: Not found in reviewed sources"]
 
 
 def test_prompt_restricts_missing_limitations_to_filtered_notes():

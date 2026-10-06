@@ -1,0 +1,1145 @@
+[
+  {
+    "id": "rb_1790517679808_868438",
+    "slug": "who-is-buying-applovin-stock-in-the-latest-sec-filings-and-what-does-it-signal-about-growth-owne",
+    "expected_article_sha256": "a248db08857b465a7843151e8c51668b7d7b7557fafb223eac3ba13627fda90d",
+    "patch": {
+      "subtitle": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "summary": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "preview_body": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "quick-answer",
+          "heading": "What the matched filings show",
+          "body_markdown": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total."
+        },
+        {
+          "key": "share-comparison",
+          "heading": "Named quarter-end share comparisons",
+          "body_markdown": "| Filer | March 31 shares | June 30 shares | Share change |\n| --- | ---: | ---: | ---: |\n| FMR LLC (Fidelity) | 15,691,414 | 17,293,553 | +1,602,139 |\n| Amundi | 1,115,419 | 1,332,633 | +217,214 |\n| T. Rowe Price Associates | 5,434,726 | 4,773,100 | -661,626 |"
+        },
+        {
+          "key": "scope",
+          "heading": "What this does and does not establish",
+          "body_markdown": "The comparison matches CUSIP 03831W108, share-denominated holdings, and excludes put/call rows. Each manager is shown separately. This is a limited sample of positive holdings present in both periods, not the complete institutional universe or a ranking of its top buyers. Unmatched and unusually large changes are omitted pending review. Related managers may overlap; do not add these rows into market-wide net flows. Share changes do not establish execution prices, cash spent or manager motives."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [APP](https://app.walnutmarkets.com/ticker/APP), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "FMR LLC (Fidelity) — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626001390/20260515_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "FMR LLC (Fidelity) — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626002260/20260814_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying AppLovin stock in the latest SEC filings, and what does it signal about growth ownership?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "judgment": "neutral",
+        "tickers": [
+          "APP"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying AppLovin stock in the latest SEC filings, and what does it signal about growth ownership?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 1,602,139 reported shares; Amundi added 217,214 reported shares; T. Rowe Price Associates reduced by 661,626 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1790344884305_313a57",
+    "slug": "who-is-buying-asml-holding-nv-stock-latest-sec-filings-semi-capex",
+    "expected_article_sha256": "349d1c8b607aa74e6ccfa3d0274d857033da2a831096a803744dfe7db7c3c0e2",
+    "patch": {
+      "subtitle": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "summary": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "preview_body": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026."
+        },
+        {
+          "key": "quick-answer",
+          "heading": "What the matched filings show",
+          "body_markdown": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total."
+        },
+        {
+          "key": "share-comparison",
+          "heading": "Named quarter-end share comparisons",
+          "body_markdown": "| Filer | March 31 shares | June 30 shares | Share change |\n| --- | ---: | ---: | ---: |\n| FMR LLC (Fidelity) | 3,148,406 | 5,478,341 | +2,329,935 |\n| T. Rowe Price Associates | 1,537,832 | 1,933,524 | +395,692 |"
+        },
+        {
+          "key": "scope",
+          "heading": "What this does and does not establish",
+          "body_markdown": "The comparison matches CUSIP N07059210, share-denominated holdings, and excludes put/call rows. Each manager is shown separately. This is a limited sample of positive holdings present in both periods, not the complete institutional universe or a ranking of its top buyers. Unmatched and unusually large changes are omitted pending review. Related managers may overlap; do not add these rows into market-wide net flows. Share changes do not establish execution prices, cash spent or manager motives."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [ASML](https://app.walnutmarkets.com/ticker/ASML), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "FMR LLC (Fidelity) — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626001390/20260515_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "FMR LLC (Fidelity) — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626002260/20260814_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/infotable.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying ASML stock in the latest SEC filings, and what does it signal about semiconductor capex?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "judgment": "neutral",
+        "tickers": [
+          "ASML"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying ASML stock in the latest SEC filings, and what does it signal about semiconductor capex?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 2,329,935 reported shares; T. Rowe Price Associates added 395,692 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1790258880556_23f5d0",
+    "slug": "who-is-buying-microsoft-stock-latest-sec-filings-ai-ownership-msft",
+    "expected_article_sha256": "2410a2d93a17e6d9ca0c62dee4433e7515f48a80db129711d57bba0af3bd1962",
+    "patch": {
+      "subtitle": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "summary": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "preview_body": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "quick-answer",
+          "heading": "What the matched filings show",
+          "body_markdown": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total."
+        },
+        {
+          "key": "share-comparison",
+          "heading": "Named quarter-end share comparisons",
+          "body_markdown": "| Filer | March 31 shares | June 30 shares | Share change |\n| --- | ---: | ---: | ---: |\n| FMR LLC (Fidelity) | 190,211,367 | 185,960,066 | -4,251,301 |\n| Amundi | 41,675,076 | 46,694,778 | +5,019,702 |\n| T. Rowe Price Associates | 117,242,934 | 87,287,163 | -29,955,771 |\n| T. Rowe Price Investment Management | 12,744,856 | 10,568,155 | -2,176,701 |"
+        },
+        {
+          "key": "scope",
+          "heading": "What this does and does not establish",
+          "body_markdown": "The comparison matches CUSIP 594918104, share-denominated holdings, and excludes put/call rows. Each manager is shown separately. This is a limited sample of positive holdings present in both periods, not the complete institutional universe or a ranking of its top buyers. Unmatched and unusually large changes are omitted pending review. Related managers may overlap; do not add these rows into market-wide net flows. Share changes do not establish execution prices, cash spent or manager motives."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [MSFT](https://app.walnutmarkets.com/ticker/MSFT), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "FMR LLC (Fidelity) — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626001390/20260515_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "FMR LLC (Fidelity) — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626002260/20260814_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Investment Management — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000460/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Investment Management — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000578/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying Microsoft stock in the latest SEC filings, and what does it signal about AI ownership?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "judgment": "neutral",
+        "tickers": [
+          "MSFT"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying Microsoft stock in the latest SEC filings, and what does it signal about AI ownership?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) reduced by 4,251,301 reported shares; Amundi added 5,019,702 reported shares; T. Rowe Price Associates reduced by 29,955,771 reported shares; T. Rowe Price Investment Management reduced by 2,176,701 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1790085671870_badd81",
+    "slug": "who-is-buying-apple-stock-latest-sec-filings-mega-cap-ownership",
+    "expected_article_sha256": "a12706785d2fd3d981b7cb4489e8b50eb3e1485eb8dd844c2160de3e5aee57d4",
+    "patch": {
+      "subtitle": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "summary": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "preview_body": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "quick-answer",
+          "heading": "What the matched filings show",
+          "body_markdown": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total."
+        },
+        {
+          "key": "share-comparison",
+          "heading": "Named quarter-end share comparisons",
+          "body_markdown": "| Filer | March 31 shares | June 30 shares | Share change |\n| --- | ---: | ---: | ---: |\n| FMR LLC (Fidelity) | 307,442,040 | 325,348,754 | +17,906,714 |\n| Amundi | 73,082,616 | 70,758,208 | -2,324,408 |\n| T. Rowe Price Associates | 200,426,620 | 159,811,362 | -40,615,258 |\n| T. Rowe Price Investment Management | 15,668,672 | 7,502,442 | -8,166,230 |"
+        },
+        {
+          "key": "scope",
+          "heading": "What this does and does not establish",
+          "body_markdown": "The comparison matches CUSIP 037833100, share-denominated holdings, and excludes put/call rows. Each manager is shown separately. This is a limited sample of positive holdings present in both periods, not the complete institutional universe or a ranking of its top buyers. Unmatched and unusually large changes are omitted pending review. Related managers may overlap; do not add these rows into market-wide net flows. Share changes do not establish execution prices, cash spent or manager motives."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [AAPL](https://app.walnutmarkets.com/ticker/AAPL), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "FMR LLC (Fidelity) — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626001390/20260515_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "FMR LLC (Fidelity) — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626002260/20260814_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Investment Management — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000460/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Investment Management — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000578/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying Apple stock in the latest SEC filings, and what does it signal about mega-cap ownership?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "judgment": "neutral",
+        "tickers": [
+          "AAPL"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying Apple stock in the latest SEC filings, and what does it signal about mega-cap ownership?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 17,906,714 reported shares; Amundi reduced by 2,324,408 reported shares; T. Rowe Price Associates reduced by 40,615,258 reported shares; T. Rowe Price Investment Management reduced by 8,166,230 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1789912887958_271d6f",
+    "slug": "are-institutions-still-buying-asml-stock-after-the-latest-quarter",
+    "expected_article_sha256": "075f12955ac6e017be9ca3e61e53ea23b7c2b5b0b46a205f4dc26201d834a445",
+    "patch": {
+      "subtitle": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "summary": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "preview_body": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026."
+        },
+        {
+          "key": "verified-comparison",
+          "heading": "Read the corrected share comparison",
+          "body_markdown": "The [sourced ASML filing comparison](https://walnutmarkets.com/research/who-is-buying-asml-holding-nv-stock-latest-sec-filings-semi-capex) identifies the reviewed managers, both quarter-end share counts and the original SEC tables. It replaces the unsupported summary in this earlier article. It does not establish market-wide net buying."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [ASML](https://app.walnutmarkets.com/ticker/ASML), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "ASML: reviewed SEC comparison",
+          "url": "https://walnutmarkets.com/research/who-is-buying-asml-holding-nv-stock-latest-sec-filings-semi-capex",
+          "source_type": "walnut_research"
+        }
+      ],
+      "key_points": [
+        "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Are institutions still buying ASML stock after the latest quarter?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "judgment": "neutral",
+        "tickers": [
+          "ASML"
+        ]
+      },
+      "seo": {
+        "title": "Are institutions still buying ASML stock after the latest quarter?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1789654149359_4b160e",
+    "slug": "who-is-buying-asml-stock-in-the-latest-sec-filings",
+    "expected_article_sha256": "c887a69fefe680eb938ac75eb3489e59549e88e71a9d538adeb68fa5020e9f41",
+    "patch": {
+      "subtitle": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "summary": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "preview_body": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026."
+        },
+        {
+          "key": "verified-comparison",
+          "heading": "Read the corrected share comparison",
+          "body_markdown": "The [sourced ASML filing comparison](https://walnutmarkets.com/research/who-is-buying-asml-holding-nv-stock-latest-sec-filings-semi-capex) identifies the reviewed managers, both quarter-end share counts and the original SEC tables. It replaces the unsupported summary in this earlier article. It does not establish market-wide net buying."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [ASML](https://app.walnutmarkets.com/ticker/ASML), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "ASML: reviewed SEC comparison",
+          "url": "https://walnutmarkets.com/research/who-is-buying-asml-holding-nv-stock-latest-sec-filings-semi-capex",
+          "source_type": "walnut_research"
+        }
+      ],
+      "key_points": [
+        "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying ASML stock in the latest SEC filings?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "judgment": "neutral",
+        "tickers": [
+          "ASML"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying ASML stock in the latest SEC filings?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced ASML quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1789567762316_1aaa49",
+    "slug": "are-institutions-still-buying-apple-stock-after-the-latest-filings-aapl",
+    "expected_article_sha256": "ca05ae05dd0fe0fa362c485a43c4cad64377b702a100a02de1c26cadade103b2",
+    "patch": {
+      "subtitle": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "summary": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "preview_body": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "verified-comparison",
+          "heading": "Read the corrected share comparison",
+          "body_markdown": "The [sourced AAPL filing comparison](https://walnutmarkets.com/research/who-is-buying-apple-stock-latest-sec-filings-mega-cap-ownership) identifies the reviewed managers, both quarter-end share counts and the original SEC tables. It replaces the unsupported summary in this earlier article. It does not establish market-wide net buying."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [AAPL](https://app.walnutmarkets.com/ticker/AAPL), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "AAPL: reviewed SEC comparison",
+          "url": "https://walnutmarkets.com/research/who-is-buying-apple-stock-latest-sec-filings-mega-cap-ownership",
+          "source_type": "walnut_research"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Are institutions still buying Apple stock after the latest filings?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "judgment": "neutral",
+        "tickers": [
+          "AAPL"
+        ]
+      },
+      "seo": {
+        "title": "Are institutions still buying Apple stock after the latest filings?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1789480873184_31320f",
+    "slug": "who-is-buying-applovin-stock-in-the-latest-sec-filings",
+    "expected_article_sha256": "cb0d5041ff54d208b0240651073fdea0a224cbcd9ef4fd3e1c6a4f34c08f126f",
+    "patch": {
+      "subtitle": "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "summary": "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "preview_body": "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "verified-comparison",
+          "heading": "Read the corrected share comparison",
+          "body_markdown": "The [sourced APP filing comparison](https://walnutmarkets.com/research/who-is-buying-applovin-stock-in-the-latest-sec-filings-and-what-does-it-signal-about-growth-owne) identifies the reviewed managers, both quarter-end share counts and the original SEC tables. It replaces the unsupported summary in this earlier article. It does not establish market-wide net buying."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [APP](https://app.walnutmarkets.com/ticker/APP), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "APP: reviewed SEC comparison",
+          "url": "https://walnutmarkets.com/research/who-is-buying-applovin-stock-in-the-latest-sec-filings-and-what-does-it-signal-about-growth-owne",
+          "source_type": "walnut_research"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying AppLovin stock in the latest SEC filings?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "judgment": "neutral",
+        "tickers": [
+          "APP"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying AppLovin stock in the latest SEC filings?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced APP quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1789394463531_57cd32",
+    "slug": "who-is-buying-nebius-stock-in-the-latest-sec-filings",
+    "expected_article_sha256": "eb8a6a9d5d50dc0045d9195bb371eddcc74b1405b69e96c457046f5b634f3a14",
+    "patch": {
+      "subtitle": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "summary": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "preview_body": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "quick-answer",
+          "heading": "What the matched filings show",
+          "body_markdown": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total."
+        },
+        {
+          "key": "share-comparison",
+          "heading": "Named quarter-end share comparisons",
+          "body_markdown": "| Filer | March 31 shares | June 30 shares | Share change |\n| --- | ---: | ---: | ---: |\n| Amundi | 1,343,954 | 2,002,187 | +658,233 |\n| T. Rowe Price Associates | 164,821 | 610,056 | +445,235 |"
+        },
+        {
+          "key": "scope",
+          "heading": "What this does and does not establish",
+          "body_markdown": "The comparison matches CUSIP N97284108, share-denominated holdings, and excludes put/call rows. Each manager is shown separately. This is a limited sample of positive holdings present in both periods, not the complete institutional universe or a ranking of its top buyers. Unmatched and unusually large changes are omitted pending review. Related managers may overlap; do not add these rows into market-wide net flows. Share changes do not establish execution prices, cash spent or manager motives."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [NBIS](https://app.walnutmarkets.com/ticker/NBIS), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "Amundi — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Who is buying Nebius stock in the latest SEC filings?",
+        "description": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "judgment": "neutral",
+        "tickers": [
+          "NBIS"
+        ]
+      },
+      "seo": {
+        "title": "Who is buying Nebius stock in the latest SEC filings?",
+        "description": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Q1 to Q2 2026: Amundi added 658,233 reported shares; T. Rowe Price Associates added 445,235 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1787456125521_f0a0d1",
+    "slug": "are-institutions-accumulating-apple-stock-in-2026",
+    "expected_article_sha256": "19045dd70bc6c677d5800ce86a5d28284a7b4e670810d70b697fa26de26720ed",
+    "patch": {
+      "subtitle": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "summary": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "preview_body": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026. The previous Amundi exit claim was incorrect: the original June-quarter report contains a holding. Its August 26 NEW HOLDINGS amendment supplements the original report; an omitted row in that supplement is not an exit."
+        },
+        {
+          "key": "verified-comparison",
+          "heading": "Read the corrected share comparison",
+          "body_markdown": "The [sourced AAPL filing comparison](https://walnutmarkets.com/research/who-is-buying-apple-stock-latest-sec-filings-mega-cap-ownership) identifies the reviewed managers, both quarter-end share counts and the original SEC tables. It replaces the unsupported summary in this earlier article. It does not establish market-wide net buying."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [AAPL](https://app.walnutmarkets.com/ticker/AAPL), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "AAPL: reviewed SEC comparison",
+          "url": "https://walnutmarkets.com/research/who-is-buying-apple-stock-latest-sec-filings-mega-cap-ownership",
+          "source_type": "walnut_research"
+        },
+        {
+          "label": "Amundi June-quarter NEW HOLDINGS supplement, filed August 26, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Are institutions accumulating Apple stock in 2026?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "judgment": "neutral",
+        "tickers": [
+          "AAPL"
+        ]
+      },
+      "seo": {
+        "title": "Are institutions accumulating Apple stock in 2026?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced AAPL quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1787455645076_aecff4",
+    "slug": "avgo-institutional-ownership-activity",
+    "expected_article_sha256": "952055aa45325004b3466b156462f9fffcbf6d80e26a1bf8033fc3d5421be932",
+    "patch": {
+      "subtitle": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "summary": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "preview_body": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026."
+        },
+        {
+          "key": "quick-answer",
+          "heading": "What the matched filings show",
+          "body_markdown": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total."
+        },
+        {
+          "key": "share-comparison",
+          "heading": "Named quarter-end share comparisons",
+          "body_markdown": "| Filer | March 31 shares | June 30 shares | Share change |\n| --- | ---: | ---: | ---: |\n| FMR LLC (Fidelity) | 124,112,876 | 144,359,173 | +20,246,297 |\n| Amundi | 26,064,886 | 26,729,788 | +664,902 |\n| T. Rowe Price Associates | 84,470,754 | 82,851,970 | -1,618,784 |\n| T. Rowe Price Investment Management | 6,359,838 | 7,824,516 | +1,464,678 |"
+        },
+        {
+          "key": "scope",
+          "heading": "What this does and does not establish",
+          "body_markdown": "The comparison matches CUSIP 11135F101, share-denominated holdings, and excludes put/call rows. Each manager is shown separately. This is a limited sample of positive holdings present in both periods, not the complete institutional universe or a ranking of its top buyers. Unmatched and unusually large changes are omitted pending review. Related managers may overlap; do not add these rows into market-wide net flows. Share changes do not establish execution prices, cash spent or manager motives."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [AVGO](https://app.walnutmarkets.com/ticker/AVGO), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "FMR LLC (Fidelity) — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626001390/20260515_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "FMR LLC (Fidelity) — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/315066/000031506626002260/20260814_FMRLLC.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "Amundi — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000381/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Associates — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025526000519/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Investment Management — holdings at March 31, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000460/infotable.xml",
+          "source_type": "official_filing"
+        },
+        {
+          "label": "T. Rowe Price Investment Management — holdings at June 30, 2026",
+          "url": "https://www.sec.gov/Archives/edgar/data/1897612/000189761226000578/infotable.xml",
+          "source_type": "official_filing"
+        }
+      ],
+      "key_points": [
+        "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Are institutions accumulating Broadcom stock after the latest filings?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "judgment": "neutral",
+        "tickers": [
+          "AVGO"
+        ]
+      },
+      "seo": {
+        "title": "Are institutions accumulating Broadcom stock after the latest filings?",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Q1 to Q2 2026: FMR LLC (Fidelity) added 20,246,297 reported shares; Amundi added 664,902 reported shares; T. Rowe Price Associates reduced by 1,618,784 reported shares; T. Rowe Price Investment Management added 1,464,678 reported shares. These filers are a sample, not a market-wide buying or selling total.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  },
+  {
+    "id": "rb_1787453405306_f39e4c",
+    "slug": "nvda-institutional-ownership-activity",
+    "expected_article_sha256": "52180b2180009b47503a0ca6cbc9b12ffc133ef42cab160eb2355bdf7afbac21",
+    "patch": {
+      "subtitle": "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "summary": "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "preview_body": "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying.",
+      "sections": [
+        {
+          "key": "editorial-correction",
+          "heading": "Filing interpretation corrected",
+          "body_markdown": "Reviewed October 5, 2026. The earlier holder-count totals, dollar-flow interpretations and market-wide accumulation conclusion have been withdrawn because the stored change summary did not establish them. The comparison below uses matched SEC share counts for March 31 and June 30, 2026."
+        },
+        {
+          "key": "verified-comparison",
+          "heading": "Read the corrected share comparison",
+          "body_markdown": "The [sourced NVDA filing comparison](https://walnutmarkets.com/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings) identifies the reviewed managers, both quarter-end share counts and the original SEC tables. It replaces the unsupported summary in this earlier article. It does not establish market-wide net buying."
+        },
+        {
+          "key": "workflow",
+          "heading": "Explore the stock in Walnut",
+          "body_markdown": "Open [NVDA](https://app.walnutmarkets.com/ticker/NVDA), select Ownership to explore the filings, and select Research for the related briefs. Check the original SEC tables linked here before treating a holdings change as a trade."
+        }
+      ],
+      "source_links": [
+        {
+          "label": "NVDA: reviewed SEC comparison",
+          "url": "https://walnutmarkets.com/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings",
+          "source_type": "walnut_research"
+        }
+      ],
+      "key_points": [
+        "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying."
+      ],
+      "judgment": "neutral",
+      "walnut_call": "Limited sample",
+      "confidence": "low",
+      "confirmation_score_included": false,
+      "current_data_as_of": "2026-06-30",
+      "data_freshness": [
+        "Holdings at March 31 and June 30, 2026; source interpretation corrected October 5, 2026."
+      ],
+      "missing_data_notes": [
+        "Market-wide accumulation, new positions and exits are not established by these positive matched holdings."
+      ],
+      "catalysts": [],
+      "risks": [
+        "Holdings changes are delayed disclosures and do not establish manager motives or exact trades."
+      ],
+      "watch_items": [
+        "Next comparable quarter-end share counts"
+      ],
+      "reading_minutes": 3,
+      "suggested_card": {
+        "title": "Are institutions accumulating NVIDIA stock right now?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "judgment": "neutral",
+        "tickers": [
+          "NVDA"
+        ]
+      },
+      "seo": {
+        "title": "Are institutions accumulating NVIDIA stock right now?",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying."
+      },
+      "paywall_copy": {
+        "heading": "Reviewed filing comparison",
+        "description": "Correction: the earlier institutional summary is withdrawn. Read the sourced NVDA quarter-end share comparison; the evidence does not establish market-wide net buying.",
+        "cta_label": "Read the comparison"
+      },
+      "reddit_post": ""
+    }
+  }
+]
