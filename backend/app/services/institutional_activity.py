@@ -541,14 +541,20 @@ def upsert_positions_for_filing(
     *,
     filing: InstitutionalFiling,
     rows: list[dict[str, Any]],
+    reconciled_snapshot: bool = False,
 ) -> dict[str, int]:
+    if not reconciled_snapshot and getattr(filing, "_sec_snapshot", None):
+        from app.services.institutional_sec_snapshot import install_snapshot
+        return install_snapshot(db, filing, filing._sec_snapshot)
     metadata = json.loads(filing.raw_metadata_json or "{}")
+    if not reconciled_snapshot and (_filing_is_amendment(filing) or metadata.get("_walnut_position_source") == "sec_edgar_reconciled"):
+        raise ValueError("Amendment positions require a complete reconciled SEC quarter, not a supplemental extract.")
     exact_sec_rows = bool(rows) and all(row.get("source") == "sec_edgar" and row.get("accessionNumber") == filing.accession_number for row in rows)
     if metadata.get("_walnut_position_source") == "sec_edgar" and not exact_sec_rows:
         raise ValueError("Verified SEC positions require the exact canonical accession; provider extracts cannot overwrite them.")
-    if any(row.get("source") == "sec_edgar" and row.get("accessionNumber") not in {None, filing.accession_number} for row in rows):
+    if not reconciled_snapshot and any(row.get("source") == "sec_edgar" and row.get("accessionNumber") not in {None, filing.accession_number} for row in rows):
         raise ValueError("SEC position accession does not match the destination filing.")
-    if exact_sec_rows:
+    if exact_sec_rows and not reconciled_snapshot:
         metadata.update(_walnut_position_source="sec_edgar", _walnut_position_accession=filing.accession_number)
         filing.raw_metadata_json = json.dumps(metadata, sort_keys=True, default=str)
     inserted = updated = skipped = 0
@@ -562,7 +568,7 @@ def upsert_positions_for_filing(
         key = _position_payload_identity_key(payload)
         fingerprint = _position_payload_fingerprint(payload)
         fingerprints = fingerprints_by_key.setdefault(key, set())
-        if fingerprint in fingerprints:
+        if fingerprint in fingerprints and not reconciled_snapshot:
             continue
         fingerprints.add(fingerprint)
         existing_payload = payloads_by_key.get(key)
@@ -640,12 +646,34 @@ def _holder_period_activity_rows(db: Session, filing: InstitutionalFiling) -> li
 
 def _suppress_holder_period_activity(db: Session, filing: InstitutionalFiling) -> int:
     rows = _holder_period_activity_rows(db, filing)
-    _delete_feed_events_for_activity_ids(db, [int(row.id) for row in rows if row.id is not None])
+    _archive_activity_rows(db, rows)
+    return len(rows)
+
+
+def _archive_activity_rows(db: Session, rows) -> None:
+    """Withdraw derived assertions without deleting their stable event IDs."""
+    rows = [r for r in rows if r.freshness_status != "superseded"]
+    if not rows:
+        return
     for row in rows:
         row.feed_visible = False
         row.freshness_status = "superseded"
         row.updated_at = datetime.now(timezone.utc)
-    return len(rows)
+    for offset in range(0, len(rows), 100):
+        ids = [str(r.id) for r in rows[offset:offset + 100]]
+        source_filter = (func.split_part(Event.source_filing_id, ":", 2).in_(ids)
+                         if db.get_bind().dialect.name == "postgresql" else
+                         or_(*[Event.source_filing_id.like(f"institutional:{i}:%") for i in ids]))
+        for event in db.execute(select(Event).where(Event.source_provider == INSTITUTIONAL_EVENT_SOURCE, source_filter)).scalars():
+            payload = json.loads(event.payload_json or "{}")
+            payload.update(freshness_status="superseded", feed_visible=False,
+                           correction_reason="SEC quarter reconciliation")
+            event.payload_json = json.dumps(payload, sort_keys=True, default=str)
+
+
+def _require_reconciled_amendment(filing):
+    if _filing_is_amendment(filing) and not json.loads(filing.raw_metadata_json or "{}").get("_walnut_position_snapshot"):
+        raise ValueError("Cannot derive changes from an unreconciled SEC amendment")
 
 
 def _reset_holder_period_changes_and_activity(db: Session, filing: InstitutionalFiling) -> set[str]:
@@ -658,21 +686,21 @@ def _reset_holder_period_changes_and_activity(db: Session, filing: Institutional
     ).scalars().all()
     symbols = {row.normalized_symbol for row in existing_changes if row.normalized_symbol}
     activities = _holder_period_activity_rows(db, filing)
-    _delete_feed_events_for_activity_ids(db, [int(row.id) for row in activities if row.id is not None])
+    _archive_activity_rows(db, activities)
     for row in activities:
         if row.normalized_symbol:
             symbols.add(row.normalized_symbol)
-        db.delete(row)
     for row in existing_changes:
         db.delete(row)
     db.flush()
     return symbols
 
 
-def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) -> dict[str, int]:
+def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False) -> dict[str, int]:
+    _require_reconciled_amendment(filing)
     apply_institutional_filing_supersession(db, filing)
     if not is_canonical_institutional_filing(db, filing):
-        _suppress_holder_period_activity(db, filing)
+        # A stale original must not withdraw the canonical amendment's events.
         filing.processed_at = datetime.now(timezone.utc)
         return {
             "changes": 0,
@@ -683,7 +711,7 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) 
         }
 
     db.flush()
-    reset_symbols = _reset_holder_period_changes_and_activity(db, filing) if _filing_is_amendment(filing) else set()
+    reset_symbols = _reset_holder_period_changes_and_activity(db, filing) if reset_existing or _filing_is_amendment(filing) else set()
     current_positions = db.execute(
         select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)
     ).scalars().all()
@@ -691,8 +719,8 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) 
     holder_name = holder.holder_name if holder else None
     holder_quality_weight = _holder_quality_weight(holder)
     prior_positions = _prior_positions_for_filing(db, filing)
-    prior_by_key = {_position_match_key(position): position for position in prior_positions}
-    current_by_key = {_position_match_key(position): position for position in current_positions}
+    prior_by_key = {_position_match_key(position): position for position in prior_positions if not position.put_call}
+    current_by_key = {_position_match_key(position): position for position in current_positions if not position.put_call}
 
     changes = 0
     symbols: set[str] = set(reset_symbols)
@@ -800,9 +828,10 @@ def process_filing_changes_and_events_symbol_batch(
     symbol_limit: int = 100,
     reset_existing: bool = False,
 ) -> dict[str, Any]:
+    _require_reconciled_amendment(filing)
     apply_institutional_filing_supersession(db, filing)
     if not is_canonical_institutional_filing(db, filing):
-        _suppress_holder_period_activity(db, filing)
+        # A stale original must not withdraw the canonical amendment's events.
         filing.processed_at = datetime.now(timezone.utc)
         return {
             "changes": 0,
@@ -846,8 +875,8 @@ def process_filing_changes_and_events_symbol_batch(
     holder = db.get(InstitutionalHolder, filing.cik)
     holder_name = holder.holder_name if holder else None
     holder_quality_weight = _holder_quality_weight(holder)
-    prior_by_key = {_position_match_key(position): position for position in prior_positions}
-    current_by_key = {_position_match_key(position): position for position in current_positions}
+    prior_by_key = {_position_match_key(position): position for position in prior_positions if not position.put_call}
+    current_by_key = {_position_match_key(position): position for position in current_positions if not position.put_call}
 
     changes = 0
     symbols: set[str] = {symbol for symbol in reset_symbols if symbol in batch_symbols}
@@ -1178,13 +1207,23 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
         if existing is None or _change_event_priority(change) > _change_event_priority(existing):
             changes_by_event_key[key] = change
 
+    cluster_type = None
+    if summary.materiality_score >= 80 or abs(summary.net_value_delta_usd or 0) >= 50_000_000 or (summary.holders_increased - summary.holders_reduced) >= 10:
+        cluster_type = "cluster_accumulation" if summary.direction == "bullish" else "cluster_distribution" if summary.direction == "bearish" else "smart_money_confirmation"
+    valid = set(changes_by_event_key)
+    if cluster_type:
+        valid.add(_activity_event_key(summary.normalized_symbol, None, cluster_type, summary.report_year, summary.report_quarter))
+    old = db.execute(select(InstitutionalActivityEvent).where(
+        InstitutionalActivityEvent.normalized_symbol == summary.normalized_symbol,
+        InstitutionalActivityEvent.report_year == summary.report_year,
+        InstitutionalActivityEvent.report_quarter == summary.report_quarter)).scalars().all()
+    _archive_activity_rows(db, [r for r in old if _activity_event_key(r.normalized_symbol, r.cik, r.event_type, r.report_year, r.report_quarter) not in valid])
     for change in changes_by_event_key.values():
         event_type = _event_type_for_change(change)
         if _upsert_activity_event_from_change(db, change, event_type=event_type):
             created += 1
-    if summary.materiality_score >= 80 or abs(summary.net_value_delta_usd or 0) >= 50_000_000 or (summary.holders_increased - summary.holders_reduced) >= 10:
-        event_type = "cluster_accumulation" if summary.direction == "bullish" else "cluster_distribution" if summary.direction == "bearish" else "smart_money_confirmation"
-        if _upsert_activity_event_from_summary(db, summary, event_type=event_type):
+    if cluster_type:
+        if _upsert_activity_event_from_summary(db, summary, event_type=cluster_type):
             created += 1
     return created
 
@@ -3010,6 +3049,7 @@ def _upsert_activity_event_from_change(db: Session, change: InstitutionalPositio
         )
         db.add(existing)
     existing.holder_name = change.holder_name
+    existing.filing_date = change.filing_date
     existing.direction = change.direction
     existing.reported_value_usd = change.curr_value_usd if change.change_type != "exit" else change.prev_value_usd
     existing.value_delta_usd = change.value_delta_usd
@@ -3072,6 +3112,7 @@ def _upsert_activity_event_from_summary(db: Session, summary: InstitutionalSymbo
         )
         db.add(existing)
     existing.direction = summary.direction
+    existing.filing_date = summary.latest_filing_date or existing.filing_date
     existing.reported_value_usd = summary.total_value_usd
     existing.value_delta_usd = summary.net_value_delta_usd
     existing.ownership_pct = summary.institutional_ownership_pct
@@ -3122,6 +3163,9 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent) -> boo
         )
         db.add(existing)
     existing.member_name = activity.holder_name
+    existing.ts = event_ts
+    existing.event_date = event_ts
+    existing.impact_score = float(activity.materiality_score or 0.0)
     existing.member_bioguide_id = activity.cik
     existing.trade_type = _action_label_for_event(activity.event_type)
     existing.transaction_type = "13F filing"

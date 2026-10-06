@@ -41,8 +41,25 @@ from app.services.institutional_activity import (
     seed_canonical_institutional_holders,
     upsert_institutional_filing,
     upsert_institutional_holder,
-    upsert_positions_for_filing,
+    upsert_positions_for_filing as _raw_upsert_positions_for_filing,
 )
+
+
+def _restatement_fixture(filing, rows):
+    from app.services.institutional_sec_snapshot import snapshot_digest
+    rows = [{**r, "source": "sec_edgar", "accessionNumber": filing.accession_number,
+             "sourceUrl": "https://www.sec.gov/Archives/test/table.xml"} for r in rows]
+    return {"version": 1, "cik": filing.cik, "year": filing.report_year, "quarter": filing.report_quarter,
+            "accession": filing.accession_number, "rows": rows, "sha256": snapshot_digest(rows),
+            "sources": [{"accession": filing.accession_number, "kind": "RESTATEMENT"}]}
+
+
+def upsert_positions_for_filing(db, *, filing, rows):
+    # Existing amendment regression fixtures describe complete restatements.
+    # Raw/unverified amendment rejection is covered in test_institutional_sec_snapshot.
+    if filing.is_amendment:
+        filing._sec_snapshot = _restatement_fixture(filing, rows)
+    return _raw_upsert_positions_for_filing(db, filing=filing, rows=rows)
 
 
 class _FakeFmpResponse:
@@ -979,6 +996,11 @@ def test_specific_ingest_chooses_amended_candidate_when_original_is_listed_first
         lambda **_kwargs: [{"symbol": "UONE", "shares": 900_000, "marketValue": 120_000_000, "cusip": "91705J105"}],
     )
 
+    def verified_fetch(filing):
+        filing._sec_snapshot = _restatement_fixture(filing, [{"symbol": "UONE", "shares": 900_000, "marketValue": 120_000_000, "cusip": "91705J105"}])
+        return filing._sec_snapshot["rows"]
+    monkeypatch.setattr(ingest_module, "_fetch_positions_for_canonical_filing", verified_fetch)
+
     result = ingest_module.ingest_institutional_filing(cik=cik, year=2026, quarter=1, force=True)
 
     assert result["processed_filings"] == 1
@@ -1034,6 +1056,11 @@ def test_specific_ingest_uses_existing_canonical_amendment_when_provider_lists_o
         "fetch_institutional_filing_extract",
         lambda **_kwargs: [{"symbol": "UONE", "shares": 900_000, "marketValue": 120_000_000, "cusip": "91705J105"}],
     )
+
+    def verified_fetch(filing):
+        filing._sec_snapshot = _restatement_fixture(filing, [{"symbol": "UONE", "shares": 900_000, "marketValue": 120_000_000, "cusip": "91705J105"}])
+        return filing._sec_snapshot["rows"]
+    monkeypatch.setattr(ingest_module, "_fetch_positions_for_canonical_filing", verified_fetch)
 
     result = ingest_module.ingest_institutional_filing(cik=cik, year=2026, quarter=1, force=True)
 
@@ -2212,7 +2239,7 @@ def test_amended_filing_supersedes_original_and_replaces_user_facing_activity():
         db.commit()
 
         assert counts["changes"] == 1
-        assert counts["activity_events"] >= 1
+        assert counts["activity_events"] == 0  # Existing event identities are revised, not recreated.
         db.refresh(current_filing)
         db.refresh(amended_filing)
         assert current_filing.superseded_by == amended_filing.id
@@ -2239,6 +2266,7 @@ def test_amended_filing_supersedes_original_and_replaces_user_facing_activity():
                 InstitutionalActivityEvent.report_quarter == 1,
             )
         ).scalar_one()
+        assert activity.id == original_activity.id
         assert activity.reported_value_usd == 120_000_000
         assert activity.filing_date == amendment_candidate.filing_date
 

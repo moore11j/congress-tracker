@@ -263,6 +263,13 @@ def ingest_latest_institutional_filings(
 def _fetch_positions_for_canonical_filing(filing):
     """A primary-source correction must not regress to a period-only extract."""
     metadata = json.loads(filing.raw_metadata_json or "{}")
+    if filing.is_amendment or str(filing.form_type or "").endswith("/A") or metadata.get("_walnut_position_source") == "sec_edgar_reconciled":
+        from app.clients import sec_edgar
+        from app.services.institutional_sec_snapshot import resolve_snapshot
+        snapshot = resolve_snapshot(cik=filing.cik, year=filing.report_year, quarter=filing.report_quarter,
+                                    accession=filing.accession_number, client=sec_edgar)
+        filing._sec_snapshot = snapshot
+        return snapshot["rows"]
     if metadata.get("_walnut_position_source") == "sec_edgar":
         return fetch_13f_information_table(cik=filing.cik, accession_number=filing.accession_number)
     return fetch_institutional_filing_extract(cik=filing.cik, year=filing.report_year, quarter=filing.report_quarter)
@@ -409,7 +416,8 @@ def ingest_institutional_filing_from_sec(
                 db.commit()
                 return {"status": "ok", "processed_filings": 0, "skipped": 1}
 
-        extract_rows = fetch_13f_information_table(cik=filing.cik, accession_number=filing.accession_number)
+        extract_rows = (_fetch_positions_for_canonical_filing(filing) if filing.is_amendment
+                        else fetch_13f_information_table(cik=filing.cik, accession_number=filing.accession_number))
         if not extract_rows:
             metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
             db.commit()

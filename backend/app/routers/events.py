@@ -424,6 +424,14 @@ def _allow_visible_feed_quote_fallback(request: Request | None, *, enrich_prices
     return source == "ssr" and bounded_log_value(request.headers.get("x-walnut-route-family"), max_length=32).lower() == "feed"
 
 
+def _not_superseded_institutional_clause(db):
+    payload = (cast(Event.payload_json, JSONB)["freshness_status"].astext
+               if db.get_bind().dialect.name == "postgresql" else
+               func.json_extract(Event.payload_json, "$.freshness_status"))
+    return or_(func.coalesce(Event.source_provider, "") != "institutional_13f",
+               func.coalesce(payload, "") != "superseded")
+
+
 def _institutional_all_feed_visibility_clause():
     amount = func.coalesce(Event.amount_max, Event.amount_min, 0)
     return or_(
@@ -4256,7 +4264,7 @@ def _build_events_query(
     congress_filters: list,
     use_effective_activity_date: bool = False,
 ):
-    q = select(Event)
+    q = select(Event).where(_not_superseded_institutional_clause(db))
     sort_ts = _event_effective_activity_ts_expr(db) if use_effective_activity_date else func.coalesce(Event.event_date, Event.ts)
     q = q.where(_government_contract_action_events_only_clause())
 
@@ -5539,7 +5547,7 @@ def list_events(
             include_total=include_total,
         )
 
-    q = select(Event)
+    q = select(Event).where(_not_superseded_institutional_clause(db))
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     applied_filters: list[str] = []
 

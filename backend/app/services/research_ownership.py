@@ -33,7 +33,8 @@ def period_table(cik: str, year: int, quarter: int, client) -> tuple[list[dict],
         if kind == "NEW HOLDINGS":
             if table is None:
                 raise ValueError("Supplement without a base report")
-            table.extend(rows)
+            from app.services.institutional_sec_snapshot import merge_supplement
+            table = merge_supplement(table, rows)
         elif kind == "RESTATEMENT" or table is None:
             table = list(rows)
         else:
