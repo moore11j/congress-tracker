@@ -544,8 +544,12 @@ def upsert_positions_for_filing(
     reconciled_snapshot: bool = False,
 ) -> dict[str, int]:
     if not reconciled_snapshot and getattr(filing, "_sec_snapshot", None):
-        from app.services.institutional_sec_snapshot import install_snapshot
-        return install_snapshot(db, filing, filing._sec_snapshot)
+        from app.services.institutional_sec_snapshot import install_snapshot, snapshot_digest
+        snapshot = filing._sec_snapshot
+        del filing._sec_snapshot
+        if snapshot_digest(rows) != snapshot["sha256"]:
+            raise ValueError("Fetched SEC snapshot rows changed before installation")
+        return install_snapshot(db, filing, snapshot)
     metadata = json.loads(filing.raw_metadata_json or "{}")
     if not reconciled_snapshot and (_filing_is_amendment(filing) or metadata.get("_walnut_position_source") == "sec_edgar_reconciled"):
         raise ValueError("Amendment positions require a complete reconciled SEC quarter, not a supplemental extract.")
@@ -1484,7 +1488,7 @@ def ticker_ownership_payload(
     if provider_holders and (provider_report_year, provider_report_quarter) == (latest.report_year, latest.report_quarter):
         verified_ciks = {
             cik for cik, raw in db.execute(select(InstitutionalFiling.cik, InstitutionalFiling.raw_metadata_json).where(InstitutionalFiling.id.in_(active_filing_ids))).all()
-            if json.loads(raw or "{}").get("_walnut_position_source") == "sec_edgar"
+            if json.loads(raw or "{}").get("_walnut_position_source") in {"sec_edgar", "sec_edgar_reconciled"}
         }
         provider_holders = _prefer_verified_sec_holders(provider_holders, holders_by_cik, verified_ciks)
     float_based_institutional_pct = None

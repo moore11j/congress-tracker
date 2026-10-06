@@ -59,6 +59,7 @@ def upsert_positions_for_filing(db, *, filing, rows):
     # Raw/unverified amendment rejection is covered in test_institutional_sec_snapshot.
     if filing.is_amendment:
         filing._sec_snapshot = _restatement_fixture(filing, rows)
+        rows = filing._sec_snapshot["rows"]
     return _raw_upsert_positions_for_filing(db, filing=filing, rows=rows)
 
 

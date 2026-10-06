@@ -2,7 +2,7 @@ import json
 from datetime import date
 import pytest
 from sqlalchemy import select
-from test_institutional_activity import _engine, _session
+from test_institutional_activity import _engine, _session, _restatement_fixture
 from app import ingest_institutional_activity as ingest
 from app.models import InstitutionalFiling, InstitutionalPosition
 from app.services import institutional_activity as s
@@ -15,20 +15,27 @@ def test_verified_sec_restatement_resists_stale_provider_and_wrong_accession(mon
         old,_=s.upsert_institutional_filing(db,original)
         amended,_=s.upsert_institutional_filing(db,amendment)
         row={'symbol':'NVDA','cusip':'67066G104','shares':35021490,'valueUsd':7007449934,'source':'sec_edgar','accessionNumber':amended.accession_number}
-        s.upsert_positions_for_filing(db,filing=amended,rows=[row]);db.flush()
+        s.upsert_positions_for_filing(db,filing=old,rows=[{**row,'source':'fmp','accessionNumber':old.accession_number}])
+        amended._sec_snapshot=_restatement_fixture(amended,[row])
+        s.upsert_positions_for_filing(db,filing=amended,rows=amended._sec_snapshot['rows']);db.flush()
         assert old.superseded_by==amended.id
         s.upsert_institutional_filing(db,s.parse_latest_filing({**amendment.raw,'source':'fmp'}))
-        assert json.loads(amended.raw_metadata_json)['_walnut_position_source']=='sec_edgar'
-        with pytest.raises(ValueError,match='exact canonical accession'):
+        assert json.loads(amended.raw_metadata_json)['_walnut_position_source']=='sec_edgar_reconciled'
+        with pytest.raises(ValueError,match='complete reconciled'):
             s.upsert_positions_for_filing(db,filing=amended,rows=[{'symbol':'NVDA','shares':7007449934,'valueUsd':35021490}])
-        with pytest.raises(ValueError,match='exact canonical accession'):
+        with pytest.raises(ValueError,match='complete reconciled'):
             s.upsert_positions_for_filing(db,filing=amended,rows=[{**row,'accessionNumber':old.accession_number}])
+        from app.services import institutional_sec_snapshot as snapshots
         calls=[]
-        monkeypatch.setattr(ingest,'fetch_13f_information_table',lambda **kw:calls.append(kw) or [row])
+        def resolve(**kw):
+            calls.append(kw['accession'])
+            return _restatement_fixture(amended,[{k:v for k,v in row.items() if k!='symbol'}])
+        monkeypatch.setattr(snapshots,'resolve_snapshot',resolve)
         monkeypatch.setattr(ingest,'fetch_institutional_filing_extract',lambda **kw:pytest.fail('stale provider used'))
-        assert ingest._fetch_positions_for_canonical_filing(amended)==[row]
-        assert calls==[{'cik':'0001081019','accession_number':amended.accession_number}]
-        s.upsert_positions_for_filing(db,filing=amended,rows=[{k:v for k,v in row.items() if k!='symbol'}]);db.flush()
+        fetched=ingest._fetch_positions_for_canonical_filing(amended)
+        assert calls==[amended.accession_number]
+        s.upsert_positions_for_filing(db,filing=amended,rows=fetched);db.flush()
+        assert not hasattr(amended,'_sec_snapshot')
         position=db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id==amended.id)).scalar_one()
         assert (position.normalized_symbol,position.shares,position.value_usd)==('NVDA',35021490,7007449934)
 
