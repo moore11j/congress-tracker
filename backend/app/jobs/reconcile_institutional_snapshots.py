@@ -59,7 +59,7 @@ def rebuild(db, filing):
     # Installing an older quarter must not turn missing baseline coverage into
     # thousands of newly opened positions.
     if svc._prior_positions_for_filing(db, filing):
-        return svc.process_filing_changes_and_events(db, filing, reset_existing=True)
+        return svc.process_filing_changes_and_events(db, filing, reset_existing=True, holder_only=True)
     symbols = svc._reset_holder_period_changes_and_activity(db, filing)
     symbols.update(db.scalars(select(InstitutionalPosition.normalized_symbol).where(
         InstitutionalPosition.filing_id == filing.id, InstitutionalPosition.normalized_symbol.is_not(None))).all())
@@ -69,9 +69,9 @@ def rebuild(db, filing):
         summary = svc.refresh_symbol_summary(db, symbol, filing.report_year, filing.report_quarter)
         if summary:
             result["summaries"] += 1
-            result["activity_events"] += svc.generate_activity_events_for_symbol(db, summary)
+            result["activity_events"] += svc.generate_activity_events_for_symbol(db, summary, holder_cik=filing.cik)
             db.flush()
-            result["feed_events"] += svc.materialize_feed_events_for_symbol(db, summary)
+            result["feed_events"] += svc.materialize_feed_events_for_symbol(db, summary, holder_cik=filing.cik)
     return result
 
 

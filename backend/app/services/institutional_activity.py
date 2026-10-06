@@ -701,7 +701,7 @@ def _reset_holder_period_changes_and_activity(db: Session, filing: Institutional
     return symbols
 
 
-def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False) -> dict[str, int]:
+def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False, holder_only: bool = False) -> dict[str, int]:
     _require_reconciled_amendment(filing)
     apply_institutional_filing_supersession(db, filing)
     if not is_canonical_institutional_filing(db, filing):
@@ -769,9 +769,9 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, 
         summary = refresh_symbol_summary(db, symbol, filing.report_year, filing.report_quarter)
         if summary:
             summaries += 1
-            events += generate_activity_events_for_symbol(db, summary)
+            events += generate_activity_events_for_symbol(db, summary, holder_cik=filing.cik if holder_only else None)
             db.flush()
-            feed_events += materialize_feed_events_for_symbol(db, summary)
+            feed_events += materialize_feed_events_for_symbol(db, summary, holder_cik=filing.cik if holder_only else None)
     filing.processed_at = datetime.now(timezone.utc)
     return {"changes": changes, "summaries": summaries, "activity_events": events, "feed_events": feed_events}
 
@@ -1187,7 +1187,7 @@ def refresh_symbol_summary(
     return summary
 
 
-def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary) -> int:
+def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None) -> int:
     changes = db.execute(
         select(InstitutionalPositionChange).where(
             InstitutionalPositionChange.normalized_symbol == summary.normalized_symbol,
@@ -1195,6 +1195,7 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
             InstitutionalPositionChange.report_quarter == summary.report_quarter,
             InstitutionalPositionChange.is_material.is_(True),
             InstitutionalPositionChange.change_type != "unchanged",
+            *([InstitutionalPositionChange.cik == holder_cik] if holder_cik else []),
         )
     ).scalars().all()
     created = 0
@@ -1221,7 +1222,8 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
     old = db.execute(select(InstitutionalActivityEvent).where(
         InstitutionalActivityEvent.normalized_symbol == summary.normalized_symbol,
         InstitutionalActivityEvent.report_year == summary.report_year,
-        InstitutionalActivityEvent.report_quarter == summary.report_quarter)).scalars().all()
+        InstitutionalActivityEvent.report_quarter == summary.report_quarter,
+        *([or_(InstitutionalActivityEvent.cik == holder_cik, InstitutionalActivityEvent.cik.is_(None))] if holder_cik else []))).scalars().all()
     _archive_activity_rows(db, [r for r in old if _activity_event_key(r.normalized_symbol, r.cik, r.event_type, r.report_year, r.report_quarter) not in valid])
     for change in changes_by_event_key.values():
         event_type = _event_type_for_change(change)
@@ -1233,7 +1235,7 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
     return created
 
 
-def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary) -> int:
+def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None) -> int:
     activities = db.execute(
         select(InstitutionalActivityEvent).where(
             InstitutionalActivityEvent.normalized_symbol == summary.normalized_symbol,
@@ -1242,6 +1244,7 @@ def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbol
             InstitutionalActivityEvent.feed_visible.is_(True),
             InstitutionalActivityEvent.event_type.in_(INSTITUTIONAL_FEED_EVENT_TYPES),
             InstitutionalActivityEvent.materiality_score >= INSTITUTIONAL_FEED_EVENT_MIN_MATERIALITY,
+            *([or_(InstitutionalActivityEvent.cik == holder_cik, InstitutionalActivityEvent.cik.is_(None))] if holder_cik else []),
         )
     ).scalars().all()
     created = 0

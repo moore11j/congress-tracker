@@ -165,3 +165,17 @@ def test_withdrawal_uses_exact_indexed_source_ids():
                         freshness_status="stale",feed_visible=True)
     _archive_activity_rows(DB(),[row])
     assert row.freshness_status=="superseded"
+
+
+def test_scoped_repair_leaves_unrelated_manager_event_unchanged(db):
+    from datetime import datetime, timezone
+    from app.jobs.reconcile_institutional_snapshots import rebuild
+    current=filings(db); original_time=datetime(2026,8,1,tzinfo=timezone.utc)
+    unrelated=InstitutionalActivityEvent(symbol="NVDA",normalized_symbol="NVDA",cik="0009999999",
+        event_type="major_holder_exit",filing_date=current.filing_date,report_year=2026,report_quarter=2,
+        title="Unrelated event",summary="Unrelated summary",freshness_status="stale",feed_visible=True,updated_at=original_time)
+    db.add(unrelated);db.flush(); id=unrelated.id
+    install_snapshot(db,current,snapshot());rebuild(db,current);db.flush()
+    row=db.get(InstitutionalActivityEvent,id)
+    assert row.freshness_status=="stale" and row.feed_visible is True
+    assert row.updated_at==original_time
