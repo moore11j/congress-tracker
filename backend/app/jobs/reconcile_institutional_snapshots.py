@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from app.db import SessionLocal
 from app.models import Event, InstitutionalFiling, InstitutionalPosition, InstitutionalPositionChange, InstitutionalActivityEvent, InstitutionalSymbolSummary
 from app.services import institutional_activity as svc
@@ -45,7 +45,8 @@ def backup_projection(db, filing, snapshot=None):
             InstitutionalPosition.cusip.in_({r.get("cusip") for r in snapshot["rows"]}),
             InstitutionalPosition.normalized_symbol.is_not(None))).all())
     activities = db.scalars(select(InstitutionalActivityEvent).where(InstitutionalActivityEvent.normalized_symbol.in_(symbols),
-        InstitutionalActivityEvent.report_year == filing.report_year, InstitutionalActivityEvent.report_quarter == filing.report_quarter)).all()
+        InstitutionalActivityEvent.report_year == filing.report_year, InstitutionalActivityEvent.report_quarter == filing.report_quarter,
+        or_(InstitutionalActivityEvent.cik == filing.cik, InstitutionalActivityEvent.cik.is_(None)))).all()
     summaries = db.scalars(select(InstitutionalSymbolSummary).where(InstitutionalSymbolSummary.normalized_symbol.in_(symbols),
         InstitutionalSymbolSummary.report_year == filing.report_year, InstitutionalSymbolSummary.report_quarter == filing.report_quarter)).all()
     sources = [f"institutional:{r.id}:{r.event_type}:{r.report_year}q{r.report_quarter}" for r in activities]
