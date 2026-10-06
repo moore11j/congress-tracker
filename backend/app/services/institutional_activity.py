@@ -664,10 +664,11 @@ def _archive_activity_rows(db: Session, rows) -> None:
         row.freshness_status = "superseded"
         row.updated_at = datetime.now(timezone.utc)
     for offset in range(0, len(rows), 100):
-        ids = [str(r.id) for r in rows[offset:offset + 100]]
-        source_filter = (func.split_part(Event.source_filing_id, ":", 2).in_(ids)
-                         if db.get_bind().dialect.name == "postgresql" else
-                         or_(*[Event.source_filing_id.like(f"institutional:{i}:%") for i in ids]))
+        sources = [f"institutional:{r.id}:{r.event_type}:{r.report_year}q{r.report_quarter}"
+                   for r in rows[offset:offset + 100]]
+        # Exact canonical source IDs use ix_events_source_filing_id. Parsing
+        # IDs or prefix matching here scans the entire market-event table.
+        source_filter = Event.source_filing_id.in_(sources)
         for event in db.execute(select(Event).where(Event.source_provider == INSTITUTIONAL_EVENT_SOURCE, source_filter)).scalars():
             payload = json.loads(event.payload_json or "{}")
             payload.update(freshness_status="superseded", feed_visible=False,

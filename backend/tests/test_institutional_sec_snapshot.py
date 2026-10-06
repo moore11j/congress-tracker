@@ -147,3 +147,21 @@ def test_sec_cusip_case_preserves_mapping_and_existing_position_id(db):
     db.expire_all()
     updated=db.get(InstitutionalPosition,position_id)
     assert updated is not None and updated.normalized_symbol=="NVDA" and updated.shares==97
+
+
+def test_withdrawal_uses_exact_indexed_source_ids():
+    from types import SimpleNamespace
+    from sqlalchemy.dialects import postgresql
+    from app.services.institutional_activity import _archive_activity_rows
+    class DB:
+        def execute(self, query):
+            sql=str(query.compile(dialect=postgresql.dialect()))
+            assert 'source_filing_id IN' in sql
+            assert 'split_part' not in sql and ' LIKE ' not in sql
+            return self
+        def scalars(self):
+            return []
+    row=SimpleNamespace(id=3,event_type="major_holder_exit",report_year=2026,report_quarter=2,
+                        freshness_status="stale",feed_visible=True)
+    _archive_activity_rows(DB(),[row])
+    assert row.freshness_status=="superseded"
