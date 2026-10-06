@@ -1,5 +1,7 @@
 # Institutional feed reconciliation — October 5, 2026
 
+**Final state:** backend `6c5453b2` is deployed on all four machines. Nineteen filings/12,325 positions match their SEC source totals; Amundi's five false exits are withdrawn and replaced by the verified changes below. Current institutional score inputs for the five sampled tickers are unchanged. Nine ambiguous amendments remain unresolved. The dated checkpoints below explain intermediate states, not outstanding rollout work.
+
 ## Scope and evidence
 
 Approved follow-up to [the research integrity release](institutional-research-integrity-2026-10-05.md). The live database still classified Amundi's Q2 NVIDIA, Apple, Microsoft, AppLovin and Nebius positions as exits because the August 26 NEW HOLDINGS supplement had replaced its original report. T. Rowe Price Associates' five corresponding stored changes were already correct and are outside this repair.
@@ -66,3 +68,54 @@ Six dependent Q2 reports were fetched from SEC before applying anything. Stored 
 The public provider-ranking fallback now recognizes reconciled snapshots as authoritative. A fetched in-memory snapshot is consumed once and its rows must match its checksum. Eighteen relevant ingest/feed/source checks passed; the final snapshot and prior SEC correction suite passes 16 tests, including CUSIP identity retention. An additional unchanged ingest-job test file cannot collect because of a pre-existing syntax error at line 149; it is not counted as passing coverage.
 
 Rollout `f16daa1e` and follow-up `e53c72db` completed successfully. The initial 16-filing production dry run matched all identities and produced plan hash `ec920eeb8b18fe1962f5098061ad8f5a8714d0e8bf386adac92b28cdbd21ea09`; no data was changed. The expanded 19-source plan and final production application remain pending at this checkpoint.
+
+### Production maintenance checkpoint
+
+Final identity-safe source installation deployed as `dd6eeb5e`; [workflow 37412037843](https://github.com/moore11j/congress-tracker/actions/runs/37412037843) succeeded and all four worker images plus readiness/database checks were verified. The expanded production plan matched 19 targets with hash `362e5ae0426e7d4ea57d2d6f76e0e0856425cabbace74c7b00f30cad089f402a` and bundle hash `4aeed696dde625de5c1f22eacded273537919b08fd3e90c40abef05f8f2dcd2d`.
+
+The first run revealed an expensive split-part event-ID scan. It was stopped by exact maintenance-process identity; filing 23 completed before the stop, while the interrupted transaction rolled back. Release `e21b620d` replaces that lookup with exact canonical source IDs against the existing index; 11 focused tests pass. [Workflow 37412549744](https://github.com/moore11j/congress-tracker/actions/runs/37412549744) succeeded. The same reviewed plan resumed and reported filing 23 already applied. Backups remain on the existing worker under `/data/institutional-reconciliation`; no schema migration or new compute service was added.
+
+Before correction, the actual institutional score sources for NVDA, AAPL, MSFT, APP and NBIS were all absent/neutral with zero contribution and latest filing date August 26. This is an observed current-input result, not merely an inference from individual event ages. Their after-state and full position comparisons remain to be recorded.
+
+The resumed run committed filings 57, 91, 106, 187 and 257 in addition to 23. Five of these lacked a stored adjacent-quarter baseline; no fabricated new-position changes were generated. The run was stopped before the large remaining reports while scope was narrowed to the changed manager plus aggregate events. Release `80303399` adds that bounded rebuild and passes 31 relevant tests, including preservation of an unrelated manager's event. Maintenance backups were narrowed to the same mutation scope in `91cb80f5`; all 12 focused snapshot/repair tests pass. The next resumption uses the identical reviewed plan and skips the six completed filings.
+
+Release `91cb80f5` [workflow 37413236322](https://github.com/moore11j/congress-tracker/actions/runs/37413236322) succeeded; all four machines were independently verified running its image, and `/ready` returned API/database `ok`. The resumed plan has also committed filings 594, 1142, 1171, 1181 and 1201. An intermediate independent comparison found zero share/value differences for every completed snapshot it observed. This checkpoint is not the final all-target receipt.
+
+The shared cron worker made slow but observable query progress without a database lock wait. Filing 1209 also committed before the maintenance process was stopped by its exact identity. The same plan was then resumed on the existing idle video worker, whose configuration already included one performance CPU; no resource setting or subscription changed. It skipped all twelve completed reports and continued the remaining seven. Their backups are initially under `/tmp/institutional-reconciliation` and must be copied to durable storage before the final receipt.
+
+### Amundi source comparison
+
+The original Q2 report and NEW HOLDINGS supplement must be treated as one effective holdings report. The five prior `exit` projections are contradicted by the SEC share counts:
+
+| Symbol | Q1 shares | Q2 shares | Share change |
+| --- | ---: | ---: | ---: |
+| NVDA | 133,768,018 | 129,523,550 | -4,244,468 |
+| AAPL | 73,082,616 | 70,758,208 | -2,324,408 |
+| APP | 1,115,419 | 1,332,633 | +217,214 |
+| MSFT | 41,675,076 | 46,694,778 | +5,019,702 |
+| NBIS | 1,343,954 | 2,002,187 | +658,233 |
+
+Primary evidence: [Q1 information table](https://www.sec.gov/Archives/edgar/data/1330387/000117266126002409/infotable.xml), [Q2 original information table](https://www.sec.gov/Archives/edgar/data/1330387/000117266126003278/infotable.xml), [supplement cover](https://www.sec.gov/Archives/edgar/data/1330387/000117266126004047/primary_doc.xml). These are quarter-end share differences, not real-time transaction claims.
+
+### Remaining coverage limits
+
+The nine conflicting supplements above remain unresolved and unchanged. The 70 restatement covers were classified, but their full position contents were not audited in this task. Older-year amendments and provider-wide value-unit parity remain outside the verified 19-snapshot repair. Existing historical predictions, delivered alerts, strategy decisions and returns are not rewritten. A complete-data or complete-history claim would be unsupported.
+
+### Completed source repair and mapping follow-up
+
+All 19 filings committed successfully. An independent database/source comparison verified every position's aggregated shares and reported dollar value, with zero differences across all 19 snapshots. All five Amundi false-exit activity records are superseded with `feed_visible=false`; their five feed records remain stored, and zero pass the live router's supersession filter. Backup audits found no missing activity/event identities or altered feed source IDs: the cron backup set covers 30,558 activities/5,193 events, and the final seven backups cover 9,620 activities/3,869 events (these sets can overlap).
+
+The actual current institutional score-input objects for NVDA, AAPL, MSFT, APP and NBIS are identical before and after: absent/neutral, strength/quality/contribution zero, freshness 41 days. This is not a claim about a newly improved total Confirmation Score.
+
+The final seven backups were downloaded locally and uploaded to the persistent cron volume as `/data/sec-repair-20261005-remaining-backups.tar.gz`, SHA-256 `f44e0ce4e2605b83ee3a70ba94357df29f97caaca9371d7d74ea9d54575cdeee`. Earlier backups remain under `/data/institutional-reconciliation`.
+
+Verification caught one additional mapping conflict: Amundi's correct 2,002,187 Nebius shares had no normalized ticker because stored CUSIP `N97284108` mappings contain both NBIS and former ticker YNDX. [The issuer confirms](https://nebius.com/newsroom/nebius-group-n-v-announces-official-name-change-and-new-ticker-symbol) the ticker change effective August 21, 2024. Release `6c5453b2` resolves only that exact CUSIP/alias set for Q3 2024 or later; earlier periods and unrelated ambiguous mappings are preserved. Thirteen focused tests pass. A separate one-position dry run identifies position 2108254 in filing 2875; plan SHA-256 `4ccf8d7317d06883ea1e4635d54776fc13f5be31187e28a0ed28fb1e9bb8475b`. Deployment/application verification follows below.
+
+### Final receipt
+
+- [Workflow 37416657729](https://github.com/moore11j/congress-tracker/actions/runs/37416657729) succeeded for `6c5453b2`. Both API machines, cron and video workers report its exact image; API/database readiness is `ok`.
+- The one-position mapping correction applied on the cron worker after verifying the durable backup archive checksum and the exact SEC share pair. Its own before-state backup is `/data/institutional-reconciliation/nebius-mapping-4ccf8d7317d06883ea1e4635d54776fc13f5be31187e28a0ed28fb1e9bb8475b.json`.
+- Final independent verification again finds all 19 applied, 12,325 positions and zero source differences. All five Amundi share deltas match the table above, including NBIS +658,233; no false exit remains active for those five symbols.
+- All five actual institutional score-input objects remain identical to the before-state after the mapping correction. Recorded predictions, alerts, strategy decisions and returns were not targeted by either maintenance operation.
+- Re-running the original hash-guarded plan reports all 19 `already_applied`, with no further writes. The separate mapping repair also reports `already_applied`. Thirteen final focused regression tests pass on Python 3.14.2; the broader baseline failure and unrelated collection error remain documented above. No full-suite claim.
+- No new resource/subscription, email, article or social publication. Shared workspace edits were preserved. The nine source conflicts, older history and provider-wide value-unit audit remain follow-up work.
