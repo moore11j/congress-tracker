@@ -56,12 +56,42 @@ test("installed browser SDK preserves custom event names and tags them for disco
 test("GA supported getters provide bounded consented linkage without invented IDs", async () => {
   let consent = true;
   const module = load("lib/googleAnalytics.ts", {
+    "@/lib/analyticsContext": { analyticsIdentity: () => ({ is_internal: null }) },
     "@/lib/analyticsEnvironment": { isProductionAnalyticsHost: () => true },
     "@/lib/privacyConsent": { hasPrivacyConsent: () => consent },
   }, { window: { gtag: (command, id, field, callback) => { assert.equal(command, "get"); callback(field === "client_id" ? "123.456" : 1789010000); } } });
   assert.equal(JSON.stringify(await module.getGoogleAnalyticsContext()), '{"client_id":"123.456","session_id":"1789010000"}');
   consent = false;
   assert.equal(await module.getGoogleAnalyticsContext(), undefined);
+});
+
+test("GA page and product events distinguish internal, external and unknown identities without overriding consent", () => {
+  let consent = true, internal = null;
+  const calls = [];
+  const window = { location: { origin: "https://app.walnutmarkets.com", pathname: "/ticker/NVDA" },
+    __walnutGoogleAnalyticsLoaded: true, gtag: (...args) => calls.push(args) };
+  const module = load("lib/googleAnalytics.ts", {
+    "@/lib/analyticsContext": { analyticsIdentity: () => ({ is_internal: internal }) },
+    "@/lib/analyticsEnvironment": { isProductionAnalyticsHost: () => true },
+    "@/lib/privacyConsent": { hasPrivacyConsent: () => consent },
+  }, { window });
+  module.recordGoogleAnalyticsPageView("/ticker/NVDA", "NVDA");
+  assert.equal(calls.at(-1)[2].is_internal, "unknown");
+  internal = true;
+  module.recordGoogleAnalyticsPageView("/ticker/NVDA", "NVDA");
+  assert.equal(calls.at(-1)[2].is_internal, "true");
+  module.recordGoogleAnalyticsEvent("ticker_viewed", { is_internal: false });
+  assert.equal(calls.at(-1)[2].is_internal, "true");
+  internal = false;
+  module.recordGoogleAnalyticsEvent("ticker_viewed");
+  assert.equal(calls.at(-1)[2].is_internal, "false");
+  module.recordGoogleAnalyticsPageView("/admin/settings", "Admin");
+  assert.equal(calls.at(-1)[2].is_internal, "true");
+  consent = false;
+  const count = calls.length;
+  assert.equal(module.recordGoogleAnalyticsPageView("/", "Home"), false);
+  assert.equal(module.recordGoogleAnalyticsEvent("signup_completed"), false);
+  assert.equal(calls.length, count);
 });
 
 test("signed Node bridge rejects tampering and requests a durable backend claim before SDK send", async () => {

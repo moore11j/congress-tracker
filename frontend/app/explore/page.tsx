@@ -18,5 +18,21 @@ export default function ExplorePage() {
       </Link>)}
     </div>
     <p className="mt-8 text-sm text-slate-300">Looking for an explanation of a market theme? <a className="text-emerald-200 underline" href="https://walnutmarkets.com/research">Read Walnut research briefs</a>.</p>
+    <nav aria-label="Research starting points" className="mt-6 rounded-xl border border-white/10 p-5">
+      <h2 className="text-lg font-semibold text-white">Research starting points</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-300">Compare reported evidence and dates, then follow a company you want to revisit.</p>
+      <ul className="mt-4 grid gap-3 text-sm text-emerald-200 sm:grid-cols-2">
+        {[
+          ["https://walnutmarkets.com/insider-trading-tracker", "Track reported corporate-insider activity"],
+          ["https://walnutmarkets.com/stock-analysis-platform", "How to analyze a stock with Walnut"],
+          ["/ticker/NVDA", "NVIDIA stock research"], ["/ticker/ANET", "Arista Networks stock research"],
+          ["/ticker/NBIS", "Nebius stock research"], ["/ticker/ALV", "Autoliv stock research"],
+          ["/departments/nasa", "NASA contracts and public recipients"],
+          ["/departments/department-of-energy", "Department of Energy contracts and public recipients"],
+          ["https://walnutmarkets.com/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings", "NVIDIA: four managers’ reported share changes"],
+          ["https://walnutmarkets.com/research/nbis-vs-crwv-ai-neoclouds", "Nebius and CoreWeave: a dated financial comparison"],
+        ].map(([href, label]) => <li key={href}><Link prefetch={false} href={href} className="hover:underline">{label}</Link></li>)}
+      </ul>
+    </nav>
   </section>;
 }

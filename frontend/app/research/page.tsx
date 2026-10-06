@@ -43,6 +43,26 @@ export default async function ResearchBriefsPage({ searchParams }: Props) {
       </div>
 
       {page === 1 ? (
+        <section aria-label="Research starting points" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 sm:p-5">
+          <h2 className="text-lg font-semibold text-white">Start with a specific question</h2>
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            <Link href="/research/who-is-buying-nvidia-stock-in-the-latest-13f-filings" className="text-sm leading-6 text-slate-300 hover:text-emerald-200">
+              <span className="block font-semibold text-emerald-200">Who increased NVIDIA holdings?</span>
+              Fidelity added shares while three reviewed filers reduced. Compare the four managers’ Q1 and Q2 2026 filings; this is not a complete buyer ranking.
+            </Link>
+            <Link href="/research/nbis-vs-crwv-ai-neoclouds" className="text-sm leading-6 text-slate-300 hover:text-emerald-200">
+              <span className="block font-semibold text-emerald-200">NBIS vs CRWV: what funds the buildout?</span>
+              Compare Q1 revenue, debt, capex and customer concentration, then open the current ticker data. The market snapshot is dated July 23.
+            </Link>
+            <Link href="/research/public-companies-winning-nasa-contracts" className="text-sm leading-6 text-slate-300 hover:text-emerald-200">
+              <span className="block font-semibold text-emerald-200">Which public companies have NASA exposure?</span>
+              Inspect Boeing, Lockheed Martin and Northrop Grumman in the dated contract research. Historical award totals are not annual revenue.
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
+      {page === 1 ? (
         <nav aria-label="Research by topic" className="grid gap-3 sm:grid-cols-2">
           <Link href="/government-contracts" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 transition hover:border-emerald-300/40">
             <h2 className="font-semibold text-white">Government contracts and public companies</h2>

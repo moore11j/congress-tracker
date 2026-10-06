@@ -80,7 +80,7 @@ def test_research_brief_schema_migrates_legacy_drafts_before_keyword_index(tmp_p
         "id": "legacy-published-brief",
         "status": "published",
         "primary_ticker": "AAPL",
-        "updated_at": "2026-08-15T00:00:00+00:00",
+        "updated_at": "2026-10-05T00:00:00+00:00",
         "published_at": "2026-08-15T00:00:00+00:00",
         "article": {"slug": "aapl-legacy-brief", "title": "AAPL legacy research", "primary_ticker": "AAPL"},
     }
@@ -110,6 +110,8 @@ def test_research_brief_schema_migrates_legacy_drafts_before_keyword_index(tmp_p
 
     assert cards["items"]
     assert cards["items"][0]["route"] == "/research/aapl-legacy-brief"
+    assert cards["items"][0]["publishedAt"] == "2026-08-15"
+    assert cards["items"][0]["updatedAt"] == "2026-10-05"
     columns = {row["name"] for row in db.execute(text("PRAGMA table_info(research_brief_drafts)")).mappings()}
     assert "target_keyword" in columns
 

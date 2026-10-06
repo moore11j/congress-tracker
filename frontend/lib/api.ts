@@ -7183,6 +7183,7 @@ export type PublicResearchBriefCard = {
   category: string;
   judgment?: "bullish" | "bearish" | "mixed" | "macro" | "policy" | "neutral" | string | null;
   publishedAt: string;
+  updatedAt?: string;
   readingMinutes: number;
   generated?: boolean;
   premium?: boolean;

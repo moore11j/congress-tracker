@@ -50,6 +50,7 @@ export const researchBriefs: ResearchBriefCard[] = [
     category: "AI Infrastructure",
     judgment: "mixed",
     publishedAt: "2026-07-23",
+    updatedAt: "2026-10-05",
     readingMinutes: 9,
     featured: true,
     thumbnailUrl: "/ad-thumbnails/nbis-crwv-neoclouds.jpg",

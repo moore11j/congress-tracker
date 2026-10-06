@@ -8310,6 +8310,7 @@ def published_cards(db: Session | None = None) -> dict[str, Any]:
                 "category": article.get("category") or "Research",
                 "judgment": None if required_plan else suggested.get("judgment") or article.get("judgment") or "mixed",
                 "publishedAt": (draft.get("published_at") or draft.get("updated_at") or "")[:10],
+                "updatedAt": (draft.get("updated_at") or draft.get("published_at") or "")[:10],
                 "readingMinutes": article.get("reading_minutes") or draft.get("validation", {}).get("estimated_reading_minutes") or 8,
                 "generated": True,
                 "premium": required_plan is not None,

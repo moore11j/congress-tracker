@@ -2,6 +2,7 @@
 
 import { isProductionAnalyticsHost } from "@/lib/analyticsEnvironment";
 import { hasPrivacyConsent } from "@/lib/privacyConsent";
+import { analyticsIdentity } from "@/lib/analyticsContext";
 
 export const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
 
@@ -112,6 +113,7 @@ export function updateGoogleAnalyticsConsent(analyticsGranted: boolean, marketin
 }
 
 export function recordGoogleAnalyticsPageView(path: string, title: string | null): boolean {
+  if (!hasPrivacyConsent("analytics")) return false;
   if (!ensureGoogleAnalytics()) return false;
   const gtag = (window as WindowWithGoogleAnalytics).gtag;
   if (!gtag) return false;
@@ -119,17 +121,27 @@ export function recordGoogleAnalyticsPageView(path: string, title: string | null
     page_location: new URL(path, window.location.origin).toString(),
     page_path: path,
     page_title: title || undefined,
+    is_internal: internalActivity(path),
   });
   return true;
 }
 
 export function recordGoogleAnalyticsEvent(eventName: string, parameters: GoogleAnalyticsEventParameters = {}): boolean {
+  if (!hasPrivacyConsent("analytics")) return false;
   if (!ensureGoogleAnalytics()) return false;
   const gtag = (window as WindowWithGoogleAnalytics).gtag;
   if (!gtag || !eventName.trim()) return false;
   const cleanParameters = Object.fromEntries(
     Object.entries(parameters).filter(([, value]) => value !== null && value !== undefined),
   );
-  gtag("event", eventName, cleanParameters);
+  gtag("event", eventName, { ...cleanParameters, is_internal: internalActivity(window.location.pathname) });
   return true;
+}
+
+// A missing/slow identity is unknown, never evidence of an external customer.
+// Keep activity available for comparisons rather than irreversibly filtering it.
+function internalActivity(path: string): "true" | "false" | "unknown" {
+  if (path === "/admin" || path.startsWith("/admin/")) return "true";
+  const internal = analyticsIdentity().is_internal;
+  return internal === true ? "true" : internal === false ? "false" : "unknown";
 }

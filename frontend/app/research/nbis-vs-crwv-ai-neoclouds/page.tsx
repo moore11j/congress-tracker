@@ -58,7 +58,7 @@ const articleSchema = {
   headline: pageTitle,
   description: pageDescription,
   datePublished: "2026-07-23",
-  dateModified: "2026-09-27",
+  dateModified: "2026-10-05",
   author: {
     "@type": "Organization",
     name: "Walnut Markets",
@@ -350,8 +350,12 @@ export default function NbisCrwvAiNeocloudsPage() {
           <div>
             <h2 className="text-2xl font-semibold text-white">Keep the comparison current inside Walnut.</h2>
             <p className="mt-3 text-sm leading-7 text-slate-400">
-              Re-check the ticker data as earnings, filings, reported activity, price/volume confirmation, and confirmation scores change.
+              This article compares Q1 results and a July 23 market snapshot; it is not an October valuation update. Start with Financials on each ticker page to check revenue, cash flow and debt for the same reporting period. Then open Ownership for institutional holdings and Research for company-specific briefs.
             </p>
+            <p className="mt-3 text-sm leading-7 text-slate-400">
+              Ask whether growth is turning into cash, how the next buildout will be financed, and which figures are reported results versus management guidance. A larger backlog is not cash already collected. You can follow NBIS or CRWV with a free Walnut account to keep the company in your watchlist.
+            </p>
+            <p className="mt-3 text-xs text-slate-500">Research navigation updated October 5, 2026. Historical figures above retain their original dates.</p>
           </div>
           <div className="flex flex-wrap items-start gap-3 lg:justify-end">
             <CampaignCtaLink href={nbisTerminalHref} eventName="view_ticker_nbis_click" className={primaryButtonClassName} properties={{ campaign: "nbis_vs_crwv_research", placement: "footer" }}>
