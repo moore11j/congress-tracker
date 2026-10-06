@@ -14,6 +14,16 @@ def snapshot_digest(rows):
     return hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def mapped_symbol(cusip, symbols, year, quarter):
+    # Issuer-confirmed change effective 2024-08-21; Q3 is the first quarter-end
+    # under NBIS. Preserve older reporting periods and reject unrelated conflicts.
+    # https://nebius.com/newsroom/nebius-group-n-v-announces-official-name-change-and-new-ticker-symbol
+    if (cusip == "N97284108" and (year, quarter) >= (2024, 3)
+            and symbols and symbols <= {"YNDX", "NBIS"}):
+        return "NBIS"
+    return next(iter(symbols)) if len(symbols) == 1 else None
+
+
 def merge_supplement(base, supplement):
     """Accept new securities or exact repeated rows, not ambiguous replacements."""
     from collections import defaultdict
@@ -91,7 +101,7 @@ only when unambiguous; no issuer-name ticker guessing is permitted.
     for row in snapshot["rows"]:
         cusip = str(row.get("cusip") or "").strip().upper()
         symbols = mappings.get(cusip, set())
-        rows.append({**row, "cusip": cusip, "symbol": next(iter(symbols)) if len(symbols) == 1 else None})
+        rows.append({**row, "cusip": cusip, "symbol": mapped_symbol(cusip, symbols, filing.report_year, filing.report_quarter)})
     metadata = json.loads(filing.raw_metadata_json or "{}")
     metadata["_walnut_position_snapshot"] = {k: v for k, v in snapshot.items() if k != "rows"}
     metadata["_walnut_position_source"] = "sec_edgar_reconciled"

@@ -179,3 +179,12 @@ def test_scoped_repair_leaves_unrelated_manager_event_unchanged(db):
     row=db.get(InstitutionalActivityEvent,id)
     assert row.freshness_status=="stale" and row.feed_visible is True
     assert row.updated_at==original_time
+
+
+def test_nebius_verified_ticker_change_is_period_and_cusip_scoped():
+    from app.services.institutional_sec_snapshot import mapped_symbol
+    assert mapped_symbol("N97284108", {"NBIS", "YNDX"}, 2026, 2) == "NBIS"
+    assert mapped_symbol("N97284108", {"YNDX"}, 2024, 2) == "YNDX"
+    assert mapped_symbol("N97284108", {"NBIS", "YNDX"}, 2024, 2) is None
+    assert mapped_symbol("N97284108", {"NBIS", "OTHER"}, 2026, 2) is None
+    assert mapped_symbol("DIFFERENT", {"NBIS", "YNDX"}, 2026, 2) is None
