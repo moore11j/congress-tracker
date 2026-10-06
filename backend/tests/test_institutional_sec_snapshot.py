@@ -134,3 +134,16 @@ def test_historical_repair_does_not_invent_new_positions_without_baseline(db):
     assert result["changes"] == 0
     assert "baseline" in result["comparison_unavailable"]
     assert db.scalars(select(InstitutionalPositionChange)).all() == []
+
+
+def test_sec_cusip_case_preserves_mapping_and_existing_position_id(db):
+    from app.services.institutional_sec_snapshot import snapshot_digest
+    current=filings(db)
+    prior=InstitutionalPosition(filing_id=current.id,cik=current.cik,report_year=2026,report_quarter=2,
+        filing_date=current.filing_date,cusip="NVIDIA",normalized_symbol="NVDA",symbol="NVDA",shares=1,value_usd=1)
+    db.add(prior);db.flush();position_id=prior.id
+    data=snapshot();data["rows"][0]["cusip"]="nvidia";data["sha256"]=snapshot_digest(data["rows"])
+    install_snapshot(db,current,data)
+    db.expire_all()
+    updated=db.get(InstitutionalPosition,position_id)
+    assert updated is not None and updated.normalized_symbol=="NVDA" and updated.shares==97

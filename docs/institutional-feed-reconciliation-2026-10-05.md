@@ -58,3 +58,11 @@ Conflicting overlaps cannot safely be treated as either additions or replacement
 Local Python 3.14.2: the institutional/research suite ran 88 passing tests and one unrelated entitlement assertion failure (public holder name expected null). That same failure was reproduced with the unchanged HEAD service. After adding the missing-baseline regression, all nine focused snapshot/repair tests pass. The changed amendment fixtures explicitly represent verified restatements; raw-amendment rejection has separate tests. No full-suite pass is claimed.
 
 Implementation is locally verified; deployment and production repair receipts will be recorded below. The reviewed 16-source bundle is local audit evidence, not yet a claim of applied repairs. Local read-only evidence lives under ignored `artifacts/institutional-repair-2026-10-05`; durable identities, checksums and limitations are recorded here.
+
+### Dependent-quarter validation and final guards
+
+Six dependent Q2 reports were fetched from SEC before applying anything. Stored rows for filings 2379, 2414 and 2443 match the SEC totals. Filings 2675, 2829 and 2868 have discrepancies and were added as source-verified originals, bringing the repair plan to 19 snapshots. Several Q2 amendment rows also stored values at one-thousandth of the SEC dollar amounts; the snapshot repair uses the exact dollar-denominated SEC tables, not an inferred blanket multiplier. Mixed-case SEC CUSIPs are normalized before mapping, matching or removing old positions; matching position IDs are retained.
+
+The public provider-ranking fallback now recognizes reconciled snapshots as authoritative. A fetched in-memory snapshot is consumed once and its rows must match its checksum. Eighteen relevant ingest/feed/source checks passed; the final snapshot and prior SEC correction suite passes 16 tests, including CUSIP identity retention. An additional unchanged ingest-job test file cannot collect because of a pre-existing syntax error at line 149; it is not counted as passing coverage.
+
+Rollout `f16daa1e` and follow-up `e53c72db` completed successfully. The initial 16-filing production dry run matched all identities and produced plan hash `ec920eeb8b18fe1962f5098061ad8f5a8714d0e8bf386adac92b28cdbd21ea09`; no data was changed. The expanded 19-source plan and final production application remain pending at this checkpoint.

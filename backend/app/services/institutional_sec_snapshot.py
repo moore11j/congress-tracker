@@ -20,7 +20,7 @@ def merge_supplement(base, supplement):
     def groups(rows):
         result = defaultdict(list)
         for row in rows:
-            result[(row.get("cusip"), row.get("putCall") or "")].append(row)
+            result[(str(row.get("cusip") or "").strip().upper(), str(row.get("putCall") or "").upper())].append(row)
         return result
     def signatures(rows):
         return sorted(json.dumps({k: v for k, v in r.items() if k not in {
@@ -82,13 +82,16 @@ only when unambiguous; no issuer-name ticker guessing is permitted.
         raise ValueError("SEC snapshot destination mismatch")
     if snapshot_digest(snapshot["rows"]) != snapshot["sha256"]:
         raise ValueError("SEC snapshot checksum mismatch")
-    cusips = {r.get("cusip") for r in snapshot["rows"] if r.get("cusip")}
+    cusips = {str(r["cusip"]).strip().upper() for r in snapshot["rows"] if r.get("cusip")}
     mappings = {}
     for cusip, symbol in db.execute(select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol)
             .where(InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None)).distinct()):
         mappings.setdefault(cusip, set()).add(symbol)
-    rows = [{**r, "symbol": next(iter(mappings[r["cusip"]])) if len(mappings.get(r.get("cusip"), set())) == 1 else None}
-            for r in snapshot["rows"]]
+    rows = []
+    for row in snapshot["rows"]:
+        cusip = str(row.get("cusip") or "").strip().upper()
+        symbols = mappings.get(cusip, set())
+        rows.append({**row, "cusip": cusip, "symbol": next(iter(symbols)) if len(symbols) == 1 else None})
     metadata = json.loads(filing.raw_metadata_json or "{}")
     metadata["_walnut_position_snapshot"] = {k: v for k, v in snapshot.items() if k != "rows"}
     metadata["_walnut_position_source"] = "sec_edgar_reconciled"
