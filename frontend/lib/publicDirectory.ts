@@ -64,7 +64,7 @@ async function loadEntries(category: DirectoryCategory): Promise<DirectoryEntry[
     const slug = row.canonical_path.match(/^\/member\/([^/?#]+)/)?.[1] ?? row.entity_key;
     return type === "member"
       ? { path: `/member/${encodeURIComponent(nameToSlug(name || decodeURIComponent(slug).replace(/[_-]+/g, " ")))}`, name: name || slug.replace(/[_-]+/g, " "), date: row.data_as_of }
-      : { path: row.canonical_path, name: String(row.payload.company_name ?? row.payload.name ?? row.entity_key) === row.entity_key ? row.entity_key : `${row.entity_key} — ${row.payload.company_name ?? row.payload.name}`, date: row.data_as_of };
+      : { path: row.canonical_path, name: String(row.payload.company_name ?? row.payload.name ?? row.entity_key) === row.entity_key ? row.entity_key : `${row.entity_key}: ${row.payload.company_name ?? row.payload.name}`, date: row.data_as_of };
   }));
 }
 

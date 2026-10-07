@@ -132,7 +132,7 @@ export default async function MuDdLandingPage({ searchParams }: { searchParams: 
               Walnut DD Brief
             </div>
             <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              {formatBriefDate(brief?.publishedAt)}{brief?.readingMinutes ? ` - ${brief.readingMinutes} min read` : ""} - Premium
+              {formatBriefDate(brief?.publishedAt)}{brief?.readingMinutes ? ` · ${brief.readingMinutes} min read` : ""} · Premium
             </p>
             <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight text-white sm:text-5xl">
               Is the Micron momentum trade dead?

@@ -46,9 +46,9 @@ from app.services.email_delivery import send_email
 from app.services.openai_request_audit import audited_openai_request
 from app.utils.symbols import normalize_symbol
 from app.utils.institution_names import institution_display_name, normalize_article_institution_names
-from app.services.research_editorial import EDITORIAL_GUIDANCE, editing_examples, record_edits, story_guidance
+from app.services.research_editorial import EDITORIAL_GUIDANCE, editing_examples, record_edits, story_guidance, editorial_prose, has_prose_dash
 
-RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v10_sec_pairs"
+RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v11_plain_prose"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
 RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
 RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
@@ -317,7 +317,7 @@ DEFAULT_SECTIONS = [
     "Data freshness and limitations",
 ]
 CONFIRMATION_SCORE_SECTION_HEADING = "Our confirmation score"
-CROSS_SOURCE_CONFIRMATIONS_SECTION_HEADING = "Cross-source confirmations"
+CROSS_SOURCE_CONFIRMATIONS_SECTION_HEADING = "Cross source confirmations"
 PUBLISHED_STATIC_SLUGS = {"mu-dd"}
 UNSUPPORTED_LANGUAGE = [
     "buy now",
@@ -383,6 +383,10 @@ BANNED_AI_WATERMARK_WORDS = (
 )
 BANNED_AI_WATERMARK_PATTERN = r"\b(?:" + "|".join(re.escape(word) for word in BANNED_AI_WATERMARK_WORDS) + r")\b"
 STYLE_TIC_PATTERNS = [
+    ("announcing significance", r"\b(?:this matters because|why this matters|here(?:'s| is) why it matters)\b"),
+    ("generic emphasis", r"\bit(?:'s| is) important to note\b"),
+    ("generic market opening", r"\bin today['’]s (?:rapidly )?(?:evolving|changing|dynamic) market\b"),
+    ("game changer", r"\bgame[ -]changer\b"),
     ("invented workflow phrase", r"\bwatch-and-verify\b"),
     ("reviewed record supplied", r"\bthe reviewed record supplied\b"),
     ("available evidence does not permit", r"\bthe available evidence does not permit\b"),
@@ -6249,7 +6253,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Strict copy rules: never write 'The reviewed record supplied for this brief does not contain', 'The available information is insufficient to assess', 'Investors should carefully consider', 'In today's rapidly evolving market', 'Unlock', 'Delve', 'Robust', 'Comprehensive', 'Holistic', 'Investment case', or 'Vibes'. Never use these AI-watermark words: furthermore, moreover, in conclusion, strictly speaking, fundamentally, inherently, delve, leverage, utilize, foster, optimize, revolutionize, underscore, crucial, paramount, meticulous, bespoke, testament.",
             "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'the central question,' 'against this backdrop,' 'on balance,' 'evidence suggests,' 'the appropriate next step,' 'credible bull case requires,' 'we reserve judgment,' 'It is important to note,' 'Looking ahead,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
             "Use active voice. Vary sentence length and rhythm: follow a longer analytical sentence with a short sentence or fragment where it sharpens the point. Do not write consecutive sentences with the same cadence. Take a definitive, evidence-backed stand.",
-            "Use hyphens only when they remove real ambiguity. Write capital intensive, free cash flow, self funded, AI cloud, balance sheet, and watch and verify without hyphens.",
+            "Follow the owner's no prose dash rule in the editorial story contract. Rephrase hyphenated compounds rather than adding hyphens for emphasis.",
             "Prefer active sentences that sound like a senior analyst wrote them after reading the data. Do not become promotional, cute, or chatty.",
             "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
             "End with a clear judgment. Do not add generic investment disclaimers inside the article body; Walnut's public legal/footer language handles that.",
@@ -6810,9 +6814,21 @@ def _research_packet_integrity_warnings(article: dict[str, Any], context: dict[s
 
 def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
     text = _article_full_text(article)
-    # Markdown table rules and URL punctuation are syntax, not prose style.
-    prose = re.sub(r"(?m)^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$", "", text)
-    prose = re.sub(r"https?://[^\s)\]]+", "", prose)
+    prose = editorial_prose(text)
+    # Exact entity names are evidence, even when their spelling contains a dash.
+    def exclude_names(value):
+        nonlocal prose
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"company_name", "holder_name", "institution_name"} and isinstance(item, str) and item:
+                    prose = re.sub(re.escape(item), "[source name]", prose, flags=re.I)
+                elif isinstance(item, (dict, list)):
+                    exclude_names(item)
+        elif isinstance(value, list):
+            for item in value:
+                exclude_names(item)
+    exclude_names(context.get("primary") or {})
+    exclude_names(context.get("comparisons") or [])
     lowered = text.lower()
     warnings: list[dict[str, Any]] = []
     watermark_words = sorted({match.group(0).lower() for match in re.finditer(BANNED_AI_WATERMARK_PATTERN, lowered, flags=re.IGNORECASE)})
@@ -6824,7 +6840,7 @@ def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any])
                 blocking=False,
             )
         )
-    hits = [label for label, pattern in STYLE_TIC_PATTERNS if re.search(pattern, lowered, flags=re.IGNORECASE | re.DOTALL)]
+    hits = [label for label, pattern in STYLE_TIC_PATTERNS if re.search(pattern, prose, flags=re.IGNORECASE | re.DOTALL)]
     if hits:
         warnings.append(_warning("ai_style_tics", f"Generic AI-writing patterns detected: {', '.join(hits[:6])}.", blocking=True))
     title = str(article.get("title") or "")
@@ -6832,8 +6848,10 @@ def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any])
         warnings.append(_warning("weak_missing_data_title", "Title describes missing research instead of an investment question.", blocking=True))
     if text.count(";") > 8:
         warnings.append(_warning("excessive_semicolons", "Draft overuses semicolons; rewrite in a more natural Walnut voice.", blocking=True))
-    if prose.count("--") + prose.count("—") > 6:
-        warnings.append(_warning("excessive_dashes", "Draft overuses dashes; rewrite with cleaner sentence variation.", blocking=True))
+    if has_prose_dash(prose):
+        warnings.append(_warning("excessive_dashes", "Prose dash detected. Rewrite with sentences, commas, colons or parentheses. Preserve source quotations, identifiers and numeric signs.", blocking=True))
+    if re.search(r"\b(?:free-cash-flow|balance-sheet|capital-intensive|self-funded|cross-source|data-driven|data-first|source-backed|evidence-backed|AI-powered)\b", prose, flags=re.I):
+        warnings.append(_warning("hyphenated_prose", "Rewrite hyphenated prose compounds in plain language, such as free cash flow, balance sheet or data from multiple sources. Preserve exact source names and identifiers.", blocking=True))
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
     company_terms = [str(identity.get("symbol") or ""), str(identity.get("company_name") or "")]

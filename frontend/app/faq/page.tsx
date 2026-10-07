@@ -159,7 +159,7 @@ const faqCategories = [
       {
         question: "How are insider sales weighted in the confirmation score?",
         answer:
-          "The model weights direction, source strength, data quality, freshness, and cross-source agreement—not just the number of trades. Direct disclosure weighting is asymmetric: bullish insider activity uses 7% of its source strength, while bearish insider activity uses 2%. By comparison, bullish and bearish institutional activity use 20% and 10% respectively, and analyst activity uses 8% and 5%. Conflicting evidence can also limit the score, so no single source should be read in isolation.",
+          "The model weights direction, source strength, data quality, freshness, and agreement across sources, not just the number of trades. Direct disclosure weighting is asymmetric: bullish insider activity uses 7% of its source strength, while bearish insider activity uses 2%. By comparison, bullish and bearish institutional activity use 20% and 10% respectively, and analyst activity uses 8% and 5%. Conflicting evidence can also limit the score, so no single source should be read in isolation.",
       },
       {
         question: "What is the difference between institutionals, insiders, and Congress activity?",

@@ -289,8 +289,8 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm text-slate-300">Opening angle
                 <select className={input} value={productHook} onChange={(e)=>setProductHook(e.target.value)}>
-                  <option value="navigation">Who's buying NVIDIA? — Follow the clicks</option>
-                  <option value="ownership">V3 — Research walkthrough</option>
+                  <option value="navigation">Who's buying NVIDIA? Follow the clicks</option>
+                  <option value="ownership">V3: Research walkthrough</option>
                   <option value="opinion">Everyone has an NVIDIA opinion</option>
                   <option value="score">Show me what is behind the score</option>
                   <option value="accountability">What happened to the last call?</option>
@@ -632,7 +632,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
           </p>
           <fieldset className="grid gap-3 md:grid-cols-3">
             <legend className="mb-2 text-sm">
-              Optional Creatomate template IDs — leave blank to use Walnut’s
+              Optional Creatomate template IDs: leave blank to use Walnut’s
               built-in templates
             </legend>
             {Object.entries(cfg.template_ids).map(([k, v]) => (
@@ -1186,7 +1186,7 @@ function AutomationSettings({value, run, busy}: {value: AutomationState; run: Ru
     <GrowthDisclosure title="Automation history and skipped briefs">
     {value.last_pass?.status && <p className="text-xs text-slate-400">Last worker result: {label(value.last_pass.status)}</p>}
     {value.last_pass?.skipped?.map(s => <p className="text-xs text-amber-100" key={s.brief_id}>{s.reason}</p>)}
-    {value.runs.map(r => <p className="text-xs" key={r.day}>{r.day}: {r.status}{r.error ? ` — ${r.error}` : ""}</p>)}
+    {value.runs.map(r => <p className="text-xs" key={r.day}>{r.day}: {r.status}{r.error ? `: ${r.error}` : ""}</p>)}
     </GrowthDisclosure>
   </div>;
 }

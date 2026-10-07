@@ -191,7 +191,7 @@ export default function NbisCrwvAiNeocloudsPage() {
             </div>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-tight text-white sm:text-5xl">{pageTitle}</h1>
             <p className="mt-4 rounded-lg border border-white/15 bg-white/5 p-4 text-sm leading-6 text-slate-300">
-              Historical comparison — July 23, 2026. Financial figures below use Q1 2026 results; prices and trading indicators are through July 22. They are not current quotes or the latest earnings. The date labels were clarified September 27, 2026; the underlying analysis has not been refreshed. Open either ticker for current data.
+              Historical comparison: July 23, 2026. Financial figures below use Q1 2026 results; prices and trading indicators are through July 22. They are not current quotes or the latest earnings. The date labels were clarified September 27, 2026; the underlying analysis has not been refreshed. Open either ticker for current data.
             </p>
             <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
               An AI neocloud is a cloud provider focused on computing infrastructure for AI workloads. This dated comparison examines Nebius and CoreWeave through revenue, financing needs and customer concentration.

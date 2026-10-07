@@ -10,7 +10,7 @@ type Props = { searchParams?: Promise<Record<string, string | string[] | undefin
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const page = researchArchivePage((await searchParams)?.page);
   return marketingPageMetadata(`/research${page && page > 1 ? `?page=${page}` : ""}`, {
-    title: `Research Briefs${page && page > 1 ? ` — Page ${page}` : ""} | Walnut Markets`,
+    title: `Research Briefs${page && page > 1 ? `: Page ${page}` : ""} | Walnut Markets`,
     description: "Read stock research, company comparisons, institutional ownership analysis, and government-contract research with source links and reporting dates.",
     ...(page === null ? { robots: { index: false, follow: true } } : {}),
   });

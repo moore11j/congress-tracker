@@ -9,7 +9,7 @@ export const homepageContent = {
     title: "Follow the Insiders. Know More Before You Buy.",
     hook: "Before you buy, see what the headlines leave out.",
     description:
-      "Check reported insider trades alongside financials and price trends. See what supports a stock—and what deserves a second look.",
+      "Check reported insider trades alongside financials and price trends. See what supports a stock and what deserves a second look.",
   },
   metadata: {
     title: "Stock Analysis & Insider Trading Tracker | Walnut Markets",
@@ -20,7 +20,7 @@ export const homepageContent = {
   },
   differentiation: {
     description:
-      "Most platforms give you one slice of the market. Walnut connects the data, ranks the opportunities, tracks the participants and strategies, and measures the outcome afterward—so every conclusion remains inspectable.",
+      "Most platforms give you one slice of the market. Walnut connects the data, ranks the opportunities, tracks the participants and strategies, and measures the outcome afterward, so every conclusion remains inspectable.",
   },
   confirmationScore: {
     description:

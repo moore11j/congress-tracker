@@ -1766,7 +1766,7 @@ def test_confirmation_preferences_pass_booleans_and_add_requested_sections(tmp_p
     assert "Our confirmation score is 79/100" in body
     assert draft["article"]["confirmation_score_included"] is True
     assert "Walnut's proprietary confirmation score" not in body
-    assert "Cross-source confirmations" in body
+    assert "Cross source confirmations" in body
     assert "supported by fundamentals, reported institutional activity" in body
     assert "mixed in price/volume" in body
     assert "data categories" in body

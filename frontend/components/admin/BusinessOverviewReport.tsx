@@ -106,8 +106,8 @@ export function BusinessOverviewReport() {
               value={formatCurrency(summary.monthly_recurring_revenue, summary.currency)}
               detail="/ month"
             />
-            <MetricCard label="Recorded Invoice Totals — YTD" value={formatCurrency(summary.revenue_ytd, summary.currency)} />
-            <MetricCard label="New Account Records — 30 Days" value={formatInteger(summary.new_users_last_30_days)} />
+            <MetricCard label="Recorded Invoice Totals: YTD" value={formatCurrency(summary.revenue_ytd, summary.currency)} />
+            <MetricCard label="New Account Records: 30 Days" value={formatInteger(summary.new_users_last_30_days)} />
             <MetricCard label="All Account Records" value={formatInteger(summary.total_users)} />
           </div>
 

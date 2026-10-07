@@ -31,7 +31,7 @@ export function ResearchEvidencePanel({ thesis }: { thesis: ResearchMemoryThesis
   const visible = (items ?? []).filter((item) => filter === "all" || item.relationship === filter);
   return <section className="rounded-xl border border-white/10 bg-slate-900/70 p-4 sm:p-5">
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Research evidence</p>
-    <h2 className="mt-2 text-xl font-semibold text-white">What changed—and why it matters</h2>
+    <h2 className="mt-2 text-xl font-semibold text-white">Changes in the evidence</h2>
     <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Each development is linked to the assumption it affects. This is not a thesis-health score.</p>
     <p className="mt-2 text-xs leading-5 text-slate-500">News and press-release evidence uses provider excerpts. Open the original source for full context.</p>
     {coverage.length || marketAssets.length ? <div className="mt-4"><ResearchCoverage items={coverage} priceCards={marketAssets.length ? <ResearchMarketPrices assets={marketAssets}/> : undefined}/></div> : null}

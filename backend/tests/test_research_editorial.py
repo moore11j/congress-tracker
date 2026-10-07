@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import date
 import json
+import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -35,8 +36,51 @@ def test_style_counts_prose_dashes_not_table_rules_or_financial_compounds():
     codes = {w["code"] for w in briefs._style_validation_warnings(article, ownership_context())}
     assert "excessive_dashes" not in codes
     assert "ai_style_tics" not in codes
+    assert "hyphenated_prose" in codes
     article["sections"][0]["body_markdown"] += "\n" + "ANET — more prose. " * 8
     assert "excessive_dashes" in {w["code"] for w in briefs._style_validation_warnings(article, ownership_context())}
+
+
+@pytest.mark.parametrize("text", [
+    "Revenue rose—but cash fell.", "Revenue rose – cash fell.",
+    "Revenue rose - cash fell.", "Revenue rose -- cash fell.",
+    "Revenue rose--cash fell.", "Revenue rose --cash fell.", "Revenue rose-- cash fell.",
+])
+def test_one_prose_dash_requires_revision(text):
+    warnings = briefs._style_validation_warnings({"summary": text}, {})
+    assert any(w["code"] == "excessive_dashes" and w["blocking"] for w in warnings)
+
+
+@pytest.mark.parametrize("text", [
+    "This matters because revenue grew.", "Why this matters",
+    "It is important to note that revenue grew.", "A game changer for investors.",
+])
+def test_canned_transitions_require_revision_in_headings_and_previews(text):
+    for article in ({"sections": [{"heading": text}]}, {"preview_body": text}):
+        assert any(w["code"] == "ai_style_tics" and w["blocking"]
+                   for w in briefs._style_validation_warnings(article, {}))
+
+
+def test_style_preserves_financial_facts_sources_and_markdown():
+    text = (
+        "- BRK-B filed a 10-K on 2026-10-06. EPS was -2.5; growth was -12%.\n"
+        "Expected range: 10–20%.\n\n---\n\n"
+        "[SEC filing](/filings/10-k) https://example.com/this-matters-because/a--b\n"
+        "| Period | EPS |\n|---|---:|\n| Q2 | -2.5 |\n"
+        "> Source quotation: this matters because cash fell—see the report.\n"
+        "`x--`\n```\nvalue -- comment\n```\n"
+        "Data-Driven Inc. reported revenue."
+    )
+    article = {"sections": [{"body_markdown": text}]}
+    context = {"primary": {"identity": {"company_name": "Data-Driven Inc."}}}
+    assert not {"ai_style_tics", "hyphenated_prose", "excessive_dashes"} & {
+        w["code"] for w in briefs._style_validation_warnings(article, context)}
+    assert article["sections"][0]["body_markdown"] == text
+
+
+def test_plain_consequence_passes_style_check():
+    article = {"summary": "NVDA revenue grew 20%, but free cash flow fell 5%. Higher spending absorbed the extra cash."}
+    assert briefs._style_validation_warnings(article, {}) == []
 
 
 def test_verified_named_holder_analysis_counts_as_specific_information():
@@ -161,6 +205,8 @@ def test_editorial_contract_and_real_navigation_survive_revision(monkeypatch):
     revision = briefs._revision_prompt(config, {"title": "Who owns NVIDIA?"}, "Improve the opening", context)
     for prompt in (first, revision):
         assert "EDITORIAL STORY CONTRACT" in prompt
+        assert "no em dashes, en dashes, double hyphens or spaced hyphens" in prompt
+        assert "this matters because" in prompt
         assert "Distinguish owning shares from adding shares" in prompt
         assert "https://app.walnutmarkets.com/ticker/NVDA#ownership" in prompt
         assert "https://app.walnutmarkets.com/ticker/NVDA#research" in prompt

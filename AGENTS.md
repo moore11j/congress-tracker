@@ -41,6 +41,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Decisions and invariants to preserve
 
+- Editorial style (owner, October 6): avoid em/en dashes, double/spaced hyphens as prose punctuation and unnecessary hyphenated compounds in research briefs and site copy. Avoid canned AI transitions such as "this matters because"; state the consequence directly. Preserve URLs, identifiers, SEC form names, source/company spellings, quotes, negative values, ranges and Markdown syntax. Never mechanically strip punctuation from evidence or saved user text.
+
 - Preserve canonical event identity, source provenance, transaction versus disclosure/filing dates, and point-in-time availability. Historical transaction-date performance is not a tradable disclosure-date result.
 - One public Confirmation Score, shared across surfaces. Current source uses agreement, quality and weighted coverage; fundamentals have a 30-point allocation and stale macro evidence is excluded. Treat it as descriptive evidence, not a validated return probability. Read the current service constants before modifying methodology; version changes must rebaseline alerts without rewriting recorded history.
 - The September research holdout has already been consumed; do not call it untouched or reuse it as fresh validation. See [research status](docs/confirmation-research-status.md); its older product-version header is superseded by current code and September 26 reports.

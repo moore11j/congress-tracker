@@ -86,7 +86,7 @@ const heroFeaturedTicker = {
   kind: "ticker",
   id: "NVDA",
   symbol: "NVDA",
-  label: "NVDA — NVIDIA Corporation",
+  label: "NVDA: NVIDIA Corporation",
   subtitle: "Ticker",
   href: "/ticker/NVDA",
 } as const;
@@ -403,7 +403,7 @@ export default async function LandingPage() {
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">Premium is $24.95/month—about $0.82 a day for a deeper, source-aware research workflow.</p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">Premium is $24.95/month, about $0.82 a day for deeper research with sources you can inspect.</p>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>

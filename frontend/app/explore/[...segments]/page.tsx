@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const view = await directoryView(params);
   const topic = directoryCategories[view.category];
   return appPageMetadata(directoryPath(view.category, view.page), {
-    title: `${topic.title} Directory${view.page > 1 ? ` — Page ${view.page}` : ""} | Walnut Markets`,
+    title: `${topic.title} Directory${view.page > 1 ? `: Page ${view.page}` : ""} | Walnut Markets`,
     description: `Browse ${topic.title.toLowerCase()} profiles and dated public records on Walnut Markets. Alphabetical directory, page ${view.page} of ${view.pages}.`,
   });
 }
@@ -34,7 +34,7 @@ export default async function DirectoryPage({ params }: Props) {
   const topic = directoryCategories[view.category];
   const data = {
     "@context": "https://schema.org", "@type": "CollectionPage",
-    name: `${topic.title} directory — page ${view.page}`, url: appCanonicalUrl(directoryPath(view.category, view.page)),
+    name: `${topic.title} directory: page ${view.page}`, url: appCanonicalUrl(directoryPath(view.category, view.page)),
     mainEntity: { "@type": "ItemList", itemListElement: view.entries.map((entry, index) => ({
       "@type": "ListItem", position: (view.page - 1) * DIRECTORY_PAGE_SIZE + index + 1, name: entry.name, url: appCanonicalUrl(entry.path),
     })) },
@@ -42,7 +42,7 @@ export default async function DirectoryPage({ params }: Props) {
   return <section className="mx-auto max-w-6xl py-8">
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }} />
     <Link href="/explore" prefetch={false} className="text-sm text-emerald-200">All research directories</Link>
-    <h1 className="mt-4 text-3xl font-semibold text-white">{topic.title} directory{view.page > 1 ? ` — page ${view.page}` : ""}</h1>
+    <h1 className="mt-4 text-3xl font-semibold text-white">{topic.title} directory{view.page > 1 ? `: page ${view.page}` : ""}</h1>
     <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">{topic.description}</p>
     <p className="mt-3 text-sm text-slate-400">{view.total.toLocaleString("en-US")} profiles · Page {view.page} of {view.pages} · Alphabetical order</p>
     <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

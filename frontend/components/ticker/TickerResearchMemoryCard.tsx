@@ -30,7 +30,7 @@ export function TickerResearchMemoryCard({ symbol }: { symbol: string }) {
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Your Research</p>
     {loading ? <p role="status" className="mt-2 text-sm text-slate-400">Loading Research Memory…</p> : state.status === "error" ? <div role="alert" className="mt-2 text-sm text-slate-400">Unable to load Research Memory. <button type="button" onClick={() => setAttempt(value => value + 1)} className="min-h-10 px-2 text-emerald-200">Try again</button></div> : <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
       <div><p className="text-sm font-semibold text-white">{items.length === 0 ? "No active thesis" : items.length === 1 ? items[0].title : `${items.length} active theses`}</p>
-        {items.length > 1 ? <p className="mt-1 text-xs text-slate-400">{items.slice(0, 2).map(item => item.title).join(" · ")}</p> : items.length === 1 ? <p className="mt-1 text-xs text-emerald-200">Active — operating-source evidence is matched as it is processed.</p> : null}
+        {items.length > 1 ? <p className="mt-1 text-xs text-slate-400">{items.slice(0, 2).map(item => item.title).join(" · ")}</p> : items.length === 1 ? <p className="mt-1 text-xs text-emerald-200">Active: evidence from operating sources is matched as it is processed.</p> : null}
       </div><Link href={items.length === 0 ? `/monitoring/research?ticker=${encodeURIComponent(symbol)}` : items.length === 1 ? `/monitoring/research/${items[0].id}` : "/monitoring/research"} className="text-sm font-semibold text-emerald-200 hover:text-emerald-100">{items.length ? "View Research Memory" : "Create thesis"}</Link>
     </div>}
   </section>;

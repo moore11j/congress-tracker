@@ -121,7 +121,7 @@ export default async function PricingPage() {
       <PricingPlannerDeferred />
       <section className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.045] p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Research-first pricing</p>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">Premium is $24.95/month—about $0.82 a day for a deeper, source-aware stock research workflow. Start with Free without a credit card, then choose the research depth and monitoring limits that fit your process.</p>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">Premium is $24.95/month, about $0.82 a day for deeper stock research with sources you can inspect. Start with Free without a credit card, then choose the research depth and monitoring limits that fit your process.</p>
       </section>
       <section className="rounded-lg border border-white/10 bg-slate-950/60 p-5">
         <h2 className="text-xl font-semibold text-white">Pricing FAQ</h2>

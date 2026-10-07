@@ -70,6 +70,37 @@ EDITORIAL_GUIDANCE = (
     "unless independently present in this article's verified fact packet. Current explicit editorial instructions take precedence."
 )
 
+PROSE_STYLE_GUIDANCE = (
+    "Owner's writing rule for every title, heading, summary, caption and paragraph: "
+    "no em dashes, en dashes, double hyphens or spaced hyphens as punctuation. "
+    "Use a period, comma, colon or parentheses, or rewrite the sentence. "
+    "Avoid hyphenated prose compounds: write free cash flow, balance sheet, capital intensive, "
+    "self funded and data from multiple sources. Rephrase other compounds naturally. "
+    "Preserve exact URLs, identifiers, ticker symbols, SEC form names, source/company names, "
+    "quoted source text, negative numbers and Markdown syntax. Never alter facts to meet a style rule. "
+    "Do not write 'this matters because', 'why this matters', 'here is why it matters', "
+    "'it is important to note', 'in today's rapidly evolving market' or 'a game changer'. "
+    "State the specific consequence directly instead of announcing that it matters."
+)
+
+
+def editorial_prose(text):
+    """Ignore literal syntax when checking writing, without mutating the article."""
+    text = re.sub(r"```[\s\S]*?```|`[^`\n]*`", "", text)
+    text = re.sub(r"(?m)^\s*>.*$", "", text)  # Attributed Markdown quotations.
+    text = re.sub(r"(?m)^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$", "", text)
+    text = re.sub(r"(?m)^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", "", text)
+    text = re.sub(r"https?://[^\s)\]]+", "", text)
+    text = re.sub(r"\]\([^)]*\)", "]", text)  # Keep link labels, not destinations.
+    return re.sub(r"(?m)^\s*-\s+", "", text)
+
+
+def has_prose_dash(text):
+    prose = editorial_prose(text)
+    # Ranges and signed values are data, not sentence separators.
+    prose = re.sub(r"(?<=\d)\s*[–—-]\s*(?=\d)", " to ", prose)
+    return bool(re.search(r"[—–]|--|(?<=\S)\s+-\s+(?=[^\s\d$])", prose))
+
 
 def story_guidance(config, context):
     """Stable editorial contract plus bounded, first-party navigation evidence.
@@ -93,6 +124,7 @@ def story_guidance(config, context):
              for row in site.get("links", [])[:8] if isinstance(row, dict)]
     return "\n".join([
         "EDITORIAL STORY CONTRACT:",
+        PROSE_STYLE_GUIDANCE,
         "Write original Walnut prose, not an imitation of a named author. Lead with a concrete investor tension and the answer in 40-80 words, including the decisive sourced fact when available. Never withhold the answer for a click.",
         "Build the explanation around an observation, its interpretation and its limit. A familiar comparison, a before/after or a small table can clarify the story, but must use verified values and consistent units/periods. Never invent an anecdote, quote or chart.",
         focus,
