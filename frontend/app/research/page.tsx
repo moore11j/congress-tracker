@@ -33,7 +33,7 @@ export default async function ResearchBriefsPage({ searchParams }: Props) {
         <div className="mt-5 max-w-3xl">
           <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Research Briefs</h1>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            Research company fundamentals, reported ownership changes, and government-contract exposure. Each brief should be read with its publication date, source documents, and data limitations in view.
+            A Walnut research brief is a dated analysis of a company, ownership change or government-contract question. Read each brief alongside its sources and reporting limits.
           </p>
           <p className="mt-2 text-xs leading-5 text-slate-400">
             Learn how we use sources and AI, attribute research, and handle corrections in our{" "}

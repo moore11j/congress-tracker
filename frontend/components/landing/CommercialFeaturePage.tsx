@@ -101,7 +101,10 @@ export function CommercialFeaturePage({ page, example }: { page: CommercialFeatu
             </div>
 
             <figure className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/85 shadow-2xl shadow-black/35">
-              <img src={productImage} alt={page.imageAlt} width={1440} height={980} className="h-auto w-full" />
+              <picture>
+                <source srcSet="/landing/compare-nvda-mu-production.webp" type="image/webp" />
+                <img src={productImage} alt={page.imageAlt} width={1265} height={712} className="h-auto w-full" />
+              </picture>
               <figcaption className="border-t border-white/10 px-4 py-3 text-xs leading-5 text-slate-400">
                 Real Walnut interface capture. Data visibility depends on plan access, ticker coverage, and source availability.
               </figcaption>

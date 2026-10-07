@@ -54,12 +54,12 @@ export const commercialFeaturePages = {
     pathname: "/stock-research-software",
     title: "Stock Research Software for Investors | Walnut Markets",
     description:
-      "Use Walnut Markets stock research software to review tickers, connect multiple data sources, read research briefs, and monitor what changed before making a decision.",
+      "Research stocks with Walnut using financials, public disclosures and dated briefs. Compare companies, save a watchlist and review what changed.",
     breadcrumbLabel: "Stock Research Software",
     eyebrow: "Stock research software",
     h1: "Stock research software for investors who need more than a quote page.",
     intro:
-      "Walnut helps investors move from a ticker to a researched view of what changed, what supports the thesis, what could weaken it, and what deserves another look.",
+      "Stock research software is a tool for examining a company before making an investment decision. Walnut brings financials, public disclosures and research briefs together around each ticker.",
     targetUser:
       "Built for investors comparing end-to-end research tools, not for people who only need a fast price quote or a single chart.",
     imageAlt: "Walnut Markets stock comparison interface showing research context for two tickers.",
@@ -127,9 +127,9 @@ export const commercialFeaturePages = {
   stockAnalysisPlatform: {
     key: "stock-analysis-platform",
     pathname: "/stock-analysis-platform",
-    title: "Stock Analysis Platform for Multi-Source Research | Walnut Markets",
+    title: "Stock Analysis Platform | Walnut Markets",
     description:
-      "Walnut Markets combines price and volume, fundamentals, Congress trades, insider activity, institutional activity, and research context in one stock analysis platform.",
+      "Compare stock prices, financials and public disclosures in Walnut. Inspect where the available evidence agrees or conflicts before buying.",
     breadcrumbLabel: "Stock Analysis Platform",
     eyebrow: "Stock analysis platform",
     h1: "A stock analysis platform for checking whether the evidence lines up.",
@@ -209,7 +209,7 @@ export const commercialFeaturePages = {
     eyebrow: "Insider trading analysis software",
     h1: "Insider trading analysis software for reading Form 4 activity in context.",
     intro:
-      "Walnut tracks reported insider activity from public filings and places it next to the ticker's price action, fundamentals, Congress activity, institutional context, and research notes.",
+      "Insider trading analysis software is a tool for reviewing reported transactions by company insiders. Walnut connects public filings to stock prices, financials and other disclosures.",
     targetUser:
       "Useful for investors who want to understand insider behavior without treating every reported transaction as predictive.",
     imageAlt: "Walnut Markets stock research interface with disclosure and ticker context.",
@@ -284,7 +284,7 @@ export const commercialFeaturePages = {
     eyebrow: "Alternative data stock analysis",
     h1: "Alternative data stock analysis without losing the ticker context.",
     intro:
-      "Walnut helps investors examine nontraditional market data next to price, volume, fundamentals, and research judgment instead of treating alternative data as a shortcut.",
+      "Alternative data stock analysis is the use of information beyond company financial statements and stock prices to research a business. Walnut brings public trading disclosures, institutional filings and government contracts into that research.",
     targetUser:
       "Best for investors who want to use Congress, insider, institutional, or contract data carefully, with the limitations visible.",
     imageAlt: "Walnut Markets product screen showing stock research context and comparison evidence.",
@@ -354,7 +354,7 @@ export const commercialFeaturePages = {
     pathname: "/institutional-activity-tracker",
     title: "Institutional Activity Tracker | Walnut Markets",
     description:
-      "Track reported institutional holdings, position changes, filing dates, and ticker context in Walnut Markets without implying real-time institutional trading visibility.",
+      "Track reported institutional holdings and share changes in Walnut. Compare filing dates and ticker context, with clear limits on delayed 13F data.",
     breadcrumbLabel: "Institutional Activity Tracker",
     eyebrow: "Institutional activity tracker",
     h1: "Institutional activity tracking with filing timing kept in view.",

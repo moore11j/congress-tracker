@@ -1,7 +1,7 @@
 // Significant template/link updates not represented by an article's original
 // publication timestamp. Add dates only when the rendered article changes.
 const reviewedUpdates: Readonly<Record<string, string>> = {
-  "nbis-vs-crwv-ai-neoclouds": "2026-10-05",
+  "nbis-vs-crwv-ai-neoclouds": "2026-10-06",
   "public-companies-winning-nasa-contracts": "2026-09-25",
   "public-companies-winning-department-of-defense-contracts": "2026-09-25",
   "boeing-government-contract-backlog-ba-stock": "2026-09-25",

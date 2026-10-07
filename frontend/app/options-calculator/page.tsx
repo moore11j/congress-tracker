@@ -3,8 +3,8 @@ import { MarketingHeader } from "@/components/landing/MarketingHeader";
 import { OptionsCalculator } from "@/components/tools/OptionsCalculator";
 import { marketingSeoPageMetadata } from "@/lib/marketingMetadata";
 
-const description = "Free options profit calculator: build calls, puts, spreads, covered calls and iron condors. Explore payoff charts, break-even prices, Greeks and price-time scenarios.";
-export const metadata = marketingSeoPageMetadata("/options-calculator", { title: "Options Profit Calculator & Strategy Builder | Walnut Markets", description });
+const description = "Calculate options profit and loss for calls, puts and spreads. Explore payoff charts, break-even prices and scenarios using your assumptions.";
+export const metadata = marketingSeoPageMetadata("/options-calculator", { title: "Options Profit Calculator | Walnut Markets", description });
 
 export default async function OptionsCalculatorPage() {
   const marketing = (await headers()).get("x-walnut-public-landing") === "1";

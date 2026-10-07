@@ -3,8 +3,8 @@ import { MarketingHeader } from "@/components/landing/MarketingHeader";
 import { RetirementCalculator } from "@/components/tools/RetirementCalculator";
 import { marketingSeoPageMetadata } from "@/lib/marketingMetadata";
 
-const title = "Retirement Calculator & Investment Growth Planner | Walnut Markets";
-const description = "Free retirement calculator for individuals and couples. Project monthly investment growth, spouse savings, retirement withdrawals, and inflation with charts and yearly tables.";
+const title = "Retirement & Growth Calculator | Walnut Markets";
+const description = "Model retirement savings for individuals or couples. Compare contributions, growth, withdrawals and inflation using charts and yearly tables.";
 export const metadata = marketingSeoPageMetadata("/retirement-calculator", { title, description });
 
 const faqs = [

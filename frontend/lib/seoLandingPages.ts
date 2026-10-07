@@ -78,9 +78,9 @@ const planAccessCards: SeoLandingPageCard[] = defaultPlanConfig.tiers.map((tier)
 export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
   stockResearchApp: {
     pathname: "/stock-research-app",
-    title: "Stock Research App for Better Investment Research | Walnut Markets",
+    title: "Stock Research App | Walnut Markets",
     description:
-      "Use Walnut to research stocks, track thesis changes, compare companies, review disclosures and organize technical, fundamental and alternative data in one investment research workflow.",
+      "Research stocks, compare companies and review public disclosures in Walnut. Bring technical, fundamental and ownership data into one workflow.",
     breadcrumbLabel: "Stock Research App",
     eyebrow: "Stock research app",
     h1: "A stock research app built around the investment thesis.",
@@ -239,7 +239,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     pathname: "/stock-analysis-tools",
     title: "Stock Analysis Tools for Investors | Walnut Markets",
     description:
-      "Explore Walnut's stock analysis tools for technicals, fundamentals, stock screening, comparisons, Congress trades, insider activity, institutional filings, government contracts and confirmation research.",
+      "Explore stock analysis tools for financials, screening, comparisons and public disclosures. See how each tool fits into a Walnut research workflow.",
     breadcrumbLabel: "Stock Analysis Tools",
     eyebrow: "Stock analysis tools",
     h1: "Stock analysis tools for evaluating the full investment case.",
@@ -659,7 +659,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     pathname: "/institutional-filings",
     title: "Institutional Filings Tracker | Walnut Markets",
     description:
-      "Track reported institutional filings, 13F activity, ticker context, and market data in Walnut Markets.",
+      "Review institutional 13F filings, reported holdings and quarter-to-quarter share changes in Walnut, with filing dates and reporting limits.",
     breadcrumbLabel: "Institutional Filings",
     eyebrow: "13F filing research",
     h1: "Institutional Filings Tracker",
@@ -728,7 +728,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     pathname: "/stock-confirmation-score",
     title: "Stock Confirmation Score | Walnut Markets",
     description:
-      "Learn how Walnut's proprietary confirmation score helps investors interpret market data across price/volume, fundamentals, public disclosures, and ticker context.",
+      "Learn how Walnut's Confirmation Score summarizes agreement across available stock data. Review its methodology, coverage and limitations.",
     breadcrumbLabel: "Confirmation Score",
     eyebrow: "Proprietary research metric",
     h1: "Stock Confirmation Score",

@@ -58,7 +58,7 @@ const articleSchema = {
   headline: pageTitle,
   description: pageDescription,
   datePublished: "2026-07-23",
-  dateModified: "2026-10-05",
+  dateModified: "2026-10-06",
   author: {
     "@type": "Organization",
     name: "Walnut Markets",
@@ -194,7 +194,7 @@ export default function NbisCrwvAiNeocloudsPage() {
               Historical comparison — July 23, 2026. Financial figures below use Q1 2026 results; prices and trading indicators are through July 22. They are not current quotes or the latest earnings. The date labels were clarified September 27, 2026; the underlying analysis has not been refreshed. Open either ticker for current data.
             </p>
             <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
-              The AI infrastructure trade is getting more selective. CRWV has scale and backlog. NBIS may offer a cleaner risk/reward if the market starts rewarding profitability, balance sheet flexibility, and Nvidia alignment.
+              An AI neocloud is a cloud provider focused on computing infrastructure for AI workloads. This dated comparison examines Nebius and CoreWeave through revenue, financing needs and customer concentration.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <CampaignCtaLink href={nbisTerminalHref} eventName="view_ticker_nbis_click" className={primaryButtonClassName} properties={{ campaign: "nbis_vs_crwv_research" }}>
@@ -225,9 +225,9 @@ export default function NbisCrwvAiNeocloudsPage() {
       <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">The Situation</p>
-          <h2 className="mt-3 text-2xl font-semibold text-white">AI neocloud names are moving from narrative to proof.</h2>
+          <h2 className="mt-3 text-2xl font-semibold text-white">What should investors compare in AI neocloud stocks?</h2>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            AI infrastructure stocks have been volatile because investors are trying to separate real demand from hype. The market is no longer giving every AI infrastructure stock a free pass.
+            Compare revenue growth with the cash and infrastructure needed to deliver it. Reported growth alone does not show whether expansion can fund itself.
           </p>
           <p className="mt-4 text-sm leading-7 text-slate-400">
             The relevant questions are scale, backlog quality, profitability, customer concentration, debt, capex discipline, Nvidia alignment, and whether demand stays durable.
@@ -235,9 +235,9 @@ export default function NbisCrwvAiNeocloudsPage() {
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">The Issue</p>
-          <h2 className="mt-3 text-2xl font-semibold text-white">CRWV is larger. NBIS may be cleaner.</h2>
+          <h2 className="mt-3 text-2xl font-semibold text-white">Which company had greater scale in Q1 2026?</h2>
           <p className="mt-4 text-sm leading-7 text-slate-400">
-            CRWV has the larger revenue base and the huge backlog. NBIS is smaller, but the Q1 2026 data showed a profitability inflection, a large cash balance, and explicit Nvidia support.
+            CoreWeave had the larger Q1 2026 revenue base and reported backlog. Nebius was smaller, with positive adjusted EBITDA and a large quarter-end cash balance.
           </p>
           <p className="mt-4 text-sm leading-7 text-slate-400">
             The risk is not theoretical. Both companies need heavy infrastructure buildouts, large customers, GPU supply, power access, and demand durability to convert AI infrastructure appetite into durable economics.
@@ -293,12 +293,12 @@ export default function NbisCrwvAiNeocloudsPage() {
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[0.85fr_1.15fr] lg:px-8">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Walnut Data</p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">Confirmation score is separate from the underlying data.</h2>
+            <h2 className="mt-3 text-2xl font-semibold text-white">What does the Walnut Confirmation Score show?</h2>
             <p className="mt-4 text-sm leading-7 text-slate-400">
-              Walnut's confirmation score is a proprietary summary. It should not be blended with the public company data above. The underlying Walnut data here is price/volume, fundamentals, reported insider activity, and reported Congress activity.
+              Walnut's Confirmation Score summarizes agreement across available evidence. It is not a return forecast. This historical snapshot uses price/volume, fundamentals and reported insider and Congress activity.
             </p>
             <p className="mt-4 text-sm leading-7 text-slate-400">
-              Reported institutional activity, options flow, and broader signal rows were locked or unavailable in the public production response used for this page, so they are not used as support.
+              Institutional activity, options flow and broader signal rows were locked or unavailable in this public response. They do not support the conclusions here.
             </p>
           </div>
           <div className="grid gap-3">
@@ -348,14 +348,19 @@ export default function NbisCrwvAiNeocloudsPage() {
       <section className="border-t border-white/10 bg-slate-950/30">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.8fr] lg:px-8">
           <div>
-            <h2 className="text-2xl font-semibold text-white">Keep the comparison current inside Walnut.</h2>
+            <h2 className="text-2xl font-semibold text-white">How can I check NBIS and CRWV in Walnut now?</h2>
             <p className="mt-3 text-sm leading-7 text-slate-400">
-              This article compares Q1 results and a July 23 market snapshot; it is not an October valuation update. Start with Financials on each ticker page to check revenue, cash flow and debt for the same reporting period. Then open Ownership for institutional holdings and Research for company-specific briefs.
+              Open each ticker and select Financials to compare revenue, cash flow and debt for the same reporting period. Then open Ownership for institutional holdings and Research for company-specific briefs. This article retains its Q1 results and July 23 snapshot; it is not an October valuation update.
             </p>
             <p className="mt-3 text-sm leading-7 text-slate-400">
-              Ask whether growth is turning into cash, how the next buildout will be financed, and which figures are reported results versus management guidance. A larger backlog is not cash already collected. You can follow NBIS or CRWV with a free Walnut account to keep the company in your watchlist.
+              Check whether growth is turning into cash and how the next buildout will be financed. Separate reported results from management guidance. A larger backlog is not cash already collected. You can follow NBIS or CRWV with a free Walnut account to keep the company in your watchlist.
             </p>
-            <p className="mt-3 text-xs text-slate-500">Research navigation updated October 5, 2026. Historical figures above retain their original dates.</p>
+            <p className="mt-3 text-sm leading-7 text-slate-400">
+              Use the <Link href="/stock-confirmation-score" className="text-emerald-200 underline">Confirmation Score methodology</Link>{" "}
+              to interpret the historical scores. Read the <Link href="/institutional-filings" className="text-emerald-200 underline">13F filing guide</Link>{" "}
+              before comparing reported holder changes. Browse <Link href="/research" className="text-emerald-200 underline">Walnut research briefs</Link> for related questions.
+            </p>
+            <p className="mt-3 text-xs text-slate-500">Reading guide updated October 6, 2026. Historical figures above retain their original dates.</p>
           </div>
           <div className="flex flex-wrap items-start gap-3 lg:justify-end">
             <CampaignCtaLink href={nbisTerminalHref} eventName="view_ticker_nbis_click" className={primaryButtonClassName} properties={{ campaign: "nbis_vs_crwv_research", placement: "footer" }}>

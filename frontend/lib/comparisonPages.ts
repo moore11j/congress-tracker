@@ -86,7 +86,7 @@ const commonRelatedLinks: RelatedComparisonLink[] = [
     body: "Check which Walnut plan fits the research depth and monitoring limits you need.",
   },
   {
-    label: "Ticker example",
+    label: "NVIDIA stock analysis",
     href: tickerHref,
     body: "Start from a live ticker page and inspect the available research context directly.",
   },
@@ -108,7 +108,7 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
       "For investors weighing a clean fundamentals and market-reference site against Walnut's cross-source research workflow.",
     h1: "Walnut Markets vs StockAnalysis",
     intro:
-      "StockAnalysis is a strong place to look up company financials, statements, screeners, and market reference data. Walnut is built for the next step: asking whether price, fundamentals, disclosures, ownership, contracts, and research context point in the same direction.",
+      "StockAnalysis is a financial-data website for company statements, screening and market reference. Walnut is a stock research platform that connects financials with public disclosures and ownership data. Compare the numbers, then inspect whether the available evidence agrees.",
     quickVerdict: {
       walnut:
         "Walnut is better suited when the question is not just what the numbers are, but what changed and whether separate sources support the same stock thesis.",
@@ -189,14 +189,14 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
     slug: "walnut-markets-vs-insider-screener",
     competitorName: "Insider Screener",
     eyebrow: "Insider trading analysis software comparison",
-    title: "Walnut Markets vs Insider Screener | Insider Research Comparison",
+    title: "Walnut Markets vs Insider Screener",
     description:
       "Compare Walnut Markets and Insider Screener for insider transaction tracking, ticker context, disclosures, and broader stock research.",
     hubDescription:
       "For investors deciding between a specialist insider transaction screener and a broader ticker research workflow.",
     h1: "Walnut Markets vs Insider Screener",
     intro:
-      "Insider Screener is focused on discovering and monitoring insider transactions. Walnut includes insider activity, but places it beside price and volume, fundamentals, Congress activity, institutions, contracts, and research briefs so the filing is not interpreted alone.",
+      "Insider Screener is a tool for finding and monitoring reported insider transactions. Walnut combines insider filings with prices, financials and other public disclosures. Check the transaction in the context of the company.",
     quickVerdict: {
       walnut:
         "Walnut is a better fit when insider activity is one part of a broader stock research process.",
@@ -280,14 +280,14 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
     slug: "walnut-markets-vs-quiver-quant",
     competitorName: "Quiver Quantitative",
     eyebrow: "Alternative data investing platform comparison",
-    title: "Walnut Markets vs Quiver Quantitative | Alternative Data Comparison",
+    title: "Walnut Markets vs Quiver Quantitative",
     description:
       "Compare Walnut Markets and Quiver Quantitative for alternative data, Congress trading, insider activity, institutions, and ticker-level research.",
     hubDescription:
       "For investors comparing alternative-data breadth with Walnut's ticker-level interpretation and confirmation workflow.",
     h1: "Walnut Markets vs Quiver Quantitative",
     intro:
-      "Quiver Quantitative is known for making alternative datasets accessible, including Congress, insiders, government contracts, lobbying, trends, patents, and institutional data. Walnut also uses alternative data, but the product is organized around the ticker decision: what changed, what confirms the thesis, what weakens it, and what to watch next.",
+      "Quiver Quantitative is an alternative-data platform covering public disclosures and other market datasets. Walnut organizes its available data around each stock. Review what changed, where sources agree and what needs another look.",
     quickVerdict: {
       walnut:
         "Walnut is better suited when you want alternative data folded into a clear stock research judgment.",
@@ -371,14 +371,14 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
     slug: "walnut-markets-vs-unusual-whales",
     competitorName: "Unusual Whales",
     eyebrow: "Options flow alternative comparison",
-    title: "Walnut Markets vs Unusual Whales | Market Data Platform Comparison",
+    title: "Walnut Markets vs Unusual Whales",
     description:
       "Compare Walnut Markets and Unusual Whales for options flow, market activity, alternative data, and investor-oriented stock research.",
     hubDescription:
       "For investors deciding between options-flow monitoring and a broader stock research interpretation layer.",
     h1: "Walnut Markets vs Unusual Whales",
     intro:
-      "Unusual Whales is closely associated with options flow, dark pool data, alerts, API access, and active trader tools. Walnut should be evaluated differently: it is a stock research platform that uses available options data as one layer beside fundamentals, price, ownership, Congress, insiders, contracts, risks, and catalysts.",
+      "Unusual Whales is a market-data platform with options flow and active-trader tools. Walnut is a stock research platform connecting financials, prices and public disclosures. Live options flow is not currently a Walnut feature.",
     quickVerdict: {
       walnut:
         "Walnut is better suited when the goal is to research a stock across multiple evidence categories and reach a sober view of the thesis.",
@@ -463,14 +463,14 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
     slug: "walnut-markets-vs-finviz",
     competitorName: "Finviz",
     eyebrow: "Stock screener comparison",
-    title: "Walnut Markets vs Finviz | Stock Screener and Research Comparison",
+    title: "Walnut Markets vs Finviz: Stock Research",
     description:
       "Compare Walnut Markets and Finviz for market scanning, stock screening, charts, fundamentals, and deeper research interpretation.",
     hubDescription:
       "For investors who discover ideas in a fast market scanner and need a deeper research workflow afterward.",
     h1: "Walnut Markets vs Finviz",
     intro:
-      "Finviz is a fast way to scan the market, read maps, review charts, and find stocks. Walnut is better framed as the investigation layer after discovery: open the ticker, inspect the evidence, and decide whether the data supports the thesis.",
+      "Finviz is a stock screener with charts and market maps. Walnut is a stock research platform for investigating companies after discovery. Compare financials, public disclosures and ownership context before deciding what to follow.",
     quickVerdict: {
       walnut:
         "Walnut is better suited after a stock is on your shortlist and the question becomes whether the thesis holds up.",
@@ -554,14 +554,14 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
     slug: "walnut-markets-vs-capitol-trades",
     competitorName: "Capitol Trades",
     eyebrow: "Congress stock trading tracker comparison",
-    title: "Walnut Markets vs Capitol Trades | Congress Trading Research Comparison",
+    title: "Walnut Markets vs Capitol Trades",
     description:
       "Compare Walnut Markets and Capitol Trades for congressional trading disclosures, ticker context, and broader stock research.",
     hubDescription:
       "For investors deciding between a focused congressional-trades database and integrated ticker research.",
     h1: "Walnut Markets vs Capitol Trades",
     intro:
-      "Capitol Trades is built around public-official trading disclosures. Walnut includes Congress activity too, but the product goal is broader: connect the disclosure to ticker-level price, fundamentals, insider activity, institutions, contracts, and research judgment.",
+      "Capitol Trades is a tracker of reported trades by U.S. public officials. Walnut connects Congress disclosures to stock prices, financials and other reported activity. Compare the filing with the broader company context.",
     quickVerdict: {
       walnut:
         "Walnut is better when a Congress disclosure needs to be evaluated inside the full ticker context.",
@@ -645,14 +645,14 @@ export const comparisonPages: Record<string, CompetitorComparisonPage> = {
     slug: "walnut-markets-vs-trendspider",
     competitorName: "TrendSpider",
     eyebrow: "Technical analysis software comparison",
-    title: "Walnut Markets vs TrendSpider | Stock Analysis Platform Comparison",
+    title: "Walnut Markets vs TrendSpider: Research",
     description:
       "Compare Walnut Markets and TrendSpider for technical analysis, charting automation, alternative data, and cross-source stock research.",
     hubDescription:
       "For investors comparing advanced technical-analysis automation with Walnut's evidence-confirmation research workflow.",
     h1: "Walnut Markets vs TrendSpider",
     intro:
-      "TrendSpider is a technical-analysis, charting, scanning, backtesting, alerting, and automation platform. Walnut is not trying to be that same charting workstation. Walnut is built for stock research: fundamentals, disclosures, ownership, contracts, confirmation, and concise judgment around a ticker.",
+      "TrendSpider is a technical-analysis platform with charting, scanning and backtesting tools. Walnut is a stock research platform focused on financials, public disclosures and ownership context. Choose the workflow that matches your research question.",
     quickVerdict: {
       walnut:
         "Walnut is better suited when fundamentals, alternative data, and research judgment matter more than chart automation.",

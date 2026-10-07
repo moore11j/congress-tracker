@@ -346,6 +346,10 @@ function WorkflowDifference({ page }: { page: CompetitorComparisonPage }) {
         {page.workflowBody.map((paragraph) => (
           <p key={paragraph}>{paragraph}</p>
         ))}
+        <p>
+          See how Walnut combines sources in its <a href="/stock-analysis-platform" className="text-emerald-200 underline">stock analysis workflow</a>.
+          For a worked example, read the dated <a href="/research/nbis-vs-crwv-ai-neoclouds" className="text-emerald-200 underline">Nebius and CoreWeave comparison</a>.
+        </p>
       </div>
     </section>
   );

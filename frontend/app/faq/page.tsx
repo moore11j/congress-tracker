@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
 import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
-const lastUpdated = "July 31, 2026";
+const lastUpdated = "October 6, 2026";
 
 const faqCategories = [
   {
@@ -11,7 +11,7 @@ const faqCategories = [
       {
         question: "Why are Congress trade dates often older than insider trade dates?",
         answer:
-          "Congress trades are reported under disclosure rules that may allow reporting delays. Insider filings are typically filed much sooner through SEC Form 4 disclosures. As a result, Congress activity often appears after the actual trade date while insider activity may appear much closer to the transaction date.",
+          "Congress disclosures may arrive well after the transaction date. Insider transactions are typically reported sooner through SEC Form 4. Compare the trade date with the filing date before interpreting either source.",
       },
       {
         question: "What date am I looking at?",
@@ -295,10 +295,17 @@ export default async function FaqPage() {
     <LegalPageShell
       eyebrow="Support"
       title="Frequently Asked Questions"
-      description="Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works."
+      description="Walnut Market Terminal is a stock research platform for comparing financials and public disclosures. These answers explain its data, access and billing."
       lastUpdated={lastUpdated}
     >
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd).replace(/</g, "\\u003c") }} />
+
+      <nav aria-label="Related FAQ guides" className="flex flex-wrap gap-4 text-sm text-emerald-200">
+        <a href="/congress-trades">Congress disclosure timing</a>
+        <a href="/insider-trading-tracker">Reported insider trades</a>
+        <a href="/stock-confirmation-score">Confirmation Score methodology</a>
+        <a href="/pricing">Plan access and pricing</a>
+      </nav>
 
       {faqCategories.map((category) => (
         <LegalSection key={category.title} title={category.title}>
