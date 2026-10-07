@@ -175,7 +175,7 @@ export function TickerFollowButton({ symbol }: Props) {
         }`}
         aria-label={following ? `Following ${normalizedSymbol}. Manage follow.` : `Follow ${normalizedSymbol}`}
         aria-busy={isBusy}
-        title={following ? undefined : "Get notified when the evidence changes."}
+        title={following ? undefined : "Save this stock to your watchlist. Alerts depend on your plan and notification settings."}
       >
         {isBusy ? "Following..." : following ? `✓ Following ${normalizedSymbol}` : `★ Follow ${normalizedSymbol}`}
       </button>
@@ -186,7 +186,7 @@ export function TickerFollowButton({ symbol }: Props) {
         open={authPromptOpen}
         title={`Follow ${normalizedSymbol} with Walnut`}
         description={`Save ${normalizedSymbol} to your free watchlist so you can return to its research. Monitoring sources and email alerts depend on your plan and settings.`}
-        eyebrow="Ongoing monitoring"
+        eyebrow="Your watchlist"
         tone="success"
         onClose={() => setAuthPromptOpen(false)}
         closeLabel="Close follow prompt"
@@ -217,7 +217,7 @@ export function TickerFollowButton({ symbol }: Props) {
           <li>Premium: Confirmation Score changes and research email alerts</li>
           <li>Pro: Institutional activity and additional monitoring sources</li>
         </ul>
-        <p className="mt-3 text-xs leading-5 text-slate-400">Following a stock does not enable every alert or subscribe you to email. Choose the available sources and opt in to delivery in your settings.</p>
+        <p className="mt-3 text-xs leading-5 text-slate-400">Following saves the stock to your watchlist. Watchlist emails may be sent when enabled in your notification settings, subject to your plan and delivery preferences. You can manage sources and delivery from your watchlist.</p>
       </WalnutModal>
     </div>
   );

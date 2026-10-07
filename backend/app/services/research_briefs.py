@@ -383,7 +383,7 @@ BANNED_AI_WATERMARK_WORDS = (
 )
 BANNED_AI_WATERMARK_PATTERN = r"\b(?:" + "|".join(re.escape(word) for word in BANNED_AI_WATERMARK_WORDS) + r")\b"
 STYLE_TIC_PATTERNS = [
-    ("unnecessary hyphenation", r"\b(?:capital-intensive|free-cash-flow|self-funded|ai-cloud|balance-sheet|watch-and-verify)\b"),
+    ("invented workflow phrase", r"\bwatch-and-verify\b"),
     ("reviewed record supplied", r"\bthe reviewed record supplied\b"),
     ("available evidence does not permit", r"\bthe available evidence does not permit\b"),
     ("we reserve judgment", r"\bwe (?:therefore )?reserve judgment\b"),
@@ -1259,7 +1259,9 @@ def _is_institutional_activity_config(config: dict[str, Any]) -> bool:
     """Identify ownership/13F questions before generic stock-analysis rules take over."""
     text = " ".join(
         str(config.get(key) or "")
-        for key in ("desired_angle", "research_question", "target_keyword", "search_intent", "additional_context")
+        # Editorial instructions often say "not another ownership brief".
+        # They must not silently change the requested topic or evidence path.
+        for key in ("desired_angle", "research_question", "target_keyword", "search_intent")
     ).lower()
     return "institutional activity" in text or bool(
         re.search(r"\bwho\b.{0,20}\bbuying\b.{0,100}\bsec filings?\b", text)
@@ -6808,6 +6810,9 @@ def _research_packet_integrity_warnings(article: dict[str, Any], context: dict[s
 
 def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
     text = _article_full_text(article)
+    # Markdown table rules and URL punctuation are syntax, not prose style.
+    prose = re.sub(r"(?m)^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$", "", text)
+    prose = re.sub(r"https?://[^\s)\]]+", "", prose)
     lowered = text.lower()
     warnings: list[dict[str, Any]] = []
     watermark_words = sorted({match.group(0).lower() for match in re.finditer(BANNED_AI_WATERMARK_PATTERN, lowered, flags=re.IGNORECASE)})
@@ -6827,12 +6832,19 @@ def _style_validation_warnings(article: dict[str, Any], context: dict[str, Any])
         warnings.append(_warning("weak_missing_data_title", "Title describes missing research instead of an investment question.", blocking=True))
     if text.count(";") > 8:
         warnings.append(_warning("excessive_semicolons", "Draft overuses semicolons; rewrite in a more natural Walnut voice.", blocking=True))
-    if text.count("--") + text.count("—") > 6:
+    if prose.count("--") + prose.count("—") > 6:
         warnings.append(_warning("excessive_dashes", "Draft overuses dashes; rewrite with cleaner sentence variation.", blocking=True))
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
     company_terms = [str(identity.get("symbol") or ""), str(identity.get("company_name") or "")]
     company_terms.extend(alias for symbol, aliases in COMPANY_IDENTITY_GUARDS.items() for alias in aliases if symbol == normalize_symbol(identity.get("symbol")))
+    ownership = primary.get("institutional_ownership_detail") or {}
+    if ownership.get("verification") == "sec_matched_share_pairs_v1":
+        for row in ownership.get("comparisons") or []:
+            name = institution_display_name(row.get("holder_name")) or ""
+            name = re.sub(r"\b(?:incorporated|inc|corp|corporation|llc|ltd|plc)\b\.?", "", name, flags=re.I).strip(" ,.")
+            if name:
+                company_terms.append(name)
     generic_paragraphs = 0
     for paragraph in re.split(r"\n{2,}", text):
         cleaned = paragraph.strip()

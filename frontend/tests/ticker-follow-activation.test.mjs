@@ -25,7 +25,8 @@ test("anonymous follow explains monitoring and preserves a durable post-auth tic
   assert.match(followButton, /insider activity/);
   assert.match(followButton, /Congress trades/);
   assert.match(followButton, /Institutional activity/);
-  assert.match(followButton, /opt in to delivery/);
+  assert.match(followButton, /Watchlist emails may be sent when enabled in your notification settings/);
+  assert.doesNotMatch(followButton, /does not.*subscribe you to email/);
   assert.match(followButton, /searchParams\.get\("follow"\) === "1"/);
   assert.match(followButton, /params\.delete\("follow"\)/);
   assert.match(followButton, /login\?mode=register&return_to=/);

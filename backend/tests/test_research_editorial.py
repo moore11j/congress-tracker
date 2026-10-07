@@ -20,6 +20,35 @@ def ownership_context():
         "research_question": "Who is buying NVDA stock in the latest SEC filings?"}
 
 
+def test_negative_editorial_context_does_not_override_requested_topic():
+    config = {"ticker": "ACN", "research_question": "Do cash generation and valuation support Accenture?",
+              "desired_angle": "Fundamental analysis", "target_keyword": "Accenture stock analysis",
+              "additional_context": "A different topic from institutional ownership. Do not write another 13F holdings brief."}
+    assert not briefs._is_institutional_activity_config(config)
+    assert briefs.validate_config(config)["desired_angle"] == "Fundamental analysis"
+    assert briefs._is_institutional_activity_config({"research_question": "Who is buying ANET stock in the latest SEC filings?"})
+
+
+def test_style_counts_prose_dashes_not_table_rules_or_financial_compounds():
+    table = "| Holder | Prior | Current | Change | Date | Source |\n|---|---:|---:|---:|---|---|\n| State Street | 100 | 120 | 20 | Q2 2026 | https://example.com/a--b--c--d--e |"
+    article = {"title": "ANET ownership", "sections": [{"body_markdown": table + "\n\nA balance-sheet comparison and free-cash-flow yield describe capital-intensive businesses."}]}
+    codes = {w["code"] for w in briefs._style_validation_warnings(article, ownership_context())}
+    assert "excessive_dashes" not in codes
+    assert "ai_style_tics" not in codes
+    article["sections"][0]["body_markdown"] += "\n" + "ANET — more prose. " * 8
+    assert "excessive_dashes" in {w["code"] for w in briefs._style_validation_warnings(article, ownership_context())}
+
+
+def test_verified_named_holder_analysis_counts_as_specific_information():
+    context = ownership_context()
+    context["primary"]["institutional_ownership_detail"]["comparisons"] = [{"holder_name": "State Street Corp"}]
+    paragraph = "State Street illustrates why a manager can increase a reported holding without establishing its motives or predicting subsequent returns for investors."
+    article = {"sections": [{"body_markdown": "\n\n".join([paragraph] * 3)}]}
+    assert "low_information_density" not in {w["code"] for w in briefs._style_validation_warnings(article, context)}
+    context["primary"]["institutional_ownership_detail"]["comparisons"] = []
+    assert "low_information_density" in {w["code"] for w in briefs._style_validation_warnings(article, context)}
+
+
 def test_edit_examples_capture_changes_late_in_sections_and_ignore_metadata():
     draft = {"status": "draft"}
     before = {"title": "Old title", "source_links": [{"url": "https://example.com/old"}],

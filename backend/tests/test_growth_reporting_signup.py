@@ -11,6 +11,34 @@ from app.routers import accounts as api
 from test_accounts_admin_stripe import _session, _user, _request_for_user
 
 
+@pytest.mark.parametrize("email_enabled", [False, True])
+def test_new_free_account_can_save_first_stock_once_preserving_email_preferences(monkeypatch, email_enabled):
+    from app.main import FollowTickerPayload, follow_ticker
+    from app.models import NotificationSubscription, Security, Watchlist, WatchlistItem
+
+    monkeypatch.setattr(api, "_send_verification_email", lambda *args: None)
+    monkeypatch.setattr(api, "_send_welcome_email", lambda *args: None)
+    with _session() as db:
+        api.register(api.RegisterPayload(email="activation@example.com", password="Password123!"), Response(), db)
+        user = db.scalar(select(UserAccount).where(UserAccount.email == "activation@example.com"))
+        user.watchlist_activity_notifications = email_enabled
+        user.signals_notifications = email_enabled
+        db.add(Security(symbol="NVDA", name="NVIDIA Corporation", asset_class="stock"))
+        db.commit()
+        request = _request_for_user(user)
+        first = follow_ticker(FollowTickerPayload(symbol="nvda"), request, db)
+        repeated = follow_ticker(FollowTickerPayload(symbol="NVDA"), request, db)
+        assert first["status"] == "added"
+        assert repeated["status"] == "exists"
+        assert first["watchlist"]["id"] == repeated["watchlist"]["id"]
+        assert len(db.scalars(select(Watchlist).where(Watchlist.owner_user_id == user.id)).all()) == 1
+        assert len(db.scalars(select(WatchlistItem)).all()) == 1
+        subscriptions = db.scalars(select(NotificationSubscription).where(NotificationSubscription.email == user.email)).all()
+        assert subscriptions and all(row.active == email_enabled for row in subscriptions)
+        assert user.watchlist_activity_notifications == email_enabled
+        assert user.signals_notifications == email_enabled
+
+
 def test_email_only_registration_preserves_security_and_login(monkeypatch):
     sent = []
     monkeypatch.setattr(api, "_send_verification_email", lambda *args: sent.append("verification"))
