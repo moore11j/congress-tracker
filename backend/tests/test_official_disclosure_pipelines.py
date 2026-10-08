@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -216,17 +218,16 @@ def test_shadow_tables_do_not_affect_feed_until_explicit_promotion():
 
         assert db.execute(select(Event)).scalars().all() == []
 
-        congress_report = promote_congress_shadow_events(db)
+        with pytest.raises(ValueError, match='guarded direct Congress publisher'):
+            promote_congress_shadow_events(db)
         insider_report = promote_form4_shadow_events(db)
         db.commit()
 
-        assert congress_report["inserted"] == 1
         assert insider_report["inserted"] == 1
         events = db.execute(select(Event).order_by(Event.event_type.asc())).scalars().all()
-        assert [event.event_type for event in events] == ["congress_trade", "insider_trade"]
-        assert {event.source_provider for event in events} == {"official_house", "sec_edgar"}
+        assert [event.event_type for event in events] == ["insider_trade"]
+        assert {event.source_provider for event in events} == {"sec_edgar"}
 
-        assert promote_congress_shadow_events(db)["inserted"] == 0
         assert promote_form4_shadow_events(db)["inserted"] == 0
     finally:
         db.close()

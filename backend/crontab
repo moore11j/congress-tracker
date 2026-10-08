@@ -2,6 +2,9 @@ SHELL=/bin/sh
 PATH=/usr/local/bin:/usr/bin:/bin
 PYTHONPATH=/app
 CRON_TZ=America/Los_Angeles
+# Isolated primary-source staging; public writers and FMP remain unchanged.
+17 * * * * cd /app && python -m app.jobs.collect_direct_feeds --sources house_ptr senate_ptr --limit 50 --recheck-hours 168
+47 * * * * cd /app && python -m app.jobs.collect_direct_feeds --sources sec_form4 sec_13f --limit 200 --recheck-hours 168
 # Opt-in Daily SEO planner. Database day claims prevent duplicate paid runs.
 */5 * * * * cd /app && python -m app.jobs.run_research_seo
 

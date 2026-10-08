@@ -18,7 +18,15 @@ processes = ["app", "cron"]
   [build.args]
     INSTALL_GROWTH_VIDEO_WORKER = "true"
 
+[deploy]
+  release_command = "python -m app.jobs.migrate_direct_feed_schema"
+
 [env]
+  DIRECT_FEEDS_MODE = "shadow"
+  SENATE_PUBLIC_NOTICE_ACKNOWLEDGED = "true"
+  DIRECT_FEED_PUBLICATION_ENABLED = "false"
+  DIRECT_13F_PUBLICATION_ENABLED = "false"
+  DIRECT_CONGRESS_PUBLICATION_ENABLED = "false"
   # Enabled at the owner's request after a successful MU/NVDA/AAPL access probe.
   # Full calls are sectioned, cached, and processed within existing AI budgets.
   RESEARCH_TRANSCRIPT_ANALYSIS_ENABLED = "true"

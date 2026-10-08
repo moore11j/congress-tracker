@@ -177,6 +177,44 @@ def fetch_13f_amendment_type(*, cik: str, accession_number: str) -> str | None:
     return None
 
 
+def parse_13f_information_table(payload: bytes, *, accession_number: str, source_url: str) -> list[dict[str, Any]]:
+    """Pure parser shared by direct staging and the established SEC fetcher.
+
+    Values are USD for the current SEC schema. Callers handling pre-2023
+    filings must establish the historical value unit separately.
+    """
+    root = ET.fromstring(payload)
+    rows: list[dict[str, Any]] = []
+    for item in root.findall(".//{*}infoTable"):
+        cusip = _text(item, "{*}cusip")
+        if not cusip:
+            continue
+        value_usd = _number(_text(item, "{*}value"))
+        rows.append(
+            {
+                "cusip": cusip,
+                "issuerName": _text(item, "{*}nameOfIssuer"),
+                "titleOfClass": _text(item, "{*}titleOfClass"),
+                "shareType": _text(item, "{*}shrsOrPrnAmt/{*}sshPrnamtType"),
+                "sourceUrl": source_url,
+                "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
+                # The XML information-table values returned for the
+                # recovered filings are already dollar-denominated.
+                "valueUsd": value_usd,
+                "putCall": _text(item, "{*}putCall"),
+                "investmentDiscretion": _text(item, "{*}investmentDiscretion"),
+                "votingAuthority": {
+                    "sole": _number(_text(item, "{*}votingAuthority/{*}Sole")),
+                    "shared": _number(_text(item, "{*}votingAuthority/{*}Shared")),
+                    "none": _number(_text(item, "{*}votingAuthority/{*}None")),
+                },
+                "source": "sec_edgar",
+                "accessionNumber": accession_number,
+            }
+        )
+    return rows
+
+
 def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict[str, Any]]:
     """Fetch an SEC XML information table and normalize values to USD."""
     normalized_cik = normalize_cik(cik)
@@ -190,37 +228,10 @@ def fetch_13f_information_table(*, cik: str, accession_number: str) -> list[dict
         if not isinstance(payload, bytes):
             continue
         try:
-            root = ET.fromstring(payload)
+            rows = parse_13f_information_table(payload, accession_number=accession_number,
+                                               source_url=_archive_url(normalized_cik, accession_number, filename))
         except ET.ParseError:
             continue
-        rows: list[dict[str, Any]] = []
-        for item in root.findall(".//{*}infoTable"):
-            cusip = _text(item, "{*}cusip")
-            if not cusip:
-                continue
-            value_usd = _number(_text(item, "{*}value"))
-            rows.append(
-                {
-                    "cusip": cusip,
-                    "issuerName": _text(item, "{*}nameOfIssuer"),
-                    "titleOfClass": _text(item, "{*}titleOfClass"),
-                    "shareType": _text(item, "{*}shrsOrPrnAmt/{*}sshPrnamtType"),
-                    "sourceUrl": _archive_url(normalized_cik, accession_number, filename),
-                    "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
-                    # The XML information-table values returned for the
-                    # recovered filings are already dollar-denominated.
-                    "valueUsd": value_usd,
-                    "putCall": _text(item, "{*}putCall"),
-                    "investmentDiscretion": _text(item, "{*}investmentDiscretion"),
-                    "votingAuthority": {
-                        "sole": _number(_text(item, "{*}votingAuthority/{*}Sole")),
-                        "shared": _number(_text(item, "{*}votingAuthority/{*}Shared")),
-                        "none": _number(_text(item, "{*}votingAuthority/{*}None")),
-                    },
-                    "source": "sec_edgar",
-                    "accessionNumber": accession_number,
-                }
-            )
         if rows:
             return rows
     return []

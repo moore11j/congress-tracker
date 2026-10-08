@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.feed_source_control import require_selected_source
+
 import hashlib
 import json
 import re
@@ -13,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.models import Event, InsiderTransactionNormalized, SecForm4Filing, SymbolResolutionOverride
 from app.utils.symbols import canonical_symbol
 
-FORM4_PARSER_VERSION = "sec_form4_v1"
+FORM4_PARSER_VERSION = "sec_form4_v2"
 
 TRANSACTION_CODE_DESCRIPTIONS = {
     "P": "Open-market purchase",
@@ -244,10 +246,13 @@ def parse_form4_xml(
     accession_number: str | None = None,
     source_url: str | None = None,
     xml_url: str | None = None,
+    filing_date: date | None = None,
     db: Session | None = None,
 ) -> dict[str, Any]:
     raw_text = xml_text.decode("utf-8", errors="replace") if isinstance(xml_text, bytes) else xml_text
     root = ET.fromstring(raw_text)
+    if _strip_namespace(root.tag) != "ownershipDocument":
+        raise ValueError("Expected an SEC ownershipDocument")
     issuer = _child(root, "issuer")
     owner = _child(root, "reportingOwner")
     owner_id = _child(owner, "reportingOwnerId") if owner is not None else None
@@ -258,7 +263,9 @@ def parse_form4_xml(
     owner_cik = _normalize_cik(_text(owner_id, "rptOwnerCik"))
     owner_name = _text(owner_id, "rptOwnerName")
     relationship = _owner_relationship(owner)
-    filing_date = _parse_date(_text(root, "periodOfReport"))
+    # periodOfReport is the transaction period, not public availability. Only
+    # EDGAR index/submission metadata may establish the filing date.
+    filing_date = _parse_date(filing_date)
     accession = accession_number or _text(root, "accessionNumber") or document_hash(raw_text)[:20]
     transactions: list[dict[str, Any]] = []
     for table_name, is_derivative in (("nonDerivativeTable", False), ("derivativeTable", True)):
@@ -282,7 +289,16 @@ def parse_form4_xml(
                     filing_date=filing_date,
                 )
             )
-    ten_b5_1 = bool(re.search(r"10b5-?1", raw_text, flags=re.IGNORECASE))
+    # Identical lines are sometimes separate lots. Preserve their multiplicity
+    # while retaining the existing identity for the first occurrence.
+    occurrences: dict[str, int] = {}
+    for transaction in transactions:
+        identity = transaction["normalized_hash"]
+        occurrence = occurrences.get(identity, 0)
+        occurrences[identity] = occurrence + 1
+        if occurrence:
+            transaction["normalized_hash"] = hashlib.sha256(f"{identity}:{occurrence}".encode()).hexdigest()
+    ten_b5_1 = _bool_text(_text(root, "aff10b5One"))
     if ten_b5_1:
         for transaction in transactions:
             transaction["ten_b5_1_flag"] = True
@@ -297,6 +313,9 @@ def parse_form4_xml(
             "reporting_owner_cik": owner_cik,
             "reporting_owner_name": owner_name,
             "filing_date": filing_date,
+            "period_of_report": _text(root, "periodOfReport"),
+            "document_type": _text(root, "documentType"),
+            "reporting_owner_count": len(_children(root, "reportingOwner")),
             "source_url": source_url,
             "xml_url": xml_url,
             "document_hash": document_hash(raw_text),
@@ -314,8 +333,12 @@ def stage_form4_shadow(
     accession_number: str | None = None,
     source_url: str | None = None,
     xml_url: str | None = None,
+    filing_date: date | None = None,
 ) -> dict[str, Any]:
-    parsed = parse_form4_xml(xml_text, accession_number=accession_number, source_url=source_url, xml_url=xml_url, db=db)
+    # Legacy helper writes to public profile tables. New collectors must use
+    # direct_feed_documents instead until their reconciliation is approved.
+    require_selected_source(db, 'sec_form4', 'fmp')
+    parsed = parse_form4_xml(xml_text, accession_number=accession_number, source_url=source_url, xml_url=xml_url, filing_date=filing_date, db=db)
     filing_payload = parsed["filing"]
     filing = db.execute(
         select(SecForm4Filing)
@@ -364,6 +387,7 @@ def stage_form4_shadow(
 
 
 def promote_form4_shadow_events(db: Session, *, limit: int = 100) -> dict[str, int]:
+    require_selected_source(db, 'sec_form4', 'fmp')
     rows = db.execute(
         select(InsiderTransactionNormalized)
         .where(InsiderTransactionNormalized.is_duplicate.is_(False))

@@ -14,6 +14,7 @@ from app.services.congress_assets import classify_congress_disclosure_asset
 from app.utils.symbols import canonical_symbol
 
 CONGRESS_PARSER_VERSION = "official_congress_v1"
+CONGRESS_ROW_PARSER_VERSION = "official_congress_rows_v2"
 _SANDISK_ISSUER_RE = re.compile(r"\bSAN\s*DISK\b|\bSANDISK\b", re.IGNORECASE)
 _ALLSTATE_ISSUER_RE = re.compile(r"\bALLSTATE\b", re.IGNORECASE)
 
@@ -175,6 +176,24 @@ def classify_congress_asset_type(
     issuer_name: str | None,
     asset_type: str | None,
 ) -> str:
+    # An option reports the underlying stock's ticker. Preserve the explicit
+    # instrument classification before any ticker-based stock fallback.
+    declared_type = (asset_type or "").strip().lower()
+    if declared_type == 'unresolved':
+        return 'unresolved'
+    if declared_type in {"op", "option", "options", "stock option", "stock options"}:
+        return "option"
+    explicit_types = {'corporate bond': 'corporate_bond', 'municipal bond': 'municipal_bond',
+                      'corporate_bond': 'corporate_bond', 'municipal_bond': 'municipal_bond',
+                      'corporate_debt': 'corporate_debt',
+                      'mutual fund': 'mutual_fund', 'mutual_fund': 'mutual_fund',
+                      'etf': 'etf', 'exchange traded fund': 'etf', 'etn': 'etn',
+                      'private_fund': 'private_fund', 'private_stock': 'private_stock',
+                      'business_interest': 'business_interest', 'investment_interest': 'investment_interest',
+                      'asset_backed_security': 'asset_backed_security',
+                      'non-public stock': 'private_stock', 'other': 'other'}
+    if declared_type in explicit_types:
+        return explicit_types[declared_type]
     classification = classify_congress_disclosure_asset(
         security_description=security_name or issuer_name,
         asset_class=asset_type,
@@ -186,12 +205,16 @@ def classify_congress_asset_type(
         if classification.instrument_type == "crypto":
             return "crypto"
         return classification.instrument_type or classification.asset_class or "non_equity"
+    if declared_type == 'government_security':
+        return 'government_security'
+    if declared_type in {'stock', 'stocks'}:
+        return 'stock'
     text = " ".join([asset_type or "", security_name or "", issuer_name or ""]).lower()
     if "treasury" in text or "t-bill" in text or "bill" in text and "u.s" in text:
         return "treasury"
     if "exchange traded fund" in text or " etf" in text:
         return "etf"
-    if (raw_symbol or "").strip():
+    if (raw_symbol or "").strip().upper() not in {'', '--', 'N/A'}:
         return "stock"
     if "private" in text:
         return "private"
@@ -199,6 +222,15 @@ def classify_congress_asset_type(
 
 
 def congress_transaction_hash(payload: dict[str, Any]) -> str:
+    if payload.get('parser_version') == CONGRESS_ROW_PARSER_VERSION:
+        # New direct-source rows have a verified document row identity. Keep
+        # lots distinct and identity stable when symbols/member IDs are enriched.
+        # Legacy records retain their original hash and require reconciliation.
+        parts = [CONGRESS_ROW_PARSER_VERSION, payload.get('chamber'),
+                 payload.get('filing_id'), payload.get('source_line_ref')]
+        if not all(parts):
+            raise ValueError('Direct Congress row identity is incomplete')
+        return congress_source_hash('|'.join(str(part) for part in parts))
     parts = [
         payload.get("filing_id"),
         payload.get("chamber"),
@@ -243,7 +275,8 @@ def normalize_congress_transaction(
     issuer_name = _as_str(row.get("issuer_name") or row.get("issuerName") or row.get("assetDescription") or row.get("company"))
     security_name = _as_str(row.get("security_name") or row.get("securityName") or row.get("asset") or row.get("description"))
     asset_type_raw = _as_str(row.get("asset_type") or row.get("assetType") or row.get("asset_class"))
-    transaction_type_raw = _as_str(row.get("transaction_type") or row.get("transactionType") or row.get("type"))
+    transaction_type_raw = _as_str(row.get("transaction_type_raw") or row.get("transaction_type") or row.get("transactionType") or row.get("type"))
+    transaction_type = _as_str(row.get("transaction_type") or row.get("transactionType") or row.get("type"))
     amount_range_raw = _as_str(row.get("amount") or row.get("amount_range") or row.get("amountRange"))
     amount_low, amount_high = parse_amount_range(amount_range_raw)
     ticker_normalized, symbol_status = normalize_congress_symbol(ticker_raw, issuer_name or security_name, db)
@@ -272,7 +305,7 @@ def normalize_congress_transaction(
         "asset_type_raw": asset_type_raw,
         "asset_type_normalized": asset_type_normalized,
         "transaction_type_raw": transaction_type_raw,
-        "transaction_type_normalized": normalize_congress_transaction_type(transaction_type_raw),
+        "transaction_type_normalized": normalize_congress_transaction_type(transaction_type or transaction_type_raw),
         "amount_range_raw": amount_range_raw,
         "amount_low": amount_low,
         "amount_high": amount_high,
@@ -281,7 +314,7 @@ def normalize_congress_transaction(
         "source_line_ref": _as_str(row.get("source_line_ref") or row.get("line") or row.get("row")),
         "symbol_resolution_status": symbol_status,
         "parser_confidence": 0.9 if tx_date and (ticker_normalized or issuer_name or security_name) else 0.55,
-        "parser_version": CONGRESS_PARSER_VERSION,
+        "parser_version": CONGRESS_ROW_PARSER_VERSION if row.get('parser_version') == CONGRESS_ROW_PARSER_VERSION else CONGRESS_PARSER_VERSION,
         "amendment_flag": bool(row.get("amendment") or row.get("amendment_flag") or row.get("isAmendment")),
     }
     normalized["normalized_hash"] = congress_transaction_hash(normalized)
@@ -396,68 +429,5 @@ def stage_congress_disclosure_shadow(
 
 
 def promote_congress_shadow_events(db: Session, *, limit: int = 100) -> dict[str, int]:
-    rows = db.execute(
-        select(CongressTransactionNormalized)
-        .where(CongressTransactionNormalized.is_duplicate.is_(False))
-        .where(CongressTransactionNormalized.ticker_normalized.is_not(None))
-        .order_by(CongressTransactionNormalized.id.asc())
-        .limit(limit)
-    ).scalars().all()
-    inserted = skipped = 0
-    for row in rows:
-        existing = db.execute(
-            select(Event.id)
-            .where(Event.source_provider == row.source_provider)
-            .where(Event.source_filing_id == row.normalized_hash)
-            .limit(1)
-        ).scalar_one_or_none()
-        if existing is not None:
-            skipped += 1
-            continue
-        event_date = row.disclosure_date or row.transaction_date or datetime.now(timezone.utc).date()
-        event_dt = datetime(event_date.year, event_date.month, event_date.day, tzinfo=timezone.utc)
-        payload = {
-            "external_id": f"official_congress:{row.normalized_hash}",
-            "source_provider": row.source_provider,
-            "source_filing_id": row.filing_id,
-            "document_url": row.document_url,
-            "transaction_date": row.transaction_date.isoformat() if row.transaction_date else None,
-            "disclosure_date": row.disclosure_date.isoformat() if row.disclosure_date else None,
-            "owner_type": row.owner_normalized,
-            "transaction_type": row.transaction_type_normalized,
-            "amount_range_min": row.amount_low,
-            "amount_range_max": row.amount_high,
-            "symbol": row.ticker_normalized,
-            "issuer_name": row.issuer_name_raw,
-            "security_name": row.security_name_raw,
-            "parser_version": CONGRESS_PARSER_VERSION,
-            "normalized_hash": row.normalized_hash,
-            "shadow_promoted": True,
-        }
-        db.add(
-            Event(
-                event_type="congress_trade",
-                ts=event_dt,
-                event_date=event_dt,
-                symbol=row.ticker_normalized,
-                source=row.source_provider,
-                member_name=row.member_name_raw,
-                member_bioguide_id=row.member_id,
-                chamber=row.chamber,
-                trade_type=row.transaction_type_normalized,
-                transaction_type=row.transaction_type_raw,
-                amount_min=int(row.amount_low) if row.amount_low is not None else None,
-                amount_max=int(row.amount_high) if row.amount_high is not None else None,
-                impact_score=0.0,
-                payload_json=json.dumps(payload, sort_keys=True),
-                data_source="congress",
-                source_provider=row.source_provider,
-                source_filing_id=row.normalized_hash,
-                source_document_url=row.document_url,
-                parser_version=CONGRESS_PARSER_VERSION,
-                provider_priority=10,
-            )
-        )
-        inserted += 1
-    db.flush()
-    return {"inserted": inserted, "skipped": skipped}
+    """Legacy row-only promotion lacks source population and writer ownership."""
+    raise ValueError('Use the guarded direct Congress publisher with captured source documents')

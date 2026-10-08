@@ -1,0 +1,18 @@
+[
+  {
+    "symbol": "MSFT",
+    "company_website": "https://www.microsoft.com/",
+    "investor_website": "https://www.microsoft.com/en-us/Investor",
+    "verification": "Official Microsoft FY2026 Q2 investor event page, reviewed 2026-10-07. Initial parser fixture, not a current-universe coverage claim.",
+    "documents": [
+      {
+        "url": "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q2",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "published_at": "2026-01-28",
+        "period_pattern": "FY\\s*2026\\s*Q2|second quarter.*2026"
+      }
+    ]
+  }
+]

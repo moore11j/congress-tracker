@@ -2,6 +2,10 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-08: Scoped shadow collection release prepared
+
+Owner requests work through reliable FMP shutdown. Prepared a separate release checkout from b7989115 with eight isolated tables and bounded hourly official House/Senate/Form 4/13F collection. Public publishers remain disabled; existing FMP delivery unchanged. 100 focused tests, repeat schema check and Fly configuration validation pass; an unchanged legacy ingestion test has a collection syntax error. [Report](direct-feed-shadow-rollout-2026-10-08.md). No deployment or provider/billing switch at this checkpoint. Next: verify live scheduled receipts, then finish source publication and fresh price/ranking/alert coverage.
+
 ## 2026-10-04 — Approved strategy deployment and operational repair
 
 - **Request:** owner approved the reviewed strategy release and live cap/price/delivery verification.

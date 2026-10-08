@@ -209,3 +209,7 @@ Recommendation: preserve R1/R2 foundations, favor the compact fundamentals exten
 Move an item to **complete** only with acceptance evidence, relevant regression checks, effective mobile QA where needed, and preserved source/access/date semantics. Record tested revision and deployment evidence separately. Historical reports contain known suite failures; do not describe the whole project as green without a current full run.
 
 After each relevant prompt, update affected roadmap statuses and the memory/log. Preserve dated reports as history and explain superseding evidence rather than copying old “not deployed” or “not implemented” headers into current status.
+
+## R7: FMP replacement and operating cost, October 8
+
+**Partial, shadow rollout prepared.** Owner authorizes continuing through reliable FMP shutdown, selects Massive personal Stocks (Starter pending), and excludes Quiver. [Scoped release](direct-feed-shadow-rollout-2026-10-08.md) adds isolated hourly official collection with public publishers disabled. It is not yet deployed. Retain FMP until source publication, fresh prices/fundamentals/rankings and no-send monitoring/watchlist/daily/weekly parity pass. Then verify zero FMP requests and billing cancellation before the approximate November 1 monthly renewal.
