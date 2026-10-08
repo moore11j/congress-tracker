@@ -391,6 +391,16 @@ test("portfolio lookback controls are capped at 3Y and omit All", () => {
   assert.doesNotMatch(memberPage, />All</);
 });
 
+test("withdrawn source labels survive every marker without changing recorded results", () => {
+  const portfolio = persistedPortfolioFixture();
+  const before = normalizeMemberPortfolioEventMarkers(portfolio);
+  portfolio.positions.forEach((position) => { position.source_status = "withdrawn_duplicate"; });
+  const after = normalizeMemberPortfolioEventMarkers(portfolio);
+  assert.ok(after.every((marker) => marker.source_status === "withdrawn_duplicate"));
+  const withoutStatus = ({ source_status, ...marker }) => marker;
+  assert.deepEqual(after.map(withoutStatus), before.map(withoutStatus));
+});
+
 test("member portfolio simulation is gated without hiding public member analytics", () => {
   assert.match(memberAnalyticsClient, /getEntitlements\(undefined, \{ source: "MemberAnalytics" \}\)/);
   assert.match(memberAnalyticsClient, /hasEntitlement\(entitlements, "backtesting"\)/);

@@ -6112,6 +6112,8 @@ export type MemberPortfolioPoint = {
 };
 
 export type MemberPortfolioPosition = {
+  source_status?: string | null;
+  canonical_source_event_id?: string | null;
   source_event_id: number | null;
   symbol: string | null;
   side: string | null;

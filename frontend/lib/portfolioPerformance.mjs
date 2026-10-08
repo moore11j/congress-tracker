@@ -145,6 +145,7 @@ export function normalizeMemberPortfolioEventMarkers(portfolio) {
         price: null,
         return_pct: null,
         simulation_status: "skipped",
+        source_status: position.source_status ?? null,
         skip_reason: position.skip_reason ?? null,
         skip_category: position.skip_category ?? null,
       });
@@ -165,6 +166,7 @@ export function normalizeMemberPortfolioEventMarkers(portfolio) {
         price: entryPrice,
         return_pct: finiteNumber(position.return_pct),
         simulation_status: "simulated",
+        source_status: position.source_status ?? null,
         skip_reason: null,
         skip_category: null,
         source_type: position.source_type ?? null,
@@ -186,6 +188,7 @@ export function normalizeMemberPortfolioEventMarkers(portfolio) {
         price: exitPrice,
         return_pct: finiteNumber(position.return_pct),
         simulation_status: "simulated",
+        source_status: position.source_status ?? null,
         skip_reason: null,
         skip_category: null,
         source_type: position.source_type ?? null,

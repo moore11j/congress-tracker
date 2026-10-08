@@ -60,6 +60,58 @@ def apply(setup):
     return repair.rehearse_duplicate_repair(db, document, [], expected_before_hash=before)
 
 
+def test_readonly_inspection_binds_state_and_jobs_without_locks_or_writes(setup, monkeypatch):
+    from sqlalchemy import event as sql_event
+    db, document, before = setup
+    add_pnl_job(db)
+    original_jobs = repair.linked_jobs
+    def read_jobs(session, ids, *, lock):
+        assert lock is False
+        return original_jobs(session, ids, lock=False)
+    monkeypatch.setattr(repair, 'linked_jobs', read_jobs)
+    statements = []
+    def check_statement(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+        assert statement.lstrip().upper().startswith('SELECT'), statement
+    sql_event.listen(db.get_bind(), 'before_cursor_execute', check_statement)
+    try:
+        result = repair.inspect_duplicate_repair(db, document, [])
+    finally:
+        sql_event.remove(db.get_bind(), 'before_cursor_execute', check_statement)
+    assert statements
+    assert result['status'] == 'planned'
+    assert result['before_hash'] == before
+    assert result['source_hash'] == document['content_hash']
+    assert result['retired_jobs'] == 1
+    assert len(result['retire_events']) == 10
+    assert len(result['retire_transactions']) == 13
+    assert result['database_writes'] == result['emails'] == 0
+    assert not db.new and not db.dirty and not db.deleted
+    monkeypatch.setattr(repair, 'linked_jobs', original_jobs)
+    applied = repair.rehearse_duplicate_repair(db, document, [],
+        expected_before_hash=result['before_hash'], expected_jobs_hash=result['jobs_hash'])
+    assert applied['retired_jobs'] == 1
+
+
+def test_production_apply_rejects_sqlite_before_changing_state(setup):
+    db, document, before = setup
+    with pytest.raises(ValueError, match='requires PostgreSQL'):
+        repair.apply_reviewed_duplicate_repair(db, document, [], expected_before_hash=before,
+            expected_jobs_hash='reviewed', expected_generation=1)
+    assert db.scalar(select(func.count()).select_from(Event)) == 15
+
+
+def test_production_repair_cli_is_disabled_before_reading_files_or_database(monkeypatch, capsys):
+    import sys
+    from app.jobs import repair_direct_congress as job
+    monkeypatch.setenv('DIRECT_CONGRESS_REPAIR_ENABLED', 'false')
+    monkeypatch.setattr(sys, 'argv', ['repair_direct_congress', '--apply', '--document-id', '1',
+        '--source-sha256', 'absent', '--directory', 'absent.json', '--directory-sha256', 'absent'])
+    monkeypatch.setattr(job, 'SessionLocal', lambda: (_ for _ in ()).throw(AssertionError('No DB access')))
+    job.main()
+    assert json.loads(capsys.readouterr().out) == {'status': 'disabled'}
+
+
 def test_archival_repair_preserves_canonical_ids_and_recorded_portfolio(setup):
     db, document, _ = setup
     positions = list(db.scalars(select(ReplicatedPortfolioPosition)))

@@ -1,4 +1,4 @@
-"""Source-bound duplicate repair rehearsal. Production application is disabled.
+"""Source-bound duplicate repair with an explicit paused-writer apply path.
 
 Only a complete, uniquely identified stock filing with verified surviving
 trade/event pairs is eligible. Archives preserve every removed public record.
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 
-from sqlalchemy import Text, UniqueConstraint, select, func, or_, cast
+from sqlalchemy import Text, UniqueConstraint, select, func, or_, cast, text, literal_column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,10 +76,11 @@ def _evidence_hash(db, url):
     return _digest(evidence)
 
 
-def linked_jobs(db, event_ids):
-    return list(db.scalars(select(DataEnrichmentJob).where(
+def linked_jobs(db, event_ids, *, lock=True):
+    query = select(DataEnrichmentJob).where(
         DataEnrichmentJob.window_key.in_([f'event:{identifier}' for identifier in event_ids]))
-        .order_by(DataEnrichmentJob.id).with_for_update().execution_options(populate_existing=True)))
+    query = query.order_by(DataEnrichmentJob.id).execution_options(populate_existing=True)
+    return list(db.scalars(query.with_for_update() if lock else query))
 
 
 def _verified_queued_jobs(jobs, events):
@@ -217,6 +218,27 @@ def plan_duplicate_repair(parsed, member, state):
         'retire_events': sorted(retire_events, key=lambda row: row['id']), 'before_hash': _digest(state)}
 
 
+def postgres_reference_expressions():
+    payload = cast(Event.payload_json, JSONB)
+    # The final Python identity check still validates the official host/path.
+    # The indexed basename is only a candidate lookup, including URL variants.
+    # Fixed literals keep prepared/generic plans compatible with the indexes.
+    empty = literal_column("''")
+    effective_url = func.coalesce(func.nullif(Event.source_document_url, empty), payload[literal_column("'document_url'")].astext)
+    document_key = func.lower(func.regexp_replace(func.rtrim(effective_url, literal_column("'/'")), literal_column("'^.*/'"), empty))
+    return payload[literal_column("'transaction_id'")].astext, document_key
+
+
+def postgres_lookup_index_statements(dialect, *, concurrent=True):
+    names = ('ix_events_congress_transaction_ref', 'ix_events_congress_document_ref')
+    result = []
+    for name, expression in zip(names, postgres_reference_expressions()):
+        sql = str(expression.compile(dialect=dialect, compile_kwargs={'literal_binds': True, 'include_table': False}))
+        modifier = 'CONCURRENTLY ' if concurrent else ''
+        result.append((name, f'CREATE INDEX {modifier}{name} ON events (({sql})) WHERE ({sql}) IS NOT NULL'))
+    return result
+
+
 def filing_state(db, url):
     identity = document_identity(url)
     if identity is None:
@@ -230,14 +252,22 @@ def filing_state(db, url):
         raise ValueError('Filing transaction population exceeds repair scope')
     members = list(db.scalars(select(Member).where(Member.id.in_({r.member_id for r in tx} | {f.member_id for f in filings})).order_by(Member.id)))
     tx_ids = {r.id for r in tx}
-    transaction_reference = (func.json_extract(Event.payload_json, '$.transaction_id').in_(tx_ids)
-        if db.get_bind().dialect.name == 'sqlite' else cast(Event.payload_json, JSONB)['transaction_id'].astext.in_([str(i) for i in tx_ids]))
+    if db.get_bind().dialect.name == 'sqlite':
+        transaction_reference = func.json_extract(Event.payload_json, '$.transaction_id').in_(tx_ids)
+        document_reference = or_(Event.source_document_url.contains(identity[-1]), Event.payload_json.contains(identity[-1]))
+    else:
+        transaction_key, document_key = postgres_reference_expressions()
+        transaction_reference = transaction_key.in_([str(i) for i in tx_ids])
+        document_reference = document_key == (identity[-1] + '.pdf' if identity[0] == 'house' else identity[-1])
     events = list(db.scalars(select(Event).where(or_(
         Event.member_bioguide_id.in_([m.bioguide_id for m in members]), transaction_reference,
-        Event.source_document_url.contains(identity[-1]), Event.payload_json.contains(identity[-1])))
-        .order_by(Event.id).limit(10001)))
+        document_reference))
+        .limit(10001)))
     if len(events) > 10000:
         raise ValueError('Member event population exceeds repair scope')
+    # Ordering before the bound can force a full primary-key traversal across
+    # unrelated events. Sort the complete bounded result for stable hashes.
+    events.sort(key=lambda event: event.id)
     selected_events = []
     for event in events:
         payload = json.loads(event.payload_json or '{}')
@@ -254,6 +284,83 @@ def rehearse_duplicate_repair(db, document, directory, *, expected_before_hash, 
     bind = db.get_bind()
     if bind.dialect.name != 'sqlite' or bind.url.database != ':memory:':
         raise ValueError('Congress repair currently requires in-memory SQLite')
+    return _repair_duplicate_records(db, document, directory, expected_before_hash=expected_before_hash,
+                                     expected_jobs_hash=expected_jobs_hash)
+
+
+def inspect_duplicate_repair(db, document, directory):
+    """Read-only plan; callers can enforce a PostgreSQL read-only transaction."""
+    return _repair_duplicate_records(db, document, directory, inspect_only=True)
+
+
+def _lock_repair_tables(db):
+    # Public reads continue. NOWAIT aborts rather than queueing behind active
+    # writers; table locks cover inserts as well as existing row updates.
+    from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision
+    models = (Member, Security, Filing, Transaction, Event, TradeOutcome,
+              DataEnrichmentJob, MonitoringAlert, ResearchEvidenceEvent,
+              CongressRepairArchive, CongressRowBinding, CongressRepairReceipt,
+              DirectFeedDocument, DirectFeedRevision)
+    preparer = db.get_bind().dialect.identifier_preparer
+    tables = ', '.join(preparer.format_table(model.__table__) for model in models)
+    db.execute(text(f'LOCK TABLE {tables} IN SHARE ROW EXCLUSIVE MODE NOWAIT'))
+
+
+def apply_reviewed_duplicate_repair(db, document, directory, *, expected_before_hash,
+                                   expected_jobs_hash, expected_generation):
+    """Commit one reviewed repair while its canonical feed remains paused.
+
+    The caller must use a fresh session. This function never selects a source,
+    resumes publication, sends mail or changes recorded portfolio history.
+    """
+    from app.services.feed_source_control import FeedSourceControl, lock_feed
+    from app.services.feed_cache_epoch import bump_feed_events_epoch
+    from app.services.direct_feed_store import DirectFeedDocument
+    if db.get_bind().dialect.name != 'postgresql':
+        raise ValueError('Production repair requires PostgreSQL')
+    if db.in_transaction() or db.new or db.dirty or db.deleted:
+        raise ValueError('Production repair requires a fresh session')
+    if document['feed'] not in {'house_ptr', 'senate_ptr'}:
+        raise ValueError('Repair requires an official Congress feed')
+    if not expected_before_hash or not expected_jobs_hash:
+        raise ValueError('Both reviewed population hashes are required')
+    with db.begin():
+        db.execute(text("SET LOCAL lock_timeout = '100ms'"))
+        db.execute(text("SET LOCAL statement_timeout = '15s'"))
+        lock_feed(db, document['feed'])
+        control = db.get(FeedSourceControl, document['feed'], populate_existing=True)
+        if control is None or control.provider != 'paused' or control.generation != expected_generation:
+            raise ValueError('Repair requires the reviewed paused source generation')
+        _lock_repair_tables(db)
+        staged = db.get(DirectFeedDocument, document['document_id'], populate_existing=True)
+        if (staged is None or staged.feed != document['feed']
+                or staged.status not in {'parsed', 'quarantined'}
+                or staged.content_hash != document['content_hash']
+                or dumps(json.loads(staged.metadata_json)) != dumps(document['metadata'])):
+            raise ValueError('Staged source changed since reviewed repair')
+        result = _repair_duplicate_records(db, document, directory,
+            expected_before_hash=expected_before_hash, expected_jobs_hash=expected_jobs_hash)
+        if result['status'] == 'rehearsed':
+            from app.services.direct_congress_reconciliation import reconcile_direct_congress
+            _, parsed, reasons = parse_document(document['feed'], document['raw'], document['metadata'])
+            resolved = resolve_direct_member(document['metadata'], document['feed'].split('_')[0], directory)
+            state = filing_state(db, document['metadata']['url'])
+            reconciliation = reconcile_direct_congress(parsed, resolved['member'],
+                **{key: state[key] for key in ('filings', 'transactions', 'events', 'members', 'securities')})
+            if reasons or reconciliation['status'] != 'existing':
+                raise ValueError('Repaired filing failed exact source reconciliation')
+            # Removing a canonical mismatch must also release its staging hold.
+            # Keep the original fetch time: this is a repair, not a new fetch.
+            staged.status, staged.error = 'parsed', None
+            staged.parsed_json = dumps(parsed)
+            staged.reconciliation_json = dumps(reconciliation)
+            bump_feed_events_epoch(reason='source_bound_congress_duplicate_repair', db=db)
+            result = {**result, 'status': 'applied'}
+    return result
+
+
+def _repair_duplicate_records(db, document, directory, *, expected_before_hash=None,
+                              expected_jobs_hash=None, inspect_only=False):
     if db.new or db.dirty or db.deleted:
         raise ValueError('Repair session has unrelated pending changes')
     if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
@@ -273,7 +380,7 @@ def rehearse_duplicate_repair(db, document, directory, *, expected_before_hash, 
                 or recorded['evidence_hash'] != _evidence_hash(db, metadata['url'])):
             raise ValueError('Previously repaired source or canonical state changed')
         return {'status': 'existing', 'inserted_events': 0, 'emails': 0}
-    if _digest(state) != expected_before_hash:
+    if not inspect_only and _digest(state) != expected_before_hash:
         raise ValueError('Canonical population changed since reviewed repair plan')
     plan = plan_duplicate_repair(parsed, resolved['member'], state)
     if plan['status'] != 'planned':
@@ -287,10 +394,14 @@ def rehearse_duplicate_repair(db, document, directory, *, expected_before_hash, 
     if db.scalar(select(func.count()).where(ResearchEvidenceEvent.related_event_id.in_(
             [str(i) for i in retired_ids] + [f'event:{i}' for i in retired_ids]))):
         return {'status': 'held', 'reason': 'Retired event is referenced by research evidence'}
-    jobs = linked_jobs(db, retired_ids)
+    jobs = linked_jobs(db, retired_ids, lock=not inspect_only)
     queued = _verified_queued_jobs(jobs, {row['id']: row for row in state['events']})
     if queued is None:
         return {'status': 'held', 'reason': 'Retired event has running or unverified enrichment jobs'}
+    if inspect_only:
+        return {**plan, 'source_hash': document['content_hash'],
+                'jobs_hash': _digest([_record(job) for job in jobs]),
+                'retired_jobs': len(queued), 'database_writes': 0, 'emails': 0}
     if queued and expected_jobs_hash is None:
         return {'status': 'held', 'reason': 'Queued job retirement requires its reviewed population hash'}
     if expected_jobs_hash is not None and _digest([_record(job) for job in jobs]) != expected_jobs_hash:

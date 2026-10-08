@@ -8,6 +8,7 @@ import { getSvgLocalPoint } from "@/lib/chartPointer";
 type Metric = "return" | "alpha";
 
 export type MemberPortfolioEventMarker = {
+  source_status?: string | null;
   id: string;
   date: string;
   symbol: string;
@@ -393,6 +394,11 @@ export function PerformanceChart({
 
   return (
     <div className="mt-3 rounded-2xl border border-white/10 bg-[#07111d] p-3">
+      {events.some((event) => event.source_status === "withdrawn_duplicate") ? (
+        <p className="mb-3 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2 text-sm text-amber-100/80">
+          This saved simulation includes source records later identified as duplicates. Its recorded returns have not been recalculated.
+        </p>
+      ) : null}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
           <span className="inline-flex items-center gap-2">
@@ -538,7 +544,7 @@ export function PerformanceChart({
             <div className="mt-3 border-t border-white/10 pt-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Events on this marker</p>
               {activeEvents.length > 0 ? (
-                <div className="mt-2 max-h-32 space-y-2 overflow-hidden">
+                <div className="mt-2 max-h-32 space-y-2 overflow-y-auto">
                   {activeEvents.slice(0, 4).map((event) => (
                     <div key={event.id} className="rounded border border-white/10 bg-white/[0.035] px-2 py-1.5">
                       <div className="flex items-center justify-between gap-3">
@@ -552,6 +558,11 @@ export function PerformanceChart({
                         {event.price != null ? ` @ ${money(event.price)}` : ""}
                         {event.return_pct != null ? ` / ${pct(event.return_pct)}` : ""}
                       </p>
+                      {event.source_status === "withdrawn_duplicate" ? (
+                        <p className="mt-1 text-[11px] text-amber-200/85">
+                          Source record later identified as a duplicate. This historical result is unchanged.
+                        </p>
+                      ) : null}
                       {event.simulation_status === "skipped" ? (
                         <p className="mt-1 text-[11px] text-amber-200/85">
                           Disclosed, not simulated: {formatSkipReason(event.skip_category ?? event.skip_reason)}
