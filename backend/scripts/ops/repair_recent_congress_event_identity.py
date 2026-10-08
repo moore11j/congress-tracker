@@ -306,6 +306,10 @@ def _refresh_outcomes(db, events: list[Event]) -> dict[str, int]:
 def run_repair(*, since_report_date: date, apply: bool, limit: int = 500) -> dict[str, Any]:
     db = SessionLocal()
     try:
+        if apply:
+            from app.services.feed_source_control import require_selected_source
+            for feed in ('house_ptr', 'senate_ptr'):
+                require_selected_source(db, feed, 'fmp')
         canonical_map, historical_map, reviewed_alias_map = _build_issuer_resolution_maps(db)
         events = db.execute(
             select(Event)

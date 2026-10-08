@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.feed_source_control import FeedSourceControl
+
 import json
 import sys
 from datetime import date, datetime
@@ -15,7 +17,7 @@ from app.backfill_events_from_trades import (
 )
 from app.db import Base
 from app.ingest_house import upsert_house_transaction_from_row
-from app.models import Event, Filing, Member, Security, TradeOutcome, Transaction
+from app.models import Event, Filing, Member, Security, TradeOutcome, Transaction, SymbolResolutionOverride
 from scripts.ops import backfill_missing_congress_multi_trade_events as ops
 from scripts.ops import repair_recent_congress_event_identity as identity_ops
 
@@ -30,6 +32,8 @@ def _session_factory():
     Base.metadata.create_all(
         bind=engine,
         tables=[
+            FeedSourceControl.__table__,
+            SymbolResolutionOverride.__table__,
             Member.__table__,
             Security.__table__,
             Filing.__table__,

@@ -243,7 +243,7 @@ def test_latest_ingest_metrics_split_parse_failures(monkeypatch):
             pass
 
     monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
-    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(_engine()))
     monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [{"filingDate": "2026-07-01"}])
 
     result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
@@ -268,7 +268,7 @@ def test_latest_ingest_default_start_page_zero_preserves_fetch_window(monkeypatc
         return [{"filingDate": "2026-07-01"}]
 
     monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
-    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(_engine()))
     monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
 
     result = ingest_module.ingest_latest_institutional_filings(pages=2, limit=25, max_filings=1)
@@ -292,7 +292,7 @@ def test_latest_ingest_start_page_fetches_only_requested_page(monkeypatch):
         return [{"filingDate": "2026-07-01"}]
 
     monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
-    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(_engine()))
     monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
 
     result = ingest_module.ingest_latest_institutional_filings(start_page=3, pages=1, limit=25, max_filings=1)
@@ -315,7 +315,7 @@ def test_latest_ingest_start_page_and_pages_fetches_contiguous_window(monkeypatc
         return [{"filingDate": "2026-07-01"}]
 
     monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
-    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(_engine()))
     monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
 
     result = ingest_module.ingest_latest_institutional_filings(start_page=3, pages=2, limit=25, max_filings=1)
@@ -814,7 +814,7 @@ def test_latest_ingest_stops_window_on_database_error(monkeypatch):
         raise OperationalError("select 1", {}, Exception("db closed"))
 
     monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
-    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(_engine()))
     monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
     monkeypatch.setattr(ingest_module, "upsert_institutional_holder", fail_holder)
 

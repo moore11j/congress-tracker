@@ -23,6 +23,19 @@ from app.services.congress_assets import (
 )
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_event
 from app.utils.symbols import canonical_symbol
+from app.services.feed_source_control import require_selected_source, FeedSourceMismatch
+
+
+def _legacy_congress_chambers(db):
+    allowed = set()
+    # Consistent ordering for jobs that acquire both transaction locks.
+    for chamber in ('house', 'senate'):
+        try:
+            require_selected_source(db, f'{chamber}_ptr', 'fmp')
+            allowed.add(chamber)
+        except FeedSourceMismatch:
+            pass
+    return allowed
 
 logger = logging.getLogger(__name__)
 
@@ -508,7 +521,8 @@ def insert_missing_congress_events_from_transactions(
     recent_days: int | None = None,
     since_report_date: date | None = None,
 ) -> int:
-    congress_sources = ("house_fmp", "senate_fmp")
+    chambers = _legacy_congress_chambers(db)
+    congress_sources = tuple(f'{chamber}_fmp' for chamber in chambers)
     if recent_days is not None:
         since_report_date = datetime.now(timezone.utc).date() - timedelta(days=max(recent_days, 0))
     q = (
@@ -586,7 +600,10 @@ def repair_events(
         q = q.limit(limit)
 
     scanned = corrected = skipped = missing_source = ts_updated = 0
+    legacy_chambers = _legacy_congress_chambers(db)
     for event in db.execute(q).scalars():
+        if event.event_type == 'congress_trade' and event.chamber not in legacy_chambers:
+            continue
         scanned += 1
         try:
             payload = json.loads(event.payload_json or "{}")
@@ -798,6 +815,8 @@ def run_backfill(
             return {"scanned": 0, "inserted": 0, "skipped": 0}
 
         if replace:
+            if _legacy_congress_chambers(db) != {'house', 'senate'}:
+                raise FeedSourceMismatch('Legacy replacement cannot delete a directly owned Congress feed')
             deleted = (
                 db.query(Event)
                 .filter(Event.event_type == "congress_trade")

@@ -146,7 +146,7 @@ def test_job_state_initialization_defaults_disabled(job_env):
         assert state.enabled is False
         assert state.cursor_page == 9
         assert state.pages_per_run == 1
-    assert state.limit == 5
+        assert state.limit == 5
         assert state.max_filings_per_run == 5
     finally:
         db.close()

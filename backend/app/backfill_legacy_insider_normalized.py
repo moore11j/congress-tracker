@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.feed_source_control import require_selected_source
+
 import argparse
 import hashlib
 import json
@@ -52,6 +54,14 @@ def _float_value(value: Any) -> float | None:
             return float(cleaned)
         except ValueError:
             return None
+    return None
+
+
+def _first_number(*values: Any) -> float | None:
+    for value in values:
+        number = _float_value(value)
+        if number is not None:
+            return number
     return None
 
 
@@ -141,8 +151,10 @@ def _build_normalized_payload(row: InsiderTransaction) -> tuple[dict[str, Any], 
     reporting_cik = normalize_cik(row.reporting_cik) or normalize_cik(first_text(payload, "reportingCik", "reporting_cik", "rptOwnerCik"))
     reporting_name = row.insider_name or first_text(payload, "reportingName", "reporting_name", "insider_name", "insiderName")
     relationship = _relationship(payload, row.role)
-    shares = _float_value(row.shares) or _float_value(first_text(payload, "securitiesTransacted", "shares", "transactionShares"))
-    price = _float_value(row.price) or _float_value(first_text(payload, "price", "transactionPrice"))
+    # Zero is disclosed data, not a missing value. Keep the legacy identity
+    # hash stable while fixing future normalized projections.
+    shares = _first_number(row.shares, *(payload.get(key) for key in ("securitiesTransacted", "shares", "transactionShares")))
+    price = _first_number(row.price, *(payload.get(key) for key in ("price", "transactionPrice")))
     value = shares * price if shares is not None and price is not None else None
     transaction_date = row.transaction_date or _parse_date_value(first_text(payload, "transactionDate", "transaction_date"))
     filing_date = row.filing_date or _parse_date_value(first_text(payload, "filingDate", "filing_date"))
@@ -233,6 +245,7 @@ def sync_insider_transaction_normalized(db, row: InsiderTransaction) -> bool:
     Share the backfill's stable hash so importing an existing raw trade repairs
     missing profile data without duplicating previously backfilled records.
     """
+    require_selected_source(db, 'sec_form4', 'fmp')
     filing_payload, normalized_payload = _build_normalized_payload(row)
     if not normalized_payload["ticker_normalized"]:
         return False
@@ -271,6 +284,8 @@ def backfill_legacy_insider_normalized(
         "max_id": max_id,
     }
     with SessionLocal() as db:
+        if apply:
+            require_selected_source(db, 'sec_form4', 'fmp')
         query = select(InsiderTransaction).order_by(InsiderTransaction.id.asc())
         if min_id is not None:
             query = query.where(InsiderTransaction.id >= min_id)
@@ -370,7 +385,8 @@ def backfill_legacy_insider_normalized(
         ]
         for chunk in _chunks(transaction_objects, batch_size):
             db.add_all(chunk)
-            db.commit()
+            db.flush()
+        db.commit()
     return report
 
 

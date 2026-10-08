@@ -74,6 +74,9 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- **2026-10-08: Canonical ownership release prepared:** [report](docs/feed-ownership-rollout-2026-10-08.md). Shared controls now cover legacy House/Senate/insider/institutional writers and reviewed backfills/manual repairs; all guarded publisher commands included but disabled. Added queue claim protection, truthful SEC digest labels, backend archive context and bundled checksum-bound 539-person Congress directory (33 resolution results identical). 437 focused checks plus one portfolio reader pass; one known baseline assertion excluded. Prepared only; next deploy/verify all workers and observe scheduled collection before source activation. FMP remains selected, Starter/price and fresh-product gates remain.
+
+
 - **2026-10-08: Corrected shadow collection deployed:** c2b97e80/workflow 37842927148 and prior dbf0b1b9 both successful; repeated additive migration, all four images and health/access checks verified. Live runtime Python 3.12.15/pypdf 6.19.0; two House failures fixed, one canonical mismatch held. Twelve source revisions/hash checks, immediate repeat unchanged, zero source selections/public writes. 109 focused checks plus earlier 21 SEC regressions pass. [Report](docs/direct-feed-shadow-rollout-2026-10-08.md). First actual hourly receipts/401 pending SEC filings and exceptions remain; Massive snapshot still 403 at 20:58 UTC. FMP on, billing unchanged, goal active. Next: scheduled source observation, complete publication/repair guards and fresh monitoring/ranking parity.
 
 

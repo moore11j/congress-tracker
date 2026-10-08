@@ -827,7 +827,11 @@ def process_data_enrichment_jobs(
             job_type_value = str(job_snapshot["job_type"])
             job_symbol = job_snapshot["symbol"]
             job_source = job_snapshot["source"]
-            job = db.get(DataEnrichmentJob, job_id)
+            # Re-read and lock at claim time. A queued row may have been
+            # retired since the initial snapshot; never revive a stale copy.
+            job = db.scalar(select(DataEnrichmentJob).where(
+                DataEnrichmentJob.id == job_id, DataEnrichmentJob.status == 'queued'
+            ).with_for_update(skip_locked=True).execution_options(populate_existing=True))
             if job is None or job.status != "queued":
                 skipped += 1
                 logger.info("data_enrichment_job_skipped id=%s reason=no_longer_queued", job_id)

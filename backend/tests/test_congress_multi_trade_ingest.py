@@ -14,6 +14,7 @@ from app.models import Event, Filing, GovernmentContractAction, Member, Security
 from app.routers.events import list_events, list_ticker_events
 from app.services.congress_assets import parse_treasury_details
 from app.services.congress_metadata import MemberMetadata
+from app.services.feed_source_control import FeedSourceControl
 from scripts.ops import reprocess_recent_non_equity_disclosures as reprocess_non_equity
 
 
@@ -41,6 +42,7 @@ def _session_factory():
     Base.metadata.create_all(
         bind=engine,
         tables=[
+            FeedSourceControl.__table__,
             Member.__table__,
             Security.__table__,
             SymbolResolutionOverride.__table__,

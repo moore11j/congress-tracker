@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.feed_source_control import canonical_writer
+
 import json
 import math
 import re
@@ -311,6 +313,7 @@ def parse_position(row: dict[str, Any]) -> InstitutionalPositionPayload | None:
     )
 
 
+@canonical_writer('sec_13f')
 def upsert_institutional_holder(db: Session, candidate: InstitutionalFilingCandidate) -> InstitutionalHolder:
     holder = db.get(InstitutionalHolder, candidate.cik)
     if holder is None:
@@ -392,6 +395,7 @@ def get_canonical_filing_for_holder_period(
     return _choose_canonical_filing(rows)
 
 
+@canonical_writer('sec_13f')
 def apply_institutional_filing_supersession(db: Session, filing: InstitutionalFiling) -> InstitutionalFiling:
     if filing.id is None:
         db.flush()
@@ -488,6 +492,7 @@ def _active_filing_ids_for_period(
     return [int(row[0]) for row in db.execute(query).all() if row[0] is not None]
 
 
+@canonical_writer('sec_13f')
 def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandidate) -> tuple[InstitutionalFiling, bool]:
     filing = None
     if candidate.accession_number:
@@ -536,6 +541,7 @@ def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandi
     return filing, created
 
 
+@canonical_writer('sec_13f')
 def upsert_positions_for_filing(
     db: Session,
     *,
@@ -701,6 +707,7 @@ def _reset_holder_period_changes_and_activity(db: Session, filing: Institutional
     return symbols
 
 
+@canonical_writer('sec_13f')
 def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False, holder_only: bool = False) -> dict[str, int]:
     _require_reconciled_amendment(filing)
     apply_institutional_filing_supersession(db, filing)
@@ -825,6 +832,7 @@ def _prior_positions_for_filing_symbols(
     return db.execute(query).scalars().all()
 
 
+@canonical_writer('sec_13f')
 def process_filing_changes_and_events_symbol_batch(
     db: Session,
     filing: InstitutionalFiling,
@@ -946,6 +954,7 @@ def process_filing_changes_and_events_symbol_batch(
     }
 
 
+@canonical_writer('sec_13f')
 def upsert_position_change(
     db: Session,
     *,
@@ -1094,6 +1103,7 @@ def is_material_change(
     return False
 
 
+@canonical_writer('sec_13f')
 def refresh_symbol_summary(
     db: Session,
     symbol: str,
@@ -1187,6 +1197,7 @@ def refresh_symbol_summary(
     return summary
 
 
+@canonical_writer('sec_13f')
 def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None) -> int:
     changes = db.execute(
         select(InstitutionalPositionChange).where(
@@ -1235,6 +1246,7 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
     return created
 
 
+@canonical_writer('sec_13f')
 def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None) -> int:
     activities = db.execute(
         select(InstitutionalActivityEvent).where(
@@ -2890,6 +2902,7 @@ def industry_summary_payload(db: Session, *, year: int | None = None, quarter: i
     }
 
 
+@canonical_writer('sec_13f')
 def upsert_holder_performance_rows(db: Session, cik: str, rows: list[dict[str, Any]]) -> dict[str, int]:
     normalized = normalize_cik(cik)
     if not normalized or not rows:
@@ -2907,6 +2920,7 @@ def upsert_holder_performance_rows(db: Session, cik: str, rows: list[dict[str, A
     return {"updated": 0}
 
 
+@canonical_writer('sec_13f')
 def upsert_holder_industry_breakdown_rows(db: Session, cik: str, year: int, quarter: int, rows: list[dict[str, Any]]) -> dict[str, int]:
     normalized = normalize_cik(cik)
     if not normalized:
@@ -2943,6 +2957,7 @@ def upsert_holder_industry_breakdown_rows(db: Session, cik: str, year: int, quar
     return {"updated": updated, "skipped": skipped}
 
 
+@canonical_writer('sec_13f')
 def upsert_industry_summary_rows(db: Session, year: int, quarter: int, rows: list[dict[str, Any]]) -> dict[str, int]:
     updated = skipped = 0
     for row in rows:

@@ -84,6 +84,12 @@ def install_snapshot(db, filing, snapshot):
 Callers own transaction, backup and dry-run. Existing CUSIP mappings are used
 only when unambiguous; no issuer-name ticker guessing is permitted.
 """
+    from app.services.feed_source_control import canonical_writer
+    # Acquire ownership before the first reset/delete, not only the later upsert.
+    return canonical_writer('sec_13f')(_install_snapshot)(db, filing, snapshot)
+
+
+def _install_snapshot(db, filing, snapshot):
     from sqlalchemy import select
     from app.models import InstitutionalPosition
     from app.services.institutional_activity import upsert_positions_for_filing

@@ -3,12 +3,28 @@ from __future__ import annotations
 import json
 from datetime import date
 
+import pytest
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.backfill_legacy_insider_normalized import backfill_legacy_insider_normalized, sync_insider_transaction_normalized
 from app.db import Base
 from app.models import InsiderTransaction, InsiderTransactionNormalized, SecForm4Filing
+
+
+@pytest.mark.parametrize('stored,payload,expected', [(0.0, 12.0, 0.0), (None, 0, 0.0), (None, '0', 0.0), (None, None, None)])
+def test_normalized_numeric_projection_preserves_zero_without_changing_identity(stored, payload, expected):
+    from app.backfill_legacy_insider_normalized import _build_normalized_payload, _normalized_hash
+    row = _legacy_row()
+    row.price = stored
+    data = json.loads(row.payload_json)
+    data['price'] = payload
+    row.payload_json = json.dumps(data)
+    filing, normalized = _build_normalized_payload(row)
+    assert normalized['price'] == expected
+    assert normalized['value'] == (None if expected is None else 1000 * expected)
+    assert normalized['normalized_hash'] == _normalized_hash(row, data, filing['accession_number'], 'P')
 
 
 def _session_factory(monkeypatch):

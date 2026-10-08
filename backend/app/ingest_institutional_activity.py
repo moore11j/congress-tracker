@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.feed_source_control import require_selected_source
+
 import argparse
 import json
 import logging
@@ -165,6 +167,7 @@ def ingest_latest_institutional_filings(
             if max_attempts is not None and processed >= max_attempts:
                 counts["max_filings_reached"] = 1
                 return counts
+            require_selected_source(db, 'sec_13f', 'fmp')
             logger.info("Scanning latest institutional filings page=%s", page)
             rows = fetch_latest_institutional_filings(page=page, limit=max(1, min(int(limit or 100), 500)))
             if not rows:
@@ -288,6 +291,7 @@ def ingest_institutional_filing(
         ensure_institutional_activity_schema(engine)
     db = SessionLocal()
     try:
+        require_selected_source(db, 'sec_13f', 'fmp')
         rows = fetch_institutional_filing_dates(cik=cik)
         candidates = []
         for row in rows:
@@ -400,6 +404,7 @@ def ingest_institutional_filing_from_sec(
         ensure_institutional_activity_schema(engine)
     db = SessionLocal()
     try:
+        require_selected_source(db, 'sec_13f', 'fmp')
         upsert_institutional_holder(db, candidate)
         filing, _ = upsert_institutional_filing(db, candidate)
         db.flush()
@@ -1032,6 +1037,7 @@ def ingest_holder_enrichment(*, cik: str, year: int | None = None, quarter: int 
     ensure_institutional_activity_schema(engine)
     db = SessionLocal()
     try:
+        require_selected_source(db, 'sec_13f', 'fmp')
         result: dict[str, Any] = {"status": "ok"}
         performance_rows = fetch_holder_performance_summary(cik=cik)
         result["performance"] = upsert_holder_performance_rows(db, cik, performance_rows)
@@ -1046,9 +1052,10 @@ def ingest_holder_enrichment(*, cik: str, year: int | None = None, quarter: int 
 
 def ingest_industry_summary(*, year: int, quarter: int) -> dict[str, int | str]:
     ensure_institutional_activity_schema(engine)
-    rows = fetch_industry_summary(year=int(year), quarter=int(quarter))
     db = SessionLocal()
     try:
+        require_selected_source(db, 'sec_13f', 'fmp')
+        rows = fetch_industry_summary(year=int(year), quarter=int(quarter))
         counts = upsert_industry_summary_rows(db, int(year), int(quarter), rows)
         db.commit()
         return {"status": "ok", **counts}

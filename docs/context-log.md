@@ -2,6 +2,10 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-08: Feed ownership release prepared
+
+Continued the active FMP-off goal with a scoped backend release of shared canonical ownership, disabled direct publisher CLIs, queue claim protection, SEC digest labels and backend archive context. Bundled 539-person public directory retains identical resolution on 33 captured reports. 437 focused checks plus one portfolio check pass; initial 60 missing-fixture/output-directory failures repaired, one prior baseline assertion excluded. [Report](feed-ownership-rollout-2026-10-08.md). Not yet deployed/source-selected; existing emails and FMP retained. Next: all-worker rollout verification, scheduled collectors and controlled publication readiness; Starter still pending.
+
 ## 2026-10-08: Corrective shadow rollout verified
 
 Release c2b97e80/workflow 37842927148 succeeded, repeat schema migration/all four images/health/access verified. Live retry parses both House PDFs using pypdf 6.19.0; one canonical mismatch held. Twelve revisions with verified source hashes, repeat processes zero, no public source selections/publications. 109 focused release checks pass; full saved corpus remains 27 revisions/264 rows with identical repeat. Massive snapshot probe remains 403. Scheduled receipts, 401 SEC backlog items, exceptions and full public/price/alert cutover remain open. [Report](direct-feed-shadow-rollout-2026-10-08.md). FMP and billing unchanged, no test emails; active goal continues.

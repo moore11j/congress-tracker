@@ -374,6 +374,13 @@ def test_event_scoped_pnl_refresh_updates_existing_insider_outcome_without_metho
 
 
 def test_direct_feed_pnl_refresh_batches_current_quote_per_unique_symbol(monkeypatch) -> None:
+    # The saved July events must stay inside this test's ten-day window.
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = datetime(2026, 7, 2, tzinfo=timezone.utc)
+            return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+    monkeypatch.setattr('app.services.feed_pnl_enrichment.datetime', FixedDateTime)
     SessionLocal = _session_factory()
     quote_calls: list[list[str]] = []
 

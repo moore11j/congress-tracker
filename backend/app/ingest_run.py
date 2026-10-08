@@ -44,7 +44,7 @@ from app.services.price_lookup import (
     hydrate_split_adjusted_ohlc,
     is_market_trading_day,
 )
-from app.services.provider_usage import log_provider_budget_summary
+from app.services.provider_usage import log_provider_budget_summary, ensure_fmp_live_allowed, record_provider_response
 from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
@@ -128,7 +128,9 @@ def _check_insider_freshness() -> str | None:
     )
 
     try:
+        ensure_fmp_live_allowed(category="ingest:insider-freshness")
         response = requests.get(url, timeout=30)
+        record_provider_response(category="ingest:insider-freshness", status_code=response.status_code)
         if response.status_code != 200:
             logger.warning("FMP insider latest returned %s", response.status_code)
             return None

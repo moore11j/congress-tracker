@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.routers.events import list_events
 from app.services.congress_outcome_coverage import repair_recent_congress_outcomes
+from app.services.feed_source_control import FeedSourceControl
 
 
 def _session(tables=None):
@@ -41,6 +42,7 @@ def _session(tables=None):
 
 def _recent_ingest_tables():
     return [
+        FeedSourceControl.__table__,
         AppSetting.__table__,
         Member.__table__,
         Security.__table__,

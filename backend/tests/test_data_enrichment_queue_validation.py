@@ -285,6 +285,34 @@ def test_stale_running_recovery_exhausts_max_attempts():
         db.close()
 
 
+def test_queue_does_not_claim_a_job_retired_after_snapshot(monkeypatch):
+    from sqlalchemy import update
+    Session = _session_factory()
+    monkeypatch.setattr(queue_module, 'SessionLocal', Session)
+    monkeypatch.setenv('ENRICHMENT_QUEUE_ENABLED', 'true')
+    monkeypatch.setenv('DATA_ENRICHMENT_QUEUE_PER_JOB_GUARD_ENABLED', 'true')
+    with Session() as seed:
+        job = DataEnrichmentJob(job_type='quote', symbol='AAPL', dedupe_key='retired-after-snapshot',
+            status='queued', next_run_at=datetime.now(timezone.utc))
+        seed.add(job); seed.commit(); job_id = job.id
+    retained_stale_objects = []
+    def retire_after_snapshot(db):
+        retained_stale_objects.append(db.get(DataEnrichmentJob, job_id))
+        with Session() as other:
+            other.execute(update(DataEnrichmentJob).where(DataEnrichmentJob.id == job_id).values(
+                status='skipped', reason='source_event_withdrawn_duplicate'))
+            other.commit()
+        assert retained_stale_objects[-1].status == 'queued'
+        return SimpleNamespace(proceed=True)
+    monkeypatch.setattr(queue_module, '_check_enrichment_queue_pressure', retire_after_snapshot)
+    processed = []
+    monkeypatch.setattr(queue_module, '_process_one', lambda *args: processed.append(True))
+    assert process_data_enrichment_jobs(limit=1) == {'processed': 0, 'succeeded': 0, 'failed': 0, 'skipped': 1}
+    assert not processed
+    with Session() as check:
+        assert check.get(DataEnrichmentJob, job_id).status == 'skipped'
+
+
 def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
     Session = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", Session)

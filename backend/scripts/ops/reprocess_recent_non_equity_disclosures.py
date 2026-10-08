@@ -137,6 +137,8 @@ def run(*, since_report_date: date, apply: bool) -> dict[str, int]:
                 continue
             insertable += 1
             if apply:
+                from app.services.feed_source_control import require_selected_source
+                require_selected_source(db, f'{member.chamber}_ptr', 'fmp')
                 event = _congress_event_from_transaction(candidate["_tx"], candidate["_filing"], candidate["_member"], None)
                 db.add(event)
                 db.flush()

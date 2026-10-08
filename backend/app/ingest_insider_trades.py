@@ -22,6 +22,7 @@ from app.services.feed_pnl_enrichment import (
     refresh_feed_pnl_events_now,
 )
 from app.services.feed_cache_epoch import try_bump_feed_events_epoch
+from app.services.feed_source_control import FeedSourceMismatch, FeedWriterBusy, writer_transaction
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -183,120 +184,125 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
     db = SessionLocal()
     try:
         for page in range(page_limit):
-            rows = fetch_insider_trades(page=page, limit=per_page)
-            if not rows:
-                break
+            try:
+                with writer_transaction(db, 'sec_form4', 'fmp'):
+                    rows = fetch_insider_trades(page=page, limit=per_page)
+                    if not rows:
+                        break
 
-            page_event_ids: list[int] = []
-            for row in rows:
-                scanned += 1
-                filing_date = _parse_date(row.get("filingDate"))
-                transaction_date = _parse_date(row.get("transactionDate"))
-                reference_date = transaction_date or filing_date
-                if reference_date and reference_date < cutoff:
-                    continue
+                    page_event_ids: list[int] = []
+                    for row in rows:
+                        scanned += 1
+                        filing_date = _parse_date(row.get("filingDate"))
+                        transaction_date = _parse_date(row.get("transactionDate"))
+                        reference_date = transaction_date or filing_date
+                        if reference_date and reference_date < cutoff:
+                            continue
 
-                external_id = _external_id(row)
-                existing_raw = db.execute(
-                    select(InsiderTransaction).where(InsiderTransaction.external_id == external_id)
-                ).scalar_one_or_none()
-                if existing_raw:
-                    inserted_normalized += int(sync_insider_transaction_normalized(db, existing_raw))
-                    skipped += 1
-                    continue
+                        external_id = _external_id(row)
+                        existing_raw = db.execute(
+                            select(InsiderTransaction).where(InsiderTransaction.external_id == external_id)
+                        ).scalar_one_or_none()
+                        if existing_raw:
+                            inserted_normalized += int(sync_insider_transaction_normalized(db, existing_raw))
+                            skipped += 1
+                            continue
 
-                raw_symbol = _as_str(row.get("symbol"))
-                symbol = canonical_symbol(raw_symbol)
-                payload_json = json.dumps(row, sort_keys=True)
-                insider = InsiderTransaction(
-                    source="fmp",
-                    external_id=external_id,
-                    symbol=symbol,
-                    reporting_cik=_as_str(row.get("reportingCik")),
-                    insider_name=_as_str(row.get("insiderName")),
-                    transaction_type=_as_str(row.get("transactionType")),
-                    role=_as_str(row.get("officerTitle") or row.get("insiderRole") or row.get("position")),
-                    ownership=_as_str(row.get("ownershipType") or row.get("ownership")),
-                    transaction_date=transaction_date,
-                    filing_date=filing_date,
-                    shares=_as_float(row.get("securitiesTransacted")),
-                    price=_as_float(row.get("price")),
-                    payload_json=payload_json,
-                )
-                db.add(insider)
-                db.flush()
-                inserted_raw += 1
-                inserted_normalized += int(sync_insider_transaction_normalized(db, insider))
+                        raw_symbol = _as_str(row.get("symbol"))
+                        symbol = canonical_symbol(raw_symbol)
+                        payload_json = json.dumps(row, sort_keys=True)
+                        insider = InsiderTransaction(
+                            source="fmp",
+                            external_id=external_id,
+                            symbol=symbol,
+                            reporting_cik=_as_str(row.get("reportingCik")),
+                            insider_name=_as_str(row.get("insiderName")),
+                            transaction_type=_as_str(row.get("transactionType")),
+                            role=_as_str(row.get("officerTitle") or row.get("insiderRole") or row.get("position")),
+                            ownership=_as_str(row.get("ownershipType") or row.get("ownership")),
+                            transaction_date=transaction_date,
+                            filing_date=filing_date,
+                            shares=_as_float(row.get("securitiesTransacted")),
+                            price=_as_float(row.get("price")),
+                            payload_json=payload_json,
+                        )
+                        db.add(insider)
+                        db.flush()
+                        inserted_raw += 1
+                        inserted_normalized += int(sync_insider_transaction_normalized(db, insider))
 
-                raw_trade_type = (
-                    _as_str(row.get("transactionType"))
-                    or _as_str(row.get("transaction_type"))
-                    or _as_str(row.get("type"))
-                    or ""
-                )
-                canonical_trade_type = canonicalize_market_trade_type(raw_trade_type)
-                is_market_trade = canonical_trade_type is not None
+                        raw_trade_type = (
+                            _as_str(row.get("transactionType"))
+                            or _as_str(row.get("transaction_type"))
+                            or _as_str(row.get("type"))
+                            or ""
+                        )
+                        canonical_trade_type = canonicalize_market_trade_type(raw_trade_type)
+                        is_market_trade = canonical_trade_type is not None
 
-                event_payload = {
-                    "external_id": external_id,
-                    "symbol": insider.symbol,
-                    "insider_name": insider.insider_name,
-                    "reporting_cik": insider.reporting_cik,
-                    "transaction_type": insider.transaction_type,
-                    "transaction_date": insider.transaction_date.isoformat() if insider.transaction_date else None,
-                    "role": insider.role,
-                    "ownership": insider.ownership,
-                    "filing_date": insider.filing_date.isoformat() if insider.filing_date else None,
-                    "shares": insider.shares,
-                    "price": insider.price,
-                    "source": "fmp",
-                    "is_market_trade": is_market_trade,
-                    "trade_type_canonical": canonical_trade_type,
-                    "raw": row,
-                }
+                        event_payload = {
+                            "external_id": external_id,
+                            "symbol": insider.symbol,
+                            "insider_name": insider.insider_name,
+                            "reporting_cik": insider.reporting_cik,
+                            "transaction_type": insider.transaction_type,
+                            "transaction_date": insider.transaction_date.isoformat() if insider.transaction_date else None,
+                            "role": insider.role,
+                            "ownership": insider.ownership,
+                            "filing_date": insider.filing_date.isoformat() if insider.filing_date else None,
+                            "shares": insider.shares,
+                            "price": insider.price,
+                            "source": "fmp",
+                            "is_market_trade": is_market_trade,
+                            "trade_type_canonical": canonical_trade_type,
+                            "raw": row,
+                        }
 
-                if canonical_trade_type:
-                    event_trade_type = canonical_trade_type
-                else:
-                    event_trade_type = raw_trade_type.lower() if raw_trade_type else None
+                        if canonical_trade_type:
+                            event_trade_type = canonical_trade_type
+                        else:
+                            event_trade_type = raw_trade_type.lower() if raw_trade_type else None
 
-                event_dt = _event_ts(insider.transaction_date, insider.filing_date)
-                estimated_value = None
-                if insider.shares and insider.shares > 0 and insider.price and insider.price > 0:
-                    estimated_value = int(round(insider.shares * insider.price))
+                        event_dt = _event_ts(insider.transaction_date, insider.filing_date)
+                        estimated_value = None
+                        if insider.shares and insider.shares > 0 and insider.price and insider.price > 0:
+                            estimated_value = int(round(insider.shares * insider.price))
 
-                event = Event(
-                    event_type="insider_trade",
-                    ts=event_dt,
-                    event_date=event_dt,
-                    symbol=insider.symbol,
-                    source="fmp",
-                    member_name=None,
-                    member_bioguide_id=None,
-                    chamber=None,
-                    party=None,
-                    trade_type=event_trade_type,
-                    transaction_type=insider.transaction_type,
-                    amount_min=estimated_value,
-                    amount_max=estimated_value,
-                    impact_score=0.0,
-                    payload_json=json.dumps(event_payload, sort_keys=True),
-                )
-                db.add(event)
-                db.flush()
-                enqueue_feed_pnl_enrichment_for_event(
-                    db,
-                    event,
-                    source="insider_ingest",
-                    reason="event_insert",
-                    priority=FEED_PNL_PRIORITY_BASE,
-                    use_current_session=True,
-                )
-                if event.id is not None:
-                    page_event_ids.append(int(event.id))
-                inserted_events += 1
+                        event = Event(
+                            event_type="insider_trade",
+                            ts=event_dt,
+                            event_date=event_dt,
+                            symbol=insider.symbol,
+                            source="fmp",
+                            member_name=None,
+                            member_bioguide_id=None,
+                            chamber=None,
+                            party=None,
+                            trade_type=event_trade_type,
+                            transaction_type=insider.transaction_type,
+                            amount_min=estimated_value,
+                            amount_max=estimated_value,
+                            impact_score=0.0,
+                            payload_json=json.dumps(event_payload, sort_keys=True),
+                        )
+                        db.add(event)
+                        db.flush()
+                        enqueue_feed_pnl_enrichment_for_event(
+                            db,
+                            event,
+                            source="insider_ingest",
+                            reason="event_insert",
+                            priority=FEED_PNL_PRIORITY_BASE,
+                            use_current_session=True,
+                        )
+                        if event.id is not None:
+                            page_event_ids.append(int(event.id))
+                        inserted_events += 1
 
-            db.commit()
+            except (FeedSourceMismatch, FeedWriterBusy) as exc:
+                return {'status': 'skipped', 'reason': type(exc).__name__,
+                        'inserted_events': inserted_events, 'inserted_raw': inserted_raw,
+                        'inserted_normalized': inserted_normalized, 'scanned': scanned}
             if page_event_ids:
                 feed_pnl_refresh_reports.append(_refresh_inserted_feed_pnl(page_event_ids))
                 feed_cache_epoch_reports.append(try_bump_feed_events_epoch(reason="insider_ingest"))

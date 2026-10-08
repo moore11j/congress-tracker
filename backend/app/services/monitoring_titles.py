@@ -100,6 +100,15 @@ def normalize_trade_side(*values: Any) -> str | None:
     return None
 
 
+def verified_insider_action(payload: dict[str, Any]) -> str:
+    if payload.get("is_derivative"):
+        return "Derivative transaction"
+    if payload.get("is_market_trade"):
+        return "Buy" if payload.get("trade_type_canonical") == "purchase" else "Sell"
+    from app.services.sec_form4 import TRANSACTION_CODE_DESCRIPTIONS
+    return TRANSACTION_CODE_DESCRIPTIONS.get(payload.get("transaction_code"), "Non-market transaction")
+
+
 def build_monitoring_event_title(event: Event, payload: dict[str, Any]) -> str:
     symbol = _clean_text(event.symbol) or _clean_text(payload.get("symbol")) or _clean_text(payload.get("ticker"))
     if symbol:
@@ -120,6 +129,8 @@ def build_monitoring_event_title(event: Event, payload: dict[str, Any]) -> str:
     if event.event_type == "insider_trade":
         raw = _clean_dict(payload.get("raw"))
         insider_name = resolve_insider_name(payload, event_member_name=event.member_name) or "Insider"
+        if payload.get("sec_verification"):
+            return " - ".join(part for part in (symbol, insider_name, verified_insider_action(payload)) if part)
         side = (
             normalize_trade_side(
                 event.trade_type,

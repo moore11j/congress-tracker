@@ -1748,6 +1748,8 @@ def run_candidate_batch(
                     if row is None:
                         raise RuntimeError(f"Transaction {item['transaction_id']} disappeared during apply.")
                     tx, filing, row_member, security = row
+                    from app.services.feed_source_control import require_selected_source
+                    require_selected_source(db, f'{row_member.chamber}_ptr', 'fmp')
                     event = _congress_event_from_transaction(tx, filing, row_member, security)
                     _apply_resolved_symbol_to_event(event, item)
                     db.add(event)

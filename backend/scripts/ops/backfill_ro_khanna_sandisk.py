@@ -213,6 +213,8 @@ def _insert_event(db, tx: Transaction, filing: Filing, member: Member, security:
 def run(*, apply: bool) -> dict[str, Any]:
     db = SessionLocal()
     try:
+        from app.services.feed_source_control import require_selected_source
+        require_selected_source(db, 'house_ptr', 'fmp')
         results = []
         for row in VERIFIED_ROWS:
             member = _find_or_create_member(db, row)

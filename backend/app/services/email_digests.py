@@ -1385,13 +1385,14 @@ def _eligible_users(db: Session, *, limit: int) -> list[UserAccount]:
 def _event_item(event: Event) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
     actor = _event_actor(event, payload)
+    reported_holdings = payload.get("data_semantics") == "institutional_13f_reported_holdings"
     return {
         "ticker": (event.symbol or "").upper() or "UNKNOWN",
         "event_type": event.event_type.replace("_", " "),
         "actor": actor,
-        "trade": event.trade_type or event.transaction_type or payload.get("action") or "activity",
-        "amount": _amount(event.amount_min, event.amount_max),
-        "date": _format_date(event.event_date or event.ts),
+        "trade": _activity_action(event, payload) if reported_holdings or payload.get("sec_verification") else event.trade_type or event.transaction_type or payload.get("action") or "activity",
+        "amount": _activity_value(event, payload) if reported_holdings else _amount(event.amount_min, event.amount_max),
+        "date": _activity_display_date(event, payload) if reported_holdings else _format_date(event.event_date or event.ts),
         "signal_score": _numeric_score(payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)),
     }
 
@@ -1506,6 +1507,12 @@ def _activity_actor(event: Event, payload: dict[str, Any]) -> str:
 
 
 def _activity_action(event: Event, payload: dict[str, Any]) -> str:
+    if payload.get("data_semantics") == "institutional_13f_reported_holdings":
+        from app.services.monitoring_titles import _institutional_action_label
+        return "13F " + _institutional_action_label(event.event_type)
+    if event.event_type == "insider_trade" and payload.get("sec_verification"):
+        from app.services.monitoring_titles import verified_insider_action
+        return verified_insider_action(payload)
     normalized_type = (event.event_type or "").strip().lower()
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     side = normalize_trade_side(
@@ -1532,6 +1539,15 @@ def _activity_action(event: Event, payload: dict[str, Any]) -> str:
 
 
 def _activity_value(event: Event, payload: dict[str, Any]) -> str:
+    if payload.get("data_semantics") == "institutional_13f_reported_holdings":
+        value = _intish(payload.get("reported_value_usd"))
+        if value is None:
+            return "--"
+        label = "Prior reported holding" if event.event_type == "major_holder_exit" else "Reported holding"
+        return f"{label}: ${value:,}"
+    if event.event_type == "insider_trade" and payload.get("sec_verification"):
+        value = _intish(payload.get("value"))
+        return _amount(value, value)
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     amount_min = event.amount_min if event.amount_min is not None else _intish(payload.get("amount_min") or payload.get("amountMin") or payload.get("amount_low") or payload.get("amountLow"))
     amount_max = event.amount_max if event.amount_max is not None else _intish(
@@ -1559,6 +1575,13 @@ def _activity_value(event: Event, payload: dict[str, Any]) -> str:
 
 
 def _activity_trade_price(event: Event, payload: dict[str, Any]) -> str:
+    if payload.get("data_semantics") == "institutional_13f_reported_holdings":
+        return "--"
+    if event.event_type == "insider_trade" and payload.get("sec_verification"):
+        # An explicit missing SEC price must not fall back to the retained
+        # vendor payload (which may contain an option exercise price).
+        value = payload.get("price")
+        return "--" if value is None else f"${float(value):,.2f}"
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
     value = _first_present(
         payload,

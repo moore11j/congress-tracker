@@ -1,0 +1,10 @@
+{
+  "source_url": "https://unitedstates.github.io/congress-legislators/legislators-current.json",
+  "source_sha256": "ae8cb9477c48715df71a7d860854229d799dc90a254d61badc1efb770f892b2c",
+  "captured_date": "2026-10-08",
+  "people": 539,
+  "directory_file": "congress_members_2026_10_08.json",
+  "directory_sha256": "348aefcf00ec37b3dbb2c01ce7cdc5ada8965b567594cec5275b423b123c407b",
+  "matched_replay_results": 33,
+  "transformation": "Keep only bioguide, resolver name fields and all term identity/date/party fields; preserve all persons and terms."
+}

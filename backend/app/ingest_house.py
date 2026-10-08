@@ -11,10 +11,12 @@ import requests
 from sqlalchemy import select
 
 from app.db import SessionLocal
+from app.services.feed_source_control import canonical_writer, require_selected_source, FeedSourceMismatch
 from app.models import Filing, Member, Security, Transaction
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.congress_assets import classify_congress_disclosure_asset
 from app.services.official_congress import normalize_congress_symbol
+from app.services.provider_usage import ensure_fmp_live_allowed, record_provider_response
 
 FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
@@ -129,6 +131,7 @@ def _guess_party(raw: Optional[str]) -> Optional[str]:
 
 
 def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
+    ensure_fmp_live_allowed(category="ingest:house")
     api_key = _get_api_key()
     if not api_key:
         raise RuntimeError(
@@ -138,6 +141,7 @@ def _fetch_page(page: int, limit: int) -> list[dict[str, Any]]:
 
     params = {"page": page, "limit": limit, "apikey": api_key}
     r = requests.get(FMP_BASE, params=params, timeout=30)
+    record_provider_response(category="ingest:house", status_code=r.status_code)
     if r.status_code in {400, 404}:
         # FMP can return out-of-range responses for pagination termination.
         return []
@@ -297,6 +301,7 @@ def _matching_transaction(
     return db.execute(base.limit(1)).scalar_one_or_none()
 
 
+@canonical_writer('house_ptr')
 def upsert_house_transaction_from_row(
     db,
     row: dict[str, Any],
@@ -506,6 +511,7 @@ def ingest_house(
     latest_report_date: date | None = None
     filings_seen: set[int] = set()
     seen_transaction_keys: set[tuple] = set()
+    source_skipped = False
     cutoff = (
         datetime.now(timezone.utc).date() - timedelta(days=max(recent_days, 0))
         if recent_days is not None
@@ -516,6 +522,12 @@ def ingest_house(
     try:
         metadata = get_congress_metadata_resolver()
         for page in range(pages):
+            try:
+                require_selected_source(db, 'house_ptr', 'fmp')
+            except FeedSourceMismatch:
+                db.rollback()
+                source_skipped = True
+                break
             rows = _fetch_page(page=page, limit=limit)
             if not rows:
                 break
@@ -569,7 +581,8 @@ def ingest_house(
                 break
 
         return {
-            "status": "ok",
+            "status": "skipped" if source_skipped else "ok",
+            "source_ownership_skipped": source_skipped,
             "inserted": inserted,
             "skipped": skipped,
             "skipped_old": skipped_old,

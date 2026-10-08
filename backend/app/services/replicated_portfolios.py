@@ -3122,6 +3122,22 @@ def _event_context_by_id(db: Session, positions: list[ReplicatedPortfolioPositio
     if not event_ids:
         return {}
     events = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
+    # Existing portfolio runs retain their original source event IDs and
+    # calculations. A verified withdrawal must not erase their source dates.
+    missing_ids = set(event_ids) - {event.id for event in events}
+    archived = {}
+    if missing_ids:
+        from sqlalchemy import inspect
+        from app.services.direct_congress_repair import CongressRepairArchive
+        if inspect(db.connection()).has_table(CongressRepairArchive.__tablename__):
+            for record in db.scalars(select(CongressRepairArchive).where(
+                    CongressRepairArchive.entity_type == 'event', CongressRepairArchive.original_id.in_(missing_ids))):
+                values = json.loads(record.record_json)
+                for field in ('ts', 'event_date', 'created_at'):
+                    if values.get(field):
+                        values[field] = datetime.fromisoformat(values[field])
+                events.append(Event(**values))
+                archived[record.original_id] = record.canonical_id
     context: dict[int, dict[str, str | None]] = {}
     for event in events:
         payload = parse_payload(event.payload_json)
@@ -3131,6 +3147,9 @@ def _event_context_by_id(db: Session, positions: list[ReplicatedPortfolioPositio
             "trade_date": transaction_date.isoformat() if transaction_date else None,
             "report_date": public_date.isoformat() if public_date else None,
         }
+        if event.id in archived:
+            context[int(event.id)]['source_status'] = 'withdrawn_duplicate'
+            context[int(event.id)]['canonical_event_id'] = str(archived[event.id]) if archived[event.id] else None
     return context
 
 
@@ -3394,6 +3413,8 @@ def latest_replicated_portfolio_payload(
                 "exit_date": position.exit_date.isoformat() if position.exit_date else None,
                 "trade_date": event_context.get(int(position.source_event_id or 0), {}).get("trade_date"),
                 "report_date": event_context.get(int(position.source_event_id or 0), {}).get("report_date"),
+                "source_status": event_context.get(int(position.source_event_id or 0), {}).get("source_status"),
+                "canonical_source_event_id": event_context.get(int(position.source_event_id or 0), {}).get("canonical_event_id"),
                 "entry_price": position.entry_price,
                 "exit_price": position.exit_price,
                 "shares": position.shares,
