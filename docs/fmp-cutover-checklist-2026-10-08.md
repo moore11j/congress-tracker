@@ -58,4 +58,3 @@ Detailed evidence: [Massive](massive-stock-adapter-2026-10-07.md), [SEC alerts](
 ## October 8 House scan deployment, 23:16 UTC
 
 **October 8 House scan release:** [review and live receipt](house-scan-review-2026-10-08.md), `0f3e2171` deployed/all four workers healthy. Exact-source reviewed transcription resolves four stock rows with separate ticker provenance; 102 tests pass in both checkouts and live source/repeat checks pass without public changes. Four date-only candidate filings/12 trades require preservation of observed availability before correction; remaining scans/canonical conflicts keep House on FMP. Senate remains official; first scheduled publisher pending. Full shutdown, Starter and billing remain unfinished.
-
