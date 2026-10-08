@@ -91,6 +91,16 @@ export const PUBLIC_STALE_PAGE_REVALIDATE_SECONDS = 60 * 60 * 24;
 // backend Context payload contract. Bump this alongside bundle fields.
 const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 12;
 
+// Source corrections must not remain in anonymous member pages for a day.
+// Version the request to retire caches created before the direct-feed cutover.
+const MEMBER_ACTIVITY_CACHE_VERSION = 1;
+
+function memberActivityFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cache" | "next"> {
+  return enabled
+    ? { cache: "force-cache", next: { revalidate: 300 } }
+    : { cache: "no-store", next: { revalidate: 0 } };
+}
+
 function publicStalePageFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cache" | "next"> {
   return enabled
     ? { cache: "force-cache", next: { revalidate: PUBLIC_STALE_PAGE_REVALIDATE_SECONDS } }
@@ -6037,11 +6047,12 @@ export async function getMemberProfileBySlug(
 ): Promise<MemberProfile> {
   return fetchJson<MemberProfile>(
     buildApiUrl(`/api/members/by-slug/${encodeURIComponent(slug)}`, {
+      activity_version: MEMBER_ACTIVITY_CACHE_VERSION,
       include_trades:
         params?.include_trades === undefined ? undefined : (params.include_trades ? 1 : 0),
     }),
     {
-      ...publicStalePageFetchInit(params?.stalePageCache),
+      ...memberActivityFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "MemberProfile",
     },
@@ -6680,10 +6691,11 @@ export async function getMemberAlphaSummary(
 ): Promise<MemberAlphaSummary> {
   return fetchJson<MemberAlphaSummary>(
     buildApiUrl(`/api/members/${bioguideId}/alpha-summary`, {
+      activity_version: MEMBER_ACTIVITY_CACHE_VERSION,
       lookback_days: params?.lookback_days,
     }),
     {
-      ...publicStalePageFetchInit(params?.stalePageCache),
+      ...memberActivityFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "MemberAnalytics",
     },
@@ -6739,11 +6751,12 @@ export async function getMemberTrades(
 ): Promise<MemberTradesResponse> {
   return fetchJson<MemberTradesResponse>(
     buildApiUrl(`/api/members/${bioguideId}/trades`, {
+      activity_version: MEMBER_ACTIVITY_CACHE_VERSION,
       lookback_days: params?.lookback_days,
       limit: params?.limit,
     }),
     {
-      ...publicStalePageFetchInit(params?.stalePageCache),
+      ...memberActivityFetchInit(params?.stalePageCache),
       signal: params?.signal,
       source: params?.source ?? "MemberAnalytics",
     },
