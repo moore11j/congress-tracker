@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -37,12 +37,17 @@ def collector_lock(bind=engine):
             guard.execute(text("SELECT pg_advisory_unlock(84193647)"))
 
 
+def _default_end_date(sources, today):
+    # Congress exposes same-day filings; SEC uses completed daily indexes.
+    return today if set(sources) and set(sources) <= {'house_ptr', 'senate_ptr'} else today - timedelta(days=1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", action="store_true", help="Read staging coverage without requesting providers")
     parser.add_argument("--sources", nargs="+", choices=SOURCES, default=list(SOURCES))
     parser.add_argument("--start", type=date.fromisoformat, default=date.today() - timedelta(days=7))
-    parser.add_argument("--end", type=date.fromisoformat, default=date.today() - timedelta(days=1))
+    parser.add_argument("--end", type=date.fromisoformat, help="Default: today for Congress-only runs, yesterday for other sources")
     parser.add_argument("--symbols", nargs="*", default=os.getenv("DIRECT_FEEDS_SYMBOLS", "AAPL,MSFT,NVDA").split(","))
     parser.add_argument("--limit", type=int, default=25, help="Maximum documents per source per run")
     parser.add_argument("--recheck-hours", type=int, default=24)
@@ -50,6 +55,8 @@ def main():
     parser.add_argument("--issuer-registry", type=Path, default=Path(__file__).resolve().parents[2] / "config" / "direct_issuer_sources.json")
     parser.add_argument("--senate-reports", type=Path, help="Reviewed official PTR URL/filing metadata JSON list")
     args = parser.parse_args()
+    if args.end is None:
+        args.end = _default_end_date(args.sources, datetime.now(timezone.utc).date())
     if args.report:
         # Report never does DDL or initializes an empty database as healthy.
         with SessionLocal() as db:

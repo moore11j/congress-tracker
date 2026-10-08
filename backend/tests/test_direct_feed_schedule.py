@@ -13,6 +13,18 @@ from app.services.direct_feed_store import DirectFeedDocument, dumps
 from test_direct_sec_collection import META, submission
 
 
+@pytest.mark.parametrize('sources,expected', [
+    (['house_ptr', 'senate_ptr'], date(2026, 10, 8)),
+    (['senate_ptr'], date(2026, 10, 8)),
+    (['house_ptr'], date(2026, 10, 8)),
+    (['sec_form4', 'sec_13f'], date(2026, 10, 7)),
+    (['senate_ptr', 'sec_form4'], date(2026, 10, 7)),
+])
+def test_discovery_boundary_includes_live_congress_without_unfinished_sec_index(sources, expected):
+    from app.jobs.collect_direct_feeds import _default_end_date
+    assert _default_end_date(sources, date(2026, 10, 8)) == expected
+
+
 @pytest.fixture
 def db():
     engine = create_engine('sqlite:///:memory:')
