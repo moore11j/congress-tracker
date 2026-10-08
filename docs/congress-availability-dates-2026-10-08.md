@@ -40,3 +40,11 @@ Public House dates are unchanged. A date repair cannot be followed by blindly re
 Cleo Fields 20035464 has five official rows versus four stored rows, including two separate MSFT lots and official GOOG versus stored GOOGL. David Taylor 20035549 has five official rows versus three stored rows because repeated HD/MPC lots are missing. These require source-row reconciliation, not date-only correction or arbitrary lot merging. Three current-window House scans remain held; the older Sessions correction is outside the October 1 cutover window.
 
 Senate remains the only selected official Congress feed. House, Form 4 and 13F still use FMP for canonical ingestion. Massive Starter activation, fresh retained-product prices/scores/content and complete monitoring/daily/weekly checks, runtime FMP shutdown and billing cancellation remain open. No subscription changes or emails were made in this checkpoint.
+
+## Deployed and live verified, 23:46 UTC
+
+Release `26541a80e58f43aa1e8924d9c5fa313f7e72b975` deployed successfully through [workflow 37861017818](https://github.com/moore11j/congress-tracker/actions/runs/37861017818). All four workers are started on that exact image; readiness/database and anonymous Premium-access checks pass. All eight changed application-file hashes match the commit. The workflow includes a non-fatal post-checkout Git cleanup annotation; deployment and verification steps succeeded.
+
+At 23:46:17 UTC, an enforced read-only production transaction verifies the unchanged four Wied event IDs/dates, single source revision and five surviving Senate events, with all ten withdrawn duplicate IDs absent. Official Senate remains generation 2; successful recorded legacy Senate calls since selection remain zero. The held Fetterman publication receipt is timestamped 23:29:03, confirming the scheduler observation.
+
+Fresh read-only plans qualify three staged current-window House filings/11 trades: Doggett document 416, Rulli 423 and Wied 425. The older Sessions filing is not staged in the October 1 window. Deployed entry-date helpers and the PostgreSQL watchlist availability expression preserve current dates. No public repair, source change, email or subscription operation is performed. House dates remain unchanged pending the protected ownership transition and current ranking/alert verification.

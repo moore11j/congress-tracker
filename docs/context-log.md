@@ -1,5 +1,11 @@
 # Project context log
 
+## 2026-10-08: Congress availability preservation and scheduled Senate receipt
+
+**Final receipt:** `26541a80`/workflow 37861017818 succeeds; all four exact worker images, readiness/access and eight changed application hashes verified. Read-only Python 3.12.15 checks at 23:46:17 preserve all public House/Senate IDs/dates and confirm zero successful recorded Senate FMP calls. Three staged House plans/11 trades qualify, older Sessions not staged. All 378 exact-release tests and six private PostgreSQL cases pass. Public House correction remains unapplied, source ownership unchanged; no mail or billing change. Continue protected House reconciliation/cutover, SEC publication, fresh retained-product and alert checks, Starter/login and full runtime/billing shutdown.
+
+Continued the owner-authorized FMP-off goal. Added explicit arrival availability for new direct Congress events and entry-date/watchlist consumers; built guarded date-only correction for four real House filings/12 trades with immutable IDs/history/delivery state and archived originals. Actual no-send builders retain counts, repeated alert creation adds nothing. Six private PostgreSQL apply/rollback/guard cases pass with temporary-table cleanup and zero public reads/writes. All 378 exact-release checks pass; deployment pending; no public House correction, deployment, email or subscription change in this preparation checkpoint. Real 23:27 Senate publisher completes 23:29, holds the known bond date/lot conflict and exits partial/1, with zero events/emails. Source-date fixes must not permit resumed FMP to recreate trades. Cleo Fields GOOG/GOOGL and missing repeated lots, Taylor missing lots, scans, House/SEC source rollout, fresh rankings/all alerts, Starter/login and runtime/billing shutdown remain open. [Report](congress-availability-dates-2026-10-08.md). Goal active; substantive progress, no blocker streak.
+
 ## 2026-10-08: Forward-study prospective capture and maturity check
 
 - **Request/scope:** continue the approved frozen unusual-insider-purchase study. Read current memory, status, follow-up and protocol. No changes to hypothesis, public scoring, bearish behavior, historical public outcomes, or earlier research. Direct supervised return modeling remains proposed only.
