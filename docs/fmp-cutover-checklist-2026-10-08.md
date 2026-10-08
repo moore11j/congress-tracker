@@ -53,3 +53,9 @@ Detailed evidence: [Massive](massive-stock-adapter-2026-10-07.md), [SEC alerts](
 
 
 **23:01 live receipt:** same-day Congress release `9079343c` deployed/all four workers/readiness verified, 65 checks pass. Five stock events and corrected score views retained; zero successful recorded Senate FMP calls since switch. First 23:27 scheduled publisher still pending. SEC hourly run 10 processes 200 more and leaves 3,474 older pending Form 4s. Full migration and billing remain active work.
+
+
+## October 8 House scan deployment, 23:16 UTC
+
+**October 8 House scan release:** [review and live receipt](house-scan-review-2026-10-08.md), `0f3e2171` deployed/all four workers healthy. Exact-source reviewed transcription resolves four stock rows with separate ticker provenance; 102 tests pass in both checkouts and live source/repeat checks pass without public changes. Four date-only candidate filings/12 trades require preservation of observed availability before correction; remaining scans/canonical conflicts keep House on FMP. Senate remains official; first scheduled publisher pending. Full shutdown, Starter and billing remain unfinished.
+

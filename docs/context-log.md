@@ -1,5 +1,15 @@
 # Project context log
 
+## 2026-10-08: Reviewed House source and retained date identity
+
+- **Scheduled follow-up:** At 23:17:56 UTC, read-only verification observes actual hourly Congress run 13 completed at 23:17:05. The unattended Senate search covers October 1–8 and reports two existing documents with a complete receipt; zero new work/public writes. Reviewed House revision, all canonical IDs/dates and Senate ownership remain unchanged. Existing House holds keep the collection status partial. First 23:27 Senate publication remains pending.
+
+- **Request:** continue until FMP is off. Concrete parser/deployment/live-source progress this turn; goal active, no blocker streak.
+- **Work:** PDF skill used to inspect seven scanned pages. Exact-source review registry for Wied PTR 9116361 preserves four printed rows, joint partial sales, amount checkboxes and dates. SEC listing evidence maps NOW/TTD/UPST/CMG separately; raw tickers stay absent. Changed bytes, discovery, page/row population, ambiguous and incomplete reviews stay held. Unknown scans remain held.
+- **Checks/release:** 102 checks pass in both primary and isolated release on Python 3.14.2. Initial nine temp-directory errors resolved with writable isolated test output; release has one harmless pytest-cache warning. `0f3e2171`/workflow 37858024731 deployed, all four workers/readiness verified. Real run 12 parses document 425; public event/filing/transaction counts identical, no publisher or email. Production Python 3.12.15 read-only replay at 23:16:32 keeps exactly one source revision and all four existing event IDs/dates unchanged. [Report](house-scan-review-2026-10-08.md).
+- **Finding/next:** official October 2 filing differs from FMP October 7 and is held before duplicates. Broader offline audit finds four date-only candidate filings/12 stock trades, five other canonical conflicts, four already matching, three new, one member alias and four remaining scans in the wider capture. Correct official dates with explicit observed-availability/history preservation, finish source publication/coverage, fresh rankings/all alerts, Starter and account/billing. Senate source still official, five surviving events and zero successful legacy calls; first 23:27 scheduled publisher pending. No billing change or full FMP shutdown.
+
+
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
 ## 2026-10-08 — Guarded Congress repair and actual SEC schedule

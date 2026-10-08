@@ -32,3 +32,18 @@ No existing dates or historical performance have been rewritten. A follow-up cor
 Local evidence: `artifacts/direct-feeds/house-scan-review-2026-10-08/canonical-review.json`, original PDFs/discovery in `artifacts/direct-feeds/congress-collection-2026-10-08/`, rendered pages in `tmp/pdfs/house-scan-review/`. These artifacts are local-only; the public fixture and registry are included in the release.
 
 Deployment, live staging retry and subsequent Senate schedule observation are pending at this preparation checkpoint. House ownership remains FMP; global FMP remains active. No emails or subscription changes.
+
+## Deployed and live source verified, 23:14 UTC
+
+Release `0f3e217126acea02b56bd9d0baa3bc1752fb341c`, [workflow 37858024731](https://github.com/moore11j/congress-tracker/actions/runs/37858024731), deployed successfully. All four workers are started on the exact image; API/database readiness passes. The same 102 checks also pass in the isolated release checkout (one pytest cache-directory warning, no test failures).
+
+Live collector run 12 at 23:14:33 UTC downloads the reviewed source, verifies its exact SHA, and stores all four normalized rows in staging document 425 with absent raw tickers. The other three current-window scans remain failed/held. The canonical review still rejects the October 2/7 date discrepancy. Public totals before and after are identical: 376,662 events, 19,822 filings and 23,954 transactions. No publisher called, House source selection unchanged, zero email deliveries from this work.
+
+An offline counterfactual date-only diagnostic over all 21 captured House reports identifies four uniquely matched stock filings/12 trades: Doggett 20035580 (4), Rulli 20035558 (3), Sessions 20035499 (1), Wied 9116361 (4). Their complete event economic fields match after ignoring disclosure dates only. No changes are applied. Five reports still have other canonical conflicts; four already match, three are new, one member alias remains held, and four scans remain unparsed in the wider September 20–October 7 capture (including one older Rogers scan outside the current-window four-scan review).
+
+The legacy backtest query currently uses filing/report dates as entry dates. Changing them can change newly calculated historical results even if saved portfolios are untouched. Therefore the diagnostic is not a repair approval receipt: the next correction must explicitly preserve prior observed availability, ingestion timestamps, IDs and saved outcomes while recording the official date. Do not blindly move historical event times back to the received stamp.
+
+At 23:16:32 UTC, an enforced read-only production verification on Python 3.12.15 reparses the saved transport bytes twice with identical output and one unchanged source revision. All four existing House event IDs and October 7 dates remain unchanged. Official Senate generation 2 still owns that feed, its five surviving events remain present, all ten withdrawn IDs remain absent, and recorded successful legacy Senate calls since cutover remain zero. First 23:27 Senate publication is still pending; this receipt does not claim it ran. Registry SHA-256: `928edd80dd73c2fec7857eda51cc216fad38044f7f20beb29b50049ddf346dd6`.
+
+
+At 23:17:56 UTC, read-only verification observes actual hourly Congress run 13 completed at 23:17:05. The unattended Senate search covers October 1–8 and reports two existing documents with a complete receipt; zero new work/public writes. Reviewed House revision, all canonical IDs/dates and Senate ownership remain unchanged. Existing House holds keep the collection status partial. First 23:27 Senate publication remains pending.
