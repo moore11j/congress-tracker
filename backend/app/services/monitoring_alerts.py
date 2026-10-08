@@ -288,6 +288,9 @@ def watchlist_candidate_events(
         # Email delivery follows ingestion, including late filings. This also
         # avoids casting JSON dates across the entire historical event table.
         freshness_ts = Event.created_at
+    else:
+        from app.services.event_availability import availability_timestamp_expr
+        freshness_ts = availability_timestamp_expr(db, freshness_ts)
     predicates = []
     if symbols:
         predicates.append(Event.symbol.is_not(None) & func.upper(Event.symbol).in_(symbols))

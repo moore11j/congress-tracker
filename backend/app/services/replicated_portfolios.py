@@ -709,7 +709,7 @@ def _event_transaction_date(event: Event, payload: dict[str, Any]) -> date | Non
     )
 
 
-def _event_public_date(event: Event, payload: dict[str, Any]) -> date | None:
+def _event_filing_date(event: Event, payload: dict[str, Any]) -> date | None:
     return (
         parse_iso_date(
             first_text(
@@ -725,6 +725,11 @@ def _event_public_date(event: Event, payload: dict[str, Any]) -> date | None:
         or (event.event_date.date() if event.event_date is not None else None)
         or event.ts.date()
     )
+
+
+def _event_public_date(event: Event, payload: dict[str, Any]) -> date | None:
+    from app.services.event_availability import available_event_date
+    return available_event_date(payload, _event_filing_date(event, payload))
 
 
 def _today_utc() -> date:
@@ -912,7 +917,7 @@ def inspect_replicated_portfolio_event(event: Event, *, entity_type: str, entity
         "issuer_symbol": normalize_symbol(first_text(payload, "issuer_symbol", "issuerSymbol")),
         "symbol": normalize_symbol(event.symbol or first_text(payload, "symbol", "ticker")),
         "event_date": event.event_date.date().isoformat() if event.event_date is not None else None,
-        "filed_at": _event_public_date(event, payload).isoformat() if _event_public_date(event, payload) else None,
+        "filed_at": _event_filing_date(event, payload).isoformat() if _event_filing_date(event, payload) else None,
         "transaction_date": _event_transaction_date(event, payload).isoformat() if _event_transaction_date(event, payload) else None,
         "raw_side_fields": raw_side_fields,
         "normalized_side": portfolio_event.side if portfolio_event is not None else _normalize_insider_side(event, payload),

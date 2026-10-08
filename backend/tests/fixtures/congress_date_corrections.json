@@ -1,0 +1,717 @@
+{
+  "baseline_captured_at": "2026-10-08 19:46:21.516714+00:00",
+  "cases": [
+    {
+      "metadata": {
+        "key": "2026:20035580",
+        "filing_id": "20035580",
+        "filing_date": "2026-10-05",
+        "member_name": "Lloyd Doggett",
+        "district": "TX37",
+        "form": "PTR",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035580.pdf"
+      },
+      "sha256": "b9fe2ab518ab7dbd5719e89a7262789745c740f10e28be7f8ccc2239864cb718",
+      "source_file": "house_20035580.pdf",
+      "state": {
+        "filings": [
+          {
+            "id": 19815,
+            "member_id": 44,
+            "source": "house_fmp",
+            "filing_date": "2026-10-06",
+            "document_url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035580.pdf",
+            "document_hash": "fmp:house:20035580"
+          }
+        ],
+        "transactions": [
+          {
+            "id": 23631,
+            "filing_id": 19815,
+            "member_id": 44,
+            "security_id": 105,
+            "owner_type": "self",
+            "transaction_type": "purchase",
+            "trade_date": "2026-09-08",
+            "report_date": "2026-10-06",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          },
+          {
+            "id": 23632,
+            "filing_id": 19815,
+            "member_id": 44,
+            "security_id": 317,
+            "owner_type": "self",
+            "transaction_type": "purchase",
+            "trade_date": "2026-09-11",
+            "report_date": "2026-10-06",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          },
+          {
+            "id": 23633,
+            "filing_id": 19815,
+            "member_id": 44,
+            "security_id": 31,
+            "owner_type": "self",
+            "transaction_type": "purchase",
+            "trade_date": "2026-09-17",
+            "report_date": "2026-10-06",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          },
+          {
+            "id": 23634,
+            "filing_id": 19815,
+            "member_id": 44,
+            "security_id": 56,
+            "owner_type": "self",
+            "transaction_type": "purchase",
+            "trade_date": "2026-09-10",
+            "report_date": "2026-10-06",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          }
+        ],
+        "events": [
+          {
+            "id": 469084,
+            "event_type": "congress_trade",
+            "ts": "2026-10-06 00:00:00+00:00",
+            "event_date": "2026-10-06 00:00:00+00:00",
+            "symbol": "JNJ",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"e867cef3d2891ce2f8205139fa969bc85cfab525258a1d992d82486a0e3edeea\", \"companyName\": \"Johnson & Johnson\", \"company_name\": \"Johnson & Johnson\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035580.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23631\", \"filing_date\": \"2026-10-06\", \"filing_id\": 19815, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"Johnson & Johnson\", \"issuer_name\": \"Johnson & Johnson\", \"member\": {\"bioguide_id\": \"D000399\", \"chamber\": \"house\", \"name\": \"Lloyd Doggett\", \"party\": \"Democrat\", \"state\": \"TX\"}, \"member_id\": 44, \"owner_type\": \"self\", \"report_date\": \"2026-10-06\", \"sector\": null, \"securityDescription\": \"Johnson & Johnson\", \"securityName\": \"Johnson & Johnson\", \"security_description\": \"Johnson & Johnson\", \"security_id\": 105, \"security_name\": \"Johnson & Johnson\", \"source\": \"house_fmp\", \"symbol\": \"JNJ\", \"ticker\": \"JNJ\", \"trade_date\": \"2026-09-08\", \"transaction_id\": 23631, \"transaction_type\": \"purchase\"}",
+            "member_name": "Lloyd Doggett",
+            "member_bioguide_id": "D000399",
+            "chamber": "house",
+            "party": "Democrat",
+            "trade_type": "purchase",
+            "transaction_type": "purchase",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-06 16:34:17.680103+00:00"
+          },
+          {
+            "id": 469085,
+            "event_type": "congress_trade",
+            "ts": "2026-10-06 00:00:00+00:00",
+            "event_date": "2026-10-06 00:00:00+00:00",
+            "symbol": "PPG",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"3930bca96153d6ee55193c9d6bc771586aba78ccb52cd922456fcb0a4bbd5464\", \"companyName\": \"PPG Industries Inc\", \"company_name\": \"PPG Industries Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035580.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23632\", \"filing_date\": \"2026-10-06\", \"filing_id\": 19815, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"PPG Industries Inc\", \"issuer_name\": \"PPG Industries Inc\", \"member\": {\"bioguide_id\": \"D000399\", \"chamber\": \"house\", \"name\": \"Lloyd Doggett\", \"party\": \"Democrat\", \"state\": \"TX\"}, \"member_id\": 44, \"owner_type\": \"self\", \"report_date\": \"2026-10-06\", \"sector\": null, \"securityDescription\": \"PPG Industries Inc\", \"securityName\": \"PPG Industries Inc\", \"security_description\": \"PPG Industries Inc\", \"security_id\": 317, \"security_name\": \"PPG Industries Inc\", \"source\": \"house_fmp\", \"symbol\": \"PPG\", \"ticker\": \"PPG\", \"trade_date\": \"2026-09-11\", \"transaction_id\": 23632, \"transaction_type\": \"purchase\"}",
+            "member_name": "Lloyd Doggett",
+            "member_bioguide_id": "D000399",
+            "chamber": "house",
+            "party": "Democrat",
+            "trade_type": "purchase",
+            "transaction_type": "purchase",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-06 16:34:17.680103+00:00"
+          },
+          {
+            "id": 469086,
+            "event_type": "congress_trade",
+            "ts": "2026-10-06 00:00:00+00:00",
+            "event_date": "2026-10-06 00:00:00+00:00",
+            "symbol": "HD",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"d0072c24e9cc783c77e5ec108e890c4fa8322ae8679ba085afdd4876d7884aea\", \"companyName\": \"The Home Depot Inc\", \"company_name\": \"The Home Depot Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035580.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23633\", \"filing_date\": \"2026-10-06\", \"filing_id\": 19815, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"The Home Depot Inc\", \"issuer_name\": \"The Home Depot Inc\", \"member\": {\"bioguide_id\": \"D000399\", \"chamber\": \"house\", \"name\": \"Lloyd Doggett\", \"party\": \"Democrat\", \"state\": \"TX\"}, \"member_id\": 44, \"owner_type\": \"self\", \"report_date\": \"2026-10-06\", \"sector\": null, \"securityDescription\": \"The Home Depot Inc\", \"securityName\": \"The Home Depot Inc\", \"security_description\": \"The Home Depot Inc\", \"security_id\": 31, \"security_name\": \"The Home Depot Inc\", \"source\": \"house_fmp\", \"symbol\": \"HD\", \"ticker\": \"HD\", \"trade_date\": \"2026-09-17\", \"transaction_id\": 23633, \"transaction_type\": \"purchase\"}",
+            "member_name": "Lloyd Doggett",
+            "member_bioguide_id": "D000399",
+            "chamber": "house",
+            "party": "Democrat",
+            "trade_type": "purchase",
+            "transaction_type": "purchase",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-06 16:34:17.680103+00:00"
+          },
+          {
+            "id": 469087,
+            "event_type": "congress_trade",
+            "ts": "2026-10-06 00:00:00+00:00",
+            "event_date": "2026-10-06 00:00:00+00:00",
+            "symbol": "IBM",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"498b2f2c87008bdf7ea7810fb6bc46339cba433daaa2cd7626667b28cf4516da\", \"companyName\": \"International Business Machines Corp\", \"company_name\": \"International Business Machines Corp\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035580.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23634\", \"filing_date\": \"2026-10-06\", \"filing_id\": 19815, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"International Business Machines Corp\", \"issuer_name\": \"International Business Machines Corp\", \"member\": {\"bioguide_id\": \"D000399\", \"chamber\": \"house\", \"name\": \"Lloyd Doggett\", \"party\": \"Democrat\", \"state\": \"TX\"}, \"member_id\": 44, \"owner_type\": \"self\", \"report_date\": \"2026-10-06\", \"sector\": null, \"securityDescription\": \"International Business Machines Corp\", \"securityName\": \"International Business Machines Corp\", \"security_description\": \"International Business Machines Corp\", \"security_id\": 56, \"security_name\": \"International Business Machines Corp\", \"source\": \"house_fmp\", \"symbol\": \"IBM\", \"ticker\": \"IBM\", \"trade_date\": \"2026-09-10\", \"transaction_id\": 23634, \"transaction_type\": \"purchase\"}",
+            "member_name": "Lloyd Doggett",
+            "member_bioguide_id": "D000399",
+            "chamber": "house",
+            "party": "Democrat",
+            "trade_type": "purchase",
+            "transaction_type": "purchase",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-06 16:34:17.680103+00:00"
+          }
+        ],
+        "members": [
+          {
+            "id": 44,
+            "bioguide_id": "D000399",
+            "first_name": "Lloyd",
+            "last_name": "Doggett",
+            "chamber": "house",
+            "party": "Democrat",
+            "state": "TX"
+          }
+        ],
+        "securities": [
+          {
+            "id": 31,
+            "symbol": "HD",
+            "name": "The Home Depot Inc",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 56,
+            "symbol": "IBM",
+            "name": "International Business Machines Corp",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 105,
+            "symbol": "JNJ",
+            "name": "Johnson & Johnson",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 317,
+            "symbol": "PPG",
+            "name": "PPG Industries Inc",
+            "asset_class": "Stock",
+            "sector": null
+          }
+        ],
+        "outcomes": []
+      }
+    },
+    {
+      "metadata": {
+        "key": "2026:20035558",
+        "filing_id": "20035558",
+        "filing_date": "2026-10-02",
+        "member_name": "Michael Rulli",
+        "district": "OH06",
+        "form": "PTR",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035558.pdf"
+      },
+      "sha256": "778116b7d115d864b66f1e4085e51b3e36fab1661651470ce0b5b06977f387e4",
+      "source_file": "house_20035558.pdf",
+      "state": {
+        "filings": [
+          {
+            "id": 19814,
+            "member_id": 331,
+            "source": "house_fmp",
+            "filing_date": "2026-10-05",
+            "document_url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035558.pdf",
+            "document_hash": "fmp:house:20035558"
+          }
+        ],
+        "transactions": [
+          {
+            "id": 23625,
+            "filing_id": 19814,
+            "member_id": 331,
+            "security_id": 115,
+            "owner_type": "self",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-03",
+            "report_date": "2026-10-05",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          },
+          {
+            "id": 23626,
+            "filing_id": 19814,
+            "member_id": 331,
+            "security_id": 114,
+            "owner_type": "self",
+            "transaction_type": "purchase",
+            "trade_date": "2026-09-03",
+            "report_date": "2026-10-05",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          },
+          {
+            "id": 23627,
+            "filing_id": 19814,
+            "member_id": 331,
+            "security_id": 13,
+            "owner_type": "self",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-28",
+            "report_date": "2026-10-05",
+            "amount_range_min": 1001.0,
+            "amount_range_max": 15000.0,
+            "description": null
+          }
+        ],
+        "events": [
+          {
+            "id": 465892,
+            "event_type": "congress_trade",
+            "ts": "2026-10-05 00:00:00+00:00",
+            "event_date": "2026-10-05 00:00:00+00:00",
+            "symbol": "WFC",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"665a1b896fb49c0d1b05dd1e4300821af8d8bb61b858ddf7231ece8edcb90596\", \"companyName\": \"Wells Fargo & Co\", \"company_name\": \"Wells Fargo & Co\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035558.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23625\", \"filing_date\": \"2026-10-05\", \"filing_id\": 19814, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"Wells Fargo & Co\", \"issuer_name\": \"Wells Fargo & Co\", \"member\": {\"bioguide_id\": \"R000619\", \"chamber\": \"house\", \"name\": \"Michael Rulli\", \"party\": \"Republican\", \"state\": \"OH\"}, \"member_id\": 331, \"owner_type\": \"self\", \"report_date\": \"2026-10-05\", \"sector\": null, \"securityDescription\": \"Wells Fargo & Co\", \"securityName\": \"Wells Fargo & Co\", \"security_description\": \"Wells Fargo & Co\", \"security_id\": 115, \"security_name\": \"Wells Fargo & Co\", \"source\": \"house_fmp\", \"symbol\": \"WFC\", \"ticker\": \"WFC\", \"trade_date\": \"2026-09-03\", \"transaction_id\": 23625, \"transaction_type\": \"sale\"}",
+            "member_name": "Michael Rulli",
+            "member_bioguide_id": "R000619",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-05 15:35:18.965876+00:00"
+          },
+          {
+            "id": 465893,
+            "event_type": "congress_trade",
+            "ts": "2026-10-05 00:00:00+00:00",
+            "event_date": "2026-10-05 00:00:00+00:00",
+            "symbol": "GS",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"43c494201b38515c024b27a6495990bf38a45c1f2b2461cd198ea29ce5505db5\", \"companyName\": \"The Goldman Sachs Group Inc\", \"company_name\": \"The Goldman Sachs Group Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035558.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23626\", \"filing_date\": \"2026-10-05\", \"filing_id\": 19814, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"The Goldman Sachs Group Inc\", \"issuer_name\": \"The Goldman Sachs Group Inc\", \"member\": {\"bioguide_id\": \"R000619\", \"chamber\": \"house\", \"name\": \"Michael Rulli\", \"party\": \"Republican\", \"state\": \"OH\"}, \"member_id\": 331, \"owner_type\": \"self\", \"report_date\": \"2026-10-05\", \"sector\": null, \"securityDescription\": \"The Goldman Sachs Group Inc\", \"securityName\": \"The Goldman Sachs Group Inc\", \"security_description\": \"The Goldman Sachs Group Inc\", \"security_id\": 114, \"security_name\": \"The Goldman Sachs Group Inc\", \"source\": \"house_fmp\", \"symbol\": \"GS\", \"ticker\": \"GS\", \"trade_date\": \"2026-09-03\", \"transaction_id\": 23626, \"transaction_type\": \"purchase\"}",
+            "member_name": "Michael Rulli",
+            "member_bioguide_id": "R000619",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "purchase",
+            "transaction_type": "purchase",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-05 15:35:18.965876+00:00"
+          },
+          {
+            "id": 465894,
+            "event_type": "congress_trade",
+            "ts": "2026-10-05 00:00:00+00:00",
+            "event_date": "2026-10-05 00:00:00+00:00",
+            "symbol": "MSFT",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"dce738a324b6c49468ec3202d04907e9a17e264c42bfc306ff2ee76cd81992be\", \"companyName\": \"Microsoft Corp\", \"company_name\": \"Microsoft Corp\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035558.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23627\", \"filing_date\": \"2026-10-05\", \"filing_id\": 19814, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"Microsoft Corp\", \"issuer_name\": \"Microsoft Corp\", \"member\": {\"bioguide_id\": \"R000619\", \"chamber\": \"house\", \"name\": \"Michael Rulli\", \"party\": \"Republican\", \"state\": \"OH\"}, \"member_id\": 331, \"owner_type\": \"self\", \"report_date\": \"2026-10-05\", \"sector\": null, \"securityDescription\": \"Microsoft Corp\", \"securityName\": \"Microsoft Corp\", \"security_description\": \"Microsoft Corp\", \"security_id\": 13, \"security_name\": \"Microsoft Corp\", \"source\": \"house_fmp\", \"symbol\": \"MSFT\", \"ticker\": \"MSFT\", \"trade_date\": \"2026-09-28\", \"transaction_id\": 23627, \"transaction_type\": \"sale\"}",
+            "member_name": "Michael Rulli",
+            "member_bioguide_id": "R000619",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 1001,
+            "amount_max": 15000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-05 15:35:18.965876+00:00"
+          }
+        ],
+        "members": [
+          {
+            "id": 331,
+            "bioguide_id": "R000619",
+            "first_name": "Michael",
+            "last_name": "Rulli",
+            "chamber": "house",
+            "party": "Republican",
+            "state": "OH"
+          }
+        ],
+        "securities": [
+          {
+            "id": 13,
+            "symbol": "MSFT",
+            "name": "Microsoft Corp",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 114,
+            "symbol": "GS",
+            "name": "The Goldman Sachs Group Inc",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 115,
+            "symbol": "WFC",
+            "name": "Wells Fargo & Co",
+            "asset_class": "Stock",
+            "sector": null
+          }
+        ],
+        "outcomes": []
+      }
+    },
+    {
+      "metadata": {
+        "key": "2026:20035499",
+        "filing_id": "20035499",
+        "filing_date": "2026-09-22",
+        "member_name": "Pete Sessions",
+        "district": "TX17",
+        "form": "PTR",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035499.pdf"
+      },
+      "sha256": "6e17007df0d27dcc8bed2df12c3a998f823998c10c93e4f05d36d63b91078b34",
+      "source_file": "house_20035499.pdf",
+      "state": {
+        "filings": [
+          {
+            "id": 19798,
+            "member_id": 70,
+            "source": "house_fmp",
+            "filing_date": "2026-09-23",
+            "document_url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035499.pdf",
+            "document_hash": "fmp:house:20035499"
+          }
+        ],
+        "transactions": [
+          {
+            "id": 23067,
+            "filing_id": 19798,
+            "member_id": 70,
+            "security_id": 38,
+            "owner_type": "spouse",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-22",
+            "report_date": "2026-09-23",
+            "amount_range_min": 100001.0,
+            "amount_range_max": 250000.0,
+            "description": null
+          }
+        ],
+        "events": [
+          {
+            "id": 439096,
+            "event_type": "congress_trade",
+            "ts": "2026-09-23 00:00:00+00:00",
+            "event_date": "2026-09-23 00:00:00+00:00",
+            "symbol": "AAPL",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 250000.0, \"amount_range_min\": 100001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"bd19058b4ab57a2763a80b93f17638157a0ee13069b58ad4cdba659e0cff65b5\", \"companyName\": \"Apple Inc\", \"company_name\": \"Apple Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035499.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23067\", \"filing_date\": \"2026-09-23\", \"filing_id\": 19798, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"Apple Inc\", \"issuer_name\": \"Apple Inc\", \"member\": {\"bioguide_id\": \"S000250\", \"chamber\": \"house\", \"name\": \"Pete Sessions\", \"party\": \"Republican\", \"state\": \"TX\"}, \"member_id\": 70, \"owner_type\": \"spouse\", \"report_date\": \"2026-09-23\", \"sector\": null, \"securityDescription\": \"Apple Inc\", \"securityName\": \"Apple Inc\", \"security_description\": \"Apple Inc\", \"security_id\": 38, \"security_name\": \"Apple Inc\", \"source\": \"house_fmp\", \"symbol\": \"AAPL\", \"ticker\": \"AAPL\", \"trade_date\": \"2026-09-22\", \"transaction_id\": 23067, \"transaction_type\": \"sale\"}",
+            "member_name": "Pete Sessions",
+            "member_bioguide_id": "S000250",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 100001,
+            "amount_max": 250000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-09-23 13:40:34.423190+00:00"
+          }
+        ],
+        "members": [
+          {
+            "id": 70,
+            "bioguide_id": "S000250",
+            "first_name": "Pete",
+            "last_name": "Sessions",
+            "chamber": "house",
+            "party": "Republican",
+            "state": "TX"
+          }
+        ],
+        "securities": [
+          {
+            "id": 38,
+            "symbol": "AAPL",
+            "name": "Apple Inc",
+            "asset_class": "Stock",
+            "sector": null
+          }
+        ],
+        "outcomes": []
+      }
+    },
+    {
+      "metadata": {
+        "key": "2026:9116361",
+        "filing_id": "9116361",
+        "filing_date": "2026-10-02",
+        "member_name": "Tony Wied",
+        "district": "WI08",
+        "form": "PTR",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf"
+      },
+      "sha256": "438b1c89ec6f78c9ec39f30799b499a8e2fb734cd53dd5b2787f71a6d3b01385",
+      "source_file": "house_9116361.pdf",
+      "state": {
+        "filings": [
+          {
+            "id": 19816,
+            "member_id": 66,
+            "source": "house_fmp",
+            "filing_date": "2026-10-07",
+            "document_url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf",
+            "document_hash": "fmp:house:9116361"
+          }
+        ],
+        "transactions": [
+          {
+            "id": 23635,
+            "filing_id": 19816,
+            "member_id": 66,
+            "security_id": 409,
+            "owner_type": "joint",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-17",
+            "report_date": "2026-10-07",
+            "amount_range_min": 15001.0,
+            "amount_range_max": 50000.0,
+            "description": null
+          },
+          {
+            "id": 23636,
+            "filing_id": 19816,
+            "member_id": 66,
+            "security_id": 89,
+            "owner_type": "joint",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-17",
+            "report_date": "2026-10-07",
+            "amount_range_min": 50001.0,
+            "amount_range_max": 100000.0,
+            "description": null
+          },
+          {
+            "id": 23637,
+            "filing_id": 19816,
+            "member_id": 66,
+            "security_id": 3468,
+            "owner_type": "joint",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-17",
+            "report_date": "2026-10-07",
+            "amount_range_min": 15001.0,
+            "amount_range_max": 50000.0,
+            "description": null
+          },
+          {
+            "id": 23638,
+            "filing_id": 19816,
+            "member_id": 66,
+            "security_id": 148,
+            "owner_type": "joint",
+            "transaction_type": "sale",
+            "trade_date": "2026-09-17",
+            "report_date": "2026-10-07",
+            "amount_range_min": 15001.0,
+            "amount_range_max": 50000.0,
+            "description": null
+          }
+        ],
+        "events": [
+          {
+            "id": 471345,
+            "event_type": "congress_trade",
+            "ts": "2026-10-07 00:00:00+00:00",
+            "event_date": "2026-10-07 00:00:00+00:00",
+            "symbol": "TTD",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 50000.0, \"amount_range_min\": 15001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"bfa9537abee5c47150288f12bc794b26316d3bbe47693f1b1bc2e24445fb97a2\", \"companyName\": \"The Trade Desk Inc\", \"company_name\": \"The Trade Desk Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23635\", \"filing_date\": \"2026-10-07\", \"filing_id\": 19816, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"The Trade Desk Inc\", \"issuer_name\": \"The Trade Desk Inc\", \"member\": {\"bioguide_id\": \"W000829\", \"chamber\": \"house\", \"name\": \"Tony Wied\", \"party\": \"Republican\", \"state\": \"WI\"}, \"member_id\": 66, \"owner_type\": \"joint\", \"report_date\": \"2026-10-07\", \"sector\": null, \"securityDescription\": \"The Trade Desk Inc\", \"securityName\": \"The Trade Desk Inc\", \"security_description\": \"The Trade Desk Inc\", \"security_id\": 409, \"security_name\": \"The Trade Desk Inc\", \"source\": \"house_fmp\", \"symbol\": \"TTD\", \"ticker\": \"TTD\", \"trade_date\": \"2026-09-17\", \"transaction_id\": 23635, \"transaction_type\": \"sale\"}",
+            "member_name": "Tony Wied",
+            "member_bioguide_id": "W000829",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 15001,
+            "amount_max": 50000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-07 15:29:46.957421+00:00"
+          },
+          {
+            "id": 471346,
+            "event_type": "congress_trade",
+            "ts": "2026-10-07 00:00:00+00:00",
+            "event_date": "2026-10-07 00:00:00+00:00",
+            "symbol": "NOW",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 100000.0, \"amount_range_min\": 50001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"23632b39af81fed10d7881488ecde9842682731cef125f1fe6c358d2498318f2\", \"companyName\": \"ServiceNow Inc\", \"company_name\": \"ServiceNow Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23636\", \"filing_date\": \"2026-10-07\", \"filing_id\": 19816, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"ServiceNow Inc\", \"issuer_name\": \"ServiceNow Inc\", \"member\": {\"bioguide_id\": \"W000829\", \"chamber\": \"house\", \"name\": \"Tony Wied\", \"party\": \"Republican\", \"state\": \"WI\"}, \"member_id\": 66, \"owner_type\": \"joint\", \"report_date\": \"2026-10-07\", \"sector\": null, \"securityDescription\": \"ServiceNow Inc\", \"securityName\": \"ServiceNow Inc\", \"security_description\": \"ServiceNow Inc\", \"security_id\": 89, \"security_name\": \"ServiceNow Inc\", \"source\": \"house_fmp\", \"symbol\": \"NOW\", \"ticker\": \"NOW\", \"trade_date\": \"2026-09-17\", \"transaction_id\": 23636, \"transaction_type\": \"sale\"}",
+            "member_name": "Tony Wied",
+            "member_bioguide_id": "W000829",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 50001,
+            "amount_max": 100000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-07 15:29:46.957421+00:00"
+          },
+          {
+            "id": 471347,
+            "event_type": "congress_trade",
+            "ts": "2026-10-07 00:00:00+00:00",
+            "event_date": "2026-10-07 00:00:00+00:00",
+            "symbol": "UPST",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 50000.0, \"amount_range_min\": 15001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"a9ab14ee7bac3f751c34916fa28d54af973507b3b64c44980330b92e293d92c8\", \"companyName\": \"UPSTART HOLDINGS INC\", \"company_name\": \"UPSTART HOLDINGS INC\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23637\", \"filing_date\": \"2026-10-07\", \"filing_id\": 19816, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"UPSTART HOLDINGS INC\", \"issuer_name\": \"UPSTART HOLDINGS INC\", \"member\": {\"bioguide_id\": \"W000829\", \"chamber\": \"house\", \"name\": \"Tony Wied\", \"party\": \"Republican\", \"state\": \"WI\"}, \"member_id\": 66, \"owner_type\": \"joint\", \"report_date\": \"2026-10-07\", \"sector\": null, \"securityDescription\": \"UPSTART HOLDINGS INC\", \"securityName\": \"UPSTART HOLDINGS INC\", \"security_description\": \"UPSTART HOLDINGS INC\", \"security_id\": 3468, \"security_name\": \"UPSTART HOLDINGS INC\", \"source\": \"house_fmp\", \"symbol\": \"UPST\", \"ticker\": \"UPST\", \"trade_date\": \"2026-09-17\", \"transaction_id\": 23637, \"transaction_type\": \"sale\"}",
+            "member_name": "Tony Wied",
+            "member_bioguide_id": "W000829",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 15001,
+            "amount_max": 50000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-07 15:29:46.957421+00:00"
+          },
+          {
+            "id": 471670,
+            "event_type": "congress_trade",
+            "ts": "2026-10-07 00:00:00+00:00",
+            "event_date": "2026-10-07 00:00:00+00:00",
+            "symbol": "CMG",
+            "source": "house_fmp",
+            "impact_score": 0.0,
+            "payload_json": "{\"amount_range_max\": 50000.0, \"amount_range_min\": 15001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"dbbf47d6f9d9c8ffea9ecd006baa949ede27e008d5f648d95d7099574dea352c\", \"companyName\": \"Chipotle Mexican Grill Inc\", \"company_name\": \"Chipotle Mexican Grill Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23638\", \"filing_date\": \"2026-10-07\", \"filing_id\": 19816, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"Chipotle Mexican Grill Inc\", \"issuer_name\": \"Chipotle Mexican Grill Inc\", \"member\": {\"bioguide_id\": \"W000829\", \"chamber\": \"house\", \"name\": \"Tony Wied\", \"party\": \"Republican\", \"state\": \"WI\"}, \"member_id\": 66, \"owner_type\": \"joint\", \"report_date\": \"2026-10-07\", \"sector\": null, \"securityDescription\": \"Chipotle Mexican Grill Inc\", \"securityName\": \"Chipotle Mexican Grill Inc\", \"security_description\": \"Chipotle Mexican Grill Inc\", \"security_id\": 148, \"security_name\": \"Chipotle Mexican Grill Inc\", \"source\": \"house_fmp\", \"symbol\": \"CMG\", \"ticker\": \"CMG\", \"trade_date\": \"2026-09-17\", \"transaction_id\": 23638, \"transaction_type\": \"sale\"}",
+            "member_name": "Tony Wied",
+            "member_bioguide_id": "W000829",
+            "chamber": "house",
+            "party": "Republican",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "amount_min": 15001,
+            "amount_max": 50000,
+            "data_source": null,
+            "source_provider": null,
+            "source_filing_id": null,
+            "source_document_url": null,
+            "parser_version": null,
+            "provider_priority": null,
+            "created_at": "2026-10-07 16:35:24.808891+00:00"
+          }
+        ],
+        "members": [
+          {
+            "id": 66,
+            "bioguide_id": "W000829",
+            "first_name": "Tony",
+            "last_name": "Wied",
+            "chamber": "house",
+            "party": "Republican",
+            "state": "WI"
+          }
+        ],
+        "securities": [
+          {
+            "id": 89,
+            "symbol": "NOW",
+            "name": "ServiceNow Inc",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 148,
+            "symbol": "CMG",
+            "name": "Chipotle Mexican Grill Inc",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 409,
+            "symbol": "TTD",
+            "name": "The Trade Desk Inc",
+            "asset_class": "Stock",
+            "sector": null
+          },
+          {
+            "id": 3468,
+            "symbol": "UPST",
+            "name": "UPSTART HOLDINGS INC",
+            "asset_class": "Stock",
+            "sector": null
+          }
+        ],
+        "outcomes": []
+      }
+    }
+  ]
+}

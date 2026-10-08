@@ -17,6 +17,7 @@ from app.services.screener import build_screener_rows, screener_params_from_mapp
 from app.services.ticker_meta import normalize_cik
 from app.services.trade_outcome_display import normalize_trade_side
 from app.utils.symbols import normalize_symbol, symbol_variants
+from app.services.event_availability import available_event_date
 
 
 VISIBLE_SIGNAL_TRADE_SIDES = {"purchase", "p-purchase", "buy", "p"}
@@ -239,12 +240,13 @@ def parse_iso_date(value: str | None) -> date | None:
 
 
 def event_entry_date(event: Event, payload: dict[str, Any]) -> date | None:
-    return (
+    filing_date = (
         parse_iso_date(first_text(payload, "filing_date", "filingDate", "report_date", "reportDate"))
         or (event.event_date.date() if event.event_date is not None else None)
         or event.ts.date()
         or parse_iso_date(first_text(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate"))
     )
+    return available_event_date(payload, filing_date)
 
 
 def congress_entry_date(event: Event, payload: dict[str, Any], *, portfolio_model: str) -> date | None:

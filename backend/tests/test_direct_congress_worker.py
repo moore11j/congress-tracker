@@ -66,7 +66,14 @@ def test_publish_and_repeat_real_rows_without_email(db):
     assert db.scalar(select(func.count()).select_from(EmailDelivery)) == 0
     for row in db.scalars(select(Event)):
         assert row.event_date.date() == date(2026, 10, 1)
-        assert json.loads(row.payload_json)['trade_date'] == '2026-09-04'
+        payload = json.loads(row.payload_json)
+        assert payload['trade_date'] == '2026-09-04'
+        assert payload['filing_date'] == '2026-10-01'
+        assert payload['source_availability']['basis'] == 'direct_publication'
+        assert payload['source_availability']['date'] == row.ts.date().isoformat()
+        assert row.ts.date() > row.event_date.date()
+        from app.services.backtesting.queries import event_entry_date
+        assert event_entry_date(row, payload) == row.ts.date()
         assert row.source_provider == 'official_senate'
     assert worker.publish_document(db, doc_id, directory=DIRECTORY)['inserted_events'] == 0
     assert counts(db) == before

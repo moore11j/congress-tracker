@@ -143,6 +143,16 @@ def _project(db, document, metadata, raw, directory, boundary):
                 payload.update(source_line_ref=row['source_line_ref'], normalized_hash=row['normalized_hash'],
                     source_sha256=document.content_hash, source_transaction_type=row['transaction_type_raw'],
                     source_asset_type=row['asset_type_raw'])
+                # A newly published direct record was not available to Walnut
+                # at its older transaction/filing date. Retain the official
+                # event_date, but index its arrival and execution availability.
+                published_at = datetime.now(timezone.utc)
+                event.ts = published_at
+                payload['source_availability'] = {
+                    'date': published_at.date().isoformat(), 'basis': 'direct_publication',
+                    'observed_at': published_at.isoformat(),
+                    'source_discovered_at': document.first_seen_at.isoformat(),
+                }
                 event.payload_json = dumps(payload)
                 db.add(event); db.flush()
                 enqueue_feed_pnl_enrichment_for_event(db, event, source='direct_congress', reason='event_insert', use_current_session=True)

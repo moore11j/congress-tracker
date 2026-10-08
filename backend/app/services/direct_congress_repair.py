@@ -138,7 +138,11 @@ def _event_matches(event, source, member, transaction_id, filing_id, *, correct_
         return False
     if correct_disclosure:
         day = str(source['disclosure_date'])[:10]
-        return (str(event.get('ts'))[:10] == day and str(event.get('event_date'))[:10] == day
+        from app.services.event_availability import available_event_date
+        from datetime import date
+        available = available_event_date(payload, date.fromisoformat(day))
+        return (available is not None and str(event.get('ts'))[:10] == available.isoformat()
+                and str(event.get('event_date'))[:10] == day
                 and str(payload.get('report_date') or payload.get('filing_date'))[:10] == day)
     return True
 

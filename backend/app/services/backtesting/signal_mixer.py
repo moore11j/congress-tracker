@@ -19,6 +19,7 @@ from app.services.backtesting.queries import (
     parse_iso_date, parse_payload,
 )
 from app.utils.symbols import normalize_symbol
+from app.services.event_availability import available_event_date
 
 SOURCE_BATCH_SIZE = 2_000
 PRICE_BATCH_SIZE = 50
@@ -81,6 +82,7 @@ def load_mixer_events(db: Session, kind: str, start: date, end: date, *, symbols
                 continue
             # Never substitute the transaction date or generic event_date.
             day = parse_iso_date(first_text(payload, "filing_date", "filingDate", "report_date", "reportDate"))
+            day = available_event_date(payload, day)
             if day is None:
                 missing_dates += 1
                 continue
