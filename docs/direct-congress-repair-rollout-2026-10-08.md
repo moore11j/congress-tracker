@@ -80,3 +80,12 @@ Explicit current-day discovery run 11 returns a complete Senate search for Octob
 
 
 Same-day discovery checks: 65 schedule/Senate parser/Congress worker tests pass on Python 3.14.2. This includes Congress-only current-day versus SEC/mixed completed-day boundaries. Deployment is the next step.
+
+
+## Final live verification, 23:01 UTC
+
+Same-day Congress release `9079343cc729b99cfd31fcddabbffe791821ea44` and [workflow 37856798420](https://github.com/moore11j/congress-tracker/actions/runs/37856798420) succeed. All four workers are started on that exact image; readiness/database pass. The deployed default-date helper confirms Congress includes today while SEC retains yesterday. The frontend correction was separately verified on both public sites and in the rendered member table at `b57c1af5`.
+
+Read-only receipt `senate-final-verification.capture.txt` at 23:01:20 verifies official Senate generation 2, five surviving events, zero withdrawn events, corrected ADI/JPM/V score views, and zero recorded successful Senate FMP usage since selection. The two publication receipts remain existing Whitehouse/held bond-only Fetterman; no new stock rows or deliveries. SEC scheduled run 10 completed at 22:49:08 after processing 200 documents; the older-week Form 4 backlog is now 3,474 (down from 3,674), with zero public writes. Same-day Congress run 11 completed at 22:55:46 as documented above.
+
+The next scheduled Senate publisher at 23:27 remains an observation gate. House scans/canonical holds, Form 4/13F publication and broader source coverage, independent fundamentals/universe, prices and research-feature disposition remain unfinished. The five-event alert rehearsal is scoped to this correction; full replacement freshness across all alerts is not claimed. Massive Starter activation and FMP account login are still pending. No billing cancellation or full FMP shutdown. Goal remains active after substantive production progress.
