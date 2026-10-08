@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "reviews": [
+    {
+      "metadata": {
+        "key": "2026:9116361",
+        "filing_id": "9116361",
+        "filing_date": "2026-10-02",
+        "member_name": "Tony Wied",
+        "district": "WI08",
+        "form": "PTR",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/9116361.pdf"
+      },
+      "source_sha256": "438b1c89ec6f78c9ec39f30799b499a8e2fb734cd53dd5b2787f71a6d3b01385",
+      "page_count": 1,
+      "row_count": 4,
+      "amendment_flag": false,
+      "review_method": "rendered_page_visual_review",
+      "reviewed_on": "2026-10-08",
+      "rows": [
+        {
+          "source_line_ref": "1",
+          "page": 1,
+          "owner": "JT",
+          "assetDescription": "SERVICENOW INC",
+          "action_checkbox": "Partial Sale",
+          "amount_checkbox": "C",
+          "transaction_date": "2026-09-17",
+          "notification_date": "2026-10-02",
+          "security_mapping": {
+            "ticker": "NOW",
+            "issuer": "SERVICENOW, INC.",
+            "security_title": "Common stock",
+            "asset_type": "stock",
+            "report_period": "2026-06-30",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/1373715/000137371526000076/R1.htm"
+          }
+        },
+        {
+          "source_line_ref": "2",
+          "page": 1,
+          "owner": "JT",
+          "assetDescription": "THE TRADE DESK INC CLASS A",
+          "action_checkbox": "Partial Sale",
+          "amount_checkbox": "B",
+          "transaction_date": "2026-09-17",
+          "notification_date": "2026-10-02",
+          "security_mapping": {
+            "ticker": "TTD",
+            "issuer": "THE TRADE DESK, INC.",
+            "security_title": "Class A Common Stock",
+            "asset_type": "stock",
+            "report_period": "2026-06-30",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/1671933/000167193326000086/ttd-20260630.htm"
+          }
+        },
+        {
+          "source_line_ref": "3",
+          "page": 1,
+          "owner": "JT",
+          "assetDescription": "UPSTART HLDGS INC",
+          "action_checkbox": "Partial Sale",
+          "amount_checkbox": "B",
+          "transaction_date": "2026-09-17",
+          "notification_date": "2026-10-02",
+          "security_mapping": {
+            "ticker": "UPST",
+            "issuer": "Upstart Holdings, Inc.",
+            "security_title": "Common Stock",
+            "asset_type": "stock",
+            "report_period": "2026-06-30",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/1647639/000164763926000063/upst-20260630.htm"
+          }
+        },
+        {
+          "source_line_ref": "4",
+          "page": 1,
+          "owner": "JT",
+          "assetDescription": "CHIPOTLE MEXICAN GRILL I",
+          "action_checkbox": "Partial Sale",
+          "amount_checkbox": "B",
+          "transaction_date": "2026-09-17",
+          "notification_date": "2026-10-02",
+          "security_mapping": {
+            "ticker": "CMG",
+            "issuer": "CHIPOTLE MEXICAN GRILL, INC.",
+            "security_title": "Common stock",
+            "asset_type": "stock",
+            "report_period": "2025-12-31",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/1058090/000105809026000009/cmg-20251231.htm"
+          }
+        }
+      ]
+    }
+  ]
+}

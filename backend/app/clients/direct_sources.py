@@ -262,6 +262,13 @@ def parse_house_pdf(raw: bytes, metadata: dict) -> tuple[str, dict]:
         pages.append(tokens)
     text = "\n".join(texts).replace("\x00", "")
     if not text.strip():
+        from app.clients.house_ptr_review import reviewed_house_scan
+        try:
+            reviewed = reviewed_house_scan(raw, metadata, len(reader.pages))
+        except ValueError as exc:
+            raise DirectSourceError(str(exc)) from exc
+        if reviewed is not None:
+            return reviewed
         raise DirectSourceError('House report has no text layer; scanned form/OCR review required')
     if metadata.get('filing_id'):
         body_ids = set(re.findall(r'Filing ID\s*#(\d+)', text))

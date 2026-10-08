@@ -165,6 +165,13 @@ def parse_document(feed, raw, metadata):
     if feed in {"house_ptr", "senate_ptr"}:
         source_text, report = (parse_house_pdf if feed == "house_ptr" else parse_senate_html)(raw, metadata)
         transactions = (parse_house_disclosure if feed == "house_ptr" else parse_senate_disclosure)(report)
+        if feed == 'house_ptr' and report.get('scan_review'):
+            for item, source_row in zip(transactions, report['transactions'], strict=True):
+                mapping = source_row['reviewed_security_mapping']
+                item['ticker_normalized'] = mapping['ticker']
+                item['symbol_resolution_status'] = 'reviewed_sec_listing'
+                # No ticker was printed on this form. Preserve ticker_raw=None
+                # and retain the listing evidence in source_report.
         if report.get("amendment_flag"):
             reasons.append("Congress amendment requires original filing reconciliation")
         for item in transactions:
