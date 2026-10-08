@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,23 @@ from app.clients import direct_sources
 from app.clients.house_ptr_pdf import extract_house_columns
 from app.services.direct_feed_collection import parse_document
 from app.services.official_congress import congress_transaction_hash
+
+
+def test_official_pdf_uses_correct_visitor_coordinates():
+    # Exact public source: https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035590.pdf
+    # pypdf 6.13.3 supplied stale matrices for several cells; mocked tokens
+    # could not expose that production-only failure. Keep transport bytes.
+    raw = (Path(__file__).with_name('fixtures') / 'house_20035590.pdf').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'ba243f7c2b8b2ac7cb2ed86ea0665fd58cb3fa5305813292b8d8fe3349c1d141'
+    metadata = {'filing_id': '20035590', 'filing_date': '2026-10-07', 'member_name': 'Josh Gottheimer',
+                'url': 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035590.pdf'}
+    _, parsed, reasons = parse_document('house_ptr', raw, metadata)
+    assert reasons == []
+    rows = parsed['transactions']
+    assert [row['ticker_normalized'] for row in rows] == ['AMAT', 'MCD']
+    assert [str(row['transaction_date']) for row in rows] == ['2026-09-15', '2026-09-25']
+    assert all(row['owner_normalized'] == 'joint' and row['amount_low'] == 1001
+               and row['amount_high'] == 15000 for row in rows)
 
 
 @pytest.fixture

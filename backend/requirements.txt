@@ -7,7 +7,7 @@ requests==2.33.0
 cryptography==50.0.1
 lxml
 python-dateutil
-pypdf==6.13.3
+pypdf==6.19.0
 pdf2image==1.17.0
 Pillow==10.4.0
 pytesseract==0.3.13

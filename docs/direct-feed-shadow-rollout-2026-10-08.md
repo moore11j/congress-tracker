@@ -19,3 +19,13 @@ An additional existing ingestion test file, `test_institutional_ingest_job.py`, 
 ## Deployment and remaining gates
 
 Prepared, not yet deployed at this checkpoint. Live scheduled receipts, public-row isolation, runtime/image health and collection coverage must be verified after deployment. FMP remains active. Massive Starter activation and delayed-price verification remain pending. Congress scan/identity exceptions, production-safe canonical repairs, Form 4/13F publication, fresh scoring/rankings and no-send monitoring/watchlist/daily/weekly parity remain cutover gates. Optional FMP research features still need replacement or explicit retirement before zero-egress and billing cancellation checks.
+
+## First live deployment and PDF runtime correction
+
+Release `dbf0b1b9` deployed successfully via workflow [37842069681](https://github.com/moore11j/congress-tracker/actions/runs/37842069681). The additive migration completed before worker replacement, all four machines run that image, and readiness/database/Premium access checks passed. Python 3.12.15; live settings confirm shadow mode and all publishers false, with no source controls or publication receipts.
+
+A bounded October 7 collection at 20:50 UTC discovered two House, one Senate, 325 Form 4 and 86 13F reports. It stored ten revisions: eight parsed and two quarantined. Two House PDFs failed and one 13F had an invalid share/principal type; 401 documents remain pending. Senate unattended discovery completed. Source hashes verify for all ten captured revisions, public writes remain zero. This is live staging, not completed scheduled reliability or public cutover.
+
+The House failure was reproduced against the pinned production `pypdf==6.13.3`; local testing had used 6.19.0. Older visitor callbacks supply stale coordinates for table cells. The official [changelog](https://pypdf.readthedocs.io/en/6.19.0/meta/CHANGELOG.html#version-6-18-1-2026-09-11) records the visitor text-matrix fix in 6.18.1. Pinning the already locally tested 6.19.0 aligns runtimes. An exact source-PDF fixture now checks real extraction, both stock symbols/dates and joint-owner amount ranges, rather than only mocked text coordinates. Saved raw HTML fixtures retain source whitespace; code/document diff checks exclude that known source-byte whitespace.
+
+109 focused release checks pass after the dependency correction, including existing annual-disclosure parsing and the real PDF. Follow-up deployment/live retry not yet verified at this checkpoint. FMP remains active and billing unchanged.

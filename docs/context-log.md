@@ -2,6 +2,10 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-08: Live shadow rollout and PDF correction
+
+Release dbf0b1b9/workflow 37842069681 succeeded: additive migration, four images, readiness/database and Premium denial checked. Initial bounded live run stored ten revisions; Senate discovery works unattended, 401 pending reports, two House failures and one 13F failure held, zero public writes. House failure reproduced on pinned pypdf 6.13.3; correcting to locally validated 6.19.0 with an exact PDF regression fixture. Follow-up release/live retry pending. FMP and billing unchanged; full cutover still incomplete.
+
 ## 2026-10-08: Scoped shadow collection release prepared
 
 Owner requests work through reliable FMP shutdown. Prepared a separate release checkout from b7989115 with eight isolated tables and bounded hourly official House/Senate/Form 4/13F collection. Public publishers remain disabled; existing FMP delivery unchanged. 100 focused tests, repeat schema check and Fly configuration validation pass; an unchanged legacy ingestion test has a collection syntax error. [Report](direct-feed-shadow-rollout-2026-10-08.md). No deployment or provider/billing switch at this checkpoint. Next: verify live scheduled receipts, then finish source publication and fresh price/ranking/alert coverage.
