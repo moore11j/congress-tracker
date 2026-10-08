@@ -2,6 +2,10 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-08: Corrective shadow rollout verified
+
+Release c2b97e80/workflow 37842927148 succeeded, repeat schema migration/all four images/health/access verified. Live retry parses both House PDFs using pypdf 6.19.0; one canonical mismatch held. Twelve revisions with verified source hashes, repeat processes zero, no public source selections/publications. 109 focused release checks pass; full saved corpus remains 27 revisions/264 rows with identical repeat. Massive snapshot probe remains 403. Scheduled receipts, 401 SEC backlog items, exceptions and full public/price/alert cutover remain open. [Report](direct-feed-shadow-rollout-2026-10-08.md). FMP and billing unchanged, no test emails; active goal continues.
+
 ## 2026-10-08: Live shadow rollout and PDF correction
 
 Release dbf0b1b9/workflow 37842069681 succeeded: additive migration, four images, readiness/database and Premium denial checked. Initial bounded live run stored ten revisions; Senate discovery works unattended, 401 pending reports, two House failures and one 13F failure held, zero public writes. House failure reproduced on pinned pypdf 6.13.3; correcting to locally validated 6.19.0 with an exact PDF regression fixture. Follow-up release/live retry pending. FMP and billing unchanged; full cutover still incomplete.
