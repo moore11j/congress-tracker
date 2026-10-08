@@ -222,3 +222,6 @@ After each relevant prompt, update affected roadmap statuses and the memory/log.
 
 
 **October 8 R7 scheduled observation:** 94a9e07f deployed on all four workers; actual hourly Congress run completes with twenty retained source revisions and zero public writes. Four House scans held pending OCR. SEC backlog is actively processing. A second queue protection prevents retired-job reenqueues; 57 focused tests pass, rollout pending collection completion. FMP remains on; public publication/repair, Starter access and fresh ranking/digest checks remain gates. [Evidence](feed-ownership-rollout-2026-10-08.md).
+
+
+**October 8 R7 final verified receipt:** 2cea0aae/workflow 37847832482 deployed on all four workers; repeated migration/readiness/privacy and both queue code hashes pass. SEC October 7 backlog drained (325 Form 4/86 13F attempted), all 418 source hashes verified, unchanged 426-document/418-revision repeat and zero public writes. Final holds: 150 Form 4, five quarantined/four failed 13Fs, four House scans. Massive still 403 at 21:37 UTC; Starter/account login pending. No canonical repair/public source activation or billing change. Next: hourly SEC observation, reconciliation/publication, OCR and fresh ranking/no-send alert coverage. Goal remains active. [Evidence](feed-ownership-rollout-2026-10-08.md).
