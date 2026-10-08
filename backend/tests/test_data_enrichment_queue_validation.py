@@ -313,6 +313,28 @@ def test_queue_does_not_claim_a_job_retired_after_snapshot(monkeypatch):
         assert check.get(DataEnrichmentJob, job_id).status == 'skipped'
 
 
+def test_enqueue_preserves_withdrawn_event_job_but_retries_other_skips(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(queue_module, 'SessionLocal', Session)
+    with Session() as db:
+        db.add_all([
+            DataEnrichmentJob(job_type='feed_pnl_refresh', symbol='AAPL',
+                dedupe_key='feed_pnl_refresh|AAPL||event:7', window_key='event:7',
+                status='skipped', reason='source_event_withdrawn_duplicate',
+                source='original', payload_json='{"event_id": 7}', priority=30),
+            DataEnrichmentJob(job_type='quote', symbol='AAPL', dedupe_key='quote|AAPL||',
+                status='skipped', reason='temporary_gap'),
+        ])
+        db.commit()
+    assert not enqueue_data_enrichment_job(job_type='feed_pnl_refresh', symbol='AAPL',
+        window_key='event:7', reason='cache_miss', payload={'event_id': 7, 'new': True})
+    assert enqueue_data_enrichment_job(job_type='quote', symbol='AAPL')
+    with Session() as db:
+        retired = db.scalar(select(DataEnrichmentJob).where(DataEnrichmentJob.job_type == 'feed_pnl_refresh'))
+        assert (retired.status, retired.reason, retired.source, retired.payload_json, retired.priority) == (
+            'skipped', 'source_event_withdrawn_duplicate', 'original', '{"event_id": 7}', 30)
+
+
 def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
     Session = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", Session)

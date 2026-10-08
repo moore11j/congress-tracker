@@ -67,6 +67,49 @@ def _request(headers: dict[str, str]) -> Request:
     )
 
 
+def test_session_enqueue_refreshes_stale_job_and_preserves_retirement():
+    from sqlalchemy import update
+    from app.services.feed_pnl_enrichment import _enqueue_job_in_session
+    Factory = _session_factory()
+    with Factory() as db:
+        job = DataEnrichmentJob(job_type='feed_pnl_refresh', symbol='AAPL',
+            dedupe_key='feed_pnl_refresh|AAPL||event:7', status='failed', reason='old')
+        db.add(job)
+        db.commit()
+        job_id = job.id
+        with Factory() as other:
+            other.execute(update(DataEnrichmentJob).where(DataEnrichmentJob.id == job_id).values(
+                status='skipped', reason='source_event_withdrawn_duplicate'))
+            other.commit()
+        assert job.status == 'failed'
+        assert not _enqueue_job_in_session(db, job_type='feed_pnl_refresh', symbol='AAPL',
+            window_key='event:7', source='test', reason='cache_miss', priority=1)
+        assert job.status == 'skipped'
+        assert job.reason == 'source_event_withdrawn_duplicate'
+        db.commit()
+    with Factory() as db:
+        assert db.get(DataEnrichmentJob, job_id).reason == 'source_event_withdrawn_duplicate'
+
+
+def test_session_enqueue_preserves_unflushed_requeue_and_retirement():
+    from app.services.feed_pnl_enrichment import _enqueue_job_in_session
+    Factory = _session_factory()
+    with Factory() as db:
+        job = DataEnrichmentJob(job_type='pnl_refresh', symbol='AAPL',
+            dedupe_key='pnl_refresh|AAPL||event:7', status='failed', reason='old')
+        db.add(job)
+        db.commit()
+        args = dict(job_type='pnl_refresh', symbol='AAPL', window_key='event:7',
+                    source='test', reason='cache_miss', priority=1)
+        assert _enqueue_job_in_session(db, **args)
+        assert not _enqueue_job_in_session(db, **args)
+        assert job.status == 'queued'
+        job.status, job.reason = 'skipped', 'source_event_withdrawn_duplicate'
+        assert not _enqueue_job_in_session(db, **args)
+        assert job.status == 'skipped'
+        db.commit()
+
+
 def test_new_insider_event_enqueues_targeted_feed_pnl_jobs_without_duplicates() -> None:
     SessionLocal = _session_factory()
     db = SessionLocal()

@@ -131,6 +131,11 @@ def build_dedupe_key(
     )
 
 
+def is_withdrawn_event_job(job: DataEnrichmentJob) -> bool:
+    """A source-repair tombstone must survive later cache-miss requests."""
+    return job.reason == "source_event_withdrawn_duplicate"
+
+
 def enqueue_data_enrichment_job(
     *,
     job_type: str,
@@ -173,8 +178,11 @@ def enqueue_data_enrichment_job(
     try:
         existing = db.execute(
             select(DataEnrichmentJob).where(DataEnrichmentJob.dedupe_key == dedupe_key)
+            .with_for_update().execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if existing is not None:
+            if is_withdrawn_event_job(existing):
+                return False
             if existing.status in ACTIVE_STATUSES:
                 return False
             if existing.status == "done" and _job_completed_recently(existing, now):

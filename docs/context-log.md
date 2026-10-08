@@ -136,3 +136,8 @@ Owner requests work through reliable FMP shutdown. Prepared a separate release c
 ## Entry template
 
 `YYYY-MM-DD — Task`: request; durable decision/result; changed files or evidence; checks and limitations; commit/deployment state; open next step. For a prompt with no durable changes, record that briefly and refresh the latest-task checkpoint in `AGENTS.md`.
+
+
+## 2026-10-08: Scheduled Congress receipt and queue retirement continuation
+
+Continued FMP-off execution. Release 94a9e07f deployed/verified all four machines; scheduled Congress run 4 finishes at 21:17 UTC with twenty total revisions, zero public writes. Four House failures are scanned PDFs requiring OCR. SEC backlog run 5 is active; no duplicate execution. Both enqueue paths preserve repair tombstones under locks and retain unflushed changes, 57 queue/P&L/repair tests pass in release checkout. Code prepared, no further deployment while collection runs. FMP/account billing active, Starter and account login pending. Next: complete backlog/repeat observation, deploy queue protection, production-capable repair/publication and fresh retained-product alert checks. See [receipt](feed-ownership-rollout-2026-10-08.md).

@@ -29,3 +29,17 @@ Release `29c354c5494f680a8ea2f4f4132edef46d752dd8` deployed via [workflow 378445
 The remaining 13F parse failure is source formatting: all eight `sshPrnamtType` values in accession `0001120048-26-000004` are `SH ` with a trailing space. The newly captured public source SHA is `78750fb0c08421730b4086c04c40de066bf19f3badce554f2b22cf49adbde860`. Validation now strips surrounding whitespace, matching the existing pure parser's normalization, while retaining the strict SH/PRN vocabulary. The exact 7,533-byte filing is preserved as a regression fixture. Eight holdings, cover totals and repeat equality pass; four genuinely invalid labels are still rejected. 97 focused parsing/publication/snapshot tests pass on Python 3.14.2. This parsing correction is prepared but not yet deployed at this checkpoint.
 
 First actual hourly collector receipts, canonical publication/repairs and fresh retained-product validation remain pending. FMP remains active and no customer emails were sent by this work.
+
+## First scheduled Congress receipt
+
+Run 4 began at 21:17:03 UTC and finished at 21:17:10 UTC from the deployed hourly schedule. It processed eight additional reports: six parsed and two quarantined, with four House failures and zero pending Congress documents in the run. Total retained source revisions increased to twenty; all twenty source hashes verify. No public writes, source selections or publication receipts occurred. The four House error details still require inspection; the schedule receipt is partial, not a complete coverage pass. The optional process-list probe failed because the image has no pgrep; the database's finished run receipt independently establishes completion. SEC correction 94a9e07f/workflow 37845797189 was dispatched after this run finished.
+
+FMP's browser account page is signed out. Login was requested asynchronously to verify exact account billing/cancellation dates; no password was requested or entered, no account created and no subscription changed. This does not block independent technical work.
+
+## Deployed SEC correction and queue follow-up
+
+Release `94a9e07fe5c6a1960a6062d1f43ac7fd3c7de830` completed [workflow 37845797189](https://github.com/moore11j/congress-tracker/actions/runs/37845797189); all four started machines run that exact image, verified at 21:21 UTC. The bounded October 7 SEC backlog run began at 21:22:05 UTC and is still active at this checkpoint. No replacement run or rolling deployment was started over it.
+
+The four House failures are now confirmed image-only PDFs, IDs 9116355, 9116356, 9116357 and 9116361. Each reports no text layer and requires validated OCR; they remain withheld. They are not network or digital-parser failures.
+
+The queue follow-up closes another repair race: both enqueue paths lock and refresh existing jobs and preserve the `source_event_withdrawn_duplicate` retirement marker. Session-local pending requeues/retirements are preserved before refreshing stored state. Other skipped jobs remain retryable. Fifty-seven focused queue, P&L and source-repair checks pass in the isolated release checkout on Python 3.14.2, including stale ORM state, ordinary retries and unflushed repeat requests; two existing FastAPI warnings remain. This follow-up is prepared, not yet deployed, and production canonical repair remains disabled.

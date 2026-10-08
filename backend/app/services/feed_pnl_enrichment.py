@@ -21,6 +21,7 @@ from app.services.data_enrichment_queue import (
     _job_completed_recently,
     build_dedupe_key,
     enqueue_data_enrichment_job,
+    is_withdrawn_event_job,
 )
 from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.returns import signed_return_pct
@@ -256,10 +257,17 @@ def _enqueue_job_in_session(
     for pending in db.new:
         if isinstance(pending, DataEnrichmentJob) and pending.dedupe_key == dedupe_key:
             return False
+    # This session may already have requeued or retired the row with autoflush
+    # disabled. Do not replace its pending state with the older stored values.
+    for pending in db.dirty:
+        if (isinstance(pending, DataEnrichmentJob) and pending.dedupe_key == dedupe_key
+                and (pending.status in ACTIVE_STATUSES or is_withdrawn_event_job(pending))):
+            return False
     now = datetime.now(timezone.utc)
     try:
         existing = db.execute(
             select(DataEnrichmentJob).where(DataEnrichmentJob.dedupe_key == dedupe_key)
+            .with_for_update().execution_options(populate_existing=True)
         ).scalar_one_or_none()
     except OperationalError as exc:
         logger.info(
@@ -271,6 +279,8 @@ def _enqueue_job_in_session(
         return False
     payload_json = json.dumps(payload, sort_keys=True) if payload else None
     if existing is not None:
+        if is_withdrawn_event_job(existing):
+            return False
         if existing.status in ACTIVE_STATUSES:
             return False
         if existing.status == "done" and _job_completed_recently(existing, now):
