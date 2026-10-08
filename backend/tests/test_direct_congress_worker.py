@@ -228,7 +228,7 @@ def test_selected_direct_source_skips_legacy_network_fetch(db, monkeypatch, cham
         expected_generation=0, reason='isolated no-provider-request test')
     db.commit()
     monkeypatch.setattr(module, 'SessionLocal', lambda: Session(db.get_bind()))
-    monkeypatch.setattr(module, 'get_congress_metadata_resolver', lambda: object())
+    monkeypatch.setattr(module, 'get_congress_metadata_resolver', lambda: pytest.fail('Legacy metadata request after switch'))
     monkeypatch.setattr(module, '_fetch_page', lambda **kwargs: pytest.fail('Legacy FMP request after switch'))
     result = getattr(module, f'ingest_{chamber}')(pages=1)
     assert result['status'] == 'skipped' and result['source_ownership_skipped']

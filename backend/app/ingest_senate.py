@@ -500,7 +500,7 @@ def ingest_senate(
 
     db = SessionLocal()
     try:
-        metadata = get_congress_metadata_resolver()
+        metadata = None
         for page in range(pages):
             try:
                 require_selected_source(db, 'senate_ptr', 'fmp')
@@ -508,6 +508,8 @@ def ingest_senate(
                 db.rollback()
                 source_skipped = True
                 break
+            if metadata is None:
+                metadata = get_congress_metadata_resolver()
             rows = _fetch_page(page=page, limit=limit)
             if not rows:
                 break

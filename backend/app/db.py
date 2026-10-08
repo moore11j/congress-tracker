@@ -27,6 +27,14 @@ IS_SQLITE = DATABASE_URL.startswith("sqlite")
 connect_args = {"check_same_thread": False, "timeout": 30} if IS_SQLITE else {}
 IS_CRON_PROCESS = os.getenv("FLY_PROCESS_GROUP", "").strip().lower() == "cron"
 
+if not IS_SQLITE:
+    # Identify a stale session without logging its SQL values or credentials.
+    _connection_process = os.getenv("FLY_PROCESS_GROUP", "local").strip() or "local"
+    _connection_machine = os.getenv("FLY_MACHINE_ID", "unknown").strip() or "unknown"
+    connect_args["application_name"] = (
+        f"walnut:{_connection_process}:{_connection_machine}:{os.getpid()}"[:63]
+    )
+
 
 def _pool_env(name: str, default: str) -> int:
     if IS_CRON_PROCESS:

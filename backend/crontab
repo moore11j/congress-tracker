@@ -4,6 +4,8 @@ PYTHONPATH=/app
 CRON_TZ=America/Los_Angeles
 # Isolated primary-source staging; public writers and FMP remain unchanged.
 17 * * * * cd /app && python -m app.jobs.collect_direct_feeds --sources house_ptr senate_ptr --limit 50 --recheck-hours 168
+# Senate publication also requires explicit official_senate database ownership.
+27 * * * * cd /app && DIRECT_CONGRESS_PUBLICATION_ENABLED=true python -m app.jobs.publish_direct_congress --feed senate_ptr --directory /app/config/congress_members_2026_10_08.json --directory-sha256 348aefcf00ec37b3dbb2c01ce7cdc5ada8965b567594cec5275b423b123c407b --limit 100 --retry-held
 47 * * * * cd /app && python -m app.jobs.collect_direct_feeds --sources sec_form4 sec_13f --limit 200 --recheck-hours 168
 # Opt-in Daily SEO planner. Database day claims prevent duplicate paid runs.
 */5 * * * * cd /app && python -m app.jobs.run_research_seo
