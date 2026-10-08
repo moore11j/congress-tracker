@@ -2,6 +2,10 @@
 
 Read [AGENTS.md](../AGENTS.md) first. Keep current decisions and open loops there; append compact task records here. Record actual outcomes, not intended work. Newest entries first. Do not store secrets or private customer data.
 
+## 2026-10-08: Ownership rollout verified and SEC whitespace correction
+
+Release 29c354c5/workflow 37844550789 succeeded; migration/all four images/readiness/access and nineteen committed source-file hashes verified. Bundled directory hash matches; every publisher CLI returns disabled. Twelve staged revisions, no source selections/publications. Read-only public SEC capture proves the held filing uses trailing SH whitespace on all eight rows; strict trimmed validation and exact-file regression pass with 97 focused tests. Correction prepared, live retry pending. [Report](feed-ownership-rollout-2026-10-08.md). FMP/billing unchanged; scheduled collection and full cutover remain open.
+
 ## 2026-10-08: Feed ownership release prepared
 
 Continued the active FMP-off goal with a scoped backend release of shared canonical ownership, disabled direct publisher CLIs, queue claim protection, SEC digest labels and backend archive context. Bundled 539-person public directory retains identical resolution on 33 captured reports. 437 focused checks plus one portfolio check pass; initial 60 missing-fixture/output-directory failures repaired, one prior baseline assertion excluded. [Report](feed-ownership-rollout-2026-10-08.md). Not yet deployed/source-selected; existing emails and FMP retained. Next: all-worker rollout verification, scheduled collectors and controlled publication readiness; Starter still pending.

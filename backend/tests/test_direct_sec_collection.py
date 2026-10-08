@@ -1,6 +1,8 @@
 """SEC discovery, exact-source checks and isolated rerun regressions."""
 from datetime import date
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -65,6 +67,25 @@ def test_13f_count_values_and_source_rows():
     assert result["metadata"]["report_period"] == "2026-09-30"
     assert [row["source_line_ref"] for row in result["positions"]] == ["1", "2"]
     assert [row["valueUsd"] for row in result["positions"]] == [100, 200]
+
+
+def test_real_13f_share_type_whitespace_preserves_all_source_rows():
+    raw = (Path(__file__).with_name('fixtures') / 'sec_13f_0001120048_26_000004.txt').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '78750fb0c08421730b4086c04c40de066bf19f3badce554f2b22cf49adbde860'
+    metadata = {'key': '0001120048-26-000004', 'cik': '0001120048', 'name': 'STEGINSKY CAPITAL LLC',
+        'form': '13F-HR', 'filing_date': '2026-10-07',
+        'url': 'https://www.sec.gov/Archives/edgar/data/1120048/0001120048-26-000004.txt'}
+    _, parsed, reasons = parse_document('sec_13f', raw, metadata)
+    assert not reasons
+    assert parsed['metadata']['table_entry_total'] == len(parsed['positions']) == 8
+    assert all(row['shareType'] == 'SH' for row in parsed['positions'])
+    assert parse_document('sec_13f', raw, metadata)[1] == parsed
+
+
+@pytest.mark.parametrize('unit', ['SHARES', 'sh', '', 'NOT_SH'])
+def test_invalid_13f_share_type_is_still_rejected(unit):
+    with pytest.raises(DirectSourceError, match='share/principal'):
+        parse_document('sec_13f', submission().replace(b'>SH<', ('> ' + unit + ' <').encode()), META)
 
 
 @pytest.mark.parametrize("old,new", [

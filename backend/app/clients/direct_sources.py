@@ -188,7 +188,7 @@ def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
                     total += number
             if not (node.findtext("{*}cusip") or "").strip():
                 raise DirectSourceError("SEC 13F holding missing CUSIP")
-            if node.findtext("{*}shrsOrPrnAmt/{*}sshPrnamtType") not in {"SH", "PRN"}:
+            if (node.findtext("{*}shrsOrPrnAmt/{*}sshPrnamtType") or "").strip() not in {"SH", "PRN"}:
                 raise DirectSourceError("SEC 13F share/principal type invalid")
         if not expected_value.is_finite() or len(source_nodes) != expected_count or total != expected_value:
             raise DirectSourceError("SEC 13F cover count/value does not match information table")

@@ -1,0 +1,245 @@
+<SEC-DOCUMENT>0001120048-26-000004.txt : 20261007
+<SEC-HEADER>0001120048-26-000004.hdr.sgml : 20261007
+<ACCEPTANCE-DATETIME>20261007105527
+ACCESSION NUMBER:		0001120048-26-000004
+CONFORMED SUBMISSION TYPE:	13F-HR
+PUBLIC DOCUMENT COUNT:		2
+CONFORMED PERIOD OF REPORT:	20260930
+FILED AS OF DATE:		20261007
+DATE AS OF CHANGE:		20261007
+EFFECTIVENESS DATE:		20261007
+
+FILER:
+
+	COMPANY DATA:	
+		COMPANY CONFORMED NAME:			STEGINSKY CAPITAL LLC
+		CENTRAL INDEX KEY:			0001120048
+		ORGANIZATION NAME:           	
+		EIN:				223710500
+		STATE OF INCORPORATION:			NJ
+		FISCAL YEAR END:			1231
+
+	FILING VALUES:
+		FORM TYPE:		13F-HR
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	028-05811
+		FILM NUMBER:		261445958
+
+	BUSINESS ADDRESS:	
+		STREET 1:		P.O. BOX 123
+		CITY:			PORT WASHINGTON
+		STATE:			NY
+		ZIP:			11050
+		BUSINESS PHONE:		2126831700
+
+	MAIL ADDRESS:	
+		STREET 1:		P.O. BOX 123
+		CITY:			PORT WASHINGTON
+		STATE:			NY
+		ZIP:			11050
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>13F-HR
+<SEQUENCE>1
+<FILENAME>primary_doc.xml
+<TEXT>
+<XML>
+<?xml version="1.0" encoding="UTF-8"?>
+<edgarSubmission xmlns="http://www.sec.gov/edgar/thirteenffiler" xmlns:com="http://www.sec.gov/edgar/common">
+  <schemaVersion>X0202</schemaVersion>
+  <headerData>
+    <submissionType>13F-HR</submissionType>
+    <filerInfo>
+      <liveTestFlag>LIVE</liveTestFlag>
+      <flags>
+        <confirmingCopyFlag>false</confirmingCopyFlag>
+        <returnCopyFlag>true</returnCopyFlag>
+        <overrideInternetFlag>false</overrideInternetFlag>
+      </flags>
+      <filer>
+        <credentials>
+          <cik>0001120048</cik>
+          <ccc>XXXXXXXX</ccc>
+        </credentials>
+      </filer>
+      <periodOfReport>09-30-2026</periodOfReport>
+    </filerInfo>
+  </headerData>
+  <formData>
+    <coverPage>
+      <reportCalendarOrQuarter>09-30-2026</reportCalendarOrQuarter>
+      <filingManager>
+        <name>STEGINSKY CAPITAL LLC</name>
+        <address>
+          <com:street1>P.O. BOX 123</com:street1>
+          <com:city>PORT WASHINGTON</com:city>
+          <com:stateOrCountry>NY</com:stateOrCountry>
+          <com:zipCode>11050</com:zipCode>
+        </address>
+      </filingManager>
+      <reportType>13F HOLDINGS REPORT</reportType>
+      <form13FFileNumber>028-05811</form13FFileNumber>
+      <provideInfoForInstruction>N</provideInfoForInstruction>
+    </coverPage>
+    <signatureBlock>
+      <name>Andrew Steginsky</name>
+      <title>Manager</title>
+      <phone>2126831700</phone>
+      <signature>Andrew Steginsky</signature>
+      <city>New York</city>
+      <stateOrCountry>NY</stateOrCountry>
+      <signatureDate>10-07-2026</signatureDate>
+    </signatureBlock>
+    <summaryPage>
+      <otherIncludedManagersCount>0</otherIncludedManagersCount>
+      <tableEntryTotal>8</tableEntryTotal>
+      <tableValueTotal>609784</tableValueTotal>
+      <isConfidentialOmitted>false</isConfidentialOmitted>
+    </summaryPage>
+  </formData>
+</edgarSubmission>
+</XML>
+</TEXT>
+</DOCUMENT>
+<DOCUMENT>
+<TYPE>INFORMATION TABLE
+<SEQUENCE>2
+<FILENAME>STEGINSKY13F093026.xml
+<DESCRIPTION>STEGINSKY CAPITAL 093026
+<TEXT>
+<XML>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns1:informationTable xmlns:ns1="http://www.sec.gov/edgar/document/thirteenf/informationtable">
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>ALPHABET INC CAP STKCL C</ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>02079K107</ns1:cusip>
+		<ns1:value>221600</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>650350</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>650350</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>ALPHABET INC CL A</ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>02079K305</ns1:cusip>
+		<ns1:value>4586</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>13327</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>13327</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>BERKSHIRE HATHAWAY INC CL A</ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>084670108</ns1:cusip>
+		<ns1:value>2988</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>4</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>4</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>BERKSHIRE HATHAWAY INC DEL CL B NEW</ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>084670702</ns1:cusip>
+		<ns1:value>36728</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>73758</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>73758</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>COSTCO WHOLESALE CORP </ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>22160K105</ns1:cusip>
+		<ns1:value>121467</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>133430</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>133430</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>FASTENAL CO</ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>311900104</ns1:cusip>
+		<ns1:value>81716</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>1649829</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>1649829</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>MARKEL CORP </ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>570535104</ns1:cusip>
+		<ns1:value>75915</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>44331</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>44331</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+	<ns1:infoTable>
+		<ns1:nameOfIssuer>MARTIN MARIETTA MATLS INC</ns1:nameOfIssuer>
+		<ns1:titleOfClass>COM</ns1:titleOfClass>
+		<ns1:cusip>573284106</ns1:cusip>
+		<ns1:value>64784</ns1:value>
+		<ns1:shrsOrPrnAmt>
+			<ns1:sshPrnamt>135021</ns1:sshPrnamt>
+			<ns1:sshPrnamtType>SH </ns1:sshPrnamtType>
+		</ns1:shrsOrPrnAmt>
+		<ns1:investmentDiscretion>SOLE</ns1:investmentDiscretion>
+		<ns1:votingAuthority>
+			<ns1:Sole>135021</ns1:Sole>
+			<ns1:Shared>0</ns1:Shared>
+			<ns1:None>0</ns1:None>
+		</ns1:votingAuthority>
+	</ns1:infoTable>
+</ns1:informationTable>
+</XML>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
