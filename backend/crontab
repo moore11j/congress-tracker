@@ -87,3 +87,6 @@ CRON_TZ=America/Los_Angeles
 
 # Opt-in SEC financial preparation, serialized with the other source collectors.
 4-59/5 * * * * cd /app && python -m app.jobs.warm_sec_research
+
+# Opt-in SEC earnings evidence preparation; public press and research stay independent.
+2-59/5 * * * * cd /app && python -m app.jobs.warm_sec_earnings
