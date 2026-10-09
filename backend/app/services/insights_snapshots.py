@@ -32,9 +32,7 @@ def _headline_kind(source: str) -> str:
 
 
 def seed_finnhub_headlines(db: Session) -> dict:
-    """Warm the inactive public view without replacing FMP or calling a model."""
-    if selected_news_provider() == 'finnhub':
-        return {'status':'selected'}
+    """Keep the Finnhub view current before and after selection, without a model."""
     raw = db.get(InsightsSnapshot, 'finnhub-news:market:general')
     if raw is None or raw.source != 'finnhub' or not timedelta(0) <= _utcnow()-_aware(raw.fetched_at) <= INSIGHTS_HEADLINES_TTL:
         return {'status':'warming'}
@@ -45,14 +43,17 @@ def seed_finnhub_headlines(db: Session) -> dict:
     existing = db.get(InsightsSnapshot,kind)
     if existing and existing.source == 'finnhub' and _aware(existing.fetched_at) >= _aware(raw.fetched_at):
         return {'status':'cached'}
-    from app.services.walnut_takes import _fallback_take
-    items = [{**item, **_fallback_take(item)} for item in payload['items'][:50]]
+    from app.services.walnut_takes import _fallback_take, _merge_take
+    prior_items = _loads_payload(existing).get('items', []) if existing and existing.source == 'finnhub' else []
+    def identity(item):
+        return item.get('url'), item.get('title'), item.get('published_at')
+    prior = {identity(item): item for item in prior_items if isinstance(item, dict)}
+    items = [_merge_take({**item, **_fallback_take(item)}, prior.get(identity(item)))
+             for item in payload['items'][:50]]
     stamp = raw.fetched_at
     row = _store_payload(db, {'source':'finnhub','items':items,'status':'ok' if items else 'empty',
         'coverage':payload.get('coverage'),'provider_observed_at':payload.get('observed_at'),
-        'page':0,'limit':len(items),'has_next':len(payload['items'])>50},kind=kind,source='finnhub')
-    row.fetched_at = stamp
-    db.commit()
+        'page':0,'limit':len(items),'has_next':len(payload['items'])>50},kind=kind,source='finnhub',fetched_at=stamp)
     return {'status':'ok','item_count':len(items)}
 
 
@@ -126,16 +127,17 @@ def _loads_payload(row: InsightsSnapshot) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _store_payload(db: Session, payload: dict[str, Any], *, kind: str = INSIGHTS_SNAPSHOT_KIND, source: str = "fmp") -> InsightsSnapshot:
+def _store_payload(db: Session, payload: dict[str, Any], *, kind: str = INSIGHTS_SNAPSHOT_KIND, source: str = "fmp", fetched_at: datetime | None = None) -> InsightsSnapshot:
     now = _utcnow()
+    stamp = fetched_at if fetched_at is not None else now
     row = _load_row(db, kind)
     if row is None:
-        row = InsightsSnapshot(kind=kind, payload_json=json.dumps(payload), source=source, fetched_at=now)
+        row = InsightsSnapshot(kind=kind, payload_json=json.dumps(payload), source=source, fetched_at=stamp)
         db.add(row)
     else:
         row.payload_json = json.dumps(payload)
         row.source = source
-        row.fetched_at = now
+        row.fetched_at = stamp
         row.updated_at = now
     db.commit()
     db.refresh(row)
@@ -192,6 +194,11 @@ def refresh_insights_headlines(db: Session, *, limit: int = 50) -> dict[str, Any
             raise RuntimeError("empty headlines payload")
         if payload.get("stale"):
             raise RuntimeError("replacement headlines are stale")
+        observed = None
+        if source == 'finnhub':
+            observed = _aware(datetime.fromisoformat(payload['as_of']))
+            if not timedelta(0) <= _utcnow()-observed <= INSIGHTS_HEADLINES_TTL:
+                raise RuntimeError('replacement headline observation is stale')
         existing = _load_row(db, _headline_kind(source))
         existing_payload = _loads_payload(existing) if existing is not None and existing.source == source else {}
         previous_items = existing_payload.get("items") if isinstance(existing_payload.get("items"), list) else []
@@ -207,7 +214,7 @@ def refresh_insights_headlines(db: Session, *, limit: int = 50) -> dict[str, Any
             "limit": len(enriched_items),
             "has_next": bool(payload.get("has_next")),
         }
-        row = _store_payload(db, durable_payload, kind=_headline_kind(source), source=source)
+        row = _store_payload(db, durable_payload, kind=_headline_kind(source), source=source, fetched_at=observed)
         logger.info("insights_headlines_refresh_timing kind=%s status=ok count=%s", INSIGHTS_HEADLINES_KIND, len(enriched_items))
         return _decorate(durable_payload, row, stale=False, cache_hit=False)
     except Exception:

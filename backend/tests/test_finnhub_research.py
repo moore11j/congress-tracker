@@ -236,10 +236,50 @@ def test_insights_never_revives_fmp_cache_and_preserves_replacement_provenance(s
         monkeypatch.setattr(insights, "get_general_news", lambda **kwargs: {"items": []})
         assert insights.refresh_insights_headlines(db)["items"] == []
         prepared = adapter.normalize_news([news_row()], observed_at=NOW)
+        prepared['as_of'] = NOW.isoformat()
         monkeypatch.setattr(insights, "get_general_news", lambda **kwargs: prepared)
         result = insights.refresh_insights_headlines(db)
         assert result["source"] == "finnhub" and result["provider_observed_at"] == NOW.isoformat()
         assert insights.get_insights_headlines(db)["items"][0]["site"] == "Publisher"
+
+
+def test_selected_headlines_keep_refreshing_and_retain_takes_only_for_unchanged_articles(sessions, monkeypatch):
+    monkeypatch.setattr(insights, 'enrich_walnut_takes', forbidden)
+    monkeypatch.setattr(insights, '_utcnow', lambda: NOW)
+    payload = adapter.normalize_news([news_row()], observed_at=NOW)
+    with sessions() as db:
+        raw = InsightsSnapshot(kind='finnhub-news:market:general',source='finnhub',fetched_at=NOW,payload_json=json.dumps(payload))
+        db.add(raw);db.commit()
+        assert insights.seed_finnhub_headlines(db)['status']=='ok'
+        row = db.get(InsightsSnapshot, 'market-headlines:finnhub')
+        previous = json.loads(row.payload_json)
+        previous['items'][0].update(walnut_take='Reviewed existing take',walnut_take_source='openai')
+        row.payload_json=json.dumps(previous);db.commit()
+        later=NOW+timedelta(minutes=20)
+        monkeypatch.setattr(insights, '_utcnow', lambda: later)
+        raw.fetched_at=later;db.commit()
+        assert insights.seed_finnhub_headlines(db)['status']=='ok'
+        result=insights.get_insights_headlines(db)
+        assert not result['stale'] and result['as_of']==later.isoformat()
+        assert result['items'][0]['walnut_take']=='Reviewed existing take'
+        payload['items'][0]['title']='Corrected headline about different results'
+        raw.payload_json=json.dumps(payload);raw.fetched_at=later+timedelta(minutes=1);db.commit()
+        monkeypatch.setattr(insights, '_utcnow', lambda: later+timedelta(minutes=1))
+        assert insights.seed_finnhub_headlines(db)['status']=='ok'
+        assert insights.get_insights_headlines(db)['items'][0]['walnut_take_source']=='fallback'
+
+
+def test_headline_enrichment_cannot_renew_provider_observation_time(sessions, monkeypatch):
+    observed=NOW-timedelta(minutes=10)
+    payload=adapter.normalize_news([news_row(datetime=int((observed-timedelta(minutes=1)).timestamp()))],observed_at=observed)
+    payload['as_of']=observed.isoformat()
+    monkeypatch.setattr(insights,'_utcnow',lambda: NOW)
+    monkeypatch.setattr(insights,'get_general_news',lambda **kwargs:payload)
+    monkeypatch.setattr(insights,'enrich_walnut_takes',lambda db,items,**kwargs:items)
+    with sessions() as db:
+        assert insights.refresh_insights_headlines(db)['as_of']==observed.isoformat()
+        monkeypatch.setattr(insights,'_utcnow',lambda:NOW+timedelta(minutes=6))
+        assert insights.get_insights_headlines(db)['stale']
 
 
 def test_selected_news_jobs_survive_fmp_shutdown(monkeypatch):
