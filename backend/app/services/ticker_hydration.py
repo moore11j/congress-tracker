@@ -341,6 +341,15 @@ def _financials_content_state(
     active_by_type: dict[str, list[DataEnrichmentJob]],
     final_by_type: dict[str, list[DataEnrichmentJob]],
 ) -> HydrationState:
+    from app.services import sec_financial_statements
+    from app.services.provider_usage import fmp_provider_disabled
+    if sec_financial_statements.selected():
+        payload = sec_financial_statements.cached_payload(db, symbol)
+        if payload is not None:
+            return "ok" if payload.get("status") in {"ok", "partial"} else "unavailable"
+        return _optional_state("financials", active_by_type, final_by_type)
+    if fmp_provider_disabled():
+        return "unavailable"
     row = db.get(TickerFinancialsCache, symbol)
     if row is not None and row.status in {"ok", "partial"}:
         return "ok"

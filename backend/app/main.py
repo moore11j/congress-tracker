@@ -8648,13 +8648,27 @@ def _ticker_debug_technical_status(db: Session, symbol: str) -> dict[str, Any]:
 
 
 def _ticker_debug_financials_status(db: Session, symbol: str) -> dict[str, Any]:
-    row = db.get(TickerFinancialsCache, symbol)
-    if row is None:
-        return {"present": False, "sections_present": [], "status": None, "fetched_at": None}
-    try:
-        payload = json.loads(row.payload_json or "{}")
-    except Exception:
-        payload = {}
+    from app.services import sec_financial_statements
+    from app.services.provider_usage import fmp_provider_disabled
+    missing = {"present": False, "sections_present": [], "status": None, "fetched_at": None}
+    if sec_financial_statements.selected():
+        payload = sec_financial_statements.cached_payload(db, symbol)
+        if payload is None:
+            return missing
+        from app.models import InsightsSnapshot
+        row = db.get(InsightsSnapshot, f'sec-financials:{symbol}:v1')
+        status = payload.get('status')
+    elif fmp_provider_disabled():
+        return missing
+    else:
+        row = db.get(TickerFinancialsCache, symbol)
+        if row is None:
+            return missing
+        status = row.status
+        try:
+            payload = json.loads(row.payload_json or "{}")
+        except Exception:
+            payload = {}
     sections = payload.get("sections") if isinstance(payload, dict) else {}
     sections_present = []
     if isinstance(sections, dict):
@@ -8665,7 +8679,7 @@ def _ticker_debug_financials_status(db: Session, symbol: str) -> dict[str, Any]:
         ]
     return {
         "present": True,
-        "status": row.status,
+        "status": status,
         "fetched_at": _dt_iso(row.fetched_at),
         "sections_present": sections_present,
     }
@@ -10228,17 +10242,19 @@ def _peer_compare_trade_summary(db: Session, symbol: str, event_type: str, *, lo
 
 
 def _peer_compare_financials_fallbacks(db: Session, symbol: str) -> dict[str, Any]:
+    from app.services import sec_financial_statements
+    from app.services.provider_usage import fmp_provider_disabled
     try:
-        row = db.get(TickerFinancialsCache, symbol)
+        if sec_financial_statements.selected():
+            payload = sec_financial_statements.cached_payload(db, symbol)
+        elif fmp_provider_disabled():
+            return {}
+        else:
+            row = db.get(TickerFinancialsCache, symbol)
+            payload = json.loads(row.payload_json or "{}") if row is not None else None
     except Exception:
         db.rollback()
         logger.debug("peer_compare_financials_cache_lookup_failed symbol=%s", symbol, exc_info=True)
-        row = None
-    if row is None:
-        return {}
-    try:
-        payload = json.loads(row.payload_json or "{}")
-    except Exception:
         return {}
     if not isinstance(payload, dict):
         return {}
