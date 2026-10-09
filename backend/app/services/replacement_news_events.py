@@ -52,6 +52,10 @@ def sync_news_events(db, symbols, *, limit=20, now=None):
         return 0
     try:
         since = date.fromisoformat(os.environ['NEWS_PUBLISH_SINCE'])
+        activation = os.getenv('NEWS_PUBLISH_AFTER')
+        after = datetime.fromisoformat(activation.replace('Z', '+00:00')) if activation is not None else None
+        if after is not None and (after.tzinfo is None or after.utcoffset() is None):
+            return 0
     except (KeyError, TypeError, ValueError):
         return 0
     now = now or datetime.now(timezone.utc)
@@ -79,6 +83,7 @@ def sync_news_events(db, symbols, *, limit=20, now=None):
                 published, observed = _stamp(item.get('published_at')), _stamp(item.get('observed_at'))
                 if (item.get('source') != 'finnhub' or item.get('symbol') != symbol or not url or not title
                         or not item.get('site') or published.date() < since
+                        or (after is not None and published < after)
                         or not now - timedelta(days=7) <= published <= now
                         or not published <= observed <= now or now - observed > timedelta(hours=24)):
                     continue
