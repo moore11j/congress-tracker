@@ -16,12 +16,13 @@ def main():
     parser.add_argument('--baseline',type=Path,required=True)
     parser.add_argument('--priors',type=Path,required=True)
     parser.add_argument('--mapping-parents',type=Path,help='Supplemental parents for an older baseline without mapping_filings')
+    parser.add_argument('--mapping-supplement',type=Path,help='Read-only captured earlier mapping rows and their actual parent filings')
     parser.add_argument('--identifiers',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--prepared-evidence',action='store_true')
     args=parser.parse_args()
     root=Path(__file__).resolve().parents[2]/'artifacts/direct-feeds'
-    assert all(p.resolve().is_relative_to(root.resolve()) for p in (args.baseline,args.priors,args.identifiers,args.output,args.mapping_parents) if p is not None)
+    assert all(p.resolve().is_relative_to(root.resolve()) for p in (args.baseline,args.priors,args.identifiers,args.output,args.mapping_parents,args.mapping_supplement) if p is not None)
     os.environ['DATABASE_URL']='sqlite:///:memory:'
     from sqlalchemy import Date,DateTime,select,func
     from app.db import Base,engine,SessionLocal
@@ -43,6 +44,9 @@ def main():
     parents=(json.loads(args.mapping_parents.read_bytes()) if args.mapping_parents else
              dict(filings=baseline['mapping_filings'],transaction_read_only=True,baseline_sha256=baseline_hash))
     assert parents['transaction_read_only'] and parents['baseline_sha256']==baseline_hash
+    supplement=json.loads(args.mapping_supplement.read_bytes()) if args.mapping_supplement else {'filings':[],'positions':[]}
+    if args.mapping_supplement:
+        assert supplement['transaction_read_only'] and supplement['baseline_sha256']==baseline_hash
     manifest=json.loads(args.priors.read_bytes())
     priors=[]
     for source in manifest['results']:
@@ -87,12 +91,15 @@ def main():
                 db.add(model(**record))
             db.flush()
         parent_rows={r['id']:r for r in parents['filings']}
-        for row in baseline['filings']:
+        for row in [*baseline['filings'],*supplement['filings']]:
             if row['id'] in parent_rows:assert row==parent_rows[row['id']]
             parent_rows[row['id']]=row
-        assert {r['filing_id'] for r in baseline['mapping_positions']} <= set(parent_rows)
+        assert {r['filing_id'] for r in [*baseline['mapping_positions'],*supplement['positions']]} <= set(parent_rows)
         load(InstitutionalFiling,parent_rows.values())
         positions={r['id']:r for r in [*baseline['mapping_positions'],*baseline['positions']]}
+        for row in supplement['positions']:
+            if row['id'] in positions:assert row==positions[row['id']]
+            positions[row['id']]=row
         load(InstitutionalPosition,positions.values())
         load(InstitutionalHolder,baseline['holders'])
         for model,key in [(InstitutionalPositionChange,'changes'),(InstitutionalActivityEvent,'activity'),(Event,'events')]:
@@ -164,6 +171,7 @@ def main():
             assert preview()==previews and fingerprint()==before
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
         report=dict(baseline_sha256=baseline_hash,baseline_captured_at=baseline['captured_at'],source_documents=len(documents),
+            mapping_supplement_sha256=hashlib.sha256(args.mapping_supplement.read_bytes()).hexdigest() if args.mapping_supplement else None,
             prepared_evidence=args.prepared_evidence,elapsed_seconds=round(time.monotonic()-started,2),
             statuses=dict(Counter(r['status'] for r in first)),derived_states=dict(Counter(r.get('derived_state',r['status']) for r in first)),
             results=first,totals={key:sum(r.get(key,0) for r in first) for key in ['inserted_filings','inserted_positions','changes','summaries','activity_events','feed_events']},

@@ -1,14 +1,15 @@
 import copy
 import json
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import func, select
 
 from app.clients.direct_sources import DirectSourceError
 from app.models import Event, InstitutionalFiling, InstitutionalPosition
-from app.services.direct_13f_priors import collect_13f_priors, prior_metadata
+from app.services.direct_13f_priors import collect_13f_priors, prior_metadata, pending_prior_documents
 from app.services.direct_feed_collection import parse_document
-from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, discover, record_document
+from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, discover, record_document, utcnow
 from test_direct_sec_collection import db, META, submission
 
 
@@ -87,3 +88,82 @@ def test_prior_period_mismatch_does_not_stage_source(db):
     result = collect_13f_priors(db, Client(), document_ids=[doc_id])
     assert result['status'] == 'partial' and 'period differs' in result['results'][0]['reason']
     assert db.scalar(select(func.count()).select_from(DirectFeedDocument)) == 1
+
+
+def additional_source(db, *, filed='2026-10-06', status='parsed'):
+    meta = {**META, 'key': '0001096906-26-009999', 'filing_date': filed}
+    meta['url'] = META['url'].replace(META['key'], meta['key'])
+    row = DirectFeedDocument(feed='sec_13f', source_key=meta['key'], source_url=meta['url'],
+                            metadata_json=json.dumps(meta), content_hash='other', status=status)
+    db.add(row); db.flush(); ident = row.id; db.commit()
+    return ident
+
+
+def test_held_source_cools_down_without_starving_new_work_or_falsifying_freshness(db):
+    doc_id, _, _, _ = inputs(db)
+    original = db.get(DirectFeedDocument, doc_id).checked_at
+    db.get(DirectFeedDocument, doc_id).reconciliation_json = '{"matched":[12]}'
+    db.commit()
+    class Client:
+        def get(self, url): raise DirectSourceError('Source HTTP 403: denied')
+    collect_13f_priors(db, Client(), document_ids=[doc_id])
+    doc = db.get(DirectFeedDocument, doc_id)
+    assert doc.checked_at == original and json.loads(doc.reconciliation_json)['matched'] == [12]
+    second = additional_source(db)
+    now = utcnow()
+    assert pending_prior_documents(db, since=date(2026,10,1), now=now)['document_ids'] == [second]
+    assert pending_prior_documents(db, since=date(2026,10,1), now=now+timedelta(hours=25))['document_ids'] == [second, doc_id]
+    doc = db.get(DirectFeedDocument, doc_id); doc.content_hash = 'changed'; db.commit()
+    assert doc_id in pending_prior_documents(db, since=date(2026,10,1), now=now)['document_ids']
+
+
+def test_successful_source_reuses_verified_prior_and_rechecks_invalidated_evidence(db):
+    doc_id, _, history, prior = inputs(db)
+    class Client:
+        def get(self, url): return json.dumps(history).encode() if url.endswith('.json') else prior
+    result = collect_13f_priors(db, Client(), document_ids=[doc_id])
+    now = utcnow()
+    assert pending_prior_documents(db, since=date(2026,10,1), now=now)['document_ids'] == []
+    second = additional_source(db)
+    assert pending_prior_documents(db, since=date(2026,10,1), now=now+timedelta(days=8))['document_ids'] == [second, doc_id]
+    prior_doc = db.get(DirectFeedDocument, result['results'][0]['prior_document_id'])
+    prior_doc.status = 'quarantined'; db.commit()
+    assert doc_id in pending_prior_documents(db, since=date(2026,10,1), now=now)['document_ids']
+
+
+@pytest.mark.parametrize('change', ['name', 'hash'])
+def test_changed_current_identity_is_retried_immediately(db, change):
+    doc_id, _, _, _ = inputs(db)
+    class Client:
+        def get(self, url): raise DirectSourceError('Missing prior')
+    collect_13f_priors(db, Client(), document_ids=[doc_id])
+    row = db.get(DirectFeedDocument, doc_id)
+    if change == 'name':
+        meta = json.loads(row.metadata_json); meta['name'] = 'Updated manager'; row.metadata_json = json.dumps(meta)
+    else: row.content_hash = 'updated'
+    db.commit()
+    assert pending_prior_documents(db, since=date(2026,10,1))['document_ids'] == [doc_id]
+
+
+@pytest.mark.parametrize('filed,status', [('2026-09-01','parsed'),('2026-10-06','pending'),('2027-10-06','parsed')])
+def test_automatic_prior_selection_obeys_boundary_and_staging_status(db, filed, status):
+    additional_source(db, filed=filed, status=status)
+    assert pending_prior_documents(db, since=date(2026,10,1))['document_ids'] == []
+
+
+def test_automatic_preview_opens_no_transport_and_writes_no_receipt(db, monkeypatch, capsys):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from app.jobs import collect_direct_13f_priors as job
+    from app.services.direct_feed_store import DirectFeedRun
+    doc_id, _, _, _ = inputs(db)
+    monkeypatch.setenv('DIRECT_FEEDS_MODE', 'shadow')
+    monkeypatch.setattr('sys.argv', ['collect_direct_13f_priors', '--since', '2026-10-01', '--preview'])
+    monkeypatch.setattr(job, 'check_background_job_guard', lambda _: SimpleNamespace(proceed=True))
+    monkeypatch.setattr(job, 'collector_lock', lambda: nullcontext(True))
+    monkeypatch.setattr(job, 'SessionLocal', lambda: db)
+    monkeypatch.setattr(job, 'DirectSourceClient', lambda: pytest.fail('Preview requested transport'))
+    job.main()
+    report = json.loads(capsys.readouterr().out)
+    assert report['status'] == 'preview' and report['selection']['document_ids'] == [doc_id]
+    assert db.scalar(select(func.count()).select_from(DirectFeedRun)) == 0
