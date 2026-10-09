@@ -19,3 +19,10 @@ Actual disposable PostgreSQL with pool size two and no overflow prepares one com
 Final combined exact-release check: **41 passed, one deselected** (the reproduced unchanged forward-P/E assertion).
 
 Deployment, explicit preparation enablement, actual source coverage and scheduled repeat are pending. Public financial activation requires fresh prepared-cache consumer checks and clear coverage labels. No purchase or FMP cancellation.
+
+
+## Verified SEC directory absences
+
+The first scheduled SEC financial batch processes twenty symbols and stores seventeen financial caches: fourteen partial, three unavailable (BULL, CX, ENB). AL, BNPQY and DRAM are absent from the verified current SEC exchange directory. The worker had no cache for those identities, so a selected public financial reader would repeatedly show warming. A small correction stores an explicit unavailable panel for verified directory absence. It makes no issuer request, invents no CIK, and leaves historical FMP caches untouched. Network/SEC refusal still raises and is not cached as a missing security. Default public selection remains FMP.
+
+Two added tests cover public unavailable-state reads without queue churn and transient directory failure without a misleading persistent negative cache. The primary combined warmer/free-adapter group passes25 tests. This correction requires exact-release checks and deployment before public financial activation.

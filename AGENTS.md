@@ -74,6 +74,9 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- **2026-10-09: SEC unavailable-panel correction:** Actual preparation finds AL/BNPQY/DRAM absent from the SEC directory. Cache their verified unavailable state so selected public panels do not remain warming; transient source failures are not cached as absence. Public financial selection remains FMP. Primary25 tests pass; exact release/rollout follows. Institutional staging reaches100 distinct filings over five actual batches,91 collected/nine held, with public ownership unchanged. Exact news boundary PR494/add1f199 deployment is running.
+
+
 - **2026-10-09: Exact news activation boundary:** Added aware timestamp guard after date-only preview exposed 345 prior-daytime candidates. Sixty-two focused checks pass; fresh actual-cache replay preserves 864 legacy event/alert identities and stable 12/4/864 digests with zero backlog inserts, source requests or email. Positive boundary cases also pass. Public activation remains pending. SEC preparation PR493 is deployed/enabled with first 20-symbol batch complete; public financial selectors remain FMP.
 
 
