@@ -84,6 +84,15 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
 CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v10_macro_freshness"
 CONFIRMATION_SCORING_VERSION = "confirmation_score_v9_macro_freshness"
+# Provider selection requires all-worker restart and monitoring rebaseline.
+from app.services.replacement_analysts import selected as replacement_analysts_selected
+from app.services.provider_usage import fmp_provider_disabled
+if replacement_analysts_selected():
+    CONFIRMATION_CLASSIFICATION_VERSION += "_analyst_display_only_v1"
+    CONFIRMATION_SCORING_VERSION += "_analyst_display_only_v1"
+if fmp_provider_disabled():
+    CONFIRMATION_CLASSIFICATION_VERSION += "_fmp_retired_v1"
+    CONFIRMATION_SCORING_VERSION += "_fmp_retired_v1"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 62.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 42.0
 CONFLICT_DIRECTIONAL_MARGIN = 32.0

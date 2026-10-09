@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timezone
 
 from app.db import SessionLocal, engine, ensure_analyst_consensus_schema
+from app.services.analyst_consensus import legacy_analyst_disabled
 from app.services.analyst_consensus import (
     eligible_equity_symbols,
     finish_ingestion_run,
@@ -27,6 +28,8 @@ def refresh_analyst_consensus(
     dry_run: bool = False,
     sleep_seconds: float = 0.0,
 ) -> dict[str, object]:
+    if legacy_analyst_disabled():
+        return {"status": "skipped", "reason": "provider_disabled", "committed": False, "symbols_attempted": 0}
     ensure_analyst_consensus_schema(engine)
     observed_at = datetime.now(timezone.utc)
     with SessionLocal() as db:

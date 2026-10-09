@@ -66,15 +66,28 @@ def fetch_earnings_calendar(start: date, end: date, *, observed_at=None):
     # Market-wide month responses can hit the provider's result ceiling. Bounded
     # weekly windows retain dates across a busy earnings season without relying
     # on the completeness of one large monthly response.
-    cursor, combined = start, []
-    while cursor <= end:
-        window_end = min(end, cursor + timedelta(days=6))
-        payload = request_json('calendar/earnings', {'from': str(cursor), 'to': str(window_end)})
-        earnings_calendar(payload, start=cursor, end=window_end, observed_at=now)
+    combined = []
+    def collect(window_start, window_end):
+        payload = request_json('calendar/earnings', {'from': str(window_start), 'to': str(window_end)})
+        earnings_calendar(payload, start=window_start, end=window_end, observed_at=now)
         rows = payload['earningsCalendar']
         if len(rows) >= 1500:
-            raise FinnhubUnavailable('earnings_window_possibly_truncated')
+            if window_start == window_end:
+                raise FinnhubUnavailable('earnings_window_possibly_truncated')
+            # A saturated week is not evidence that the whole month is lost.
+            # Bisect down to single dates. Shared request budget remains in
+            # force, and even a one-day saturated result is never published.
+            midpoint = window_start + (window_end-window_start)//2
+            collect(window_start, midpoint)
+            collect(midpoint+timedelta(days=1), window_end)
+            return
         combined.extend(rows)
+        if len(combined) > 10000:
+            raise FinnhubUnavailable('response_too_large')
+    cursor = start
+    while cursor <= end:
+        window_end = min(end, cursor + timedelta(days=6))
+        collect(cursor, window_end)
         cursor = window_end + timedelta(days=1)
     return earnings_calendar({'earningsCalendar': combined}, start=start, end=end, observed_at=now)
 

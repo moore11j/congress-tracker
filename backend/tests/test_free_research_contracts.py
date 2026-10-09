@@ -58,7 +58,21 @@ def test_earnings_fetch_covers_month_in_nonoverlapping_bounded_windows(monkeypat
     for prior, following in zip(calls, calls[1:]):
         assert date.fromisoformat(prior['to']) + timedelta(days=1) == date.fromisoformat(following['from'])
     assert all((date.fromisoformat(call['to']) - date.fromisoformat(call['from'])).days <= 6 for call in calls)
-    monkeypatch.setattr(finnhub_free_data, 'request_json', lambda *args: {'earningsCalendar': [
-        {'symbol': 'ABC', 'date': '2026-10-01', 'quarter': 3, 'year': 2026}] * 1500})
+    monkeypatch.setattr(finnhub_free_data, 'request_json', lambda path, params: {'earningsCalendar': [
+        {'symbol': 'ABC', 'date': params['from'], 'quarter': 3, 'year': 2026}] * 1500})
     with pytest.raises(FinnhubUnavailable, match='possibly_truncated'):
         finnhub_free_data.fetch_earnings_calendar(date(2026,10,1), date(2026,10,31))
+
+
+def test_saturated_week_is_split_without_publishing_the_truncated_parent(monkeypatch):
+    calls = []
+    def fetch(path, params):
+        calls.append((params['from'], params['to']))
+        start, end = date.fromisoformat(params['from']), date.fromisoformat(params['to'])
+        count = 1500 if (end-start).days == 6 else 800
+        return {'earningsCalendar': [{'symbol': f'ABC{start.day}X{i}', 'date': str(start),
+            'quarter': 3, 'year': 2026} for i in range(count)]}
+    monkeypatch.setattr(finnhub_free_data, 'request_json', fetch)
+    rows = finnhub_free_data.fetch_earnings_calendar(date(2026,11,1),date(2026,11,7))
+    assert len(rows) == 1600 and len({r['id'] for r in rows}) == 1600
+    assert calls == [('2026-11-01','2026-11-07'),('2026-11-01','2026-11-04'),('2026-11-05','2026-11-07')]

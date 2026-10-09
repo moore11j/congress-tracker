@@ -611,11 +611,14 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
 
   if (!data || !snapshot) {
     const noCoverage = availability === "unavailable";
+    const feedUnavailable = data?.availability?.reason === "provider_disabled";
     return (
       <section className={`${panelClass} p-5`}>
-        <p className="text-sm font-semibold text-white">{noCoverage ? "No analyst coverage available" : "Analyst consensus is temporarily unavailable"}</p>
+        <p className="text-sm font-semibold text-white">{feedUnavailable ? "Current analyst updates are unavailable" : noCoverage ? "No analyst coverage available" : "Analyst consensus is temporarily unavailable"}</p>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          {noCoverage
+          {feedUnavailable
+            ? `Current analyst updates are unavailable for ${symbol}.`
+            : noCoverage
             ? `No current analyst consensus is available for ${symbol}. Other ticker data remains available.`
             : `Current analyst summary for ${symbol} could not be loaded right now. Please try again shortly.`}
         </p>
@@ -626,6 +629,7 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
 
   return (
     <div className="grid gap-4">
+      {data?.message ? <p className="text-xs text-slate-400">{data.message}</p> : null}
       <section className={`${panelClass} p-4`}>
         <div className="grid gap-3 md:grid-cols-5">
           <div className="min-w-0">
@@ -655,7 +659,7 @@ export function TickerAnalystConsensusTab({ data, symbol }: Props) {
           </div>
         </div>
         {snapshot.snapshotDate ? (
-          <p className="mt-3 text-xs text-slate-500">Snapshot {formatDateShort(snapshot.snapshotDate)}</p>
+          <p className="mt-3 text-xs text-slate-500">{snapshot.source === "finnhub" ? "Finnhub recommendation period" : "Snapshot"} {formatDateShort(snapshot.snapshotDate)}</p>
         ) : null}
       </section>
 
