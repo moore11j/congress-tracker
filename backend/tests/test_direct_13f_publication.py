@@ -121,7 +121,7 @@ def test_verified_pair_runs_actual_changes_events_and_monitoring_without_duplica
         db.flush()
         db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id))
     db.commit()
-    monkeypatch.setattr(digests, '_upcoming_calendar_events_for_digest', lambda *a, **k: ([], 'Outside 13F rehearsal'))
+    monkeypatch.setattr(digests, '_upcoming_calendar_events_for_digest', lambda *a, **k: ([], 'Outside 13F rehearsal', None))
     since, end = datetime(2026, 10, 5, tzinfo=timezone.utc), datetime.now(timezone.utc)
     builds = lambda: [digests.build_monitoring_digest(db, user, watchlist, since, window_end=end),
                       digests.build_signal_alert_digest(db, user, since, window_end=end),

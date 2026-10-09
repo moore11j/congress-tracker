@@ -4,7 +4,8 @@ import hashlib
 import json
 import re
 
-from sqlalchemy import select
+from sqlalchemy import select, cast, func
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.clients.direct_sources import DirectSourceError
 from app.services.direct_feed_collection import parse_document
@@ -70,12 +71,15 @@ def collect_13f_priors(db, client, *, document_ids):
     db.add(run); db.commit(); run_id = run.id
     results = []
     for document_id in document_ids:
+        identity = {}
         try:
             doc = db.get(DirectFeedDocument, document_id)
             if not doc or doc.feed != 'sec_13f' or doc.status != 'parsed':
                 raise DirectSourceError('Current staged 13F is not parsed')
-            _, _, current, metadata = _saved_source(db, doc)
             expected = (doc.content_hash, doc.metadata_json)
+            identity = {'current_source_hash': expected[0],
+                        'current_metadata_hash': hashlib.sha256(expected[1].encode()).hexdigest()}
+            _, _, current, metadata = _saved_source(db, doc)
             url = 'https://data.sec.gov/submissions/CIK' + current['metadata']['cik'].zfill(10) + '.json'
             db.rollback()  # No database transaction remains open during HTTP.
             history_raw = client.get(url)
@@ -107,11 +111,22 @@ def collect_13f_priors(db, client, *, document_ids):
                 record_document(db, staged, raw, source_text, parsed)
             result = {'document_id': document_id, 'status': 'collected', 'prior_document_id': staged.id,
                       'accession': prior['key'], 'content_hash': staged.content_hash,
+                      'prior_metadata_hash': hashlib.sha256(staged.metadata_json.encode()).hexdigest(),
                       'history_sha256': receipt.content_hash, 'report_period': period}
+            result.update(identity)
+            _save_attempt(doc, result)
             db.commit(); results.append(result)
         except Exception as exc:
             db.rollback()
-            results.append({'document_id': document_id, 'status': 'held', 'reason': f'{type(exc).__name__}: {exc}'[:1000]})
+            result = {'document_id': document_id, 'status': 'held', **identity,
+                      'reason': f'{type(exc).__name__}: {exc}'[:1000]}
+            if identity:
+                doc = db.get(DirectFeedDocument, document_id, populate_existing=True)
+                if doc and (doc.content_hash, hashlib.sha256(doc.metadata_json.encode()).hexdigest()) == (
+                    identity['current_source_hash'], identity['current_metadata_hash']):
+                    _save_attempt(doc, result)
+                    db.commit()
+            results.append(result)
             if isinstance(exc, DirectSourceError) and str(exc).startswith((
                 'Source transport failed', 'Source cooldown', 'Source HTTP 403:', 'Source HTTP 429:')):
                 break
@@ -121,3 +136,69 @@ def collect_13f_priors(db, client, *, document_ids):
     run.status = 'partial' if any(r['status'] == 'held' for r in results) else 'collected'
     run.finished_at = utcnow(); run.report_json = dumps(report); db.commit()
     return {'run_id': run_id, 'status': run.status, **report}
+
+
+def _save_attempt(document, result):
+    # Processing evidence is separate from the immutable source metadata and
+    # original-byte revisions. Preserve the existing canonical comparison.
+    reconciliation = json.loads(document.reconciliation_json or '{}')
+    reconciliation['_prior_collection'] = {**result, 'checked_at': utcnow().isoformat()}
+    document.reconciliation_json = dumps(reconciliation)
+
+
+def pending_prior_documents(db, *, since, limit=20, recheck_hours=24, lookback_days=93, now=None):
+    """Fair bounded discovery: prior failures cannot monopolize the next run.
+
+    New or changed sources precede retries. Successful sources are revisited
+    after seven days; held sources after their retry delay. Original source
+    freshness and metadata are never advanced by these processing receipts.
+    """
+    now = now or utcnow()
+    if not 1 <= limit <= 20 or not 1 <= recheck_hours <= 168 or not 1 <= lookback_days <= 93 or since > now.date():
+        raise ValueError('Invalid automatic prior discovery bounds')
+    if db.new or db.dirty or db.deleted:
+        raise ValueError('Prior selection session has unrelated changes')
+    cutoff = now - timedelta(hours=recheck_hours)
+    filing_day = (cast(DirectFeedDocument.metadata_json, JSONB)['filing_date'].astext
+                  if db.get_bind().dialect.name == 'postgresql'
+                  else func.json_extract(DirectFeedDocument.metadata_json, '$.filing_date'))
+    start = max(since, now.date() - timedelta(days=lookback_days))
+    receipt_json = (cast(DirectFeedDocument.reconciliation_json, JSONB)['_prior_collection']
+                    if db.get_bind().dialect.name == 'postgresql'
+                    else func.json_extract(DirectFeedDocument.reconciliation_json, '$._prior_collection'))
+    candidates = list(db.execute(select(DirectFeedDocument.id, DirectFeedDocument.content_hash,
+        DirectFeedDocument.metadata_json, receipt_json).where(DirectFeedDocument.feed == 'sec_13f',
+            DirectFeedDocument.status == 'parsed', filing_day >= start.isoformat(),
+            filing_day <= now.date().isoformat()).order_by(filing_day, DirectFeedDocument.id).limit(20001)))
+    if len(candidates) > 20000:
+        raise ValueError('Prior candidate window exceeds reviewed filing bound')
+    from datetime import datetime, timezone
+    candidates = [(document_id, source_hash, metadata_json,
+                   json.loads(receipt) if isinstance(receipt, str) else receipt)
+                  for document_id, source_hash, metadata_json, receipt in candidates]
+    prior_ids = {receipt['prior_document_id'] for _, _, _, receipt in candidates
+                 if receipt and receipt.get('status') == 'collected'}
+    priors = {row.id: row for row in db.execute(select(DirectFeedDocument.id, DirectFeedDocument.status,
+        DirectFeedDocument.content_hash, DirectFeedDocument.metadata_json).where(DirectFeedDocument.id.in_(prior_ids)))} if prior_ids else {}
+    eligible = []
+    for document_id, source_hash, metadata_json, receipt in candidates:
+        priority, checked = 0, datetime.min.replace(tzinfo=timezone.utc)
+        if receipt and (receipt.get('current_source_hash'), receipt.get('current_metadata_hash')) == (
+            source_hash, hashlib.sha256(metadata_json.encode()).hexdigest()):
+            checked = datetime.fromisoformat(receipt['checked_at'])
+            if receipt.get('status') == 'collected':
+                prior = priors.get(receipt['prior_document_id'])
+                valid = prior and prior.status == 'parsed' and prior.content_hash == receipt.get('content_hash') and (
+                    hashlib.sha256(prior.metadata_json.encode()).hexdigest() == receipt.get('prior_metadata_hash'))
+                if valid and checked >= now - timedelta(days=7):
+                    continue
+                priority = 1 if valid else 0
+            else:
+                if checked >= cutoff:
+                    continue
+                priority = 2
+        eligible.append((priority, checked, document_id))
+    eligible.sort()
+    db.rollback()
+    return {'document_ids': [item[2] for item in eligible[:limit]], 'eligible': len(eligible), 'candidates': len(candidates),
+            'cooling_down': len(candidates) - len(eligible), 'since': start.isoformat()}
