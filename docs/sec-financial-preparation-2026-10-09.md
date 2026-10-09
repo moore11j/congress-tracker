@@ -38,3 +38,9 @@ Thirty-nine exact-release financial/comparison/warmer checks pass on Python 3.14
 The comparison correction is prepared for a scoped release. Core fundamentals, ranking inputs and public financial activation remain separate gates.
 
 The final consumer audit also updates research-brief financial context, ticker hydration and financial diagnostics to the selected cache. The 61-cache replay covers all five consumer functions, with stable source/status values and no legacy cache mutation. Fifty financial/comparison/hydration/warmer tests and seven research context tests pass. A broad research run encountered default temporary-directory errors; an isolated-directory rerun exposes the unrelated CapturingSession.bind schema fixture failure, reproduced against unmodified main 7f141eca. No full research-suite pass is claimed. Research source provenance is included in the prepared context. Historical audit/backfill tools retain their explicit historical FMP cache inputs.
+
+## October 9 company-facts absence follow-up
+
+The compact 22:19 UTC read-only receipt recovers after a full cron receipt timed out. Six actual scheduled runs have prepared 62 caches: 50 partial and 12 unavailable, clear lease. SPY remains the sole uncached symbol because its official company-facts URL returns HTTP 404 in two scheduled attempts.
+
+The follow-up caches an explicit unavailable panel for an exact 404 from that issuer's company-facts URL. Permission, quota, transport and server failures remain retryable and are never cached as missing financials. The existing 24-hour TTL applies. Twenty-one focused absence/cache/warmer/consumer checks pass on Python 3.14.2. The compact read-only verifier can omit the approximately 5 MB public financial payload. No public financial selection, canonical write, Massive request or email.

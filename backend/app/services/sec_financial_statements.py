@@ -172,8 +172,19 @@ def prepared(symbol):
             cik = item['cik']
             client = DirectSourceClient()
             company = client.get(f'https://data.sec.gov/submissions/CIK{cik}.json')
-            raw = client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json')
-            payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now)
+            facts_url = f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json'
+            try:
+                raw = client.get(facts_url)
+            except DirectSourceError as exc:
+                if str(exc) != f'Source HTTP 404: {facts_url}':
+                    raise
+                from app.services.ticker_financials import _unavailable
+                payload = _unavailable(symbol, message='SEC company facts are unavailable for this security.',
+                                       reason='sec_company_facts_not_found')
+                payload.update(source='sec_edgar', updatedAt=now.isoformat(),
+                               sourceEvidence={'factsUrl': facts_url, 'responseStatus': 404})
+            else:
+                payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now)
         if row is None:
             row = InsightsSnapshot(kind=key, source='sec_edgar', fetched_at=now, payload_json='{}')
             db.add(row)

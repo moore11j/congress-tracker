@@ -39,5 +39,8 @@ if os.getenv('SEC_FINANCIAL_HASH_ONLY') != '1':
             report['cache_count'] = len(rows)
             report['caches_truncated'] = len(rows) == 101
             report['coverage_counts'] = dict(Counter(row['payload']['status'] for row in report['public_caches']))
+            if os.getenv('SEC_FINANCIAL_COUNTS_ONLY') == '1':
+                report['cache_symbols'] = [row['payload']['symbol'] for row in report['public_caches']]
+                report.pop('public_caches')
             report.update(transaction_read_only=True, database_writes=0, customer_rows_exported=0)
 print('SEC_FINANCIAL_RECEIPT=' + json.dumps(report))
