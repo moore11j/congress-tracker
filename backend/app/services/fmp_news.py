@@ -18,6 +18,7 @@ from app.services.data_enrichment_queue import ACTIVE_STATUSES, build_dedupe_key
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
+    fmp_provider_disabled,
     fallback_payload,
     reason_for_status,
     reason_from_exception,
@@ -1102,8 +1103,16 @@ def _scan_global_symbol_feed(
 
 
 def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
+    from app.services.finnhub_research import selected_news_provider
+    if selected_news_provider() == "finnhub":
+        from app.services.replacement_news import prepared_news
+        return prepared_news(page=page, limit=limit,
+                             public=str((get_request_context() or {}).get("path") or "").startswith("/api/"))
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
+    if fmp_provider_disabled():
+        return _unavailable_payload(page=bounded_page, limit=bounded_limit,
+            message="Company news coverage is currently unavailable.", reason="provider_disabled")
     cache_key = _cache_key("general", {"page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:general")
     if cached is not None:
@@ -1142,12 +1151,20 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
 
 
 def get_insights_category_news(category: str, *, page: int = 0, limit: int = 20) -> dict[str, Any]:
+    from app.services.finnhub_research import selected_news_provider
+    if selected_news_provider() == "finnhub":
+        from app.services.replacement_news import prepared_news
+        return prepared_news(category=(category or "").strip().lower(), page=page, limit=limit,
+                             public=str((get_request_context() or {}).get("path") or "").startswith("/api/"))
     category_key = (category or "").strip().lower()
     endpoint = INSIGHTS_CATEGORY_NEWS_ENDPOINTS.get(category_key)
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
     if not endpoint:
         return _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
+    if fmp_provider_disabled():
+        return _unavailable_payload(page=bounded_page, limit=bounded_limit,
+            message="Market news coverage is currently unavailable.", reason="provider_disabled")
 
     provider_limit = bounded_limit
     usage_category = f"news:insights:{category_key}"
@@ -1186,11 +1203,19 @@ def get_insights_category_news(category: str, *, page: int = 0, limit: int = 20)
 
 
 def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20, force_refresh: bool = False) -> dict[str, Any]:
+    from app.services.finnhub_research import selected_news_provider
+    if selected_news_provider() == "finnhub":
+        from app.services.replacement_news import prepared_news
+        return prepared_news(symbol=symbol, page=page, limit=limit, force_refresh=force_refresh,
+                             public=str((get_request_context() or {}).get("path") or "").startswith("/api/"))
     normalized_symbol = _normalize_symbol(symbol)
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
     if not normalized_symbol:
         return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
+    if fmp_provider_disabled():
+        return _unavailable_payload(page=bounded_page, limit=bounded_limit,
+            message="Company news coverage is currently unavailable.", reason="provider_disabled")
 
     active_panel_request = _is_active_ticker_panel_request({"TickerNewsPanel"})
     cache_key = _cache_key("stock-news", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})

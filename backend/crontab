@@ -75,3 +75,6 @@ CRON_TZ=America/Los_Angeles
 35 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type member --batch --include-existing --limit 250
 45 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type insider --batch --include-existing --limit 250
 55 2 * * * cd /app && python -m app.jobs.refresh_seo_snapshots --entity-type ticker --batch --include-existing --limit 250
+
+# Disabled by default; prepare and observe Finnhub caches before public selection.
+4,19,34,49 * * * * cd /app && python -m app.jobs.warm_finnhub_news

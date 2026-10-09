@@ -34,8 +34,11 @@ def sync_watchlist_content_events(db: Session, watchlist_id: int, *, per_symbol_
     ]
     if not symbols:
         return 0
-    if not inspect(db.get_bind()).has_table("ticker_content_cache"):
-        return 0
+    from app.services.replacement_news_events import sync_news_events
+    from app.services.finnhub_research import selected_news_provider
+    news_created = sync_news_events(db, symbols, limit=per_symbol_limit)
+    if not inspect(db.connection()).has_table("ticker_content_cache"):
+        return news_created
     rows = db.execute(
         select(TickerContentCache)
         .where(TickerContentCache.content_type.in_(tuple(CONTENT_EVENT_TYPES)))
@@ -43,9 +46,11 @@ def sync_watchlist_content_events(db: Session, watchlist_id: int, *, per_symbol_
         .where(TickerContentCache.status == "ok")
         .order_by(TickerContentCache.fetched_at.desc(), TickerContentCache.id.desc())
     ).scalars().all()
-    created = 0
+    created = news_created
     seen_cache_scopes: set[tuple[str, str]] = set()
     for row in rows:
+        if row.content_type == "news" and selected_news_provider() != "fmp":
+            continue
         symbol = str(row.symbol or "").strip().upper()
         scope = (row.content_type, symbol)
         if not symbol or scope in seen_cache_scopes:
@@ -58,11 +63,22 @@ def sync_watchlist_content_events(db: Session, watchlist_id: int, *, per_symbol_
         items = payload.get("items") if isinstance(payload, dict) else None
         if not isinstance(items, list):
             continue
+        news_keys = None
+        if row.content_type == 'news':
+            from app.services.replacement_news_events import existing_news_keys, canonical_news_url, _title
+            news_keys = existing_news_keys(db, symbol)
+            if news_keys is None:
+                continue
         for item in items[: max(1, per_symbol_limit)]:
             event = _content_event(row.content_type, symbol, row.source, row.fetched_at, item)
             if event is None:
                 continue
             key, event_type, timestamp, content_payload = event
+            if news_keys is not None:
+                news_url = canonical_news_url(content_payload.get('url'))
+                news_title = (_title(content_payload.get('title')), timestamp.date())
+                if (news_url and news_url in news_keys[0]) or news_title in news_keys[1]:
+                    continue
             exists = db.execute(
                 select(Event.id).where(Event.source_filing_id == key).limit(1)
             ).scalar_one_or_none()
@@ -83,6 +99,10 @@ def sync_watchlist_content_events(db: Session, watchlist_id: int, *, per_symbol_
                 )
             )
             created += 1
+            if news_keys is not None:
+                if news_url:
+                    news_keys[0].add(news_url)
+                news_keys[1].add(news_title)
     if created:
         db.flush()
     return created

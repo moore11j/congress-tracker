@@ -1221,7 +1221,13 @@ def _watchlist_market_news_items(
     for symbol in symbols:
         for kind, getter in (("news_article", get_stock_news), ("press_release", get_press_releases)):
             try:
-                payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
+                from app.services.finnhub_research import selected_news_provider
+                if kind == 'news_article' and selected_news_provider() == 'finnhub':
+                    from app.services.replacement_news import prepared_news
+                    payload = prepared_news(symbol=symbol, page=0,
+                        limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT, public=True, enqueue_on_miss=False)
+                else:
+                    payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
             except Exception:
                 continue
             for row in payload.get("items", []) if isinstance(payload, dict) else []:
