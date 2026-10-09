@@ -1,5 +1,8 @@
 # Project context log
 
+## 2026-10-09: Scheduled news source normalization and consumer receipts
+
+**2026-10-09: Scheduled news and captured consumers:** PR487/bfb65946 deploy succeeds on all four workers. Real20:01/20:04 runs complete23 scopes, reaching39/63 fresh company caches without stale rows; public news stillFMP/publication off. Read-only public-cache rehearsal preserves95 events, adds196, repeats with zero new events;291 monitoring/intraday identities and12/4/291 digest counts stable. Nine categories/19 company readers/50 Insights headlines pass. Follow-up corrects verified DCI old-only rows and BRK-B/BRK.B news punctuation;47 exact tests pass. [Report](docs/analyst-news-replacement-2026-10-09.md#corrected-scheduled-collection-and-production-cache-consumer-replay). No Massive/subscription/email. Full universe, correction rollout and remaining free feeds remain gates.
 ## 2026-10-09: News research consumer compatibility
 
 Owner requests exact release, consumer compatibility and scheduled observation before FMP shutdown, with Massive last. Observation release PR486/3e2481ca deployed on all four workers; 44 file hashes match, 148 news tests and 35 Top Stocks/access tests pass. Public feeds remain FMP while the free Finnhub cache warms with shared quota limits. Follow-up prevents headline-only material from being labelled FMP research evidence and displays its coverage limitation. Twenty focused backend tests, TypeScript and both coverage rendering variants pass; twelve frontend checks pass and one unchanged copy assertion fails. No provider subscription, Massive request or email. Actual scheduled operation and full consumer replay remain next; do not activate public news or cancel FMP from this guard alone.
@@ -226,3 +229,6 @@ Final same-day follow-up: `9079343c` / workflow 37856798420 deployed on all four
 
 
 October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool exhaustion. Reproduced and repaired using a durable warming lease, with real local PostgreSQL evidence; interval becomes three minutes with explicit universe freshness counters. No public source switch. See the news replacement report; corrected scheduled success is still a release gate.
+
+
+October 9 final news activation preparation: PR488 also isolates and prewarms the Finnhub headline view while preserving the FMP snapshot for rollback. The exact package passes 139 news, Insights, research-consumer and digest checks, plus the real PostgreSQL two-connection test. No source switch or emails. Full scheduled coverage after deployment remains required.

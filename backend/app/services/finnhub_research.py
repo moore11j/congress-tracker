@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -105,12 +106,19 @@ def canonical_news_url(value: object) -> str | None:
         return None
 
 
+def _news_symbol_key(symbol: str | None) -> str | None:
+    normalized = normalize_symbol(symbol)
+    match = re.fullmatch(r'([A-Z]{1,6})[./-]([A-Z])', normalized or '')
+    return f'{match[1]}.{match[2]}' if match else normalized
+
+
 def normalize_news(rows: list[dict], *, observed_at: datetime, symbol: str | None = None) -> dict:
     observed_at = observed_at.astimezone(timezone.utc)
     normalized_symbol = normalize_symbol(symbol) if symbol else None
     by_url: dict[str, dict] = {}
     ids: dict[str, str] = {}
     rejected = 0
+    outdated = 0
     for row in rows:
         url = canonical_news_url(row.get("url"))
         title = row.get("headline")
@@ -120,17 +128,20 @@ def normalize_news(rows: list[dict], *, observed_at: datetime, symbol: str | Non
             if isinstance(raw_stamp, bool) or not isinstance(raw_stamp, (int, float)):
                 raise ValueError()
             published = datetime.fromtimestamp(raw_stamp, timezone.utc)
-            if published > observed_at + timedelta(minutes=5) or published < observed_at - timedelta(days=7):
+            if published > observed_at + timedelta(minutes=5):
                 raise ValueError()
         except (ValueError, TypeError, OverflowError, OSError):
             rejected += 1
             continue
-        related = {normalize_symbol(s) for s in str(row.get("related") or "").split(",") if s.strip()}
+        related = {_news_symbol_key(s) for s in str(row.get("related") or "").split(",") if s.strip()}
         if not url or not isinstance(title, str) or not title.strip() or not isinstance(publisher, str) or not publisher.strip():
             rejected += 1
             continue
-        if normalized_symbol and related and normalized_symbol not in related:
+        if normalized_symbol and related and _news_symbol_key(normalized_symbol) not in related:
             rejected += 1
+            continue
+        if published < observed_at - timedelta(days=7):
+            outdated += 1
             continue
         provider_id = str(row.get("id") or "")
         if provider_id and provider_id in ids and ids[provider_id] != url:
@@ -147,10 +158,11 @@ def normalize_news(rows: list[dict], *, observed_at: datetime, symbol: str | Non
         # One publisher URL across provider IDs and tracking variants. No full
         # article republication or inferred ticker matching from ambiguous words.
         by_url.setdefault(url, item)
-    if rows and not by_url:
+    if rows and not by_url and rejected:
         raise FinnhubUnavailable("no_valid_recent_rows")
     return {"items": sorted(by_url.values(), key=lambda x: (x["published_at"], x["url"]), reverse=True),
             "source": "finnhub", "observed_at": observed_at.isoformat(), "rejected_count": rejected,
+            "outdated_count": outdated,
             "coverage": "Recent publisher headlines and source links; not full articles.",
             "status": "ok" if by_url else "empty"}
 
@@ -161,7 +173,7 @@ def fetch_news(*, symbol: str | None = None, category: str = "general", observed
         normalized = normalize_symbol(symbol)
         if not normalized:
             raise ValueError("Invalid symbol")
-        rows = request_rows("company-news", {"symbol": normalized,
+        rows = request_rows("company-news", {"symbol": _news_symbol_key(normalized),
             "from": (now - timedelta(days=7)).date().isoformat(), "to": now.date().isoformat()})
     else:
         if category not in {"general", "forex", "crypto"}:
