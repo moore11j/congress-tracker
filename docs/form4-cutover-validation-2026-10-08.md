@@ -101,3 +101,9 @@ Live evidence: `final-form4-release.capture.txt`, `activate-form4.capture.txt`, 
 ## Institutional handoff inventory
 
 Read-only production inventory finds 868 holders and 1,686 canonical filings, including 674 each in Q1/Q2 2026 and **zero Q3 2026**. The October 7 staged cohort has 86 filings: 77 parsed, five quarantined, four failed. Among these filers, only PartnerRe has a 2026 canonical filing (two Q2 holdings); its current source is held on cover/table mismatch. A separate 501-holder bounded sample is not the full holder population. No institutional writes or source selection occurred. The next step is fresh canonical/identifier and prior-quarter evidence, a real qualifying event and guarded publication; source collection alone does not establish usable institutional alerts.
+
+## Non-market display release verified
+
+Release `a11250e294fa67973285e3f5a7e15b67d678fa3a` completed [workflow 37873655348](https://github.com/moore11j/congress-tracker/actions/runs/37873655348) at **October 9 02:16:38 UTC**, including readiness/database and Premium-access checks. All four started images match. At **02:18:25 UTC**, eight exact runtime hashes, the 76 repair receipts, 251 Form 4 publication/hold receipts and unchanged direct Congress/SEC ownership verify on Python 3.12.15. There are no 13F publication receipts.
+
+Public API checks verify both PROV direct non-market records retain reported prices and separate trade/filing dates while P&L/source/smart-score fields are null. All 90 newly published IRIX market purchases retain their return display. No saved outcomes or canonical records were rewritten by this display-only release. No validation email, price-provider switch or FMP cancellation. The first selected scheduled Form 4 run remains pending.

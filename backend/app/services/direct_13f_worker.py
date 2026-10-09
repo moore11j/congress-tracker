@@ -37,7 +37,7 @@ def _state_hash(db, filing, holder_event_ids=()):
     return hashlib.sha256(dumps(state).encode()).hexdigest()
 
 
-def publish_13f_document(db, document_id, *, identifier_documents, comparison_documents):
+def publish_13f_document(db, document_id, *, identifier_documents, comparison_documents, prepared_evidence=None):
     """Atomic projection and receipt; evidence must be explicit and bounded.
 
     Whole-filing parser/identity/peer-value holds remain. Complete originals may
@@ -94,7 +94,7 @@ def publish_13f_document(db, document_id, *, identifier_documents, comparison_do
         # newly available contradictory evidence must not earn an "existing" pass.
         result = _project_new_13f(db, {'feed': 'sec_13f', 'metadata': metadata,
             'raw': revision.source_bytes, 'content_hash': staged.content_hash}, publish_since=control.publish_since,
-            identifier_documents=identifier_documents, comparison_documents=comparison_documents)
+            identifier_documents=identifier_documents, comparison_documents=comparison_documents, prepared_evidence=prepared_evidence)
         result.pop('production_writes', None)  # This entry point can write its selected database.
         if result['status'] == 'held':
             return held(result.get('reason', 'Source requires reconciliation'), result)

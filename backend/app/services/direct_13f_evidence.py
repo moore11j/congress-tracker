@@ -1,8 +1,10 @@
 """Pure SEC identifier and cross-filing value checks for offline publication."""
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 import hashlib
+import json
 import re
 from statistics import median
 from xml.etree import ElementTree as ET
@@ -11,7 +13,61 @@ from app.clients.direct_sources import DirectSourceError
 from app.services.direct_feed_collection import parse_document
 
 
-def nport_identifiers(document, *, available_by: date):
+def _evidence_key(document):
+    if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
+        raise DirectSourceError('Prepared evidence checksum mismatch')
+    return json.dumps({key:document.get(key) for key in ('content_hash','url','metadata','feed')},
+                      sort_keys=True,default=str)
+
+
+@dataclass(frozen=True)
+class Prepared13FEvidence:
+    """Per-batch immutable parses; every reuse still checks original bytes/identity.
+
+    JSON strings keep returned dictionaries from mutating cached evidence. No
+    process-wide cache retains large source files after the bounded batch ends.
+    """
+    _identifiers: tuple
+    _comparisons: tuple
+
+    @classmethod
+    def build(cls, identifier_documents, comparison_documents):
+        if len(identifier_documents)>50 or not 1<=len(comparison_documents)<=500:
+            raise ValueError('Prepared evidence exceeds document bounds')
+        if sum(len(d['raw']) for d in (*identifier_documents,*comparison_documents))>100_000_000:
+            raise ValueError('Prepared evidence exceeds byte bounds')
+        identifiers=[];comparisons=[]
+        for document in identifier_documents:
+            key=_evidence_key(document)
+            identifiers.append((key,json.dumps(nport_identifiers(document,available_by=date.max))))
+        for document in comparison_documents:
+            key=_evidence_key(document)
+            try:
+                _,parsed,reasons=parse_document('sec_13f',document['raw'],document['metadata'])
+                value=json.dumps([parsed,reasons],default=str)
+            except DirectSourceError:
+                value=None
+            comparisons.append((key,value))
+        return cls(tuple(identifiers),tuple(comparisons))
+
+    def _lookup(self, document, records):
+        key=_evidence_key(document)
+        for saved,value in records:
+            if saved==key:return json.loads(value) if value is not None else None
+        raise DirectSourceError('Prepared evidence identity changed')
+
+    def identifiers(self, document, available_by):
+        rows=self._lookup(document,self._identifiers)
+        return [row for row in rows if row['filing_date']<=available_by.isoformat()]
+
+    def comparison(self, document):
+        return self._lookup(document,self._comparisons)
+
+
+def nport_identifiers(document, *, available_by: date, prepared=None):
+    if prepared is not None:
+        if not isinstance(prepared,Prepared13FEvidence):raise TypeError('Invalid prepared evidence')
+        return prepared.identifiers(document,available_by)
     raw = document['raw']
     digest = hashlib.sha256(raw).hexdigest()
     if digest != document['content_hash']:
@@ -57,12 +113,14 @@ def nport_identifiers(document, *, available_by: date):
     return rows
 
 
-def value_consistency_issues(parsed, documents):
+def value_consistency_issues(parsed, documents, *, prepared=None):
     """Hold extreme unit discrepancies corroborated by two independent filers.
 
     Never rescale source numbers. Equal quarter/CUSIP equity holdings should
     imply comparable quarter-end prices; this is a diagnostic, not a quote feed.
     """
+    if prepared is not None and not isinstance(prepared,Prepared13FEvidence):
+        raise TypeError('Invalid prepared evidence')
     meta = parsed['metadata']
     peers = defaultdict(dict)
     def prices(rows):
@@ -77,10 +135,15 @@ def value_consistency_issues(parsed, documents):
     for document in documents:
         if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
             raise DirectSourceError('13F comparison source checksum mismatch')
-        try:
-            _, peer, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
-        except DirectSourceError:
-            continue
+        if prepared is not None:
+            saved=prepared.comparison(document)
+            if saved is None:continue
+            peer,reasons=saved
+        else:
+            try:
+                _, peer, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
+            except DirectSourceError:
+                continue
         pm = peer['metadata']
         if (reasons or pm['cik'] == meta['cik'] or pm['report_period'] != meta['report_period']
                 or pm['filing_date'] > meta['filing_date']):

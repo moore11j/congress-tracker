@@ -6,6 +6,7 @@ from app.background_job_guard import check_background_job_guard
 from app.db import SessionLocal
 from app.services.direct_feed_store import dumps
 from app.services.direct_13f_batch import load_identifier_manifest, publish_13f_batch
+from app.services.direct_13f_identifiers import load_staged_identifiers
 from app.services.feed_source_control import FeedSourceMismatch, FeedWriterBusy
 
 
@@ -13,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--limit', type=int, default=100)
     parser.add_argument('--identifier-manifest')
+    parser.add_argument('--staged-identifiers', action='store_true', help='Load the reviewed manifest from shared staging')
     parser.add_argument('--retry-waiting', action='store_true')
     args = parser.parse_args()
     if os.getenv('DIRECT_13F_PUBLICATION_ENABLED', 'false').strip().lower() != 'true':
@@ -26,7 +28,9 @@ def main():
         return
     try:
         with SessionLocal() as db:
-            result = publish_13f_batch(db, identifier_documents=load_identifier_manifest(args.identifier_manifest),
+            identifiers = (load_staged_identifiers(db, args.identifier_manifest) if args.staged_identifiers
+                           else load_identifier_manifest(args.identifier_manifest))
+            result = publish_13f_batch(db, identifier_documents=identifiers,
                 limit=args.limit, retry_waiting=args.retry_waiting)
     except (FeedSourceMismatch, FeedWriterBusy) as exc:
         print(dumps({'status': 'skipped', 'reason': type(exc).__name__}))

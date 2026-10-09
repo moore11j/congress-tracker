@@ -9,6 +9,7 @@ from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevisio
 from app.services.direct_feed_worker import DirectFeedPublication, _source_url
 from app.services.direct_13f_worker import publish_13f_document
 from app.services.feed_source_control import require_selected_source
+from app.services.direct_13f_evidence import Prepared13FEvidence
 
 
 def load_identifier_manifest(path):
@@ -81,8 +82,9 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
     comparisons = staged_comparisons(db, byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents))
     db.rollback()  # Recheck durable ownership inside every filing transaction.
+    evidence=Prepared13FEvidence.build(identifier_documents,comparisons)
     results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
-        identifier_documents=identifier_documents, comparison_documents=comparisons)) for document_id in ids]
+        identifier_documents=identifier_documents, comparison_documents=comparisons, prepared_evidence=evidence)) for document_id in ids]
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
         'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
         'results': results, 'email_deliveries': 0}
