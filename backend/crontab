@@ -84,3 +84,6 @@ CRON_TZ=America/Los_Angeles
 
 # Opt-in prepared calendars and recommendations; public providers stay independent.
 11,26,41,56 * * * * cd /app && python -m app.jobs.warm_free_research
+
+# Opt-in SEC financial preparation, serialized with the other source collectors.
+4-59/5 * * * * cd /app && python -m app.jobs.warm_sec_research
