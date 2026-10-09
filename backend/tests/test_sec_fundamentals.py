@@ -106,5 +106,3 @@ def test_total_revenue_is_not_confused_with_contract_revenue_component():
     evidence = json.loads(project(facts)['source_evidence_json'])
     assert evidence['current']['revenue']['value'] == 260
     assert {r['tag'] for r in evidence['current']['revenue']['inputs']} == {'Revenues'}
-
-
