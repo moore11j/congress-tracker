@@ -221,7 +221,7 @@ def apply_rehearsal(db, plan):
             'plan_sha256': plan['sha256'], 'production_writes': 0}
 
 
-def include_event_corrections(db, canonical_plan):
+def include_event_corrections(db, canonical_plan, *, symbols=None, parser_version='direct_sec_event_rehearsal_v1'):
     """Follow immutable provider IDs into existing events; never insert events.
 
     Raw provider rows/payloads are retained as evidence. SEC values and provenance
@@ -232,11 +232,24 @@ def include_event_corrections(db, canonical_plan):
         raise ValueError('Canonical plan hash changed')
     plan = json.loads(dumps(canonical_plan))
     by_hash = defaultdict(list)
-    raw_rows = list(db.scalars(select(InsiderTransaction).order_by(InsiderTransaction.id)))
+    raw_query = select(InsiderTransaction).order_by(InsiderTransaction.id)
+    event_query = select(Event).order_by(Event.id)
+    if symbols is not None:
+        symbols = sorted(set(symbols))
+        if not symbols or any(not symbol for symbol in symbols):
+            raise ValueError('Bounded event correction requires explicit symbols')
+        raw_query = raw_query.where(InsiderTransaction.symbol.in_(symbols)).limit(20001)
+        event_query = event_query.where(Event.symbol.in_(symbols)).limit(20001)
+    else:
+        event_query = event_query.where(Event.event_type == 'insider_trade')
+    raw_rows = list(db.scalars(raw_query))
+    guarded_events = list(db.scalars(event_query))
+    if symbols is not None and max(len(raw_rows), len(guarded_events)) > 20000:
+        raise ValueError('Bounded event population exceeds review limit')
     for row in raw_rows:
         _, normalized = _build_normalized_payload(row)
         by_hash[normalized['normalized_hash']].append(row)
-    events = list(db.scalars(select(Event).where(Event.event_type == 'insider_trade').order_by(Event.id)))
+    events = [row for row in guarded_events if row.event_type == 'insider_trade']
     by_external = defaultdict(list)
     for event in events:
         payload = json.loads(event.payload_json)
@@ -275,19 +288,25 @@ def include_event_corrections(db, canonical_plan):
                                      'source_provider': 'sec_edgar',
                                      'source_filing_id': event.source_filing_id or after['normalized_hash'],
                                      'source_document_url': op['source']['url'],
-                                     'parser_version': 'direct_sec_event_rehearsal_v1'},
+                                     'parser_version': parser_version},
                               op['source'], op['source_rows'])
         used.add(event.id)
         if event_op:
             event_operations.append(event_op)
     if event_operations:
-        plan['guards'].extend([
+        if symbols is not None:
+            for symbol in symbols:
+                for table, rows in (('events', guarded_events), ('insider_transactions', raw_rows)):
+                    plan['guards'].append({'table': table, 'field': 'symbol', 'value': symbol,
+                        'rows': [snapshot(row) for row in rows if row.symbol == symbol]})
+        else:
+            plan['guards'].extend([
             {'table': 'events', 'field': 'event_type', 'value': 'insider_trade',
              'rows': [snapshot(row) for row in events]},
-        ])
+            ])
         # Guard every input that established the legacy hash, including provider
         # payloads. Changing a raw record invalidates the linked-event plan.
-        for raw in raw_rows:
+        for raw in raw_rows if symbols is None else []:
             plan['guards'].append({'table': 'insider_transactions', 'field': 'id', 'value': raw.id,
                                    'rows': [snapshot(raw)]})
     plan['operations'].extend(event_operations)

@@ -10,7 +10,8 @@ from app.services.direct_feed_store import ensure_direct_feed_schema, dumps
 def main():
     ensure_direct_feed_schema(engine)
     required = {'direct_feed_documents', 'direct_feed_revisions', 'direct_feed_runs', 'feed_source_controls',
-        'direct_feed_publications', 'congress_repair_archives', 'congress_repair_receipts', 'congress_row_bindings'}
+        'direct_feed_publications', 'congress_repair_archives', 'congress_repair_receipts', 'congress_row_bindings',
+        'sec_repair_receipts'}
     schema = inspect(engine)
     if not required <= set(schema.get_table_names()):
         raise RuntimeError('Direct-feed schema is incomplete')
