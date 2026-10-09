@@ -712,6 +712,138 @@
         ],
         "outcomes": []
       }
+    },
+    {
+      "metadata": {
+        "district": "NJ05",
+        "filing_date": "2026-10-07",
+        "filing_id": "20035590",
+        "form": "PTR",
+        "key": "2026:20035590",
+        "member_name": "Josh Gottheimer",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035590.pdf"
+      },
+      "sha256": "ba243f7c2b8b2ac7cb2ed86ea0665fd58cb3fa5305813292b8d8fe3349c1d141",
+      "source_file": "house_20035590.pdf",
+      "state": {
+        "members": [
+          {
+            "bioguide_id": "G000583",
+            "chamber": "house",
+            "first_name": "Josh",
+            "id": 20,
+            "last_name": "Gottheimer",
+            "party": "Democrat",
+            "state": "NJ"
+          }
+        ],
+        "securities": [
+          {
+            "asset_class": "Stock",
+            "id": 112,
+            "name": "McDonald's Corp",
+            "sector": null,
+            "symbol": "MCD"
+          },
+          {
+            "asset_class": "Stock",
+            "id": 200,
+            "name": "Applied Materials Inc",
+            "sector": null,
+            "symbol": "AMAT"
+          }
+        ],
+        "filings": [
+          {
+            "document_hash": "fmp:house:20035590",
+            "document_url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035590.pdf",
+            "filing_date": "2026-10-08",
+            "id": 19824,
+            "member_id": 20,
+            "source": "house_fmp"
+          }
+        ],
+        "transactions": [
+          {
+            "amount_range_max": 15000.0,
+            "amount_range_min": 1001.0,
+            "description": null,
+            "filing_id": 19824,
+            "id": 23746,
+            "member_id": 20,
+            "owner_type": "joint",
+            "report_date": "2026-10-08",
+            "security_id": 200,
+            "trade_date": "2026-09-15",
+            "transaction_type": "sale"
+          },
+          {
+            "amount_range_max": 15000.0,
+            "amount_range_min": 1001.0,
+            "description": null,
+            "filing_id": 19824,
+            "id": 23747,
+            "member_id": 20,
+            "owner_type": "joint",
+            "report_date": "2026-10-08",
+            "security_id": 112,
+            "trade_date": "2026-09-25",
+            "transaction_type": "sale"
+          }
+        ],
+        "events": [
+          {
+            "amount_max": 15000,
+            "amount_min": 1001,
+            "chamber": "house",
+            "created_at": "2026-10-08 15:34:01.207064+00:00",
+            "data_source": null,
+            "event_date": "2026-10-08 00:00:00+00:00",
+            "event_type": "congress_trade",
+            "id": 473937,
+            "impact_score": 0.0,
+            "member_bioguide_id": "G000583",
+            "member_name": "Josh Gottheimer",
+            "parser_version": null,
+            "party": "Democrat",
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"f2ab93789297f8607553db373b3b258139f3d5be4aca7e8636daac640f7fef71\", \"companyName\": \"Applied Materials Inc\", \"company_name\": \"Applied Materials Inc\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035590.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23746\", \"filing_date\": \"2026-10-08\", \"filing_id\": 19824, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"Applied Materials Inc\", \"issuer_name\": \"Applied Materials Inc\", \"member\": {\"bioguide_id\": \"G000583\", \"chamber\": \"house\", \"name\": \"Josh Gottheimer\", \"party\": \"Democrat\", \"state\": \"NJ\"}, \"member_id\": 20, \"owner_type\": \"joint\", \"report_date\": \"2026-10-08\", \"sector\": null, \"securityDescription\": \"Applied Materials Inc\", \"securityName\": \"Applied Materials Inc\", \"security_description\": \"Applied Materials Inc\", \"security_id\": 200, \"security_name\": \"Applied Materials Inc\", \"source\": \"house_fmp\", \"symbol\": \"AMAT\", \"ticker\": \"AMAT\", \"trade_date\": \"2026-09-15\", \"transaction_id\": 23746, \"transaction_type\": \"sale\"}",
+            "provider_priority": null,
+            "source": "house_fmp",
+            "source_document_url": null,
+            "source_filing_id": null,
+            "source_provider": null,
+            "symbol": "AMAT",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "ts": "2026-10-08 00:00:00+00:00"
+          },
+          {
+            "amount_max": 15000,
+            "amount_min": 1001,
+            "chamber": "house",
+            "created_at": "2026-10-08 15:34:01.207064+00:00",
+            "data_source": null,
+            "event_date": "2026-10-08 00:00:00+00:00",
+            "event_type": "congress_trade",
+            "id": 473938,
+            "impact_score": 0.0,
+            "member_bioguide_id": "G000583",
+            "member_name": "Josh Gottheimer",
+            "parser_version": null,
+            "party": "Democrat",
+            "payload_json": "{\"amount_range_max\": 15000.0, \"amount_range_min\": 1001.0, \"assetClass\": \"equity\", \"asset_class\": \"equity\", \"backfill_id\": \"fad8dcb35b5d96583d5e157c50b660904c211e23b3175601b10669ec60a26b57\", \"companyName\": \"McDonald's Corp\", \"company_name\": \"McDonald's Corp\", \"description\": null, \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035590.pdf\", \"eventType\": \"congress_trade\", \"event_type\": \"congress_trade\", \"external_id\": \"congress_tx:23747\", \"filing_date\": \"2026-10-08\", \"filing_id\": 19824, \"filing_source\": \"house_fmp\", \"instrumentType\": \"equity\", \"instrument_type\": \"equity\", \"issuerName\": \"McDonald's Corp\", \"issuer_name\": \"McDonald's Corp\", \"member\": {\"bioguide_id\": \"G000583\", \"chamber\": \"house\", \"name\": \"Josh Gottheimer\", \"party\": \"Democrat\", \"state\": \"NJ\"}, \"member_id\": 20, \"owner_type\": \"joint\", \"report_date\": \"2026-10-08\", \"sector\": null, \"securityDescription\": \"McDonald's Corp\", \"securityName\": \"McDonald's Corp\", \"security_description\": \"McDonald's Corp\", \"security_id\": 112, \"security_name\": \"McDonald's Corp\", \"source\": \"house_fmp\", \"symbol\": \"MCD\", \"ticker\": \"MCD\", \"trade_date\": \"2026-09-25\", \"transaction_id\": 23747, \"transaction_type\": \"sale\"}",
+            "provider_priority": null,
+            "source": "house_fmp",
+            "source_document_url": null,
+            "source_filing_id": null,
+            "source_provider": null,
+            "symbol": "MCD",
+            "trade_type": "sale",
+            "transaction_type": "sale",
+            "ts": "2026-10-08 00:00:00+00:00"
+          }
+        ]
+      }
     }
   ]
 }

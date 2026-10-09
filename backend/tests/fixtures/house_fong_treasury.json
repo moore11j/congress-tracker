@@ -1,0 +1,75 @@
+{
+  "metadata": {
+    "district": "CA20",
+    "filing_date": "2026-10-05",
+    "filing_id": "20035539",
+    "form": "PTR",
+    "key": "2026:20035539",
+    "member_name": "Vince Fong",
+    "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035539.pdf"
+  },
+  "sha256": "bd886a4acc7e53f45641504af478dba29b93429cea45e045e0f83980fc15cfe6",
+  "members": [
+    {
+      "bioguide_id": "F000480",
+      "chamber": "house",
+      "first_name": "Vince",
+      "id": 348,
+      "last_name": "Fong",
+      "party": "Republican",
+      "state": "CA"
+    }
+  ],
+  "filings": [
+    {
+      "document_hash": "fmp:house:20035539",
+      "document_url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035539.pdf",
+      "filing_date": "2026-10-05",
+      "id": 19817,
+      "member_id": 348,
+      "source": "house_fmp"
+    }
+  ],
+  "transactions": [
+    {
+      "amount_range_max": 50000.0,
+      "amount_range_min": 15001.0,
+      "description": "U.S. Treasury Bill 0.0% Int Mat 12/10/2026",
+      "filing_id": 19817,
+      "id": 23639,
+      "member_id": 348,
+      "owner_type": "self",
+      "report_date": "2026-10-05",
+      "security_id": null,
+      "trade_date": "2026-09-18",
+      "transaction_type": "purchase"
+    }
+  ],
+  "events": [
+    {
+      "amount_max": 50000,
+      "amount_min": 15001,
+      "chamber": "house",
+      "created_at": "2026-10-07 19:37:23.442545+00:00",
+      "data_source": null,
+      "event_date": "2026-10-05 00:00:00+00:00",
+      "event_type": "congress_treasury_trade",
+      "id": 472403,
+      "impact_score": 0.0,
+      "member_bioguide_id": "F000480",
+      "member_name": "Vince Fong",
+      "parser_version": null,
+      "party": "Republican",
+      "payload_json": "{\"amount_range_max\": 50000.0, \"amount_range_min\": 15001.0, \"assetClass\": \"treasury\", \"asset_class\": \"treasury\", \"backfill_id\": \"d31b21fe8652f880c1f672071581e43d3534807041147c2ef464fe40f6592ee6\", \"companyName\": null, \"company_name\": null, \"couponRate\": null, \"coupon_rate\": null, \"cusip\": null, \"description\": \"U.S. Treasury Bill 0.0% Int Mat 12/10/2026\", \"document_url\": \"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035539.pdf\", \"durationDays\": null, \"durationLabel\": null, \"duration_days\": null, \"duration_label\": null, \"eventType\": \"congress_treasury_trade\", \"event_type\": \"congress_treasury_trade\", \"external_id\": \"congress_tx:23639\", \"filing_date\": \"2026-10-05\", \"filing_id\": 19817, \"filing_source\": \"house_fmp\", \"instrumentType\": \"treasury_bill\", \"instrument_type\": \"treasury_bill\", \"issuerName\": \"U.S. Treasury\", \"issuer_name\": \"U.S. Treasury\", \"maturityDate\": null, \"maturity_date\": null, \"member\": {\"bioguide_id\": \"F000480\", \"chamber\": \"house\", \"name\": \"Vince Fong\", \"party\": \"Republican\", \"state\": \"CA\"}, \"member_id\": 348, \"owner_type\": \"self\", \"report_date\": \"2026-10-05\", \"sector\": null, \"securityDescription\": \"U.S. Treasury Bill 0.0% Int Mat 12/10/2026\", \"securityName\": \"U.S. Treasury Bill 0.0% Int Mat 12/10/2026\", \"security_description\": \"U.S. Treasury Bill 0.0% Int Mat 12/10/2026\", \"security_id\": null, \"security_name\": \"U.S. Treasury Bill 0.0% Int Mat 12/10/2026\", \"source\": \"house_fmp\", \"symbol\": null, \"ticker\": null, \"trade_date\": \"2026-09-18\", \"transaction_id\": 23639, \"transaction_type\": \"purchase\"}",
+      "provider_priority": null,
+      "source": "house_fmp",
+      "source_document_url": null,
+      "source_filing_id": null,
+      "source_provider": null,
+      "symbol": null,
+      "trade_type": "purchase",
+      "transaction_type": "purchase",
+      "ts": "2026-10-05 00:00:00+00:00"
+    }
+  ]
+}

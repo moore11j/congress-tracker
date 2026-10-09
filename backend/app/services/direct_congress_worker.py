@@ -51,6 +51,33 @@ def _canonical_hash(db, url):
     return _hash(state)
 
 
+def _existing_treasury_bill_matches(event, row, member, transaction_id, filing_id):
+    """Adopt an already classified Treasury event, never project it as equity."""
+    from app.services.event_availability import available_event_date
+    payload=json.loads(event.get('payload_json') or '{}')
+    if (row['asset_type_normalized']!='treasury_bill' or row['ticker_normalized']
+            or event.get('event_type')!='congress_treasury_trade' or event.get('symbol')
+            or event.get('member_bioguide_id')!=member['bioguide_id'] or event.get('chamber')!=member['chamber']
+            or payload.get('transaction_id')!=transaction_id or payload.get('filing_id')!=filing_id
+            or payload.get('security_id') is not None or payload.get('symbol') or payload.get('ticker')
+            or payload.get('asset_class')!='treasury' or payload.get('instrument_type')!='treasury_bill'
+            or (payload.get('member') or {}).get('bioguide_id')!=member['bioguide_id']
+            or (payload.get('member') or {}).get('chamber')!=member['chamber']
+            or document_identity(payload.get('document_url'))!=document_identity(row['document_url'])
+            or (event.get('source_document_url') and document_identity(event['source_document_url'])!=document_identity(row['document_url']))):
+        return False
+    source_key=_key(day=row['transaction_date'],owner=row['owner_normalized'],action=row['transaction_type_normalized'],
+        lower=row['amount_low'],upper=row['amount_high'],symbol=None,description=row['issuer_name_raw'] or row['security_name_raw'])
+    event_key=_key(day=payload.get('trade_date'),owner=payload.get('owner_type'),
+        action=event.get('trade_type') or event.get('transaction_type'),lower=event.get('amount_min'),
+        upper=event.get('amount_max'),symbol=None,description=payload.get('security_description'))
+    day=str(row['disclosure_date'])[:10]
+    available=available_event_date(payload,date.fromisoformat(day))
+    return (source_key==event_key and available is not None
+        and str(event.get('ts'))[:10]==available.isoformat() and str(event.get('event_date'))[:10]==day
+        and payload.get('filing_date')==day and payload.get('report_date')==day)
+
+
 def _project(db, document, metadata, raw, directory, boundary):
     _, parsed, reasons = parse_document(document.feed, raw, metadata)
     if reasons:
@@ -108,7 +135,10 @@ def _project(db, document, metadata, raw, directory, boundary):
                 return {'status': 'held', 'reason': 'Existing security classification conflicts'}
             securities[row['ticker_normalized']] = security
         elif plan['status'] == 'existing' and matched[row['source_line_ref']]['event_ids']:
-            return {'status': 'held', 'reason': 'Existing non-stock event requires explicit reconciliation'}
+            match=matched[row['source_line_ref']]
+            if len(match['event_ids'])!=1 or not _existing_treasury_bill_matches(
+                    event_by_id[match['event_ids'][0]],row,member,match['transaction_id'],plan['filing_ids'][0]):
+                return {'status': 'held', 'reason': 'Existing non-stock event requires explicit reconciliation'}
     event_ids, transaction_ids = [], []
     if plan['status'] == 'new':
         if stored is None:
