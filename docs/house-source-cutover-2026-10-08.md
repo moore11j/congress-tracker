@@ -51,3 +51,7 @@ Backup receipts: `/data/ops/house-cutover-20261008/before-20261009T001306152087Z
 First scheduled House publication remains due at 00:29 UTC. Continue observing collection/publication and legacy suppression, address held coverage, then proceed with Form 4/13F, fresh replacement prices/fundamentals/content and whole-product alerts before global FMP shutdown and billing cancellation.
 
 At 00:19:10 UTC, read-only verification observes actual post-cutover Congress collection run 15 completed at 00:17:06, with zero new work/public writes and the existing holds retained. Both ownership controls, all successful publication fingerprints, original event times and zero recorded legacy ingestion calls remain verified. First House publication at :29 is still pending.
+
+## First scheduled House publication observed
+
+The 00:29 UTC October 9 scheduled publisher returns at 00:32:43 and exits at 00:33:35 with the known Taylor conflict held, zero inserted events and zero emails (partial/exit 1). The next Senate :27 run also retains its bond exception. At 00:41:32, read-only verification still matches both official generation-2 controls, all seven successful House publication fingerprints, all thirteen corrected dates/original arrival times and zero recorded legacy Congress ingestion requests since switching. This supersedes the earlier pending-schedule statements; held coverage remains unresolved. Subsequent [SEC/alert safeguards](form4-cutover-validation-2026-10-08.md) deploy as `5afef5fb` without changing Congress ownership or saved history.

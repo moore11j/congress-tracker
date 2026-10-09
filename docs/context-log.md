@@ -1,5 +1,10 @@
 # Project context log
 
+## 2026-10-08: SEC arrival safeguards and fresh Form 4 alert validation
+
+Continued the authorized FMP-off goal. Read-only capture verifies all 325 October 7 sources and 20,054 relevant historical events. Isolated replay corrects 167 normalized transactions/167 events, adopts 233 filings, adds 98 source transactions in ten filings and repeats identically; 74 source holds/eight further publication holds remain. Ninety rows are distinct older IRIX purchases disclosed October 7, so trade/filing/availability must remain separate. Actual no-send replay exposed backdated monitoring-alert timestamps; repaired arrival handling and text/HTML disclosure labels. Activity/monitoring/daily builders now pass 98/12/8 with unchanged rendered/full state on repeat; no delivery. Added publication-window filtering and receipt drift checks. Final 181 exact-release tests pass on Python 3.14.2. `a0bb6c21`/workflow 37866087227 and `5afef5fb`/workflow 37867181501 deployed, all four images/readiness/access and seven final runtime hashes verified on Python 3.12.15. Runtime synthetic date/HTML checks do not write. No production SEC repair/activation/schema or billing change. House's first :29 publisher and next Senate :27 publisher finish with zero inserts/known holds; 00:41 read-only verification preserves all successful fingerprints/arrival times and zero recorded legacy Congress requests. SEC collection run 16 finishes at 00:49; 3,074 Form 4 downloads remain pending. Next: source-bound production SEC repair, held coverage and ownership/publication, fresh retained-product/alert checks, Starter/login and global FMP/billing shutdown. Substantive progress, goal active. [Report](form4-cutover-validation-2026-10-08.md).
+
+
 ## 2026-10-08: Official House cutover and preserved monitoring history
 
 **Scheduled collection receipt:** actual run 15 completes 00:17:06 UTC; 00:19 read-only verification retains both controls, all canonical fingerprints/availability and zero recorded legacy requests. Existing holds remain; first House :29 publisher pending.
