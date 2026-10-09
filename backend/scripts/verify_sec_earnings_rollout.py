@@ -50,8 +50,10 @@ if os.getenv('SEC_EARNINGS_HASH_ONLY') != '1':
                 .join(DirectFeedDocument, DirectFeedDocument.id == DirectFeedRevision.document_id)
                 .where(DirectFeedDocument.feed.like('sec_earnings_%')))
             report['publication_receipts'] = db.scalar(select(func.count()).select_from(DirectFeedPublication)
-                .where(DirectFeedPublication.feed == 'sec_earnings_release'))
+                .join(DirectFeedDocument, DirectFeedDocument.id == DirectFeedPublication.document_id)
+                .where(DirectFeedDocument.feed == 'sec_earnings_release'))
             report['research_documents'] = db.scalar(select(func.count()).select_from(ResearchSourceDocument)
-                .where(ResearchSourceDocument.source_provider == 'sec_edgar_earnings'))
+                .where(ResearchSourceDocument.source_provider == 'sec_edgar',
+                       ResearchSourceDocument.document_type == 'press_release'))
             report.update(transaction_read_only=True, database_writes=0, customer_rows_exported=0)
 print('SEC_EARNINGS_RECEIPT=' + json.dumps(report))
