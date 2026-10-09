@@ -151,12 +151,16 @@ def prepared(symbol):
             return _warming(symbol, reason='replacement_cache_miss')
         item = directory().get(_symbol_key(symbol))
         if not item:
-            raise DirectSourceError('symbol_absent_from_sec_directory')
-        cik = item['cik']
-        client = DirectSourceClient()
-        company = client.get(f'https://data.sec.gov/submissions/CIK{cik}.json')
-        raw = client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json')
-        payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now)
+            from app.services.ticker_financials import _unavailable
+            payload = _unavailable(symbol, message='SEC financial statements are unavailable for this security.',
+                                   reason='symbol_absent_from_sec_directory')
+            payload.update(source='sec_edgar', updatedAt=now.isoformat())
+        else:
+            cik = item['cik']
+            client = DirectSourceClient()
+            company = client.get(f'https://data.sec.gov/submissions/CIK{cik}.json')
+            raw = client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json')
+            payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now)
         if row is None:
             row = InsightsSnapshot(kind=key, source='sec_edgar', fetched_at=now, payload_json='{}')
             db.add(row)

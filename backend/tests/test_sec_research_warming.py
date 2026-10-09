@@ -94,3 +94,30 @@ def test_transport_denial_stops_batch_and_clears_lease(factory, monkeypatch):
     with factory() as db:
         state = json.loads(db.get(InsightsSnapshot, job.KEY).payload_json)
         assert 'lease' not in state and list(state['attempted_at']) == ['ABC']
+
+
+def test_verified_directory_absence_is_unavailable_in_public_panel_not_perpetual_warming(factory, monkeypatch):
+    from app.services import ticker_financials
+    from app.request_priority import set_request_context, reset_request_context
+    monkeypatch.setattr(sec_directory, 'directory', lambda: {})
+    monkeypatch.setattr(sec_directory.DirectSourceClient, 'get', lambda *a: pytest.fail('unidentified source request'))
+    first = job.run()
+    assert first['results'][0]['status'] == 'unavailable'
+    monkeypatch.setenv('FINANCIAL_STATEMENTS_PROVIDER', 'sec_edgar')
+    monkeypatch.setattr(queue, 'enqueue_data_enrichment_job', lambda **kw: pytest.fail('unavailable cache requeued'))
+    token = set_request_context({'path': '/api/tickers/ABC/financials'})
+    try:
+        payload = ticker_financials.get_ticker_financials('ABC')
+        assert payload['status'] == 'unavailable' and payload['source'] == 'sec_edgar'
+        assert not payload['annual'] and not payload['quarterly']
+    finally:
+        reset_request_context(token)
+
+
+def test_transient_directory_failure_is_not_cached_as_missing_security(factory, monkeypatch):
+    def denied():
+        raise DirectSourceError('Source HTTP 403: https://www.sec.gov/files/company_tickers_exchange.json')
+    monkeypatch.setattr(sec_directory, 'directory', denied)
+    assert job.run()['status'] == 'partial'
+    with factory() as db:
+        assert db.get(InsightsSnapshot, 'sec-financials:ABC:v1') is None

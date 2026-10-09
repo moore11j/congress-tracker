@@ -282,3 +282,10 @@ A date-only October 9 publication preview would create 345 previously unseen sam
 Sixty-two focused news tests pass. Fresh read-only source capture at 21:51:29 UTC replays all 63 ticker views, nine categories and 50 Insights headlines with activation set at the capture time: all 864 legacy event/monitoring/intraday identities remain, zero backlog events are added, repeat remains zero, and digest counts repeat 12/4/864. Positive before/at/after-boundary test cases separately prove that new qualifying headlines can publish. No source/queue/email requests or production writes. The earlier saved market cache had expired and was correctly rejected; only the fresh replay is counted. Public activation remains pending.
 
 SEC financial preparation PR493/b01987e4 is deployed and enabled, with public selections FMP. Its first 21:49 UTC batch processes all 20 symbols: 17 caches, 14 partial/three unavailable, plus three source failures requiring review. The lease clears. This is preparation coverage, not a claim of complete financial data.
+
+
+## Verified SEC directory absences
+
+The first scheduled SEC financial batch processes twenty symbols and stores seventeen financial caches: fourteen partial, three unavailable (BULL, CX, ENB). AL, BNPQY and DRAM are absent from the verified current SEC exchange directory. The worker had no cache for those identities, so a selected public financial reader would repeatedly show warming. A small correction stores an explicit unavailable panel for verified directory absence. It makes no issuer request, invents no CIK, and leaves historical FMP caches untouched. Network/SEC refusal still raises and is not cached as a missing security. Default public selection remains FMP.
+
+Two added tests cover public unavailable-state reads without queue churn and transient directory failure without a misleading persistent negative cache. The primary combined warmer/free-adapter group passes25 tests. This correction requires exact-release checks and deployment before public financial activation.
