@@ -384,7 +384,7 @@ def build_signal_alert_digest(
     signal_intro = f"Your monitoring activity for {_format_daily_digest_date(query_end)}."
     delivery_item_count = len(qualified_items) + activity_item_count
     summary = _count_summary(delivery_item_count, "monitoring item", "monitoring items")
-    upcoming_events, calendar_filters_text = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
+    upcoming_events, calendar_filters_text, calendar_coverage = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
     _attach_calendar_company_names(db, upcoming_events)
     return DigestBuild(
         template_key="alerts.signal_alert",
@@ -420,8 +420,8 @@ def build_signal_alert_digest(
             "government_contracts_html": _activity_items_html("Government contracts", activity_sections["government_contracts"]),
             "institutional_activity_text": _activity_items_text("Institutional activity", activity_sections["institutional_activity"]),
             "institutional_activity_html": _activity_items_html("Institutional activity", activity_sections["institutional_activity"]),
-            "upcoming_events_text": _calendar_items_text(upcoming_events),
-            "upcoming_events_html": _calendar_items_html(upcoming_events),
+            "upcoming_events_text": _calendar_items_text(upcoming_events, coverage_message=calendar_coverage),
+            "upcoming_events_html": _calendar_items_html(upcoming_events, coverage_message=calendar_coverage),
             "calendar_alert_filters_text": calendar_filters_text,
             "signal_url": str(lead.get("href") or _signal_url(ticker)) if is_single else f"{_frontend_base_url()}/signals",
         },
@@ -1116,15 +1116,15 @@ def _upcoming_calendar_events_for_digest(
     user: UserAccount,
     *,
     window_end: datetime | None,
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[dict[str, Any]], str, str | None]:
     if not entitlements_for_user(db, user).has_feature("event_calendar"):
-        return [], _calendar_filter_label(CALENDAR_EVENT_KINDS)
+        return [], _calendar_filter_label(CALENDAR_EVENT_KINDS), ""
     subscription = _event_calendar_subscription(db, user)
     if subscription is not None and (not subscription.active or subscription.source_id == "none"):
-        return [], "None"
+        return [], "None", ""
     enabled_kinds = _calendar_kinds_for_subscription(subscription)
     if not enabled_kinds:
-        return [], "None"
+        return [], "None", ""
     anchor = _coerce_aware(window_end or datetime.now(timezone.utc)).date()
     try:
         result = upcoming_event_calendar_items(
@@ -1138,8 +1138,15 @@ def _upcoming_calendar_events_for_digest(
             allow_live_fetch=False,
         )
     except Exception:
-        return [], _calendar_filter_label(enabled_kinds)
-    return result.items, _calendar_filter_label(enabled_kinds)
+        return [], _calendar_filter_label(enabled_kinds), "Upcoming calendar coverage is currently unavailable."
+    failed_kinds = {error.get("kind") for error in result.errors} & set(enabled_kinds)
+    coverage = None
+    if failed_kinds:
+        labels = _calendar_filter_label(tuple(kind for kind in enabled_kinds if kind in failed_kinds))
+        coverage = f"Upcoming calendar coverage is currently unavailable for: {labels}."
+        if result.items:
+            coverage += " Available dates are shown below."
+    return result.items, _calendar_filter_label(enabled_kinds), coverage
 
 
 def _watchlist_events(
@@ -1221,7 +1228,13 @@ def _watchlist_market_news_items(
     for symbol in symbols:
         for kind, getter in (("news_article", get_stock_news), ("press_release", get_press_releases)):
             try:
-                payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
+                from app.services.finnhub_research import selected_news_provider
+                if kind == 'news_article' and selected_news_provider() == 'finnhub':
+                    from app.services.replacement_news import prepared_news
+                    payload = prepared_news(symbol=symbol, page=0,
+                        limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT, public=True, enqueue_on_miss=False)
+                else:
+                    payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
             except Exception:
                 continue
             for row in payload.get("items", []) if isinstance(payload, dict) else []:
@@ -2507,10 +2520,12 @@ def _activity_items_html(title: str, items: list[dict[str, Any]]) -> str:
     )
 
 
-def _calendar_items_text(items: list[dict[str, Any]]) -> str:
+def _calendar_items_text(items: list[dict[str, Any]], *, coverage_message: str | None = None) -> str:
+    if coverage_message == "":
+        return ""
     if not items:
-        return "No upcoming watchlist calendar dates in the next week."
-    lines = ["Upcoming calendar dates"]
+        return coverage_message or "No upcoming watchlist calendar dates in the next week."
+    lines = [coverage_message, "Upcoming calendar dates"] if coverage_message else ["Upcoming calendar dates"]
     for item in items[:12]:
         symbol = str(item.get("symbol") or item.get("country") or "Market")
         title = str(item.get("title") or item.get("kind") or "Calendar event")
@@ -2520,9 +2535,11 @@ def _calendar_items_text(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _calendar_items_html(items: list[dict[str, Any]]) -> str:
+def _calendar_items_html(items: list[dict[str, Any]], *, coverage_message: str | None = None) -> str:
+    if coverage_message == "":
+        return ""
     if not items:
-        return _empty_state_card("No upcoming watchlist calendar dates in the next week.")
+        return _empty_state_card(coverage_message or "No upcoming watchlist calendar dates in the next week.")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item.get('date') or ''))}</td>"
@@ -2532,7 +2549,8 @@ def _calendar_items_html(items: list[dict[str, Any]]) -> str:
         "</tr>"
         for item in items[:12]
     )
-    return _table(["Date", "Ticker", "Event", "Detail"], rows)
+    notice = _empty_state_card(coverage_message) if coverage_message else ""
+    return notice + _table(["Date", "Ticker", "Event", "Detail"], rows)
 
 
 def _calendar_detail(item: dict[str, Any]) -> str:

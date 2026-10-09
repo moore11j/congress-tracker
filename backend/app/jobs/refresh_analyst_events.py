@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.db import SessionLocal, engine, ensure_analyst_consensus_schema
+from app.services.analyst_consensus import legacy_analyst_disabled
 from app.services.analyst_consensus import (
     GRADE_DAILY_REFRESH_JOB,
     PRICE_TARGET_DAILY_REFRESH_JOB,
@@ -44,6 +45,8 @@ def refresh_analyst_events(
     include_grades: bool = True,
     include_price_targets: bool = True,
 ) -> dict[str, object]:
+    if legacy_analyst_disabled():
+        return {"status": "skipped", "reason": "provider_disabled", "committed": False, "symbols_attempted": 0}
     ensure_analyst_consensus_schema(engine)
     observed_at = datetime.now(timezone.utc)
     with SessionLocal() as db:

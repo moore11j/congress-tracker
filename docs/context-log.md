@@ -1,5 +1,17 @@
 # Project context log
 
+## 2026-10-09: Scheduled news source normalization and consumer receipts
+
+**2026-10-09: Scheduled news and captured consumers:** PR487/bfb65946 deploy succeeds on all four workers. Real20:01/20:04 runs complete23 scopes, reaching39/63 fresh company caches without stale rows; public news stillFMP/publication off. Read-only public-cache rehearsal preserves95 events, adds196, repeats with zero new events;291 monitoring/intraday identities and12/4/291 digest counts stable. Nine categories/19 company readers/50 Insights headlines pass. Follow-up corrects verified DCI old-only rows and BRK-B/BRK.B news punctuation;47 exact tests pass. [Report](docs/analyst-news-replacement-2026-10-09.md#corrected-scheduled-collection-and-production-cache-consumer-replay). No Massive/subscription/email. Full universe, correction rollout and remaining free feeds remain gates.
+## 2026-10-09: News research consumer compatibility
+
+Owner requests exact release, consumer compatibility and scheduled observation before FMP shutdown, with Massive last. Observation release PR486/3e2481ca deployed on all four workers; 44 file hashes match, 148 news tests and 35 Top Stocks/access tests pass. Public feeds remain FMP while the free Finnhub cache warms with shared quota limits. Follow-up prevents headline-only material from being labelled FMP research evidence and displays its coverage limitation. Twenty focused backend tests, TypeScript and both coverage rendering variants pass; twelve frontend checks pass and one unchanged copy assertion fails. No provider subscription, Massive request or email. Actual scheduled operation and full consumer replay remain next; do not activate public news or cancel FMP from this guard alone.
+
+
+## 2026-10-09: Scoped Finnhub news rollout preparation
+
+Owner directs compatibility, exact release, scheduled operation and consumer checks before Massive and final FMP shutdown. Packaged opt-in news adapters/shared budget/cache warming and canonical duplicate/rollback protections from main f5921fc9. Exact release 148 backend tests pass; frontend unchanged with ten existing passes/one obsolete pricing-href assertion failure. Broad news samples pass; different-share/ADR analyst and metric responses remain rejected and outside this release. Default selections/publication unchanged; no deployment or scheduled reliability claim yet. [Details](analyst-news-replacement-2026-10-09.md#exact-news-release-preparation-and-broader-compatibility-october-9).
+
 ## 2026-10-08: Automatic prior collection and accurate earlier mapping
 
 Continued the active FMP-off goal. Automatic prior selection now uses source-bound processing receipts, preserves source freshness, prioritizes new/changed filings and cools down held/successful work. Proposed five-minute staging schedule remains unpublished. Live read-only PostgreSQL preview finds 160 eligible filings; 93 local focused checks pass. Actual earlier REAX row/parent captured read-only repairs the isolated baseline: seven current comparisons, 138 changes/summaries, ten activity records; three mapping waits/two value holds and zero qualifying public events remain. Repeat state identical. No new production writes/deployment/source change/email; FMP remains active. [Report](institutional-prior-scheduling-2026-10-08.md). Substantive implementation and evidence progress; no blocker streak.
@@ -229,3 +241,28 @@ Request: keep going until FMP is off. Applied source-bound canonical repair afte
 
 
 Final same-day follow-up: `9079343c` / workflow 37856798420 deployed on all four workers, readiness passes; 65 schedule/parser/worker checks pass. Live default boundary verified and 23:01 receipt retains five Senate events/corrected score views, zero successful recorded Senate FMP calls since selection. Actual scheduled SEC run 10 processes another 200, leaving 3,474 pending older Form 4s. First 23:27 publisher remains pending; full FMP shutdown/billing still incomplete. Diff and primary local links pass; no full-suite claim.
+
+
+October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool exhaustion. Reproduced and repaired using a durable warming lease, with real local PostgreSQL evidence; interval becomes three minutes with explicit universe freshness counters. No public source switch. See the news replacement report; corrected scheduled success is still a release gate.
+
+
+October 9 final news activation preparation: PR488 also isolates and prewarms the Finnhub headline view while preserving the FMP snapshot for rollback. The exact package passes 139 news, Insights, research-consumer and digest checks, plus the real PostgreSQL two-connection test. No source switch or emails. Full scheduled coverage after deployment remains required.
+
+
+October9 scheduled-recovery follow-up: final news normalization/cache release58dfb797 is live on both sites/all four workers, but deployment interrupted a warming lease created20:13:24. Add same-machine boot/PID-start evidence to recover only a proven dead owner; keep unknown/foreign owners held. Source selection remainsFMP and canonical publication remains off. See the news report; fresh full-universe operation remains a gate.
+
+## 2026-10-09: Independent free research cache preparation
+
+October 9 continuation: news release e83cc22c is verified on all four workers with 48 source hashes; four actual scheduled batches reach 63/63 fresh caches. Exact public-data replay preserves 864 events/adds 785/repeats zero, with 1,649 stable monitoring/intraday identities and no network/email. This branch adds default-off independent calendar/recommendation cache preparation, a bounded rotating schedule and shared-limiter/dead-owner safeguards. Exact tests and disposable two-slot PostgreSQL/repeat/overlap checks pass. Public providers remain FMP; no canonical publication, customer email, Massive request or subscription change. See docs/analyst-news-replacement-2026-10-09.md for evidence and remaining gates.
+
+## 2026-10-09: Free research consumer preparation
+
+October 9 consumer preparation: PR490/ac59c650 is deployed with 64 matching runtime hashes. Actual 20:56 cron prepares 313 BLS dates, 1,602 October earnings entries and fifteen recommendation caches, holding capped November data, wrong listing identities and exhausted shared budget. This branch adds selected analyst/calendar consumers, truthful missing-coverage digests, preserved analyst history and score-methodology rebaseline. Saturated calendar weeks are bisected to individual dates; capped single dates remain held. Final 109 backend checks, TypeScript and two frontend checks pass. Actual cache replay covers fifteen panels/five comparisons/1,613 calendar items/five watchlist dates with no HTTP, queued requests, emails, Events or production writes. Public providers remain FMP; remaining SEC/institutional inputs and prices are separate. See docs/analyst-news-replacement-2026-10-09.md.
+
+## 2026-10-09: Selected headline freshness
+
+October 9 activation audit: consumer release 0062b161/PR491 deployed; public providers still FMP. Fixed prepared headline warming stopping after selection despite market-hours-only enrichment schedule. The all-hours warmer now maintains selected headlines, preserves commentary only for unchanged article identities, and stores true source observation time atomically. Both primary and exact checkout pass 62 focused checks. No model calls, canonical changes, provider selection, email, purchase or Massive work. Details in docs/analyst-news-replacement-2026-10-09.md.
+
+## 2026-10-09: Institutional prior review refreshed
+
+October 9 renewed review: updated the existing PR485 branch against current main 3133ed42, preserving both documentation histories and unrelated local TypeScript build metadata. The owner now requests continued exact-release preparation and actual scheduled observation across the migration. No institutional publication or source switch is included. The same bounded five-minute prior-source staging package passes all 93 focused checks on Python 3.14.2 after adapting isolated digest fixtures to the deployed three-field calendar contract and using a fresh workspace test directory because the Windows default temp root was inaccessible. No production staging schedule has been activated by this update. The earlier automatic-review rejection remains historical; deployment still depends on review of this refreshed concrete release.

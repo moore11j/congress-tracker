@@ -4373,6 +4373,7 @@ export type TickerAnalystConsensusAccess = {
 };
 
 export type TickerAnalystConsensusSnapshot = {
+  source?: string | null;
   symbol?: string | null;
   snapshotDate?: string | null;
   recommendationLabel?: string | null;
@@ -4443,6 +4444,7 @@ export type TickerAnalystConsensusGradeWindow = {
 };
 
 export type TickerAnalystConsensusResponse = {
+  message?: string | null;
   symbol: string;
   access?: TickerAnalystConsensusAccess;
   currentSnapshot?: TickerAnalystConsensusSnapshot | null;
@@ -6461,7 +6463,7 @@ export type ResearchMemorySuggestion = { id: string; suggestion_type: string; ti
 export type ResearchMemoryTemplate = { id: string; title: string; description: string; orientation: string };
 export type ResearchMemoryEvidenceMatch = { id: string; relationship: string; relevance: string; confidence: string; reason: string; match_method: string; claim_snapshot?: { subject?: string; metric?: string; expected_direction?: string }; created_at?: string | null; evidence_snapshot: { headline?: string; summary?: string; source_url?: string | null; source_type?: string; source_locator?: string; evidence_excerpt?: string; published_at?: string | null; watch_item?: string | null } };
 export type OperationalIntelligenceItem = { id: string; title: string; summary: string; event_type: string; source_type: string; source_url?: string | null; published_at?: string | null; materiality: string; confidence?: "high" | "medium" | "low"; evidence_excerpt?: string | null };
-export type ResearchSourceCoverage = { source_type: string; status: string; last_checked_at: string | null; last_success_at: string | null; documents_seen: number };
+export type ResearchSourceCoverage = { source_type: string; status: string; last_checked_at: string | null; last_success_at: string | null; documents_seen: number; reason?: string; message?: string };
 export type TickerOperationalIntelligence = { symbol: string; status: "ok" | "empty" | string; source_version: string; catalysts: OperationalIntelligenceItem[]; risks: OperationalIntelligenceItem[]; opportunities: OperationalIntelligenceItem[]; watch_next: OperationalIntelligenceItem[]; coverage: ResearchSourceCoverage[]; lookback_days: number };
 
 function researchMemoryInit(method: string, payload?: unknown): ApiRequestInit {

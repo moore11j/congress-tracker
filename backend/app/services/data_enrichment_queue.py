@@ -36,6 +36,7 @@ DEFAULT_PREWARM_SYMBOLS = (
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
 DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS = 7
 SYMBOL_REQUIRED_JOB_TYPES = {
+    "analyst_recommendations",
     "quote",
     "price_eod",
     "pnl_refresh",
@@ -51,6 +52,7 @@ SYMBOL_REQUIRED_JOB_TYPES = {
     "ticker_context_bundle",
 }
 COMPLETE_PREWARM_JOB_TYPES = (
+    "analyst_recommendations",
     "quote",
     "ticker_meta",
     "fundamentals",
@@ -80,6 +82,13 @@ class RetryableProviderTimeout(RuntimeError):
     def __init__(self, message: str = "provider_timeout") -> None:
         super().__init__(message)
         self.reason_code = "provider_timeout"
+        self.retryable = True
+
+
+class ReplacementRefreshUnavailable(RuntimeError):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason_code = reason
         self.retryable = True
 
 
@@ -136,6 +145,13 @@ def is_withdrawn_event_job(job: DataEnrichmentJob) -> bool:
     return job.reason == "source_event_withdrawn_duplicate"
 
 
+def _disabled_fmp_content_job(job_type: str) -> bool:
+    from app.services.provider_usage import fmp_provider_disabled
+    from app.services.finnhub_research import selected_news_provider
+    return (job_type in {'news_general', 'news_stock'} and fmp_provider_disabled()
+            and selected_news_provider() != 'finnhub')
+
+
 def enqueue_data_enrichment_job(
     *,
     job_type: str,
@@ -148,6 +164,16 @@ def enqueue_data_enrichment_job(
     payload: dict[str, Any] | None = None,
     max_attempts: int = 5,
 ) -> bool:
+    if job_type == 'analyst_recommendations':
+        from app.services.replacement_analysts import selected
+        if not selected() or not os.getenv('FINNHUB_API_KEY', '').strip():
+            return False
+    if job_type == 'free_calendar':
+        from app.services.free_calendar import selected
+        if not selected():
+            return False
+    if _disabled_fmp_content_job(job_type):
+        return False
     if symbol is not None and not is_valid_enrichment_symbol(symbol):
         logger.info(
             "data_enrichment_job_rejected reason=invalid_symbol job_type=%s symbol=%s",
@@ -845,6 +871,13 @@ def process_data_enrichment_jobs(
                 logger.info("data_enrichment_job_skipped id=%s reason=no_longer_queued", job_id)
                 continue
             processed += 1
+            if _disabled_fmp_content_job(job_type_value):
+                skipped += 1
+                job.status = 'skipped'
+                job.reason = job.error = 'provider_disabled'
+                job.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                continue
             if _job_requires_symbol(job_type_value) and not is_valid_enrichment_symbol(job_symbol):
                 skipped += 1
                 job.status = "skipped"
@@ -965,9 +998,16 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
                 upsert_fundamentals_cache(db, result.values)
         return
     if job.job_type == "news_general":
-        from app.services.fmp_news import get_general_news
+        from app.services.fmp_news import get_general_news, get_insights_category_news
+        from app.services.finnhub_research import selected_news_provider
 
         payload = _payload_dict(job.payload_json)
+        if selected_news_provider() == "finnhub":
+            category = str(payload.get("category") or "general")
+            result = (get_general_news if category == "general" else lambda **kwargs: get_insights_category_news(category, **kwargs))(
+                page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
+            _raise_for_retryable_provider_result(result)
+            return
         get_general_news(page=_payload_int(payload, "page", 0), limit=_payload_int(payload, "limit", 20))
         return
     if job.job_type == "news_stock":
@@ -996,6 +1036,15 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
             limit=_payload_int(payload, "limit", 100),
         )
         _raise_for_retryable_provider_result(result)
+        return
+    if job.job_type == "analyst_recommendations":
+        from app.services.replacement_analysts import refresh
+        refresh(db, job.symbol or '')
+        return
+    if job.job_type == "free_calendar":
+        from app.services.free_calendar import refresh
+        payload = _payload_dict(job.payload_json)
+        refresh(db, payload.get('dataset', ''), payload.get('month', ''))
         return
     if job.job_type == "macro_snapshot":
         from app.services.insights_snapshots import refresh_insights_snapshot
@@ -1138,6 +1187,10 @@ def _raise_for_retryable_provider_result(result: Any) -> None:
     reason = str(result.get("reason") or "")
     if reason == "provider_timeout":
         raise RetryableProviderTimeout()
+    if result.get('source') == 'finnhub' and (
+        result.get('status') in {'unavailable', 'warming'} or result.get('stale')
+    ):
+        raise ReplacementRefreshUnavailable(reason or 'replacement_cache_stale')
     subsections = result.get("subsections")
     if isinstance(subsections, dict):
         reasons = {

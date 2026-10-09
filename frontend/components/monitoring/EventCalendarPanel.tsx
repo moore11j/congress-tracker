@@ -178,11 +178,7 @@ function economicCategoryForItem(item: EventCalendarItem): EconomicCategoryId {
 function calendarErrorMessage(errors?: { kind: string; reason: string }[]) {
   const reasons = Array.from(new Set((errors ?? []).map((error) => error.reason).filter(Boolean)));
   if (reasons.length === 0) return "Calendar providers are temporarily unavailable.";
-  if (reasons.includes("provider_disabled") || reasons.includes("background_provider_disabled")) return "FMP calendar provider is disabled.";
-  if (reasons.includes("page_fetch_blocked")) return "FMP calendar live fetches are blocked by provider settings.";
-  if (reasons.includes("provider_entitlement")) return "FMP calendar endpoints are blocked by API auth or plan entitlement.";
-  if (reasons.includes("provider_rate_limited")) return "FMP calendar provider is rate-limited.";
-  return `Calendar provider issue: ${reasons.slice(0, 2).join(", ")}.`;
+  return "Some calendar coverage is currently unavailable. Displayed dates may be incomplete.";
 }
 
 function selectedYearRange(anchor: Date) {

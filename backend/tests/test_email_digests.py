@@ -952,7 +952,7 @@ def test_monitoring_digest_hides_calendar_dates_for_free_users(monkeypatch):
         digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
 
         assert called is False
-        assert digest.context["upcoming_events_text"] == "No upcoming watchlist calendar dates in the next week."
+        assert digest.context["upcoming_events_text"] == digest.context["upcoming_events_html"] == ""
     finally:
         db.close()
 

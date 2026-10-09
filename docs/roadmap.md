@@ -255,3 +255,25 @@ After each relevant prompt, update affected roadmap statuses and the memory/log.
 **October 8 R7 final verified receipt:** 2cea0aae/workflow 37847832482 deployed on all four workers; repeated migration/readiness/privacy and both queue code hashes pass. SEC October 7 backlog drained (325 Form 4/86 13F attempted), all 418 source hashes verified, unchanged 426-document/418-revision repeat and zero public writes. Final holds: 150 Form 4, five quarantined/four failed 13Fs, four House scans. Massive still 403 at 21:37 UTC; Starter/account login pending. No canonical repair/public source activation or billing change. Next: hourly SEC observation, reconciliation/publication, OCR and fresh ranking/no-send alert coverage. Goal remains active. [Evidence](feed-ownership-rollout-2026-10-08.md).
 
 **October 8 R7 guarded repair:** [report](direct-congress-repair-rollout-2026-10-08.md), release b634cf3f. Production-capable repair/history notices pass 78 backend and eight isolated PostgreSQL cases; both sites/all four workers deployed and verified; index builds timed out on old snapshots and invalid remnants were removed; transaction-lifetime diagnosis/index creation/live repair pending. Scheduled SEC run 8 verifies 762 source revisions but exposes 3,674 pending older Form 4 documents across the full-week window. Canonical holds, publication, fresh digest/ranking checks, Starter and billing remain open.
+
+
+**October 9 free-news release preparation:** [Scoped replacement](analyst-news-replacement-2026-10-09.md#exact-news-release-preparation-and-broader-compatibility-october-9) passes 148 exact-release checks and keeps FMP selected. Opt-in scheduled cache warming/receipts precede public activation; scheduled reliability and broader consumer observation remain unverified. Different-class/ADR analyst/metric mismatches are held. Massive stays last.
+
+
+## October 9 news observation and research compatibility
+
+PR486/`3e2481ca` is verified on all four workers, with free Finnhub prepared-cache warming enabled and public news still FMP. The scoped follow-up prevents headline-only feed material becoming attributed research evidence and exposes its coverage gap. Actual scheduled receipts, consumer replay and source activation remain pending; broad SEC/analyst/press/calendar/institutional work precedes Massive and full shutdown. See [report](analyst-news-replacement-2026-10-09.md#production-news-observation-release-october-9).
+
+
+October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool exhaustion. Reproduced and repaired using a durable warming lease, with real local PostgreSQL evidence; interval becomes three minutes with explicit universe freshness counters. No public source switch. See the news replacement report; corrected scheduled success is still a release gate.
+
+
+## October 9 scheduled news compatibility
+
+PR487/bfb65946 resolves the observed cron pool failure. Two actual scheduled batches and an isolated replay of production public caches verify the captured news/monitoring/digest consumers;39/63 companies are fresh so far. DCI window and Berkshire punctuation fixes pass47 checks and remain next rollout. Public source activation/full universe still pending; Massive remains last. [Report](analyst-news-replacement-2026-10-09.md#corrected-scheduled-collection-and-production-cache-consumer-replay).
+
+
+October 9 final news activation preparation: PR488 also isolates and prewarms the Finnhub headline view while preserving the FMP snapshot for rollback. The exact package passes 139 news, Insights, research-consumer and digest checks, plus the real PostgreSQL two-connection test. No source switch or emails. Full scheduled coverage after deployment remains required.
+
+
+October9 scheduled-recovery follow-up: final news normalization/cache release58dfb797 is live on both sites/all four workers, but deployment interrupted a warming lease created20:13:24. Add same-machine boot/PID-start evidence to recover only a proven dead owner; keep unknown/foreign owners held. Source selection remainsFMP and canonical publication remains off. See the news report; fresh full-universe operation remains a gate.

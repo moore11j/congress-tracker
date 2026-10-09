@@ -150,7 +150,7 @@ def main():
                 @classmethod
                 def now(cls,tz=None):return end.astimezone(tz) if tz else end.replace(tzinfo=None)
             def preview():
-                with patch.object(digests,'datetime',FrozenDatetime),patch.object(digests,'_upcoming_calendar_events_for_digest',return_value=([],'Calendar outside institutional replay')):
+                with patch.object(digests,'datetime',FrozenDatetime),patch.object(digests,'_upcoming_calendar_events_for_digest',return_value=([], 'Calendar outside institutional replay', None)):
                     builds=[digests.build_monitoring_digest(db,user,watchlist,since,window_end=end),
                             digests.build_signal_alert_digest(db,user,since,window_end=end),
                             digests.build_watchlist_activity_digest(db,user,watchlist,since)]
