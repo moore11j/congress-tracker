@@ -4373,6 +4373,7 @@ export type TickerAnalystConsensusAccess = {
 };
 
 export type TickerAnalystConsensusSnapshot = {
+  source?: string | null;
   symbol?: string | null;
   snapshotDate?: string | null;
   recommendationLabel?: string | null;
@@ -4443,6 +4444,7 @@ export type TickerAnalystConsensusGradeWindow = {
 };
 
 export type TickerAnalystConsensusResponse = {
+  message?: string | null;
   symbol: string;
   access?: TickerAnalystConsensusAccess;
   currentSnapshot?: TickerAnalystConsensusSnapshot | null;

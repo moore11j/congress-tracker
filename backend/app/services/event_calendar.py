@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Security, TickerContentCache, UserAccount, Watchlist, WatchlistItem
 from app.services.fmp_client import FMPControlledError, request_fmp_json
+from app.services.provider_usage import fmp_provider_disabled
 from app.utils.symbols import normalize_symbol, symbol_variants
 
 CalendarEventKind = Literal["economic", "earnings", "dividend", "ipo", "split"]
@@ -85,6 +86,12 @@ def fetch_event_calendar(
     allow_live_fetch: bool = True,
     allow_user_request: bool = False,
 ) -> CalendarFetchResult:
+    from app.services import free_calendar
+    if free_calendar.selected():
+        return free_calendar.calendar_for_symbols(db, watchlist_provider_symbols_for_user(db, user.id),
+            start=start, end=end, scope=scope, enqueue=allow_live_fetch)
+    if fmp_provider_disabled():
+        return _unavailable_calendar("provider_disabled")
     symbols = set(watchlist_symbols_for_user(db, user.id))
     provider_symbols = watchlist_provider_symbols_for_user(db, user.id)
     cache_key = _calendar_cache_key(user.id, scope, start, end, provider_symbols)
@@ -251,6 +258,10 @@ def _store_calendar_cache(db: Session, cache_key: str, items: list[dict[str, Any
         db.rollback()
 
 
+def _unavailable_calendar(reason: str) -> CalendarFetchResult:
+    return CalendarFetchResult(items=[], errors=[{"kind": kind, "reason": reason} for kind, _ in _ENDPOINTS])
+
+
 def upcoming_event_calendar_items(
     db: Session,
     user: UserAccount,
@@ -262,17 +273,25 @@ def upcoming_event_calendar_items(
     kinds: tuple[CalendarEventKind, ...] | None = None,
     allow_live_fetch: bool = True,
 ) -> CalendarFetchResult:
-    if allow_live_fetch:
+    from app.services import free_calendar
+    if free_calendar.selected():
+        result = fetch_event_calendar(db, user, start=start, end=end, scope=scope,
+            source="scheduled_job", allow_live_fetch=allow_live_fetch)
+    elif fmp_provider_disabled():
+        result = _unavailable_calendar("provider_disabled")
+    elif allow_live_fetch:
         result = fetch_event_calendar(db, user, start=start, end=end, scope=scope, source="scheduled_job", allow_live_fetch=True)
     else:
         symbols = watchlist_provider_symbols_for_user(db, user.id)
         cache_key = _calendar_cache_key(user.id, scope, start, end, symbols)
-        result = _load_calendar_cache(db, cache_key, start=start, end=end) or CalendarFetchResult(items=[], errors=[])
+        result = _load_calendar_cache(db, cache_key, start=start, end=end) or _unavailable_calendar("cache_miss")
     items = result.items
+    errors = result.errors
     if kinds is not None:
         enabled_kinds = set(kinds)
         items = [item for item in items if item.get("kind") in enabled_kinds]
-    return CalendarFetchResult(items=_fair_calendar_limit(items, limit, kinds), errors=result.errors)
+        errors = [error for error in errors if error.get("kind") in enabled_kinds]
+    return CalendarFetchResult(items=_fair_calendar_limit(items, limit, kinds), errors=errors)
 
 
 def _fair_calendar_limit(

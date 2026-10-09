@@ -36,6 +36,7 @@ DEFAULT_PREWARM_SYMBOLS = (
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
 DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS = 7
 SYMBOL_REQUIRED_JOB_TYPES = {
+    "analyst_recommendations",
     "quote",
     "price_eod",
     "pnl_refresh",
@@ -51,6 +52,7 @@ SYMBOL_REQUIRED_JOB_TYPES = {
     "ticker_context_bundle",
 }
 COMPLETE_PREWARM_JOB_TYPES = (
+    "analyst_recommendations",
     "quote",
     "ticker_meta",
     "fundamentals",
@@ -162,6 +164,14 @@ def enqueue_data_enrichment_job(
     payload: dict[str, Any] | None = None,
     max_attempts: int = 5,
 ) -> bool:
+    if job_type == 'analyst_recommendations':
+        from app.services.replacement_analysts import selected
+        if not selected() or not os.getenv('FINNHUB_API_KEY', '').strip():
+            return False
+    if job_type == 'free_calendar':
+        from app.services.free_calendar import selected
+        if not selected():
+            return False
     if _disabled_fmp_content_job(job_type):
         return False
     if symbol is not None and not is_valid_enrichment_symbol(symbol):
@@ -1026,6 +1036,15 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
             limit=_payload_int(payload, "limit", 100),
         )
         _raise_for_retryable_provider_result(result)
+        return
+    if job.job_type == "analyst_recommendations":
+        from app.services.replacement_analysts import refresh
+        refresh(db, job.symbol or '')
+        return
+    if job.job_type == "free_calendar":
+        from app.services.free_calendar import refresh
+        payload = _payload_dict(job.payload_json)
+        refresh(db, payload.get('dataset', ''), payload.get('month', ''))
         return
     if job.job_type == "macro_snapshot":
         from app.services.insights_snapshots import refresh_insights_snapshot

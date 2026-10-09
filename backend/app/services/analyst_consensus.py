@@ -35,6 +35,7 @@ from app.models import (
     TickerMeta,
 )
 from app.utils.symbols import classify_symbol, normalize_symbol
+from app.services.provider_usage import fmp_provider_disabled
 
 METHODOLOGY_VERSION = "analyst_consensus_v1"
 SOURCE = "fmp"
@@ -47,6 +48,11 @@ MAX_HISTORY_DAYS = 730
 FRESHNESS_DAYS = 7
 STALE_DAYS = 14
 LIVE_CACHE_MISS_TIMEOUT_SECONDS = 5
+
+
+def legacy_analyst_disabled():
+    from app.services.replacement_analysts import selected
+    return fmp_provider_disabled() or selected()
 
 
 @dataclass(frozen=True)
@@ -647,6 +653,8 @@ def ingest_symbol_consensus(
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    if legacy_analyst_disabled():
+        return {"symbol": normalized, "status": "provider_error", "error": "provider_disabled"}
     observed = observed_at or utc_now()
     provider_error: str | None = None
     rows: dict[str, list[dict[str, Any]]] = {
@@ -710,6 +718,8 @@ def refresh_consensus_on_cache_miss(db: Session, symbol: str) -> dict[str, Any]:
     enrichment worker. Existing snapshots remain cache-first; a cache miss gets
     one bounded, parallel provider read and stores the resulting availability.
     """
+    if legacy_analyst_disabled():
+        return {"attempted": False, "reason": "provider_disabled"}
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"attempted": False, "reason": rejection_reason or "unsupported"}
@@ -730,6 +740,8 @@ def ingest_symbol_grade_events(db: Session, symbol: str, *, observed_at: datetim
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    if legacy_analyst_disabled():
+        return {"symbol": normalized, "status": "provider_error", "error": "provider_disabled"}
     observed = observed_at or utc_now()
     try:
         rows = fetch_grade_events(symbol=normalized, timeout_s=20)
@@ -761,6 +773,8 @@ def ingest_symbol_historical_grade_events(
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    if legacy_analyst_disabled():
+        return {"symbol": normalized, "status": "provider_error", "error": "provider_disabled"}
     observed = observed_at or utc_now()
     try:
         rows = fetch_historical_grades(symbol=normalized, timeout_s=timeout_s)
@@ -802,6 +816,8 @@ def ingest_symbol_price_target_events(
     normalized, rejection_reason = analyst_symbol_rejection_reason(symbol)
     if rejection_reason or not normalized:
         return {"symbol": normalized or symbol, "status": "unsupported", "error": rejection_reason}
+    if legacy_analyst_disabled():
+        return {"symbol": normalized, "status": "provider_error", "error": "provider_disabled"}
     observed = observed_at or utc_now()
     inserted = updated = skipped = rows_seen = 0
     bounded_pages = max(1, min(int(pages or 1), 10))
@@ -1617,6 +1633,19 @@ def current_consensus_payload(db: Session, symbol: str, *, include_details: bool
             "availability": {"status": "unsupported", "reason": rejection},
             "providerStatus": {"status": "unsupported"},
         }
+    from app.services import replacement_analysts
+    if replacement_analysts.selected():
+        return replacement_analysts.current_payload(db, normalized, include_details=include_details)
+    if legacy_analyst_disabled():
+        return {
+            "symbol": normalized,
+            "access": {"detailLevel": "full_detail" if include_details else "current_summary",
+                       "detailsLocked": not include_details, "requiredPlanForDetails": "premium"},
+            "currentSnapshot": None,
+            "availability": {"status": "unavailable", "reason": "provider_disabled"},
+            "providerStatus": {"status": "unavailable", "error": "provider_disabled"},
+            "message": "Current analyst consensus coverage is unavailable. Recorded history remains available.",
+        }
     snapshot = latest_snapshot(db, normalized)
     changes = consensus_changes(db, snapshot)
     event_stats = grade_event_stats(db, normalized, as_of=snapshot.snapshot_date if snapshot else None)
@@ -1817,6 +1846,29 @@ def compare_consensus_payload(
     normalized_symbols = normalized_symbols[:max_symbols]
     if not normalized_symbols:
         return {"symbols": [], "items": {}, "maxSymbols": max_symbols}
+    from app.services import replacement_analysts
+    if replacement_analysts.selected():
+        items = {}
+        for symbol in normalized_symbols:
+            current = replacement_analysts.current_payload(db, symbol, include_details=include_details)
+            snapshot = current['currentSnapshot']
+            items[symbol] = {'symbol': symbol, 'currentSnapshot': snapshot,
+                'summary': {'recommendationLabel': snapshot.get('recommendationLabel') if snapshot else None,
+                    'availabilityStatus': current['availability']['status'],
+                    'providerStatus': current['providerStatus']['status'],
+                    'consensusImpliedUpsidePct': None, 'targetDispersionPct': None}}
+        return {'symbols': normalized_symbols, 'maxSymbols': max_symbols, 'items': items,
+                'access': {'detailLevel': 'full_detail' if include_details else 'current_summary',
+                           'detailsLocked': not include_details, 'requiredPlanForDetails': 'premium'}}
+    if legacy_analyst_disabled():
+        return {
+            "symbols": normalized_symbols, "maxSymbols": max_symbols,
+            "access": {"detailLevel": "full_detail" if include_details else "current_summary",
+                       "detailsLocked": not include_details, "requiredPlanForDetails": "premium"},
+            "items": {symbol: {"symbol": symbol, "currentSnapshot": None,
+                "summary": {"availabilityStatus": "unavailable", "providerStatus": "unavailable"}}
+                for symbol in normalized_symbols},
+        }
     latest_dates = (
         select(
             AnalystConsensusSnapshot.symbol.label("symbol"),
@@ -1870,6 +1922,11 @@ def compare_consensus_payload(
 
 
 def analyst_consensus_component_inputs(db: Session, symbol: str) -> dict[str, Any]:
+    if legacy_analyst_disabled():
+        return {"symbol": normalize_symbol(symbol), "methodologyVersion": METHODOLOGY_VERSION,
+                "liveWeightAssigned": False,
+                "inputs": {"freshnessStatus": "unavailable", "coverageLevel": "insufficient"},
+                "notes": ["Current analyst consensus coverage is unavailable."]}
     snapshot = latest_snapshot(db, symbol)
     changes = consensus_changes(db, snapshot)
     event_stats = grade_event_stats(db, normalize_symbol(symbol) or symbol, as_of=snapshot.snapshot_date if snapshot else None)
