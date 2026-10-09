@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 import hashlib
 import json
 
@@ -188,6 +188,79 @@ def test_changed_canonical_rows_do_not_receive_false_repeat_verification(db):
     db.commit()
     assert worker.publish_document(db, document_id)['status'] == 'held'
     assert counts(db)[:3] == [1, 4, 4]
+
+
+def test_late_form4_publication_uses_arrival_for_execution_and_monitoring(db, monkeypatch):
+    from app.services import direct_feed_publication as projection
+    from app.services.backtesting.queries import event_entry_date
+    from app.services.replicated_portfolios import _event_public_date
+    from app.services.event_availability import availability_timestamp_expr
+    clock = datetime(2026, 10, 9, 0, 30, tzinfo=timezone.utc)
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock if tz is not None else clock.replace(tzinfo=None)
+    monkeypatch.setattr(projection, 'datetime', FixedDatetime)
+    document_id, _ = stage(db)
+    activate(db)
+    worker.publish_document(db, document_id)
+    rows = list(db.scalars(select(Event)))
+    assert len(rows) == 4
+    for row in rows:
+        payload = json.loads(row.payload_json)
+        assert payload['filing_date'] == '2026-06-03'
+        assert row.event_date.date() == date(2026, 6, 3)
+        assert row.ts.replace(tzinfo=timezone.utc) == clock
+        assert event_entry_date(row, payload) == _event_public_date(row, payload) == clock.date()
+    observed = availability_timestamp_expr(db, Event.event_date)
+    assert list(db.scalars(select(Event.id).where(observed < datetime(2026, 10, 8)))) == []
+    assert len(list(db.scalars(select(Event.id).where(observed >= datetime(2026, 10, 9))))) == 4
+    assert worker.publish_document(db, document_id)['status'] == 'existing'
+    assert all(row.ts.replace(tzinfo=timezone.utc) == clock for row in rows)
+
+
+@pytest.mark.parametrize('field', ['ts', 'event_date'])
+def test_changed_publication_dates_are_held_without_replacing_receipt(db, field):
+    document_id, _ = stage(db)
+    activate(db)
+    worker.publish_document(db, document_id)
+    receipt = db.scalar(select(worker.DirectFeedPublication)).report_json
+    row = db.scalar(select(Event))
+    setattr(row, field, getattr(row, field) - timedelta(days=1))
+    db.commit()
+    assert worker.publish_document(db, document_id)['status'] == 'held'
+    assert db.scalar(select(worker.DirectFeedPublication)).report_json == receipt
+
+
+@pytest.mark.parametrize('fault', ['price', 'missing', 'new_lot'])
+def test_adopted_legacy_population_cannot_silently_drift_on_repeat(db, fault):
+    document_id, doc = stage(db)
+    _, parsed, _ = parse_document(doc['feed'], doc['raw'], doc['metadata'])
+    # Unique rows let the complete legacy population reconcile one-to-one.
+    # The repeated identical lot in the standard fixture deliberately holds.
+    unique_doc = form4_document()
+    unique_doc['metadata']['url'] = doc['metadata']['url']
+    source, parsed, _ = parse_document(unique_doc['feed'], unique_doc['raw'], unique_doc['metadata'])
+    record_document(db, db.get(DirectFeedDocument, document_id), unique_doc['raw'], source, parsed)
+    for row in parsed['transactions']:
+        db.add(InsiderTransactionNormalized(**row))
+    db.commit()
+    activate(db)
+    assert worker.publish_document(db, document_id)['status'] == 'existing'
+    assert worker.publish_document(db, document_id)['status'] == 'existing'
+    receipt = db.scalar(select(worker.DirectFeedPublication)).report_json
+    row = db.scalar(select(InsiderTransactionNormalized))
+    if fault == 'price':
+        row.price = 999
+    elif fault == 'missing':
+        db.delete(row)
+    else:
+        extra = {c.name:getattr(row,c.name) for c in row.__table__.columns if c.name not in {'id','created_at','updated_at'}}
+        db.add(InsiderTransactionNormalized(**{**extra, 'normalized_hash':'additional-legacy-lot'}))
+    db.commit()
+    assert worker.publish_document(db, document_id)['status'] == 'held'
+    assert db.scalar(select(worker.DirectFeedPublication)).report_json == receipt
+    assert db.scalar(select(func.count()).select_from(Event)) == 0
 
 
 @pytest.mark.parametrize('fault', ['missing', 'quarantine', 'tampered'])

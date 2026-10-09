@@ -40,7 +40,9 @@ def test_new_sec_events_replay_without_duplicate_alerts_and_keep_disclosure_date
     doc = form4_document(repeat=True)
     user = _user(db, 'sec-alert@example.test')
     watchlist = _watchlist(db, user)
+    before_publication = datetime.now(timezone.utc)
     first = rehearse_new_form4(db, doc, publish_since=date(2026,6,1))
+    after_publication = datetime.now(timezone.utc)
     db.commit()
     assert first['inserted_events'] == first['inserted_transactions'] == 4
     assert rehearse_new_form4(db, doc, publish_since=date(2026,6,1))['inserted_events'] == 0
@@ -48,7 +50,9 @@ def test_new_sec_events_replay_without_duplicate_alerts_and_keep_disclosure_date
     assert len({event.source_filing_id for event in events}) == 4
     for event in events:
         payload = json.loads(event.payload_json)
-        assert event.ts.date() == date(2026,6,3)
+        assert before_publication <= event.ts.replace(tzinfo=timezone.utc) <= after_publication
+        assert event.event_date.date() == date(2026,6,3)
+        assert payload['source_availability']['date'] == event.ts.date().isoformat()
         assert payload['filing_date'] == '2026-06-03'
         assert payload['sec_verification']['sha256'] == doc['content_hash']
         assert _ensure_alert_for_event(db, user_id=user.id, watchlist=watchlist, event=event)

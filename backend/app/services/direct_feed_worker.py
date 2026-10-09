@@ -53,13 +53,23 @@ def _canonical_hash(db, accession, event_ids):
         return None
     # Exclude mutable derived scores and enrichment timestamps, but bind all
     # canonical transaction/evidence fields, public payloads and identities.
-    fields = ('id', 'source_provider', 'source_filing_id', 'source_document_url',
+    fields = ('id', 'ts', 'event_date', 'source_provider', 'source_filing_id', 'source_document_url',
               'symbol', 'trade_type', 'transaction_type', 'amount_min', 'amount_max', 'payload_json')
     state = {'filing': {key: getattr(filing, key) for key in ('id', 'accession_number', 'document_hash', 'source_url')},
         'transactions': [{c.name: getattr(row, c.name) for c in row.__table__.columns
                           if c.name not in {'created_at', 'updated_at'}} for row in transactions],
         'events': [{key: getattr(row, key) for key in fields} for row in events]}
     return hashlib.sha256(dumps(state).encode()).hexdigest()
+
+
+def _existing_transaction_hash(db, accession):
+    """Bind an adopted legacy population without inventing event associations."""
+    transactions = list(db.scalars(select(InsiderTransactionNormalized).where(
+        InsiderTransactionNormalized.accession_number == accession).order_by(InsiderTransactionNormalized.id)))
+    if not transactions:
+        return None
+    return hashlib.sha256(dumps([{c.name: getattr(row, c.name) for c in row.__table__.columns
+        if c.name not in {'created_at', 'updated_at'}} for row in transactions]).encode()).hexdigest()
 
 
 def publish_document(db, document_id):
@@ -91,6 +101,10 @@ def publish_document(db, document_id):
             if receipt.status == 'published' and prior.get('canonical_sha256') != _canonical_hash(db, metadata['key'], prior['event_ids']):
                 return {'status': 'held', 'reason': 'Published canonical state changed; reconcile explicitly',
                         'inserted_events': 0, 'inserted_transactions': 0}
+            if receipt.status == 'existing' and (not prior.get('existing_transactions_sha256') or
+                    prior['existing_transactions_sha256'] != _existing_transaction_hash(db, metadata['key'])):
+                return {'status': 'held', 'reason': 'Adopted canonical population changed; reconcile explicitly',
+                        'inserted_events': 0, 'inserted_transactions': 0}
             return {'status': 'existing', 'receipt_id': receipt.id, 'inserted_events': 0, 'inserted_transactions': 0}
         result = None
         if document.status != 'parsed':
@@ -116,6 +130,8 @@ def publish_document(db, document_id):
         report = {**result, 'event_ids': sorted(event_ids), 'email_deliveries': 0}
         if event_ids:
             report['canonical_sha256'] = _canonical_hash(db, metadata['key'], event_ids)
+        elif result['status'] == 'existing':
+            report['existing_transactions_sha256'] = _existing_transaction_hash(db, metadata['key'])
         if receipt is None:
             receipt = DirectFeedPublication(document_id=document.id)
             db.add(receipt)

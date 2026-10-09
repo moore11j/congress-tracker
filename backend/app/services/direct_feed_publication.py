@@ -81,6 +81,7 @@ def _project_new_form4(db, document, *, publish_since: date):
             parser_version='direct_sec_publication_v1', parsed_at=datetime.now(timezone.utc))
         db.add(filing)
         db.flush()
+        published_at = datetime.now(timezone.utc)
         for index, row in enumerate(rows, 1):
             transaction = InsiderTransactionNormalized(form4_filing_id=filing.id, **row)
             db.add(transaction)
@@ -91,13 +92,15 @@ def _project_new_form4(db, document, *, publish_since: date):
                 'external_id': 'sec_form4:' + row['normalized_hash'], 'symbol': row['ticker_normalized'],
                 'insider_name': row['reporting_owner_name'], 'reporting_cik': row['reporting_owner_cik'],
                 'is_market_trade': market, 'trade_type_canonical': side, 'normalized_transaction_id': transaction.id,
+                'source_availability': {'date': published_at.date().isoformat(),
+                    'basis': 'direct_publication', 'observed_at': published_at.isoformat()},
                 'sec_verification': {'feed': 'sec_form4', 'accession': metadata['key'], 'url': metadata['url'],
                                      'sha256': digest, 'source_rows': [str(index)]}}
-            # Daily index gives a filing date, not an intraday acceptance time.
-            # Preserve both dates and do not represent transaction day as availability.
+            # Keep the official filing day separately from actual publication.
+            # A delayed collection must not backdate trading or monitoring access.
             filed = datetime.combine(row['filing_date'], datetime.min.time(), tzinfo=timezone.utc)
             amount = round(row['value']) if row['value'] is not None else None
-            db.add(Event(event_type='insider_trade', ts=filed, event_date=filed, symbol=row['ticker_normalized'],
+            db.add(Event(event_type='insider_trade', ts=published_at, event_date=filed, symbol=row['ticker_normalized'],
                 source='sec_edgar', source_provider='sec_edgar', source_document_url=metadata['url'],
                 source_filing_id=row['normalized_hash'], parser_version='direct_sec_publication_v1',
                 data_source='insider', trade_type=side, transaction_type=row['transaction_code'],
