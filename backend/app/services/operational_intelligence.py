@@ -136,6 +136,10 @@ def _article_text(item: dict[str, Any]) -> str:
 
 
 def _ingest_article(db: Session, *, security: Security, item: dict[str, Any], document_type: str, budget: _ExtractionBudget | None = None) -> dict[str, int]:
+    # Free Finnhub material contains headlines and links, not article text.
+    # Never relabel it as FMP evidence or ask the extractor to infer the body.
+    if document_type == 'news_article' and item.get('source') == 'finnhub':
+        return {"documents": 0, "events": 0, "matches": 0, "skipped": 1}
     source_text = _article_text(item)
     if len(source_text) < 20:
         return {"documents": 0, "events": 0, "matches": 0, "skipped": 1}
@@ -287,6 +291,12 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                 db.commit()
                 continue
             coverage.last_attempt_at = datetime.now(timezone.utc)
+            from app.services.finnhub_research import selected_news_provider
+            if document_type == 'news_article' and selected_news_provider() == 'finnhub':
+                coverage.status, coverage.failure_reason = 'unavailable', 'headline_only_feed'
+                totals['skipped'] += 1
+                db.commit()
+                continue
             coverage.status, coverage.failure_reason = "refreshing", None
             db.commit()
             deferred_before = budget.deferred
@@ -383,4 +393,9 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
         if status in {"ready", "empty"} and last and now - last > timedelta(hours=6):
             status = "stale"
         coverage.append({"source_type": source, "status": status, "last_checked_at": row.last_attempt_at.isoformat() if row and row.last_attempt_at else None, "last_success_at": last.isoformat() if last else None, "documents_seen": row.documents_seen if row else 0})
+        from app.services.finnhub_research import selected_news_provider
+        if source == 'news_article' and selected_news_provider() == 'finnhub':
+            coverage[-1].update(status='unavailable', provider='finnhub', complete=False,
+                reason='headline_only_feed',
+                message='News headlines and links are available. Full article text is unavailable for research extraction.')
     return {"symbol": security.symbol, "status": "ok" if rows else "empty", "source_version": OPERATIONAL_SOURCE_VERSION, "coverage": coverage, "lookback_days": 120, **result}

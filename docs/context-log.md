@@ -1,5 +1,10 @@
 # Project context log
 
+## 2026-10-09: News research consumer compatibility
+
+Owner requests exact release, consumer compatibility and scheduled observation before FMP shutdown, with Massive last. Observation release PR486/3e2481ca deployed on all four workers; 44 file hashes match, 148 news tests and 35 Top Stocks/access tests pass. Public feeds remain FMP while the free Finnhub cache warms with shared quota limits. Follow-up prevents headline-only material from being labelled FMP research evidence and displays its coverage limitation. Twenty focused backend tests, TypeScript and both coverage rendering variants pass; twelve frontend checks pass and one unchanged copy assertion fails. No provider subscription, Massive request or email. Actual scheduled operation and full consumer replay remain next; do not activate public news or cancel FMP from this guard alone.
+
+
 ## 2026-10-09: Scoped Finnhub news rollout preparation
 
 Owner directs compatibility, exact release, scheduled operation and consumer checks before Massive and final FMP shutdown. Packaged opt-in news adapters/shared budget/cache warming and canonical duplicate/rollback protections from main f5921fc9. Exact release 148 backend tests pass; frontend unchanged with ten existing passes/one obsolete pricing-href assertion failure. Broad news samples pass; different-share/ADR analyst and metric responses remain rejected and outside this release. Default selections/publication unchanged; no deployment or scheduled reliability claim yet. [Details](analyst-news-replacement-2026-10-09.md#exact-news-release-preparation-and-broader-compatibility-october-9).
@@ -218,3 +223,6 @@ Request: keep going until FMP is off. Applied source-bound canonical repair afte
 
 
 Final same-day follow-up: `9079343c` / workflow 37856798420 deployed on all four workers, readiness passes; 65 schedule/parser/worker checks pass. Live default boundary verified and 23:01 receipt retains five Senate events/corrected score views, zero successful recorded Senate FMP calls since selection. Actual scheduled SEC run 10 processes another 200, leaving 3,474 pending older Form 4s. First 23:27 publisher remains pending; full FMP shutdown/billing still incomplete. Diff and primary local links pass; no full-suite claim.
+
+
+October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool exhaustion. Reproduced and repaired using a durable warming lease, with real local PostgreSQL evidence; interval becomes three minutes with explicit universe freshness counters. No public source switch. See the news replacement report; corrected scheduled success is still a release gate.
