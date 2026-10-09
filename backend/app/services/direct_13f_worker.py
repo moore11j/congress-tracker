@@ -31,7 +31,7 @@ def _state_hash(db, filing, holder_event_ids=()):
     # Holder evidence is immutable. Cluster events can legitimately change when
     # another holder files, so do not bind shared cluster state to this receipt.
     fields = ('id', 'source_provider', 'source_filing_id', 'source_document_url',
-              'symbol', 'event_date', 'trade_type', 'transaction_type',
+              'symbol', 'ts', 'event_date', 'trade_type', 'transaction_type',
               'amount_min', 'amount_max', 'payload_json')
     state['holder_events'] = [{key: getattr(row, key) for key in fields} for row in events]
     return hashlib.sha256(dumps(state).encode()).hexdigest()

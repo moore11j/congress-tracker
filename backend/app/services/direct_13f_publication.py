@@ -1,5 +1,5 @@
 """Complete-original 13F projection shared by rehearsal and guarded publication."""
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 import hashlib
 import json
@@ -203,6 +203,7 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             proof = {'feed': 'sec_13f', 'accession': filing.accession_number, 'url': metadata['url'],
                      'sha256': digest, 'prior_accession': prior.accession_number,
                      'prior_url': prior.filing_url, 'prior_sha256': _receipt(prior)['source_sha256']}
+            published_at = datetime.now(timezone.utc)
             for event in db.scalars(select(Event).where(Event.source_provider == activity.INSTITUTIONAL_EVENT_SOURCE)):
                 if event.id in before_events:
                     continue
@@ -211,6 +212,9 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
                 # the triggering holder only, never every cluster constituent.
                 holder_event = payload.get('cik') == filing.cik
                 payload['sec_verification'] = {**proof, 'scope': 'holder_pair' if holder_event else 'triggering_holder_pair'}
+                event.ts = published_at
+                payload['source_availability'] = {'date': published_at.date().isoformat(),
+                    'basis': 'direct_publication', 'observed_at': published_at.isoformat()}
                 event.payload_json = dumps(payload)
                 if holder_event:
                     event.source_document_url = metadata['url']

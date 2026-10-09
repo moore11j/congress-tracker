@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 import json
 
 import pytest
@@ -81,7 +81,7 @@ def test_canonical_drift_holds_without_new_events(db):
     assert publish(db, current)['status'] == 'held'
 
 
-@pytest.mark.parametrize('mutation', ['payload', 'delete'])
+@pytest.mark.parametrize('mutation', ['payload', 'delete', 'arrival'])
 def test_public_holder_event_drift_is_not_an_existing_pass(db, mutation):
     prior, current = pair()
     publish(db, prior)
@@ -90,11 +90,39 @@ def test_public_holder_event_drift_is_not_an_existing_pass(db, mutation):
     event = db.get(Event, result['holder_event_ids'][0])
     if mutation == 'delete':
         db.delete(event)
+    elif mutation == 'arrival':
+        event.ts -= timedelta(days=1)
     else:
         event.payload_json = '{}'
     db.commit()
     repeat = publish(db, current)
     assert repeat['status'] == 'held' and 'canonical state changed' in repeat['reason']
+
+
+def test_late_prior_arrival_does_not_backdate_current_13f_events(db, monkeypatch):
+    from app.services import direct_13f_publication as projection
+    from app.services.backtesting.queries import event_entry_date
+    from app.services.replicated_portfolios import _event_public_date
+    clock = datetime(2026,10,9,0,30,tzinfo=timezone.utc)
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock if tz else clock.replace(tzinfo=None)
+    monkeypatch.setattr(projection, 'datetime', FixedDatetime)
+    prior, current = pair()
+    assert publish(db, current)['status'] == 'waiting'
+    assert publish(db, prior)['derived_state'] == 'historical_no_alerts'
+    assert db.scalar(select(func.count()).select_from(Event)) == 0
+    result = publish(db, current)
+    assert result['event_ids']
+    for event_id in result['event_ids']:
+        event = db.get(Event, event_id)
+        payload = json.loads(event.payload_json)
+        assert event.event_date.date() == date(2026,10,6)
+        assert event.ts.replace(tzinfo=timezone.utc) == clock
+        assert event_entry_date(event,payload) == _event_public_date(event,payload) == clock.date()
+    assert publish(db, current)['status'] == 'existing'
+    assert all(db.get(Event,event_id).ts.replace(tzinfo=timezone.utc)==clock for event_id in result['event_ids'])
 
 
 def test_failure_after_projection_rolls_back_publication_and_jobs(db, monkeypatch):
