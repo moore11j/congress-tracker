@@ -74,7 +74,7 @@ def rehearse_new_13f(db, document, *, publish_since: date, identifier_documents=
     return {**result, 'status': 'rehearsed' if result['status'] == 'projected' else result['status'], 'production_writes': 0}
 
 
-def _project_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=()):
+def _project_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), prepared_evidence=None):
     if db.new or db.dirty or db.deleted:
         raise ValueError('Rehearsal session has unrelated pending changes')
     raw, discovery = document['raw'], document['metadata']
@@ -88,12 +88,12 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
         return held('; '.join(reasons))
     metadata, rows = parsed['metadata'], parsed['positions']
     from app.services.direct_13f_evidence import nport_identifiers, value_consistency_issues
-    value_issues = value_consistency_issues(parsed, comparison_documents)
+    value_issues = value_consistency_issues(parsed, comparison_documents, prepared=prepared_evidence)
     if value_issues:
         return {**held('Independent SEC holdings indicate a value-unit discrepancy; no automatic rescaling'),
                 'value_issues': value_issues}
     identifiers = [row for source in identifier_documents
-                   for row in nport_identifiers(source, available_by=date.fromisoformat(metadata['filing_date']))]
+                   for row in nport_identifiers(source, available_by=date.fromisoformat(metadata['filing_date']), prepared=prepared_evidence)]
     if any(r.get('shareType') != 'SH' or (r.get('putCall') or '').upper() not in {'', 'PUT', 'CALL'} for r in rows):
         return held('Principal amounts or unknown option types require separate security semantics')
     classes = {}

@@ -1,0 +1,55 @@
+{
+  "reviewed_at": "2026-10-08T18:56:45.077565+00:00",
+  "documents": [
+    {
+      "source_file": "0000894189-26-015964.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1976322/0000894189-26-015964.txt",
+      "content_hash": "98a2ea99132a11c64ab24f29b58591fddc0d4fa3614b9d5df941e97a8ed41c36"
+    },
+    {
+      "source_file": "0000894189-26-002161.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1683471/0000894189-26-002161.txt",
+      "content_hash": "87967a6443489ebb9d28e3339f6d901e1e35755d76648d6faa7d4f7793756e34"
+    },
+    {
+      "source_file": "0000940400-26-020826.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1100663/0000940400-26-020826.txt",
+      "content_hash": "62b73745847a92f8a5bb7c582a6085a73e7c4f80b94a387cc94647975372152a"
+    },
+    {
+      "source_file": "0002071691-26-009249.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1174610/0002071691-26-009249.txt",
+      "content_hash": "dcbbee1fe29239dccffef46b6d991895b11a7887beb026cab0bdc298dc1c5ff3"
+    },
+    {
+      "source_file": "0001193125-26-225936.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1650149/0001193125-26-225936.txt",
+      "content_hash": "c988afc1d1577f6419b88091d76a0ef9632fc26332934e9bc47bb3b06126d331"
+    },
+    {
+      "source_file": "0001099263-26-006623.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1795351/0001099263-26-006623.txt",
+      "content_hash": "197eb513862b8926d8d3d930f9d5cd2bdb433b7ef011892927a1b9667704fbac"
+    },
+    {
+      "source_file": "0000894189-26-015515.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1135300/0000894189-26-015515.txt",
+      "content_hash": "51ec5a1dec01fd9b1c72807465bf371aef241e18deb4234171c6992428728927"
+    },
+    {
+      "source_file": "0000894189-26-005249.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1976322/0000894189-26-005249.txt",
+      "content_hash": "7184a4d0e5bc2e17578d3e16eecc2cfc439554c6d7a96d30703df378e8d2e2ad"
+    },
+    {
+      "source_file": "0000894189-26-015968.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1976322/0000894189-26-015968.txt",
+      "content_hash": "109b80229e836b82c3d07d9033490e5dab41198f739b85f56553bee1278f6c33"
+    },
+    {
+      "source_file": "0000940400-26-009021.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1655589/0000940400-26-009021.txt",
+      "content_hash": "44cff9dc198786c8b51f5eb50cf7ceae56f73aefc392706c4ccc423276f03c7c"
+    }
+  ]
+}
