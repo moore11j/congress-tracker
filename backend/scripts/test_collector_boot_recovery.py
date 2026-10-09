@@ -11,6 +11,7 @@ from unittest.mock import patch
 p = argparse.ArgumentParser()
 p.add_argument('--backend', type=Path, required=True)
 p.add_argument('--output', type=Path, required=True)
+p.add_argument('--port', type=int, choices=[61982, 61983], default=61982)
 a = p.parse_args()
 assert not a.output.exists()
 sys.path.insert(0, str(a.backend.resolve()))
@@ -18,7 +19,7 @@ os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 from sqlalchemy import create_engine, text
 from app.jobs import collect_direct_feeds as job
 
-url = 'postgresql+psycopg://postgres@127.0.0.1:61982/walnut_sec_replay'
+url = f'postgresql+psycopg://postgres@127.0.0.1:{a.port}/walnut_sec_replay'
 control = create_engine(url, connect_args={'connect_timeout': 5})
 owner_engine = create_engine(url, connect_args={'application_name': 'walnut:cron:testmachine:123'})
 owner = owner_engine.connect()
@@ -33,6 +34,9 @@ try:
             assert job._recover_previous_boot_collector(guard) is False
             checks.append('live_boot_preserved')
         with patch.object(job.Path, 'read_text', return_value=f'btime {new_boot}\n'):
+            with job.collector_lock(control, recover_orphaned=False) as acquired:
+                assert acquired is False
+            checks.append('read_only_preview_does_not_recover')
             with patch.dict(os.environ, FLY_MACHINE_ID='othermachine'):
                 assert job._recover_previous_boot_collector(guard) is False
                 checks.append('other_machine_preserved')

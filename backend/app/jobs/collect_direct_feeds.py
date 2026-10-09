@@ -44,7 +44,7 @@ def _recover_previous_boot_collector(guard):
 
 
 @contextmanager
-def collector_lock(bind=engine):
+def collector_lock(bind=engine, *, recover_orphaned=True):
     if bind.dialect.name != "postgresql":
         # Local SQLite is restricted to one operator; BEGIN IMMEDIATE is not
         # held across network requests. Database uniqueness still protects IDs.
@@ -52,7 +52,7 @@ def collector_lock(bind=engine):
         return
     with bind.connect() as guard:
         acquired = guard.scalar(text("SELECT pg_try_advisory_lock(84193647)"))
-        if not acquired and _recover_previous_boot_collector(guard):
+        if not acquired and recover_orphaned and _recover_previous_boot_collector(guard):
             acquired = guard.scalar(text("SELECT pg_try_advisory_lock(84193647)"))
         if not acquired:
             yield False
