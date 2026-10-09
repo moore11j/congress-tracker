@@ -74,6 +74,9 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- **2026-10-09: Scheduled news and captured consumers:** PR487/bfb65946 deploy succeeds on all four workers. Real20:01/20:04 runs complete23 scopes, reaching39/63 fresh company caches without stale rows; public news stillFMP/publication off. Read-only public-cache rehearsal preserves95 events, adds196, repeats with zero new events;291 monitoring/intraday identities and12/4/291 digest counts stable. Nine categories/19 company readers/50 Insights headlines pass. Follow-up corrects verified DCI old-only rows and BRK-B/BRK.B news punctuation;47 exact tests pass. [Report](docs/analyst-news-replacement-2026-10-09.md#corrected-scheduled-collection-and-production-cache-consumer-replay). No Massive/subscription/email. Full universe, correction rollout and remaining free feeds remain gates.
+
+
 - **2026-10-09: News consumer compatibility:** PR486/`3e2481ca` observation release is deployed on all four workers (44 hashes match); public news remains FMP, Finnhub warming/limiter on and canonical publication off. Prepared headline-only research guard and visible coverage notice: 20 backend tests, TypeScript and both rendering variants pass; 12 frontend tests pass/one unchanged wording assertion fails. [Report](docs/analyst-news-replacement-2026-10-09.md#production-news-observation-release-october-9). Scheduled receipts and exact production-cache consumer replay remain gates. No Massive, purchase, email or FMP cancellation.
 
 

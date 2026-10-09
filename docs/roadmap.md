@@ -257,3 +257,8 @@ PR486/`3e2481ca` is verified on all four workers, with free Finnhub prepared-cac
 
 
 October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool exhaustion. Reproduced and repaired using a durable warming lease, with real local PostgreSQL evidence; interval becomes three minutes with explicit universe freshness counters. No public source switch. See the news replacement report; corrected scheduled success is still a release gate.
+
+
+## October 9 scheduled news compatibility
+
+PR487/bfb65946 resolves the observed cron pool failure. Two actual scheduled batches and an isolated replay of production public caches verify the captured news/monitoring/digest consumers;39/63 companies are fresh so far. DCI window and Berkshire punctuation fixes pass47 checks and remain next rollout. Public source activation/full universe still pending; Massive remains last. [Report](analyst-news-replacement-2026-10-09.md#corrected-scheduled-collection-and-production-cache-consumer-replay).

@@ -55,11 +55,32 @@ def test_news_deduplicates_urls_preserves_time_and_does_not_republish_text():
 
 @pytest.mark.parametrize("change", [{"url": "javascript:alert(1)"}, {"url": "http://127.0.0.1/x"},
     {"url": "https://user:password@example.com/x"}, {"source": ""}, {"datetime": True},
-    {"datetime": int((NOW + timedelta(days=1)).timestamp())}, {"related": "MSFT"},
-    {"datetime": int((NOW - timedelta(days=8)).timestamp())}])
+    {"datetime": int((NOW + timedelta(days=1)).timestamp())}, {"related": "MSFT"}])
 def test_invalid_news_cannot_be_reported_as_empty_coverage(change):
     with pytest.raises(adapter.FinnhubUnavailable, match="no_valid_recent_rows"):
         adapter.normalize_news([news_row(**change)], observed_at=NOW, symbol="AAPL")
+
+
+def test_valid_outdated_news_is_empty_but_bad_identity_still_fails():
+    row = news_row(datetime=int((NOW-timedelta(days=8)).timestamp()))
+    result = adapter.normalize_news([row],observed_at=NOW,symbol='AAPL')
+    assert result['status']=='empty' and result['outdated_count']==1 and result['rejected_count']==0
+    with pytest.raises(adapter.FinnhubUnavailable,match='no_valid_recent_rows'):
+        adapter.normalize_news([{**row,'related':'MSFT'}],observed_at=NOW,symbol='AAPL')
+
+
+def test_news_share_class_punctuation_maps_without_changing_security(monkeypatch):
+    calls=[]
+    def fetch(path,params):
+        calls.append((path,params));return [news_row(related='BRK.B')]
+    monkeypatch.setattr(adapter,'request_rows',fetch)
+    result=adapter.fetch_news(symbol='BRK-B',observed_at=NOW)
+    assert calls[0][1]['symbol']=='BRK.B'
+    assert result['items'][0]['symbol']=='BRK-B'
+    with pytest.raises(adapter.FinnhubUnavailable,match='no_valid_recent_rows'):
+        adapter.normalize_news([news_row(related='BRK.A')],observed_at=NOW,symbol='BRK-B')
+    with pytest.raises(adapter.FinnhubUnavailable):
+        adapter.normalize_recommendations([rating_row(symbol='BRK.A')],'BRK.B',observed_at=NOW)
 
 
 def test_conflicting_provider_id_is_held():
