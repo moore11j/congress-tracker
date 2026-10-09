@@ -35,6 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--complete-filings-only', action='store_true', help='Use the guarded production repair policy')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2] / 'artifacts' / 'direct-feeds'
     assert args.output.resolve().is_relative_to(root.resolve())
@@ -46,6 +47,7 @@ def main():
     from app.services.direct_feed_store import discover, record_document, dumps, reconcile_insider
     from app.services.direct_feed_collection import parse_document
     from app.services.direct_feed_rehearsal import plan_corrections, include_event_corrections, apply_rehearsal
+    from app.services.direct_sec_repair import inspect_staged_repair, rehearse_staged_repair, SecRepairReceipt
     from app.services.direct_feed_worker import publish_batch, publish_document
     from app.services.feed_source_control import select_feed_source
     from app.services.monitoring_alerts import _ensure_alert_for_event
@@ -72,10 +74,30 @@ def main():
                 record[column.name] = value
             db.add(SecForm4Filing(**record))
         db.commit()
-        correction = include_event_corrections(db, plan_corrections(db, documents))
-        repaired = apply_rehearsal(db, correction)
-        db.commit()
-        assert apply_rehearsal(db, correction)['updated'] == 0
+        if args.complete_filings_only:
+            correction = dict(operations=[], counts={}, held=[])
+            repaired = dict(updated=0, inserted=0, deleted=0, production_writes=0)
+            for doc in documents:
+                source, parsed, reasons = parse_document(doc['feed'], doc['raw'], doc['metadata'])
+                staged = discover(db, doc['feed'], doc['metadata'])
+                record_document(db, staged, doc['raw'], source, parsed, reasons=reasons)
+                db.commit()
+                reviewed = inspect_staged_repair(db, staged.id)
+                if reviewed['status'] == 'planned':
+                    applied = rehearse_staged_repair(db, staged.id, expected_plan_hash=reviewed['plan_sha256'])
+                    db.commit()
+                    repaired['updated'] += applied['updated']
+                    receipt = db.get(SecRepairReceipt, staged.id)
+                    correction['operations'].extend(json.loads(receipt.plan_json)['operations'])
+                    assert rehearse_staged_repair(db, staged.id, expected_plan_hash=reviewed['plan_sha256'])['updated'] == 0
+                elif reviewed['status'] == 'held':
+                    correction['held'].append(dict(source_document_id=doc['id'], reasons=reviewed['held']))
+            correction['counts'] = dict(Counter(op['table'] for op in correction['operations']))
+        else:
+            correction = include_event_corrections(db, plan_corrections(db, documents))
+            repaired = apply_rehearsal(db, correction)
+            db.commit()
+            assert apply_rehearsal(db, correction)['updated'] == 0
         parsing, reconciliation, held_sources, source_ids = Counter(), Counter(), [], {}
         for doc in documents:
             source, parsed, reasons = parse_document(doc['feed'], doc['raw'], doc['metadata'])
@@ -143,6 +165,7 @@ def main():
         assert db.scalar(select(func.count()).select_from(EmailDelivery)) == 0
         report = dict(baseline_captured_at=baseline['captured_at'], baseline_sha256=hashlib.sha256(baseline_bytes).hexdigest(),
             sources=len(documents), baseline_counts={key:len(baseline[key]) for key in ['insiders','raw_insiders','events','form4_filings']},
+            complete_filings_only=args.complete_filings_only,
             canonical_corrections_local_only=repaired, correction_fields=dict(Counter(field for op in correction['operations'] for field in op['changes'])),
             correction_counts=correction['counts'], correction_holds=correction['held'],
             staged_after_rehearsed_corrections=dict(parsing), reconciliation=dict(reconciliation), held_sources=held_sources,

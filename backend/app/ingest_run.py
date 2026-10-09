@@ -117,6 +117,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _check_insider_freshness() -> str | None:
+    """Retire the legacy diagnostic request with its canonical feed owner."""
+    from app.services.feed_source_control import require_selected_source, FeedSourceMismatch, FeedWriterBusy
+    try:
+        ensure_fmp_live_allowed(category="ingest:insider-freshness")
+        with SessionLocal() as db:
+            require_selected_source(db, 'sec_form4', 'fmp')
+            return _check_insider_freshness_from_fmp()
+    except (FeedSourceMismatch, FeedWriterBusy):
+        logger.info('Legacy insider freshness probe skipped by feed ownership')
+    except Exception as exc:
+        # Missing controls/schema also fail closed. Never log an authenticated URL.
+        logger.warning('Insider freshness probe unavailable: %s', type(exc).__name__)
+    return None
+
+
+def _check_insider_freshness_from_fmp() -> str | None:
     key = os.getenv("FMP_API_KEY")
     if not key:
         logger.warning("FMP_API_KEY not set; skipping insider freshness check")
@@ -140,7 +156,7 @@ def _check_insider_freshness() -> str | None:
             dates = [item.get("filingDate") for item in data if item.get("filingDate")]
             return max(dates) if dates else None
     except Exception as exc:
-        logger.warning("Insider freshness check failed: %s", exc)
+        logger.warning("Insider freshness check failed: %s", type(exc).__name__)
 
     return None
 
