@@ -1,10 +1,10 @@
 # Analyst and Insights news replacement, October 9, 2026
 
-The owner moved analysts and Insights news ahead of the remaining migration work. **Massive prices are last.** The owner has no Finnhub, Alpha Vantage or Finlight account. A read-only server check returned only presence booleans: none of the six checked Finnhub/Alpha Vantage/Finlight/SentiSense key names is configured. No credentials were exported.
+The owner moved analysts and Insights news ahead of the remaining migration work. **Massive prices are last.** At the initial research checkpoint the owner had no Finnhub, Alpha Vantage or Finlight account, and a read-only server check found none of the six candidate key names configured. The owner subsequently created the free Finnhub account; authenticated validation and deployed news warming are recorded below. No credentials were exported.
 
 ## Source decision and evidence
 
-Finnhub is the first bounded pilot candidate for recommendations and news, not a verified complete analyst replacement. Its official documentation HTML contains the API schema, including endpoint access labels and examples. Public documentation and the official Python client were fetched successfully on October 9; no authenticated data request succeeded or was claimed.
+Finnhub is the first bounded pilot candidate for recommendations and news, not a verified complete analyst replacement. Its official documentation HTML contains the API schema, including endpoint access labels and examples. At that initial checkpoint, public documentation and the official Python client were fetched successfully on October 9; authenticated validation was still pending. Later successful free-key probes are recorded below.
 
 | Capability | Official contract checked October 9 | Pilot scope |
 |---|---|---|
@@ -172,7 +172,22 @@ Two live source probes explain the held/empty scopes. DCI returns one valid arti
 The final activation audit also separates FMP and Finnhub public headline snapshots. The warming job seeds the inactive Finnhub view from fresh prepared market news with existing deterministic fallback takes and no model calls, preserving FMP snapshot bytes for rollback. A focused switch/rollback test verifies both populated views and zero replacement of the old source. This is part of the symbol/window follow-up before public activation.
 
 
-Final follow-up validation: 139 exact-release news, Insights, research-consumer and digest tests pass without exclusions; the updated seeding transaction also passes the real PostgreSQL two-connection reproduction/recovery test. Forty-seven saved runtime file hashes from PR487 match across all four workers (one SSH-only receipt timed out, with the full read-only API receipt used instead). The 20:07 scheduled run reaches 59/63 fresh company caches without errors.
+### Affected news consumer acceptance matrix
+
+| Consumer | Verified behavior | Remaining limit |
+|---|---|---|
+| Insights headline endpoint | Separate provider snapshots; inactive Finnhub view seeds without model calls; FMP bytes survive switch/rollback test | Final scheduled seed and live read receipt after PR488 |
+| Nine category endpoints | Captured cache replay passes existing response contract | Macro/Treasury/commodities use headline keyword filters; index/sector views use the broad market feed, not vendor-equivalent topic classification |
+| Ticker news endpoint | Canonical ticker, publisher URL/date and empty states retained; 19 captured companies replayed | Final 63-ticker freshness and BRK-B scheduled receipt |
+| Watchlist materialization | 95 real existing public events retain IDs/dates/payloads; 196 new rehearsal events; repeat inserts zero | Canonical production publication still disabled; activation cutoff must be explicit |
+| Monitoring, daily and watchlist digests | Actual builders repeat counts 12/4/291 with all HTTP/email blocked | Fresh price/calendar/other-source replacements require their own checks |
+| Intraday preview | 291 actual candidate builders preserve event keys/source links | No customer send claimed |
+| Daily/weekly Top Stocks | 35 access/delivery-preference checks pass on fixed ranking inputs; news events cannot confirm scores | Fresh rebuilt ranking/price evidence remains for the final price stage |
+| Research Memory/company developments | Headline-only news extraction is blocked with a visible limitation; no false FMP attribution | Full article evidence is unavailable from this free news feed; SEC/issuer and other research sources are separate |
+| Client cache | Insights reads use no-store; ticker news local cache expires after 30 seconds | An already open view may retain its previous response until its next read |
+| Reactive marketing articles | Separate FMP-specific path identified, unaffected by NEWS_PROVIDER | Retirement/replacement and global zero-FMP-call proof remain separate shutdown work |
+
+PR488 merged as `58dfb797744f2f85fa6c9e2536a94e4de6f3dbeb`. Workflow `37985644782` succeeds and all four workers are verified started on its image. Public selection remains FMP and publication remains off. The earlier 20:10 batch was delayed before obtaining its warming lease while cron load was high (read-only load average 11.20); this is an observed scheduling reliability limit, not a provider success receipt. Continued scheduled observation follows the final rollout.
 
 
 ### Deployment interruption and restart recovery
@@ -180,3 +195,19 @@ Final follow-up validation: 139 exact-release news, Insights, research-consumer 
 PR488/58dfb797 is deployed successfully through workflow37985644782; both live frontend version endpoints and all four backend images match. The 20:19 read-only receipt has65 news caches but shows the lease created at20:13:24 still present until20:33:24. That worker was interrupted by deployment after the previously observed cron-load delay. The new process correctly refuses the old lease, so successful collection/freshness is not claimed for those skipped runs.
 
 The focused follow-up records machine identity, kernel boot identity, PID and process start ticks with a warming lease. An active lease can be reclaimed only on the same machine after a proven reboot or when the original process is absent/replaced; unreadable process state and other machines remain held. Legacy leases without owner evidence retain their timeout. Tests cover live owner, other machine, missing owner, changed boot, dead process, PID reuse and denied process reads. Any one-time legacy lease recovery requires its exact expiration, a newer kernel boot, the shared database lock and no live warmer. Public selection/publication remain unchanged.
+
+### Recovery deployed and complete scheduled news rotation
+
+PR [489](https://github.com/moore11j/congress-tracker/pull/489) merged as `e83cc22c5c71ff05abcd20887c910dda460b1018`; workflow `37987023252` succeeded. All four machines run that image, and all 48 relevant file hashes match the tested Git blobs. The Windows checkout's CRLF conversion initially caused a byte comparison mismatch; comparison against committed blobs resolves it. Secret scan and Vercel preview pass; unchanged dependency audits still fail.
+
+At 20:29:45 UTC, a guarded recovery removed only the exact legacy lease after verifying the newer boot, expected recovery code, absence of a live warmer and shared database lock. It wrote one preparation-state row, preserving caches, run history, public selection and customer state. This was not a manual collection run. Actual scheduled batches at 20:31, 20:34, 20:37 and 20:40 each complete all 23 scopes without errors. Their fresh-company counts are 20, 40, 60 and **63 of 63**, with zero missing or stale company caches after the fourth batch. All three market caches exist, and the separately prepared Finnhub Insights view contains 50 headlines. This establishes one successful full rotation, not a multi-day reliability baseline.
+
+The final database-enforced read-only capture exports all 66 public news caches and matching public events, with no customer rows. Exact-release isolated replay exercises all 63 ticker API handlers, all nine category handlers and the Insights handler. It preserves **864** existing event IDs/dates/payloads, creates **785** new test events and creates zero on repeat. All **1,649** monitoring alert and intraday preview identities remain stable. Monitoring/daily/watchlist digest counts repeat as **12/4/1,649**. Both actual headline snapshots survive activation and rollback with the FMP view unchanged. No attempted network/queue/email calls, deliveries or production writes occur in the replay. The ticker API's established `no_data` normalization and removal of internal cache fields are tested; source cache freshness and public `as_of` are checked separately.
+
+Evidence: `news-recovery-hash-comparison.json`, `news-legacy-lease-recovered.json`, `finnhub-final-rotation-2041.json`, and `finnhub-final-all-consumers.json` under the local October 9 free-replacement evidence directory. Public news remains FMP, canonical Finnhub publication remains off, and no subscription changes were made. Activation cutoff, subsequent scheduled stability and remaining non-news consumers still gate overall shutdown.
+
+### Independent free research preparation
+
+The next scoped release prepares BLS dates, current/next-month Finnhub earnings dates and bounded recommendation caches independently of public provider selection. `FREE_RESEARCH_WARMING_ENABLED` defaults off and requires the configured free key and shared limiter. Each run attempts at most twenty companies, rotates failed scopes, stops on shared quota/cooldown and retains twenty bounded receipts. It uses the same proven-dead-owner lease recovery and releases its planning transaction before endpoint/cache/limiter work. Proposed schedule: minutes 11, 26, 41 and 56. It does not select public analyst/calendar feeds, publish canonical records or send mail.
+
+Local free-replacement/warming checks pass 24 tests. The exact release passes 53 news/warming checks and nine focused calendar/warming checks (overlapping groups). Actual disposable PostgreSQL with two connections/no overflow completes five prepared scopes, rejects overlap, repeats with zero additional provider requests and clears the lease. Test schema removed and server stopped; no external HTTP/email. Calendar tests preserve timezone/revision/cancellation rules, adjusted-estimate labels and weekly-window truncation refusal. This package is cache preparation only; public reader/score/digest activation and scheduled coverage remain separate validation work.
