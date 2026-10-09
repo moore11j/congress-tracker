@@ -310,8 +310,13 @@ def live_fmp_user_category_enabled(category: str) -> bool:
     )
 
 
+def fmp_provider_disabled() -> bool:
+    """Global retirement switch, distinct from per-request access or throttling."""
+    return _env_bool("FMP_PROVIDER_DISABLED", False)
+
+
 def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None, allow_user_request: bool = False) -> None:
-    if _env_bool("FMP_PROVIDER_DISABLED", False):
+    if fmp_provider_disabled():
         reason = "background_provider_disabled" if not _is_user_request() else "provider_disabled"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
