@@ -1198,6 +1198,12 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         return _unavailable("")
+    from app.services import sec_financial_statements
+    if sec_financial_statements.selected():
+        try:
+            return sec_financial_statements.prepared(normalized_symbol)
+        except Exception:
+            return _unavailable(normalized_symbol, message='SEC financial coverage is temporarily unavailable.', reason='sec_source_unavailable')
     active_panel_request = _is_active_ticker_financials_panel_request()
     cache_key = f"financials:{normalized_symbol}"
     cached = _cache_get(cache_key)

@@ -23,3 +23,10 @@ Next: review/release the bounded schedule, observe its actual execution and sour
 ## October 9 current-main validation
 
 October 9 renewed review: updated the existing PR485 branch against current main 3133ed42, preserving both documentation histories and unrelated local TypeScript build metadata. The owner now requests continued exact-release preparation and actual scheduled observation across the migration. No institutional publication or source switch is included. The same bounded five-minute prior-source staging package passes all 93 focused checks on Python 3.14.2 after adapting isolated digest fixtures to the deployed three-field calendar contract and using a fresh workspace test directory because the Windows default temp root was inaccessible. No production staging schedule has been activated by this update. The earlier automatic-review rejection remains historical; deployment still depends on review of this refreshed concrete release.
+
+
+## October 9 institutional schedule observed and SEC financial preparation
+
+PR485/e358f045 deployed successfully through workflow37993530177. All36 institutional file hashes match across four workers. Actual21:33 and21:38 UTC batches process40 distinct current filings:39 collected and one held for missing/amended/nonunique prior. All334 prior originals preserve source/metadata hashes, checked timestamps and revision counts;32 additional prior documents are staged. Institutional publication stays disabled, provider FMP, zero publication receipts and zero Q3 canonical filings. This is two bounded successful scheduling opportunities, not complete institutional coverage.
+
+The next scoped SEC financial preparation package is disabled by default and keeps public selection FMP. Seventeen focused backend/four frontend checks and the actual two-connection PostgreSQL cache/overlap/repeat test pass. A pre-existing forward-P/E assertion reproduces against main source. No Massive calls, purchases, customer test emails or global FMP switch. [Scope and validation](sec-financial-preparation-2026-10-09.md).
