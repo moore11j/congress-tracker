@@ -10228,17 +10228,19 @@ def _peer_compare_trade_summary(db: Session, symbol: str, event_type: str, *, lo
 
 
 def _peer_compare_financials_fallbacks(db: Session, symbol: str) -> dict[str, Any]:
+    from app.services import sec_financial_statements
+    from app.services.provider_usage import fmp_provider_disabled
     try:
-        row = db.get(TickerFinancialsCache, symbol)
+        if sec_financial_statements.selected():
+            payload = sec_financial_statements.cached_payload(db, symbol)
+        elif fmp_provider_disabled():
+            return {}
+        else:
+            row = db.get(TickerFinancialsCache, symbol)
+            payload = json.loads(row.payload_json or "{}") if row is not None else None
     except Exception:
         db.rollback()
         logger.debug("peer_compare_financials_cache_lookup_failed symbol=%s", symbol, exc_info=True)
-        row = None
-    if row is None:
-        return {}
-    try:
-        payload = json.loads(row.payload_json or "{}")
-    except Exception:
         return {}
     if not isinstance(payload, dict):
         return {}

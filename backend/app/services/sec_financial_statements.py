@@ -125,6 +125,22 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at):
     return payload
 
 
+def cached_payload(db, symbol, *, now=None):
+    """Read a current selected-source panel in the caller's transaction."""
+    now = now or datetime.now(timezone.utc)
+    row = db.get(InsightsSnapshot, f'sec-financials:{symbol}:v1')
+    if row is None or row.source != 'sec_edgar':
+        return None
+    stamp = row.fetched_at.replace(tzinfo=timezone.utc) if row.fetched_at.tzinfo is None else row.fetched_at
+    if not timedelta(0) <= now-stamp < timedelta(hours=24):
+        return None
+    try:
+        payload = json.loads(row.payload_json)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) and payload.get('source') == 'sec_edgar' and payload.get('symbol') == symbol else None
+
+
 def prepared(symbol):
     from app.request_priority import get_request_context
     from app.services.ticker_financials import _warming
@@ -140,12 +156,9 @@ def prepared(symbol):
             if not db.execute(text('SELECT pg_try_advisory_xact_lock(hashtext(:key))'), {'key': key}).scalar():
                 return _warming(symbol, reason='refresh_in_progress')
         row = db.get(InsightsSnapshot, key)
-        if row and row.source == 'sec_edgar':
-            stamp = row.fetched_at.replace(tzinfo=timezone.utc) if row.fetched_at.tzinfo is None else row.fetched_at
-            if timedelta(0) <= now-stamp < timedelta(hours=24):
-                payload = json.loads(row.payload_json)
-                if payload.get('source') == 'sec_edgar' and payload.get('symbol') == symbol:
-                    return payload
+        payload = cached_payload(db, symbol, now=now)
+        if payload is not None:
+            return payload
         if public:
             enqueue_data_enrichment_job(job_type='ticker_financials', symbol=symbol, source='page_load', priority=45, reason='sec_financials_refresh')
             return _warming(symbol, reason='replacement_cache_miss')
