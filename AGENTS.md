@@ -74,6 +74,9 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- **2026-10-09: Exact news activation boundary:** Added aware timestamp guard after date-only preview exposed 345 prior-daytime candidates. Sixty-two focused checks pass; fresh actual-cache replay preserves 864 legacy event/alert identities and stable 12/4/864 digests with zero backlog inserts, source requests or email. Positive boundary cases also pass. Public activation remains pending. SEC preparation PR493 is deployed/enabled with first 20-symbol batch complete; public financial selectors remain FMP.
+
+
 - **2026-10-09: SEC financial preparation:** [Report](docs/sec-financial-preparation-2026-10-09.md). Opt-in bounded SEC cache warmer and selected financial reader prepared; public providers stay FMP. Seventeen SEC checks, four frontend checks and real two-connection PostgreSQL repeat/overlap validation pass; unchanged forward-P/E assertion reproduced. Institutional PR485/e358f045 is deployed, all36 hashes match, first two scheduled batches process40 distinct filings (39 collected/one held), preserving334 originals. Publication remains off/default FMP. Next: release/observe SEC preparation and complete free-source consumer/public activation gates before Massive.
 
 
