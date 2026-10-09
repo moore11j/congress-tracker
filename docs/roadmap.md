@@ -249,3 +249,11 @@ After each relevant prompt, update affected roadmap statuses and the memory/log.
 
 
 **October 9 free-news release preparation:** [Scoped replacement](analyst-news-replacement-2026-10-09.md#exact-news-release-preparation-and-broader-compatibility-october-9) passes 148 exact-release checks and keeps FMP selected. Opt-in scheduled cache warming/receipts precede public activation; scheduled reliability and broader consumer observation remain unverified. Different-class/ADR analyst/metric mismatches are held. Massive stays last.
+
+
+## October 9 news observation and research compatibility
+
+PR486/`3e2481ca` is verified on all four workers, with free Finnhub prepared-cache warming enabled and public news still FMP. The scoped follow-up prevents headline-only feed material becoming attributed research evidence and exposes its coverage gap. Actual scheduled receipts, consumer replay and source activation remain pending; broad SEC/analyst/press/calendar/institutional work precedes Massive and full shutdown. See [report](analyst-news-replacement-2026-10-09.md#production-news-observation-release-october-9).
+
+
+October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool exhaustion. Reproduced and repaired using a durable warming lease, with real local PostgreSQL evidence; interval becomes three minutes with explicit universe freshness counters. No public source switch. See the news replacement report; corrected scheduled success is still a release gate.

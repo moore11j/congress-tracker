@@ -51,6 +51,26 @@ def test_warming_requires_shared_budget_and_stops_on_provider_cooldown(sessions,
         assert receipt['status']=='partial' and receipt['completed_scopes']==1 and len(calls)==1
 
 
+def test_warming_lease_prevents_overlap_and_expired_crash_recovers(sessions,monkeypatch):
+    first_call=True
+    def fetch(**kw):
+        nonlocal first_call
+        if first_call:
+            first_call=False
+            with sessions() as contender:
+                assert warmer.run(contender)['reason']=='active_warming_lease'
+        return {'status':'ok','stale':False,'item_count':1}
+    monkeypatch.setattr(warmer,'prepared_news',fetch)
+    with sessions() as db:
+        assert warmer.run(db,limit=1)['status']=='ok';db.commit()
+        row=db.get(InsightsSnapshot,warmer.KEY)
+        state=json.loads(row.payload_json)
+        assert 'lease' not in state
+        state['lease']={'token':'crashed','until':(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()}
+        row.payload_json=json.dumps(state);db.commit()
+        assert warmer.run(db,limit=1)['status']=='ok'
+
+
 def test_actual_queue_retries_rate_limited_news_then_finishes_after_recovery(sessions,monkeypatch):
     from app.services import fmp_news
     monkeypatch.setenv('NEWS_PROVIDER','finnhub')
