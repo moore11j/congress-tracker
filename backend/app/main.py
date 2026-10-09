@@ -13919,7 +13919,7 @@ def ticker_press_releases(
 
     started_at = perf_counter()
     payload = _normalize_ticker_items_payload(get_press_releases(symbol=normalized_symbol, page=page, limit=limit))
-    if not payload["items"] and payload.get("status") != "unavailable":
+    if not payload["items"] and payload.get("status") != "unavailable" and payload.get("provider") != "sec_edgar_earnings":
         payload = {**payload, "message": "No press releases found."}
     _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="press_releases", payload=payload, started_at=started_at)
     return payload

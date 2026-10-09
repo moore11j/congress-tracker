@@ -148,6 +148,9 @@ def is_withdrawn_event_job(job: DataEnrichmentJob) -> bool:
 def _disabled_fmp_content_job(job_type: str) -> bool:
     from app.services.provider_usage import fmp_provider_disabled
     from app.services.finnhub_research import selected_news_provider
+    if job_type == 'press_releases' and fmp_provider_disabled():
+        from app.services.sec_press_releases import selected_press_provider
+        return selected_press_provider() != 'sec_edgar'
     return (job_type in {'news_general', 'news_stock'} and fmp_provider_disabled()
             and selected_news_provider() != 'finnhub')
 

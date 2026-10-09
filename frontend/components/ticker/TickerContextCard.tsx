@@ -1537,6 +1537,9 @@ function TickerContextContents({ symbol, overview, chart, congressActivity, insi
             </div>
             <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               <EventsSection title={pressSectionTitle}>
+                {pressPages[0]?.provider === "sec_edgar_earnings" ? (
+                  <p className="mb-3 text-xs text-slate-400">Selected earnings releases filed with SEC EDGAR. Dates are filing dates; other company releases and transcripts are not covered.</p>
+                ) : null}
                 {loadingPress && pressPages.length === 0 ? (
                   <TabSkeleton rows={2} />
                 ) : (

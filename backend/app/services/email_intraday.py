@@ -355,6 +355,8 @@ def _is_institutional_alert_type(value: str | None) -> bool:
 
 def _watchlist_candidate(db: Session, user: UserAccount, watchlist: Watchlist, event: Event) -> IntradayAlertCandidate:
     payload = _loads_dict(event.payload_json)
+    from app.services.event_availability import verified_sec_release_date
+    sec_filed = verified_sec_release_date(event.event_type, payload)
     score = _event_score(event, payload)
     amount = event.amount_max if event.amount_max is not None else event.amount_min
     trigger = _watchlist_trigger(event, payload, score, amount)
@@ -391,7 +393,7 @@ def _watchlist_candidate(db: Session, user: UserAccount, watchlist: Watchlist, e
         "alert_type": _trigger_label(trigger),
         "why_notable": _watchlist_reason(event, trigger),
         "source_stack": _source_stack(payload, event.source),
-        "event_date": _format_date(event.event_date or event.ts),
+        "event_date": f'Filed {sec_filed.isoformat()}' if sec_filed else _format_date(event.event_date or event.ts),
         "alert_url": str(payload.get("url") or f"{_frontend_base_url()}/watchlists/{watchlist.id}"),
         "sort_timestamp": _coerce_aware(event.event_date or event.ts).isoformat(),
     }

@@ -381,6 +381,7 @@ export type PressReleaseItem = {
 
 export type PressReleasesResponse = {
   items: PressReleaseItem[];
+  provider?: string;
   status?: "ok" | "loading" | "no_data" | "unavailable" | string;
   item_count?: number;
   updated_at?: string | null;
