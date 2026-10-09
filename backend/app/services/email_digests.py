@@ -1228,11 +1228,18 @@ def _watchlist_market_news_items(
     for symbol in symbols:
         for kind, getter in (("news_article", get_stock_news), ("press_release", get_press_releases)):
             try:
+                from app.services.sec_press_releases import selected_press_provider, get_sec_releases
                 from app.services.finnhub_research import selected_news_provider
                 if kind == 'news_article' and selected_news_provider() == 'finnhub':
                     from app.services.replacement_news import prepared_news
                     payload = prepared_news(symbol=symbol, page=0,
                         limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT, public=True, enqueue_on_miss=False)
+                elif kind == 'press_release' and selected_press_provider() == 'sec_edgar':
+                    # Digest construction cannot trigger a multi-document SEC
+                    # crawl. Undated source links remain in the ticker panel
+                    # until a dated canonical alert publisher is validated.
+                    payload = get_sec_releases(symbol=symbol, page=0,
+                        limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT, prepared_only=True)
                 else:
                     payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
             except Exception:
@@ -1405,7 +1412,7 @@ def _event_item(event: Event) -> dict[str, Any]:
         "actor": actor,
         "trade": _activity_action(event, payload) if reported_holdings or payload.get("sec_verification") else event.trade_type or event.transaction_type or payload.get("action") or "activity",
         "amount": _activity_value(event, payload) if reported_holdings else _amount(event.amount_min, event.amount_max),
-        "date": _activity_display_date(event, payload) if reported_holdings or payload.get("sec_verification") else _format_date(event.event_date or event.ts),
+        "date": _activity_display_date(event, payload) if reported_holdings or payload.get("sec_verification") or payload.get('source_verification') else _format_date(event.event_date or event.ts),
         "signal_score": _numeric_score(payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)),
     }
 
@@ -1664,11 +1671,12 @@ def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
 
 
 def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
-    from app.services.event_availability import verified_insider_dates
+    from app.services.event_availability import verified_insider_dates, verified_sec_release_date
     payload = _loads_dict(alert.payload_json)
     score = payload.get("score")
     event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
     source_dates = verified_insider_dates(alert.alert_type, event_payload)
+    sec_filed = verified_sec_release_date(alert.alert_type, event_payload)
     if score is None and isinstance(event_payload, dict):
         score = event_payload.get("smart_score") or event_payload.get("confirmation_score")
     trigger = _daily_signal_trigger(alert.alert_type, event_payload or payload, score, source_type=alert.source_type)
@@ -1676,7 +1684,7 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "ticker": _normalize_ticker(alert.symbol) if alert.symbol else "Unresolved security",
         "title": alert.title,
         "date_context": (f"Traded {_friendly_date(source_dates[0])}; filed {_friendly_date(source_dates[1])}"
-                         if source_dates else None),
+                         if source_dates else f'Filed {_friendly_date(sec_filed)}' if sec_filed else None),
         "score_change": f"score {score}" if isinstance(score, (int, float)) else "--",
         "direction_change": str(payload.get("direction") or event_payload.get("direction") or "--"),
         "timestamp": _format_datetime(alert.event_created_at),
@@ -1721,6 +1729,8 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
     if is_custom_alert:
         source_stack = str(payload.get("rule_name") or "Custom Alert Rule")
     delivery_payload = event_payload or payload
+    from app.services.event_availability import verified_sec_release_date
+    sec_filed = verified_sec_release_date(alert.alert_type, delivery_payload)
     trigger = _daily_signal_trigger(alert.alert_type, delivery_payload, score, source_type=alert.source_type)
     return {
         "ticker": ticker,
@@ -1730,7 +1740,8 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "why_notable": why_notable,
         "source_stack": source_stack,
         "cautions": "Review source context before acting.",
-        "date": _format_date(alert.event_created_at),
+        "date": f'Filed {_friendly_date(sec_filed)}' if sec_filed else _format_date(alert.event_created_at),
+        "date_kind": 'sec_filing' if sec_filed else 'published',
         "latest_event_date": _format_date(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
         "href": f"{_frontend_base_url()}/watchlists/{alert.source_id}" if is_custom_alert and alert.source_id else _signal_url(ticker),
@@ -2162,6 +2173,10 @@ def _is_source_monitoring_item(item: dict[str, Any]) -> bool:
 
 
 def _activity_display_date(event: Event, payload: dict[str, Any]) -> str:
+    from app.services.event_availability import verified_sec_release_date
+    sec_filed = verified_sec_release_date(event.event_type, payload)
+    if sec_filed:
+        return f'Filed {_friendly_date(sec_filed)}'
     from app.services.event_availability import verified_insider_dates
     insider_dates = verified_insider_dates(event.event_type, payload)
     if insider_dates:
@@ -2481,7 +2496,7 @@ def _signal_content_items_html(title: str, items: list[dict[str, Any]]) -> str:
     return (
         "<div style=\"margin-top:22px;font-family:Arial,Helvetica,sans-serif;\">"
         f"<h3 style=\"margin:0 0 10px 0;font-size:16px;line-height:22px;color:#0f172a;\">{html_escape(title)}</h3>"
-        f"{_table(['Ticker', 'Headline', 'Source', 'Published', 'Link'], rows)}"
+        f"{_table(['Ticker', 'Headline', 'Source', 'Date' if any(i.get('date_kind') == 'sec_filing' for i in items) else 'Published', 'Link'], rows)}"
         "</div>"
     )
 

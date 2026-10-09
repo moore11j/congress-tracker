@@ -34,11 +34,30 @@ def sync_watchlist_content_events(db: Session, watchlist_id: int, *, per_symbol_
     ]
     if not symbols:
         return 0
+    # Inspect using the session's connection so SQLite schema inspection cannot
+    # roll back an uncommitted publication through a second engine connection.
+    schema = inspect(db.connection())
+    has_legacy_cache = schema.has_table('ticker_content_cache')
+    has_controls = schema.has_table('feed_source_controls')
     from app.services.replacement_news_events import sync_news_events
-    from app.services.finnhub_research import selected_news_provider
     news_created = sync_news_events(db, symbols, limit=per_symbol_limit)
-    if not inspect(db.connection()).has_table("ticker_content_cache"):
+    if not has_legacy_cache:
         return news_created
+    from app.services.provider_usage import fmp_provider_disabled
+    from app.services.sec_press_releases import selected_press_provider
+    from app.services.feed_source_control import FeedSourceControl, lock_feed
+    direct_press = selected_press_provider() == 'sec_edgar'
+    selected = None
+    if has_controls:
+        # Legacy and direct materializers share the switch lock. An old cache
+        # cannot become new FMP events after direct ownership or pause.
+        lock_feed(db, 'sec_earnings_release')
+        selected = db.get(FeedSourceControl, 'sec_earnings_release', populate_existing=True)
+    blocked_press = direct_press or (selected is not None and selected.provider != 'fmp')
+    direct_created = 0
+    if selected is not None and selected.provider == 'sec_edgar':
+        from app.services.sec_press_events import sync_sec_release_events
+        direct_created = sync_sec_release_events(db, symbols, limit=per_symbol_limit)
     rows = db.execute(
         select(TickerContentCache)
         .where(TickerContentCache.content_type.in_(tuple(CONTENT_EVENT_TYPES)))
@@ -46,10 +65,13 @@ def sync_watchlist_content_events(db: Session, watchlist_id: int, *, per_symbol_
         .where(TickerContentCache.status == "ok")
         .order_by(TickerContentCache.fetched_at.desc(), TickerContentCache.id.desc())
     ).scalars().all()
-    created = news_created
+    created = direct_created + news_created
     seen_cache_scopes: set[tuple[str, str]] = set()
     for row in rows:
-        if row.content_type == "news" and selected_news_provider() != "fmp":
+        from app.services.finnhub_research import selected_news_provider
+        if (fmp_provider_disabled()
+                or (row.content_type == 'news' and selected_news_provider() != 'fmp')
+                or (row.content_type == 'press_releases' and blocked_press)):
             continue
         symbol = str(row.symbol or "").strip().upper()
         scope = (row.content_type, symbol)
@@ -121,7 +143,9 @@ def _content_event(
     url = _text(item.get("url"))
     if not title:
         return None
-    published_at = _datetime(item.get("published_at") or item.get("publishedDate") or item.get("date")) or _aware(fetched_at)
+    published_at = _datetime(item.get("published_at") or item.get("publishedDate") or item.get("date"))
+    if published_at is None:
+        return None
     fingerprint = "|".join((content_type, symbol, url or "", title, published_at.isoformat()))
     key = "watchlist-content:" + hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
     return key, CONTENT_EVENT_TYPES[content_type], published_at, {

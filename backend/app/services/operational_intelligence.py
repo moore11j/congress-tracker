@@ -15,13 +15,13 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
-from sqlalchemy import func, select, or_, case
+from sqlalchemy import func, select, or_, case, inspect
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
 from app.models import ResearchEvidenceEvent, ResearchThesis, ResearchSourceCoverage, Security, WatchlistItem
 from app.services.fmp_news import get_press_releases, get_stock_news
-from app.services.provider_usage import ProviderUnavailable, ensure_fmp_live_allowed, record_provider_response
+from app.services.provider_usage import ProviderUnavailable, ensure_fmp_live_allowed, fmp_provider_disabled, record_provider_response
 from app.services.research_claim_matching import claim_matching_enabled, process_event_matches, MatchBudget
 from app.services.research_evidence import EVIDENCE_PROCESSING_VERSION, extract_document_events, upsert_source_document
 
@@ -140,6 +140,14 @@ def _ingest_article(db: Session, *, security: Security, item: dict[str, Any], do
     # Never relabel it as FMP evidence or ask the extractor to infer the body.
     if document_type == 'news_article' and item.get('source') == 'finnhub':
         return {"documents": 0, "events": 0, "matches": 0, "skipped": 1}
+    # The SEC press panel currently publishes verified source links, not full
+    # text for this legacy FMP extractor. Never invent provider attribution or
+    # extract the panel's filing-date description as issuer evidence.
+    if item.get('source') == 'sec_edgar_earnings':
+        return {"documents": 0, "events": 0, "matches": 0, "skipped": 1}
+    if document_type == 'press_release' and inspect(db.get_bind()).has_table('feed_source_controls'):
+        from app.services.feed_source_control import require_selected_source
+        require_selected_source(db, 'sec_earnings_release', 'fmp')
     source_text = _article_text(item)
     if len(source_text) < 20:
         return {"documents": 0, "events": 0, "matches": 0, "skipped": 1}
@@ -164,6 +172,22 @@ def _ingest_article(db: Session, *, security: Security, item: dict[str, Any], do
         return {"documents": int(changed), "events": 0, "matches": 0, "skipped": 0}
     matches = _match_document_events(db, document.id) if result.get("status") in {"processed", "reused"} else 0
     return {"documents": int(changed), "events": int(result.get("events_written") or 0), "matches": matches, "skipped": 0}
+
+
+def _ingest_sec_release(db, *, security, item, budget):
+    from app.services.sec_press_research import prepare_sec_research_document
+    from app.services.feed_source_control import require_selected_source
+    prepared = prepare_sec_research_document(db, security_id=security.id, accession=item['accession_number'])
+    db.commit()
+    if prepared['status'] != 'prepared':
+        return {'documents': 0, 'events': 0, 'matches': 0, 'skipped': 1, 'held': 1}
+    document = prepared['document']
+    require_selected_source(db, 'sec_earnings_release', 'sec_edgar')
+    result = extract_document_events(db, document=document, source_text=prepared['source_text'], consume_call=budget.consume)
+    # The shared extractor owns its bounded call, resume state and commit.
+    matches = _match_document_events(db, document.id) if result.get('status') in {'processed', 'reused'} else 0
+    return {'documents': int(prepared['created']), 'events': int(result.get('events_written') or 0),
+            'matches': matches, 'skipped': int(result.get('status') == 'reused'), 'held': 0, 'document_id': document.id}
 
 
 def _match_document_events(db: Session, document_id: str) -> int:
@@ -285,7 +309,10 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
         for document_type, loader in (("news_article", get_stock_news), ("press_release", get_press_releases), ("earnings_transcript", None)):
             if source_types is not None and document_type not in source_types:
                 continue
-            coverage = _coverage(db, security.id, document_type)
+            from app.services.sec_press_releases import selected_press_provider
+            direct_press = document_type == 'press_release' and selected_press_provider() == 'sec_edgar'
+            coverage_key = 'sec_earnings_release' if direct_press else document_type
+            coverage = _coverage(db, security.id, coverage_key)
             if document_type == "earnings_transcript" and not transcript_analysis_enabled():
                 coverage.status = "disabled"
                 db.commit()
@@ -297,37 +324,61 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                 totals['skipped'] += 1
                 db.commit()
                 continue
+            if fmp_provider_disabled() and not direct_press:
+                coverage.status, coverage.failure_reason = "unavailable", "provider_disabled"
+                db.commit()
+                continue
             coverage.status, coverage.failure_reason = "refreshing", None
             db.commit()
             deferred_before = budget.deferred
             source_budget = _SourceBudget(parent=budget, remaining=_source_extraction_limit())
             try:
+                source_partial = False
+                if direct_press:
+                    from app.services.feed_source_control import require_selected_source
+                    require_selected_source(db, 'sec_earnings_release', 'sec_edgar')
+                    db.commit()
                 if loader is None:
                     result = _ingest_latest_transcript(db, security=security, budget=source_budget)
                     count = result.get("documents_seen", result["documents"] + result["skipped"])
                     results = [result]
                 else:
-                    payload = loader(symbol=security.symbol, limit=20, force_refresh=True)
+                    # The separate SEC collector owns source HTTP. Research
+                    # consumes prepared evidence without opening nested crawls.
+                    payload = (loader(symbol=security.symbol, limit=20, prepared_only=True)
+                               if direct_press else loader(symbol=security.symbol, limit=20, force_refresh=True))
                     if payload.get("status") not in {"ok", "empty", "no_data"} or payload.get("cache_status") == "stale" or payload.get("is_stale"):
                         raise RuntimeError("source_unavailable")
                     items = [item for item in payload.get("items", []) if isinstance(item, dict)]
                     count = len(items)
-                    results = [_ingest_article(db, security=security, item=item, document_type=document_type, budget=source_budget) for item in items]
+                    if direct_press:
+                        if payload.get('provider') != 'sec_edgar_earnings':
+                            raise ValueError('Unexpected direct press provider')
+                        results = [_ingest_sec_release(db, security=security, item=item, budget=source_budget) for item in items]
+                        limits = payload.get('coverage') or {}
+                        source_partial = bool(limits.get('held') or limits.get('truncated') or any(r.get('held') for r in results))
+                    else:
+                        results = [_ingest_article(db, security=security, item=item, document_type=document_type, budget=source_budget) for item in items]
                 for result in results:
                     for key in ("documents", "events", "matches", "skipped"):
                         totals[key] += result[key]
-                coverage = _coverage(db, security.id, document_type)
+                coverage = _coverage(db, security.id, coverage_key)
                 coverage.documents_seen = count
                 # A successful fetch is distinct from completed analysis.
                 from app.models import ResearchSourceDocument
-                unfinished = db.scalar(select(ResearchSourceDocument.id).where(ResearchSourceDocument.security_id == security.id, ResearchSourceDocument.document_type == document_type, ResearchSourceDocument.processing_status != "processed").limit(1))
-                coverage.status = "partial" if unfinished or budget.deferred > deferred_before else "ready" if count else "empty"
+                unfinished_query = select(ResearchSourceDocument.id).where(ResearchSourceDocument.security_id == security.id, ResearchSourceDocument.document_type == document_type, ResearchSourceDocument.processing_status != "processed")
+                if direct_press:
+                    # Historical FMP failures do not describe the selected SEC
+                    # batch. Exact reused legacy documents are included by ID.
+                    unfinished_query = unfinished_query.where(ResearchSourceDocument.id.in_([r['document_id'] for r in results if r.get('document_id')]))
+                unfinished = db.scalar(unfinished_query.limit(1))
+                coverage.status = "partial" if source_partial or unfinished or budget.deferred > deferred_before else "ready" if count else "empty"
                 coverage.last_success_at = datetime.now(timezone.utc)
                 coverage.failure_reason = None
                 db.commit()
             except Exception as exc:
                 db.rollback()
-                coverage = _coverage(db, security.id, document_type)
+                coverage = _coverage(db, security.id, coverage_key)
                 coverage.status, coverage.failure_reason = "unavailable", type(exc).__name__
                 db.commit()
                 logger.warning("research_source_refresh_failed security_id=%s source=%s error=%s", security.id, document_type, type(exc).__name__)
@@ -383,12 +434,21 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
     now = datetime.now(timezone.utc)
     coverage = []
     for source in ("news_article", "press_release", "earnings_transcript"):
-        row = by_source.get(source)
+        from app.services.sec_press_releases import selected_press_provider
+        direct_press = source == 'press_release' and selected_press_provider() == 'sec_edgar'
+        row = by_source.get('sec_earnings_release' if direct_press else source)
         status = row.status if row else "not_checked"
         if source == "earnings_transcript" and not transcript_analysis_enabled():
             status = "disabled"
         elif source == "earnings_transcript" and status == "disabled":
             status = "not_checked"
+        if fmp_provider_disabled() and status != "disabled" and not direct_press:
+            status = "unavailable"
+        if direct_press:
+            from app.services.feed_source_control import FeedSourceControl
+            control = db.get(FeedSourceControl, 'sec_earnings_release') if inspect(db.get_bind()).has_table('feed_source_controls') else None
+            if control is None or control.provider != 'sec_edgar':
+                status = 'unavailable'
         last = row.last_success_at.replace(tzinfo=timezone.utc) if row and row.last_success_at else None
         if status in {"ready", "empty"} and last and now - last > timedelta(hours=6):
             status = "stale"
@@ -398,4 +458,7 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
             coverage[-1].update(status='unavailable', provider='finnhub', complete=False,
                 reason='headline_only_feed',
                 message='News headlines and links are available. Full article text is unavailable for research extraction.')
+        if direct_press:
+            coverage[-1].update(provider='sec_edgar_earnings', complete=False,
+                message='Selected recent SEC earnings releases only. Other company releases are not covered.')
     return {"symbol": security.symbol, "status": "ok" if rows else "empty", "source_version": OPERATIONAL_SOURCE_VERSION, "coverage": coverage, "lookback_days": 120, **result}

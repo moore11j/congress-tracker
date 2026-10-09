@@ -14,9 +14,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
 
-LOCK_KEYS = {'sec_form4': 84193648, 'sec_13f': 84193649, 'house_ptr': 84193650, 'senate_ptr': 84193651}
+LOCK_KEYS = {'sec_form4': 84193648, 'sec_13f': 84193649, 'house_ptr': 84193650, 'senate_ptr': 84193651,
+             'sec_earnings_release': 84193652}
 DIRECT_PROVIDERS = {'sec_form4': 'sec_edgar', 'sec_13f': 'sec_edgar',
-                    'house_ptr': 'official_house', 'senate_ptr': 'official_senate'}
+                    'house_ptr': 'official_house', 'senate_ptr': 'official_senate', 'sec_earnings_release': 'sec_edgar'}
 
 
 class FeedSourceControl(Base):

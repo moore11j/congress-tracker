@@ -7,6 +7,16 @@ filing date. Day precision matches the existing daily execution models.
 from datetime import date
 
 
+def verified_sec_release_date(event_type, payload):
+    verification = payload.get('source_verification') if isinstance(payload, dict) else None
+    if event_type != 'press_release' or not isinstance(verification, dict) or verification.get('feed') != 'sec_earnings_release':
+        return None
+    try:
+        return date.fromisoformat(payload['filing_date'])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def verified_insider_dates(event_type, payload):
     """Return explicit SEC trade/filing dates for disclosure labels only."""
     if event_type != 'insider_trade' or not payload.get('sec_verification'):

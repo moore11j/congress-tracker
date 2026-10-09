@@ -1303,12 +1303,19 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20, force_refresh
     return cached_payload
 
 
-def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20, force_refresh: bool = False) -> dict[str, Any]:
+def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20, force_refresh: bool = False, prepared_only: bool = False) -> dict[str, Any]:
     normalized_symbol = _normalize_symbol(symbol)
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
     if not normalized_symbol:
         return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
+    from app.services.sec_press_releases import selected_press_provider, get_sec_releases
+    if selected_press_provider() == 'sec_edgar':
+        return get_sec_releases(symbol=normalized_symbol, page=bounded_page, limit=bounded_limit,
+                                force_refresh=force_refresh, prepared_only=prepared_only)
+    if fmp_provider_disabled():
+        return _unavailable_payload(page=bounded_page, limit=bounded_limit,
+            message="Press release coverage is currently unavailable.", reason="provider_disabled")
 
     active_panel_request = _is_active_ticker_panel_request({"TickerPressPanel"})
     cache_key = _cache_key("press-releases", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
