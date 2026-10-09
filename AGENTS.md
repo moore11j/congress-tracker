@@ -130,3 +130,7 @@ October 9 final news activation preparation: PR488 also isolates and prewarms th
 
 
 October9 scheduled-recovery follow-up: final news normalization/cache release58dfb797 is live on both sites/all four workers, but deployment interrupted a warming lease created20:13:24. Add same-machine boot/PID-start evidence to recover only a proven dead owner; keep unknown/foreign owners held. Source selection remainsFMP and canonical publication remains off. See the news report; fresh full-universe operation remains a gate.
+
+## October 9 free research preparation checkpoint
+
+October 9 continuation: news release e83cc22c is verified on all four workers with 48 source hashes; four actual scheduled batches reach 63/63 fresh caches. Exact public-data replay preserves 864 events/adds 785/repeats zero, with 1,649 stable monitoring/intraday identities and no network/email. This branch adds default-off independent calendar/recommendation cache preparation, a bounded rotating schedule and shared-limiter/dead-owner safeguards. Exact tests and disposable two-slot PostgreSQL/repeat/overlap checks pass. Public providers remain FMP; no canonical publication, customer email, Massive request or subscription change. See docs/analyst-news-replacement-2026-10-09.md for evidence and remaining gates.
