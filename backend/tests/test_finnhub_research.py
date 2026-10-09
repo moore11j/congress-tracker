@@ -251,6 +251,30 @@ def test_selected_news_jobs_survive_fmp_shutdown(monkeypatch):
     assert _disabled_fmp_content_job("news_general")
 
 
+def test_inactive_headlines_warm_without_replacing_fmp_and_switch_back(sessions,monkeypatch):
+    monkeypatch.setenv('NEWS_PROVIDER','fmp')
+    monkeypatch.setenv('FMP_PROVIDER_DISABLED','0')
+    monkeypatch.setattr(insights,'enrich_walnut_takes',forbidden)
+    payload=adapter.normalize_news([news_row()],observed_at=NOW)
+    with sessions() as db:
+        legacy=json.dumps({'items':[{'title':'Existing FMP headline','url':'https://example.com/legacy'}],
+                           'status':'ok','page':0,'limit':1,'has_next':False})
+        db.add(InsightsSnapshot(kind=insights.INSIGHTS_HEADLINES_KIND,source='fmp',fetched_at=NOW,payload_json=legacy))
+        db.add(InsightsSnapshot(kind='finnhub-news:market:general',source='finnhub',fetched_at=NOW,payload_json=json.dumps(payload)))
+        db.commit()
+        assert insights.seed_finnhub_headlines(db)['status']=='ok'
+        assert insights.seed_finnhub_headlines(db)['status']=='cached'
+        assert db.get(InsightsSnapshot,insights.INSIGHTS_HEADLINES_KIND).payload_json==legacy
+        assert insights.get_insights_headlines(db)['items'][0]['title']=='Existing FMP headline'
+        monkeypatch.setenv('NEWS_PROVIDER','finnhub')
+        selected=insights.get_insights_headlines(db)
+        assert selected['status']=='ok' and selected['source']=='finnhub' and not selected['stale']
+        assert selected['items'][0]['title']=='Treasury yields rise'
+        assert selected['items'][0]['walnut_take_source']=='fallback'
+        monkeypatch.setenv('NEWS_PROVIDER','fmp')
+        assert insights.get_insights_headlines(db)['items'][0]['title']=='Existing FMP headline'
+
+
 @pytest.mark.parametrize("body,reason", [(b'{"error":"secret"}', "invalid_response"),
     (b'not-json', "invalid_response"), (b'[{"symbol":"AAPL"},null]', "invalid_response"),
     (b'x' * (adapter.MAX_BYTES + 1), "response_too_large")], ids=["error-object", "invalid-json", "invalid-row", "oversized"])

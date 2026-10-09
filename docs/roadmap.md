@@ -262,3 +262,6 @@ October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool 
 ## October 9 scheduled news compatibility
 
 PR487/bfb65946 resolves the observed cron pool failure. Two actual scheduled batches and an isolated replay of production public caches verify the captured news/monitoring/digest consumers;39/63 companies are fresh so far. DCI window and Berkshire punctuation fixes pass47 checks and remain next rollout. Public source activation/full universe still pending; Massive remains last. [Report](analyst-news-replacement-2026-10-09.md#corrected-scheduled-collection-and-production-cache-consumer-replay).
+
+
+October 9 final news activation preparation: PR488 also isolates and prewarms the Finnhub headline view while preserving the FMP snapshot for rollback. The exact package passes 139 news, Insights, research-consumer and digest checks, plus the real PostgreSQL two-connection test. No source switch or emails. Full scheduled coverage after deployment remains required.

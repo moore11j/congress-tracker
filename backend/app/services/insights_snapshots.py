@@ -27,6 +27,35 @@ INSIGHTS_SNAPSHOT_TTL = timedelta(minutes=5)
 INSIGHTS_HEADLINES_TTL = timedelta(minutes=15)
 
 
+def _headline_kind(source: str) -> str:
+    return INSIGHTS_HEADLINES_KIND if source == 'fmp' else f'{INSIGHTS_HEADLINES_KIND}:{source}'
+
+
+def seed_finnhub_headlines(db: Session) -> dict:
+    """Warm the inactive public view without replacing FMP or calling a model."""
+    if selected_news_provider() == 'finnhub':
+        return {'status':'selected'}
+    raw = db.get(InsightsSnapshot, 'finnhub-news:market:general')
+    if raw is None or raw.source != 'finnhub' or not timedelta(0) <= _utcnow()-_aware(raw.fetched_at) <= INSIGHTS_HEADLINES_TTL:
+        return {'status':'warming'}
+    payload = _loads_payload(raw)
+    if payload.get('source') != 'finnhub' or not isinstance(payload.get('items'), list):
+        return {'status':'unavailable'}
+    kind = _headline_kind('finnhub')
+    existing = db.get(InsightsSnapshot,kind)
+    if existing and existing.source == 'finnhub' and _aware(existing.fetched_at) >= _aware(raw.fetched_at):
+        return {'status':'cached'}
+    from app.services.walnut_takes import _fallback_take
+    items = [{**item, **_fallback_take(item)} for item in payload['items'][:50]]
+    stamp = raw.fetched_at
+    row = _store_payload(db, {'source':'finnhub','items':items,'status':'ok' if items else 'empty',
+        'coverage':payload.get('coverage'),'provider_observed_at':payload.get('observed_at'),
+        'page':0,'limit':len(items),'has_next':len(payload['items'])>50},kind=kind,source='finnhub')
+    row.fetched_at = stamp
+    db.commit()
+    return {'status':'ok','item_count':len(items)}
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -163,7 +192,7 @@ def refresh_insights_headlines(db: Session, *, limit: int = 50) -> dict[str, Any
             raise RuntimeError("empty headlines payload")
         if payload.get("stale"):
             raise RuntimeError("replacement headlines are stale")
-        existing = _load_row(db, INSIGHTS_HEADLINES_KIND)
+        existing = _load_row(db, _headline_kind(source))
         existing_payload = _loads_payload(existing) if existing is not None and existing.source == source else {}
         previous_items = existing_payload.get("items") if isinstance(existing_payload.get("items"), list) else []
         enriched_items = enrich_walnut_takes(db, items, previous_items=previous_items)
@@ -178,12 +207,12 @@ def refresh_insights_headlines(db: Session, *, limit: int = 50) -> dict[str, Any
             "limit": len(enriched_items),
             "has_next": bool(payload.get("has_next")),
         }
-        row = _store_payload(db, durable_payload, kind=INSIGHTS_HEADLINES_KIND, source=source)
+        row = _store_payload(db, durable_payload, kind=_headline_kind(source), source=source)
         logger.info("insights_headlines_refresh_timing kind=%s status=ok count=%s", INSIGHTS_HEADLINES_KIND, len(enriched_items))
         return _decorate(durable_payload, row, stale=False, cache_hit=False)
     except Exception:
         logger.exception("insights_headlines_refresh_failed kind=%s", INSIGHTS_HEADLINES_KIND)
-        row = _load_row(db, INSIGHTS_HEADLINES_KIND)
+        row = _load_row(db, _headline_kind(source))
         if _headline_row_usable(row, source):
             return _decorate(_loads_payload(row), row, stale=True, cache_hit=True)
         return _decorate({**_empty_headlines_payload(limit=limit), "source": source}, None, stale=True, cache_hit=False)
@@ -266,8 +295,8 @@ def get_insights_snapshot(db: Session, *, kind: str = INSIGHTS_SNAPSHOT_KIND) ->
 def get_insights_headlines(db: Session, *, page: int = 0, limit: int = 20) -> dict[str, Any]:
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
-    row = _load_row(db, INSIGHTS_HEADLINES_KIND)
     source = selected_news_provider()
+    row = _load_row(db, _headline_kind(source))
     if not _headline_row_usable(row, source):
         payload = {**_empty_headlines_payload(page=bounded_page, limit=bounded_limit), "source": source}
         payload.pop("message", None)
