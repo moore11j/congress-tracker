@@ -173,3 +173,10 @@ The final activation audit also separates FMP and Finnhub public headline snapsh
 
 
 Final follow-up validation: 139 exact-release news, Insights, research-consumer and digest tests pass without exclusions; the updated seeding transaction also passes the real PostgreSQL two-connection reproduction/recovery test. Forty-seven saved runtime file hashes from PR487 match across all four workers (one SSH-only receipt timed out, with the full read-only API receipt used instead). The 20:07 scheduled run reaches 59/63 fresh company caches without errors.
+
+
+### Deployment interruption and restart recovery
+
+PR488/58dfb797 is deployed successfully through workflow37985644782; both live frontend version endpoints and all four backend images match. The 20:19 read-only receipt has65 news caches but shows the lease created at20:13:24 still present until20:33:24. That worker was interrupted by deployment after the previously observed cron-load delay. The new process correctly refuses the old lease, so successful collection/freshness is not claimed for those skipped runs.
+
+The focused follow-up records machine identity, kernel boot identity, PID and process start ticks with a warming lease. An active lease can be reclaimed only on the same machine after a proven reboot or when the original process is absent/replaced; unreadable process state and other machines remain held. Legacy leases without owner evidence retain their timeout. Tests cover live owner, other machine, missing owner, changed boot, dead process, PID reuse and denied process reads. Any one-time legacy lease recovery requires its exact expiration, a newer kernel boot, the shared database lock and no live warmer. Public selection/publication remain unchanged.

@@ -71,6 +71,24 @@ def test_warming_lease_prevents_overlap_and_expired_crash_recovers(sessions,monk
         assert warmer.run(db,limit=1)['status']=='ok'
 
 
+def test_warming_lease_recovers_only_a_proven_dead_owner(monkeypatch):
+    now=datetime.now(timezone.utc)
+    owner={'machine':'cron-machine','boot':'current-boot','pid':42,'start':'100'}
+    lease={'until':(now+timedelta(minutes=20)).isoformat(),'owner':owner}
+    monkeypatch.setattr(warmer,'_process_start',lambda pid:'100')
+    assert warmer._lease_active(lease,now,owner)
+    assert warmer._lease_active(lease,now,{**owner,'machine':'other-machine'})
+    assert warmer._lease_active({'until':lease['until']},now,owner)
+    assert not warmer._lease_active(lease,now,{**owner,'boot':'new-boot'})
+    monkeypatch.setattr(warmer,'_process_start',lambda pid:None)
+    assert not warmer._lease_active(lease,now,owner)
+    monkeypatch.setattr(warmer,'_process_start',lambda pid:'200')
+    assert not warmer._lease_active(lease,now,owner)  # PID reused, original owner gone.
+    def denied(pid):raise PermissionError('not readable')
+    monkeypatch.setattr(warmer,'_process_start',denied)
+    assert warmer._lease_active(lease,now,owner)
+
+
 def test_actual_queue_retries_rate_limited_news_then_finishes_after_recovery(sessions,monkeypatch):
     from app.services import fmp_news
     monkeypatch.setenv('NEWS_PROVIDER','finnhub')
