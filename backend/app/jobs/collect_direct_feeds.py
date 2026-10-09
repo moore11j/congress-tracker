@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -19,15 +20,41 @@ from app.services.direct_feed_collection import SOURCES, collect_direct_feeds
 from app.services.direct_feed_store import dumps, ensure_direct_feed_schema, readiness_report
 
 
+def _recover_previous_boot_collector(guard):
+    """Release only this cron machine's lock-only session from a dead boot."""
+    machine = os.getenv('FLY_MACHINE_ID', '')
+    if os.getenv('FLY_PROCESS_GROUP') != 'cron' or not re.fullmatch(r'[a-zA-Z0-9]+', machine):
+        return False
+    try:
+        seconds = int(next(line.split()[1] for line in Path('/proc/stat').read_text().splitlines()
+                           if line.startswith('btime ')))
+        boot = datetime.fromtimestamp(seconds, timezone.utc)
+    except (OSError, ValueError, StopIteration, IndexError):
+        return False
+    # Application identity is assigned by db.py. A process on this machine
+    # cannot survive its boot. Never recover another machine or a live boot.
+    return guard.scalar(text("""SELECT pg_terminate_backend(a.pid)
+        FROM pg_stat_activity a WHERE a.usename=current_user
+          AND a.application_name LIKE :owner_prefix AND a.backend_start < :boot
+          AND a.state='idle in transaction' AND a.pid<>pg_backend_pid()
+          AND trim(a.query)='SELECT pg_try_advisory_lock(84193647)'
+          AND EXISTS (SELECT 1 FROM pg_locks l WHERE l.pid=a.pid
+                      AND l.locktype='advisory' AND l.objid=84193647 AND l.granted)
+        LIMIT 1"""), {'owner_prefix': f'walnut:cron:{machine}:%', 'boot': boot}) is True
+
+
 @contextmanager
-def collector_lock(bind=engine):
+def collector_lock(bind=engine, *, recover_orphaned=True):
     if bind.dialect.name != "postgresql":
         # Local SQLite is restricted to one operator; BEGIN IMMEDIATE is not
         # held across network requests. Database uniqueness still protects IDs.
         yield True
         return
     with bind.connect() as guard:
-        if not guard.scalar(text("SELECT pg_try_advisory_lock(84193647)")):
+        acquired = guard.scalar(text("SELECT pg_try_advisory_lock(84193647)"))
+        if not acquired and recover_orphaned and _recover_previous_boot_collector(guard):
+            acquired = guard.scalar(text("SELECT pg_try_advisory_lock(84193647)"))
+        if not acquired:
             yield False
             return
         guard.detach()

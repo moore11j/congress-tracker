@@ -160,10 +160,12 @@ def test_automatic_preview_opens_no_transport_and_writes_no_receipt(db, monkeypa
     monkeypatch.setenv('DIRECT_FEEDS_MODE', 'shadow')
     monkeypatch.setattr('sys.argv', ['collect_direct_13f_priors', '--since', '2026-10-01', '--preview'])
     monkeypatch.setattr(job, 'check_background_job_guard', lambda _: SimpleNamespace(proceed=True))
-    monkeypatch.setattr(job, 'collector_lock', lambda: nullcontext(True))
+    lock_options = []
+    monkeypatch.setattr(job, 'collector_lock', lambda **kw: (lock_options.append(kw), nullcontext(True))[1])
     monkeypatch.setattr(job, 'SessionLocal', lambda: db)
     monkeypatch.setattr(job, 'DirectSourceClient', lambda: pytest.fail('Preview requested transport'))
     job.main()
+    assert lock_options == [{'recover_orphaned': False}]
     report = json.loads(capsys.readouterr().out)
     assert report['status'] == 'preview' and report['selection']['document_ids'] == [doc_id]
     assert db.scalar(select(func.count()).select_from(DirectFeedRun)) == 0

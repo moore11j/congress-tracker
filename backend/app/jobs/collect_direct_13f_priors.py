@@ -28,7 +28,7 @@ def main():
     guard = check_background_job_guard('direct-13f-prior-collection')
     if not guard.proceed:
         print(dumps(guard.to_dict())); return
-    with collector_lock() as acquired:
+    with collector_lock(recover_orphaned=not args.preview) as acquired:
         if not acquired:
             print(dumps({'status': 'busy'})); return
         with SessionLocal() as db:
