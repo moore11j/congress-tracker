@@ -27,7 +27,8 @@ from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices_meta_db
 from app.services.returns import signed_return_pct, trade_direction
-from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
+from app.services.member_performance import INSIDER_METHODOLOGY_VERSION, _coerce_optional_bool, _is_market_eligible_insider_trade
+from app.insider_market_trade import canonicalize_market_trade_type
 from app.services.congress_assets import (
     CONGRESS_CRYPTO_EVENT_TYPE,
     CONGRESS_DISCLOSURE_EVENT_TYPES,
@@ -2114,11 +2115,24 @@ def _insider_trade_row(
     if not transaction_date:
         transaction_date = _insider_trade_date(event, payload)
     trade_type = _first_text_field(payload, "trade_type", "tradeType") or event.trade_type
+    source_side = (_first_text_field(payload, "transaction_code")
+                   or getattr(event, "transaction_type", None) or trade_type
+                   or _first_text_field(payload, "transaction_type", "transactionType")
+                   or raw.get("transactionType"))
     if not trade_type and outcome is not None:
         trade_type = outcome.trade_type
+    market_eligible = (
+        _is_market_eligible_insider_trade(payload.get("is_market_trade"), source_side)
+        and canonicalize_market_trade_type(source_side) is not None
+        and _coerce_optional_bool(payload.get("is_derivative")) is not True
+    )
+    # Quote fallbacks and old saved outcomes must not turn withholding, awards
+    # or derivatives into ordinary-stock performance on any insider surface.
+    if not market_eligible:
+        fallback_pnl_pct = None
     normalized_price = normalize_insider_price(symbol=symbol, payload=payload, trade_date=transaction_date)
     price = normalized_price.display_price if normalized_price.is_comparable else None
-    if price is None and outcome is not None and outcome.entry_price is not None:
+    if price is None and market_eligible and outcome is not None and outcome.entry_price is not None:
         price = float(outcome.entry_price)
     reported_price = normalized_price.raw_price
     amount_min = _first_numeric_field(payload, "amount_min", "amountMin", "trade_value_min", "tradeValueMin")
@@ -2154,8 +2168,9 @@ def _insider_trade_row(
     if trade_value is None:
         trade_value = amount_max if amount_max is not None else amount_min
 
-    display_metrics = trade_outcome_display_metrics(outcome)
-    payload_pnl_pct = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
+    display_metrics = trade_outcome_display_metrics(outcome if market_eligible else None)
+    payload_pnl_pct = (_first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
+                       if market_eligible else None)
     if prefer_fallback_pnl and fallback_pnl_pct is not None:
         pnl_pct = fallback_pnl_pct
         pnl_source = "quote_cache"
