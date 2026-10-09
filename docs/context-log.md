@@ -232,3 +232,6 @@ October 9 follow-up: first actual 19:49 news cron exposed a two-connection pool 
 
 
 October 9 final news activation preparation: PR488 also isolates and prewarms the Finnhub headline view while preserving the FMP snapshot for rollback. The exact package passes 139 news, Insights, research-consumer and digest checks, plus the real PostgreSQL two-connection test. No source switch or emails. Full scheduled coverage after deployment remains required.
+
+
+October9 scheduled-recovery follow-up: final news normalization/cache release58dfb797 is live on both sites/all four workers, but deployment interrupted a warming lease created20:13:24. Add same-machine boot/PID-start evidence to recover only a proven dead owner; keep unknown/foreign owners held. Source selection remainsFMP and canonical publication remains off. See the news report; fresh full-universe operation remains a gate.

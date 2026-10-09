@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import uuid
+from pathlib import Path
 
 from sqlalchemy import func, select, text
 from app.models import InsightsSnapshot, Security, Watchlist, WatchlistItem
@@ -12,6 +13,40 @@ from app.utils.symbols import normalize_symbol
 KEY = 'finnhub:news-warming:v1'
 STOP_REASONS = {'rate_limited', 'provider_cooldown', 'request_budget_exhausted',
                 'request_budget_busy', 'request_budget_unavailable', 'authentication_failed', 'access_denied'}
+
+
+def _process_start(pid):
+    try:
+        return Path(f'/proc/{int(pid)}/stat').read_text().rsplit(') ',1)[1].split()[19]
+    except FileNotFoundError:
+        return None
+
+
+def _owner():
+    machine = os.getenv('FLY_MACHINE_ID')
+    if not machine:
+        return None
+    try:
+        return {'machine':machine,'boot':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                'pid':os.getpid(),'start':_process_start(os.getpid())}
+    except (OSError,ValueError,IndexError):
+        return None
+
+
+def _lease_active(lease, now, owner):
+    if not lease.get('until') or datetime.fromisoformat(lease['until']) <= now:
+        return False
+    previous = lease.get('owner')
+    if not owner or not previous or previous.get('machine') != owner['machine']:
+        return True
+    if previous.get('boot') and previous['boot'] != owner['boot']:
+        return False  # Same machine has rebooted; its old process cannot survive.
+    if previous.get('boot') == owner['boot'] and previous.get('start') and previous.get('pid'):
+        try:
+            return _process_start(previous['pid']) == previous['start']
+        except (OSError,ValueError,IndexError):
+            pass  # Inability to inspect another process is not proof it exited.
+    return True
 
 
 def run(db, *, limit=20):
@@ -28,7 +63,8 @@ def run(db, *, limit=20):
     row = db.get(InsightsSnapshot, KEY, populate_existing=True)
     state = json.loads(row.payload_json) if row else {}
     lease = state.get('lease') or {}
-    if lease.get('until') and datetime.fromisoformat(lease['until']) > now:
+    owner = _owner()
+    if _lease_active(lease, now, owner):
         return {'status': 'busy', 'reason': 'active_warming_lease'}
     attempts = state.get('attempted_at', {})
     # Read only public ticker identities from owned watchlists. Keep an explicit
@@ -56,7 +92,7 @@ def run(db, *, limit=20):
         row = InsightsSnapshot(kind=KEY,source='finnhub',fetched_at=now,payload_json='{}')
         db.add(row)
     row.source, row.fetched_at = 'finnhub', now
-    row.payload_json = json.dumps({**state, 'lease':{'token':token,
+    row.payload_json = json.dumps({**state, 'lease':{'token':token,'owner':owner,
         'until':(now+timedelta(minutes=20)).isoformat()}},sort_keys=True)
     db.commit()
     results = []
