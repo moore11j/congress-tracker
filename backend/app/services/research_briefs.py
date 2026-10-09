@@ -4114,17 +4114,30 @@ def _current_market_state(quote: dict[str, Any] | None, fundamentals: dict[str, 
 
 
 def _cached_financials_snapshot(db: Session, symbol: str) -> dict[str, Any] | None:
-    row = (
-        db.execute(
-            select(TickerFinancialsCache)
-            .where(func.upper(TickerFinancialsCache.symbol) == symbol)
-            .order_by(desc(TickerFinancialsCache.fetched_at))
-            .limit(1)
-        ).scalar_one_or_none()
-    )
-    if not row:
+    from app.services import sec_financial_statements
+    from app.services.provider_usage import fmp_provider_disabled
+    if sec_financial_statements.selected():
+        payload = sec_financial_statements.cached_payload(db, symbol)
+        if payload is None:
+            return None
+        from app.models import InsightsSnapshot
+        row = db.get(InsightsSnapshot, f'sec-financials:{symbol}:v1')
+        status = payload.get('status')
+    elif fmp_provider_disabled():
         return None
-    payload = _load_json(row.payload_json)
+    else:
+        row = (
+            db.execute(
+                select(TickerFinancialsCache)
+                .where(func.upper(TickerFinancialsCache.symbol) == symbol)
+                .order_by(desc(TickerFinancialsCache.fetched_at))
+                .limit(1)
+            ).scalar_one_or_none()
+        )
+        if not row:
+            return None
+        payload = _load_json(row.payload_json)
+        status = row.status
     if not isinstance(payload, dict):
         return None
     subsections = payload.get("subsections") if isinstance(payload.get("subsections"), dict) else {}
@@ -4137,7 +4150,8 @@ def _cached_financials_snapshot(db: Session, symbol: str) -> dict[str, Any] | No
     earnings_subsection = subsections.get("earnings") if isinstance(subsections.get("earnings"), dict) else {}
     return _compact(
         {
-            "status": payload.get("status") or row.status,
+            "status": payload.get("status") or status,
+            "source": payload.get("source"),
             "as_of": _iso(row.fetched_at),
             "latest_quarter": (payload.get("summary") or {}).get("latestQuarter") if isinstance(payload.get("summary"), dict) else None,
             "forecasts": payload.get("forecasts") or analyst_estimates.get("data") or sections.get("analyst_estimates"),

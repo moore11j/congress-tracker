@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 import platform
 
-files = ['app/jobs/warm_sec_research.py', 'app/services/sec_directory.py',
+files = ['app/main.py', 'app/services/research_briefs.py', 'app/services/ticker_hydration.py',
+         'app/jobs/warm_sec_research.py', 'app/services/sec_directory.py',
          'app/services/sec_financial_statements.py', 'app/services/sec_fundamentals.py',
          'app/services/ticker_financials.py', 'crontab']
 report = {'observed_at': datetime.now(timezone.utc).isoformat(), 'runtime': platform.python_version(),

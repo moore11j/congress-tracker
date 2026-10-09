@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import Base
 from app.models import InsightsSnapshot, TickerFinancialsCache
 from app import main as api
+from app.services import research_briefs, ticker_hydration
 
 
 @pytest.fixture
@@ -54,3 +55,22 @@ def test_missing_selected_cache_and_global_retirement_cannot_reuse_old_financial
     monkeypatch.setenv('FINANCIAL_STATEMENTS_PROVIDER', 'fmp')
     monkeypatch.setenv('FMP_PROVIDER_DISABLED', '1')
     assert api._peer_compare_financials_fallbacks(db, 'ABC') == {}
+
+
+@pytest.mark.parametrize('age', [timedelta(0), timedelta(hours=25)])
+def test_research_hydration_and_diagnostics_use_selected_source(db, monkeypatch, age):
+    _save(db, age=age)
+    current = age == timedelta(0)
+    snapshot = research_briefs._cached_financials_snapshot(db, 'ABC')
+    assert (snapshot is not None) == current
+    if snapshot:
+        assert snapshot['source'] == 'sec_edgar' and snapshot['status'] == 'partial'
+    assert (ticker_hydration._financials_content_state(db, 'ABC', {}, {}) == 'ok') == current
+    assert api._ticker_debug_financials_status(db, 'ABC')['present'] == current
+    monkeypatch.setenv('FINANCIAL_STATEMENTS_PROVIDER', 'fmp')
+    assert research_briefs._cached_financials_snapshot(db, 'ABC')['status'] == 'ok'
+    assert ticker_hydration._financials_content_state(db, 'ABC', {}, {}) == 'ok'
+    monkeypatch.setenv('FMP_PROVIDER_DISABLED', '1')
+    assert research_briefs._cached_financials_snapshot(db, 'ABC') is None
+    assert ticker_hydration._financials_content_state(db, 'ABC', {}, {}) == 'unavailable'
+    assert api._ticker_debug_financials_status(db, 'ABC')['present'] is False

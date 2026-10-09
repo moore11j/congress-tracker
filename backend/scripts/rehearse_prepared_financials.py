@@ -24,6 +24,7 @@ from app.db import Base
 from app.models import InsightsSnapshot, TickerFinancialsCache
 from app.request_priority import set_request_context, reset_request_context
 from app.services import sec_financial_statements as sec
+from app.services import research_briefs, ticker_hydration
 
 receipt = json.loads(a.receipt.read_text(encoding='utf-8'))
 assert receipt['transaction_read_only'] and not receipt['caches_truncated']
@@ -54,6 +55,12 @@ with ExitStack() as stack:
                 assert result == api.ticker_financials(symbol)
                 comparison = api._peer_compare_financials_fallbacks(db, symbol)
                 assert comparison.get('forward_pe') is None
+                context = research_briefs._cached_financials_snapshot(db, symbol)
+                assert context['source'] == 'sec_edgar' and context['status'] == expected['status']
+                state = ticker_hydration._financials_content_state(db, symbol, {}, {})
+                assert state == ('ok' if expected['status'] in {'ok', 'partial'} else 'unavailable')
+                diagnostic = api._ticker_debug_financials_status(db, symbol)
+                assert diagnostic['present'] and diagnostic['status'] == expected['status']
                 assert result.get('estimates', []) == []
                 panels[symbol] = {'prepared_status': expected['status'], 'public_status': result['status'], 'annual_periods': len(result.get('annual', [])), 'quarterly_periods': len(result.get('quarterly', [])), 'comparison': comparison}
             assert db.get(TickerFinancialsCache, 'AAPL').payload_json == legacy
