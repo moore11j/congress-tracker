@@ -5,7 +5,8 @@ import json
 import re
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import DateTime, Text, UniqueConstraint, select
+from sqlalchemy import DateTime, Text, UniqueConstraint, select, cast, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -149,10 +150,15 @@ def publish_batch(db, *, limit=100, retry_held=False):
         raise ValueError('Publication limit must be between 1 and 200')
     if db.new or db.dirty or db.deleted:
         raise ValueError('Feed writer session has unrelated pending changes')
-    require_selected_source(db, 'sec_form4', 'sec_edgar')
+    control = require_selected_source(db, 'sec_form4', 'sec_edgar')
+    filing_day = (cast(DirectFeedDocument.metadata_json, JSONB)['filing_date'].astext
+                  if db.get_bind().dialect.name == 'postgresql'
+                  else func.json_extract(DirectFeedDocument.metadata_json, '$.filing_date'))
+    today = datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York')).date().isoformat()
     query = select(DirectFeedDocument.id).outerjoin(DirectFeedPublication,
         DirectFeedPublication.document_id == DirectFeedDocument.id).where(
-        DirectFeedDocument.feed == 'sec_form4', DirectFeedDocument.status == 'parsed')
+        DirectFeedDocument.feed == 'sec_form4', DirectFeedDocument.status == 'parsed',
+        filing_day >= control.publish_since.isoformat(), filing_day < today)
     if not retry_held:
         query = query.where(DirectFeedPublication.id.is_(None))
     else:

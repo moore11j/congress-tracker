@@ -7,6 +7,18 @@ filing date. Day precision matches the existing daily execution models.
 from datetime import date
 
 
+def verified_insider_dates(event_type, payload):
+    """Return explicit SEC trade/filing dates for disclosure labels only."""
+    if event_type != 'insider_trade' or not payload.get('sec_verification'):
+        return None
+    try:
+        traded = date.fromisoformat(str(payload['transaction_date'])[:10])
+        filed = date.fromisoformat(str(payload['filing_date'])[:10])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (traded, filed) if traded <= filed else None
+
+
 def available_event_date(payload, filing_date):
     if 'source_availability' not in payload:
         return filing_date

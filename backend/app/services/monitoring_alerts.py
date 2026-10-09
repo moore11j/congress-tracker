@@ -84,6 +84,10 @@ PREMIUM_SIGNAL_PAYLOAD_KEYS = {
 
 
 def event_freshness_at(event: Event) -> datetime:
+    payload = _loads_dict_or_none(event.payload_json) or {}
+    evidence = payload.get('source_availability')
+    if isinstance(evidence, dict) and evidence.get('basis') in {'direct_publication', 'retained_legacy_report_date'}:
+        return event.ts
     return _event_effective_activity_ts(event)
 
 
@@ -1119,6 +1123,11 @@ def _event_title(event: Event, payload: dict[str, Any]) -> str:
 
 
 def _event_body(event: Event, payload: dict[str, Any]) -> str | None:
+    from app.services.event_availability import verified_insider_dates
+    insider_dates = verified_insider_dates(event.event_type, payload)
+    if insider_dates:
+        traded, filed = insider_dates
+        return f"Insider transaction on {traded.isoformat()}, filed {filed.isoformat()}."
     if event.event_type in {"news_article", "press_release"}:
         return payload.get("summary") or payload.get("publisher") or "New watchlist market content."
     date_value = (

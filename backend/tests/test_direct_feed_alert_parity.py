@@ -65,6 +65,49 @@ def test_new_sec_events_replay_without_duplicate_alerts_and_keep_disclosure_date
     assert db.scalar(select(func.count()).select_from(EmailDelivery)) == 0
 
 
+def test_late_disclosed_sec_trade_keeps_transaction_and_filing_dates_in_all_alert_items():
+    from app.services.monitoring_alerts import _event_body
+    payload = {'transaction_date':'2025-03-25', 'filing_date':'2026-10-07',
+        'reporting_owner_name':'Example insider', 'transaction_code':'P',
+        'is_derivative':False, 'sec_verification':{'feed':'sec_form4'}}
+    event = Event(event_type='insider_trade', source='sec_edgar', symbol='IRIX',
+        ts=datetime(2026,10,9,tzinfo=timezone.utc), event_date=datetime(2026,10,7,tzinfo=timezone.utc),
+        payload_json=json.dumps(payload))
+    body = _event_body(event,payload)
+    assert body == 'Insider transaction on 2025-03-25, filed 2026-10-07.'
+    for item in (digests._event_item(event), digests._activity_item_from_event(event)):
+        assert item['date'] == 'Traded Mar 25, 2025; filed Oct 7, 2026'
+    assert '2026-10-09' not in body  # Publication is not the trade or filing day.
+
+
+def test_new_sec_arrival_reaches_current_monitoring_and_daily_digest_once(db, monkeypatch):
+    event = Event(event_type='insider_trade', source='sec_edgar', symbol='NVDA',
+        ts=datetime(2026,10,9,0,30,tzinfo=timezone.utc), event_date=datetime(2026,10,7,tzinfo=timezone.utc),
+        payload_json=json.dumps({'symbol':'NVDA', 'reporting_owner_name':'Example insider',
+            'transaction_date':'2025-03-25','filing_date':'2026-10-07','transaction_code':'P',
+            'is_derivative':False, 'sec_verification':{'feed':'sec_form4'},
+            'source_availability':{'date':'2026-10-09','basis':'direct_publication'}}))
+    db.add(event); db.commit()
+    user = _user(db,'late-disclosure@example.test')
+    watchlist = _watchlist(db,user,alert_triggers=['insider_activity'])
+    assert _ensure_alert_for_event(db,user_id=user.id,watchlist=watchlist,event=event)
+    db.commit()
+    alert = db.scalar(select(MonitoringAlert))
+    assert alert.event_created_at == event.ts
+    start,end=datetime(2026,10,9,tzinfo=timezone.utc),datetime(2026,10,10,tzinfo=timezone.utc)
+    monkeypatch.setattr(digests,'_upcoming_calendar_events_for_digest',lambda *a,**k:([],'Calendar outside fixture'))
+    monitor=digests.build_monitoring_digest(db,user,watchlist,start,window_end=end)
+    daily=digests.build_signal_alert_digest(db,user,start,window_end=end)
+    activity=digests.build_watchlist_activity_digest(db,user,watchlist,start)
+    assert monitor.items_count == daily.items_count == activity.items_count == 1
+    assert '2025-03-25' in monitor.context['items_text'] and '2026-10-07' in monitor.context['items_text']
+    assert 'Traded Mar 25, 2025; filed Oct 7, 2026' in monitor.context['items_html']
+    assert 'Traded Mar 25, 2025; filed Oct 7, 2026' in daily.context['insider_trades_text']
+    assert not _ensure_alert_for_event(db,user_id=user.id,watchlist=watchlist,event=event)
+    assert db.scalar(select(func.count()).select_from(MonitoringAlert)) == 1
+    assert db.scalar(select(func.count()).select_from(EmailDelivery)) == 0
+
+
 @pytest.mark.parametrize('conflict', ['legacy_raw', 'legacy_event', 'backfill', 'normalized_only'])
 def test_publication_holds_unmapped_provider_rows_and_historical_alert_imports(db, conflict):
     doc = form4_document()

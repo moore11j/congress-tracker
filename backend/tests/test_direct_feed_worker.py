@@ -168,6 +168,38 @@ def test_held_original_bytes_recollection_keeps_one_revision_and_can_retry(db):
     assert db.scalar(select(func.count()).select_from(DirectFeedRevision)) == 1
 
 
+def test_old_backlog_does_not_consume_the_current_publication_batch(db):
+    old_id, doc = stage(db)
+    newer = {**doc['metadata'], 'key':'0000320193-26-000002', 'filing_date':'2026-06-04',
+        'url':'https://www.sec.gov/Archives/edgar/data/320193/0000320193-26-000002.txt'}
+    raw = doc['raw'].replace(b'0000320193-26-000001', b'0000320193-26-000002').replace(b'20260603', b'20260604')
+    source, parsed, reasons = parse_document('sec_form4',raw,newer)
+    assert not reasons
+    row = discover(db,'sec_form4',newer)
+    record_document(db,row,raw,source,parsed)
+    current_id = row.id
+    db.commit()
+    activate(db,since=date(2026,6,4))
+    result = worker.publish_batch(db,limit=1)
+    assert result['processed'] == 1 and result['inserted_events'] == 4
+    assert result['results'][0]['document_id'] == current_id
+    assert db.scalar(select(worker.DirectFeedPublication).where(worker.DirectFeedPublication.document_id==old_id)) is None
+    assert worker.publish_batch(db,limit=1,retry_held=True)['processed'] == 0
+
+
+def test_incomplete_filing_day_does_not_consume_batch_or_create_hold(db):
+    from zoneinfo import ZoneInfo
+    document_id, _ = stage(db)
+    row = db.get(DirectFeedDocument, document_id)
+    metadata = json.loads(row.metadata_json)
+    metadata['filing_date'] = datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York')).date().isoformat()
+    row.metadata_json = json.dumps(metadata)
+    db.commit()
+    activate(db)
+    assert worker.publish_batch(db)['processed'] == 0
+    assert db.scalar(select(func.count()).select_from(worker.DirectFeedPublication)) == 0
+
+
 def test_source_edit_after_publication_is_held_without_replacing_receipt(db):
     document_id, _ = stage(db)
     activate(db)

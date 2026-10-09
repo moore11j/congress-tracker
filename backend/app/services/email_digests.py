@@ -1392,7 +1392,7 @@ def _event_item(event: Event) -> dict[str, Any]:
         "actor": actor,
         "trade": _activity_action(event, payload) if reported_holdings or payload.get("sec_verification") else event.trade_type or event.transaction_type or payload.get("action") or "activity",
         "amount": _activity_value(event, payload) if reported_holdings else _amount(event.amount_min, event.amount_max),
-        "date": _activity_display_date(event, payload) if reported_holdings else _format_date(event.event_date or event.ts),
+        "date": _activity_display_date(event, payload) if reported_holdings or payload.get("sec_verification") else _format_date(event.event_date or event.ts),
         "signal_score": _numeric_score(payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)),
     }
 
@@ -1651,15 +1651,19 @@ def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
 
 
 def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
+    from app.services.event_availability import verified_insider_dates
     payload = _loads_dict(alert.payload_json)
     score = payload.get("score")
     event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    source_dates = verified_insider_dates(alert.alert_type, event_payload)
     if score is None and isinstance(event_payload, dict):
         score = event_payload.get("smart_score") or event_payload.get("confirmation_score")
     trigger = _daily_signal_trigger(alert.alert_type, event_payload or payload, score, source_type=alert.source_type)
     return {
         "ticker": _normalize_ticker(alert.symbol) if alert.symbol else "Unresolved security",
         "title": alert.title,
+        "date_context": (f"Traded {_friendly_date(source_dates[0])}; filed {_friendly_date(source_dates[1])}"
+                         if source_dates else None),
         "score_change": f"score {score}" if isinstance(score, (int, float)) else "--",
         "direction_change": str(payload.get("direction") or event_payload.get("direction") or "--"),
         "timestamp": _format_datetime(alert.event_created_at),
@@ -2145,6 +2149,11 @@ def _is_source_monitoring_item(item: dict[str, Any]) -> bool:
 
 
 def _activity_display_date(event: Event, payload: dict[str, Any]) -> str:
+    from app.services.event_availability import verified_insider_dates
+    insider_dates = verified_insider_dates(event.event_type, payload)
+    if insider_dates:
+        traded, filed = insider_dates
+        return f"Traded {_friendly_date(traded)}; filed {_friendly_date(filed)}"
     normalized_type = (event.event_type or "").strip().lower()
     if normalized_type.startswith("congress_trade"):
         date_keys = ("filing_date", "report_date", "filingDate", "reportDate")
@@ -2359,7 +2368,9 @@ def _monitoring_items_html(items: list[dict[str, Any]]) -> str:
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
-        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['title']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['title']))}"
+        + (f"<br><span style=\"color:#64748b;font-size:11px;\">{html_escape(str(item['date_context']))}</span>"
+           if item.get('date_context') else "") + "</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['score_change']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['direction_change']))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('monitored_through', '--')))}<br><span style=\"color:#64748b;font-size:11px;\">{html_escape(str(item.get('alert_type', ''))).replace('_', ' ')}</span></td>"
