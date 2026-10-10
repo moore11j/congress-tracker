@@ -114,6 +114,7 @@ def prepare_news_thumbnails(db, *, limit=8):
     now=datetime.now(timezone.utc)
     def aware(stamp):return stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp
     snapshots=list(db.scalars(select(InsightsSnapshot).where(InsightsSnapshot.kind.in_(KINDS),InsightsSnapshot.source=='finnhub')))
+    snapshots.sort(key=lambda row: KINDS.index(row.kind))
     urls=[]
     for row in snapshots:
         if not timedelta(0)<=now-aware(row.fetched_at)<=timedelta(minutes=15):continue

@@ -92,3 +92,20 @@ def test_cached_fallback_preserves_timestamps_headlines_and_repeats_without_fetc
         after=[(r.kind,r.payload_json,r.fetched_at) for r in db.scalars(select(InsightsSnapshot).order_by(InsightsSnapshot.kind))]
         assert third['attempted']==0 and len(calls)==3 and before==after
     engine.dispose()
+
+
+def test_main_headlines_receive_bounded_extraction_before_secondary_feeds(monkeypatch):
+    engine=create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(engine,tables=[InsightsSnapshot.__table__])
+    now=datetime.now(timezone.utc)
+    with Session(engine) as db:
+        for feed in ['crypto','forex','general']:
+            payload=normalize_news([{'id':1,'headline':feed,'url':f'https://publisher.example/{feed}',
+                'source':'Publisher','datetime':now.timestamp()}],observed_at=now)
+            db.add(InsightsSnapshot(kind='finnhub-news:market:'+feed,source='finnhub',fetched_at=now,payload_json=json.dumps(payload)))
+        db.commit()
+        calls=[]
+        monkeypatch.setattr(images,'extract_image',lambda url,**kw:calls.append(url) or None)
+        result=images.prepare_news_thumbnails(db,limit=1)
+        assert calls==['https://publisher.example/general'] and result['pending']==2
+    engine.dispose()
