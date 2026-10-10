@@ -49,6 +49,7 @@ from app.models import (
 from app.services.confirmation_score import get_confirmation_score_bundles_for_tickers
 from app.services.email_delivery import send_email
 from app.services.openai_request_audit import audited_openai_request
+from app.services.provider_usage import ensure_fmp_live_allowed, record_provider_response, fmp_provider_disabled
 
 logger = logging.getLogger(__name__)
 
@@ -813,7 +814,10 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         warnings.append(
             f"OpenAI credits low: {openai_credits['label']} remaining. Repurchase before AI Growth generation stalls."
         )
-    if not statuses[FMP_API_KEY]["configured"]:
+    articles_disabled = fmp_provider_disabled()
+    if articles_disabled:
+        warnings.append("Article feed disabled; article-reactive campaigns are unavailable.")
+    elif not statuses[FMP_API_KEY]["configured"]:
         warnings.append("Article feed credentials missing")
     if any(status.get("deprecated_admin_setting") for status in statuses.values()) or _has_legacy_db_provider_setting(db):
         warnings.append("Deprecated DB-stored provider credentials detected; ignored.")
@@ -850,9 +854,9 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "openai_credits_label": openai_credits["label"],
         "openai_credits_source": openai_credits.get("source"),
         "openai_credits_error": openai_credits.get("error"),
-        "fmp_articles_configured": bool(statuses[FMP_API_KEY]["configured"]),
-        "fmp_articles_status": "configured" if statuses[FMP_API_KEY]["configured"] else "missing",
-        "fmp_articles_missing": [] if statuses[FMP_API_KEY]["configured"] else [FMP_API_KEY],
+        "fmp_articles_configured": not articles_disabled and bool(statuses[FMP_API_KEY]["configured"]),
+        "fmp_articles_status": "disabled" if articles_disabled else "configured" if statuses[FMP_API_KEY]["configured"] else "missing",
+        "fmp_articles_missing": [] if articles_disabled or statuses[FMP_API_KEY]["configured"] else [FMP_API_KEY],
         "fmp_articles_provider": "Article feed",
         "reddit_configured": reddit_configured,
         "reddit_status": "configured" if reddit_configured else "missing",
@@ -1551,18 +1555,20 @@ def _posting_links(opportunity: AiMarketingOpportunity, *, suggestion: AiMarketi
 
 
 def _article_provider_status(db: Session | None = None) -> dict[str, Any]:
-    configured = bool(resolved_setting_value(db, FMP_API_KEY))
+    disabled = fmp_provider_disabled()
+    configured = not disabled and bool(resolved_setting_value(db, FMP_API_KEY))
     return {
         "provider": ARTICLE_REACTIVE_PROVIDER,
         "label": "Article feed",
         "configured": configured,
-        "status": "configured" if configured else "missing",
+        "status": "disabled" if disabled else "configured" if configured else "missing",
         "managed_by": "server_env",
-        "admin_message": "Article feed credentials are managed outside the admin UI.",
+        "admin_message": "Article feed disabled; article-reactive campaigns are unavailable." if disabled else "Article feed credentials are managed outside the admin UI.",
     }
 
 
 def fetch_fmp_articles(db: Session | None = None, *, page: int = 0, limit: int = ARTICLE_RUN_DEFAULT_LIMIT) -> list[dict[str, Any]]:
+    ensure_fmp_live_allowed(category="marketing:articles")
     api_key = resolved_setting_value(db, FMP_API_KEY)
     if not api_key:
         raise MissingMarketingCredential("Article feed credentials missing. Configure the server article feed credentials.")
@@ -1571,6 +1577,7 @@ def fetch_fmp_articles(db: Session | None = None, *, page: int = 0, limit: int =
         params={"page": page, "limit": limit, "apikey": api_key},
         timeout=25,
     )
+    record_provider_response(category="marketing:articles", status_code=response.status_code)
     response.raise_for_status()
     data = response.json()
     if isinstance(data, dict):
@@ -3053,6 +3060,12 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         "suggested": 0,
         "opportunities": [],
     }
+    if fmp_provider_disabled():
+        # Retirement is not a provider outage or a successful campaign run.
+        # Preserve saved drafts, cadence and history without model/email work.
+        summary["status"] = "provider_disabled"
+        summary["warnings"].append("Article feed disabled; no article run was performed.")
+        return summary
     status = str(campaign.status or ("active" if campaign.enabled else "paused")).lower()
     if not campaign.enabled or status != "active":
         summary["status"] = status if status in {"paused", "stopped"} else "paused"
@@ -3306,6 +3319,9 @@ def x_reply_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | None 
 
 
 def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    if fmp_provider_disabled():
+        return {"status": "provider_disabled", "campaigns_checked": 0,
+                "campaigns_run": 0, "dry_run": dry_run, "items": []}
     campaigns = db.execute(
         select(AiMarketingCampaign).where(
             or_(AiMarketingCampaign.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE, AiMarketingCampaign.mode == ARTICLE_REACTIVE_CAMPAIGN_TYPE),

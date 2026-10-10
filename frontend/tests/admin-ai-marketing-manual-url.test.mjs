@@ -174,7 +174,7 @@ test("draft queue keeps source, Walnut, and X links visible without auto-posting
 test("Article-Reactive X campaign form exposes provider status and no FMP secret input", () => {
   for (const label of [
     "Article-Reactive X Campaigns",
-    "FMP Articles API",
+    "Article feed",
     "Source provider",
     "Managed outside admin UI",
     "Max drafts per day",

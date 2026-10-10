@@ -2895,6 +2895,8 @@ def test_article_reactive_campaign_only_reacts_to_third_party_article_sources(mo
     monkeypatch.setenv(FMP_API_KEY, "fmp-test")
 
     class FakeFmpResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -2939,6 +2941,8 @@ def test_article_reactive_fetcher_uses_general_news_endpoint_and_env_key(monkeyp
     captured = {}
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -3034,6 +3038,8 @@ def test_article_reactive_campaign_generates_draft_emails_and_enforces_daily_cap
         return {"id": 99, "status": "sent"}
 
     class FakeFmpResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
