@@ -4,7 +4,7 @@ from decimal import Decimal
 import hashlib
 import json
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from app.models import (Event, InstitutionalActivityEvent, InstitutionalFiling,
                         InstitutionalPosition, InstitutionalPositionChange)
@@ -54,6 +54,13 @@ def _derived_state(db, filing, publish_since):
             or proof.get('positions_sha256') != _positions_digest(db, prior)):
         return 'waiting_verified_prior_quarter', None
     positions = _positions(db, prior) + _positions(db, filing)
+    # S&P Global distributed MBGL on July 1, 2026. A first reported position
+    # across this boundary cannot establish a discretionary purchase.
+    # https://www.sec.gov/Archives/edgar/data/64040/000110465926080571/tm2619099d2_ex99-2.htm
+    if ((prior.report_year, prior.report_quarter) == (2026, 2)
+            and (filing.report_year, filing.report_quarter) == (2026, 3)
+            and any(p.cusip == '60744M106' and not p.put_call for p in _positions(db, filing))):
+        return 'waiting_distribution_treatment', prior
     if any(not p.normalized_symbol for p in positions if not p.put_call):
         return 'waiting_equity_symbol_mapping', prior
     # A symbol rename with the same CUSIP must not leave the older symbol's
@@ -76,16 +83,16 @@ def _derived_state(db, filing, publish_since):
     return 'ready', prior
 
 
-def rehearse_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=()):
+def rehearse_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), reference_documents=()):
     bind = db.get_bind()
     if bind.dialect.name != 'sqlite' or bind.url.database != ':memory:':
         raise ValueError('Publication rehearsal requires in-memory SQLite')
     result = _project_new_13f(db, document, publish_since=publish_since,
-        identifier_documents=identifier_documents, comparison_documents=comparison_documents)
+        identifier_documents=identifier_documents, comparison_documents=comparison_documents, reference_documents=reference_documents)
     return {**result, 'status': 'rehearsed' if result['status'] == 'projected' else result['status'], 'production_writes': 0}
 
 
-def _project_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), prepared_evidence=None):
+def _project_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), prepared_evidence=None, reference_documents=()):
     if db.new or db.dirty or db.deleted:
         raise ValueError('Rehearsal session has unrelated pending changes')
     raw, discovery = document['raw'], document['metadata']
@@ -155,8 +162,69 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
                     and str(payload.get('report_quarter')) == str(metadata['report_quarter'])):
                 return held('Unlinked holder-quarter feed event requires reconciliation')
 
+    # References are available when actually retrieved, not at the historical
+    # filing date. Publication below uses the actual processing timestamp.
+    from app.services.institutional_reference import reference_identity, resolve_reference_candidate
+    cusips = {row['cusip'].strip().upper() for row in rows}
+    reference_by_cusip = {}
+    observed_by = datetime.now(timezone.utc).isoformat()
+    for source in reference_documents:
+        query = source.get('query', {})
+        if query.get('date') != metadata['report_period'] or query.get('cusip') not in cusips:
+            continue
+        identity = reference_identity(source, cusip=query['cusip'],
+            report_period=metadata['report_period'], observed_by=observed_by)
+        if identity['status'] != 'verified':
+            continue
+        previous = reference_by_cusip.get(query['cusip'])
+        if previous is not None and previous != identity:
+            return held('Conflicting reference evidence for one security and period')
+        reference_by_cusip[query['cusip']] = identity
+    mappings = {}
+    for identifier in identifiers:
+        if identifier['cusip'] in cusips:
+            mappings.setdefault(identifier['cusip'], set()).add(identifier['symbol'])
+    if created or reference_by_cusip:
+        for cusip, symbol in db.execute(select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol).outerjoin(
+                InstitutionalFiling, InstitutionalPosition.filing_id == InstitutionalFiling.id).where(
+                or_(InstitutionalFiling.id.is_(None), InstitutionalFiling.raw_metadata_json.is_(None),
+                    ~InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%')),
+                InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
+                InstitutionalPosition.filing_date <= date.fromisoformat(metadata['filing_date'])).distinct()):
+            mappings.setdefault(cusip, set()).add(symbol)
+    used_references = {}
+    def resolve(cusip):
+        candidates = mappings.get(cusip, set())
+        symbol = mapped_symbol(cusip, candidates, metadata['report_year'], metadata['report_quarter'])
+        if symbol is None and cusip in reference_by_cusip:
+            identity = reference_by_cusip[cusip]
+            symbol = resolve_reference_candidate(identity, candidates)
+            if symbol:
+                used_references[cusip] = identity
+        return symbol
+
+    # Existing source-owned waiting rows can acquire missing symbols. Published
+    # pairs and their supporting priors must remain immutable.
+    enrich = []
+    if not created and reference_by_cusip:
+        for position in _positions(db, filing):
+            if not position.normalized_symbol:
+                if position.symbol:
+                    return held('Unnormalized existing symbol requires reconciliation')
+                symbol = resolve(position.cusip)
+                if symbol and position.cusip in used_references:
+                    enrich.append((position, symbol))
+        if enrich:
+            for dependent in db.scalars(select(InstitutionalFiling).where(InstitutionalFiling.cik == filing.cik)):
+                proof = _receipt(dependent)
+                if proof.get('derived_state') == 'published' and proof.get('prior_filing_id') == filing.id:
+                    return held('Published pair depends on this prior; explicit reconciliation required')
+
     with db.begin_nested():
         inserted = 0
+        for position, symbol in enrich:
+            position.symbol = position.normalized_symbol = symbol
+        db.flush()
         if created:
             candidate = activity.InstitutionalFilingCandidate(cik=metadata['cik'], holder_name=metadata.get('name'),
                 accession_number=metadata['key'], filing_date=date.fromisoformat(metadata['filing_date']),
@@ -165,21 +233,12 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
                 form_type='13F-HR', is_amendment=False, raw=metadata)
             activity.upsert_institutional_holder(db, candidate)
             filing, _ = activity.upsert_institutional_filing(db, candidate)
-            mappings = {}
-            cusips = {row['cusip'].strip().upper() for row in rows}
-            for identifier in identifiers:
-                if identifier['cusip'] in cusips:
-                    mappings.setdefault(identifier['cusip'], set()).add(identifier['symbol'])
-            for cusip, symbol in db.execute(select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol).where(
-                    InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
-                    InstitutionalPosition.filing_date <= filing.filing_date).distinct()):
-                mappings.setdefault(cusip, set()).add(symbol)
             total = Decimal(metadata['table_value_total_usd'])
             mapped = []
             for row in rows:
                 cusip = row['cusip'].strip().upper()
                 mapped.append({**row, 'cusip': cusip,
-                    'symbol': mapped_symbol(cusip, mappings.get(cusip, set()), filing.report_year, filing.report_quarter),
+                    'symbol': resolve(cusip),
                     'portfolioWeight': float(Decimal(str(row['valueUsd'])) / total * 100) if total else None})
             meta = json.loads(filing.raw_metadata_json or '{}')
             meta['_walnut_position_source'] = 'sec_edgar_reconciled'
@@ -200,11 +259,15 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
         meta = json.loads(filing.raw_metadata_json or '{}')
         identifier_evidence = ([row for row in identifiers if row['cusip'] in cusips] if created
                                else meta.get(RECEIPT_KEY, {}).get('identifier_evidence', []))
+        reference_evidence = {r['cusip']: r for r in meta.get(RECEIPT_KEY, {}).get('reference_evidence', [])}
+        reference_evidence.update(used_references)
         meta[RECEIPT_KEY] = {'complete': True, 'source_sha256': digest,
             'filing_sha256': _filing_digest(filing),
             'positions_sha256': _positions_digest(db, filing), 'source_rows': len(rows),
             'publish_since': publish_since.isoformat(), 'derived_state': state}
         meta[RECEIPT_KEY]['identifier_evidence'] = identifier_evidence
+        if reference_evidence:
+            meta[RECEIPT_KEY]['reference_evidence'] = [reference_evidence[key] for key in sorted(reference_evidence)]
         filing.raw_metadata_json = dumps(meta)
         metrics = {'changes': 0, 'summaries': 0, 'activity_events': 0, 'feed_events': 0}
         if state == 'ready':
@@ -223,6 +286,9 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
                 # the triggering holder only, never every cluster constituent.
                 holder_event = payload.get('cik') == filing.cik
                 payload['sec_verification'] = {**proof, 'scope': 'holder_pair' if holder_event else 'triggering_holder_pair'}
+                reference_sources = [*_receipt(prior).get('reference_evidence', []), *meta[RECEIPT_KEY].get('reference_evidence', [])]
+                if reference_sources:
+                    payload['identifier_reference_evidence'] = reference_sources
                 event.ts = published_at
                 payload['source_availability'] = {'date': published_at.date().isoformat(),
                     'basis': 'direct_publication', 'observed_at': published_at.isoformat()}
@@ -235,5 +301,5 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             filing.raw_metadata_json = dumps(meta)
         db.flush()
     return {'status': 'projected' if created or state == 'published' else 'existing',
-            'inserted_filings': int(created), 'inserted_positions': inserted,
+            'inserted_filings': int(created), 'inserted_positions': inserted, 'enriched_positions': len(enrich),
             'derived_state': state, **metrics, 'production_writes': 0}

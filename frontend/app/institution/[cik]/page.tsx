@@ -110,7 +110,7 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
       getInstitutionActivity(cik, { limit: 25, authToken, source: "InstitutionProfileActivity", stalePageCache: publicStalePageCache }),
       "institution:activity",
       8000,
-    ).catch(() => ({ items: [] })),
+    ).catch(() => ({ items: [], availability_status: "unavailable", message: "Institutional activity is temporarily unavailable." })),
     withServerTimeout(
       getInstitutionFilings(cik, { limit: 25, authToken, source: "InstitutionProfileFilings", stalePageCache: publicStalePageCache }),
       "institution:filings",
@@ -187,7 +187,7 @@ export default async function InstitutionPage({ params, searchParams }: Props) {
         filingDate={profile.latest_filing_date}
         hasRetryableFiling={hasRetryableFiling}
       />
-      <HoldingsActivitySection cik={cik} activeTab={activeTab} holdings={holdings.items ?? []} activity={activity.items ?? []} />
+      <HoldingsActivitySection cik={cik} activeTab={activeTab} holdings={holdings.items ?? []} activity={activity.items ?? []} activityMessage={activity.availability_status === "unavailable" ? activity.message ?? "Position changes are awaiting verification." : null} />
       <FilingsSection items={filings.items ?? []} />
     </div>
   );
@@ -280,11 +280,13 @@ function HoldingsActivitySection({
   activeTab,
   holdings,
   activity,
+  activityMessage,
 }: {
   cik: string;
   activeTab: "holdings" | "activity";
   holdings: InstitutionHoldingItem[];
   activity: InstitutionActivityItem[];
+  activityMessage?: string | null;
 }) {
   return (
     <section className={`${cardClassName} min-w-0`}>
@@ -298,7 +300,7 @@ function HoldingsActivitySection({
           <TabLink cik={cik} tab="activity" active={activeTab === "activity"}>Activity</TabLink>
         </div>
       </div>
-      {activeTab === "activity" ? <ActivityTable items={activity} /> : <HoldingsTable items={holdings} />}
+      {activeTab === "activity" ? <ActivityTable items={activity} unavailableMessage={activityMessage} /> : <HoldingsTable items={holdings} />}
     </section>
   );
 }
@@ -318,9 +320,9 @@ function TabLink({ cik, tab, active, children }: { cik: string; tab: "holdings" 
   );
 }
 
-function ActivityTable({ items }: { items: InstitutionActivityItem[] }) {
+function ActivityTable({ items, unavailableMessage }: { items: InstitutionActivityItem[]; unavailableMessage?: string | null }) {
   return items.length === 0 ? (
-        <EmptyState>No recent institutional activity available.</EmptyState>
+        <EmptyState>{unavailableMessage ?? "No recent institutional activity available."}</EmptyState>
       ) : (
         <div className="min-w-0 overflow-x-auto">
           <table className="min-w-full divide-y divide-white/10 text-left text-sm">

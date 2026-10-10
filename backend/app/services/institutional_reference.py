@@ -127,10 +127,14 @@ def load_reference(db, *, cusip, report_period):
         DirectFeedDocument.feed == FEED, DirectFeedDocument.source_key == key))
     if row is None:
         return None
-    if row.status != 'parsed':
-        raise ValueError('Reference staging is not parsed')
     revision = db.scalar(select(DirectFeedRevision).where(
         DirectFeedRevision.document_id == row.id, DirectFeedRevision.content_hash == row.content_hash))
+    return _verified_staged(row, revision, cusip=cusip, report_period=report_period)
+
+
+def _verified_staged(row, revision, *, cusip, report_period):
+    if row.status != 'parsed':
+        raise ValueError('Reference staging is not parsed')
     if (revision is None or not revision.source_bytes or len(revision.source_bytes) > 100_000
             or hashlib.sha256(revision.source_bytes).hexdigest() != row.content_hash):
         raise ValueError('Reference staging checksum mismatch')
@@ -140,6 +144,33 @@ def load_reference(db, *, cusip, report_period):
     reference_identity(document, cusip=cusip, report_period=report_period,
                        observed_by=document['observed_at'])
     return document
+
+
+def load_reference_batch(db, scopes):
+    """Bounded saved evidence only, with no per-position query or source HTTP."""
+    from sqlalchemy import select
+    from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision
+    keys = {}
+    for cusip, period in scopes:
+        query = reference_query(cusip, period)
+        keys[query['cusip'] + ':' + query['date']] = (cusip, period)
+    if len(keys) > 5000:
+        raise ValueError('Reference scope exceeds 5000 identities')
+    if not keys:
+        return []
+    documents = []
+    total = 0
+    query = select(DirectFeedDocument, DirectFeedRevision).outerjoin(DirectFeedRevision,
+        (DirectFeedRevision.document_id == DirectFeedDocument.id) &
+        (DirectFeedRevision.content_hash == DirectFeedDocument.content_hash)).where(
+            DirectFeedDocument.feed == FEED, DirectFeedDocument.source_key.in_(list(keys)))
+    for row, revision in db.execute(query):
+        cusip, period = keys[row.source_key]
+        total += len(revision.source_bytes or b'') if revision else 0
+        if total > 20_000_000:
+            raise ValueError('Reference evidence exceeds 20 MB')
+        documents.append(_verified_staged(row, revision, cusip=cusip, report_period=period))
+    return sorted(documents, key=lambda d: (d['query']['date'], d['query']['cusip']))
 
 
 def stage_reference(db, document):

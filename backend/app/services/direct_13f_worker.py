@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from app.models import Event, InstitutionalFiling, InstitutionalPositionChange, InstitutionalActivityEvent
+from app.models import Event, InstitutionalFiling, InstitutionalPositionChange, InstitutionalActivityEvent, InstitutionalPosition
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps
 from app.services.direct_feed_worker import DirectFeedPublication, _source_url
 from app.services.direct_13f_publication import _project_new_13f, _filing_digest, _positions_digest, _receipt
@@ -37,13 +37,15 @@ def _state_hash(db, filing, holder_event_ids=()):
     return hashlib.sha256(dumps(state).encode()).hexdigest()
 
 
-def publish_13f_document(db, document_id, *, identifier_documents, comparison_documents, prepared_evidence=None):
+def publish_13f_document(db, document_id, *, identifier_documents, comparison_documents, prepared_evidence=None, reference_documents=()):
     """Atomic projection and receipt; evidence must be explicit and bounded.
 
     Whole-filing parser/identity/peer-value holds remain. Complete originals may
     wait for prior-quarter or mapping evidence without generating any alerts.
     Replaying such a receipt re-evaluates readiness; a published receipt is fixed.
     """
+    if len(reference_documents) > 5000 or len(dumps(reference_documents).encode()) > 20_000_000:
+        raise ValueError('Reference evidence exceeds bounds')
     if len(identifier_documents) > 50 or not 1 <= len(comparison_documents) <= 500:
         raise ValueError('Supply bounded identifier and nonempty peer evidence')
     if sum(len(d['raw']) for d in (*identifier_documents, *comparison_documents)) > 100_000_000:
@@ -94,11 +96,11 @@ def publish_13f_document(db, document_id, *, identifier_documents, comparison_do
         # newly available contradictory evidence must not earn an "existing" pass.
         result = _project_new_13f(db, {'feed': 'sec_13f', 'metadata': metadata,
             'raw': revision.source_bytes, 'content_hash': staged.content_hash}, publish_since=control.publish_since,
-            identifier_documents=identifier_documents, comparison_documents=comparison_documents, prepared_evidence=prepared_evidence)
+            identifier_documents=identifier_documents, comparison_documents=comparison_documents, prepared_evidence=prepared_evidence, reference_documents=reference_documents)
         result.pop('production_writes', None)  # This entry point can write its selected database.
         if result['status'] == 'held':
             return held(result.get('reason', 'Source requires reconciliation'), result)
-        if receipt and receipt.status in {'published', 'existing'}:
+        if receipt and receipt.status in {'published', 'existing'} and not result.get('enriched_positions'):
             return {**result, 'status': 'existing', 'receipt_id': receipt.id}
         filing = db.scalar(select(InstitutionalFiling).where(InstitutionalFiling.accession_number == metadata['key']))
         events = []
@@ -116,7 +118,10 @@ def publish_13f_document(db, document_id, *, identifier_documents, comparison_do
         holder_event_ids = sorted(e.id for e in events
             if json.loads(e.payload_json or '{}').get('sec_verification', {}).get('scope') == 'holder_pair')
         state = result.get('derived_state', '')
-        status = 'waiting' if state.startswith('waiting_') else ('published' if result['status'] == 'projected' else 'existing')
+        missing_prior_identity = (state == 'historical_no_alerts' and db.scalar(select(InstitutionalPosition.id).where(
+            InstitutionalPosition.filing_id == filing.id, InstitutionalPosition.normalized_symbol.is_(None),
+            (InstitutionalPosition.put_call.is_(None)) | (InstitutionalPosition.put_call == '')).limit(1)) is not None)
+        status = 'waiting' if state.startswith('waiting_') or missing_prior_identity else ('published' if result['status'] == 'projected' else 'existing')
         report = {**result, 'status': status, 'event_ids': sorted(e.id for e in events),
             'holder_event_ids': holder_event_ids, 'email_deliveries': 0,
             'evidence': {'identifiers': [d['content_hash'] for d in identifier_documents],
