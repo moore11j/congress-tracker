@@ -62,6 +62,17 @@ def _derived_state(db, filing, publish_since):
     if any(p.cusip in prior_symbols and prior_symbols[p.cusip] != p.normalized_symbol
            for p in _positions(db, filing) if not p.put_call):
         return 'waiting_symbol_transition', prior
+    # A changed CUSIP for the same symbol may be a reorganization rather than
+    # a sale followed by a purchase. Require explicit corporate-action treatment.
+    def identities(rows):
+        result = {}
+        for position in rows:
+            if not position.put_call:
+                result.setdefault(position.normalized_symbol, set()).add(position.cusip)
+        return result
+    before, after = identities(_positions(db, prior)), identities(_positions(db, filing))
+    if any(before[symbol] != after[symbol] for symbol in before.keys() & after.keys()):
+        return 'waiting_security_transition', prior
     return 'ready', prior
 
 

@@ -96,3 +96,6 @@ CRON_TZ=America/Los_Angeles
 
 # Prepare direct SEC financial ratios in isolated caches; public selection is separate.
 1-59/5 * * * * cd /app && python -m app.jobs.warm_sec_fundamentals
+
+# Opt-in free reference staging only; never enables institutional publication.
+* * * * * cd /app && python -m app.jobs.warm_institutional_reference
