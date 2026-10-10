@@ -14,6 +14,8 @@ type Props = {
 export function TickerLiveContextRefresh({ enabled, symbol, side, lookbackDays }: Props) {
   const router = useRouter();
   const completedKey = useRef<string | null>(null);
+  const stillIncomplete = useRef(enabled);
+  stillIncomplete.current = enabled;
   const [retry, setRetry] = useState(0);
   const [exhausted, setExhausted] = useState(false);
 
@@ -26,6 +28,7 @@ export function TickerLiveContextRefresh({ enabled, symbol, side, lookbackDays }
     let controller: AbortController;
     let timeoutId: number | undefined;
     let retryTimer: number | undefined;
+    let renderTimer: number | undefined;
     const hydrationController = new AbortController();
     let hydrationTimer: number | undefined;
 
@@ -46,6 +49,20 @@ export function TickerLiveContextRefresh({ enabled, symbol, side, lookbackDays }
         if (!bundle.ticker || bundle.ticker.identity_status === "loading") throw new Error("Ticker context still loading");
         completedKey.current = key;
         router.refresh();
+        // A successful API response does not prove the server render recovered.
+        // Reuse the prepared cache for bounded retries while the shell is incomplete.
+        const checkRender = (refreshes: number) => {
+          renderTimer = window.setTimeout(() => {
+            if (!active || !stillIncomplete.current) return;
+            if (refreshes >= 3) {
+              setExhausted(true);
+              return;
+            }
+            router.refresh();
+            checkRender(refreshes + 1);
+          }, 5_000);
+        };
+        checkRender(1);
         hydrationTimer = window.setTimeout(() => {
           void requestTickerHydration(symbol, {
             reason: "ticker_page_cache_miss",
@@ -74,6 +91,7 @@ export function TickerLiveContextRefresh({ enabled, symbol, side, lookbackDays }
       active = false;
       window.clearTimeout(timeoutId);
       window.clearTimeout(retryTimer);
+      window.clearTimeout(renderTimer);
       if (hydrationTimer !== undefined) window.clearTimeout(hydrationTimer);
       controller?.abort();
       hydrationController.abort();
@@ -84,7 +102,7 @@ export function TickerLiveContextRefresh({ enabled, symbol, side, lookbackDays }
   return (
     <p role="status" className="text-sm text-slate-400">
       Some sections couldn’t finish loading.{" "}
-      <button type="button" className="text-emerald-200 underline underline-offset-4" onClick={() => setRetry((value) => value + 1)}>Retry</button>
+      <button type="button" className="text-emerald-200 underline underline-offset-4" onClick={() => { completedKey.current = null; setRetry((value) => value + 1); }}>Retry</button>
     </p>
   );
 }

@@ -123,3 +123,23 @@ test("ticker renders partial data without the premature page-wide warning", () =
   assert.doesNotMatch(page, /\{shellFallbackMessage\s*\?\s*\(/);
   assert.match(page, /!hasResolvedTickerProfile\(profile\) && !userAgentLooksInteractiveBrowser/);
 });
+
+
+test("a successful fetch retries the server render if the ticker shell is still incomplete", async () => {
+  let calls = 0;
+  const h = refreshHarness(async () => { calls++; return bundle; });
+  h.render(); const cleanup = h.start(); await flush();
+  assert.equal(h.refreshes, 1);
+  h.tick(5000); await flush();
+  assert.equal(h.refreshes, 2, "a timed-out server render needs another bounded refresh");
+  h.tick(5000); await flush();
+  assert.equal(h.refreshes, 3);
+  h.tick(5000); await flush();
+  const output = h.render();
+  assert.equal(output.props.role, "status");
+  assert.equal(calls, 1, "render recovery must reuse the prepared bundle");
+  const button = output.props.children.find(child => child?.type === "button");
+  button.props.onClick(); cleanup(); h.render(); const cleanup2 = h.start(); await flush();
+  assert.equal(calls, 2, "manual retry must clear the successful-fetch marker");
+  cleanup2();
+});
