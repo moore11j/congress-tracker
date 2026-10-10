@@ -294,3 +294,20 @@ def test_relative_ranking_keeps_absolute_strength_labels_and_requires_corroborat
     assert [row["symbol"] for row in payload["items"]] == ["STRONG", "DEVELOPING"]
     assert payload["items"][0]["why_ranked"].startswith("Strong")
     assert payload["items"][1]["why_ranked"].startswith("Developing")
+
+
+def test_provider_transition_requires_current_scores_for_entire_candidate_universe(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row('AAA', 80), _row('BBB', 70)], {'AAA':80,'BBB':70})
+        snapshot=db.scalar(select(LeaderboardSnapshot))
+        original=snapshot.payload_json
+        payload=json.loads(original)
+        for row in payload['candidate_rows']:
+            row['confirmation_bundle']['scoring_version']='prior_provider_version'
+        snapshot.payload_json=json.dumps(payload);db.commit()
+        assert top_stocks.build_top_stocks_response(db)['items']==[]
+        _cache(db,'AAA',75)
+        assert top_stocks.build_top_stocks_response(db)['items']==[]
+        _cache(db,'BBB',65)
+        assert [r['symbol'] for r in top_stocks.build_top_stocks_response(db)['items']]==['AAA','BBB']
+        assert snapshot.payload_json==json.dumps(payload)

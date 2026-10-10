@@ -7206,6 +7206,10 @@ def _ticker_context_bundle_cache_payload_is_complete(payload: dict[str, Any] | N
         return False
     if payload.get("status") in {"lightweight", "skipped"}:
         return False
+    from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION
+    bundle = payload.get("confirmation_score_bundle")
+    if not isinstance(bundle, dict) or bundle.get("scoring_version") != CONFIRMATION_SCORING_VERSION:
+        return False
     quote = payload.get("quote")
     if not isinstance(quote, dict) or _parse_numeric(quote.get("current_price")) is None:
         return False

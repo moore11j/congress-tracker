@@ -59,3 +59,14 @@ def test_existing_public_snapshot_retains_shared_cache(monkeypatch):
     result = main.seo_entity_snapshot('ticker', 'QNT', response, db=object())
     assert result['status'] == 'ok'
     assert 's-maxage=1800' in response.headers['Cache-Control']
+
+
+@pytest.mark.parametrize('version', [None,'prior_provider_version'])
+def test_ticker_cache_rejects_other_provider_scores_even_with_current_quote(version):
+    from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION
+    payload={'quote':{'current_price':100,'stale':False},
+        'source_cards':{key:{} for key in ['price_volume','fundamentals','insiders','congress','government_contracts']},
+        'confirmation_score_bundle':{'scoring_version':version}}
+    assert main._ticker_context_bundle_cache_payload_is_complete(payload) is False
+    payload['confirmation_score_bundle']['scoring_version']=CONFIRMATION_SCORING_VERSION
+    assert main._ticker_context_bundle_cache_payload_is_complete(payload) is True
