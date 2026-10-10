@@ -311,3 +311,56 @@ def test_provider_transition_requires_current_scores_for_entire_candidate_univer
         _cache(db,'BBB',65)
         assert [r['symbol'] for r in top_stocks.build_top_stocks_response(db)['items']]==['AAA','BBB']
         assert snapshot.payload_json==json.dumps(payload)
+
+
+def test_staged_provider_ranking_is_invisible_until_selection_and_can_roll_back(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row("AAA", 80)], {"AAA": 80})
+        original = db.scalar(select(LeaderboardSnapshot)).payload_json
+        original_version = top_stocks.CONFIRMATION_SCORING_VERSION
+        future = original_version + "_analyst_display_only_v1"
+        monkeypatch.setattr(top_stocks, "CONFIRMATION_SCORING_VERSION", future)
+        monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context", lambda db, symbols: {
+            "bundles": {s: {**_bundle(s, 70), "scoring_version": future} for s in symbols}})
+        def forbidden(*args, **kwargs):
+            raise AssertionError("Staging cannot fetch market data")
+        monkeypatch.setattr(top_stocks, "enrich_leaderboard_market_data", forbidden)
+        top_stocks.refresh_top_stocks_leaderboard(db, staged=True, expected_candidates=1)
+        assert top_stocks.build_top_stocks_response(db)["items"][0]["confirmation_score"] == 70
+        monkeypatch.setattr(top_stocks, "CONFIRMATION_SCORING_VERSION", original_version)
+        assert top_stocks.build_top_stocks_response(db)["items"][0]["confirmation_score"] == 80
+        assert db.scalar(select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == "top_stocks")).payload_json == original
+        monkeypatch.setattr(top_stocks, "CONFIRMATION_SCORING_VERSION", future)
+        assert top_stocks.build_top_stocks_response(db)["items"][0]["confirmation_score"] == 70
+        top_stocks.refresh_top_stocks_leaderboard(db, staged=True, expected_candidates=1)
+        assert len(db.scalars(select(LeaderboardSnapshot)).all()) == 2
+        # The next normal complete refresh supersedes staged preparation.
+        monkeypatch.setattr(top_stocks, "enrich_leaderboard_market_data", lambda *a, **k: None)
+        monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context", lambda db, symbols: {
+            "bundles": {s: {**_bundle(s, 90), "scoring_version": future} for s in symbols}})
+        top_stocks.refresh_top_stocks_leaderboard(db)
+        assert top_stocks.build_top_stocks_response(db)["items"][0]["confirmation_score"] == 90
+
+
+def test_staging_universe_mismatch_and_incomplete_batch_leave_all_snapshots_unchanged(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row("AAA", 80)], {"AAA": 80})
+        original = db.scalar(select(LeaderboardSnapshot)).payload_json
+        with pytest.raises(ValueError, match="Candidate universe changed"):
+            top_stocks.refresh_top_stocks_leaderboard(db, staged=True, expected_candidates=2)
+        monkeypatch.setattr(top_stocks, "build_ticker_confirmation_context", lambda *args: {"bundles": {}})
+        with pytest.raises(ValueError, match="Missing ticker confirmation"):
+            top_stocks.refresh_top_stocks_leaderboard(db, staged=True, expected_candidates=1)
+        db.rollback()
+        assert [r.payload_json for r in db.scalars(select(LeaderboardSnapshot))] == [original]
+
+
+def test_staging_does_not_commit_the_callers_transaction(monkeypatch):
+    with _session() as db:
+        _refresh(db, monkeypatch, [_row("AAA", 80)], {"AAA": 80})
+        original = db.scalar(select(LeaderboardSnapshot)).payload_json
+        top_stocks.refresh_top_stocks_leaderboard(db, staged=True, expected_candidates=1, commit=False)
+        db.flush()
+        assert len(db.scalars(select(LeaderboardSnapshot)).all()) == 2
+        db.rollback()
+        assert [r.payload_json for r in db.scalars(select(LeaderboardSnapshot))] == [original]
