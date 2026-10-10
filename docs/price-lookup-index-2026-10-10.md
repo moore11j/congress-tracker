@@ -1,0 +1,7 @@
+# Price lookup index, October 10
+
+Production price_cache has only a(symbol,date) primary index, estimated1.8 million rows and315MB. Case-insensitive AAPL newest-price query timed out at3seconds; plain EXPLAIN confirms parallel sequential scan/sort. Canonical-symbol lookup takes0.240ms, but changing matching semantics would risk missing mixed-case historical data. SEO and custom alert readers use upper(symbol).
+
+Add one nonunique expression/date index through an explicit manual command in the existing data lane. No calendar trigger or startup migration. Existing imports and maintenance serialize; delivery lane remains separate. Build uses CREATE INDEX CONCURRENTLY,2-second lock timeout,90-second statement timeout,32MB maintenance memory and no parallel maintenance workers. A valid exact existing definition repeats without DDL; invalid/conflicting definitions fail for inspection, never automatically drop or rebuild. Canonical data, price adjustments, provenance, alert identities and provider flags remain unchanged.
+
+48 focused checks pass on Python3.14.2; four existing Linux-only checks skip on Windows. Actual isolated PostgreSQL16.15 validates the concurrent DDL, exact catalog definition, mixed-case/dotted/absent result parity across20,005 synthetic rows, indexed newest-price plan and identical repeat without DDL. Test database removed and local server stopped. Production application pending. This is a measured access-path repair; it is not a database downgrade or a universal latency/completeness claim.
