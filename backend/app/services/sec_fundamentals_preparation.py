@@ -12,7 +12,7 @@ from app.models import InsightsSnapshot
 from app.clients.direct_sources import DirectSourceClient, DirectSourceError
 from app.services import sec_directory, sec_fundamentals
 
-VERSION = 'sec_ratio_preparation_v3'
+VERSION = 'sec_ratio_preparation_v4'
 TTL = timedelta(hours=24)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
     'operating_margin_expansion', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
@@ -75,9 +75,11 @@ def prepare(symbol):
             payload['source_evidence']['facts_sha256'] = hashlib.sha256(raw).hexdigest()
             from app.services.sec_financial_continuity import fetch_history
             history = fetch_history(symbol,cik,client=client,observed_at=now)
+            from app.services.sec_inline_financials import acquire
+            filing = acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
             try:
                 values = sec_fundamentals.project_fundamentals(raw, company,
-                    symbol=symbol, cik=cik, observed_at=now, history_raw=history)
+                    symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
             except sec_fundamentals.SecFundamentalsCoverageError as exc:
                 payload.update(reason='unsupported_current_financial_coverage', detail=str(exc))
             else:

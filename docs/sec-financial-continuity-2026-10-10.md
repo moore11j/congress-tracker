@@ -30,3 +30,12 @@ PR546 merged as a4989c009a3a52e588c5a77447f08e34a363e23a; workflow38091993340 su
 Two-service receipt1791671995 verifies exact release image/seven runtime hashes,1545MB available and empty queue before the validation enqueue. Six public responses200: feed0.40–0.47s, NVDA profile0.53s and new AAPL/NVDA context1.67/1.12s. No further resize.
 
 Next free-source diagnosis: current NEE submissions lists the July24 June-quarter filing, but freshly captured companyfacts still endsMarch31. Official original nee-20260630.htm is captured (3,077,754bytes,SHA256 b77bdb6bb1815103f47126dbebadd164be5525c177f6f419a01b60340e4e686f). It contains both NEE CIK753308 and subsidiary CIK37634, and total regulated/unregulated revenue differs from the smaller contract-revenue component. A fallback needs exact entity/context and total-concept checks; none is implemented or selected by this release.
+
+
+## Final deployed and scheduled verification,22:49 UTC
+
+PR546/a4989c00 and follow-up PR547/a365d3c6 are deployed; workflows38091993340/38092703846 succeed. Eight exact source/job/proof hashes match. The ordinary22:49 SEC run now picks up XOM's queued demand, prepares6annual/12quarterly rows and30.553bn trailing free cash flow, with zero canonical writes/emails in the receipt. The original queue identity remains queued for its later general-worker cache hit, without duplicate source publication.
+
+Backend and app.walnutmarkets.com each return the same complete retained response subset twice: source sec_edgar,6annual/12quarterly, expected cash flow, fingerprint0949ce79b222afee724f4135be5f0ac4d25d1ecbc4a9770fc1ff10a1563ad055. Four200responses take0.456–0.540seconds. Unsupported forecast, market-ratio and other financial fields remain explicit; partial status does not claim universal metric coverage. Receipts continuity-runtime-1791672563.json and continuity-public-final-1791672583.json preserve evidence.
+
+Final two-service receipt1791672533 verifies imagea365d3c6/seven operational hashes,1556MB available and empty queues before the due run. Feed0.55–0.79s, profile0.48s and new AAPL/NVDA contexts1.62/1.02s, all200. No further capacity or provider selection change. XOM's separate current-ratio preparation cache has not yet rotated; core remains defaultFMP. NEE direct-filing fallback, other source/consumer coverage and finalMassive remain open. No new subscriptions, customer test email or FMP cancellation.

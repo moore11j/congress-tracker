@@ -39,7 +39,7 @@ def period_value(records, start, end):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=None):
+def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=None, filing_supplement=None):
     from app.services.ticker_financials import _unavailable, _subsection
     if observed_at.tzinfo is None:
         raise ValueError('Observation timestamp must be aware')
@@ -54,7 +54,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     from app.services.sec_financial_continuity import record_sets
     metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
     metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
-    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics)
+    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,filing_supplement=filing_supplement)
     eps_records=records.pop('eps')
     annual, quarters = set(), set()
     for (start, end), value in records['revenue'].items():
@@ -106,6 +106,8 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'availabilityBasis': 'Current view uses latest filed facts available after completed New York filing day; not a historical tradable snapshot.'})
     if continuity is not None:
         payload['sourceEvidence']['financialContinuity']=continuity
+    if filing_supplement is not None:
+        payload['sourceEvidence']['inlineFilingSupplement']=filing_supplement['evidence']
     if annual_rows or quarterly_rows:
         payload['sections']['income'] = 'partial'
         payload['subsections']['income'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows})
@@ -113,7 +115,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         payload['sections']['cashFlow'] = 'partial'
         payload['subsections']['cash_flow'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows})
     try:
-        current = facts.project_fundamentals(facts_raw, company_raw, symbol=matches[0], cik=cik, observed_at=observed_at, history_raw=history_raw)
+        current = facts.project_fundamentals(facts_raw, company_raw, symbol=matches[0], cik=cik, observed_at=observed_at, history_raw=history_raw,filing_supplement=filing_supplement)
     except facts.SecFundamentalsCoverageError:
         current = {}
     if current:
@@ -150,6 +152,8 @@ def cached_row_payload(row, symbol, *, now=None):
     except (TypeError, ValueError):
         return None
     if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
+        return None
+    if symbol == 'NEE' and payload.get('preparationVersion') != 'sec_statements_nee_inline_v1':
         return None
     if symbol == 'XOM' and payload.get('preparationVersion') != 'sec_statements_xom_continuity_v1':
         return None
@@ -223,7 +227,11 @@ def prepared(symbol):
             else:
                 from app.services.sec_financial_continuity import fetch_history
                 history=fetch_history(symbol,cik,client=client,observed_at=now)
-                payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history)
+                from app.services.sec_inline_financials import acquire
+                filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
+                payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+        if symbol == 'NEE':
+            payload['preparationVersion']='sec_statements_nee_inline_v1'
         if symbol == 'XOM':
             payload['preparationVersion']='sec_statements_xom_continuity_v1'
         # Source I/O completes before acquiring a write connection.

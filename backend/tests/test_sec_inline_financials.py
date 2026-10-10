@@ -1,0 +1,166 @@
+from copy import deepcopy
+from datetime import date, datetime, timezone
+import hashlib
+import json
+import pytest
+from app.services import sec_inline_financials as inline, sec_fundamentals as sec
+from test_sec_fundamentals import sources
+
+NOW = datetime(2026, 10, 10, 23, tzinfo=timezone.utc)
+TAG = 'RegulatedAndUnregulatedOperatingRevenue'
+ACC = '0000000001-26-000002'
+URL = 'https://www.sec.gov/Archives/edgar/data/1/000000000126000002/report.htm'
+
+
+def context(key='parent', segment='', cik='1'):
+    return f'<xbrli:context id="{key}"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">{cik}</xbrli:identifier>{segment}</xbrli:entity><xbrli:period><xbrli:startDate>2026-01-01</xbrli:startDate><xbrli:endDate>2026-06-30</xbrli:endDate></xbrli:period></xbrli:context>'
+
+
+def fact(value='70', ctx='parent', tag=TAG, attrs=''):
+    return f'<ix:nonFraction name="us-gaap:{tag}" contextRef="{ctx}" unitRef="usd" {attrs}>{value}</ix:nonFraction>'
+
+
+def document(extra='', primary=None):
+    return ('''<html xmlns:ix="http://www.xbrl.org/2013/inlineXBRL" xmlns:us-gaap="http://fasb.org/us-gaap/2026" xmlns:dei="http://xbrl.sec.gov/dei/2026" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2020-02-12"><body>''' + context() +
+        '<xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>' +
+        '<ix:nonNumeric name="dei:EntityCentralIndexKey" contextRef="parent">1</ix:nonNumeric>' +
+        '<ix:nonNumeric name="dei:DocumentType" contextRef="parent">10-Q</ix:nonNumeric>' +
+        '<ix:nonNumeric name="dei:DocumentPeriodEndDate" contextRef="parent">2026-06-30</ix:nonNumeric>' +
+        (fact() if primary is None else primary) + extra + '</body></html>').encode()
+
+
+def parse(raw, **kwargs):
+    args = dict(cik='1', accession=ACC, filed='2026-08-01', report_date='2026-06-30', form='10-Q', url=URL)
+    args.update(kwargs)
+    return inline.parse(raw, **args)
+
+
+def lagging():
+    data, company = sources()
+    for content in data['facts']['us-gaap'].values():
+        content['units']['USD'] = [r for r in content['units']['USD'] if r['end'] != '2026-06-30']
+    company['filings'] = {'recent': dict(accessionNumber=[ACC], form=['10-Q'], filingDate=['2026-08-01'], reportDate=['2026-06-30'], primaryDocument=['report.htm'])}
+    return data, company
+
+
+class Source:
+    def __init__(self): self.reads = []
+    def get(self, url):
+        self.reads.append(url)
+        assert url == URL
+        return document()
+
+
+def acquire(data, company, source, **kwargs):
+    return inline.acquire(json.dumps(data).encode(), json.dumps(company).encode(), symbol='ABC', cik='1', observed_at=kwargs.get('now', NOW), client=source)
+
+
+def test_same_cik_segmented_subsidiary_and_other_entities_are_excluded():
+    extra = context('subsidiary', '<xbrli:segment><member>subsidiary</member></xbrli:segment>') + fact('999', 'subsidiary')
+    extra += context('other', cik='2') + fact('888', 'other')
+    result = parse(document(extra))
+    assert result['facts'][TAG]['units']['USD'][0]['val'] == 70
+    assert result['evidence']['reported_facts'] == 1
+    assert next(iter(result['provenance'].values()))['context_id'] == 'parent'
+
+
+@pytest.mark.parametrize('replacement', [
+    ('http://fasb.org/us-gaap/2026', 'https://example.com/fake'),
+    ('http://www.xbrl.org/2013/inlineXBRL', 'https://example.com/fake'),
+    ('contextRef="parent">1</ix:nonNumeric>', 'contextRef="parent">2</ix:nonNumeric>'),
+    ('>10-Q</ix:nonNumeric>', '>10-K</ix:nonNumeric>'),
+    ('>2026-06-30</ix:nonNumeric>', '>2026-03-31</ix:nonNumeric>'),
+    ('iso4217:USD</xbrli:measure>', 'iso4217:EUR</xbrli:measure>'),
+    ('<body>', '<body xmlns:ixt="https://example.com/spoof">'),
+])
+def test_bad_namespaces_identity_dates_and_currency_fail_closed(replacement):
+    with pytest.raises(inline.InlineFactsError): parse(document().replace(*(v.encode() for v in replacement)))
+
+
+@pytest.mark.parametrize('extra,reason', [
+    (context(), 'duplicate_context'),
+    ('<xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>', 'duplicate_unit'),
+    (fact('71'), 'conflicting_reported_facts'),
+])
+def test_conflicting_identifiers_and_values_are_held(extra, reason):
+    with pytest.raises(inline.InlineFactsError, match=reason): parse(document(extra))
+
+
+def test_identical_duplicate_is_one_fact_and_original_bytes_have_provenance():
+    raw = document(fact())
+    result = parse(raw)
+    assert result['evidence']['reported_facts'] == 1
+    proof = next(iter(result['provenance'].values()))
+    assert proof['source_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert proof['source_url'] == URL and proof['source_cik'] == '0000000001'
+
+
+@pytest.mark.parametrize('value,attrs,expected', [
+    ('1,234.5', 'format="ixt:num-dot-decimal" scale="6"', 1234500000),
+    ('12', 'sign="-" scale="3"', -12000),
+    ('-', 'format="ixt:fixed-zero"', 0),
+])
+def test_reported_transformations(value, attrs, expected):
+    r = parse(document(primary=fact(value, attrs=attrs)))
+    assert r['facts'][TAG]['units']['USD'][0]['val'] == expected
+
+
+@pytest.mark.parametrize('value,attrs', [
+    ('1,23', 'format="ixt:num-dot-decimal"'), ('NaN', ''), ('-', ''),
+    ('12', 'scale="99"'), ('12', 'continuedAt="other"'), ('12', 'xsi:nil="true"'),
+    ('12', 'format="ixt:other"'), ('12', 'sign="+"'),
+    ('12', 'format="fake:num-dot-decimal"'),
+])
+def test_unsupported_numeric_facts_do_not_become_values(value, attrs):
+    with pytest.raises(inline.InlineFactsError): parse(document(primary=fact(value, attrs=attrs)))
+
+
+def test_one_original_fetch_only_for_new_completed_filing_day():
+    data, company = lagging(); source = Source()
+    assert acquire(data, company, source)['evidence']['accession'] == ACC
+    assert source.reads == [URL]
+    source.reads.clear()
+    assert acquire(data, company, source, now=NOW.replace(month=8, day=1)) is None
+    assert source.reads == []
+    current, _ = sources()
+    assert acquire(current, company, source) is None
+    unsupported = deepcopy(data); unsupported['facts'] = {'ifrs-full': {}}
+    assert acquire(unsupported, company, source) is None
+    assert source.reads == []
+
+
+@pytest.mark.parametrize('change', ['wrong_cik', 'wrong_ticker', 'shape', 'ambiguous', 'unsafe_filename', 'bad_accession'])
+def test_acquisition_rejects_unverified_directory_before_fetch(change):
+    data, company = lagging(); r = company['filings']['recent']; source = Source()
+    if change == 'wrong_cik': company['cik'] = 2
+    if change == 'wrong_ticker': company['tickers'] = ['XYZ']
+    if change == 'shape': r['primaryDocument'] = []
+    if change == 'unsafe_filename': r['primaryDocument'] = ['../../other.htm']
+    if change == 'bad_accession': r['accessionNumber'] = ['invalid']
+    if change == 'ambiguous':
+        for values in r.values(): values.append(values[0])
+        r['accessionNumber'][1] = '0000000001-26-000003'
+    with pytest.raises(inline.InlineFactsError): acquire(data, company, source)
+    assert source.reads == []
+
+
+def test_projection_preserves_raw_hash_and_uses_total_revenue_consistently():
+    data, company = sources()
+    # Total revenue history is larger than its contract-revenue component.
+    gaap = data['facts']['us-gaap']
+    gaap[TAG] = deepcopy(gaap['RevenueFromContractWithCustomerExcludingAssessedTax'])
+    for row in gaap[TAG]['units']['USD']: row['val'] *= 2
+    gaap[TAG]['units']['USD'].pop()
+    raw = json.dumps(data).encode(); original = deepcopy(data)
+    filing = parse(document(primary=fact('140')))
+    result = sec.project_fundamentals(raw, json.dumps(company).encode(), symbol='ABC', cik='1', observed_at=NOW, filing_supplement=filing)
+    evidence = json.loads(result['source_evidence_json'])
+    assert evidence['current']['revenue']['value'] == 260
+    assert evidence['facts']['sha256'] == hashlib.sha256(raw).hexdigest()
+    current = [v for v in evidence['current']['revenue']['inputs'] if v['accession'] == ACC]
+    assert len(current) == 1 and current[0]['source_url'] == URL
+    assert data == original
+    assert result == sec.project_fundamentals(raw, json.dumps(company).encode(), symbol='ABC', cik='1', observed_at=NOW, filing_supplement=filing)
+    with pytest.raises(inline.InlineFactsError): inline.merge(data, filing, available_by=date(2026, 7, 1))
+    other = deepcopy(data); other['cik'] = 2
+    with pytest.raises(inline.InlineFactsError): inline.merge(other, filing, available_by=date(2026, 10, 9))

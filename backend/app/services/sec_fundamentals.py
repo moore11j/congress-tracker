@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 VERSION = "sec_fundamentals_v1"
 TAGS = {
-    "revenue": ("Revenues", "RevenuesNetOfInterestExpense", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet",
+    "revenue": ("Revenues", "RevenuesNetOfInterestExpense", "RegulatedAndUnregulatedOperatingRevenue", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet",
                 "RevenueFromContractWithCustomerIncludingAssessedTax"),
     "gross_profit": ("GrossProfit",),
     "operating_income": ("OperatingIncomeLoss",),
@@ -56,8 +56,10 @@ def fetch_fundamentals(symbol: str):
     facts = client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json')
     from app.services.sec_financial_continuity import fetch_history
     history = fetch_history(symbol,cik,client=client,observed_at=now)
+    from app.services.sec_inline_financials import acquire
+    filing = acquire(facts,company,symbol=symbol,cik=cik,observed_at=now,client=client)
     try:
-        values = project_fundamentals(facts, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history)
+        values = project_fundamentals(facts, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history, filing_supplement=filing)
     except SecFundamentalsCoverageError as exc:
         # Identity has already passed the projector's checks. Keep independently
         # verified market inputs usable for rankings even when financial facts
@@ -227,7 +229,7 @@ def _prior_end(records, end):
 
 
 def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, cik: str,
-                         observed_at: datetime, history_raw=None):
+                         observed_at: datetime, history_raw=None, filing_supplement=None):
     """Return cache values plus evidence; requires a current, coherent revenue period.
 
     Filed dates have day resolution. Today's filings are excluded until the day
@@ -246,7 +248,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
-    records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw)
+    records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement)
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
     if end is None or (available_by - end).days > 180:
@@ -276,6 +278,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
     if continuity is not None:
         evidence['financial_continuity'] = continuity
+    if filing_supplement is not None:
+        evidence['inline_filing_supplement'] = filing_supplement['evidence']
     exchanges = company.get("exchanges", [])
     values = {"symbol": symbol, "provider": "sec_edgar", "company_name": company["name"],
         "exchange": exchanges[tickers.index(symbol)] if len(exchanges) == len(tickers) else None,

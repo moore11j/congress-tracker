@@ -37,11 +37,14 @@ def fetch_history(symbol, cik, *, client, observed_at):
     return client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{PREDECESSOR_CIK}.json')
 
 
-def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None):
+def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None, filing_supplement=None):
     from app.services import sec_fundamentals as sec
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
-    current = {name:sec._records(payload,name,available_by,concepts=tags,unit=unit)
+    from app.services import sec_inline_financials as inline
+    effective = inline.merge(payload,filing_supplement,available_by=available_by)
+    current = {name:sec._records(effective,name,available_by,concepts=tags,unit=unit)
                for name,(tags,unit) in metrics.items()}
+    inline.annotate(current,filing_supplement)
     if history_raw is None:
         return current, None
     if (not applies(symbol,cik) or str(payload.get('cik','')).zfill(10) != CURRENT_CIK
