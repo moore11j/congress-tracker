@@ -19,3 +19,14 @@ Automatic approval review rejected adding persistent recurring collection becaus
 The concrete proposal is an hourly issuer-only preparation job at minute13, capped at two reviewed pages per run, with each page rechecked no more than once per24hours. It would use the existing shared collector lock, database-pressure guard and exact approved-host registry. It would prepare source evidence only. Research publication would remain separately controlled by the provider selector, explicit date boundary and cross-provider reconciliation. Approval of this schedule would not authorize autonomous code changes, deployments, other recurring tasks or customer emails.
 
 Until that approval, validation can use the existing one-time collector command and saved-source replays. Institutional full-cohort validation and the wider FMP retirement remain separate; Massive prices and paid subscription decisions stay last.
+
+
+## Resumed bounded schedule, October 10
+
+The owner resumed and approved infrastructure consolidation. The issuer follow-up is rebased onto the current two-service release. Hourly minute13 collection joins the serialized data lane, at most two reviewed pages per run and no page fetched more than once per24hours, including failed-page retries. Removed registry entries cannot be fetched from stale staging. ISSUER_TRANSCRIPT_WARMING_ENABLED is enabled in the reviewed deployment configuration; transcript publication/provider selection remains separately gated.
+
+When publisher HTML changes without transcript changes, preserve the original canonical publication receipt and validate its original source revision, hash and observation time. Changed transcript identity/boundary remains held. No duplicate research document, new historical availability time or automatic customer email is introduced.
+
+Python3.14.2 validation:35 focused issuer/schedule/runtime checks pass, four Linux-only runtime checks skipped (the unchanged runtime passed all nine Linux checks in PR531). Shared direct-source tests initially85pass/two fail because old calendar doubles return two values while the deployed contract returns three; the doubles are corrected and all14 actual consumer checks pass. Across the focused groups122 checks now pass, with four platform skips; this is not a full-suite claim. Captured Microsoft FY2026Q4 source replay retains58,238 text characters, one canonical document, identical repeat state and unchanged original receipt after a harmless HTML revision. Source/model/email/production writes allzero during this isolated replay. Fly config validates. Current registry is Microsoft only, not broad-market transcript parity.
+
+Deployment, runtime flag/hash checks and the first scheduled collection receipt remain pending at this checkpoint. FMP remains enabled; Massive prices last.

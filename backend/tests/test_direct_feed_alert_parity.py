@@ -95,7 +95,7 @@ def test_new_sec_arrival_reaches_current_monitoring_and_daily_digest_once(db, mo
     alert = db.scalar(select(MonitoringAlert))
     assert alert.event_created_at == event.ts
     start,end=datetime(2026,10,9,tzinfo=timezone.utc),datetime(2026,10,10,tzinfo=timezone.utc)
-    monkeypatch.setattr(digests,'_upcoming_calendar_events_for_digest',lambda *a,**k:([],'Calendar outside fixture'))
+    monkeypatch.setattr(digests,'_upcoming_calendar_events_for_digest',lambda *a,**k:([],'Calendar outside fixture',None))
     monitor=digests.build_monitoring_digest(db,user,watchlist,start,window_end=end)
     daily=digests.build_signal_alert_digest(db,user,start,window_end=end)
     activity=digests.build_watchlist_activity_digest(db,user,watchlist,start)
@@ -179,7 +179,7 @@ def test_complete_monitoring_daily_and_watchlist_builds_use_corrected_data(db, m
     apply_rehearsal(db, plan)
     db.commit()
     since, end = datetime(2026,6,1,tzinfo=timezone.utc), datetime(2026,6,5,tzinfo=timezone.utc)
-    monkeypatch.setattr(digests, '_upcoming_calendar_events_for_digest', lambda *a, **k: ([], 'Calendar not part of SEC rehearsal'))
+    monkeypatch.setattr(digests, '_upcoming_calendar_events_for_digest', lambda *a, **k: ([], 'Calendar not part of SEC rehearsal', None))
     monitoring = digests.build_monitoring_digest(db, user, watchlist, since, window_end=end)
     daily = digests.build_signal_alert_digest(db, user, since, window_end=end)
     assert 'Derivative transaction' in monitoring.context['items_text']

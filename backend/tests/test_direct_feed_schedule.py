@@ -109,3 +109,52 @@ def test_job_guards_do_not_fetch_or_initialize_schema(monkeypatch, capsys, mode)
         assert result['reason'] == 'background_jobs_paused'
     else:
         assert result['status'] == ('disabled' if mode == 'off' else 'busy')
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_issuer_job_is_opt_in_and_fixes_approved_bounds(monkeypatch, enabled):
+    from app.jobs import warm_issuer_transcripts as job
+    calls = []
+    monkeypatch.setenv("ISSUER_TRANSCRIPT_WARMING_ENABLED", "true" if enabled else "false")
+    monkeypatch.setattr(job, "collect", lambda argv: calls.append(argv))
+    job.main()
+    assert calls == ([["--sources", "issuer_earnings", "--limit", "2", "--recheck-hours", "24"]] if enabled else [])
+
+
+def test_issuer_collection_caps_pages_and_honors_daily_failed_retry_and_registry(db, monkeypatch):
+    from app.services import direct_feed_store as store
+    now = datetime(2026, 10, 10, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(collection, "utcnow", lambda: now)
+    monkeypatch.setattr(store, "utcnow", lambda: now)
+    registry = [{"symbol": "MSFT", "company_website": "https://www.microsoft.com/",
+        "investor_website": "https://www.microsoft.com/en-us/Investor", "documents": [
+        {"document_type": "earnings_transcript", "fiscal_year": 2026, "fiscal_quarter": q,
+         "url": f"https://www.microsoft.com/call{q}", "published_at": "2026-07-29",
+         "period_pattern": "FY2026", "company_pattern": "Microsoft", "publication_pattern": "July 29, 2026"}
+        for q in [2, 3, 4]]}]
+    calls = []
+    class Client:
+        def get(self, url):
+            calls.append(url)
+            return ("<main>Microsoft earnings transcript FY2026 July 29, 2026 Q&amp;A " + "Earnings evidence. " * 100 + "</main>").encode()
+    def run():
+        return collection.collect_direct_feeds(db, Client(), sources=["issuer_earnings"],
+            start=date(2026, 10, 9), end=date(2026, 10, 9), issuer_registry=registry,
+            limit=2, recheck_hours=24, retry_failed=True)
+    first = run()
+    assert first["processed"] == 2 and len(calls) == 2 and not first["errors"]
+    second = run()
+    assert second["processed"] == 1 and len(calls) == 3
+    rows = list(db.scalars(select(DirectFeedDocument).where(DirectFeedDocument.feed == "issuer_earnings")))
+    rows[0].status = "failed"
+    rows[0].checked_at = now - timedelta(hours=23)
+    db.commit()
+    assert run()["processed"] == 0 and len(calls) == 3
+    rows[0].checked_at = now - timedelta(hours=24)
+    db.commit()
+    assert run()["processed"] == 1 and len(calls) == 4
+    registry[0]["documents"] = []
+    for row in rows:
+        row.checked_at = now - timedelta(days=2)
+    db.commit()
+    assert run()["processed"] == 0 and len(calls) == 4

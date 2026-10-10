@@ -128,10 +128,29 @@ def prepare_research_document(db, *, security_id, publish_since):
               'source_url', 'observed_at', 'published_date', 'publication_precision', 'canonical_key')}
     proof.update(document_id=document.id, publish_since=publish_since.isoformat())
     previous = receipt.get('issuer_transcript_research')
-    if previous is not None and previous != proof:
-        raise ValueError('Issuer publication identity or boundary changed')
+    if previous is not None:
+        semantic_keys = ('text_sha256', 'source_url', 'published_date', 'publication_precision',
+                         'canonical_key', 'document_id', 'publish_since')
+        if any(previous.get(key) != proof[key] for key in semantic_keys):
+            raise ValueError('Issuer publication identity or boundary changed')
+        # Publisher HTML may change while the transcript remains identical.
+        # Retain the first source receipt instead of refreshing availability.
+        original = db.get(DirectFeedRevision, previous.get('source_revision_id'))
+        if (original is None or original.document_id != staged.id or not original.source_bytes
+                or len(original.source_bytes) > 2_000_000
+                or hashlib.sha256(original.source_bytes).hexdigest() != previous.get('source_sha256')
+                or source_content_hash(original.source_text) != previous['text_sha256']):
+            raise ValueError('Original issuer publication evidence changed')
+        original_text, _ = parse_issuer_material(original.source_bytes, json.loads(staged.metadata_json))
+        if original_text != original.source_text or source_content_hash(original_text) != previous['text_sha256']:
+            raise ValueError('Original issuer source text changed')
+        first_observed = original.fetched_at
+        if first_observed.tzinfo is None:
+            first_observed = first_observed.replace(tzinfo=timezone.utc)
+        if first_observed.isoformat() != previous.get('observed_at'):
+            raise ValueError('Original issuer observation changed')
     if previous is None:
         receipt['issuer_transcript_research'] = proof
         staged.reconciliation_json = dumps(receipt)
     return {'status': 'prepared', 'document': document, 'created': created,
-            'source_text': source['content'], 'source': source}
+            'source_text': source['content'], 'source': source, 'publication_evidence': previous or proof}
