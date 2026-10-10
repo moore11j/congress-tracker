@@ -134,3 +134,36 @@ def test_verified_identities_leave_queue_on_refresh_so_bounded_scope_can_advance
     result=job.run()
     assert result['pending_scopes']==0 and result['completed_scopes']==0
     assert result['universe_truncated'] is False
+
+
+def test_large_current_backlog_cannot_starve_prior_quarter_and_repeat_advances(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=tuple(f'{n:09d}' for n in range(1,101)))
+    seed(factory,key='prior',period='2026-06-30',filed='2026-08-08',cusips=('000000201','000000202'))
+    # Repeated holdings prioritize the widely held identity within its quarter.
+    seed(factory,key='current-peer',cusips=('000000001',))
+    first=job.run()
+    assert [(r['cusip'],r['report_period']) for r in first['results']]==[
+        ('000000001','2026-09-30'),('000000202','2026-06-30')]
+    assert first['completed_scopes']==2 and first['pending_scopes']==102
+    clock[0]+=timedelta(minutes=1)
+    second=job.run()
+    assert [(r['cusip'],r['report_period']) for r in second['results']]==[
+        ('000000100','2026-09-30'),('000000201','2026-06-30')]
+    assert len(calls)==4 and len({(r['cusip'],r['date']) for r in calls})==4
+    clock[0]+=timedelta(minutes=1)
+    third=job.run()
+    assert third['completed_scopes']==2
+    assert {r['report_period'] for r in third['results']}=={'2026-09-30'}
+    assert all(r['public_writes']==r['price_requests']==r['emails']==0 for r in [first,second,third])
+
+
+def test_daily_deferred_prior_does_not_waste_current_quarter_capacity(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=('000000101','000000102','000000103'))
+    seed(factory,key='prior',period='2026-06-30',filed='2026-08-08',cusips=('000000201',))
+    with factory() as db:
+        plan=job.plan_scopes(db,clock[0],{'000000201:2026-06-30':clock[0].isoformat()})
+    assert len(plan['scopes'])==2 and plan['deferred_scopes']==1
+    assert {r['report_period'] for r in plan['scopes']}=={'2026-09-30'}
+    assert calls==[]
