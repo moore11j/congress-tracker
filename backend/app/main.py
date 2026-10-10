@@ -337,6 +337,7 @@ from app.services.insights_snapshots import get_insights_headlines, get_insights
 from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
 from app.services.fundamentals_cache import (
+    selected_fundamentals_provider,
     fetch_fundamentals_for_symbol,
     fundamentals_source_diagnostics,
     fundamentals_summary_from_cache_row,
@@ -8634,6 +8635,7 @@ def _latest_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | No
         return db.execute(
             select(FundamentalsCache)
             .where(FundamentalsCache.symbol == symbol)
+            .where(FundamentalsCache.provider == selected_fundamentals_provider())
             .where(FundamentalsCache.status == "ok")
             .order_by(FundamentalsCache.fetched_at.desc())
             .limit(1)
@@ -12339,7 +12341,7 @@ def _fetch_and_cache_ticker_fundamentals_row(db: Session, symbol: str) -> Fundam
             db.execute(
                 select(FundamentalsCache)
                 .where(FundamentalsCache.symbol == symbol)
-                .where(FundamentalsCache.provider == "fmp")
+                .where(FundamentalsCache.provider == selected_fundamentals_provider())
                 .where(FundamentalsCache.status == "ok")
                 .order_by(FundamentalsCache.fetched_at.desc())
                 .limit(1)
@@ -12356,6 +12358,10 @@ def _refresh_incomplete_ticker_fundamentals_row(
     symbol: str,
     row: FundamentalsCache,
 ) -> FundamentalsCache:
+    # Unsupported SEC metrics are coverage gaps, not a reason for page-load
+    # acquisition. The caller already queues bounded background refresh.
+    if selected_fundamentals_provider() != "fmp":
+        return row
     if not _ticker_fundamentals_row_should_refresh_incomplete(row):
         return row
     return _fetch_and_cache_ticker_fundamentals_row(db, symbol) or row
@@ -12369,7 +12375,7 @@ def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCac
         row = db.execute(
             select(FundamentalsCache)
             .where(FundamentalsCache.symbol == normalized)
-            .where(FundamentalsCache.provider == "fmp")
+            .where(FundamentalsCache.provider == selected_fundamentals_provider())
             .where(FundamentalsCache.status == "ok")
             .order_by(FundamentalsCache.fetched_at.desc())
             .limit(1)
