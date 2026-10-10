@@ -63,3 +63,53 @@ def test_registry_has_one_source_per_issuer_period_and_no_implicit_share_class()
     meta = issuer._reviewed_latest('META')
     assert meta['url'].startswith('https://investor.atmeta.com/')
     assert meta['redirect_urls'] == ['https://s21.q4cdn.com/399680738/files/doc_financials/2026/q2/META-Q2-2026-Earnings-Call-Transcript.pdf']
+
+
+@pytest.mark.parametrize('case', ['valid', 'missing_page', 'foreign_page', 'http_page', 'missing_hash', 'invalid_hash', 'non_pdf'])
+def test_external_document_requires_reviewed_official_link_evidence(case):
+    from app.clients.direct_sources import reviewed_issuer_document_urls
+    rows = json.loads(issuer.REGISTRY.read_bytes())
+    company = next(row for row in rows if row['symbol'] == 'SOFI')
+    item = company['documents'][0]
+    if case == 'missing_page': item.pop('source_page_url')
+    if case == 'foreign_page': item['source_page_url'] = 'https://unrelated.example/page'
+    if case == 'http_page': item['source_page_url'] = 'http://investors.sofi.com/page'
+    if case == 'missing_hash': item.pop('source_page_sha256')
+    if case == 'invalid_hash': item['source_page_sha256'] = 'unverified'
+    if case == 'non_pdf': item['source_format'] = 'html'
+    if case == 'valid':
+        assert reviewed_issuer_document_urls([company]) == {item['url']}
+    else:
+        with pytest.raises(DirectSourceError, match='reviewed official page'):
+            reviewed_issuer_document_urls([company])
+
+
+@pytest.mark.parametrize('case', ['exact', 'sibling', 'other_tenant', 'http', 'credentials', 'redirect'])
+def test_external_permission_grants_only_one_reviewed_document(monkeypatch, case):
+    from app.clients.direct_sources import DirectSourceClient
+    allowed = 'https://cdn.example.test/company/transcript.pdf'
+    url = {'sibling':'https://cdn.example.test/company/other.pdf',
+           'other_tenant':'https://cdn.example.test/other/transcript.pdf',
+           'http':'http://cdn.example.test/company/transcript.pdf',
+           'credentials':'https://user@cdn.example.test/company/transcript.pdf'}.get(case, allowed)
+    calls = []
+    class Response:
+        status_code = 302 if case == 'redirect' else 200
+        is_redirect = case == 'redirect'
+        headers = {'Location':'https://cdn.example.test/other/transcript.pdf'}
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def iter_content(self, *args): yield b'exact reviewed content'
+    class Session:
+        headers = {}
+        def get(self, url, **kwargs):
+            calls.append(url)
+            return Response()
+    monkeypatch.setattr('app.clients.direct_sources.time.sleep', lambda _:None)
+    client = DirectSourceClient(issuer_document_urls=[allowed], session=Session())
+    if case == 'exact':
+        assert client.get(url) == b'exact reviewed content'
+    else:
+        with pytest.raises(DirectSourceError, match='approved HTTPS'):
+            client.get(url)
+        assert len(calls) == (1 if case == 'redirect' else 0)

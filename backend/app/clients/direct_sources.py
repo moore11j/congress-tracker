@@ -16,20 +16,51 @@ from xml.etree import ElementTree as ET
 import requests
 from lxml import html
 from pypdf import PdfReader
+from pypdf.constants import UserAccessPermissions
 
 
 class DirectSourceError(RuntimeError):
     pass
 
 
+def reviewed_issuer_document_urls(registry) -> frozenset[str]:
+    """Exact external documents reviewed on an official investor page.
+
+    The registry is source-controlled review evidence, never fetched content.
+    A link grants one URL, not the CDN host or any sibling/redirect path.
+    """
+    urls = set()
+    def https(parts):
+        return (parts.scheme == 'https' and parts.hostname and not parts.username
+                and not parts.password and parts.port in (None, 443) and not parts.fragment)
+    for company in registry:
+        investor = urlsplit(company['investor_website'])
+        if not https(investor):
+            raise DirectSourceError('Invalid reviewed investor website')
+        for item in company.get('documents', []):
+            target = urlsplit(item['url'])
+            if not https(target):
+                raise DirectSourceError('Invalid reviewed issuer document URL')
+            if target.hostname == investor.hostname:
+                continue
+            parent = urlsplit(item.get('source_page_url', ''))
+            if (not https(parent) or parent.hostname != investor.hostname
+                    or not re.fullmatch(r'[0-9a-f]{64}', item.get('source_page_sha256', ''))
+                    or item.get('source_format') != 'pdf'):
+                raise DirectSourceError('External issuer document requires reviewed official page evidence')
+            urls.add(item['url'])
+    return frozenset(urls)
+
+
 class DirectSourceClient:
     """Serial, identified requests; redirects stay inside the exact allowlist."""
 
-    def __init__(self, *, issuer_hosts=(), issuer_redirect_urls=(), session=None, interval=0.5):
+    def __init__(self, *, issuer_hosts=(), issuer_redirect_urls=(), issuer_document_urls=(), session=None, interval=0.5):
         self.hosts = {"www.sec.gov", "data.sec.gov", "disclosures-clerk.house.gov", "efdsearch.senate.gov", *issuer_hosts}
         # Reviewed full CDN destinations do not grant access to other tenants
         # or paths on that CDN. They are accepted only after an issuer redirect.
         self.issuer_redirect_urls = frozenset(issuer_redirect_urls)
+        self.issuer_document_urls = frozenset(issuer_document_urls)
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": os.getenv("SEC_EDGAR_USER_AGENT", "Walnut Markets source research contact@walnutmarkets.com")})
         self.interval = max(0.5, interval)
@@ -39,7 +70,8 @@ class DirectSourceClient:
         for _redirect in range(4):
             parts = urlsplit(url)
             reviewed_redirect = _redirect > 0 and url in self.issuer_redirect_urls
-            if parts.scheme != "https" or (parts.hostname not in self.hosts and not reviewed_redirect) or parts.username or parts.password or parts.port not in (None, 443):
+            reviewed_document = url in self.issuer_document_urls
+            if parts.scheme != "https" or (parts.hostname not in self.hosts and not reviewed_redirect and not reviewed_document) or parts.username or parts.password or parts.port not in (None, 443):
                 raise DirectSourceError("Source URL outside the approved HTTPS host list")
             for attempt in range(3):
                 time.sleep(max(0, self.interval - (time.monotonic() - self.last_request)))
@@ -401,8 +433,15 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
             raise DirectSourceError("Reviewed issuer PDF identity or publisher missing")
         try:
             reader = PdfReader(io.BytesIO(raw), strict=True)
-            if reader.is_encrypted or not 1 <= len(reader.pages) <= 40:
-                raise DirectSourceError("Issuer PDF is encrypted or exceeds page limit")
+            if reader.is_encrypted:
+                # Public PDFs can use an empty user password while reserving
+                # editing rights. Never try other passwords or ignore extraction
+                # permissions when reading those public documents.
+                permitted = int(reader.trailer['/Encrypt']['/P']) & int(UserAccessPermissions.EXTRACT)
+                if not reader.decrypt('') or not permitted:
+                    raise DirectSourceError("Issuer PDF requires a password or prohibits extraction")
+            if not 1 <= len(reader.pages) <= 40:
+                raise DirectSourceError("Issuer PDF exceeds page limit")
             pieces, stream_bytes, text_chars = [], 0, 0
             for page in reader.pages:
                 content = page.get_contents()

@@ -167,3 +167,26 @@ def test_unchanged_transcript_in_new_html_keeps_first_receipt_without_duplicate_
     old_revision.source_bytes=b'changed original';db.commit()
     with pytest.raises(ValueError,match='Original issuer publication evidence changed'):
         issuer.prepare_research_document(db,security_id=security_id,publish_since=date(2026,7,29))
+
+
+def test_official_link_provenance_is_preserved_and_cannot_be_rebound(setup):
+    db, security_id, row_id, metadata, raw = setup
+    metadata.update(source_page_url='https://www.microsoft.com/en-us/Investor', source_page_sha256='a'*64)
+    raw += b'\n'  # New receipt, rather than rewriting the fixture's immutable revision.
+    row = db.get(DirectFeedDocument, row_id)
+    row.metadata_json = dumps(metadata)
+    text, parsed, reasons = parse_document('issuer_earnings', raw, metadata)
+    record_document(db, row, raw, text, parsed)
+    db.commit()
+    first = issuer.prepare_research_document(db, security_id=security_id, publish_since=date(2026,7,29))
+    db.commit()
+    assert first['publication_evidence']['source_page_sha256'] == 'a'*64
+    assert first['source']['source_page_url'] == metadata['source_page_url']
+    metadata['source_page_sha256'] = 'b'*64
+    row.metadata_json = dumps(metadata)
+    revised = raw+b'\n'
+    text, parsed, reasons = parse_document('issuer_earnings', revised, metadata)
+    record_document(db, row, revised, text, parsed)
+    db.commit()
+    with pytest.raises(ValueError, match='identity or boundary'):
+        issuer.prepare_research_document(db, security_id=security_id, publish_since=date(2026,7,29))

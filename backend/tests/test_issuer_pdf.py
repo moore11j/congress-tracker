@@ -100,3 +100,23 @@ def test_only_exact_reviewed_cdn_redirect_is_accepted(monkeypatch,case):
     else:
         with pytest.raises(sources.DirectSourceError,match='approved HTTPS'):client.get(url)
         assert len(calls)==(0 if case=='direct_cdn' else 1)
+
+
+@pytest.mark.parametrize('case', ['public_extractable', 'password_required', 'extraction_prohibited'])
+def test_encrypted_pdf_requires_public_access_and_extraction_permission(case):
+    from pypdf import PdfReader
+    from pypdf.constants import UserAccessPermissions
+    writer = PdfWriter()
+    writer.clone_document_from_reader(PdfReader(io.BytesIO(pdf(TEXT))))
+    writer.encrypt(user_password='required' if case == 'password_required' else '',
+                   owner_password='owner-test-only',
+                   permissions_flag=UserAccessPermissions.PRINT | (
+                       UserAccessPermissions.EXTRACT if case != 'extraction_prohibited' else 0))
+    out = io.BytesIO()
+    writer.write(out)
+    if case == 'public_extractable':
+        text, parsed = sources.parse_issuer_material(out.getvalue(), metadata())
+        assert text == ' '.join(TEXT.split()) and parsed['has_qa']
+    else:
+        with pytest.raises(sources.DirectSourceError, match='password or prohibits extraction'):
+            sources.parse_issuer_material(out.getvalue(), metadata())

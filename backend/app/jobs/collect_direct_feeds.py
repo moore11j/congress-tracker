@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import text
 
 from app.background_job_guard import check_background_job_guard
-from app.clients.direct_sources import DirectSourceClient
+from app.clients.direct_sources import DirectSourceClient, reviewed_issuer_document_urls
 from app.clients.senate_efd import SenateEfdClient
 from app.db import SessionLocal, engine
 from app.services.direct_feed_collection import SOURCES, collect_direct_feeds
@@ -107,13 +107,14 @@ def main(argv=None):
     hosts = {urlsplit(company["investor_website"]).hostname for company in registry}
     redirect_urls = {url for company in registry for item in company.get("documents", [])
                      for url in item.get("redirect_urls", [])}
+    document_urls = reviewed_issuer_document_urls(registry)
     with collector_lock() as acquired:
         if not acquired:
             print(dumps({"status": "busy"}))
             return
         ensure_direct_feed_schema(engine)
         with SessionLocal() as db:
-            result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts, issuer_redirect_urls=redirect_urls), sources=args.sources,
+            result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts, issuer_redirect_urls=redirect_urls, issuer_document_urls=document_urls), sources=args.sources,
                                          start=args.start, end=args.end, symbols=args.symbols, limit=args.limit,
                                          recheck_hours=args.recheck_hours, retry_failed=args.retry_failed, issuer_registry=registry, senate_reports=senate,
                                          senate_client=senate_client)
