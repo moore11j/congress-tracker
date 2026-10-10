@@ -7843,13 +7843,18 @@ def _build_ticker_context_bundle(
             user_segment=user_segment,
             payload=payload,
         )
-        logger.info(
+        build_duration_ms = (perf_counter() - build_started_at) * 1000
+        total_duration_ms = (perf_counter() - started_at) * 1000
+        # Application INFO logs are not enabled by uvicorn's access-log config.
+        # Retain stage evidence for slow builds without increasing normal log volume.
+        logger.log(
+            logging.WARNING if total_duration_ms >= 2000 else logging.INFO,
             "ticker_bundle_build_duration_ms symbol=%s cache_segment=%s viewer_segment=%s duration_ms=%.1f total_duration_ms=%.1f profile_ms=%.1f quote_ms=%.1f signals_ms=%.1f source_context_ms=%.1f confirmation_ms=%.1f build_slot_wait_ms=%.1f",
             normalized_symbol,
             user_segment,
             viewer_segment,
-            (perf_counter() - build_started_at) * 1000,
-            (perf_counter() - started_at) * 1000,
+            build_duration_ms,
+            total_duration_ms,
             profile_ms,
             quote_ms,
             signals_ms,
