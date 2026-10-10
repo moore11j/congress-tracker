@@ -52,3 +52,14 @@ def test_ticker_latest_fundamentals_cannot_mix_selected_provider(db,monkeypatch)
     assert main._cached_ticker_fundamentals_row(db,'ZBEX').provider=='sec_edgar'
     monkeypatch.setenv('FUNDAMENTALS_PROVIDER','fmp')
     assert main._latest_fundamentals_row(db,'ZBEX').provider=='fmp'
+
+
+def test_stock_refresh_replaces_existing_stock_without_identity_collision(db):
+    SearchEntity.__table__.create(db.get_bind());SearchEntityTerm.__table__.create(db.get_bind())
+    seed(db)
+    old=_entity(entity_id='stock:ZBEX',entity_type='stock',display_name='Legacy Name',source_table='ticker_meta',canonical_url='/ticker/ZBEX')
+    db.add(old);db.add_all(_entity_terms(old));db.commit()
+    assert refresh_stock_search_entities(db,apply=True)['changed'];db.commit()
+    rows=list(db.scalars(select(SearchEntity).where(SearchEntity.entity_id=='stock:ZBEX')))
+    assert len(rows)==1 and rows[0].display_name=='Zebra Example Inc' and rows[0].source_table=='sec_directory'
+    assert not refresh_stock_search_entities(db,apply=True)['changed']
