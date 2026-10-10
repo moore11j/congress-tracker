@@ -268,3 +268,19 @@ def test_reported_holdings_never_render_as_execution_prices_or_trade_amounts(val
     assert activity_item['value'] == watchlist_item['amount'] == expected
     assert activity_item['date'] == watchlist_item['date'] == 'Oct 6, 2026'
     assert activity_item['trade_price'] == '--'
+
+
+def test_same_symbol_changed_cusip_waits_instead_of_false_exit_and_purchase(db):
+    mappings(db)
+    for row in db.scalars(select(InstitutionalPosition)):
+        if row.cusip == '000361106': row.normalized_symbol = row.symbol = 'AAA'
+    db.commit()
+    prior = document(quarter=2, serial=2, rows=[('000361105', 10_000_000, 100_000_000, '')])
+    current = document(rows=[('000361106', 10_000_000, 100_000_000, '')])
+    assert publish(db, prior)['derived_state'] == 'historical_no_alerts'
+    first = publish(db, current)
+    assert first['derived_state'] == 'waiting_security_transition'
+    assert first['inserted_positions'] == 1
+    assert count(db, InstitutionalPositionChange) == count(db, Event) == 0
+    repeat = publish(db, current)
+    assert repeat['derived_state'] == first['derived_state'] and repeat['inserted_positions'] == 0
