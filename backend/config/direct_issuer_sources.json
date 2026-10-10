@@ -158,5 +158,29 @@
         "source_format": "pdf"
       }
     ]
+  },
+  {
+    "symbol": "RDDT",
+    "company_website": "https://www.redditinc.com/",
+    "investor_website": "https://investor.redditinc.com/",
+    "verification": "Official quarterly page and its public Q4 financial report API reviewed October 10, 2026. API returns the exact PDF link; quarter end is not the call publication date.",
+    "documents": [
+      {
+        "document_type": "earnings_transcript",
+        "url": "https://s203.q4cdn.com/380862485/files/doc_financials/2026/q2/Reddit-Q2-26-Earnings-Call_Transcript.pdf",
+        "published_at": "2026-07-30",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "source_format": "pdf",
+        "transcript_publisher": "Reddit, Inc.",
+        "company_pattern": "Reddit,\\s+Inc\\.",
+        "publisher_pattern": "Reddit,\\s+Inc\\.",
+        "period_pattern": "Reddit Q2['\\u2019]26 Earnings Call",
+        "publication_pattern": "07\\s*-\\s*30\\s*-\\s*2026",
+        "qa_pattern": "Operator:\\s+\\(Operator Instructions\\)\\s+Our first question comes from Tom Champion from Piper Sandler",
+        "source_page_url": "https://investor.redditinc.com/feed/FinancialReport.svc/GetFinancialReportList?LanguageId=1&reportTypes=First+Quarter%7CSecond+Quarter%7CThird+Quarter%7CFourth+Quarter&reportSubType=First+Quarter&reportSubType=Second+Quarter&reportSubType=Third+Quarter&reportSubType=Fourth+Quarter&reportSubTypeList=First+Quarter&reportSubTypeList=Second+Quarter&reportSubTypeList=Third+Quarter&reportSubTypeList=Fourth+Quarter&pageSize=10&pageNumber=0&tagList=&includeTags=true&year=2026&excludeSelection=1",
+        "source_page_sha256": "d28b8820b24e50aba02f3cf8e3312d0cf728ca2e5cf972c2689e7488c1b9378a"
+      }
+    ]
   }
 ]
