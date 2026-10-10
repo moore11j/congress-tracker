@@ -39,6 +39,18 @@ def mapped_symbol(cusip, symbols, year, quarter):
         ("03073E105", {"ABC", "COR"}, "COR", (2023, 3)),
         ("571748102", {"MMC", "MRSH"}, "MRSH", (2026, 1)),
         ("337738108", {"FI", "FISV"}, "FISV", (2025, 4)),
+        # Dated issuer sources: docs/institutional-ticker-history-2026-10-09.md
+        ("165167735", {"CHK", "EXE"}, "EXE", (2024, 4)),
+        ("668771108", {"NLOK", "GEN"}, "GEN", (2022, 4)),
+        ("88023U101", {"TPX", "SGI"}, "SGI", (2025, 1)),
+        ("69121K104", {"ORCC", "OBDC"}, "OBDC", (2023, 3)),
+        ("852234103", {"SQ", "XYZ"}, "XYZ", (2025, 1)),
+        ("02156V109", {"ALCC", "OKLO"}, "OKLO", (2024, 2)),
+        ("34964C106", {"FBHS", "FBIN"}, "FBIN", (2022, 4)),
+        ("G3223R108", {"RE", "EG"}, "EG", (2023, 3)),
+        ("714046109", {"PKI", "RVTY"}, "RVTY", (2023, 2)),
+        ("75524B104", {"ROLL", "RBC"}, "RBC", (2022, 3)),
+        ("90984P303", {"UCBI", "UCB"}, "UCB", (2024, 3)),
     )
     for exact_cusip, aliases, current, first_period in transitions:
         if (cusip == exact_cusip and (year, quarter) >= first_period
