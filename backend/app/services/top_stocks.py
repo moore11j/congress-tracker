@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from math import isfinite
@@ -45,6 +46,29 @@ TOP_STOCKS_FILTERS = {
 }
 
 
+def staged_top_stocks_key() -> str:
+    return f"{TOP_STOCKS_LEADERBOARD_KEY}:{CONFIRMATION_SCORING_VERSION}"
+
+
+def _selected_snapshot(db: Session):
+    snapshots = db.scalars(select(LeaderboardSnapshot).where(
+        LeaderboardSnapshot.leaderboard_key.in_([TOP_STOCKS_LEADERBOARD_KEY, staged_top_stocks_key()])
+    ).order_by(LeaderboardSnapshot.generated_at.desc())).all()
+    # A prepared provider generation is invisible to workers using another
+    # scoring version. A newer normal scheduled refresh naturally supersedes it.
+    for snapshot in snapshots:
+        payload = _payload(snapshot.payload_json) or {}
+        candidates = payload.get("candidate_rows")
+        if (payload.get("score_context_version") == TICKER_CONFIRMATION_CONTEXT_VERSION
+                and isinstance(candidates, list) and candidates
+                and all(isinstance(row, dict) and isinstance(row.get("confirmation_bundle"), dict)
+                        and row["confirmation_bundle"].get("scoring_version") == CONFIRMATION_SCORING_VERSION
+                        for row in candidates)):
+            return snapshot
+    # Preserve the canonical-cache override path for a legacy snapshot.
+    return next((row for row in snapshots if row.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY), None)
+
+
 def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, Any]:
     """Read prepared scores, using newer canonical ticker caches when available.
 
@@ -52,9 +76,7 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
     Keep the entire candidate universe so a refreshed score can enter or leave
     the top ten and every filter is ranked from the same evidence.
     """
-    snapshot = db.execute(
-        select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)
-    ).scalar_one_or_none()
+    snapshot = _selected_snapshot(db)
     if snapshot is None:
         return _empty_response()
     payload = _payload(snapshot.payload_json)
@@ -112,7 +134,10 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
     return _ranked_payload(candidates, generated_at=payload.get("generated_at"))
 
 
-def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
+def refresh_top_stocks_leaderboard(
+    db: Session, *, now: datetime | None = None, staged: bool = False,
+    expected_candidates: int | None = None, commit: bool = True,
+) -> dict[str, Any]:
     """Score the entire cached stock universe with the exact ticker calculation.
 
     The public API/page never invokes this builder: score assembly, cached source
@@ -121,13 +146,20 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
     scoring: missing market caps would select mostly early-alphabet tickers.
     """
     generated_at = _utc(now or datetime.now(timezone.utc))
+    started = time.monotonic()
     rows = []
     for original in cached_screener_rows(db):
         status, symbol, _ = classify_symbol(original["symbol"])
         if status == "eligible":
             rows.append({**original, "symbol": symbol})
+    if staged and (not rows or len(rows) > 5000 or len({row["symbol"] for row in rows}) != len(rows)):
+        raise ValueError("Invalid staged candidate universe")
+    if expected_candidates is not None and len(rows) != expected_candidates:
+        raise ValueError(f"Candidate universe changed: expected {expected_candidates}, found {len(rows)}")
     candidates = []
     for offset in range(0, len(rows), TOP_STOCKS_SCORE_BATCH_SIZE):
+        if staged and time.monotonic() - started > 600:
+            raise TimeoutError("Staged score preparation exceeded ten minutes")
         batch = rows[offset:offset + TOP_STOCKS_SCORE_BATCH_SIZE]
         symbols = [row["symbol"] for row in batch]
         bundles = build_ticker_confirmation_context(db, symbols)["bundles"]
@@ -136,7 +168,8 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
             row = deepcopy(original)
             # A failed batch must leave the last complete snapshot intact.
             bundle = bundles.get(row["symbol"])
-            if not isinstance(bundle, dict) or bundle.get("inputs_incomplete"):
+            if (not isinstance(bundle, dict) or bundle.get("inputs_incomplete")
+                    or bundle.get("scoring_version") != CONFIRMATION_SCORING_VERSION):
                 raise ValueError(f"Missing ticker confirmation for {row['symbol']}")
             row["confirmation"] = bundle
             row["confirmation_bundle"] = bundle
@@ -144,19 +177,22 @@ def refresh_top_stocks_leaderboard(db: Session, *, now: datetime | None = None) 
             row["updated_at"] = _iso(generated_at)
             candidates.append(row)
         logger.info("top_stocks_scoring_progress scored=%s total=%s", len(candidates), len(rows))
-    enrich_leaderboard_market_data(db, candidates, now=generated_at)
+    if not staged:
+        enrich_leaderboard_market_data(db, candidates, now=generated_at)
     payload = _ranked_payload(candidates, generated_at=_iso(generated_at))
     stored_payload = {**payload, "candidate_rows": candidates, "score_context_version": TICKER_CONFIRMATION_CONTEXT_VERSION}
+    key = staged_top_stocks_key() if staged else TOP_STOCKS_LEADERBOARD_KEY
     snapshot = db.execute(
-        select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == TOP_STOCKS_LEADERBOARD_KEY)
+        select(LeaderboardSnapshot).where(LeaderboardSnapshot.leaderboard_key == key)
     ).scalar_one_or_none()
     serialized = json.dumps(stored_payload, separators=(",", ":"), sort_keys=True)
     if snapshot is None:
-        db.add(LeaderboardSnapshot(leaderboard_key=TOP_STOCKS_LEADERBOARD_KEY, generated_at=generated_at, payload_json=serialized))
+        db.add(LeaderboardSnapshot(leaderboard_key=key, generated_at=generated_at, payload_json=serialized))
     else:
         snapshot.generated_at = generated_at
         snapshot.payload_json = serialized
-    db.commit()
+    if commit:
+        db.commit()
     return payload
 
 
@@ -239,7 +275,7 @@ def _bullish(bundle, source):
 
 
 def _ranking_key(row):
-    """Score, market cap, and average volume descending; exact ties use A–Z.
+    """Score, market cap, and average volume descending; exact ties use Aâ€“Z.
 
     Unavailable market data sorts after positive values within the same score.
     """
