@@ -51,6 +51,7 @@ def _complete_context_bundle_payload(symbol: str = "AAPL", **extra) -> dict:
     payload = {
         "symbol": symbol,
         "status": "ok",
+        "confirmation_score_bundle": {"scoring_version": confirmation_score_module.CONFIRMATION_SCORING_VERSION},
         "quote": {"current_price": 308.63, "stale": False},
         "source_cards": {
             "price_volume": {"status": "ok"},

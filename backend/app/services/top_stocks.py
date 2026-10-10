@@ -101,6 +101,9 @@ def build_top_stocks_response(db: Session, *, entitlements=None) -> dict[str, An
         # even when the daily discovery job ran after that cache was built.
         if update:
             bundle, row["updated_at"] = update
+        if not isinstance(bundle, dict) or bundle.get("scoring_version") != CONFIRMATION_SCORING_VERSION:
+            # Do not rank an incomplete universe or mix provider methodologies.
+            return {**_empty_response(), "empty_message": "Stock rankings are being refreshed. Check back shortly."}
         row["confirmation"] = bundle
         if source_entitlements is not None and entitlements.has_feature("ticker_confirmation"):
             row["visible_confirmation"] = _redact_locked_ticker_confirmation_sources(bundle, source_entitlements)
