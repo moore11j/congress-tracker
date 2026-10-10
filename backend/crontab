@@ -92,7 +92,7 @@ CRON_TZ=America/Los_Angeles
 2-59/5 * * * * cd /app && python -m app.jobs.warm_sec_earnings
 
 # Prepare bounded SEC company identity caches; selection remains independent.
-4-59/5 * * * * cd /app && python -m app.jobs.warm_sec_metadata
+0-59/5 * * * * cd /app && python -m app.jobs.warm_sec_metadata
 
 # Prepare direct SEC financial ratios in isolated caches; public selection is separate.
-3-59/5 * * * * cd /app && python -m app.jobs.warm_sec_fundamentals
+1-59/5 * * * * cd /app && python -m app.jobs.warm_sec_fundamentals

@@ -29,6 +29,21 @@ def mapped_symbol(cusip, symbols, year, quarter):
     if (cusip == "74743L100" and (year, quarter) >= (2025, 4)
             and "Q" in symbols and symbols <= {"Q", "Q-W"}):
         return "Q"
+    # Dated issuer confirmations resolve only these exact same-CUSIP aliases.
+    # Require the new symbol in independently available mapping evidence; a
+    # historical singleton is not silently renamed or backdated.
+    # COR: https://www.sec.gov/Archives/edgar/data/1140859/000110465923096698/tm2324358d1_8k.htm
+    # MRSH: https://www.marsh.com/en/corp/about/news/marsh-mclennan-to-change-nyse-symbol-to-mrsh.html
+    # FISV: https://www.sec.gov/Archives/edgar/data/798354/000079835426000009/fi-20251231.htm
+    transitions = (
+        ("03073E105", {"ABC", "COR"}, "COR", (2023, 3)),
+        ("571748102", {"MMC", "MRSH"}, "MRSH", (2026, 1)),
+        ("337738108", {"FI", "FISV"}, "FISV", (2025, 4)),
+    )
+    for exact_cusip, aliases, current, first_period in transitions:
+        if (cusip == exact_cusip and (year, quarter) >= first_period
+                and current in symbols and symbols <= aliases):
+            return current
     return next(iter(symbols)) if len(symbols) == 1 else None
 
 

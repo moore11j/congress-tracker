@@ -201,3 +201,18 @@ def test_nebius_verified_ticker_change_is_period_and_cusip_scoped():
     assert mapped_symbol("N97284108", {"NBIS", "YNDX"}, 2024, 2) is None
     assert mapped_symbol("N97284108", {"NBIS", "OTHER"}, 2026, 2) is None
     assert mapped_symbol("DIFFERENT", {"NBIS", "YNDX"}, 2026, 2) is None
+
+
+@pytest.mark.parametrize('cusip,old,current,first,previous', [
+    ('03073E105','ABC','COR',(2023,3),(2023,2)),
+    ('571748102','MMC','MRSH',(2026,1),(2025,4)),
+    ('337738108','FI','FISV',(2025,4),(2025,3)),
+])
+def test_verified_current_alias_requires_cusip_period_and_available_new_symbol(cusip,old,current,first,previous):
+    from app.services.institutional_sec_snapshot import mapped_symbol
+    assert mapped_symbol(cusip,{old,current},*first)==current
+    assert mapped_symbol(cusip,{old,current},*previous) is None
+    assert mapped_symbol(cusip,{old},*first)==old
+    assert mapped_symbol(cusip,{old,current,'UNRELATED'},*first) is None
+    assert mapped_symbol('DIFFERENT',{old,current},*first) is None
+    assert mapped_symbol(cusip,set(),*first) is None
