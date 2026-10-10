@@ -1,6 +1,7 @@
 """Prepare free, dated identifier evidence without enabling institutional publication."""
 from datetime import date, datetime, timedelta, timezone
 import json
+from itertools import zip_longest
 import os
 import re
 
@@ -104,7 +105,13 @@ def plan_scopes(db, now, attempted_at, universe=None):
         cusip,period=key.split(':')
         candidates.append({'key':key,'cusip':cusip,'report_period':period,'filing_count':weight})
     candidates.sort(key=lambda r:(r['report_period'],r['filing_count'],r['cusip']),reverse=True)
-    return {'scopes':candidates[:BATCH_SIZE],'universe_size':len(weights),'pending_scopes':len(candidates),
+    # Comparisons require both quarters. A large current-quarter backlog must
+    # not starve prior-quarter evidence. Keep frequency priority within each
+    # quarter, and let remaining work use both slots when one quarter is empty.
+    by_period = [[row for row in candidates if row['report_period'] == period]
+                 for period in sorted(periods, reverse=True)]
+    interleaved = [row for pair in zip_longest(*by_period) for row in pair if row is not None]
+    return {'scopes':interleaved[:BATCH_SIZE],'universe_size':len(weights),'pending_scopes':len(candidates),
             'prepared_scopes':len(prepared),'deferred_scopes':len(weights)-len(prepared)-len(candidates),'universe_truncated':truncated,'held_documents':held,
             'attempted_at':{key:stamp for key,stamp in attempted_at.items() if key in weights and key not in prepared},
             'universe':{'weights':weights,'universe_truncated':truncated,'held_documents':held,'periods':sorted(periods)}}
