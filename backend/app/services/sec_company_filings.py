@@ -5,7 +5,7 @@ import json
 import logging
 import re
 
-from app.utils.symbols import canonical_symbol
+from app.services.sec_directory import _symbol_key as sec_symbol
 
 PROVIDER = 'sec_edgar_submissions'
 logger = logging.getLogger(__name__)
@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 def parse_company_filings(raw, *, symbol, cik):
     from app.services.fmp_news import _sec_filing_title
     company = json.loads(raw)
-    symbol = canonical_symbol(symbol)
+    symbol = sec_symbol(symbol)
     cik = str(cik).zfill(10)
     if (not cik.isdigit() or str(company.get('cik', '')).zfill(10) != cik
-            or [canonical_symbol(s) for s in company.get('tickers', [])].count(symbol) != 1):
+            or [sec_symbol(s) for s in company.get('tickers', [])].count(symbol) != 1):
         raise ValueError('SEC filing issuer identity mismatch')
     filings = company.get('filings', {})
     recent = filings.get('recent', {})
@@ -73,7 +73,7 @@ def get_company_filings(*, symbol, from_date=None, to_date=None, page=0, limit=1
     from app.services import fmp_news as news
     from app.services.ticker_content_cache import db_ticker_content_cache_get, db_ticker_content_cache_set, paginate_ticker_content_payload
     today = datetime.now(timezone.utc).date()
-    symbol = canonical_symbol(symbol)
+    symbol = sec_symbol(symbol)
     page, limit = max(0, int(page)), min(100, max(1, int(limit)))
     try:
         start, end = date.fromisoformat(from_date) if from_date else today-timedelta(days=365), date.fromisoformat(to_date) if to_date else today

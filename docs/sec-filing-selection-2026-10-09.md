@@ -29,3 +29,10 @@ Source hashes: CX`3bd8261d0cec70695ef68c865c21c8193f511eab4aa587eb999dc218db9191
 The live 54-symbol preparation found three SEC-directory absences in addition to 49 prepared lists and two official filename cases corrected by PR522. The isolated SEC filing cache now persists verified directory absence and verified empty submission lists for one hour, preserving unavailable versus empty status during pagination. Public requests return that coverage without repeatedly queuing work. Transient source failures are not persisted as directory absence, and an expired absence can recover to a valid list. The metadata warmer attempts explicit filing coverage for a verified directory absence but stops on transport refusal.
 
 Forty focused checks pass on Python 3.14.2. The existing admin debug test still expects one price point but receives zero; the same failure was reproduced against unchanged source in the preceding filing release. There is no full-suite claim. Public filing selection remains FMP until deployment and live coverage verification. No canonical events, emails, purchases or price-provider changes.
+
+
+## Public share-class compatibility
+
+After selection, public Apple, CEMEX and Lamar filing pages pass, but the Berkshire dot alias exposes a cold-cache/identity gap. The filing adapter now uses the same explicit single-letter share-class normalization as SEC company metadata. BRK.B, BRK/B and BRK-B resolve to one SEC identity and cache; concatenated symbols and duplicate issuer identities remain rejected. New tests verify one source request/shared persistent cache and a public alias cache hit without another queue job.
+
+The share-class continuation passes 35 focused checks on Python 3.14.2. Live BNPQY, DRAM and QTUM responses already preserve unavailable status and the explicit coverage message. Public API normalization intentionally hides the internal diagnostic reason; acceptance checks use the public status and message.

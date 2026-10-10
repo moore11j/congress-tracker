@@ -200,3 +200,31 @@ def test_verified_empty_source_is_cached_but_transport_failure_is_not(selected, 
     assert news.get_sec_filings(symbol='ABC')['status'] == 'empty'
     with selected() as db:
         assert db.query(TickerContentCache).one().status == 'empty'
+
+
+def test_share_class_aliases_use_one_verified_source_and_persistent_cache(selected, monkeypatch):
+    data = source(); data['tickers'] = ['BRK-B']
+    calls = []
+    monkeypatch.setattr(fundamentals, 'company_directory', lambda day: {'BRK-B': {'cik':'0000000001'}})
+    def fetch(*args):
+        calls.append(1)
+        return json.dumps(data).encode()
+    monkeypatch.setattr(DirectSourceClient, 'get', fetch)
+    for alias in ['BRK.B', 'BRK/B', 'BRK-B']:
+        news.clear_news_cache()
+        result = news.get_sec_filings(symbol=alias, from_date='2026-10-01', to_date='2026-10-08')
+        assert result['status'] == 'ok' and result['items'][0]['symbol'] == 'BRK-B'
+    assert len(calls) == 1
+    with selected() as db:
+        assert db.query(TickerContentCache).one().symbol == 'BRK-B'
+    news.clear_news_cache()
+    monkeypatch.setattr(news,'get_request_context',lambda: {'path':'/api/tickers/BRK.B/sec-filings'})
+    monkeypatch.setattr(news,'_enqueue_news_refresh',lambda **kw: pytest.fail('Prepared alias queued'))
+    assert news.get_sec_filings(symbol='BRK.B')['status'] == 'ok'
+
+
+@pytest.mark.parametrize('tickers', [['BRKB'], ['BRK.B', 'BRK-B']])
+def test_share_class_normalization_does_not_guess_or_accept_duplicate_identity(tickers):
+    data=source();data['tickers']=tickers
+    with pytest.raises(ValueError):
+        parse_company_filings(json.dumps(data).encode(),symbol='BRK.B',cik='0000000001')
