@@ -24,4 +24,13 @@ The year endingJune30,2026 has net interest income36.328million and non-interest
 
 ## Remaining gates
 
-Normal PR/release checks, exact runtime files, ordinary source preparation and public backend/site responses. Core remains FMP; bank-specific coverage is not universal bank coverage, IFRS support, full institutional/transcript readiness, final Massive validation or global FMP shutdown.
+Backend release, exact runtime files, ordinary source preparation and public backend/site responses now verify below. Rendered frontend verification and separate ratio rotation remain. Core remains FMP; bank-specific coverage is not universal bank coverage, IFRS support, full institutional/transcript readiness, final Massive validation or global FMP shutdown.
+
+## Production verification,23:21UTC
+
+Workflow38094196595 succeeds for9f3150f2; ten source/proof hashes match. Ordinary SEC research warming prepares PROV at23:19:12UTC with6annual/12quarterly periods and explicit partial status, zero canonical writes/emails. Four repeated backend/website API reads return200 in0.415-0.693s with identical fingerprint5a164039127598e2f8bc8fb3f45830eecccce1f5fd025f2bdcef5de24483c767. Revenue TTM40.054m, latest quarterJune30,2026 and explicit net-interest/non-interest basis agree. Separate ratio cache remains absent; queued enrichment identity/attempts unchanged. Artifacts bank-runtime-1791674447.json and bank-public-final-1791674460.json. No rendered-browser pass: a limited frontend script probe did not locate the dynamically loaded label, so it establishes neither visual success nor failure. Public core remainsFMP.
+
+
+## Release checkpoint,23:13UTC
+
+PR549 merged as9f3150f25b100eca69ce64154095fe80ac89edf2. Backend workflow38094196595 is confirmed in_progress; follow this existing run. Secret scan passes; unchanged Next.js/Pillow audits fail. Browser verification was stopped by Computer Use because current URL could not be determined confidently enough to enforce policy. No further UI actions or rendered success claim. Exact backend hashes, ordinary PROV preparation and public reads remain pending; no FMP core switch.

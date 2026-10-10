@@ -50,6 +50,9 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     matches = [s for s in company.get('tickers', []) if _symbol_key(s) == _symbol_key(symbol)]
     if len(matches) != 1:
         raise DirectSourceError('financial_symbol_identity_mismatch')
+    from app.services import sec_foreign_statements as foreign
+    if foreign.profile(symbol, cik):
+        return foreign.project(facts_raw,company_raw,symbol=symbol,cik=cik,observed_at=observed_at,supplement=filing_supplement)
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
     metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
@@ -159,6 +162,9 @@ def cached_row_payload(row, symbol, *, now=None):
         return None
     if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
         return None
+    from app.services import sec_foreign_statements as foreign
+    if symbol in foreign.PROFILES and payload.get('preparationVersion') != foreign.VERSION:
+        return None
     if symbol == 'PROV' and payload.get('preparationVersion') != 'sec_statements_prov_bank_v1':
         return None
     if symbol == 'NEE' and payload.get('preparationVersion') != 'sec_statements_nee_inline_v1':
@@ -236,8 +242,15 @@ def prepared(symbol):
                 from app.services.sec_financial_continuity import fetch_history
                 history=fetch_history(symbol,cik,client=client,observed_at=now)
                 from app.services.sec_inline_financials import acquire
-                filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
+                from app.services import sec_foreign_statements as foreign
+                if foreign.profile(symbol,cik):
+                    filing=foreign.acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
+                else:
+                    filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                 payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+        from app.services import sec_foreign_statements as foreign
+        if symbol in foreign.PROFILES:
+            payload['preparationVersion']=foreign.VERSION
         if symbol == 'PROV':
             payload['preparationVersion']='sec_statements_prov_bank_v1'
         if symbol == 'NEE':

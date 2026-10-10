@@ -55,12 +55,18 @@ def _number(node, tree):
     return -result if node.get('sign') == '-' else result
 
 
-def parse(raw, *, cik, accession, filed, report_date, form, url):
+def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
     from app.services.sec_fundamentals import TAGS
-    if not raw or len(raw) > 8_000_000:
+    namespace = basis['namespace'] if basis else 'us-gaap'
+    currency = basis['currency'] if basis else 'USD'
+    tags = basis['tags'] if basis else TAGS
+    if namespace not in {'us-gaap', 'ifrs-full'} or not re.fullmatch(r'[A-Z]{3}', currency):
+        raise InlineFactsError('unsupported_accounting_basis')
+    if not raw or len(raw) > (16_000_000 if basis else 8_000_000):
         raise InlineFactsError('filing_size')
     tree = html.fromstring(raw)
-    if (not re.fullmatch(r'https?://fasb.org/us-gaap/[0-9]{4}', tree.get('xmlns:us-gaap', ''))
+    namespace_pattern = r'https?://fasb\.org/us-gaap/[0-9]{4}' if namespace == 'us-gaap' else r'https?://xbrl\.ifrs\.org/taxonomy/[0-9]{4}-[0-9]{2}-[0-9]{2}/ifrs-full'
+    if (not re.fullmatch(namespace_pattern, tree.get('xmlns:'+namespace, ''))
             or not re.fullmatch(r'https?://xbrl.sec.gov/dei/[0-9]{4}', tree.get('xmlns:dei', ''))
             or tree.get('xmlns:ix') != 'http://www.xbrl.org/2013/inlineXBRL'
             or tree.get('xmlns:xbrli') != 'http://www.xbrl.org/2003/instance'
@@ -119,23 +125,23 @@ def parse(raw, *, cik, accession, filed, report_date, form, url):
             raise InlineFactsError('duplicate_unit')
         unit_ids.add(key)
         measures = [x.text_content().strip() for x in nodes(n, 'measure')]
-        if measures == ['iso4217:USD'] and not nodes(n, 'divide'):
-            units[key] = 'USD'
-        elif measures == ['iso4217:USD', 'xbrli:shares'] and len(nodes(n, 'divide')) == 1 and len(nodes(n, 'unitnumerator')) == len(nodes(n, 'unitdenominator')) == 1:
+        if measures == ['iso4217:'+currency] and not nodes(n, 'divide'):
+            units[key] = currency
+        elif measures == ['iso4217:'+currency, 'xbrli:shares'] and len(nodes(n, 'divide')) == 1 and len(nodes(n, 'unitnumerator')) == len(nodes(n, 'unitdenominator')) == 1:
             numerator = nodes(n, 'unitnumerator')[0]
             denominator = nodes(n, 'unitdenominator')[0]
-            if ([m.text_content().strip() for m in nodes(numerator, 'measure')] == ['iso4217:USD']
+            if ([m.text_content().strip() for m in nodes(numerator, 'measure')] == ['iso4217:'+currency]
                     and [m.text_content().strip() for m in nodes(denominator, 'measure')] == ['xbrli:shares']):
-                units[key] = 'USD/shares'
-    wanted = {tag for tags in TAGS.values() for tag in tags} | {'EarningsPerShareDiluted'}
+                units[key] = currency+'/shares'
+    wanted = {tag for concepts in tags.values() for tag in concepts} | ({'EarningsPerShareDiluted'} if basis is None else set())
     records = {}; provenance = {}
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')
-        if not name.startswith('us-gaap:') or name.split(':', 1)[1] not in wanted:
+        if not name.startswith(namespace+':') or name.split(':', 1)[1] not in wanted:
             continue
         tag = name.split(':', 1)[1]
         period, unit = contexts.get(n.get('contextref')), units.get(n.get('unitref'))
-        if period is None or unit != ('USD/shares' if tag == 'EarningsPerShareDiluted' else 'USD'):
+        if period is None or unit != (currency+'/shares' if tag == 'EarningsPerShareDiluted' else currency):
             continue
         value = _number(n, tree)
         start, end = period
@@ -149,14 +155,15 @@ def parse(raw, *, cik, accession, filed, report_date, form, url):
         provenance[key] = {'source_kind':'sec_inline_xbrl', 'source_url':url,
             'source_sha256':hashlib.sha256(raw).hexdigest(), 'source_cik':cik,
             'context_id':n.get('contextref'), 'fact_id':n.get('id')}
-    if not any(k[0] in TAGS['revenue'] and k[2] is not None and k[3] == report_date for k in records):
+    if not any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records):
         raise InlineFactsError('latest_reported_revenue_unavailable')
     gaap = {}
     for (tag, unit, start, end), fact in records.items():
         gaap.setdefault(tag, {'units':{}})['units'].setdefault(unit, []).append(fact)
     return {'facts':gaap, 'provenance':provenance, 'evidence':{'methodology':VERSION,
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
-        'url':url, 'sha256':hashlib.sha256(raw).hexdigest(), 'reported_facts':len(records)}}
+        'url':url, 'sha256':hashlib.sha256(raw).hexdigest(), 'reported_facts':len(records),
+        'namespace':namespace, 'currency':currency}}
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
@@ -205,7 +212,7 @@ def merge(payload, supplement, *, available_by):
     if str(payload.get('cik','')).zfill(10) != evidence['cik'] or evidence['filed'] > str(available_by):
         raise InlineFactsError('supplement_identity_or_availability')
     merged = deepcopy(payload)
-    gaap = merged.setdefault('facts',{}).setdefault('us-gaap',{})
+    gaap = merged.setdefault('facts',{}).setdefault(evidence.get('namespace', 'us-gaap'),{})
     for tag, content in supplement['facts'].items():
         for unit, facts in content['units'].items():
             gaap.setdefault(tag,{'units':{}})['units'].setdefault(unit,[]).extend(facts)

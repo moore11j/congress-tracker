@@ -4249,6 +4249,7 @@ export type TickerHydrationStatus = {
 };
 
 export type TickerFinancialsPoint = {
+  currency?: string | null;
   period: string;
   date?: string | null;
   revenue?: number | null;
@@ -4572,6 +4573,8 @@ export type TickerAnalystConsensusEventsResponse = {
 export type TickerFinancialsResponse = {
   symbol: string;
   revenueBasis?: string | null;
+  reportingCurrency?: string | null;
+  reportingBasis?: string | null;
   companyName?: string | null;
   status: "ok" | "partial" | "loading" | "no_data" | "unavailable" | string;
   message?: string | null;
