@@ -11,3 +11,10 @@ The batch reads bounded staged source revisions once, checks hashes and identiti
 Validation:74 focused checks passed before two final guards;15 targeted checks pass for those guards and queue progression. The full286-document captured institutional/consumer/repeat replay is running; no completion or deployment claim. Earlier synthetic fixture failures were corrected: staging was unnecessarily repeated before comparing database timestamps, and the initial sample lacked a qualifying holder event.
 
 Corporate-action transitions remain held. Official ONEOK and ExxonMobil filings establish one-for-one continuity, but applying that evidence and checking dependent portfolio calculations is separate pending work. Broad identity coverage remains incomplete; FMP and billing remain active, Massive prices last.
+
+
+## Holder activity consumer check
+
+The public holder activity fallback previously compared raw holdings even when a direct-source comparison was held. It now respects the source-owned publication state and exact prior identity; the page displays a verification-pending message instead of inventing changes or claiming no activity. Existing legacy histories remain readable. Ten frontend profile/link/cache checks pass. The expanded backend run has78 passes and one pre-existing locked-profile name expectation failure; the same failure reproduces in the other checkout with identical unchanged service/test Git blobs78e44bec9bb7c983f5e35329248c80715d0667c7 and833f263cfc508c0bf52887d2282a0ec4f6c3f383. TypeScript passes; the full offline replay remains in progress.
+
+The exact initial draft head aaff37bc passes76 focused reference/publication checks. The full replay started before the final raw-symbol drift and queue-advancement guards, which have separate targeted checks. The holder fallback is covered independently; do not describe the in-progress replay as an exact-head test of these later consumer changes.

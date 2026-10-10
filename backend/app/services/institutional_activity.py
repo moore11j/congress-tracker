@@ -2138,6 +2138,17 @@ def _derived_activity_for_holder_from_positions(db: Session, cik: str, *, page: 
     if prior_filing is None:
         return {"items": [], "page": page, "limit": limit, "has_next": False, "derived": True}
 
+    # A source-owned waiting filing has verified holdings, but its comparison
+    # is deliberately held. This fallback must not recreate unverified changes.
+    current_proof = json.loads(current_filing.raw_metadata_json or '{}').get('_walnut_direct_13f', {})
+    prior_proof = json.loads(prior_filing.raw_metadata_json or '{}').get('_walnut_direct_13f', {})
+    if (current_proof or prior_proof) and (
+            current_proof.get('derived_state') != 'published'
+            or current_proof.get('prior_filing_id') != prior_filing.id):
+        return {'items': [], 'page': page, 'limit': limit, 'has_next': False, 'derived': True,
+                'status': 'unavailable', 'availability_status': 'unavailable',
+                'message': 'Position changes are awaiting verification.', 'reason': 'direct_pair_not_published'}
+
     current_positions = db.execute(
         select(InstitutionalPosition).where(InstitutionalPosition.filing_id == current_filing.id)
     ).scalars().all()

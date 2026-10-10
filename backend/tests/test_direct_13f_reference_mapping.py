@@ -121,3 +121,16 @@ def test_reference_enrichment_does_not_overwrite_unfingerprinted_symbol_drift(db
     result=run(db,current,[reference('2026-09-30')])
     assert result['status']=='held' and 'symbol requires reconciliation' in result['reason']
     assert row.symbol=='UNREVIEWED' and row.normalized_symbol is None
+
+
+def test_public_holder_fallback_cannot_bypass_waiting_mapping_or_transition(db):
+    from app.services.institutional_activity import activity_for_holder
+    from test_direct_13f_publication import CIK
+    prior,current=docs();run(db,prior);run(db,current)
+    result=activity_for_holder(db,CIK)
+    assert result['items']==[] and result['reason']=='direct_pair_not_published'
+    assert result['status']=='unavailable'
+    refs=[reference('2026-06-30'),reference('2026-09-30')]
+    run(db,prior,refs);run(db,current,refs)
+    result=activity_for_holder(db,CIK)
+    assert result['items'] and result.get('reason') is None
