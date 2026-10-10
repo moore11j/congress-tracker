@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import ConfirmationScoreSnapshot, Event, OutcomeEntry, PriceCache, Security, StrategyVersion
+from app.models import ConfirmationMethodologyVersion, ConfirmationScoreSnapshot, Event, OutcomeEntry, PriceCache, Security, StrategyVersion
 from app.services.outcome_integrity import adjusted_price, as_utc
 from app.services.replicated_portfolios import _portfolio_event_from_event
 from app.services.strategy_evaluations import StrategyEvaluationCandidate
@@ -341,6 +341,7 @@ def resolve_strategy_candidates(
     evaluation_date: date,
     available_at: datetime | None = None,
     allow_draft: bool = False,
+    required_methodology_version: str | None = None,
 ) -> StrategyCandidateResolution:
     """Resolve candidates using only data visible by ``available_at``.
 
@@ -390,14 +391,21 @@ def resolve_strategy_candidates(
     max_snapshot_age_days = max(0, min(30, int(rules.get("max_snapshot_age_days") or 3)))
     cutoff = evaluation_date - timedelta(days=max_snapshot_age_days)
 
+    methodology_filters = []
+    if required_methodology_version:
+        from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION
+        methodology = db.scalar(select(ConfirmationMethodologyVersion).where(
+            ConfirmationMethodologyVersion.version == required_methodology_version))
+        if methodology is None or _load_json(methodology.configuration_json).get("scoring_version") != CONFIRMATION_SCORING_VERSION:
+            raise ValueError("Current provider confirmation methodology is not prepared")
+        methodology_filters.append(ConfirmationScoreSnapshot.methodology_version_id == methodology.id)
+
     rows = db.execute(
         select(ConfirmationScoreSnapshot, Security)
         .outerjoin(Security, Security.id == ConfirmationScoreSnapshot.security_id)
         .where(
             ConfirmationScoreSnapshot.calculation_type == "live",
-            ConfirmationScoreSnapshot.direction == direction,
-            ConfirmationScoreSnapshot.score >= min_score,
-            ConfirmationScoreSnapshot.active_source_count >= min_sources,
+            *methodology_filters,
             ConfirmationScoreSnapshot.market_date >= cutoff,
             ConfirmationScoreSnapshot.market_date <= evaluation_date,
             ConfirmationScoreSnapshot.calculated_at <= visible_at,
@@ -410,12 +418,21 @@ def resolve_strategy_candidates(
         )
     ).all()
 
+    if required_methodology_version and not rows:
+        # A missing new baseline is an operational hold, never an empty portfolio.
+        raise ValueError("Current provider confirmation snapshots are not prepared")
+
     latest_by_security: dict[int, tuple[ConfirmationScoreSnapshot, Security | None]] = {}
     for snapshot, security in rows:
         latest_by_security.setdefault(int(snapshot.security_id), (snapshot, security))
 
+    # Select the latest visible observation before applying eligibility.
+    # An older bullish observation cannot survive a newer downgrade or reversal.
+    qualified = [item for item in latest_by_security.values()
+                 if item[0].direction == direction and item[0].score >= min_score
+                 and item[0].active_source_count >= min_sources]
     ordered = sorted(
-        latest_by_security.values(),
+        qualified,
         key=lambda item: (-int(item[0].score), -int(item[0].active_source_count), item[0].ticker_at_time),
     )[:max_positions]
     weight = round(100.0 / len(ordered), 8) if ordered else 0.0
@@ -464,6 +481,6 @@ def resolve_strategy_candidates(
     return StrategyCandidateResolution(
         source=source,
         candidates=candidates,
-        universe_count=len(latest_by_security),
+        universe_count=len(qualified),
         available_at=visible_at,
     )

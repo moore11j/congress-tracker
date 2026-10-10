@@ -124,3 +124,19 @@ def test_scheduler_rotates_beyond_batch_limit(monkeypatch):
         first = run_active_strategy_evaluations(db, scheduled_for=now)
         second = run_active_strategy_evaluations(db, scheduled_for=now)
         assert first["results"][0]["slug"] != second["results"][0]["slug"]
+
+
+def test_new_analyst_methodology_without_snapshots_holds_before_portfolio_evaluation(monkeypatch):
+    import app.services.strategy_scheduler as scheduler
+    sessions=_session()
+    with sessions() as db:
+        _strategy(db,'held-provider-transition')
+        monkeypatch.setenv('STRATEGY_EVALUATIONS_ENABLED','true')
+        monkeypatch.setenv('ANALYST_PROVIDER','finnhub')
+        def forbidden(*args,**kwargs):
+            raise AssertionError('Unprepared provider transition must not evaluate portfolios')
+        monkeypatch.setattr(scheduler,'evaluate_strategy_candidates',forbidden)
+        result=scheduler.run_active_strategy_evaluations(db,scheduled_for=datetime(2026,10,9,23,tzinfo=timezone.utc))
+        assert result['failed']==1
+        run=db.scalar(select(StrategyEvaluationRun))
+        assert run.status=='failed' and 'methodology is not prepared' in run.error
