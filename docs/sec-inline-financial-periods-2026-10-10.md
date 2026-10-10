@@ -1,6 +1,6 @@
 # SEC financial periods missing from companyfacts
 
-October 10, 2026. Local validation complete; deployment and ordinary scheduled receipt pending.
+October 10, 2026. Deployed as PR548/a29f81f6; ordinary scheduled preparation and public responses verified at 23:04 UTC.
 
 ## Problem and repair
 
@@ -26,6 +26,16 @@ Python 3.14.2 locally, production Python 3.12.15 remains to be verified for this
 - Actual PostgreSQL 16.15 isolated schema, one pooled connection: NEE 6 annual/12 quarterly rows, identical cached repeat, nine refused overlaps, zero checked-out pooled connections or idle transactions during source I/O. A simulated 429 preserves the existing cache and releases the advisory lock. Demand queue identity/attempts unchanged; second warmer run does not refetch. Initial harness asserted the first array item was newest; corrected to select June by date, then passed. Test schema removed and server stopped.
 - Original fixtures, source manifests and replay receipts are retained locally under `artifacts/direct-feeds/free-replacements-2026-10-09/`; durable results are summarized here.
 
-## Remaining release gates
+## Release and ordinary operation
 
-Normal PR review/checks, exact deployed hashes, ordinary background preparation and backend/site public reads. This is not broad coverage, full-suite, rendering, sustained delivery or zero-FMP-traffic evidence. Institutions, transcripts, core coverage, other consumers and final Massive pricing remain separate migration gates.
+[PR548](https://github.com/moore11j/congress-tracker/pull/548) merged as `a29f81f6cbcdb5681d0c3988fda7d4555c060e65`; backend workflow `38093520162` succeeds. All nine source/proof hashes match. Secret scan passes; unchanged frontend Next.js ecosystem and backend Pillow dependency audits fail. A read-only file receipt attempted before rollout completion failed and establishes no runtime evidence; the completed-release receipt succeeds.
+
+The first public checks at 23:02 returned the truthful loading state and queued NEE with zero attempts. Ordinary `warm_sec_research` at23:04:01 prepares6annual/12quarterly rows, reports zero canonical writes/emails and selects SEC financial statements. The source and per-input hashes match the reviewed original. NEE's separate ratio cache still awaits ordinary rotation; public core remains default FMP. General enrichment identity remains queued/zero attempts because the dedicated warmer has supplied its cache.
+
+Four backend/site responses after preparation all return200 and identical content:6annual/12quarterly, latest quarterJune30, TTM revenue28.700bn. Latencies0.464/0.620/0.362/0.564s; fingerprint `d052ba0806772427e12d586a9d67019415104c8bc094acd2d175b49dad246b53`. Source=`sec_edgar`, status=`partial` for unsupported fields. Receipts `inline-runtime-1791673459.json`, `inline-public-final-1791673471.json`.
+
+Post-deployment two-service receipt `two-service-verify-1791673417.json` confirms release image, seven operational hashes, exactly two machines and empty scheduled queue;1544MB available. Feed0.40–0.54s/newtickercontext1.06–1.51s.
+
+## Remaining gates
+
+ This is not broad coverage, full-suite, rendering, sustained delivery or zero-FMP-traffic evidence. Institutions, transcripts, core coverage, other consumers and final Massive pricing remain separate migration gates.

@@ -4571,6 +4571,7 @@ export type TickerAnalystConsensusEventsResponse = {
 
 export type TickerFinancialsResponse = {
   symbol: string;
+  revenueBasis?: string | null;
   companyName?: string | null;
   status: "ok" | "partial" | "loading" | "no_data" | "unavailable" | string;
   message?: string | null;

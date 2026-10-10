@@ -54,7 +54,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     from app.services.sec_financial_continuity import record_sets
     metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
     metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
-    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,filing_supplement=filing_supplement)
+    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,filing_supplement=filing_supplement,company=company)
     eps_records=records.pop('eps')
     annual, quarters = set(), set()
     for (start, end), value in records['revenue'].items():
@@ -104,6 +104,12 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'factsSha256': hashlib.sha256(facts_raw).hexdigest(), 'companySha256': hashlib.sha256(company_raw).hexdigest(),
             'factsUrl': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
             'availabilityBasis': 'Current view uses latest filed facts available after completed New York filing day; not a historical tradable snapshot.'})
+    from app.services.sec_bank_revenue import basis
+    revenue_basis = basis(records)
+    if revenue_basis:
+        payload['sourceEvidence']['revenueBasis'] = revenue_basis
+        payload['revenueBasis'] = revenue_basis
+        payload['message'] = 'Bank revenue equals net interest income before credit-loss provisions plus non-interest income. Other financial coverage is partial.'
     if continuity is not None:
         payload['sourceEvidence']['financialContinuity']=continuity
     if filing_supplement is not None:
@@ -152,6 +158,8 @@ def cached_row_payload(row, symbol, *, now=None):
     except (TypeError, ValueError):
         return None
     if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
+        return None
+    if symbol == 'PROV' and payload.get('preparationVersion') != 'sec_statements_prov_bank_v1':
         return None
     if symbol == 'NEE' and payload.get('preparationVersion') != 'sec_statements_nee_inline_v1':
         return None
@@ -230,6 +238,8 @@ def prepared(symbol):
                 from app.services.sec_inline_financials import acquire
                 filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                 payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+        if symbol == 'PROV':
+            payload['preparationVersion']='sec_statements_prov_bank_v1'
         if symbol == 'NEE':
             payload['preparationVersion']='sec_statements_nee_inline_v1'
         if symbol == 'XOM':
