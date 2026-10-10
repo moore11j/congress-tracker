@@ -216,3 +216,15 @@ def test_verified_current_alias_requires_cusip_period_and_available_new_symbol(c
     assert mapped_symbol(cusip,{old,current,'UNRELATED'},*first) is None
     assert mapped_symbol('DIFFERENT',{old,current},*first) is None
     assert mapped_symbol(cusip,set(),*first) is None
+
+
+def test_reviewed_issuer_aliases_require_independent_current_candidate_and_period():
+    from app.services.institutional_sec_snapshot import mapped_symbol
+    rules=[('165167735', 'CHK', 'EXE', 2024, 4), ('668771108', 'NLOK', 'GEN', 2022, 4), ('88023U101', 'TPX', 'SGI', 2025, 1), ('69121K104', 'ORCC', 'OBDC', 2023, 3), ('852234103', 'SQ', 'XYZ', 2025, 1), ('02156V109', 'ALCC', 'OKLO', 2024, 2), ('34964C106', 'FBHS', 'FBIN', 2022, 4), ('G3223R108', 'RE', 'EG', 2023, 3), ('714046109', 'PKI', 'RVTY', 2023, 2), ('75524B104', 'ROLL', 'RBC', 2022, 3), ('90984P303', 'UCBI', 'UCB', 2024, 3)]
+    for cusip, old, current, year, quarter in rules:
+        previous = (year, quarter-1) if quarter>1 else (year-1,4)
+        assert mapped_symbol(cusip,{old,current},year,quarter)==current
+        assert mapped_symbol(cusip,{old,current},*previous) is None
+        assert mapped_symbol(cusip,{old},year,quarter)==old
+        assert mapped_symbol(cusip,{old,current,'UNRELATED'},year,quarter) is None
+        assert mapped_symbol('WRONGCUSIP',{old,current},year,quarter) is None
