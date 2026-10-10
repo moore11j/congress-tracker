@@ -67,6 +67,19 @@ def test_repeated_complete_table_is_deduplicated_but_conflicts_block():
         merge_supplement(base, repeated)
 
 
+@pytest.mark.parametrize('cusip,symbols,year,quarter,expected', [
+    ('74743L100', {'Q','Q-W'}, 2026, 2, 'Q'),
+    ('74743L100', {'Q','Q-W'}, 2025, 4, 'Q'),
+    ('74743L100', {'Q','Q-W'}, 2025, 3, None),
+    ('OTHER', {'Q','Q-W'}, 2026, 2, None),
+    ('74743L100', {'Q','Q-W','OTHER'}, 2026, 2, None),
+    ('74743L100', {'Q-W'}, 2026, 2, 'Q-W'),
+])
+def test_qnity_common_share_alias_requires_confirmed_symbol_and_period(cusip,symbols,year,quarter,expected):
+    from app.services.institutional_sec_snapshot import mapped_symbol
+    assert mapped_symbol(cusip,symbols,year,quarter)==expected
+
+
 @pytest.fixture
 def db():
     engine = create_engine("sqlite:///:memory:")

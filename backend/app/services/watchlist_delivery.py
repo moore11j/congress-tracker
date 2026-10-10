@@ -118,7 +118,8 @@ def categories_for_event(event_type: str | None, payload: dict[str, Any] | None 
         categories.add("insiders")
     if event_key.startswith("government_contract") or event_key in {"contract_award", "government_exposure"}:
         categories.add("government_contracts")
-    if event_key.startswith("institutional") or event_key in {"institutional_activity", "institutional_activity_change"}:
+    from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
+    if event_key.startswith("institutional") or event_key in INSTITUTIONAL_EVENT_TYPES:
         categories.add("institutional_activity")
     if event_key in {"fundamental_change", "fundamentals_change", "fundamentals_flip"}:
         categories.add("fundamentals")

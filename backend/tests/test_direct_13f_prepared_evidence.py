@@ -61,3 +61,26 @@ def test_actual_batch_parses_each_peer_once_and_repeats_without_new_work(db,monk
     assert len(calls)==2 and len(set(calls))==2
     assert publish_13f_batch(db,identifier_documents=[])['processed']==0
     assert len(calls)==2
+
+
+@pytest.mark.parametrize('scenario', ['one', 'duplicate_manager', 'future', 'disagreeing', 'confirmed'])
+def test_compact_values_preserve_independent_available_peer_rules(scenario, monkeypatch):
+    target=document(rows=[('000361105',100,100,'')])
+    _,parsed,_=parse_document('sec_13f',target['raw'],target['metadata'])
+    first=peer('0000000001')
+    cases={'one':[first], 'duplicate_manager':[first,first],
+        'future':[first,peer('0000000002',filed='2026-10-07')],
+        'disagreeing':[first,peer('0000000002',value=10)],
+        'confirmed':[first,peer('0000000002',serial=3)]}
+    comparisons=cases[scenario]
+    expected=evidence.value_consistency_issues(parsed,comparisons)
+    prepared=evidence.Prepared13FEvidence.build([],comparisons)
+    monkeypatch.setattr(evidence.Prepared13FEvidence,'comparison',lambda *a:pytest.fail('Rebuilt complete peer positions'))
+    metadata,reasons,prices=prepared.comparison_values(first,{'000361105'})
+    metadata['cik']='changed';prices.clear();reasons.append('changed')
+    assert evidence.value_consistency_issues(parsed,comparisons,prepared=prepared)==expected
+    assert bool(expected)==(scenario=='confirmed')
+    assert prepared.comparison_values(first,{'UNRELATED'})[2]=={}
+    changed=copy.deepcopy(first);changed['metadata']['filing_date']='2026-01-01'
+    with pytest.raises(DirectSourceError,match='identity'):
+        prepared.comparison_values(changed,{'000361105'})

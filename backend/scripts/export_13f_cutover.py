@@ -34,10 +34,11 @@ def main():
                 assert hashlib.sha256(raw).hexdigest() == doc.content_hash
                 parsed = json.loads(revision.parsed_json)
                 cusips.update(r['cusip'] for r in parsed.get('positions', []))
-            if metadata['filing_date'] == '2026-10-07':
+            if metadata['filing_date'] >= '2026-10-07':
                 ciks.add(metadata['cik'].lstrip('0'))
             sources.append(dict(id=doc.id, metadata=metadata, content_hash=doc.content_hash,
                 status=doc.status, error=doc.error,
+                prior_collection=json.loads(doc.reconciliation_json or '{}').get('_prior_collection'),
                 raw_base64=base64.b64encode(raw).decode() if raw else None))
         def records(model, query, maximum=100000):
             rows = list(db.scalars(query.limit(maximum+1)))
@@ -50,14 +51,21 @@ def main():
             func.ltrim(InstitutionalPosition.cik,'0').in_(ciks)))
         # One real row for every distinct historical symbol candidate. Keeping
         # conflicts is essential; selecting only a preferred symbol would hide them.
-        mapping_ids = list(db.scalars(select(func.min(InstitutionalPosition.id)).where(
-            InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
-            InstitutionalPosition.filing_date <= date(2026,10,7)).group_by(
-                InstitutionalPosition.cusip,InstitutionalPosition.normalized_symbol).limit(100001)))
+        mapping_ids = []
+        ordered_cusips = sorted(cusips)
+        for offset in range(0, len(ordered_cusips), 100):
+            part = list(db.scalars(select(InstitutionalPosition.id).where(
+                InstitutionalPosition.cusip.in_(ordered_cusips[offset:offset+100]),
+                InstitutionalPosition.normalized_symbol.is_not(None),
+                InstitutionalPosition.filing_date <= date(2026,10,7)).distinct(
+                    InstitutionalPosition.cusip,InstitutionalPosition.normalized_symbol).order_by(
+                    InstitutionalPosition.cusip,InstitutionalPosition.normalized_symbol,
+                    InstitutionalPosition.filing_date,InstitutionalPosition.id).limit(100001)))
+            mapping_ids.extend(part)
+            assert len(mapping_ids) <= 100000
         assert len(mapping_ids) <= 100000
-        # Aggregate narrow identifiers before fetching large source payloads.
-        # The representative keeps its real filing date; never backdate it to
-        # another row's date. Earlier availability may remain underrepresented.
+        # Select the earliest actual row for every symbol candidate, retaining
+        # conflicts, original filing dates and real parent filings.
         mapping_positions = records(InstitutionalPosition, select(InstitutionalPosition).where(
             InstitutionalPosition.id.in_(mapping_ids)))
         symbols = {r['normalized_symbol'] for r in [*positions,*mapping_positions] if r['normalized_symbol']}

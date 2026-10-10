@@ -20,6 +20,22 @@ def _evidence_key(document):
                       sort_keys=True,default=str)
 
 
+def _equity_totals(rows):
+    totals = defaultdict(lambda: [Decimal(0), Decimal(0)])
+    for row in rows:
+        if row.get('putCall') or row.get('shareType') != 'SH':
+            continue
+        total = totals[row['cusip']]
+        total[0] += Decimal(str(row['shares']))
+        total[1] += Decimal(str(row['valueUsd']))
+    return tuple((cusip, shares, value) for cusip, (shares, value) in totals.items())
+
+
+def _equity_prices(totals, cusips=None):
+    return {cusip: value / shares for cusip, shares, value in totals
+            if (cusips is None or cusip in cusips) and shares > 0 and value > 0}
+
+
 @dataclass(frozen=True)
 class Prepared13FEvidence:
     """Per-batch immutable parses; every reuse still checks original bytes/identity.
@@ -29,6 +45,7 @@ class Prepared13FEvidence:
     """
     _identifiers: tuple
     _comparisons: tuple
+    _value_comparisons: tuple
 
     @classmethod
     def build(cls, identifier_documents, comparison_documents):
@@ -36,7 +53,7 @@ class Prepared13FEvidence:
             raise ValueError('Prepared evidence exceeds document bounds')
         if sum(len(d['raw']) for d in (*identifier_documents,*comparison_documents))>100_000_000:
             raise ValueError('Prepared evidence exceeds byte bounds')
-        identifiers=[];comparisons=[]
+        identifiers=[];comparisons=[];values=[]
         for document in identifier_documents:
             key=_evidence_key(document)
             identifiers.append((key,json.dumps(nport_identifiers(document,available_by=date.max))))
@@ -45,10 +62,13 @@ class Prepared13FEvidence:
             try:
                 _,parsed,reasons=parse_document('sec_13f',document['raw'],document['metadata'])
                 value=json.dumps([parsed,reasons],default=str)
+                compact=(json.dumps(parsed['metadata'],default=str),json.dumps(reasons),_equity_totals(parsed['positions']))
             except DirectSourceError:
                 value=None
+                compact=None
+            values.append((key,compact))
             comparisons.append((key,value))
-        return cls(tuple(identifiers),tuple(comparisons))
+        return cls(tuple(identifiers),tuple(comparisons),tuple(values))
 
     def _lookup(self, document, records):
         key=_evidence_key(document)
@@ -62,6 +82,17 @@ class Prepared13FEvidence:
 
     def comparison(self, document):
         return self._lookup(document,self._comparisons)
+
+    def comparison_values(self, document, cusips):
+        # Immutable Decimal totals avoid reconstructing every peer position for
+        # every filing; division still uses the caller's Decimal context.
+        key=_evidence_key(document)
+        for saved, compact in self._value_comparisons:
+            if saved == key:
+                if compact is None:return None
+                metadata,reasons,totals=compact
+                return json.loads(metadata),json.loads(reasons),_equity_prices(totals,cusips)
+        raise DirectSourceError('Prepared evidence identity changed')
 
 
 def nport_identifiers(document, *, available_by: date, prepared=None):
@@ -123,35 +154,28 @@ def value_consistency_issues(parsed, documents, *, prepared=None):
         raise TypeError('Invalid prepared evidence')
     meta = parsed['metadata']
     peers = defaultdict(dict)
-    def prices(rows):
-        totals = defaultdict(lambda: [Decimal(0), Decimal(0)])
-        for row in rows:
-            if row.get('putCall') or row.get('shareType') != 'SH':
-                continue
-            total = totals[row['cusip']]
-            total[0] += Decimal(str(row['shares']))
-            total[1] += Decimal(str(row['valueUsd']))
-        return {cusip: value / shares for cusip, (shares, value) in totals.items() if shares > 0 and value > 0}
+    target_prices = _equity_prices(_equity_totals(parsed['positions']))
     for document in documents:
         if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
             raise DirectSourceError('13F comparison source checksum mismatch')
         if prepared is not None:
-            saved=prepared.comparison(document)
+            saved=prepared.comparison_values(document,target_prices)
             if saved is None:continue
-            peer,reasons=saved
+            pm,reasons,peer_prices=saved
         else:
             try:
                 _, peer, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
             except DirectSourceError:
                 continue
-        pm = peer['metadata']
+            pm = peer['metadata']
+            peer_prices = _equity_prices(_equity_totals(peer['positions']),target_prices)
         if (reasons or pm['cik'] == meta['cik'] or pm['report_period'] != meta['report_period']
                 or pm['filing_date'] > meta['filing_date']):
             continue
-        for cusip, price in prices(peer['positions']).items():
+        for cusip, price in peer_prices.items():
             peers[cusip].setdefault(pm['cik'], []).append((price, pm['key']))
     issues = []
-    for cusip, price in prices(parsed['positions']).items():
+    for cusip, price in target_prices.items():
         # Multiple accessions for one manager need amendment reconciliation.
         candidates = [rows[0] for rows in peers[cusip].values() if len(rows) == 1]
         if len(candidates) < 2:

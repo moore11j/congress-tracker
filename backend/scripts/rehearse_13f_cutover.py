@@ -14,21 +14,23 @@ from unittest.mock import patch
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline',type=Path,required=True)
-    parser.add_argument('--priors',type=Path,required=True)
+    parser.add_argument('--evidence-root',type=Path,help='Explicit evidence directory when using an isolated release checkout')
+    parser.add_argument('--priors',type=Path)
+    parser.add_argument('--staged-priors',action='store_true',help='Use hash-bound production staging receipts in the captured public baseline')
     parser.add_argument('--mapping-parents',type=Path,help='Supplemental parents for an older baseline without mapping_filings')
     parser.add_argument('--mapping-supplement',type=Path,help='Read-only captured earlier mapping rows and their actual parent filings')
     parser.add_argument('--identifiers',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--prepared-evidence',action='store_true')
     args=parser.parse_args()
-    root=Path(__file__).resolve().parents[2]/'artifacts/direct-feeds'
+    root=args.evidence_root or Path(__file__).resolve().parents[2]/'artifacts/direct-feeds'
     assert all(p.resolve().is_relative_to(root.resolve()) for p in (args.baseline,args.priors,args.identifiers,args.output,args.mapping_parents,args.mapping_supplement) if p is not None)
     os.environ['DATABASE_URL']='sqlite:///:memory:'
     from sqlalchemy import Date,DateTime,select,func
     from app.db import Base,engine,SessionLocal
     from app.models import (InstitutionalFiling,InstitutionalPosition,InstitutionalHolder,InstitutionalSymbolSummary,
                             InstitutionalPositionChange,InstitutionalActivityEvent,Event,EmailDelivery,
-                            UserAccount,Watchlist,WatchlistItem,Security,MonitoringAlert)
+                            UserAccount,Watchlist,WatchlistItem,Security,MonitoringAlert,NotificationSubscription)
     from app.services.direct_feed_store import discover,record_document,dumps
     from app.services.direct_feed_collection import parse_document
     from app.services.direct_13f_batch import load_identifier_manifest
@@ -47,17 +49,38 @@ def main():
     supplement=json.loads(args.mapping_supplement.read_bytes()) if args.mapping_supplement else {'filings':[],'positions':[]}
     if args.mapping_supplement:
         assert supplement['transaction_read_only'] and supplement['baseline_sha256']==baseline_hash
-    manifest=json.loads(args.priors.read_bytes())
+    assert bool(args.priors) != bool(args.staged_priors)
     priors=[]
-    for source in manifest['results']:
-        if source['status']!='parsed':continue
-        path=(args.priors.parent/source['source_file']).resolve()
-        history=(args.priors.parent/source['history_file']).resolve()
-        assert path.parent==history.parent==args.priors.parent.resolve()
-        raw=path.read_bytes();assert hashlib.sha256(raw).hexdigest()==source['content_hash']
-        assert hashlib.sha256(history.read_bytes()).hexdigest()==source['history_sha256']
-        priors.append({**source,'raw':raw})
-    assert 1<=len(priors)<=20
+    staged_excluded_pairs=[]
+    if args.staged_priors:
+        by_id={row['id']:row for row in baseline['documents']}
+        for source in baseline['documents']:
+            receipt=source.get('prior_collection') or {}
+            if receipt.get('status')!='collected':continue
+            if receipt.get('report_period')!='2026-06-30':
+                staged_excluded_pairs.append({'accession':source['metadata']['key'],
+                    'prior_period':receipt.get('report_period'),
+                    'reason':'older_report_period_requires_complete_existing_quarter_baseline'})
+                continue
+            assert source['content_hash']==receipt['current_source_hash']
+            assert hashlib.sha256(dumps(source['metadata']).encode()).hexdigest()==receipt['current_metadata_hash']
+            prior=by_id[receipt['prior_document_id']]
+            assert prior['status']=='parsed' and prior['content_hash']==receipt['content_hash']
+            assert hashlib.sha256(dumps(prior['metadata']).encode()).hexdigest()==receipt['prior_metadata_hash']
+            raw=base64.b64decode(prior['raw_base64'])
+            assert hashlib.sha256(raw).hexdigest()==prior['content_hash']
+            priors.append({**prior,'feed':'sec_13f','raw':raw,'current_document_id':source['id']})
+    else:
+        manifest=json.loads(args.priors.read_bytes())
+        for source in manifest['results']:
+            if source['status']!='parsed':continue
+            path=(args.priors.parent/source['source_file']).resolve()
+            history=(args.priors.parent/source['history_file']).resolve()
+            assert path.parent==history.parent==args.priors.parent.resolve()
+            raw=path.read_bytes();assert hashlib.sha256(raw).hexdigest()==source['content_hash']
+            assert hashlib.sha256(history.read_bytes()).hexdigest()==source['history_sha256']
+            priors.append({**source,'raw':raw})
+    assert 1<=len(priors)<=200
     selected_ids={r['current_document_id'] for r in priors}
     current=[];comparisons=[]
     for source in baseline['documents']:
@@ -71,9 +94,19 @@ def main():
             current.append(document)
     assert len(current)==len(priors)
     identifiers=load_identifier_manifest(args.identifiers)
-    documents=sorted([*priors,*current],key=lambda d:(d['metadata']['filing_date'],d['metadata']['key']))
-    comparisons.extend(priors)
+    unique_documents={d['metadata']['key']:d for d in [*priors,*current]}
+    documents=sorted(unique_documents.values(),key=lambda d:(d['metadata']['filing_date'],d['metadata']['key']))
+    by_key={row['metadata']['key']:row for row in comparisons}
+    for prior in priors:
+        if prior['metadata']['key'] in by_key:
+            assert by_key[prior['metadata']['key']]['content_hash']==prior['content_hash']
+        else:
+            by_key[prior['metadata']['key']]=prior
+    comparisons=list(by_key.values())
     started=time.monotonic()
+    comparison_count_before=len(comparisons)
+    target_periods={parse_document('sec_13f',d['raw'],d['metadata'])[1]['metadata']['report_period'] for d in documents}
+    comparisons=[d for d in comparisons if parse_document('sec_13f',d['raw'],d['metadata'])[1]['metadata']['report_period'] in target_periods]
     prepared=Prepared13FEvidence.build(identifiers,comparisons) if args.prepared_evidence else None
     Base.metadata.create_all(engine)
     def forbidden(*a,**k):raise AssertionError('Offline replay attempted transport or email')
@@ -132,12 +165,22 @@ def main():
             return results
         first=run(True)
         events=[e for e in db.scalars(select(Event)) if json.loads(e.payload_json or '{}').get('sec_verification',{}).get('feed')=='sec_13f']
+        # Preserve a clearly partial public-only diagnostic before consumer
+        # assertions so a failure can be reproduced without recollecting data.
+        args.output.with_suffix('.first-pass.json').write_text(dumps(dict(
+            phase='first_pass_only_consumers_and_repeat_unverified',baseline_sha256=baseline_hash,
+            results=first,events=[{column.name:getattr(event,column.name)
+                for column in Event.__table__.columns} for event in events],production_writes=0)),encoding='utf-8')
         previews=None
         if events:
             user=UserAccount(email='institutional-cutover@example.test',entitlement_tier='pro',watchlist_activity_notifications=True)
             db.add(user);db.flush()
             watchlist=Watchlist(name='Isolated institutional cutover',owner_user_id=user.id)
             db.add(watchlist);db.flush()
+            db.add(NotificationSubscription(email=user.email,source_type='watchlist',
+                source_id=str(watchlist.id),source_name=watchlist.name,frequency='daily',
+                only_if_new=True,active=True,source_payload_json='{}',
+                alert_triggers_json=json.dumps(['institutional_activity'])))
             for symbol in sorted({e.symbol for e in events}):
                 security=Security(symbol=symbol,name=symbol,asset_class='stock');db.add(security);db.flush()
                 db.add(WatchlistItem(watchlist_id=watchlist.id,security_id=security.id))
@@ -154,7 +197,7 @@ def main():
                     builds=[digests.build_monitoring_digest(db,user,watchlist,since,window_end=end),
                             digests.build_signal_alert_digest(db,user,since,window_end=end),
                             digests.build_watchlist_activity_digest(db,user,watchlist,since)]
-                assert all(b.items_count>0 for b in builds)
+                assert all(b.items_count>0 for b in builds), [(b.template_key,b.items_count) for b in builds]
                 return [dict(items=b.items_count,template=b.template_key,context=b.context) for b in builds]
             previews=preview()
         def fingerprint():
@@ -172,7 +215,7 @@ def main():
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
         report=dict(baseline_sha256=baseline_hash,baseline_captured_at=baseline['captured_at'],source_documents=len(documents),
             mapping_supplement_sha256=hashlib.sha256(args.mapping_supplement.read_bytes()).hexdigest() if args.mapping_supplement else None,
-            prepared_evidence=args.prepared_evidence,elapsed_seconds=round(time.monotonic()-started,2),
+            comparison_periods=sorted(target_periods),comparison_documents=len(comparisons),excluded_other_period_comparisons=comparison_count_before-len(comparisons),prepared_evidence=args.prepared_evidence,staged_prior_pairs=len(priors) if args.staged_priors else None,staged_excluded_pairs=staged_excluded_pairs,elapsed_seconds=round(time.monotonic()-started,2),
             statuses=dict(Counter(r['status'] for r in first)),derived_states=dict(Counter(r.get('derived_state',r['status']) for r in first)),
             results=first,totals={key:sum(r.get(key,0) for r in first) for key in ['inserted_filings','inserted_positions','changes','summaries','activity_events','feed_events']},
             qualifying_events=[dict(symbol=e.symbol,event_type=e.event_type,payload=json.loads(e.payload_json)) for e in events],

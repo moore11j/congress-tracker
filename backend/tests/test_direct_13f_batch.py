@@ -90,3 +90,29 @@ def test_disabled_job_never_opens_manifest_or_database(monkeypatch, capsys):
     monkeypatch.setattr(job, 'load_identifier_manifest', lambda *a: pytest.fail('Opened manifest'))
     job.main()
     assert json.loads(capsys.readouterr().out)['status'] == 'disabled'
+
+
+def test_period_scoping_preserves_relevant_peers_within_unchanged_budget(db):
+    prior, current = pair()
+    stage(db, prior); stage(db, current)
+    budget = len(current['raw'])
+    with pytest.raises(ValueError, match='oversized'):
+        batch.staged_comparisons(db, byte_budget=budget)
+    peers = batch.staged_comparisons(db, byte_budget=budget, report_periods={'2026-09-30'})
+    assert [row['content_hash'] for row in peers] == [current['content_hash']]
+    # Exclusion is based on verified original bytes, never the saved parse.
+    saved = db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.content_hash == prior['content_hash']))
+    saved.parsed_json = json.dumps({'metadata': {'report_period': '2026-09-30'}})
+    db.commit()
+    assert len(batch.staged_comparisons(db, byte_budget=budget, report_periods={'2026-09-30'})) == 1
+    saved.source_bytes += b'changed'
+    db.commit()
+    with pytest.raises(ValueError, match='checksum'):
+        batch.staged_comparisons(db, byte_budget=budget, report_periods={'2026-09-30'})
+
+
+def test_relevant_period_cannot_bypass_evidence_budget(db):
+    prior, current = pair()
+    stage(db, current)
+    with pytest.raises(ValueError, match='evidence budget'):
+        batch.staged_comparisons(db, byte_budget=len(current['raw'])-1, report_periods={'2026-09-30'})

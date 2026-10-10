@@ -41,3 +41,22 @@ def test_legacy_subscription_keeps_its_existing_global_toggle_behavior():
 def test_news_and_press_release_remain_distinct_categories():
     assert categories_for_event("news_article") == {"news"}
     assert categories_for_event("press_release") == {"press_releases"}
+
+
+import pytest
+from app.models import Event
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
+from app.services.email_digests import _watchlist_event_allowed
+
+
+@pytest.mark.parametrize('event_type', INSTITUTIONAL_EVENT_TYPES)
+@pytest.mark.parametrize('scored', [False, True])
+def test_institutional_only_delivery_includes_every_institutional_event_type(event_type, scored):
+    # Real 13F exits/new positions do not start with "institutional". A score
+    # must not force users to opt into another category to receive them.
+    payload = {'smart_score': 95} if scored else {}
+    event = Event(event_type=event_type, symbol='TEST', payload_json=json.dumps(payload))
+    enabled = _subscription({'alert_delivery_modes': {'institutional_activity': 'daily'}}, ['institutional_activity'])
+    disabled = _subscription({'alert_delivery_modes': {'institutional_activity': 'off'}}, ['institutional_activity'])
+    assert _watchlist_event_allowed(enabled, event)
+    assert not _watchlist_event_allowed(disabled, event)
