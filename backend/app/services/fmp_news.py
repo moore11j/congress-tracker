@@ -1417,6 +1417,14 @@ def get_sec_filings(
     if not normalized_symbol:
         return _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
 
+    if os.getenv("SEC_FILINGS_PROVIDER", "fmp").strip().lower() == "sec_edgar":
+        from app.services.sec_company_filings import get_company_filings
+        return get_company_filings(symbol=normalized_symbol, from_date=from_date, to_date=to_date,
+                                   page=bounded_page, limit=bounded_limit)
+    if fmp_provider_disabled():
+        return _unavailable_payload(page=bounded_page, limit=bounded_limit,
+            message="Company filing coverage is currently unavailable.", reason="provider_disabled")
+
     today = date.today()
     default_from = today - timedelta(days=365)
     from_value = from_date or default_from.isoformat()

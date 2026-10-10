@@ -54,6 +54,15 @@ def _run_locked():
             result = {'scope': symbol, 'status': 'ok', 'source': sec_directory.SOURCE,
                       'has_name': bool(name), 'has_exchange': bool(exchange),
                       'has_sic_industry': bool(industry)}
+            if os.getenv('SEC_FILINGS_WARMING_ENABLED', '0') == '1':
+                from app.services.sec_company_filings import get_company_filings
+                filing_list = get_company_filings(symbol=symbol)
+                result['filings_status'] = filing_list.get('status')
+                result['filings_provider'] = filing_list.get('provider')
+                result['filings_source_count'] = (filing_list.get('coverage') or {}).get('source_row_count')
+                if filing_list.get('status') not in {'ok', 'empty'}:
+                    result['status'] = 'partial'
+
         except Exception as exc:
             result = {'scope': symbol, 'status': 'unavailable', 'reason': type(exc).__name__}
             if isinstance(exc, DirectSourceError):
@@ -63,10 +72,12 @@ def _run_locked():
         attempts[symbol] = now.isoformat()
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
-    receipt = {'status': 'partial' if (len(watched)>1000 or len(research)>1000) or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
+    receipt = {'status': 'partial' if (len(watched)>1000 or len(research)>1000) or any(r['status'] != 'ok' for r in results) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': (len(watched)>1000 or len(research)>1000),
         'planned_scopes': min(5, len(symbols)), 'completed_scopes': len(results), 'results': results,
         'metadata_selection': os.getenv('COMPANY_METADATA_PROVIDER', 'fmp'),
+        'filings_selection': os.getenv('SEC_FILINGS_PROVIDER', 'fmp'),
+        'filings_preparation_enabled': os.getenv('SEC_FILINGS_WARMING_ENABLED', '0') == '1',
         'canonical_writes': 0, 'model_calls': 0, 'emails': 0}
     with SessionLocal() as db:
         row = db.get(InsightsSnapshot, KEY, populate_existing=True, with_for_update=True)
