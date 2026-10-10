@@ -51,6 +51,16 @@ def mapped_symbol(cusip, symbols, year, quarter):
         ("714046109", {"PKI", "RVTY"}, "RVTY", (2023, 2)),
         ("75524B104", {"ROLL", "RBC"}, "RBC", (2022, 3)),
         ("90984P303", {"UCBI", "UCB"}, "UCB", (2024, 3)),
+        # Additional issuer/SEC confirmations: docs/institutional-remaining-identities-2026-10-09.md
+        ("000375204", {"ABB", "ABBNY"}, "ABBNY", (2023, 2)),
+        ("46137V282", {"RYT", "RSPT"}, "RSPT", (2023, 2)),
+        ("42250P103", {"PEAK", "DOC"}, "DOC", (2024, 1)),
+        ("114340102", {"BRKS", "AZTA"}, "AZTA", (2021, 4)),
+        ("649445400", {"NYCB", "FLG"}, "FLG", (2024, 4)),
+        ("224441105", {"CR", "CXT"}, "CXT", (2023, 2)),
+        ("228903100", {"CRY", "AORT"}, "AORT", (2022, 1)),
+        ("62886E108", {"NCR", "VYX"}, "VYX", (2023, 4)),
+        ("887399103", {"TMST", "MTUS"}, "MTUS", (2024, 1)),
     )
     for exact_cusip, aliases, current, first_period in transitions:
         if (cusip == exact_cusip and (year, quarter) >= first_period
