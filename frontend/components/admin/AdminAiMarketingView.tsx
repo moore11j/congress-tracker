@@ -1002,6 +1002,10 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     setBusy(`run-campaign:${campaign.id}`);
     try {
       const result = await runAdminAiMarketingCampaign(campaign.id);
+      if (result.status === "provider_disabled") {
+        notify("Article feed disabled; no campaign run was performed.", "info");
+        return;
+      }
       setDrafts((current) => [
         ...result.opportunities,
         ...current.filter((draft) => !result.opportunities.some((next) => next.id === draft.id)),
@@ -1305,7 +1309,7 @@ function Dashboard({
       <GrowthDisclosure title="Connection health and usage">
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
-        <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
+        <MetricCard label="Article feed" value={config?.fmp_articles_status === "disabled" ? "Disabled" : config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "disabled" ? "muted" : config?.fmp_articles_status === "configured" ? "good" : "bad"} detail={config?.fmp_articles_status === "disabled" ? "Article-reactive campaigns are unavailable." : undefined} />
         <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} detail={openAiCredits.detail} />
         <MetricCard label="X API" value={statusLabel(config?.x_status, "missing")} tone={config?.x_oauth_configured ? "good" : "warn"} />
         <MetricCard label="Reddit API" value={statusLabel(config?.reddit_status, "missing")} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
@@ -1834,7 +1838,7 @@ function ArticleReactiveCampaignsView({
   return (
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
-        <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
+        <MetricCard label="Article feed" value={config?.fmp_articles_status === "disabled" ? "Disabled" : config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "disabled" ? "muted" : config?.fmp_articles_status === "configured" ? "good" : "bad"} detail={config?.fmp_articles_status === "disabled" ? "Article-reactive campaigns are unavailable." : undefined} />
         <MetricCard label="Source provider" value="FMP Articles" />
         <MetricCard label="Secrets" value="Managed outside admin UI" tone="good" />
       </div>
@@ -2276,7 +2280,7 @@ function SettingsView({
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
-        <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
+        <MetricCard label="Article feed" value={config?.fmp_articles_status === "disabled" ? "Disabled" : config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "disabled" ? "muted" : config?.fmp_articles_status === "configured" ? "good" : "bad"} detail={config?.fmp_articles_status === "disabled" ? "Article-reactive campaigns are unavailable." : undefined} />
         <MetricCard label="AI model" value={config?.openai_model ?? "Default"} />
         <MetricCard label="OpenAI Web Search" value={statusLabel(config?.openai_web_search_status, "disabled")} tone={config?.openai_web_search_status === "enabled" ? "good" : "warn"} />
         <MetricCard label="X API" value={statusLabel(config?.x_status, "missing")} tone={config?.x_oauth_configured ? "good" : "warn"} />
