@@ -99,3 +99,6 @@ CRON_TZ=America/Los_Angeles
 
 # Opt-in free reference staging only; never enables institutional publication.
 * * * * * cd /app && python -m app.jobs.warm_institutional_reference
+
+# Approved bounded issuer evidence preparation; publication remains separately gated.
+13 * * * * cd /app && python -m app.jobs.warm_issuer_transcripts

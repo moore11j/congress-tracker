@@ -225,11 +225,20 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
     for feed in sources:
         if feed == "sec_directory":
             continue
+        eligible = or_(DirectFeedDocument.status == "pending", DirectFeedDocument.checked_at.is_(None), DirectFeedDocument.checked_at < cutoff,
+                       (DirectFeedDocument.status == 'failed') & (DirectFeedDocument.checked_at <= failed_cutoff),
+                       DirectFeedDocument.status == "failed" if retry_failed else False)
+        scope = DirectFeedDocument.feed == feed
+        if feed == "issuer_earnings":
+            # The approved issuer bound includes failed pages and explicit retries.
+            # Removed registry entries must not remain fetchable from old staging.
+            reviewed_keys = [f"{company['symbol']}:{item['document_type']}:{item['fiscal_year']}:Q{item['fiscal_quarter']}"
+                             for company in issuer_registry for item in company.get("documents", [])]
+            scope = scope & DirectFeedDocument.source_key.in_(reviewed_keys)
+            issuer_cutoff = utcnow() - timedelta(hours=max(24, recheck_hours))
+            eligible = or_(DirectFeedDocument.checked_at.is_(None), DirectFeedDocument.checked_at <= issuer_cutoff)
         ids = list(db.scalars(select(DirectFeedDocument.id).where(
-            DirectFeedDocument.feed == feed,
-            or_(DirectFeedDocument.status == "pending", DirectFeedDocument.checked_at.is_(None), DirectFeedDocument.checked_at < cutoff,
-                (DirectFeedDocument.status == 'failed') & (DirectFeedDocument.checked_at <= failed_cutoff),
-                DirectFeedDocument.status == "failed" if retry_failed else False),
+            scope, eligible,
         ).order_by(case((DirectFeedDocument.status == 'pending', 0), (DirectFeedDocument.status == 'failed', 1), else_=2),
                    DirectFeedDocument.checked_at.asc().nullsfirst(), DirectFeedDocument.id.asc()).limit(limit)))
         for document_id in ids:

@@ -124,7 +124,10 @@ def record_document(db, row, raw: bytes, source_text: str, parsed: dict, *, reas
     row.status = "quarantined" if reasons else "parsed"
     row.error = "; ".join(reasons) or None
     row.checked_at = utcnow()
-    row.reconciliation_json = None
+    # Issuer publication evidence is immutable across page refreshes. The reader
+    # validates it against the original revision and holds semantic changes.
+    issuer_receipt = _payload(row.reconciliation_json).get("issuer_transcript_research") if row.feed == "issuer_earnings" else None
+    row.reconciliation_json = dumps({"issuer_transcript_research": issuer_receipt}) if issuer_receipt is not None else None
     db.flush()
 
 

@@ -150,3 +150,20 @@ def test_issuer_missing_cutoff_and_unknown_company_cannot_call_legacy_provider(s
     security=Security(symbol='AAPL',name='Apple',asset_class='stock');db.add(security);db.commit()
     with pytest.raises(ProviderUnavailable,match='issuer_not_configured'):
         operational._ingest_latest_transcript(db,security=security)
+
+
+def test_unchanged_transcript_in_new_html_keeps_first_receipt_without_duplicate_research(setup):
+    db,security_id,row_id,metadata,raw=setup
+    first=issuer.prepare_research_document(db,security_id=security_id,publish_since=date(2026,7,29));db.commit()
+    row=db.get(DirectFeedDocument,row_id);original_receipt=row.reconciliation_json
+    revised=raw.replace(b'<main>',b'<script>new request identifier</script><main>')
+    text,parsed,holds=parse_document('issuer_earnings',revised,metadata);assert not holds
+    record_document(db,row,revised,text,parsed);db.commit()
+    saved=snapshot(db)
+    second=issuer.prepare_research_document(db,security_id=security_id,publish_since=date(2026,7,29));db.commit()
+    assert not second['created'] and second['document'].id==first['document'].id
+    assert row.reconciliation_json==original_receipt and snapshot(db)==saved
+    old_revision=db.get(DirectFeedRevision,json.loads(original_receipt)['issuer_transcript_research']['source_revision_id'])
+    old_revision.source_bytes=b'changed original';db.commit()
+    with pytest.raises(ValueError,match='Original issuer publication evidence changed'):
+        issuer.prepare_research_document(db,security_id=security_id,publish_since=date(2026,7,29))

@@ -69,7 +69,7 @@ def _default_end_date(sources, today):
     return today if set(sources) and set(sources) <= {'house_ptr', 'senate_ptr'} else today - timedelta(days=1)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", action="store_true", help="Read staging coverage without requesting providers")
     parser.add_argument("--sources", nargs="+", choices=SOURCES, default=list(SOURCES))
@@ -81,7 +81,7 @@ def main():
     parser.add_argument("--retry-failed", action="store_true", help="Retry failed documents now, after an operator has resolved their cause")
     parser.add_argument("--issuer-registry", type=Path, default=Path(__file__).resolve().parents[2] / "config" / "direct_issuer_sources.json")
     parser.add_argument("--senate-reports", type=Path, help="Reviewed official PTR URL/filing metadata JSON list")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.end is None:
         args.end = _default_end_date(args.sources, datetime.now(timezone.utc).date())
     if args.report:
