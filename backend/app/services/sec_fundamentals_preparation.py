@@ -18,6 +18,10 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
     'operating_margin_expansion', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
 
 
+def version_for_symbol(symbol):
+    return VERSION+'_xom_continuity_v1' if symbol == 'XOM' else VERSION
+
+
 def _cached(symbol, now):
     with SessionLocal() as db:
         row = db.get(InsightsSnapshot, f'sec-current-fundamentals:{symbol}:v1')
@@ -30,7 +34,7 @@ def _cached(symbol, now):
             payload = json.loads(row.payload_json)
         except (ValueError, TypeError):
             return None
-        if (payload.get('version') == VERSION and payload.get('symbol') == symbol
+        if (payload.get('version') == version_for_symbol(symbol) and payload.get('symbol') == symbol
                 and payload.get('source') == 'sec_edgar'):
             return payload
     return None
@@ -47,7 +51,7 @@ def prepare(symbol):
     if cached is not None:
         return cached
     identity = sec_directory.directory().get(symbol)
-    payload = {'version': VERSION, 'symbol': symbol, 'source': 'sec_edgar',
+    payload = {'version': version_for_symbol(symbol), 'symbol': symbol, 'source': 'sec_edgar',
         'observed_at': now.isoformat(), 'status': 'unavailable', 'values': {},
         'coverage': {'complete': False, 'market_data_included': False, 'available_metrics': []}}
     if identity is None:
@@ -69,9 +73,11 @@ def prepare(symbol):
             payload['source_evidence']['facts_status'] = 404
         else:
             payload['source_evidence']['facts_sha256'] = hashlib.sha256(raw).hexdigest()
+            from app.services.sec_financial_continuity import fetch_history
+            history = fetch_history(symbol,cik,client=client,observed_at=now)
             try:
                 values = sec_fundamentals.project_fundamentals(raw, company,
-                    symbol=symbol, cik=cik, observed_at=now)
+                    symbol=symbol, cik=cik, observed_at=now, history_raw=history)
             except sec_fundamentals.SecFundamentalsCoverageError as exc:
                 payload.update(reason='unsupported_current_financial_coverage', detail=str(exc))
             else:

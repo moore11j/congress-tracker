@@ -6,6 +6,7 @@ sector-specific extension mapping, or market-data requests.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -38,7 +39,7 @@ def period_value(records, start, end):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def project(facts_raw, company_raw, *, symbol, cik, observed_at):
+def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=None):
     from app.services.ticker_financials import _unavailable, _subsection
     if observed_at.tzinfo is None:
         raise ValueError('Observation timestamp must be aware')
@@ -50,8 +51,11 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at):
     if len(matches) != 1:
         raise DirectSourceError('financial_symbol_identity_mismatch')
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
-    records = {name: facts._records(data, name, available) for name in facts.TAGS}
-    eps_records = facts._records(data, 'eps', available, concepts=('EarningsPerShareDiluted',), unit='USD/shares')
+    from app.services.sec_financial_continuity import record_sets
+    metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
+    metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
+    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics)
+    eps_records=records.pop('eps')
     annual, quarters = set(), set()
     for (start, end), value in records['revenue'].items():
         if not value or not start:
@@ -100,6 +104,8 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at):
             'factsSha256': hashlib.sha256(facts_raw).hexdigest(), 'companySha256': hashlib.sha256(company_raw).hexdigest(),
             'factsUrl': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
             'availabilityBasis': 'Current view uses latest filed facts available after completed New York filing day; not a historical tradable snapshot.'})
+    if continuity is not None:
+        payload['sourceEvidence']['financialContinuity']=continuity
     if annual_rows or quarterly_rows:
         payload['sections']['income'] = 'partial'
         payload['subsections']['income'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows})
@@ -107,7 +113,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at):
         payload['sections']['cashFlow'] = 'partial'
         payload['subsections']['cash_flow'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows})
     try:
-        current = facts.project_fundamentals(facts_raw, company_raw, symbol=matches[0], cik=cik, observed_at=observed_at)
+        current = facts.project_fundamentals(facts_raw, company_raw, symbol=matches[0], cik=cik, observed_at=observed_at, history_raw=history_raw)
     except facts.SecFundamentalsCoverageError:
         current = {}
     if current:
@@ -138,7 +144,30 @@ def cached_payload(db, symbol, *, now=None):
         payload = json.loads(row.payload_json)
     except (TypeError, ValueError):
         return None
-    return payload if isinstance(payload, dict) and payload.get('source') == 'sec_edgar' and payload.get('symbol') == symbol else None
+    if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
+        return None
+    if symbol == 'XOM' and payload.get('preparationVersion') != 'sec_statements_xom_continuity_v1':
+        return None
+    return payload
+
+
+@contextmanager
+def _refresh_lock(bind, key):
+    if bind.dialect.name != 'postgresql':
+        yield True
+        return
+    from sqlalchemy import text
+    with bind.connect() as guard:
+        if not guard.scalar(text('SELECT pg_try_advisory_lock(hashtext(:key))'), {'key': key}):
+            yield False
+            return
+        guard.detach()
+        guard.commit()
+        try:
+            yield True
+        finally:
+            guard.execute(text('SELECT pg_advisory_unlock(hashtext(:key))'), {'key': key})
+            guard.commit()
 
 
 def prepared(symbol):
@@ -151,17 +180,20 @@ def prepared(symbol):
     route = str((get_request_context() or {}).get('path') or '')
     public = route.startswith('/api/') and not route.startswith('/api/admin/')
     with SessionLocal() as db:
-        if not public and db.get_bind().dialect.name == 'postgresql':
-            from sqlalchemy import text
-            if not db.execute(text('SELECT pg_try_advisory_xact_lock(hashtext(:key))'), {'key': key}).scalar():
-                return _warming(symbol, reason='refresh_in_progress')
-        row = db.get(InsightsSnapshot, key)
         payload = cached_payload(db, symbol, now=now)
+        bind = db.get_bind()
+    if payload is not None:
+        return payload
+    if public:
+        enqueue_data_enrichment_job(job_type='ticker_financials', symbol=symbol, source='page_load', priority=45, reason='sec_financials_refresh')
+        return _warming(symbol, reason='replacement_cache_miss')
+    with _refresh_lock(bind, key) as acquired:
+        if not acquired:
+            return _warming(symbol, reason='refresh_in_progress')
+        with SessionLocal() as db:
+            payload = cached_payload(db, symbol, now=now)
         if payload is not None:
             return payload
-        if public:
-            enqueue_data_enrichment_job(job_type='ticker_financials', symbol=symbol, source='page_load', priority=45, reason='sec_financials_refresh')
-            return _warming(symbol, reason='replacement_cache_miss')
         item = directory().get(_symbol_key(symbol))
         if not item:
             from app.services.ticker_financials import _unavailable
@@ -184,10 +216,17 @@ def prepared(symbol):
                 payload.update(source='sec_edgar', updatedAt=now.isoformat(),
                                sourceEvidence={'factsUrl': facts_url, 'responseStatus': 404})
             else:
-                payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now)
-        if row is None:
-            row = InsightsSnapshot(kind=key, source='sec_edgar', fetched_at=now, payload_json='{}')
-            db.add(row)
-        row.source, row.fetched_at, row.payload_json = 'sec_edgar', now, json.dumps(payload, sort_keys=True)
-        db.commit()
+                from app.services.sec_financial_continuity import fetch_history
+                history=fetch_history(symbol,cik,client=client,observed_at=now)
+                payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history)
+        if symbol == 'XOM':
+            payload['preparationVersion']='sec_statements_xom_continuity_v1'
+        # Source I/O completes before acquiring a write connection.
+        with SessionLocal() as db:
+            row = db.get(InsightsSnapshot, key)
+            if row is None:
+                row = InsightsSnapshot(kind=key, source='sec_edgar', fetched_at=now, payload_json='{}')
+                db.add(row)
+            row.source, row.fetched_at, row.payload_json = 'sec_edgar', now, json.dumps(payload, sort_keys=True)
+            db.commit()
         return payload

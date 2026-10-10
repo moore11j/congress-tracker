@@ -6,3 +6,5 @@ docs/confirmation-*-2026-09-14.md -text
 docs/confirmation-*-2026-09-15.md -text
 docs/options-activity-*-2026-09-14.md -text
 docs/massive-options-feasibility-2026-09-14.md -text
+
+backend/config/financial_continuity/*.htm -text
