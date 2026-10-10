@@ -5,25 +5,27 @@
 
 app = 'congress-tracker-api'
 primary_region = 'yyz'
+kill_signal = 'SIGTERM'
+kill_timeout = '60s'
 
 [[mounts]]
 source = "data"
 destination = "/data"
-processes = ["app", "cron"]
+processes = ["app"]
 
 [build]
   dockerfile = "Dockerfile"
   context = "."
 
   [build.args]
-    INSTALL_GROWTH_VIDEO_WORKER = "true"
+    INSTALL_GROWTH_VIDEO_WORKER = "false"
 
 [deploy]
   release_command = "python -m app.jobs.migrate_direct_feed_schema"
 
 [env]
-  # Enable only after the legacy cron machine is drained.
-  COMBINED_SCHEDULER_ENABLED = "false"
+  # Sole scheduler owner; legacy cron is drained before this release.
+  COMBINED_SCHEDULER_ENABLED = "true"
   COMBINED_SCHEDULER_MACHINE_ID = "8d1099c53ed378"
   SCHEDULED_JOB_MAX_SECONDS = "1200"
   DIRECT_FEEDS_MODE = "shadow"
@@ -34,7 +36,7 @@ processes = ["app", "cron"]
   # Enabled at the owner's request after a successful MU/NVDA/AAPL access probe.
   # Full calls are sectioned, cached, and processed within existing AI budgets.
   RESEARCH_TRANSCRIPT_ANALYSIS_ENABLED = "true"
-  GROWTH_VIDEO_WORKER_ENABLED = "true"
+  GROWTH_VIDEO_WORKER_ENABLED = "false"
   GROWTH_ASSET_BUCKET = "walnut-ai-growth-assets"
   GROWTH_S3_ENDPOINT_URL = "https://fly.storage.tigris.dev"
   AWS_DEFAULT_REGION = "auto"
@@ -113,8 +115,6 @@ processes = ["app", "cron"]
 
 [processes]
   app = "python -u /app/scripts/combined_service.py"
-  cron = "supercronic /app/crontab"
-  video = "python -u -m app.jobs.run_growth_videos --continuous"
 
 [http_service]
   internal_port = 8080
@@ -138,17 +138,3 @@ processes = ["app", "cron"]
   cpus = 2
   memory_mb = 2048
   cpu_kind = 'shared'
-
-[[vm]]
-  processes = ["cron"]
-  memory = '2gb'
-  cpus = 1
-  memory_mb = 2048
-  cpu_kind = 'shared'
-
-[[vm]]
-  processes = ["video"]
-  memory = '2gb'
-  cpus = 1
-  memory_mb = 2048
-  cpu_kind = 'performance'
