@@ -155,16 +155,16 @@ def _number(value):
         return None
 
 
-def _records(payload, metric, available_by, *, concepts=None, unit='USD'):
+def _records(payload, metric, available_by, *, concepts=None, unit='USD', namespace='us-gaap', forms=None):
     """Latest available filing per exact period; equal-date conflicts are held."""
     periods = {}
-    gaap = payload.get("facts", {}).get("us-gaap", {})
+    gaap = payload.get("facts", {}).get(namespace, {})
     concepts = TAGS[metric] if concepts is None else concepts
     for priority, tag in enumerate(concepts):
         for row in gaap.get(tag, {}).get("units", {}).get(unit, []):
             end, filed, start = _day(row.get("end")), _day(row.get("filed")), _day(row.get("start"))
             value = _number(row.get("val"))
-            if (row.get("form") not in {"10-K", "10-Q", "10-K/A", "10-Q/A"}
+            if (row.get("form") not in (forms if forms is not None else {"10-K", "10-Q", "10-K/A", "10-Q/A"})
                     or not end or not filed or end > filed or filed > available_by
                     or value is None or not row.get("accn")):
                 continue

@@ -11,6 +11,7 @@ import type {
 } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { formatStatementMoney as formatCompactCurrency } from "@/lib/financialCurrency.mjs";
 
 type PeriodMode = "annual" | "quarterly";
 type ChartMetric = "revenue" | "netIncome";
@@ -49,17 +50,6 @@ const ESTIMATES_UNAVAILABLE_MESSAGE = "Analyst estimates are not available for t
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function formatCompactCurrency(value: number | null | undefined): string {
-  if (!isFiniteNumber(value)) return "-";
-  const sign = value < 0 ? "-" : "";
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(1)}T`;
-  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`;
-  return `${sign}$${abs.toFixed(0)}`;
 }
 
 function formatEps(value: number | null | undefined): string {
@@ -233,6 +223,7 @@ function FinancialChart({
   quarterly,
   forecasts,
   positiveNegative,
+  currency = "USD",
 }: {
   title: string;
   metric: ChartMetric;
@@ -241,6 +232,7 @@ function FinancialChart({
   quarterly: TickerFinancialsPoint[];
   forecasts?: TickerFinancialForecasts | null;
   positiveNegative?: boolean;
+  currency?: string;
 }) {
   const [mode, setMode] = useState<PeriodMode>(defaultMode(annual, quarterly));
   const [hover, setHover] = useState<HoverPoint | null>(null);
@@ -306,7 +298,7 @@ function FinancialChart({
               <g key={tick}>
                 <line x1={left} x2={width - right} y1={y} y2={y} stroke="rgba(148,163,184,0.12)" />
                 <text x={left - 10} y={y + 4} textAnchor="end" className="fill-slate-500 text-[11px]">
-                  {formatCompactCurrency(value)}
+                  {formatCompactCurrency(value, currency)}
                 </text>
               </g>
             );
@@ -375,7 +367,7 @@ function FinancialChart({
             <p className="font-semibold text-white">{hover.period}</p>
             {hover.isForecast ? <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Forecast</p> : null}
             <p className={`mt-1 tabular-nums ${hover.tone === "neg" ? "text-rose-300" : "text-emerald-300"}`}>
-              {valueLabel} {formatCompactCurrency(hover.value)}
+              {valueLabel} {formatCompactCurrency(hover.value, currency)}
             </p>
             {hover.isForecast && rangeLabel ? (
               <p className="mt-1 text-slate-400">
@@ -673,6 +665,7 @@ export function TickerFinancialsSkeleton() {
 }
 
 export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse | null }) {
+  const currency = data?.reportingCurrency || "USD";
   const summary = data?.summary;
   const valuationSection = data?.subsections?.valuation?.data;
   const valuationMetrics = data?.valuation_metrics ?? valuationSection?.valuation_metrics ?? null;
@@ -710,10 +703,10 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
     () => [
       { label: "Gross Margin", value: formatMargin(summary?.grossMargin) },
       { label: "Operating Margin", value: formatMargin(summary?.operatingMargin) },
-      { label: "FCF TTM", value: formatCompactCurrency(summary?.freeCashFlowTtm) },
-      { label: "Operating Cash Flow TTM", value: formatCompactCurrency(summary?.operatingCashFlowTtm) },
+      { label: "FCF TTM", value: formatCompactCurrency(summary?.freeCashFlowTtm, currency) },
+      { label: "Operating Cash Flow TTM", value: formatCompactCurrency(summary?.operatingCashFlowTtm, currency) },
     ],
-    [summary],
+    [summary, currency],
   );
   const healthTiles = useMemo(
     () => [
@@ -735,9 +728,10 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
   return (
     <div className="space-y-4">
       {data.revenueBasis && <p className="text-sm text-slate-400">Revenue basis: {data.revenueBasis}.</p>}
+      {data.reportingBasis && <p className="text-sm text-slate-400">{data.reportingBasis}</p>}
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
-        <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm)} />
-        <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />
+        <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm, currency)} />
+        <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm, currency)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />
         <SummaryTile label="EPS TTM" value={formatEps(summary?.epsTtm)} tone={isFiniteNumber(summary?.epsTtm) && summary.epsTtm < 0 ? "neg" : "pos"} />
         <SummaryTile label="Trailing P/E" value={formatMultiple(summary?.trailingPE)} muted={!isFiniteNumber(summary?.trailingPE)} />
         <SummaryTile label={forwardPeLabel} value={formatMultiple(forwardPeValue)} muted={!isFiniteNumber(forwardPeValue)} tooltip={forwardPeTooltip} />
@@ -746,8 +740,8 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <FinancialChart title="Revenue Trend" metric="revenue" valueLabel="Revenue" annual={annual} quarterly={quarterly} forecasts={forecasts} />
-        <FinancialChart title="Earnings Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} forecasts={forecasts} positiveNegative />
+        <FinancialChart title="Revenue Trend" metric="revenue" valueLabel="Revenue" annual={annual} quarterly={quarterly} forecasts={forecasts} currency={currency} />
+        <FinancialChart title="Earnings Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} forecasts={forecasts} currency={currency} positiveNegative />
       </div>
 
       <EpsSurpriseSection earnings={earnings} forecasts={forecasts} />
