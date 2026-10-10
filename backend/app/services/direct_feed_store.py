@@ -126,8 +126,10 @@ def record_document(db, row, raw: bytes, source_text: str, parsed: dict, *, reas
     row.checked_at = utcnow()
     # Issuer publication evidence is immutable across page refreshes. The reader
     # validates it against the original revision and holds semantic changes.
-    issuer_receipt = _payload(row.reconciliation_json).get("issuer_transcript_research") if row.feed == "issuer_earnings" else None
-    row.reconciliation_json = dumps({"issuer_transcript_research": issuer_receipt}) if issuer_receipt is not None else None
+    issuer_receipts = {key: value for key, value in _payload(row.reconciliation_json).items()
+                       if row.feed == "issuer_earnings" and key in {
+                           "issuer_transcript_research", "issuer_transcript_history"}}
+    row.reconciliation_json = dumps(issuer_receipts) if issuer_receipts else None
     db.flush()
 
 

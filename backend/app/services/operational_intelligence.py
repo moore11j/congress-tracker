@@ -235,6 +235,11 @@ def _ingest_latest_transcript(db: Session, *, security: Security, budget: _Extra
         if not boundary:
             raise ProviderUnavailable('issuer_publication_boundary_missing')
         prepared = prepare_research_document(db, security_id=security.id, publish_since=date.fromisoformat(boundary))
+        if prepared['status'] == 'retained_history':
+            return {'documents': 0, 'events': 0,
+                    'matches': _match_document_events(db, prepared['document'].id), 'skipped': 1,
+                    'documents_seen': 1, 'document_id': prepared['document'].id,
+                    'retained_history': True}
         if prepared['status'] != 'prepared':
             raise ProviderUnavailable(prepared.get('reason') or 'issuer_transcript_unavailable')
         result = _process_transcript_document(db, security=security, document=prepared['document'],
@@ -393,6 +398,9 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                 coverage.status = "partial" if source_partial or unfinished or budget.deferred > deferred_before else "ready" if count else "empty"
                 coverage.last_success_at = datetime.now(timezone.utc)
                 coverage.failure_reason = None
+                if direct_transcript and any(r.get("retained_history") for r in results):
+                    coverage.status = "partial"
+                    coverage.failure_reason = "historical_transcript_retained"
                 db.commit()
             except Exception as exc:
                 db.rollback()
@@ -477,6 +485,9 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
             coverage[-1].update(provider='issuer', complete=False,
                 reason=row.failure_reason if row else 'reviewed_period_not_prepared',
                 message='Transcripts cover selected, reviewed company periods. Other companies and periods may be unavailable.')
+            if row and row.failure_reason == 'historical_transcript_retained':
+                coverage[-1].update(historical_provider='fmp',
+                    message='The issuer transcript is prepared. Existing research for this call retains its original source and has not been reprocessed. New eligible calls use issuer sources.')
         from app.services.finnhub_research import selected_news_provider
         if source == 'news_article' and selected_news_provider() == 'finnhub':
             coverage[-1].update(status='unavailable', provider='finnhub', complete=False,
