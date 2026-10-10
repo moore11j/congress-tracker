@@ -27,3 +27,8 @@ Still required: exact release verification, graceful cron handoff, queue/backlog
 ## Cost target
 
 Current verified Toronto compute/RAM estimates: combined shared 2 CPU/2 GB host $14.93, performance 1 CPU/2 GB database $36.81: $51.74 per 30 days, plus storage/network/backups/taxes. Manual external Kling/Suno production needs no dedicated Fly video host. Lower database sizing may be reconsidered only after serialized work and query/cache repairs establish sustained performance. No eventual cost saving is asserted before the redundant machines are retired.
+
+
+## Final handoff configuration
+
+The final configuration retains only the app process group, enables its pinned scheduler, disables the video runtime/browser build, keeps the app always on, and sets a60-second graceful shutdown window. Deployment explicitly disables spare-machine creation. Existing cron must be drained before dispatching this release. The redundant second API is removed by its exact ID after the selected scheduler host is verified. Volumes remain retained for rollback until contents/snapshot retention are reviewed. Nineteen local schedule/queue checks pass (three Linux-only skips); all eight Linux checks were executed separately.
