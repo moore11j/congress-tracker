@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import or_, select
 
-from app.clients.direct_sources import parse_issuer_material
+from app.clients.direct_sources import parse_issuer_material, reviewed_issuer_document_urls
 from app.models import ResearchSourceDocument, Security
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps
 from app.services.research_evidence import source_content_hash, upsert_source_document
@@ -40,7 +40,8 @@ def _reviewed_latest(symbol):
     item = docs[0]
     url = urlsplit(item['url'])
     host = urlsplit(company['investor_website']).hostname
-    if (url.scheme != 'https' or url.hostname != host or url.username or url.password
+    external = reviewed_issuer_document_urls([company])
+    if (url.scheme != 'https' or (url.hostname != host and item['url'] not in external) or url.username or url.password
             or url.port not in (None, 443) or not 1 <= item['fiscal_quarter'] <= 4):
         raise ValueError('Unverified issuer identity')
     return {**item, 'symbol': symbol, 'company_website': company['company_website'],
@@ -90,7 +91,8 @@ def prepared_transcript(db, symbol, *, observed_by=None):
             'published_date': publication_date.isoformat(), 'publication_precision': 'date',
             'has_qa': parsed['has_qa'], 'canonical_key': metadata['key'],
             'transcript_publisher': metadata.get('transcript_publisher'),
-            'source_format': metadata.get('source_format', 'html')}
+            'source_format': metadata.get('source_format', 'html'),
+            **{key: metadata[key] for key in ('source_page_url', 'source_page_sha256') if metadata.get(key)}}
 
 
 def prepare_research_document(db, *, security_id, publish_since):
@@ -129,13 +131,14 @@ def prepare_research_document(db, *, security_id, publish_since):
     proof = {key: source[key] for key in ('source_sha256', 'text_sha256', 'source_revision_id',
               'source_url', 'observed_at', 'published_date', 'publication_precision', 'canonical_key')}
     proof.update(document_id=document.id, publish_since=publish_since.isoformat())
+    proof.update({key: source[key] for key in ('source_page_url', 'source_page_sha256') if source.get(key)})
     if source.get('transcript_publisher'):
         proof['transcript_publisher'] = source['transcript_publisher']
     previous = receipt.get('issuer_transcript_research')
     if previous is not None:
         semantic_keys = ('text_sha256', 'source_url', 'published_date', 'publication_precision',
-                         'canonical_key', 'document_id', 'publish_since')
-        if (any(previous.get(key) != proof[key] for key in semantic_keys)
+                         'canonical_key', 'document_id', 'publish_since', 'source_page_url', 'source_page_sha256')
+        if (any(previous.get(key) != proof.get(key) for key in semantic_keys)
                 or previous.get('transcript_publisher') != proof.get('transcript_publisher')):
             raise ValueError('Issuer publication identity or boundary changed')
         # Publisher HTML may change while the transcript remains identical.

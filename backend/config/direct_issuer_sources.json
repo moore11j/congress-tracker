@@ -91,5 +91,72 @@
         "publication_pattern": "July\\s+22,\\s*2026"
       }
     ]
+  },
+  {
+    "symbol": "IBM",
+    "company_website": "https://www.ibm.com/",
+    "investor_website": "https://www.ibm.com/investor/",
+    "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
+    "documents": [
+      {
+        "url": "https://www.ibm.com/downloads/documents/us-en/177ce39d1dc47bfb",
+        "published_at": "2026-07-22",
+        "transcript_publisher": "IBM",
+        "period_pattern": "IBM 2Q 2026|Second Quarter 2026",
+        "company_pattern": "\\bIBM\\b",
+        "publication_pattern": "July\\s+22,\\s*2026",
+        "publisher_pattern": "\\bIBM\\b",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "source_format": "pdf"
+      }
+    ]
+  },
+  {
+    "symbol": "SOFI",
+    "company_website": "https://www.sofi.com/",
+    "investor_website": "https://investors.sofi.com/",
+    "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
+    "documents": [
+      {
+        "url": "https://s27.q4cdn.com/749715820/files/doc_financials/2026/q2/SoFi-2Q-2026-Earnings-Transcript_FINAL.pdf",
+        "published_at": "2026-07-29",
+        "transcript_publisher": "SoFi Technologies",
+        "period_pattern": "SOFI Q2 2026|Second Quarter 2026",
+        "company_pattern": "\\bSoFi Technologies\\b",
+        "publication_pattern": "07\\s*-\\s*29\\s*-\\s*2026",
+        "publisher_pattern": "\\bSoFi Technologies\\b",
+        "source_page_url": "https://investors.sofi.com/overview/default.aspx",
+        "source_page_sha256": "5cc48caa03610d9bb2be6efaaa2744362a0e2a632faef7daaf85d719302a83e4",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "source_format": "pdf"
+      }
+    ]
+  },
+  {
+    "symbol": "MRNA",
+    "company_website": "https://www.modernatx.com/",
+    "investor_website": "https://investors.modernatx.com/",
+    "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
+    "documents": [
+      {
+        "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2026-07-31.pdf",
+        "published_at": "2026-07-31",
+        "transcript_publisher": "LSEG StreetEvents",
+        "period_pattern": "Q2 2026 Moderna|second quarter 2026",
+        "company_pattern": "\\bModerna\\b",
+        "publication_pattern": "JULY\\s+31,\\s*2026",
+        "publisher_pattern": "LSEG\\s+STREETEVENTS",
+        "source_page_url": "https://investors.modernatx.com/quarterly-results",
+        "source_page_sha256": "66ae3c9d4a26e855e6ba50547cf0722d74bbabef1575916012d26a66e397186a",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "source_format": "pdf"
+      }
+    ]
   }
 ]
