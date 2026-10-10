@@ -88,7 +88,9 @@ def prepared_transcript(db, symbol, *, observed_by=None):
             'source_url': metadata['url'], 'source_sha256': row.content_hash, 'source_document_id': row.id,
             'source_revision_id': revision.id, 'observed_at': observed.isoformat(),
             'published_date': publication_date.isoformat(), 'publication_precision': 'date',
-            'has_qa': parsed['has_qa'], 'canonical_key': metadata['key']}
+            'has_qa': parsed['has_qa'], 'canonical_key': metadata['key'],
+            'transcript_publisher': metadata.get('transcript_publisher'),
+            'source_format': metadata.get('source_format', 'html')}
 
 
 def prepare_research_document(db, *, security_id, publish_since):
@@ -127,11 +129,14 @@ def prepare_research_document(db, *, security_id, publish_since):
     proof = {key: source[key] for key in ('source_sha256', 'text_sha256', 'source_revision_id',
               'source_url', 'observed_at', 'published_date', 'publication_precision', 'canonical_key')}
     proof.update(document_id=document.id, publish_since=publish_since.isoformat())
+    if source.get('transcript_publisher'):
+        proof['transcript_publisher'] = source['transcript_publisher']
     previous = receipt.get('issuer_transcript_research')
     if previous is not None:
         semantic_keys = ('text_sha256', 'source_url', 'published_date', 'publication_precision',
                          'canonical_key', 'document_id', 'publish_since')
-        if any(previous.get(key) != proof[key] for key in semantic_keys):
+        if (any(previous.get(key) != proof[key] for key in semantic_keys)
+                or previous.get('transcript_publisher') != proof.get('transcript_publisher')):
             raise ValueError('Issuer publication identity or boundary changed')
         # Publisher HTML may change while the transcript remains identical.
         # Retain the first source receipt instead of refreshing availability.

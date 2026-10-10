@@ -105,13 +105,15 @@ def main(argv=None):
     # Host permission comes from the reviewed company registry, not a fetched
     # page or a redirect. Filings cannot add arbitrary hosts to the allowlist.
     hosts = {urlsplit(company["investor_website"]).hostname for company in registry}
+    redirect_urls = {url for company in registry for item in company.get("documents", [])
+                     for url in item.get("redirect_urls", [])}
     with collector_lock() as acquired:
         if not acquired:
             print(dumps({"status": "busy"}))
             return
         ensure_direct_feed_schema(engine)
         with SessionLocal() as db:
-            result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts), sources=args.sources,
+            result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts, issuer_redirect_urls=redirect_urls), sources=args.sources,
                                          start=args.start, end=args.end, symbols=args.symbols, limit=args.limit,
                                          recheck_hours=args.recheck_hours, retry_failed=args.retry_failed, issuer_registry=registry, senate_reports=senate,
                                          senate_client=senate_client)
