@@ -22,6 +22,10 @@ processes = ["app", "cron"]
   release_command = "python -m app.jobs.migrate_direct_feed_schema"
 
 [env]
+  # Enable only after the legacy cron machine is drained.
+  COMBINED_SCHEDULER_ENABLED = "false"
+  COMBINED_SCHEDULER_MACHINE_ID = "8d1099c53ed378"
+  SCHEDULED_JOB_MAX_SECONDS = "1200"
   DIRECT_FEEDS_MODE = "shadow"
   SENATE_PUBLIC_NOTICE_ACKNOWLEDGED = "true"
   DIRECT_FEED_PUBLICATION_ENABLED = "false"
@@ -108,16 +112,16 @@ processes = ["app", "cron"]
   AI_MARKETING_IMAGE_QUALITY = "high"
 
 [processes]
-  app = "uvicorn app.main:app --host 0.0.0.0 --port 8080"
+  app = "python -u /app/scripts/combined_service.py"
   cron = "supercronic /app/crontab"
   video = "python -u -m app.jobs.run_growth_videos --continuous"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 3
+  min_machines_running = 1
   processes = ["app"]
 
 
