@@ -133,8 +133,13 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
 
 def cached_payload(db, symbol, *, now=None):
     """Read a current selected-source panel in the caller's transaction."""
-    now = now or datetime.now(timezone.utc)
     row = db.get(InsightsSnapshot, f'sec-financials:{symbol}:v1')
+    return cached_row_payload(row, symbol, now=now)
+
+
+def cached_row_payload(row, symbol, *, now=None):
+    """Validate a preloaded row using the same public-reader freshness rules."""
+    now = now or datetime.now(timezone.utc)
     if row is None or row.source != 'sec_edgar':
         return None
     stamp = row.fetched_at.replace(tzinfo=timezone.utc) if row.fetched_at.tzinfo is None else row.fetched_at
