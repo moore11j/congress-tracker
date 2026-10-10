@@ -165,6 +165,12 @@ def main():
             return results
         first=run(True)
         events=[e for e in db.scalars(select(Event)) if json.loads(e.payload_json or '{}').get('sec_verification',{}).get('feed')=='sec_13f']
+        # Preserve a clearly partial public-only diagnostic before consumer
+        # assertions so a failure can be reproduced without recollecting data.
+        args.output.with_suffix('.first-pass.json').write_text(dumps(dict(
+            phase='first_pass_only_consumers_and_repeat_unverified',baseline_sha256=baseline_hash,
+            results=first,events=[{column.name:getattr(event,column.name)
+                for column in Event.__table__.columns} for event in events],production_writes=0)),encoding='utf-8')
         previews=None
         if events:
             user=UserAccount(email='institutional-cutover@example.test',entitlement_tier='pro',watchlist_activity_notifications=True)

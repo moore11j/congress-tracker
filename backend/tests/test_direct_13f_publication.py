@@ -102,7 +102,7 @@ def test_verified_pair_runs_actual_changes_events_and_monitoring_without_duplica
     events = list(db.scalars(select(Event)))
     assert events and result['feed_events'] == len(events)
     user = _user(db, '13f-rehearsal@example.test', tier='pro')
-    watchlist = _watchlist(db, user)
+    watchlist = _watchlist(db, user, alert_triggers=['institutional_activity'])
     restricted = _user(db, '13f-restricted@example.test', tier='premium')
     for event in events:
         assert event.event_date.date() == date(2026, 10, 6)
