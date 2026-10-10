@@ -33,7 +33,7 @@ def parse_principal(raw, *, accession, filed, report_date):
     if not raw or len(raw) > 4_000_000:
         raise CashFlowEvidenceError('filing_size')
     tree = html.fromstring(raw)
-    if not re.fullmatch(r'http://www.nvidia.com/[0-9]{8}', tree.get('xmlns:nvda', '')):
+    if not re.fullmatch(r'http://www\.nvidia\.com/[0-9]{8}', tree.get('xmlns:nvda', '')):
         raise CashFlowEvidenceError('issuer_namespace')
     identities = {n.text_content().strip().zfill(10) for n in tree.iter()
                   if n.get('name') == 'dei:EntityCentralIndexKey'}

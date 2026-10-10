@@ -53,10 +53,11 @@ def test_filed_cash_flow_math_provenance_and_repeat():
     assert run(*fixture())[0]==result
 
 
-@pytest.mark.parametrize('kind',['cik','namespace','period','currency','dimension','negative','conflict','scale','missing','date_format'])
+@pytest.mark.parametrize('kind',['cik','namespace','namespace_shape','period','currency','dimension','negative','conflict','scale','missing','date_format'])
 def test_bad_filed_evidence_never_produces_partial_cash_flow(kind):
     facts,company,docs=fixture();key=next(iter(docs));raw=docs[key]
     pairs={'cik':(b'0001045810',b'0000000001'),'namespace':(b'http://www.nvidia.com/',b'http://other.example/'),
+        'namespace_shape':(b'http://www.nvidia.com/',b'http://wwwXnvidiaYcom/'),
         'period':(b'December 31, 2025',b'December 30, 2025'),'currency':(b'iso4217:USD',b'iso4217:EUR'),
         'dimension':(b'</xbrli:entity>',b'<xbrli:segment>Segment</xbrli:segment></xbrli:entity>'),
         'negative':(b'scale="0"',b'scale="0" sign="-"'),'scale':(b'scale="0"',b'scale="99"'),
