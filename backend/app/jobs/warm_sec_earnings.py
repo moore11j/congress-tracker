@@ -61,7 +61,7 @@ def _run_locked():
                 result['reason'] = str(exc)[:300]
         results.append(result)
         attempts[symbol] = now.isoformat()
-        if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP 403:', 'Source HTTP 429:', 'Source HTTP 503:')):
+        if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
     receipt = {'status': 'partial' if (len(watched)>1000 or len(research)>1000) or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': (len(watched)>1000 or len(research)>1000),

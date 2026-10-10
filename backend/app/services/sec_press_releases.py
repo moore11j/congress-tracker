@@ -7,7 +7,7 @@ import json
 import logging
 import os
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db import SessionLocal
 from app.models import Security, TickerContentCache
@@ -19,6 +19,7 @@ from app.utils.symbols import canonical_symbol
 logger = logging.getLogger(__name__)
 PROVIDER = 'sec_edgar_earnings'
 CONTENT_TYPE = 'sec_earnings_releases'
+CACHE_VERSION = 'sec_earnings_links_v2'
 TTL = timedelta(hours=6)
 MAX_FILINGS = 5
 MESSAGE = 'Selected earnings releases filed with SEC EDGAR. Other company releases and transcripts are not covered. Dates shown are filing dates.'
@@ -34,6 +35,16 @@ def _cache_row(db, symbol):
         TickerContentCache.source == PROVIDER))
 
 
+def _lock_issuer(db, security_id):
+    if db.get_bind().dialect.name == 'postgresql':
+        db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        db.execute(text("SET LOCAL statement_timeout = '20s'"))
+        # No provider/model call occurs in these short staging transactions.
+        # A killed cron process must not leave this row lock indefinitely.
+        db.execute(text("SET LOCAL idle_in_transaction_session_timeout = '90s'"))
+    return db.scalar(select(Security).where(Security.id == security_id).with_for_update())
+
+
 def _cached(symbol):
     with SessionLocal() as db:
         row = _cache_row(db, symbol)
@@ -45,7 +56,7 @@ def _cached(symbol):
         if age < timedelta(0) or age > TTL:
             return None
         payload = json.loads(row.payload_json)
-        return payload if payload.get('provider') == PROVIDER else None
+        return payload if payload.get('provider') == PROVIDER and payload.get('cache_version') == CACHE_VERSION else None
 
 
 def _page(payload, page, limit):
@@ -92,7 +103,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
             with SessionLocal() as db:
                 # Every collector for this feed uses the issuer lock. No lock
                 # or open transaction is held while fetching provider bytes.
-                db.scalar(select(Security).where(Security.id == security_id).with_for_update())
+                _lock_issuer(db, security_id)
                 doc = stage_earnings_material(db, company_raw=company_raw, submission_raw=raw,
                     index_raw=index_raw, symbol=symbol, cik=cik, accession=filing['accession_number'])
                 document_ids.append(doc.id)
@@ -106,7 +117,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
             # requests after a refusal; remaining coverage is explicitly absent.
             break
     with SessionLocal() as db:
-        db.scalar(select(Security).where(Security.id == security_id).with_for_update())
+        _lock_issuer(db, security_id)
         items, held = [], 0
         for document_id in document_ids:
             result = reconcile_staged_earnings(db, document_id, security_id=security_id)
@@ -124,7 +135,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
                 'summary': f'Filed {parsed["filing_date"]}. Read the issuer earnings release in its SEC filing.',
                 'source': PROVIDER, 'canonical_key': parsed['canonical_key'],
                 'accession_number': parsed['accession_number'], 'source_sha256': parsed['source_sha256']})
-        payload = {'items': items, 'status': 'ok', 'provider': PROVIDER, 'item_count': len(items),
+        payload = {'items': items, 'status': 'ok', 'provider': PROVIDER, 'cache_version': CACHE_VERSION, 'item_count': len(items),
             'updated_at': now.isoformat(), 'message': MESSAGE,
             'coverage': {'kind': 'selected_sec_earnings_releases', 'complete': False,
                 'lookback_days': 365, 'filing_limit': filing_limit, 'filings_discovered': len(recent),

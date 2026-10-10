@@ -79,6 +79,24 @@ def test_disabled_and_busy_guards_do_no_source_work(prepared, monkeypatch):
     assert job.run()['reason'] == 'db_pressure' and not prepared[1]
 
 
+def test_older_exhibit_classification_cache_is_reprepared_without_duplicate_sources(prepared):
+    factory, calls = prepared
+    job.run()
+    with factory() as db:
+        row = db.scalar(select(TickerContentCache))
+        payload = json.loads(row.payload_json)
+        payload.pop('cache_version')
+        row.payload_json = json.dumps(payload)
+        db.commit()
+    assert press._cached('TEST') is None
+    result = job.run()
+    assert result['results'][0]['items'] == 1 and len(calls) == 7
+    assert press._cached('TEST')['cache_version'] == press.CACHE_VERSION
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(DirectFeedDocument)) == 3
+        assert db.scalar(select(func.count()).select_from(DirectFeedRevision)) == 3
+
+
 def test_failed_scopes_rotate_and_live_lease_refuses_overlap(prepared, monkeypatch):
     symbols = ['T'+chr(65+i) for i in range(6)]
     monkeypatch.setattr(queue, 'DEFAULT_PREWARM_SYMBOLS', symbols)
@@ -94,7 +112,7 @@ def test_failed_scopes_rotate_and_live_lease_refuses_overlap(prepared, monkeypat
     assert calls[0] == symbols[-1]
 
 
-@pytest.mark.parametrize('code', [403, 429, 503])
+@pytest.mark.parametrize('code', [403, 429, 500, 502, 503, 504])
 def test_transport_denial_preserves_cache_and_stops_batch(prepared, monkeypatch, code):
     factory, calls = prepared
     job.run()

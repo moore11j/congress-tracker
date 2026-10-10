@@ -1,4 +1,5 @@
 import argparse,json,os,sys,uuid
+from datetime import datetime,timedelta,timezone
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
@@ -58,6 +59,25 @@ try:
    assert len(list(db.scalars(select(DirectFeedRevision))))==3
    assert not list(db.scalars(select(Event))) and not list(db.scalars(select(ResearchSourceDocument)))
   report.update(status='passed',prepared_panels=1,source_fixture_requests=4,canonical_writes=0,repeat_source_requests=0,overlap_refusals=len(overlaps),lease_cleared=True,public_selection='fmp')
+  with factory() as db:
+   cache=db.scalar(select(TickerContentCache));old_payload=cache.payload_json
+   cache.fetched_at=datetime.now(timezone.utc)-timedelta(days=1);db.commit()
+   assert db.scalar(text('SHOW idle_in_transaction_session_timeout'))=='0'
+  with control.connect() as blocker:
+   blocker.exec_driver_sql(f'SET LOCAL search_path={schema}')
+   blocker.execute(text('SELECT id FROM securities WHERE id=1 FOR UPDATE'))
+   blocked=job.run()
+   assert blocked['results'][0]['status']=='unavailable',blocked
+   with factory() as db:
+    assert db.scalar(select(TickerContentCache)).payload_json==old_payload
+    assert not json.loads(db.get(InsightsSnapshot,job.KEY).payload_json).get('lease')
+   blocker.rollback()
+  assert job.run()['results'][0]['items']==1
+  with factory() as db:
+   assert len(list(db.scalars(select(DirectFeedDocument))))==3
+   assert len(list(db.scalars(select(DirectFeedRevision))))==3
+  report.update(source_fixture_requests=len(calls),overlap_refusals=len(overlaps),row_lock_timeout_refused=True,old_cache_preserved=True,retry_preserves_source_identity=True,local_timeout_resets_after_commit=True)
+
 finally:
  if engine:engine.dispose()
  if created:
