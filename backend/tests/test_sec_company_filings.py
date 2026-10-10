@@ -139,3 +139,14 @@ def test_large_issuer_is_bounded_to_latest_filings_with_explicit_coverage():
     assert result['coverage']['source_row_count']==2001
     assert result['items'][0]['accession_number']=='0000000001-26-002000'
     assert result['items'][-1]['accession_number']=='0000000001-26-000001'
+
+
+@pytest.mark.parametrize('filename',['cemex.s.a.b..de.c.v..txt','lamar.advertising.co..cl.a.txt'])
+def test_literal_adjacent_periods_in_official_filename_are_not_path_traversal(filename):
+    data=source();data['filings']['recent']['primaryDocument'][0]=filename
+    assert parse(data)['items'][0]['url'].endswith('/'+filename)
+
+@pytest.mark.parametrize('filename',['dir/../other.htm','dir/./other.htm','%2e%2e/other.htm','dir%2fother.htm'])
+def test_path_segments_and_encoded_traversal_remain_rejected(filename):
+    data=source();data['filings']['recent']['primaryDocument'][0]=filename
+    with pytest.raises(ValueError):parse(data)
