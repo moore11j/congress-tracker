@@ -3,7 +3,7 @@
     "symbol": "MSFT",
     "company_website": "https://www.microsoft.com/",
     "investor_website": "https://www.microsoft.com/en-us/Investor",
-    "verification": "Official Microsoft FY2026 Q2 investor event page, reviewed 2026-10-07. Initial parser fixture, not a current-universe coverage claim.",
+    "verification": "Official Microsoft FY2026 Q2 and Q4 event pages reviewed October10,2026. Selected-company transcript coverage only; not a broad market transcript feed.",
     "documents": [
       {
         "url": "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q2",
@@ -12,6 +12,16 @@
         "fiscal_quarter": 2,
         "published_at": "2026-01-28",
         "period_pattern": "FY\\s*2026\\s*Q2|second quarter.*2026"
+      },
+      {
+        "document_type": "earnings_transcript",
+        "url": "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q4",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 4,
+        "published_at": "2026-07-29",
+        "period_pattern": "FY\\s*2026\\s*Q4|Fiscal Year 2026 Fourth Quarter|FY26 Fourth Quarter",
+        "company_pattern": "\\bMicrosoft\\b",
+        "publication_pattern": "July\\s+29,\\s*2026"
       }
     ]
   }
