@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "reviewed_at": "2026-10-10T06:21:26.999641+00:00",
+  "transitions": [
+    {
+      "symbol": "OKE",
+      "old_cusip": "682680103",
+      "new_cusip": "30609A109",
+      "effective_date": "2026-09-10",
+      "share_ratio": "1",
+      "sources": [
+        {
+          "source_url": "https://www.sec.gov/Archives/edgar/data/876661/000087666126000770/0000876661-26-000770.txt",
+          "source_file": "oneok-reorganization-2026.txt",
+          "sha256": "b2cf419feb4ca9b4bbe18cb2b692272281710c372f5bafbce6a7273c6fd23204"
+        }
+      ],
+      "required_fragments": [
+        "receiving one share",
+        "for each share",
+        "September 10, 2026"
+      ]
+    },
+    {
+      "symbol": "XOM",
+      "old_cusip": "30231G102",
+      "new_cusip": "30233Q108",
+      "effective_date": "2026-07-01",
+      "share_ratio": "1",
+      "sources": [
+        {
+          "source_url": "https://investor.exxonmobil.com/sec-filings/all-sec-filings/content/0000876661-26-000593/ruleprovisionnotice.htm",
+          "source_file": "xom-transition-form25.htm",
+          "sha256": "5635697cab79936a7390fc26d592e50a1f1e80fa6c56b5e8655721db2a169ff0"
+        },
+        {
+          "source_url": "https://investor.exxonmobil.com/sec-filings/all-sec-filings/content/0001193125-26-291986/d70995d8k.htm",
+          "source_file": "xom-transition-8k.htm",
+          "sha256": "674a79c646602cb424a215df553ba40e931ec09c9e979bb56879a339b4765b99"
+        }
+      ],
+      "required_fragments": [
+        "automatically exchanged for one share",
+        "holding the same number and percentage of shares",
+        "July 1, 2026"
+      ]
+    }
+  ]
+}

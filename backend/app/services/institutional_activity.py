@@ -709,6 +709,14 @@ def _reset_holder_period_changes_and_activity(db: Session, filing: Institutional
 
 @canonical_writer('sec_13f')
 def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False, holder_only: bool = False) -> dict[str, int]:
+    # Direct publication owns immutable pair provenance and event availability.
+    # A generic recalculation must not replace those with legacy timestamps.
+    proof = json.loads(filing.raw_metadata_json or '{}').get('_walnut_direct_13f', {})
+    if proof.get('derived_state') == 'published':
+        if reset_existing:
+            raise ValueError('Published direct filing requires explicit reconciliation')
+        return {'changes': 0, 'summaries': 0, 'activity_events': 0, 'feed_events': 0,
+                'complete': True, 'source_owned_unchanged': 1}
     _require_reconciled_amendment(filing)
     apply_institutional_filing_supersession(db, filing)
     if not is_canonical_institutional_filing(db, filing):
@@ -731,7 +739,8 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, 
     holder_name = holder.holder_name if holder else None
     holder_quality_weight = _holder_quality_weight(holder)
     prior_positions = _prior_positions_for_filing(db, filing)
-    prior_by_key = {_position_match_key(position): position for position in prior_positions if not position.put_call}
+    from app.services.institutional_security_transitions import prior_comparison_key
+    prior_by_key = {prior_comparison_key(filing, position, _position_match_key(position)): position for position in prior_positions if not position.put_call}
     current_by_key = {_position_match_key(position): position for position in current_positions if not position.put_call}
 
     changes = 0
@@ -841,6 +850,14 @@ def process_filing_changes_and_events_symbol_batch(
     symbol_limit: int = 100,
     reset_existing: bool = False,
 ) -> dict[str, Any]:
+    # Direct publication owns immutable pair provenance and event availability.
+    # A generic recalculation must not replace those with legacy timestamps.
+    proof = json.loads(filing.raw_metadata_json or '{}').get('_walnut_direct_13f', {})
+    if proof.get('derived_state') == 'published':
+        if reset_existing:
+            raise ValueError('Published direct filing requires explicit reconciliation')
+        return {'changes': 0, 'summaries': 0, 'activity_events': 0, 'feed_events': 0,
+                'complete': True, 'source_owned_unchanged': 1}
     _require_reconciled_amendment(filing)
     apply_institutional_filing_supersession(db, filing)
     if not is_canonical_institutional_filing(db, filing):
@@ -888,7 +905,8 @@ def process_filing_changes_and_events_symbol_batch(
     holder = db.get(InstitutionalHolder, filing.cik)
     holder_name = holder.holder_name if holder else None
     holder_quality_weight = _holder_quality_weight(holder)
-    prior_by_key = {_position_match_key(position): position for position in prior_positions if not position.put_call}
+    from app.services.institutional_security_transitions import prior_comparison_key
+    prior_by_key = {prior_comparison_key(filing, position, _position_match_key(position)): position for position in prior_positions if not position.put_call}
     current_by_key = {_position_match_key(position): position for position in current_positions if not position.put_call}
 
     changes = 0
@@ -2158,7 +2176,8 @@ def _derived_activity_for_holder_from_positions(db: Session, cik: str, *, page: 
     current_total = sum(float(row.value_usd or 0.0) for row in current_positions)
     prior_total = sum(float(row.value_usd or 0.0) for row in prior_positions)
     current_by_key = {_position_row_identity_key(row): row for row in current_positions}
-    prior_by_key = {_position_row_identity_key(row): row for row in prior_positions}
+    from app.services.institutional_security_transitions import prior_comparison_key
+    prior_by_key = {prior_comparison_key(current_filing, row, _position_row_identity_key(row)): row for row in prior_positions}
     symbols = sorted(
         {
             symbol

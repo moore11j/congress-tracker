@@ -1,0 +1,4 @@
+*.txt -text whitespace=-blank-at-eol
+*.htm -text whitespace=-blank-at-eol
+manifest.json text eol=lf
+.gitattributes text eol=lf
