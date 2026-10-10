@@ -45,6 +45,16 @@ def _lock_issuer(db, security_id):
     return db.scalar(select(Security).where(Security.id == security_id).with_for_update())
 
 
+def _save_payload(db, symbol, payload, now):
+    row = _cache_row(db, symbol)
+    if row is None:
+        row = TickerContentCache(content_type=CONTENT_TYPE, symbol=symbol, window_key='latest',
+            cache_key=f'{CONTENT_TYPE}:{symbol}:latest', source=PROVIDER)
+        db.add(row)
+    row.status, row.item_count = payload['status'], len(payload['items'])
+    row.payload_json, row.fetched_at = dumps(payload), now
+
+
 def _cached(symbol):
     with SessionLocal() as db:
         row = _cache_row(db, symbol)
@@ -83,12 +93,25 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
     now = datetime.now(timezone.utc)
     client = client or DirectSourceClient()
     issuer = (directory if directory is not None else company_directory()).get(symbol)
-    if issuer is None:
-        raise ValueError('Symbol absent from SEC directory')
     with SessionLocal() as db:
         security_id = db.scalar(select(Security.id).where(Security.symbol == symbol))
     if security_id is None:
         raise ValueError('Ticker identity has not been prepared')
+    if issuer is None:
+        payload = {'items': [], 'status': 'unavailable', 'provider': PROVIDER,
+            'cache_version': CACHE_VERSION, 'item_count': 0, 'updated_at': now.isoformat(),
+            'reason': 'symbol_absent_from_sec_directory',
+            'message': MESSAGE + ' No SEC ticker-directory match is available for this security.',
+            'coverage': {'kind': 'selected_sec_earnings_releases', 'complete': False,
+                'filings_checked': 0, 'source_failures': 0,
+                'reason': 'symbol_absent_from_sec_directory'}}
+        with SessionLocal() as db:
+            _lock_issuer(db, security_id)
+            if not authorized():
+                raise ValueError('Direct SEC provider changed during refresh')
+            _save_payload(db, symbol, payload, now)
+            db.commit()
+        return payload
     cik = str(issuer['cik']).zfill(10)
     company_raw = client.get(f'https://data.sec.gov/submissions/CIK{cik}.json')
     all_filings = discover_earnings_filings(company_raw, symbol=symbol, cik=cik, limit=100)
@@ -147,13 +170,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
         # with a misleading empty result. The caller reports unavailable.
         if failures:
             raise RuntimeError('SEC earnings collection incomplete')
-        row = _cache_row(db, symbol)
-        if row is None:
-            row = TickerContentCache(content_type=CONTENT_TYPE, symbol=symbol, window_key='latest',
-                cache_key=f'{CONTENT_TYPE}:{symbol}:latest', source=PROVIDER)
-            db.add(row)
-        row.status, row.item_count = 'ok', len(items)
-        row.payload_json, row.fetched_at = dumps(payload), now
+        _save_payload(db, symbol, payload, now)
         db.commit()
     return payload
 

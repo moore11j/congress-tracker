@@ -148,3 +148,24 @@ def test_preparation_revoked_during_http_does_not_replace_cache(prepared, monkey
     with prepared[0]() as db:
         assert db.scalar(select(func.count()).select_from(TickerContentCache)) == 0
         assert db.scalar(select(func.count()).select_from(Event)) == 0
+
+
+def test_verified_directory_absence_is_unavailable_not_perpetual_warming(prepared, monkeypatch):
+    factory, calls = prepared
+    monkeypatch.setattr(sec_directory, 'directory', lambda: {})
+    first = job.run()
+    assert first['results'][0]['status'] == 'unavailable'
+    assert first['results'][0]['coverage']['reason'] == 'symbol_absent_from_sec_directory'
+    assert not calls
+    monkeypatch.setattr(sec_directory, 'directory', lambda: pytest.fail('Repeated absent-directory lookup'))
+    monkeypatch.setattr(queue, 'enqueue_data_enrichment_job', lambda **kw: pytest.fail('Unavailable panel enqueued'))
+    assert job.run()['results'] == first['results']
+    from app.services import fmp_news
+    monkeypatch.setattr(fmp_news, '_is_public_request_context', lambda: True)
+    payload = press.get_sec_releases(symbol='TEST')
+    assert payload['status'] == 'unavailable' and payload['reason'] == 'symbol_absent_from_sec_directory'
+    assert payload['items'] == [] and not payload['has_next']
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(TickerContentCache)) == 1
+        assert db.scalar(select(func.count()).select_from(DirectFeedDocument)) == 0
+        assert db.scalar(select(func.count()).select_from(Event)) == 0
