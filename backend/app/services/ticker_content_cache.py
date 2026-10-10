@@ -20,6 +20,7 @@ CONTENT_TTL_SECONDS = {
     "news": 15 * 60,
     "press_releases": 30 * 60,
     "sec_filings": 60 * 60,
+    "sec_company_filings": 60 * 60,
 }
 CONTENT_STALE_TTL_SECONDS = 24 * 60 * 60
 

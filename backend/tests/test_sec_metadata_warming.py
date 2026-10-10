@@ -96,3 +96,30 @@ def test_transport_denial_stops_batch_and_clears_lease(factory, monkeypatch):
         assert 'lease' not in state and list(state['attempted_at']) == ['ABC']
 
 
+
+
+def test_optional_filing_preparation_is_independent_of_public_selection(factory, monkeypatch):
+    from app.services import sec_company_filings
+    monkeypatch.setenv('SEC_FILINGS_WARMING_ENABLED', '1')
+    monkeypatch.setenv('SEC_FILINGS_PROVIDER', 'fmp')
+    monkeypatch.setattr(sec_directory, 'symbol_metadata', lambda symbol: ('Example', 'NYSE', None, 'SIC', None))
+    seen=[]
+    def prepare(**kwargs):
+        seen.append(kwargs['symbol'])
+        return {'status':'ok','provider':'sec_edgar_submissions','coverage':{'source_row_count':12}}
+    monkeypatch.setattr(sec_company_filings, 'get_company_filings', prepare)
+    result=job.run()
+    assert seen==['ABC'] and result['filings_selection']=='fmp'
+    assert result['results'][0]['filings_source_count']==12
+    assert result['canonical_writes']==result['emails']==0
+
+
+def test_failed_filing_preparation_is_reported_partial(factory, monkeypatch):
+    from app.services import sec_company_filings
+    monkeypatch.setenv('SEC_FILINGS_WARMING_ENABLED', '1')
+    monkeypatch.setattr(sec_directory, 'symbol_metadata', lambda symbol: ('Example', 'NYSE', None, 'SIC', None))
+    monkeypatch.setattr(sec_company_filings, 'get_company_filings', lambda **kw: {'status':'unavailable'})
+    result=job.run()
+    assert result['status']=='partial'
+    assert result['results'][0]['filings_status']=='unavailable'
+    assert result['canonical_writes']==result['emails']==0

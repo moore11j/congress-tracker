@@ -86,7 +86,7 @@ def get_company_filings(*, symbol, from_date=None, to_date=None, page=0, limit=1
     cached = news._cache_get(key, category=category, symbol=symbol)
     if cached is not None:
         return cached
-    saved = db_ticker_content_cache_get('sec_filings', symbol, page=page, limit=limit, from_date=str(start), to_date=str(end))
+    saved = db_ticker_content_cache_get('sec_company_filings', symbol, page=page, limit=limit, from_date=str(start), to_date=str(end))
     if saved is not None and saved.get('provider') == PROVIDER and saved.get('cache_status') != 'stale':
         return news._cache_set(key, saved, ttl_seconds=news.SEC_FILINGS_TTL_SECONDS, category=category, symbol=symbol)
     context = news.get_request_context() or {}
@@ -104,7 +104,7 @@ def get_company_filings(*, symbol, from_date=None, to_date=None, page=0, limit=1
         payload['updated_at'] = datetime.now(timezone.utc).isoformat()
         # Persist the entire bounded recent list once, so later pages/windows
         # do not mistake an earlier requested page for the complete source.
-        db_ticker_content_cache_set('sec_filings', symbol, payload, window_key='sec_recent', source='sec_edgar')
+        db_ticker_content_cache_set('sec_company_filings', symbol, payload, window_key='sec_recent', source='sec_edgar')
         result = paginate_ticker_content_payload(payload, page=page, limit=limit, from_date=str(start), to_date=str(end))
         return news._cache_set(key, result, ttl_seconds=news.SEC_FILINGS_TTL_SECONDS, category=category, symbol=symbol)
     except Exception as exc:
