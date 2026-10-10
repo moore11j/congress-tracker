@@ -155,3 +155,24 @@ def test_supervisor_failure_stops_active_job_and_preserves_queue(tmp_path):
         assert row['runs']==1
         assert row['started_at'] is None and row['pid'] is None
         assert row['exit_code'] != 0
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux process groups')
+def test_shutdown_kills_descendant_that_outlives_group_leader(tmp_path):
+    token='descendant-'+str(os.getpid())
+    ready=tmp_path/'ready'
+    child="import os,signal,time;from pathlib import Path;signal.signal(signal.SIGTERM,signal.SIG_IGN);Path("+repr(str(ready))+").write_text(str(os.getpid()));time.sleep(60)"
+    parent='import subprocess,time;subprocess.Popen('+repr([sys.executable,'-c',child])+');time.sleep(60)'
+    process=subprocess.Popen([sys.executable,'-c',parent],env={**os.environ,'WALNUT_JOB_TOKEN':token},start_new_session=True)
+    try:
+        deadline=time.monotonic()+5
+        while not ready.exists() and time.monotonic()<deadline:time.sleep(.02)
+        child_pid=int(ready.read_text())
+        jobs.stop_process(process.pid,token,grace_seconds=.2)
+        process.wait(timeout=5)
+        deadline=time.monotonic()+3
+        while jobs.owns_process(child_pid,token) and time.monotonic()<deadline:time.sleep(.02)
+        assert not jobs.owns_process(child_pid,token)
+    finally:
+        jobs.stop_process(process.pid,token,grace_seconds=.2)
+        process.wait(timeout=5)

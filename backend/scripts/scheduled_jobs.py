@@ -119,26 +119,39 @@ def owns_process(pid, token):
         return False
 
 
-def stop_process(pid, token):
+def owned_groups(token):
+    groups = set()
+    for entry in Path('/proc').iterdir():
+        if entry.name.isdigit() and owns_process(int(entry.name), token):
+            try:
+                groups.add(os.getpgid(int(entry.name)))
+            except ProcessLookupError:
+                pass
+    return groups
+
+
+def stop_process(pid, token, *, grace_seconds=10):
     if pid is None:
         # Recover a crash between Popen and recording the new process ID.
-        for entry in Path('/proc').iterdir():
-            if entry.name.isdigit() and owns_process(int(entry.name), token):
-                candidate = int(entry.name)
-                try:
-                    if os.getpgid(candidate) == candidate:
-                        stop_process(candidate, token)
-                except ProcessLookupError:
-                    pass
+        for group in owned_groups(token):
+            stop_process(group, token, grace_seconds=grace_seconds)
         return
-    if not pid or not owns_process(pid, token):
+    if not pid or pid not in owned_groups(token):
         return
-    os.killpg(pid, signal.SIGTERM)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and owns_process(pid, token):
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline and pid in owned_groups(token):
         time.sleep(.1)
-    if owns_process(pid, token):
-        os.killpg(pid, signal.SIGKILL)
+    # A shell may have exited while a grandchild ignored SIGTERM. Check the
+    # identified group, not just its original leader, before escalating.
+    if pid in owned_groups(token):
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def recover(db, lane):
