@@ -630,7 +630,8 @@ function normalizedAmountLabel(min?: number | null, max?: number | null): string
 }
 
 function tickerHeaderMetadata(ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"]): string[] {
-  return [ticker.sector, ticker.industry, ticker.country, ticker.exchange_short_name ?? ticker.exchange]
+  const industry = ticker.classification === "SEC SIC" && ticker.industry ? `SEC SIC: ${ticker.industry}` : ticker.industry;
+  return [ticker.sector, industry, ticker.country, ticker.exchange_short_name ?? ticker.exchange]
     .map(cleanTickerHeaderMetadata)
     .filter((value): value is string => Boolean(value));
 }

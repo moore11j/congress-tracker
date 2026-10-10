@@ -322,6 +322,9 @@ export type TickerProfile = {
     exchange?: string | null;
     exchange_short_name?: string | null;
     display_market_chain?: string | null;
+    classification?: string | null;
+    metadata_source?: string | null;
+    metadata_as_of?: string | null;
     identity_status?: "ok" | "partial" | "loading" | "unknown" | string | null;
     price_history_points?: number | null;
     price_history_start?: string | null;
