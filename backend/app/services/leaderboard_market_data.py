@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+import json
+from datetime import date, datetime, timedelta, timezone
 from math import isfinite
 
+from app.services.fundamentals_cache import selected_fundamentals_provider
 from sqlalchemy import func, select
 
 from app.clients.fmp import fetch_batch_market_capitalization, fetch_company_profile
@@ -31,6 +33,9 @@ def enrich_leaderboard_market_data(db, candidates: list[dict], *, now: datetime)
     All writes commit together with the finished leaderboard snapshot.
     """
     if not candidates:
+        return
+    if selected_fundamentals_provider() == 'sec_edgar':
+        _use_verified_selected_market_data(db, candidates, now=now)
         return
     by_symbol = {row['symbol']: row for row in candidates}
     symbols = list(by_symbol)
@@ -98,7 +103,7 @@ def enrich_leaderboard_market_data(db, candidates: list[dict], *, now: datetime)
                 row[f'{field}_source'] = 'fmp_profile'
 
     cache_rows = db.scalars(select(FundamentalsCache).where(
-        FundamentalsCache.provider == 'fmp', FundamentalsCache.symbol.in_(symbols))).all()
+        FundamentalsCache.provider == selected_fundamentals_provider(), FundamentalsCache.symbol.in_(symbols))).all()
     for cached in cache_rows:
         row = by_symbol[cached.symbol]
         for field in ('market_cap', 'avg_volume'):
@@ -107,3 +112,39 @@ def enrich_leaderboard_market_data(db, candidates: list[dict], *, now: datetime)
     logger.info('leaderboard_market_data total=%s with_cap=%s with_average_volume=%s', len(candidates),
                 sum(bool(_positive(row.get('market_cap'))) for row in candidates),
                 sum(bool(_positive(row.get('avg_volume'))) for row in candidates))
+
+
+def _use_verified_selected_market_data(db, candidates, *, now):
+    """Selected fundamentals refresh owns acquisition and its price provenance."""
+    symbols = [row['symbol'] for row in candidates]
+    cached = {row.symbol: row for row in db.scalars(select(FundamentalsCache).where(
+        FundamentalsCache.provider == 'sec_edgar', FundamentalsCache.status == 'ok',
+        FundamentalsCache.symbol.in_(symbols)))}
+    now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+    for row in candidates:
+        for field in ('market_cap', 'avg_volume'):
+            row[field] = None
+            for suffix in ('_as_of', '_source', '_observations'):
+                row.pop(field + suffix, None)
+        source = cached.get(row['symbol'])
+        if source is None:
+            continue
+        try:
+            evidence = json.loads(source.source_evidence_json or '{}')
+            market = evidence.get('market') or {}
+            observed = datetime.fromisoformat(market.get('observed_at', ''))
+            cap = _positive((market.get('reference') or {}).get('market_cap'))
+            if (market.get('provider') == 'massive' and observed.tzinfo is not None
+                    and 0 <= (now - observed).total_seconds() <= 7 * 86400
+                    and cap is not None and cap == source.market_cap):
+                row.update(market_cap=cap, market_cap_as_of=observed.isoformat(), market_cap_source='massive_reference')
+            daily = evidence.get('daily_market') or {}
+            day = date.fromisoformat(daily.get('as_of', ''))
+            volumes = [float(bar['volume']) for bar in (daily.get('bars') or {}).values()]
+            if (daily.get('provider') == 'massive' and 0 <= (now.date() - day).days <= 7
+                    and len(volumes) == 20 and all(isfinite(v) and v >= 0 for v in volumes)
+                    and source.avg_volume == sum(volumes) / 20):
+                row.update(avg_volume=source.avg_volume, avg_volume_as_of=str(day), avg_volume_observations=20,
+                           avg_volume_source='massive_daily_bars')
+        except (TypeError, ValueError, KeyError):
+            continue

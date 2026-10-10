@@ -58,6 +58,9 @@ OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
 CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v8-agreement-coverage"
 # Keep recorded histories distinct across provider coverage changes.
+from app.services.fundamentals_cache import selected_fundamentals_provider
+if selected_fundamentals_provider() == "sec_edgar":
+    CURRENT_CONFIRMATION_METHODOLOGY_VERSION += "_sec_fundamentals_v1"
 from app.services.replacement_analysts import selected as replacement_analysts_selected
 from app.services.provider_usage import fmp_provider_disabled
 if replacement_analysts_selected():

@@ -84,6 +84,10 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
 CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v10_macro_freshness"
 CONFIRMATION_SCORING_VERSION = "confirmation_score_v9_macro_freshness"
+from app.services.fundamentals_cache import selected_fundamentals_provider
+if selected_fundamentals_provider() == "sec_edgar":
+    CONFIRMATION_CLASSIFICATION_VERSION += "_sec_fundamentals_v1"
+    CONFIRMATION_SCORING_VERSION += "_sec_fundamentals_v1"
 # Provider selection requires all-worker restart and monitoring rebaseline.
 from app.services.replacement_analysts import selected as replacement_analysts_selected
 from app.services.provider_usage import fmp_provider_disabled

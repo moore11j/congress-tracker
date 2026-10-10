@@ -11,6 +11,7 @@ from math import isfinite
 from typing import Any
 from urllib.parse import quote
 
+from app.services.fundamentals_cache import selected_fundamentals_provider
 from sqlalchemy import and_, bindparam, func, inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -601,7 +602,7 @@ def _build_screener_dataset(
             reason="fundamentals_cache_empty",
             priority=50,
         )
-    if not normalized_rows and _allow_provider_screener_fallback():
+    if not normalized_rows and selected_fundamentals_provider() == 'fmp' and _allow_provider_screener_fallback():
         fmp_filters = _fmp_filters(params)
         raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
         normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
@@ -979,7 +980,7 @@ def _cached_core_universe_rows(
             FundamentalsCache.__table__,
             and_(
                 FundamentalsCache.symbol == TickerMeta.symbol,
-                FundamentalsCache.provider == "fmp",
+                FundamentalsCache.provider == selected_fundamentals_provider(),
                 FundamentalsCache.status == "ok",
             ),
         )

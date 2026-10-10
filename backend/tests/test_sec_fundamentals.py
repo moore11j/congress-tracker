@@ -106,3 +106,160 @@ def test_total_revenue_is_not_confused_with_contract_revenue_component():
     evidence = json.loads(project(facts)['source_evidence_json'])
     assert evidence['current']['revenue']['value'] == 260
     assert {r['tag'] for r in evidence['current']['revenue']['inputs']} == {'Revenues'}
+
+
+def test_selected_provider_refresh_persists_evidence_and_skips_fmp(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from app.db import Base, ensure_fundamentals_cache_schema
+    from app.models import FundamentalsCache, FundamentalsSnapshot
+    from app.services import fundamentals_cache as cache, sec_fundamentals as sec
+    from app.clients.direct_sources import DirectSourceClient
+    import requests
+    monkeypatch.setenv('FUNDAMENTALS_PROVIDER', 'sec_edgar')
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER', 'fmp')  # independent market enrichment stays off
+    monkeypatch.setenv('FMP_PROVIDER_DISABLED', '1')
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: pytest.fail('Unexpected transport'))
+    facts, company = sources()
+    monkeypatch.setattr(sec, 'company_directory', lambda day: {'ABC': {'cik': '0000000001'}})
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda self,url: json.dumps(facts if 'companyfacts' in url else company).encode())
+    # Keep the fixture clock fixed without modifying shared datetime classes.
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return NOW
+    monkeypatch.setattr(sec, 'datetime', Clock)
+    result = cache.fetch_fundamentals_for_symbol('ABC')
+    assert result.status == 'ok'
+    engine = create_engine('sqlite://')
+    Base.metadata.create_all(engine, tables=[FundamentalsCache.__table__, FundamentalsSnapshot.__table__])
+    ensure_fundamentals_cache_schema(engine)
+    ensure_fundamentals_cache_schema(engine)
+    with Session(engine) as db:
+        db.add(FundamentalsCache(symbol='ABC', provider='fmp', fetched_at=NOW, status='ok', roe=999))
+        cache.upsert_fundamentals_cache(db, result.values)
+        db.commit()
+        selected = cache.cached_fundamentals_by_symbol(db, ['ABC'])['ABC']
+        assert selected.provider == 'sec_edgar' and selected.roe != 999
+        assert json.loads(selected.source_evidence_json)['methodology'] == sec.VERSION
+        from app.services.fundamentals_snapshots import upsert_fundamentals_snapshot
+        snapshot = upsert_fundamentals_snapshot(db, selected, observed_at=NOW)
+        assert snapshot.source_evidence_json == selected.source_evidence_json
+        assert cache.fundamentals_summary_from_cache_row(selected)['data_quality']['scored_metric_count'] == 3
+        cache.upsert_fundamentals_cache(db, result.values)
+        db.commit()
+        assert db.query(FundamentalsCache).count() == 2
+        assert len(cache.cached_screener_rows(db)) == 1
+        # A fresh record with missing current market data must not retain old cap.
+        cache.upsert_fundamentals_cache(db, {**result.values, 'market_cap': 123})
+        db.flush()
+        cache.upsert_fundamentals_cache(db, result.values)
+        db.commit()
+        assert selected.market_cap is None
+    engine.dispose()
+
+
+@pytest.mark.parametrize('coverage', ['complete', 'missing', 'stale', 'incomplete'])
+def test_selected_market_fields_and_rank_inputs_use_massive_provenance(monkeypatch, coverage):
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from app.db import Base
+    from app.models import FundamentalsCache
+    from app.services import sec_fundamentals as sec, fundamentals_cache as cache, leaderboard_market_data as market
+    from app.clients.direct_sources import DirectSourceClient
+    from app.clients.massive_stocks import MassiveStocksClient
+    monkeypatch.setenv('FUNDAMENTALS_PROVIDER', 'sec_edgar')
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER', 'massive')
+    monkeypatch.setenv('FMP_PROVIDER_DISABLED', '1')
+    monkeypatch.setenv('MASSIVE_API_KEY', 'test-only')
+    facts, company = sources()
+    if coverage == 'missing':
+        facts['facts'] = {'ifrs-full': {}}
+    elif coverage == 'stale':
+        for concept in facts['facts']['us-gaap'].values():
+            concept['units']['USD'] = [r for r in concept['units']['USD'] if r['end'] < '2025-01-01']
+    elif coverage == 'incomplete':
+        facts['facts']['us-gaap']['RevenueFromContractWithCustomerExcludingAssessedTax']['units']['USD'][-1]['start'] = '2026-04-01'
+    monkeypatch.setattr(sec, 'company_directory', lambda day: {'ABC': {'cik': '0000000001'}})
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda self,url: json.dumps(facts if 'companyfacts' in url else company).encode())
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return NOW
+    monkeypatch.setattr(sec, 'datetime', Clock)
+    def transport(url, **kw):
+        assert url.startswith('https://api.massive.com/')
+        if '/reference/' in url:
+            rows = dict(ticker='ABC', cik='1', currency_name='usd', market='stocks', locale='us', market_cap=1300)
+        else:
+            rows = [{'t': (NOW.replace(hour=4) - timedelta(days=d)).timestamp()*1000, 'c': 13, 'v': 100+d}
+                    for d in range(20,0,-1)]
+        return SimpleNamespace(status_code=200, json=lambda: {'status': 'OK', 'results': rows})
+    import requests
+    monkeypatch.setattr(requests, 'get', transport)
+    values = sec.fetch_fundamentals('ABC')
+    assert values['market_cap'] == 1300 and values['avg_volume'] == 110.5
+    if coverage == 'complete':
+        assert values['price_to_sales'] == 10 and values['trailing_pe'] == 100
+        assert values['fcf_yield'] == 2.5
+    else:
+        assert values['period_date'] is None
+        assert not {'price_to_sales', 'trailing_pe', 'fcf_yield', 'revenue_growth', 'roe'} & values.keys()
+        evidence = json.loads(values['source_evidence_json'])
+        assert evidence['financial_status'] == 'unavailable' and evidence['financial_error']
+    engine = create_engine('sqlite://')
+    Base.metadata.create_all(engine, tables=[FundamentalsCache.__table__])
+    with Session(engine) as db:
+        # A new coverage gap must clear previous financial values while keeping
+        # independently verified market inputs usable by the ranking adapter.
+        if coverage != 'complete':
+            cache.upsert_fundamentals_cache(db, {'symbol': 'ABC', 'provider': 'sec_edgar',
+                'fetched_at': NOW,
+                'revenue_growth': 99, 'roe': 99, 'operating_margin_expansion': 99})
+            db.flush()
+        cache.upsert_fundamentals_cache(db, values)
+        db.commit()
+        if coverage != 'complete':
+            summary = cache.fundamentals_summary_from_cache_row(db.query(FundamentalsCache).one(), now=NOW)
+            assert summary['status'] == 'unavailable'
+            assert summary['data_quality']['scored_metric_count'] == 0
+        rows = [{'symbol': 'ABC', 'market_cap': 999999, 'avg_volume': 999999}]
+        monkeypatch.setattr(requests, 'get', lambda *a, **k: pytest.fail('Ranking unexpectedly fetched a provider'))
+        market.enrich_leaderboard_market_data(db, rows, now=NOW)
+        assert rows[0]['market_cap'] == 1300 and rows[0]['avg_volume_source'] == 'massive_daily_bars'
+        market.enrich_leaderboard_market_data(db, rows, now=NOW+timedelta(days=8))
+        assert rows[0]['market_cap'] is None and rows[0]['avg_volume'] is None
+    engine.dispose()
+
+
+@pytest.mark.parametrize('invalid', ['company_cik', 'facts_cik', 'symbol'])
+def test_market_only_fallback_never_bypasses_sec_identity(monkeypatch, invalid):
+    from app.services import sec_fundamentals as sec
+    from app.clients.direct_sources import DirectSourceClient
+    from app.clients.massive_stocks import MassiveStocksClient
+    facts, company = sources()
+    facts['facts'] = {}
+    if invalid == 'company_cik': company['cik'] = 2
+    if invalid == 'facts_cik': facts['cik'] = 2
+    if invalid == 'symbol': company['tickers'] = ['OTHER']
+    monkeypatch.setattr(sec, 'company_directory', lambda day: {'ABC': {'cik': '0000000001'}})
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda self,url: json.dumps(facts if 'companyfacts' in url else company).encode())
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER', 'massive')
+    monkeypatch.setattr(MassiveStocksClient, 'details', lambda *a: pytest.fail('Identity failure reached market lookup'))
+    with pytest.raises(SecFundamentalsError, match='identity'):
+        sec.fetch_fundamentals('ABC')
+
+
+def test_legacy_fundamentals_schema_upgrade_is_repeatable():
+    from sqlalchemy import create_engine, text, inspect
+    from app.db import ensure_fundamentals_cache_schema
+    engine = create_engine('sqlite://')
+    with engine.begin() as connection:
+        connection.execute(text('CREATE TABLE fundamentals_cache (id INTEGER PRIMARY KEY, symbol TEXT, provider TEXT, fetched_at TIMESTAMP, updated_at TIMESTAMP)'))
+        connection.execute(text("INSERT INTO fundamentals_cache VALUES (1,'ABC','fmp','2026-10-07','2026-10-07')"))
+    ensure_fundamentals_cache_schema(engine)
+    ensure_fundamentals_cache_schema(engine)
+    assert 'source_evidence_json' in {c['name'] for c in inspect(engine).get_columns('fundamentals_cache')}
+    with engine.connect() as connection:
+        assert connection.execute(text('SELECT symbol, source_evidence_json FROM fundamentals_cache')).one() == ('ABC', None)
+    engine.dispose()

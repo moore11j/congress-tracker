@@ -954,6 +954,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                 "period_date": "DATE",
                 "status": "TEXT NOT NULL DEFAULT 'ok'",
                 "error": "TEXT",
+                "source_evidence_json": "TEXT",
                 "company_name": "TEXT",
                 "sector": "TEXT",
                 "industry": "TEXT",
@@ -1045,7 +1046,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS period_date DATE"))
             conn.execute(text("ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'"))
             conn.execute(text("ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
-            for name in ("error", "company_name", "sector", "industry", "country", "exchange"):
+            for name in ("source_evidence_json", "error", "company_name", "sector", "industry", "country", "exchange"):
                 conn.execute(text(f"ALTER TABLE fundamentals_cache ADD COLUMN IF NOT EXISTS {name} TEXT"))
             for name in (
                 "market_cap",
@@ -1095,6 +1096,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
 def ensure_fundamentals_snapshot_schema(bind=engine) -> None:
     text_columns = (
         "error",
+        "source_evidence_json",
         "source_payload_hash",
         "source_kind",
         "availability_basis",

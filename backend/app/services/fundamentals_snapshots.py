@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import FundamentalsCache, FundamentalsSnapshot
-from app.services.fundamentals_cache import CACHE_ROW_FIELDS
+from app.services.fundamentals_cache import CACHE_ROW_FIELDS, selected_fundamentals_provider
 from app.utils.symbols import classify_symbol, normalize_symbol
 
 METHODOLOGY_VERSION = "fundamentals_snapshot_v1"
@@ -86,6 +86,8 @@ def _row_payload(row: FundamentalsCache) -> dict[str, Any]:
     }
     for field in SNAPSHOT_COPY_FIELDS:
         payload[field] = getattr(row, field)
+    if row.source_evidence_json:
+        payload['source_evidence_json'] = row.source_evidence_json
     return payload
 
 
@@ -109,6 +111,7 @@ def _apply_cache_row_to_snapshot(
     snapshot.status = row.status or "ok"
     snapshot.error = row.error
     snapshot.source_payload_hash = _payload_hash(row)
+    snapshot.source_evidence_json = row.source_evidence_json
     snapshot.source_kind = CURRENT_SNAPSHOT_SOURCE_KIND
     snapshot.availability_basis = CURRENT_SNAPSHOT_AVAILABILITY_BASIS
     snapshot.data_quality_confidence = CURRENT_SNAPSHOT_CONFIDENCE
@@ -153,9 +156,10 @@ def snapshot_current_fundamentals(
     db: Session,
     *,
     symbols: Iterable[str] | None = None,
-    provider: str = "fmp",
+    provider: str | None = None,
     observed_at: datetime | None = None,
 ) -> dict[str, Any]:
+    provider = provider or selected_fundamentals_provider()
     normalized_symbols = _normalized_symbols(symbols)
     statement = (
         select(FundamentalsCache)
