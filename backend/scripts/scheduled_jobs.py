@@ -29,6 +29,21 @@ DELIVERY_COMMANDS = (
 )
 
 
+# Manual maintenance has no calendar trigger. An operator explicitly enqueues
+# this fixed command, and the existing data lane prevents overlap with imports.
+MANUAL_JOBS = {
+    'maintenance-price-lookup-index-v1': {
+        'command': 'cd /app && python -m app.jobs.migrate_price_lookup_index --apply',
+        'environment': {},
+        'lane': 'data',
+    },
+}
+
+
+def load_manifest(path):
+    return {**json.loads(Path(path).read_text()), **MANUAL_JOBS}
+
+
 def compile_schedule(source, script, manifest_path, queue_path):
     environment, manifest, lines = {}, {}, []
     for line in source.splitlines():
@@ -220,7 +235,7 @@ def main():
     sub.add_parser('worker').add_argument('lane', choices=['data', 'delivery'])
     sub.add_parser('status')
     args = parser.parse_args()
-    manifest = json.loads(Path(args.manifest).read_text())
+    manifest = load_manifest(args.manifest)
     if args.action == 'worker':
         worker(args.queue, manifest, args.lane)
     else:
