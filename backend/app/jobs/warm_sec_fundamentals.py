@@ -52,7 +52,7 @@ def _run_locked():
         def due_priority(symbol):
             if not broad or symbol not in priority_symbols:
                 return False
-            if versions.get(symbol) != sec_fundamentals_preparation.VERSION:
+            if versions.get(symbol) != sec_fundamentals_preparation.version_for_symbol(symbol):
                 return True
             try:
                 last = datetime.fromisoformat(attempts[symbol])
@@ -86,7 +86,7 @@ def _run_locked():
                 result['reason'] = str(exc)[:300]
         results.append(result)
         attempts[symbol] = now.isoformat()
-        versions[symbol] = sec_fundamentals_preparation.VERSION
+        versions[symbol] = sec_fundamentals_preparation.version_for_symbol(symbol)
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
     receipt = {'status': 'partial' if truncated or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',

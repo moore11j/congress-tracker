@@ -151,3 +151,25 @@ def test_new_parser_version_refreshes_priority_once_then_resumes_universe(factor
     with factory() as db:
         state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
         assert state['attempted_versions']['ABC']==sec_fundamentals_preparation.VERSION
+
+
+def test_issuer_revision_refreshes_only_changed_priority_before_universe(factory,monkeypatch):
+    from datetime import datetime,timezone
+    from app.models import FundamentalsCache
+    monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
+    monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','1')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','XOM'])
+    now=datetime.now(timezone.utc)
+    with factory() as db:
+        db.add(FundamentalsCache(symbol='AAA',provider='fmp',status='ok',fetched_at=now))
+        db.add(InsightsSnapshot(kind=job.KEY,source='free_direct',fetched_at=now,payload_json=json.dumps({
+            'attempted_at':{s:now.isoformat() for s in ['ABC','XOM']},
+            'attempted_versions':{s:sec_fundamentals_preparation.VERSION for s in ['ABC','XOM']}})))
+        db.commit()
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    assert job.run()['results'][0]['scope']=='XOM'
+    assert job.run()['results'][0]['scope']=='AAA'
+    with factory() as db:
+        state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
+        assert state['attempted_versions']['ABC']==sec_fundamentals_preparation.VERSION
+        assert state['attempted_versions']['XOM']==sec_fundamentals_preparation.version_for_symbol('XOM')

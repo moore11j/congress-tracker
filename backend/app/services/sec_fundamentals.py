@@ -54,8 +54,10 @@ def fetch_fundamentals(symbol: str):
     client = DirectSourceClient()
     company = client.get(f'https://data.sec.gov/submissions/CIK{cik}.json')
     facts = client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json')
+    from app.services.sec_financial_continuity import fetch_history
+    history = fetch_history(symbol,cik,client=client,observed_at=now)
     try:
-        values = project_fundamentals(facts, company, symbol=symbol, cik=cik, observed_at=now)
+        values = project_fundamentals(facts, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history)
     except SecFundamentalsCoverageError as exc:
         # Identity has already passed the projector's checks. Keep independently
         # verified market inputs usable for rankings even when financial facts
@@ -225,7 +227,7 @@ def _prior_end(records, end):
 
 
 def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, cik: str,
-                         observed_at: datetime):
+                         observed_at: datetime, history_raw=None):
     """Return cache values plus evidence; requires a current, coherent revenue period.
 
     Filed dates have day resolution. Today's filings are excluded until the day
@@ -243,7 +245,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     if not symbol or tickers.count(symbol) != 1 or not company.get("name"):
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
-    records = {name: _records(payload, name, available_by) for name in TAGS}
+    from app.services.sec_financial_continuity import record_sets
+    records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw)
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
     if end is None or (available_by - end).days > 180:
@@ -271,6 +274,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         "instant": {}, "calculations": {}, "limitations": ["USD US GAAP standard concepts only",
             "No consensus estimates, EBITDA/debt proxies, or inferred per-share inputs",
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
+    if continuity is not None:
+        evidence['financial_continuity'] = continuity
     exchanges = company.get("exchanges", [])
     values = {"symbol": symbol, "provider": "sec_edgar", "company_name": company["name"],
         "exchange": exchanges[tickers.index(symbol)] if len(exchanges) == len(tickers) else None,
