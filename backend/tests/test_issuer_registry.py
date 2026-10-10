@@ -113,3 +113,23 @@ def test_external_permission_grants_only_one_reviewed_document(monkeypatch, case
         with pytest.raises(DirectSourceError, match='approved HTTPS'):
             client.get(url)
         assert len(calls) == (1 if case == 'redirect' else 0)
+
+
+@pytest.mark.parametrize('case',['valid','company','date','period','qa'])
+def test_reddit_reviewed_pdf_requires_exact_call_and_operator_qa(case):
+    metadata=issuer._reviewed_latest('RDDT')
+    heading="TRANSCRIPT 07 - 30 - 2026 Reddit, Inc. Reddit Q2'26 Earnings Call "
+    qa='Operator: (Operator Instructions) Our first question comes from Tom Champion from Piper Sandler. '
+    if case=='company':heading=heading.replace('Reddit, Inc.','Other Company')
+    if case=='date':heading=heading.replace('07 - 30','07 - 29')
+    if case=='period':heading=heading.replace("Q2'26","Q1'26")
+    if case=='qa':qa='Prepared remarks only. '
+    raw=pdf(heading+qa+('Synthetic earnings evidence. '*55))
+    if case!='valid':
+        with pytest.raises(DirectSourceError):parse_issuer_material(raw,metadata)
+        return
+    content,parsed=parse_issuer_material(raw,metadata)
+    assert parsed['has_qa'] and parsed['canonical_key']=='RDDT:earnings_transcript:2026:Q2'
+    assert metadata['source_page_url'].startswith('https://investor.redditinc.com/feed/FinancialReport.svc/GetFinancialReportList?')
+    assert metadata['published_at']=='2026-07-30'
+    assert metadata['source_page_sha256']=='d28b8820b24e50aba02f3cf8e3312d0cf728ca2e5cf972c2689e7488c1b9378a'

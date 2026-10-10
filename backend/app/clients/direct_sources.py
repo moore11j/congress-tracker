@@ -479,5 +479,9 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
         raise DirectSourceError("Issuer page does not identify transcript text")
     if not re.search(metadata["period_pattern"], text, re.I):
         raise DirectSourceError("Issuer fiscal period did not match reviewed configuration")
-    return text, {**metadata, "text": text, "has_qa": bool(re.search(r"question.{0,5}answer|Q&A", text, re.I)),
+    qa_pattern = metadata.get("qa_pattern")
+    if qa_pattern and not re.search(qa_pattern, text, re.I):
+        raise DirectSourceError("Issuer reviewed question-and-answer section did not match")
+    has_qa = bool(re.search(qa_pattern or r"question.{0,5}answer|Q&A", text, re.I))
+    return text, {**metadata, "text": text, "has_qa": has_qa,
                   "canonical_key": f"{metadata['symbol']}:{kind}:{metadata['fiscal_year']}:Q{metadata['fiscal_quarter']}"}
