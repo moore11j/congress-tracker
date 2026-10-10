@@ -119,8 +119,10 @@ def get_government_contracts_signals_for_symbols(
     if not normalized_symbols:
         return {}
 
-    availability = get_government_contracts_overlay_availability(db)
-    if availability.get("status") != "ok":
+    # The summary consumes availability only. Keep the exact public overlay
+    # count in its own reader, and stop this probe after the first indexed row.
+    if (not government_contracts_table_exists(db)
+            or db.scalar(select(GovernmentContract.id).limit(1)) is None):
         return {symbol: unavailable_government_contracts_summary() for symbol in normalized_symbols}
 
     cutoff_date = _cutoff_date(lookback_days)
