@@ -13,6 +13,7 @@ from app.models import FundamentalsCache
 from app.services.fundamentals_cache import (
     FUNDAMENTAL_FIELD_NAMES,
     PROVIDER,
+    selected_fundamentals_provider,
     fetch_fundamentals_for_symbol,
     fetch_screener_universe_fundamentals,
     sleep_between_provider_calls,
@@ -65,8 +66,11 @@ def populate_fundamentals_cache(
     limit: int = 500,
     dry_run: bool = True,
     sleep_s: float = 0.0,
-    provider: str = PROVIDER,
+    provider: str | None = None,
 ) -> dict[str, Any]:
+    provider = provider or selected_fundamentals_provider()
+    if provider != selected_fundamentals_provider():
+        raise ValueError("Requested provider must match FUNDAMENTALS_PROVIDER; source labels cannot be overridden")
     Base.metadata.create_all(bind=engine)
     ensure_fundamentals_cache_schema(engine)
     bounded_limit = max(1, int(limit))

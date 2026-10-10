@@ -17,7 +17,7 @@ def _parse_symbols(value: str | None) -> list[str] | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Persist point-in-time snapshots from the current fundamentals cache.")
     parser.add_argument("--symbols", help="Optional comma-separated symbols. Defaults to all ok fundamentals cache rows.")
-    parser.add_argument("--provider", default="fmp")
+    parser.add_argument("--provider", default=None, help="Defaults to the selected fundamentals provider")
     parser.add_argument("--observed-at", help="Optional ISO timestamp for reproducible backfill/testing.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose-symbols", action="store_true")

@@ -16,10 +16,18 @@ from sqlalchemy.orm import Session
 from app.clients.fmp import FMP_BASE_URL, FMPClientError, fetch_company_profile, fetch_company_screener
 from app.models import Event, FundamentalsCache
 from app.utils.symbols import normalize_symbol
+from app.services.provider_usage import ProviderUnavailable, ensure_fmp_live_allowed, record_provider_response
 
 logger = logging.getLogger(__name__)
 
 PROVIDER = "fmp"
+
+
+def selected_fundamentals_provider() -> str:
+    provider = os.getenv("FUNDAMENTALS_PROVIDER", PROVIDER).strip().lower()
+    if provider not in {"fmp", "sec_edgar"}:
+        raise ValueError("Unknown FUNDAMENTALS_PROVIDER")
+    return provider
 
 # Unit convention for screener fundamentals:
 # margins and growth fields are stored as percentages, while valuation,
@@ -92,9 +100,11 @@ def _api_key() -> str:
 
 
 def _request_rows(endpoint: str, *, params: dict[str, Any] | None = None, timeout_s: int = 30) -> list[dict[str, Any]]:
+    ensure_fmp_live_allowed(category=f"fundamentals:{endpoint}", symbol=(params or {}).get("symbol"))
     request_params = {"apikey": _api_key(), **(params or {})}
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
+        record_provider_response(category=f"fundamentals:{endpoint}", symbol=(params or {}).get("symbol"), status_code=response.status_code)
     except requests.RequestException as exc:
         raise FMPClientError(f"FMP fundamentals request failed endpoint={endpoint}: {exc}") from exc
 
@@ -134,8 +144,10 @@ def _request_fundamentals_diagnostic(endpoint: str, *, params: dict[str, Any] | 
         }
     request_params = {"apikey": _api_key(), **(params or {})}
     try:
+        ensure_fmp_live_allowed(category=f"fundamentals:diagnostic:{endpoint}", symbol=(params or {}).get("symbol"))
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
-    except requests.RequestException as exc:
+        record_provider_response(category=f"fundamentals:diagnostic:{endpoint}", symbol=(params or {}).get("symbol"), status_code=response.status_code)
+    except (requests.RequestException, ProviderUnavailable) as exc:
         return {
             "endpoint": endpoint,
             "api_key_present": True,
@@ -579,6 +591,9 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
         return FundamentalsFetchResult(symbol=symbol, values={}, status="failed", error="invalid_symbol")
 
     try:
+        if selected_fundamentals_provider() == "sec_edgar":
+            from app.services.sec_fundamentals import fetch_fundamentals
+            return FundamentalsFetchResult(symbol=normalized_symbol, values=fetch_fundamentals(normalized_symbol))
         screener_row = None
         try:
             for row in fetch_company_profile(symbol=normalized_symbol):
@@ -610,6 +625,10 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
 
 
 def fetch_screener_universe_fundamentals(*, limit: int) -> list[FundamentalsFetchResult]:
+    if selected_fundamentals_provider() == "sec_edgar":
+        from app.services.sec_fundamentals import company_directory
+        directory = company_directory(str(datetime.now(timezone.utc).date()))
+        return [fetch_fundamentals_for_symbol(symbol) for symbol in list(directory)[:max(1, min(limit, 500))]]
     results: list[FundamentalsFetchResult] = []
     for row in fetch_company_screener(filters=None, limit=limit):
         symbol = normalize_symbol(row.get("symbol"))
@@ -627,20 +646,28 @@ def upsert_fundamentals_cache(db: Session, values: dict[str, Any]) -> bool:
     symbol = normalize_symbol(values.get("symbol"))
     if not symbol:
         return False
-    provider = values.get("provider") or PROVIDER
+    provider = values.get("provider") or selected_fundamentals_provider()
     row = db.execute(
         select(FundamentalsCache).where(FundamentalsCache.symbol == symbol, FundamentalsCache.provider == provider)
     ).scalar_one_or_none()
-    payload = {key: values.get(key) for key in ("fetched_at", "period_date", "status", "error", *CACHE_ROW_FIELDS)}
+    payload = {key: values.get(key) for key in ("fetched_at", "period_date", "status", "error", "source_evidence_json", *CACHE_ROW_FIELDS)}
     payload["symbol"] = symbol
     payload["provider"] = provider
     if row is None:
         db.add(FundamentalsCache(**payload))
         return True
     for key, value in payload.items():
+        previous = getattr(row, key, None)
+        if isinstance(previous, datetime) and isinstance(value, datetime):
+            # SQLite reads UTC timestamps without tzinfo. A replay of the same
+            # source observation must not manufacture an updated_at change.
+            old_time = previous.replace(tzinfo=timezone.utc) if previous.tzinfo is None else previous.astimezone(timezone.utc)
+            new_time = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+            if old_time == new_time:
+                continue
         if key in IDENTITY_CACHE_FIELDS and value is None and getattr(row, key, None) is not None:
             continue
-        if key in PRESERVED_MARKET_FIELDS and (_number(value) is None or _number(value) <= 0):
+        if provider == "fmp" and key in PRESERVED_MARKET_FIELDS and (_number(value) is None or _number(value) <= 0):
             continue
         setattr(row, key, value)
     return True
@@ -896,13 +923,13 @@ def unavailable_fundamentals_summary(symbol: str | None = None) -> dict[str, Any
 def cached_screener_rows(
     db: Session,
     *,
-    provider: str = PROVIDER,
+    provider: str | None = None,
     limit: int | None = None,
     filters: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     query = (
         select(FundamentalsCache)
-        .where(FundamentalsCache.provider == provider)
+        .where(FundamentalsCache.provider == (provider or selected_fundamentals_provider()))
         .where(FundamentalsCache.status == "ok")
     )
     query = _apply_screener_cache_filters(query, filters or {})
@@ -963,13 +990,13 @@ def _normalized_filter_values(value: Any) -> set[str]:
     }
 
 
-def cached_fundamentals_by_symbol(db: Session, symbols: list[str], *, provider: str = PROVIDER) -> dict[str, FundamentalsCache]:
+def cached_fundamentals_by_symbol(db: Session, symbols: list[str], *, provider: str | None = None) -> dict[str, FundamentalsCache]:
     normalized = sorted({symbol for symbol in (normalize_symbol(item) for item in symbols) if symbol})
     if not normalized:
         return {}
     rows = db.execute(
         select(FundamentalsCache)
-        .where(FundamentalsCache.provider == provider)
+        .where(FundamentalsCache.provider == (provider or selected_fundamentals_provider()))
         .where(FundamentalsCache.status == "ok")
         .where(FundamentalsCache.symbol.in_(normalized))
     ).scalars().all()
@@ -981,7 +1008,7 @@ def stale_or_missing_symbols(
     symbols: list[str],
     *,
     stale_days: int | None,
-    provider: str = PROVIDER,
+    provider: str | None = None,
 ) -> tuple[list[str], int]:
     normalized = list(dict.fromkeys(symbol for symbol in (normalize_symbol(item) for item in symbols) if symbol))
     if stale_days is None:

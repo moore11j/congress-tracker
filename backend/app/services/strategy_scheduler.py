@@ -136,9 +136,10 @@ def run_active_strategy_evaluations(
             ).scalar_one_or_none() is None
             from app.services.replacement_analysts import selected as replacement_analysts_selected
             from app.services.provider_usage import fmp_provider_disabled
+            from app.services.fundamentals_cache import selected_fundamentals_provider
             from app.services.outcome_ledger import CURRENT_CONFIRMATION_METHODOLOGY_VERSION
             required_methodology = (CURRENT_CONFIRMATION_METHODOLOGY_VERSION
-                if replacement_analysts_selected() or fmp_provider_disabled() else None)
+                if replacement_analysts_selected() or fmp_provider_disabled() or selected_fundamentals_provider() == "sec_edgar" else None)
             resolution = resolve_strategy_candidates(
                 db,
                 strategy_version_id=int(version.id),
