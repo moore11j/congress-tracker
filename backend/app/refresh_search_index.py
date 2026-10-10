@@ -5,7 +5,7 @@ import json
 import logging
 
 from app.db import SessionLocal, engine, ensure_search_entities_schema
-from app.services.universal_search import rebuild_search_entities, search_coverage_audit, smoke_search_queries
+from app.services.universal_search import refresh_stock_search_entities, rebuild_search_entities, search_coverage_audit, smoke_search_queries
 
 
 DEFAULT_SMOKE_QUERIES = [
@@ -30,6 +30,8 @@ DEFAULT_SMOKE_QUERIES = [
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Rebuild and audit Walnut universal search entities.")
+    parser.add_argument("--stocks-only", action="store_true", help="Refresh only selected stock identities; preserve other search records.")
+    parser.add_argument("--plan", action="store_true", help="Inspect a stock-only refresh without applying it.")
     parser.add_argument("--audit-only", action="store_true", help="Print coverage without rebuilding.")
     parser.add_argument("--smoke", action="store_true", help="Run named smoke queries after rebuild/audit.")
     parser.add_argument("--query", action="append", dest="queries", help="Smoke query to run. Repeat for multiple queries.")
@@ -40,10 +42,18 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
-    ensure_search_entities_schema(engine)
+    if args.plan and not args.stocks_only:
+        raise ValueError("--plan requires --stocks-only")
+    if not args.stocks_only:
+        ensure_search_entities_schema(engine)
     db = SessionLocal()
     try:
         payload: dict[str, object] = {}
+        if args.stocks_only:
+            payload["stock_refresh"] = refresh_stock_search_entities(db, apply=not (args.plan or args.audit_only))
+            db.commit()
+            print(json.dumps(payload, indent=2, default=str))
+            return
         if not args.audit_only:
             stats = rebuild_search_entities(db)
             db.commit()

@@ -661,6 +661,46 @@ def _department_entities(db: Session) -> list[SearchEntity]:
     return entities
 
 
+def refresh_stock_search_entities(db: Session, *, apply: bool = False) -> dict:
+    """Refresh only selected stock identities; an identical repeat writes nothing."""
+    import hashlib
+    if db.new or db.dirty or db.deleted:
+        raise ValueError("Stock refresh requires a clean session")
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SET LOCAL statement_timeout='30s'"))
+        db.execute(text("SET LOCAL lock_timeout='2s'"))
+        if apply and not db.scalar(text("SELECT pg_try_advisory_xact_lock(hashtext('stock-search-refresh:v1'))")):
+            raise RuntimeError("Another stock search refresh is active")
+    entities = _stock_entities(db)
+    if not 1 <= len(entities) <= 50000 or len({e.entity_id for e in entities}) != len(entities):
+        raise ValueError("Invalid selected stock population")
+    terms = [term for entity in entities for term in _entity_terms(entity)]
+    existing = list(db.scalars(select(SearchEntity).where(SearchEntity.entity_type == "stock")))
+    existing_terms = list(db.scalars(select(SearchEntityTerm).where(SearchEntityTerm.entity_type == "stock")))
+
+    def fingerprint(rows, model):
+        fields = [c.name for c in model.__table__.columns if c.name not in {"id", "updated_at"}]
+        values = [{name: getattr(row, name) for name in fields} for row in rows]
+        encoded = sorted(json.dumps(v, sort_keys=True, default=str) for v in values)
+        return hashlib.sha256(json.dumps(encoded).encode()).hexdigest()
+
+    before = [fingerprint(existing, SearchEntity), fingerprint(existing_terms, SearchEntityTerm)]
+    after = [fingerprint(entities, SearchEntity), fingerprint(terms, SearchEntityTerm)]
+    changed = before != after
+    if apply and changed:
+        db.execute(SearchEntityTerm.__table__.delete().where(SearchEntityTerm.entity_type == "stock"))
+        db.execute(SearchEntity.__table__.delete().where(SearchEntity.entity_type == "stock"))
+        # Detach replaced identities so the Session cannot return an old row.
+        for row in [*existing, *existing_terms]:
+            db.expunge(row)
+        for rows in (entities, terms):
+            for start in range(0, len(rows), 500):
+                db.add_all(rows[start:start+500]); db.flush()
+    return {"applied": apply, "changed": changed, "stock_entities": len(entities),
+            "stock_terms": len(terms), "before": before, "after": after,
+            "other_entity_writes": 0}
+
+
 def rebuild_search_entities(db: Session) -> SearchBuildStats:
     company_names, _ = _company_name_maps(db)
     entities = [
