@@ -7381,6 +7381,7 @@ def _ticker_context_bundle_cached_or_live_response(
             cached,
             symbol=normalized_symbol,
             source_entitlements=_ticker_context_source_entitlements(None, authenticated=False),
+            db=db,
         )
         logger.info(
             "api_cached_only_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
@@ -7416,6 +7417,7 @@ def _project_ticker_context_bundle_for_entitlements(
     *,
     symbol: str,
     source_entitlements: dict[str, dict[str, Any]],
+    db: Session | None = None,
 ) -> dict[str, Any]:
     """Create a tier-safe response from the private canonical ticker cache.
 
@@ -7424,6 +7426,8 @@ def _project_ticker_context_bundle_for_entitlements(
     the shared computation without exposing Pro data to lower tiers.
     """
     payload = copy.deepcopy(canonical_payload)
+    if db is not None:
+        payload = _apply_selected_ticker_identity(payload, db, symbol)
     canonical_bundle = payload.get("confirmation_score_bundle")
     confirmation_bundle = _redact_locked_ticker_confirmation_sources(
         canonical_bundle if isinstance(canonical_bundle, dict) else {},
@@ -7585,6 +7589,7 @@ def _build_ticker_context_bundle(
             cached,
             symbol=normalized_symbol,
             source_entitlements=viewer_source_entitlements,
+            db=db,
         )
 
     inflight_state, inflight_leader = _ticker_context_bundle_build_inflight_start(
@@ -7606,6 +7611,7 @@ def _build_ticker_context_bundle(
                 coalesced,
                 symbol=normalized_symbol,
                 source_entitlements=viewer_source_entitlements,
+                db=db,
             )
 
     build_started_at = perf_counter()
@@ -7854,6 +7860,7 @@ def _build_ticker_context_bundle(
             payload,
             symbol=normalized_symbol,
             source_entitlements=viewer_source_entitlements,
+            db=db,
         )
     finally:
         if build_slot_acquired:
@@ -7914,12 +7921,42 @@ def ticker_context_bundle(
     )
 
 
+def _selected_ticker_identity(db: Session, symbol: str) -> dict | None:
+    from app.services import sec_directory, sec_metadata
+    if not sec_directory.selected():
+        return None
+    value = sec_metadata.ticker_metadata(db, [symbol], enqueue=False).get(symbol) or {}
+    industry = value.get("industry")
+    exchange = value.get("exchange")
+    return {"name": value.get("company_name") or symbol,
+            "sector": None, "industry": industry, "country": None,
+            "exchange": exchange, "exchange_short_name": exchange,
+            "classification": value.get("classification"),
+            "metadata_source": value.get("source"), "metadata_as_of": value.get("source_as_of"),
+            "display_market_chain": " / ".join(v for v in [f"SEC SIC: {industry}" if industry else None, exchange] if v) or None,
+            "identity_status": "ok" if industry and exchange else "partial" if value else "unknown"}
+
+
+def _apply_selected_ticker_identity(payload: dict, db: Session, symbol: str) -> dict:
+    selected = _selected_ticker_identity(db, symbol)
+    if selected is None:
+        return payload
+    # Overlay a copy even for persisted legacy context bundles. Quotes, scores,
+    # access projection and historical evidence keep their own provenance.
+    payload = copy.deepcopy(payload)
+    if isinstance(payload.get("ticker"), dict):
+        payload["ticker"].update(selected)
+    if isinstance(payload.get("identity"), dict):
+        payload["identity"].update({**selected, "company_name": selected["name"]})
+    return payload
+
+
 def _ticker_profile_response(symbol: str, db: Session) -> dict:
     started_at = perf_counter()
     sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
-    cache_key = f"profile:{sym}"
+    cache_key = f"profile:{os.getenv('COMPANY_METADATA_PROVIDER', 'fmp')}:{sym}"
     cached = _ticker_response_cache_get(_TICKER_PROFILE_RESPONSE_CACHE, cache_key)
     if cached is not None:
         _log_ticker_endpoint_payload(symbol=sym, endpoint="profile", payload={**cached, "status": cached.get("status", "ok")}, started_at=started_at)
@@ -8000,6 +8037,9 @@ def _ticker_shell_company_name(
     meta: TickerMeta | None,
     fundamentals: FundamentalsCache | None,
 ) -> str:
+    selected = _selected_ticker_identity(db, symbol)
+    if selected is not None:
+        return selected["name"]
     candidates = [
         _shell_text(meta.company_name if meta is not None else None),
         safe_company_identity_candidate(security.name if security is not None else None, symbol),
@@ -8156,6 +8196,12 @@ def _ticker_shell_identity_fields(
     fundamentals: FundamentalsCache | None,
     profile_snapshot: dict[str, Any],
 ) -> dict[str, str | None]:
+    selected = _selected_ticker_identity(db, symbol)
+    if selected is not None:
+        return {**selected, "sector_source": None, "country_source": None,
+                "industry_source": "SEC SIC" if selected["industry"] else None,
+                "exchange_source": selected["metadata_source"],
+                "exchange_short_name_source": selected["metadata_source"]}
     optional_sources = [
         (table_name, row)
         for table_name in _TICKER_OPTIONAL_IDENTITY_TABLES
@@ -8537,6 +8583,9 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
             "exchange": exchange,
             "exchange_short_name": exchange_short_name,
             "display_market_chain": identity_fields["display_market_chain"],
+            "classification": identity_fields.get("classification"),
+            "metadata_source": identity_fields.get("metadata_source"),
+            "metadata_as_of": identity_fields.get("metadata_as_of"),
             **quote_snapshot,
             **limited_history_metadata,
             "profile_status": status,
@@ -10153,6 +10202,9 @@ def _peer_compare_ticker_meta_row(db: Session, symbol: str) -> TickerMeta | None
 
 
 def _peer_compare_identity(db: Session, symbol: str, fundamentals: FundamentalsCache | None) -> dict[str, Any]:
+    selected = _selected_ticker_identity(db, symbol)
+    if selected is not None:
+        return {**selected, "symbol": symbol, "company_name": selected["name"]}
     meta = _peer_compare_ticker_meta_row(db, symbol)
     security = _peer_compare_security_row(db, symbol)
     name = _ticker_shell_company_name(db, symbol, security=security, meta=meta, fundamentals=fundamentals)
@@ -13371,6 +13423,9 @@ def _resolve_ticker_page_name(
     canonical_profile_name: str | None = None,
     events: list[Event] | None = None,
 ) -> str:
+    selected = _selected_ticker_identity(db, sym)
+    if selected is not None:
+        return selected["name"]
     candidate_events = events
     if candidate_events is None:
         candidate_events = db.execute(
@@ -13415,6 +13470,9 @@ def _resolve_ticker_company_metadata(
     profile_row: dict[str, Any] | None = None,
     fundamentals: FundamentalsCache | None = None,
 ) -> dict[str, str | None]:
+    selected = _selected_ticker_identity(db, sym)
+    if selected is not None:
+        return selected
     metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
     profile_row = (
         profile_row
