@@ -27,10 +27,11 @@ export function TickerFundamentalsSnapshot({ summary }: { summary: TickerFundame
       </div>)}
     </dl>
     <p className="mt-3 text-[11px] leading-5 text-slate-400">
-      {summary?.context?.provider ? `Source: ${summary.context.provider.toUpperCase()} · ` : "Source unavailable · "}
+      {summary?.context?.provider ? `Source: ${summary.context.source_label ?? summary.context.provider.toUpperCase()} · ` : "Source unavailable · "}
       {summary?.as_of ? `Period ${formatDateShort(summary.as_of)}` : "Reporting period unavailable"}
       {summary?.updated_at ? ` · Retrieved ${formatDateShort(summary.updated_at)}` : ""}
       {summary?.data_state === "stale" ? " · Stale data" : ""} · Missing values shown as —.
     </p>
+    {summary?.context?.source_note ? <p className="text-[11px] leading-5 text-slate-400">{summary.context.source_note}</p> : null}
   </section>;
 }

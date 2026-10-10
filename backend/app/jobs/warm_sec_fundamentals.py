@@ -48,6 +48,7 @@ def _run_locked():
             symbols = sorted(set(symbols) | {symbol for raw in ranked[:5000]
                 if (symbol := normalize_symbol(raw)) and classify_symbol(symbol)[0] == 'eligible'})
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
+        metric_attempts = {key: value for key, value in state.get('metric_attempted_at', {}).items() if key in symbols}
         versions = {key: value for key, value in state.get('attempted_versions', {}).items() if key in symbols}
         def due_priority(symbol):
             if not broad or symbol not in priority_symbols:
@@ -89,9 +90,34 @@ def _run_locked():
         versions[symbol] = sec_fundamentals_preparation.version_for_symbol(symbol)
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
-    receipt = {'status': 'partial' if truncated or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
+    metric_results = []
+    if os.getenv('FINNHUB_METRICS_WARMING_ENABLED', '0') == '1':
+        from app.services import finnhub_metrics
+        from app.services.finnhub_research import FinnhubUnavailable
+        from app.services.finnhub_news_warming import STOP_REASONS
+        def metric_due(s):
+            try:
+                return not timedelta(0) <= now-datetime.fromisoformat(metric_attempts[s]) < timedelta(hours=24)
+            except (KeyError, ValueError, TypeError):
+                return True
+        scopes = sorted((s for s in symbols if metric_due(s)),
+                        key=lambda s: (s not in priority_symbols, metric_attempts.get(s, ''), s))[:2]
+        for symbol in scopes:
+            try:
+                panel = finnhub_metrics.prepare(symbol)
+                item = {'scope': symbol, 'status': panel['status'], 'metrics': len(panel['values'])}
+            except FinnhubUnavailable as exc:
+                item = {'scope': symbol, 'status': 'unavailable', 'reason': str(exc)}
+            except Exception as exc:
+                item = {'scope': symbol, 'status': 'unavailable', 'reason': type(exc).__name__}
+            metric_results.append(item)
+            if item.get('reason') in STOP_REASONS or item.get('reason') == 'shared_budget_required':
+                break
+            metric_attempts[symbol] = now.isoformat()
+    receipt = {'status': 'partial' if truncated or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': truncated, 'ranking_universe_enabled': broad, 'priority_universe_size': len(priority_symbols), 'ranking_cache_symbols': min(len(ranked),5000), 'batch_limit': batch_limit,
         'planned_scopes': min(batch_limit, len(symbols)), 'completed_scopes': len(results), 'results': results,
+        'metric_results': metric_results,
         'fundamentals_selection': os.getenv('FUNDAMENTALS_PROVIDER', 'fmp'),
         'canonical_writes': 0, 'model_calls': 0, 'emails': 0}
     with SessionLocal() as db:
@@ -99,7 +125,7 @@ def _run_locked():
         current = json.loads(row.payload_json) if row else {}
         if (current.get('lease') or {}).get('token') != token:
             return {**receipt, 'status': 'partial', 'reason': 'warming_lease_lost'}
-        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
+        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'metric_attempted_at': metric_attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
         row.fetched_at = now
         db.commit()
     return receipt

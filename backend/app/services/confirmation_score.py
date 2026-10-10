@@ -88,6 +88,9 @@ from app.services.fundamentals_cache import selected_fundamentals_provider
 if selected_fundamentals_provider() == "sec_edgar":
     CONFIRMATION_CLASSIFICATION_VERSION += "_sec_fundamentals_v1"
     CONFIRMATION_SCORING_VERSION += "_sec_fundamentals_v1"
+elif selected_fundamentals_provider() == "free_direct":
+    CONFIRMATION_CLASSIFICATION_VERSION += "_free_fundamentals_v1"
+    CONFIRMATION_SCORING_VERSION += "_free_fundamentals_v1"
 # Provider selection requires all-worker restart and monitoring rebaseline.
 from app.services.replacement_analysts import selected as replacement_analysts_selected
 from app.services.provider_usage import fmp_provider_disabled

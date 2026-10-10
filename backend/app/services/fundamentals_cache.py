@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import time
 from collections.abc import Mapping
@@ -25,7 +26,7 @@ PROVIDER = "fmp"
 
 def selected_fundamentals_provider() -> str:
     provider = os.getenv("FUNDAMENTALS_PROVIDER", PROVIDER).strip().lower()
-    if provider not in {"fmp", "sec_edgar"}:
+    if provider not in {"fmp", "sec_edgar", "free_direct"}:
         raise ValueError("Unknown FUNDAMENTALS_PROVIDER")
     return provider
 
@@ -591,6 +592,9 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
         return FundamentalsFetchResult(symbol=symbol, values={}, status="failed", error="invalid_symbol")
 
     try:
+        if selected_fundamentals_provider() == "free_direct":
+            from app.services.free_fundamentals import fetch_fundamentals
+            return FundamentalsFetchResult(symbol=normalized_symbol, values=fetch_fundamentals(normalized_symbol))
         if selected_fundamentals_provider() == "sec_edgar":
             from app.services.sec_fundamentals import fetch_fundamentals
             return FundamentalsFetchResult(symbol=normalized_symbol, values=fetch_fundamentals(normalized_symbol))
@@ -625,7 +629,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
 
 
 def fetch_screener_universe_fundamentals(*, limit: int) -> list[FundamentalsFetchResult]:
-    if selected_fundamentals_provider() == "sec_edgar":
+    if selected_fundamentals_provider() in {"sec_edgar", "free_direct"}:
         from app.services.sec_fundamentals import company_directory
         directory = company_directory(str(datetime.now(timezone.utc).date()))
         return [fetch_fundamentals_for_symbol(symbol) for symbol in list(directory)[:max(1, min(limit, 500))]]
@@ -874,6 +878,23 @@ def fundamentals_summary_from_cache_row(
         else None
     )
     stale = freshness_days is not None and freshness_days > max(1, int(stale_days))
+    source_label = 'SEC EDGAR' if row.provider == 'sec_edgar' else str(row.provider or '').upper()
+    source_note = None
+    if row.provider == 'free_direct':
+        source_label = 'SEC EDGAR'
+        try:
+            supplement = json.loads(row.source_evidence_json or '{}').get('supplement', {})
+            used = supplement.get('used_fields', [])
+            if used:
+                source_label = 'SEC EDGAR + Finnhub'
+                source_note = 'Finnhub metrics use provider observations; valuation timestamps and forecast horizons are not supplied.'
+            for key, metric in metrics.items():
+                field = 'roe' if key == 'return_on_equity' else key
+                if field in used:
+                    metric['provenance'] = supplement['fields'][field]
+        except (TypeError, ValueError, KeyError):
+            source_label = 'Free sources'
+            source_note = 'Detailed source evidence unavailable.'
     return {
         "symbol": row.symbol,
         "status": status,
@@ -885,6 +906,8 @@ def fundamentals_summary_from_cache_row(
         # Descriptive context only: do not add these values to scored_states.
         "context": {
             "provider": row.provider,
+            "source_label": source_label,
+            "source_note": source_note,
             "free_cash_flow": _row_number(row, "free_cash_flow"),
         },
         "metrics": metrics,

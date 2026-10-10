@@ -5123,7 +5123,7 @@ export type MacroPositioningFeedResponse = {
 
 export type FundamentalsMetricState = "bullish" | "neutral" | "bearish" | "unavailable" | string;
 export type TickerFundamentalsSummary = {
-  context?: { provider?: string | null; free_cash_flow?: number | null };
+  context?: { provider?: string | null; source_label?: string | null; source_note?: string | null; free_cash_flow?: number | null };
   symbol?: string | null;
   status?: "bullish" | "mixed" | "bearish" | "unavailable" | string;
   headline?: string | null;
