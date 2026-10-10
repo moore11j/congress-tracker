@@ -131,3 +131,23 @@ def test_universe_batch_limit_is_bounded_and_opt_in(factory,monkeypatch):
     assert job.run()['completed_scopes']==5
     monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
     result=job.run();assert result['completed_scopes']==result['batch_limit']==10
+
+
+def test_new_parser_version_refreshes_priority_once_then_resumes_universe(factory,monkeypatch):
+    from datetime import datetime,timezone
+    from app.models import FundamentalsCache
+    monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
+    monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','1')
+    now=datetime.now(timezone.utc)
+    with factory() as db:
+        db.add(FundamentalsCache(symbol='AAA',provider='fmp',status='ok',fetched_at=now))
+        db.add(InsightsSnapshot(kind=job.KEY,source='free_direct',fetched_at=now,payload_json=json.dumps({
+            'attempted_at':{'ABC':now.isoformat()},'attempted_versions':{'ABC':'old'}})))
+        db.commit()
+    def prepare(symbol):return {'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()}
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',prepare)
+    assert job.run()['results'][0]['scope']=='ABC'
+    assert job.run()['results'][0]['scope']=='AAA'
+    with factory() as db:
+        state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
+        assert state['attempted_versions']['ABC']==sec_fundamentals_preparation.VERSION

@@ -12,7 +12,7 @@ from app.models import InsightsSnapshot
 from app.clients.direct_sources import DirectSourceClient, DirectSourceError
 from app.services import sec_directory, sec_fundamentals
 
-VERSION = 'sec_ratio_preparation_v2'
+VERSION = 'sec_ratio_preparation_v3'
 TTL = timedelta(hours=24)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
     'operating_margin_expansion', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
@@ -75,6 +75,8 @@ def prepare(symbol):
             except sec_fundamentals.SecFundamentalsCoverageError as exc:
                 payload.update(reason='unsupported_current_financial_coverage', detail=str(exc))
             else:
+                from app.services.sec_issuer_cash_flow import supplement
+                values = supplement(values, raw, company, client=client)
                 payload['values'] = {name: values[name] for name in METRICS if name in values}
                 payload['period_date'] = str(values['period_date'])
                 payload['calculation_evidence'] = json.loads(values['source_evidence_json'])
