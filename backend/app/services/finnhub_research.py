@@ -115,6 +115,7 @@ def _news_symbol_key(symbol: str | None) -> str | None:
 def normalize_news(rows: list[dict], *, observed_at: datetime, symbol: str | None = None) -> dict:
     observed_at = observed_at.astimezone(timezone.utc)
     normalized_symbol = normalize_symbol(symbol) if symbol else None
+    from app.services.news_thumbnails import image_url
     by_url: dict[str, dict] = {}
     ids: dict[str, str] = {}
     rejected = 0
@@ -152,7 +153,7 @@ def normalize_news(rows: list[dict], *, observed_at: datetime, symbol: str | Non
             "source": "finnhub", "provider_id": provider_id or None,
             "identity": hashlib.sha256(url.encode()).hexdigest(),
             "published_at": published.isoformat(), "observed_at": observed_at.isoformat(),
-            "symbol": normalized_symbol, "image_url": None, "summary": None,
+            "symbol": normalized_symbol, "image_url": image_url(row.get("image")), "summary": None,
             "coverage": "publisher_headline_link", "market_read": "neutral",
         }
         # One publisher URL across provider IDs and tracking variants. No full

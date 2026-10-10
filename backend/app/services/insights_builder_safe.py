@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import PriceCache
 from app.services.fred_macro_cache import build_fred_macro_sections
-from app.services.fmp_market_snapshot import get_sector_performance_snapshot, get_treasury_rates_snapshot
+from app.services.fmp_market_snapshot import get_sector_performance_snapshot
 
 US_INDEX_ETF_PROXIES = (
     ("S&P 500 ETF Proxy", "SPY"),
@@ -177,10 +177,8 @@ def build_builder_safe_insights_snapshot(db: Session) -> dict[str, Any]:
     if not sector_performance:
         sector_performance = _sector_performance(db)
     economics = fred_sections["economics"]
-    treasury = get_treasury_rates_snapshot()
-    treasury_source = "treasury_rates" if treasury else "fred_cache"
-    if not treasury:
-        treasury = fred_sections["treasury"]
+    treasury = fred_sections["treasury"]
+    treasury_source = "fred_cache"
 
     available_sections = sum(
         [

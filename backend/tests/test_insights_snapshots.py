@@ -493,7 +493,7 @@ def test_insights_refresh_builder_safe_uses_fred_cache_and_eod_proxies(monkeypat
 
         monkeypatch.delenv("INSIGHTS_DATA_MODE", raising=False)
         monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
-        monkeypatch.setattr("app.services.insights_builder_safe.get_treasury_rates_snapshot", lambda: [])
+        monkeypatch.setattr("app.services.fmp_market_snapshot.get_treasury_rates_snapshot", lambda: [])
 
         payload = refresh_insights_snapshot(db)
 
@@ -511,47 +511,22 @@ def test_insights_refresh_builder_safe_uses_fred_cache_and_eod_proxies(monkeypat
         db.close()
 
 
-def test_insights_refresh_builder_safe_uses_treasury_rates_snapshot(monkeypatch):
+def test_insights_refresh_builder_safe_uses_only_fred_treasury(monkeypatch):
     db = _db()
     try:
-        _seed_fred(db, "DGS10", [("2026-07-08", 4.56)])
+        _seed_fred(db, "DGS10", [("2026-07-08", 4.56), ("2026-07-09", 4.54)])
         db.commit()
-
         def fail_provider():
-            raise AssertionError("FMP macro snapshot should not be called in builder_safe mode")
-
+            raise AssertionError("FMP Treasury must not be called")
         monkeypatch.delenv("INSIGHTS_DATA_MODE", raising=False)
-        monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
-        monkeypatch.setattr(
-            "app.services.insights_builder_safe.get_treasury_rates_snapshot",
-            lambda: [
-                {
-                    "label": "10Y Treasury",
-                    "value": 4.54,
-                    "date": "2026-07-09",
-                    "change": -2.0,
-                    "change_unit": "bps",
-                    "timeframe_label": "1D change",
-                    "unit_label": "yield",
-                }
-            ],
-        )
-
+        monkeypatch.setattr("app.services.fmp_market_snapshot.get_treasury_rates_snapshot", fail_provider)
         payload = refresh_insights_snapshot(db)
-
-        assert payload["source"] == "builder_safe_cache"
-        assert payload["treasury"] == [
-            {
-                "label": "10Y Treasury",
-                "value": 4.54,
-                "date": "2026-07-09",
-                "change": -2.0,
-                "change_unit": "bps",
-                "timeframe_label": "1D change",
-                "unit_label": "yield",
-            }
-        ]
-        assert payload["block_status"]["us_treasury"]["source"] == "treasury_rates"
+        point = next(r for r in payload['treasury'] if r['series_id']=='DGS10')
+        assert point['value']==4.54 and point['date']=='2026-07-09'
+        assert abs(point['change']+2)<1e-8 and point['change_unit']=='bps'
+        assert point['source']=='fred'
+        assert payload['block_status']['us_treasury']['source']=='fred_cache'
+        assert payload['block_status']['us_treasury']['status']=='partial'
     finally:
         db.close()
 

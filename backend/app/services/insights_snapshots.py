@@ -41,7 +41,8 @@ def seed_finnhub_headlines(db: Session) -> dict:
         return {'status':'unavailable'}
     kind = _headline_kind('finnhub')
     existing = db.get(InsightsSnapshot,kind)
-    if existing and existing.source == 'finnhub' and _aware(existing.fetched_at) >= _aware(raw.fetched_at):
+    if (existing and existing.source == 'finnhub' and _aware(existing.fetched_at) >= _aware(raw.fetched_at)
+            and _loads_payload(existing).get('thumbnail_revision') == payload.get('thumbnail_revision')):
         return {'status':'cached'}
     from app.services.walnut_takes import _fallback_take, _merge_take
     prior_items = _loads_payload(existing).get('items', []) if existing and existing.source == 'finnhub' else []
@@ -53,6 +54,7 @@ def seed_finnhub_headlines(db: Session) -> dict:
     stamp = raw.fetched_at
     row = _store_payload(db, {'source':'finnhub','items':items,'status':'ok' if items else 'empty',
         'coverage':payload.get('coverage'),'provider_observed_at':payload.get('observed_at'),
+        'thumbnail_revision':payload.get('thumbnail_revision'),
         'page':0,'limit':len(items),'has_next':len(payload['items'])>50},kind=kind,source='finnhub',fetched_at=stamp)
     return {'status':'ok','item_count':len(items)}
 
