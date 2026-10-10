@@ -56,6 +56,20 @@ def test_past_tense_results_release():
     assert row['status'] == 'prepared'
 
 
+@pytest.mark.parametrize('title,description,financial', [
+    ('Test announces second quarter financial results', 'Press release', 'Revenues and net earnings increased.'),
+    ('Operating results for the second quarter are summarized below', 'Earnings Release', 'Net earnings attributable to shareholders increased.')])
+def test_verified_release_supports_reported_insurance_and_conglomerate_wording(title, description, financial):
+    raw = submission(title=title, description=description).replace(b'Revenue and net income increased.', financial.encode())
+    assert prepare_earnings_release(raw, filing=filing())['status'] == 'prepared'
+
+
+def test_plural_financial_terms_do_not_admit_non_results_material():
+    raw = submission(title='Investor conference presentation', description='Press release').replace(
+        b'Revenue and net income increased.', b'Revenues and net earnings will be discussed.')
+    assert prepare_earnings_release(raw, filing=filing())['reason'] == 'no_verified_earnings_release'
+
+
 @pytest.mark.parametrize('before,after', [('0001234567-26-000001','0001234567-26-000002'),
     ('CENTRAL INDEX KEY: 0001234567','CENTRAL INDEX KEY: 0001234568'),
     ('FILED AS OF DATE: 20260730','FILED AS OF DATE: 20260729'),
