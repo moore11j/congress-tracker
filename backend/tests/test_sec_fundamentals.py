@@ -263,3 +263,38 @@ def test_legacy_fundamentals_schema_upgrade_is_repeatable():
     with engine.connect() as connection:
         assert connection.execute(text('SELECT symbol, source_evidence_json FROM fundamentals_cache')).one() == ('ABC', None)
     engine.dispose()
+
+
+def test_reported_revenue_including_tax_retains_its_exact_concept_and_ttm_inputs():
+    facts,company=sources()
+    gaap=facts['facts']['us-gaap']
+    inclusive='RevenueFromContractWithCustomerIncludingAssessedTax'
+    gaap[inclusive]=gaap.pop('RevenueFromContractWithCustomerExcludingAssessedTax')
+    result=project(facts,company)
+    assert result['revenue_growth']==pytest.approx((130/110-1)*100)
+    assert result['free_cash_flow']==32.5
+    evidence=json.loads(result['source_evidence_json'])
+    assert {r['tag'] for r in evidence['current']['revenue']['inputs']}=={inclusive}
+    assert {r['tag'] for r in evidence['prior']['revenue']['inputs']}=={inclusive}
+
+
+def test_current_net_revenue_keeps_priority_over_inclusive_tax_concept():
+    facts,company=sources()
+    gaap=facts['facts']['us-gaap']
+    inclusive=deepcopy(gaap['RevenueFromContractWithCustomerExcludingAssessedTax'])
+    for row in inclusive['units']['USD']:row['val']*=10
+    gaap['RevenueFromContractWithCustomerIncludingAssessedTax']=inclusive
+    result=project(facts,company)
+    evidence=json.loads(result['source_evidence_json'])
+    assert evidence['current']['revenue']['value']==130
+    assert {r['tag'] for r in evidence['current']['revenue']['inputs']}=={'RevenueFromContractWithCustomerExcludingAssessedTax'}
+
+
+def test_new_inclusive_tax_series_cannot_borrow_annual_net_revenue_history():
+    facts,company=sources()
+    gaap=facts['facts']['us-gaap']
+    rows=gaap['RevenueFromContractWithCustomerExcludingAssessedTax']['units']['USD']
+    latest=rows.pop()
+    gaap['RevenueFromContractWithCustomerIncludingAssessedTax']={'units':{'USD':[latest]}}
+    with pytest.raises(SecFundamentalsError,match='complete trailing revenue'):
+        project(facts,company)

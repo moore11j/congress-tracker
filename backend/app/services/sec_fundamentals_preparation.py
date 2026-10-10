@@ -12,7 +12,7 @@ from app.models import InsightsSnapshot
 from app.clients.direct_sources import DirectSourceClient, DirectSourceError
 from app.services import sec_directory, sec_fundamentals
 
-VERSION = 'sec_ratio_preparation_v1'
+VERSION = 'sec_ratio_preparation_v2'
 TTL = timedelta(hours=24)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
     'operating_margin_expansion', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')

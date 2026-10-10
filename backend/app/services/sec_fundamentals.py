@@ -14,7 +14,8 @@ from zoneinfo import ZoneInfo
 
 VERSION = "sec_fundamentals_v1"
 TAGS = {
-    "revenue": ("Revenues", "RevenuesNetOfInterestExpense", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"),
+    "revenue": ("Revenues", "RevenuesNetOfInterestExpense", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet",
+                "RevenueFromContractWithCustomerIncludingAssessedTax"),
     "gross_profit": ("GrossProfit",),
     "operating_income": ("OperatingIncomeLoss",),
     "net_income": ("NetIncomeLoss",),
