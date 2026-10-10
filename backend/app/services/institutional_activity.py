@@ -1354,8 +1354,8 @@ def get_institutional_activity_summaries_for_symbols(
     inspector = inspect(db.get_bind())
     if not inspector.has_table(InstitutionalSymbolSummary.__tablename__):
         return {symbol: unavailable_institutional_summary(symbol) for symbol in normalized_symbols}, _availability(status="unavailable", enabled=True)
-    row_count = db.execute(select(func.count()).select_from(InstitutionalSymbolSummary)).scalar() or 0
-    if int(row_count) <= 0:
+    # Availability needs one row, not a count of every historical symbol period.
+    if db.scalar(select(InstitutionalSymbolSummary.id).limit(1)) is None:
         return {symbol: unavailable_institutional_summary(symbol, status="not_configured") for symbol in normalized_symbols}, _availability(status="not_configured", enabled=True)
 
     latest_rows = _latest_symbol_summaries(db, normalized_symbols)

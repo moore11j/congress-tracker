@@ -17,3 +17,9 @@ Three ordinary public requests generate AAPL/NVDA/IBM contexts in2.110/1.348/1.6
 Subsequent public verification returns all six HTTP200 responses: feed0.366/0.413s, NVDA profile0.217s, cached AAPL/NVDA contexts0.391/0.390s and readiness0.361s. These are bounded samples, not sustained weekday/weekly consumer or complete-data validation. No additional machine sizing or source cutover.
 
 Artifacts: ticker-stage-probe-1791667892.json and two-service-verify-1791667912.json. No running local process handles remain. Continue actual slow-stage diagnosis before choosing a repair, and preserve source reconciliation and consumer gates before Massive last and FMP shutdown.
+
+## Slow stage captured,21:43-21:45UTC
+
+After PR541, new AAPL context takes7.839s end to end. Captured warning reports internal7.224s: profile394ms, quote196ms, signals5536ms, source context252ms, confirmation811ms, build wait0ms. This locates the slow stage without establishing its root cause. EXPO/APH/ACN build warnings2.27/2.29/2.70s were captured alongside it. Artifact ticker-slow-stage-1791668638.json.
+
+A bounded read-only follow-up of the signal path (3s statement cap) completes AAPL0.945s/NVDA0.466s, so the full slow interval is not reproduced. Each makes19 SQL queries. The initial unified-signal query takes22/20ms; one global institutional_symbol_summary count takes193/311ms and its nonexecuting plan scans an estimated128060 entries. Other queries include a global government-contract count, per-symbol confirmation and underlying source metrics. No claim that this count explains all5.54s. Next inspect/remove unnecessary global scans with result parity and capture shared-process contention if the outlier persists. No index or query mutation performed. Artifact signal-query-profile-1791668703.json; all local sessions terminal.
