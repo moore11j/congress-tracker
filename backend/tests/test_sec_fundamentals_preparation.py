@@ -103,18 +103,19 @@ def test_failed_refresh_preserves_expired_evidence_and_preparation_change_is_gua
         assert (row.payload_json,str(row.fetched_at))==before
 
 
-def test_old_missing_revenue_cache_reprepares_after_concept_revision(fixture):
+@pytest.mark.parametrize('old_version',['sec_ratio_preparation_v1','sec_ratio_preparation_v2'])
+def test_old_missing_revenue_cache_reprepares_after_concept_revision(fixture,old_version):
     factory,facts,company,calls=fixture
     gaap=facts['facts']['us-gaap']
     gaap['RevenueFromContractWithCustomerIncludingAssessedTax']=gaap.pop('RevenueFromContractWithCustomerExcludingAssessedTax')
     with factory() as db:
         db.add(InsightsSnapshot(kind='sec-current-fundamentals:ABC:v1',source='sec_edgar',
             fetched_at=datetime.now(timezone.utc),payload_json=json.dumps({
-                'version':'sec_ratio_preparation_v1','symbol':'ABC','source':'sec_edgar',
+                'version':old_version,'symbol':'ABC','source':'sec_edgar',
                 'status':'unavailable','values':{},'reason':'unsupported_current_financial_coverage'})))
         db.commit()
     result=prep.prepare('ABC')
-    assert result['version']=='sec_ratio_preparation_v2' and result['status']=='partial'
+    assert result['version']==prep.VERSION and result['status']=='partial'
     assert result['values']['free_cash_flow']==32.5
     assert len(calls)==3
     assert prep.prepare('ABC')==result and len(calls)==3

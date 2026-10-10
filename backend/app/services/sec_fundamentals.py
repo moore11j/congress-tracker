@@ -76,6 +76,8 @@ def fetch_fundamentals(symbol: str):
                 'company': {'url': f'https://data.sec.gov/submissions/CIK{cik}.json', 'sha256': hashlib.sha256(company).hexdigest()},
                 'current': {}, 'prior': {}, 'instant': {}, 'calculations': {},
                 'limitations': ['Financial facts unavailable; market data is independently verified']})}
+    from app.services.sec_issuer_cash_flow import supplement
+    values = supplement(values, facts, company, client=client)
     # Financial facts remain useful when the separately sourced market data is
     # unavailable. Never carry old market ratios into a newly refreshed record.
     from app.clients.massive_stocks import MassiveStocksClient, MassiveStocksError, selected

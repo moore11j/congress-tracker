@@ -48,9 +48,12 @@ def _run_locked():
             symbols = sorted(set(symbols) | {symbol for raw in ranked[:5000]
                 if (symbol := normalize_symbol(raw)) and classify_symbol(symbol)[0] == 'eligible'})
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
+        versions = {key: value for key, value in state.get('attempted_versions', {}).items() if key in symbols}
         def due_priority(symbol):
             if not broad or symbol not in priority_symbols:
                 return False
+            if versions.get(symbol) != sec_fundamentals_preparation.VERSION:
+                return True
             try:
                 last = datetime.fromisoformat(attempts[symbol])
                 return not timedelta(0) <= now-last < timedelta(hours=20)
@@ -83,6 +86,7 @@ def _run_locked():
                 result['reason'] = str(exc)[:300]
         results.append(result)
         attempts[symbol] = now.isoformat()
+        versions[symbol] = sec_fundamentals_preparation.VERSION
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
     receipt = {'status': 'partial' if truncated or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
@@ -95,7 +99,7 @@ def _run_locked():
         current = json.loads(row.payload_json) if row else {}
         if (current.get('lease') or {}).get('token') != token:
             return {**receipt, 'status': 'partial', 'reason': 'warming_lease_lost'}
-        row.payload_json = json.dumps({'attempted_at': attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
+        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
         row.fetched_at = now
         db.commit()
     return receipt
