@@ -25,8 +25,11 @@ class DirectSourceError(RuntimeError):
 class DirectSourceClient:
     """Serial, identified requests; redirects stay inside the exact allowlist."""
 
-    def __init__(self, *, issuer_hosts=(), session=None, interval=0.5):
+    def __init__(self, *, issuer_hosts=(), issuer_redirect_urls=(), session=None, interval=0.5):
         self.hosts = {"www.sec.gov", "data.sec.gov", "disclosures-clerk.house.gov", "efdsearch.senate.gov", *issuer_hosts}
+        # Reviewed full CDN destinations do not grant access to other tenants
+        # or paths on that CDN. They are accepted only after an issuer redirect.
+        self.issuer_redirect_urls = frozenset(issuer_redirect_urls)
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": os.getenv("SEC_EDGAR_USER_AGENT", "Walnut Markets source research contact@walnutmarkets.com")})
         self.interval = max(0.5, interval)
@@ -35,7 +38,8 @@ class DirectSourceClient:
     def get(self, url: str) -> bytes:
         for _redirect in range(4):
             parts = urlsplit(url)
-            if parts.scheme != "https" or parts.hostname not in self.hosts or parts.username or parts.password or parts.port not in (None, 443):
+            reviewed_redirect = _redirect > 0 and url in self.issuer_redirect_urls
+            if parts.scheme != "https" or (parts.hostname not in self.hosts and not reviewed_redirect) or parts.username or parts.password or parts.port not in (None, 443):
                 raise DirectSourceError("Source URL outside the approved HTTPS host list")
             for attempt in range(3):
                 time.sleep(max(0, self.interval - (time.monotonic() - self.last_request)))
@@ -386,11 +390,47 @@ def parse_senate_html(raw: bytes, metadata: dict) -> tuple[str, dict]:
 
 
 def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
-    root = html.fromstring(raw)
-    for node in root.xpath("//script|//style|//nav|//footer|//header"):
-        node.drop_tree()
-    main = root.xpath("//main|//*[@role='main']")
-    text = " ".join((main[0] if main else root).text_content().split())
+    if not raw or len(raw) > 2_000_000:
+        raise DirectSourceError("Issuer material exceeds size limit or is empty")
+    source_format = metadata.get("source_format", "html")
+    if source_format == "pdf":
+        if not raw.startswith(b"%PDF-"):
+            raise DirectSourceError("Reviewed issuer PDF format mismatch")
+        if not all(metadata.get(key) for key in ("company_pattern", "publication_pattern",
+                                                  "publisher_pattern", "transcript_publisher")):
+            raise DirectSourceError("Reviewed issuer PDF identity or publisher missing")
+        try:
+            reader = PdfReader(io.BytesIO(raw), strict=True)
+            if reader.is_encrypted or not 1 <= len(reader.pages) <= 40:
+                raise DirectSourceError("Issuer PDF is encrypted or exceeds page limit")
+            pieces, stream_bytes, text_chars = [], 0, 0
+            for page in reader.pages:
+                content = page.get_contents()
+                if content is not None:
+                    stream_bytes += len(content.get_data())
+                if stream_bytes > 5_000_000:
+                    raise DirectSourceError("Issuer PDF exceeds decoded content limit")
+                piece = page.extract_text() or ""
+                text_chars += len(piece)
+                if text_chars > 2_000_000:
+                    raise DirectSourceError("Issuer PDF exceeds extracted text limit")
+                pieces.append(piece)
+            text = " ".join(" ".join(pieces).split())
+        except DirectSourceError:
+            raise
+        except Exception as exc:
+            raise DirectSourceError("Issuer PDF could not be parsed") from exc
+        for key in ("company_pattern", "publication_pattern", "publisher_pattern"):
+            if not re.search(metadata[key], text, re.I):
+                raise DirectSourceError("Issuer PDF reviewed identity did not match")
+    elif source_format == "html" and not raw.startswith(b"%PDF-"):
+        root = html.fromstring(raw)
+        for node in root.xpath("//script|//style|//nav|//footer|//header"):
+            node.drop_tree()
+        main = root.xpath("//main|//*[@role='main']")
+        text = " ".join((main[0] if main else root).text_content().split())
+    else:
+        raise DirectSourceError("Unsupported or unreviewed issuer source format")
     kind = metadata["document_type"]
     if kind not in {"earnings_transcript", "earnings_release", "earnings_presentation"}:
         raise DirectSourceError("Unknown earnings material type")

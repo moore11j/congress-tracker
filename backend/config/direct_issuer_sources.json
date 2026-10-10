@@ -24,5 +24,29 @@
         "publication_pattern": "July\\s+29,\\s*2026"
       }
     ]
+  },
+  {
+    "symbol": "NVDA",
+    "company_website": "https://www.nvidia.com/",
+    "investor_website": "https://investor.nvidia.com/",
+    "verification": "Official NVIDIA Q2 FY2027 corrected transcript and exact CDN redirect reviewed October10,2026. Transcript publisher is FactSet CallStreet; issuer-hosted evidence only, not broad transcript coverage.",
+    "documents": [
+      {
+        "url": "https://investor.nvidia.com/files/content_files/TRANSCRIPT_-NVIDIA-Corp-NVDA-US-Q2-2027-Earnings-Call-26-August-2026-5_00-PM-ET.pdf",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2027,
+        "fiscal_quarter": 2,
+        "published_at": "2026-08-26",
+        "source_format": "pdf",
+        "transcript_publisher": "FactSet CallStreet, LLC",
+        "period_pattern": "Q2\\s+2027|second quarter of fiscal 2027",
+        "company_pattern": "\\bNVIDIA\\b",
+        "publication_pattern": "26-Aug-2026|August\\s+26,\\s*2026",
+        "publisher_pattern": "FactSet\\s+CallStreet",
+        "redirect_urls": [
+          "https://s201.q4cdn.com/141608511/files/content_files/TRANSCRIPT_-NVIDIA-Corp-NVDA-US-Q2-2027-Earnings-Call-26-August-2026-5_00-PM-ET.pdf"
+        ]
+      }
+    ]
   }
 ]
