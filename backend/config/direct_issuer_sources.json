@@ -48,5 +48,48 @@
         ]
       }
     ]
+  },
+  {
+    "symbol": "META",
+    "company_website": "https://about.meta.com/",
+    "investor_website": "https://investor.atmeta.com/",
+    "verification": "Official Meta Q2 2026 issuer transcript PDF and exact CDN redirect reviewed October10,2026. Selected-company coverage only.",
+    "documents": [
+      {
+        "url": "https://investor.atmeta.com/files/doc_financials/2026/q2/META-Q2-2026-Earnings-Call-Transcript.pdf",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "published_at": "2026-07-29",
+        "source_format": "pdf",
+        "transcript_publisher": "Meta Platforms, Inc.",
+        "period_pattern": "Second Quarter 2026",
+        "company_pattern": "\\bMeta Platforms\\b",
+        "publication_pattern": "July\\s+29(?:th)?,\\s*2026",
+        "publisher_pattern": "Meta\\s+Platforms,?\\s+Inc\\.",
+        "redirect_urls": [
+          "https://s21.q4cdn.com/399680738/files/doc_financials/2026/q2/META-Q2-2026-Earnings-Call-Transcript.pdf"
+        ]
+      }
+    ]
+  },
+  {
+    "symbol": "GOOGL",
+    "company_website": "https://abc.xyz/",
+    "investor_website": "https://abc.xyz/investor/",
+    "verification": "Official Alphabet Q2 2026 event HTML with full transcript reviewed October10,2026. One issuer source under GOOGL; GOOG research association remains unconfigured pending explicit share-class reconciliation.",
+    "documents": [
+      {
+        "url": "https://abc.xyz/investor/events/event-details/2026/2026-Q2-Earnings-Call-2026-GgTAq7Is0z/default.aspx",
+        "document_type": "earnings_transcript",
+        "fiscal_year": 2026,
+        "fiscal_quarter": 2,
+        "published_at": "2026-07-22",
+        "transcript_publisher": "Alphabet Inc.",
+        "period_pattern": "Second Quarter 2026|2026 Q2 Earnings Call",
+        "company_pattern": "\\bAlphabet\\b",
+        "publication_pattern": "July\\s+22,\\s*2026"
+      }
+    ]
   }
 ]
