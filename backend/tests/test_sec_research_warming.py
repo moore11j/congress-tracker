@@ -17,7 +17,7 @@ def factory(monkeypatch):
     engine = create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
-    for module in (job, sec_directory, sec_financial_statements):
+    for module in (job, sec_directory, sec_financial_statements, queue):
         monkeypatch.setattr(module, 'SessionLocal', sessions)
     monkeypatch.setenv('SEC_RESEARCH_WARMING_ENABLED', '1')
     monkeypatch.setenv('FINANCIAL_STATEMENTS_PROVIDER', 'fmp')
@@ -121,3 +121,74 @@ def test_transient_directory_failure_is_not_cached_as_missing_security(factory, 
     assert job.run()['status'] == 'partial'
     with factory() as db:
         assert db.get(InsightsSnapshot, 'sec-financials:ABC:v1') is None
+
+
+def test_new_public_panel_demand_prepares_without_watch_or_general_queue(factory,monkeypatch):
+    from app.services import ticker_financials
+    from app.request_priority import set_request_context,reset_request_context
+    from app.models import DataEnrichmentJob
+    from test_sec_fundamentals import sources
+    monkeypatch.setenv('FINANCIAL_STATEMENTS_PROVIDER','sec_edgar')
+    monkeypatch.setenv('FMP_BACKGROUND_REFRESH_ENABLED','false')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',[])
+    monkeypatch.setattr(sec_directory,'directory',lambda:{'ABC':{'cik':'0000000001'}})
+    facts,company=sources();calls=[]
+    def fetch(self,url):
+        calls.append(url)
+        return json.dumps(facts if 'companyfacts' in url else company).encode()
+    monkeypatch.setattr(sec_directory.DirectSourceClient,'get',fetch)
+    token=set_request_context({'path':'/api/tickers/ABC/financials'})
+    try:
+        assert ticker_financials.get_ticker_financials('ABC')['status']=='warming'
+        assert not calls
+    finally:reset_request_context(token)
+    with factory() as db:
+        row=db.scalar(select(DataEnrichmentJob));assert row.symbol=='ABC' and row.status=='queued'
+        before=(row.id,row.dedupe_key,row.attempts,row.status)
+    result=job.run()
+    assert result['requested_cache_misses']==result['completed_scopes']==1
+    assert result['results'][0]['scope']=='ABC' and len(calls)==2
+    token=set_request_context({'path':'/api/tickers/ABC/financials'})
+    try:
+        panel=ticker_financials.get_ticker_financials('ABC')
+        assert panel['source']=='sec_edgar' and len(panel['annual'])==2
+        assert ticker_financials.get_ticker_financials('ABC')==panel
+    finally:reset_request_context(token)
+    repeat=job.run();assert repeat['requested_cache_misses']==repeat['completed_scopes']==0
+    assert len(calls)==2
+    with factory() as db:
+        row=db.scalar(select(DataEnrichmentJob))
+        assert (row.id,row.dedupe_key,row.attempts,row.status)==before
+        assert not list(db.scalars(select(Event)))
+
+
+def test_demand_is_bounded_excludes_fresh_future_other_jobs_and_keeps_watch_rotation(factory,monkeypatch):
+    from datetime import datetime,timezone,timedelta
+    from app.models import DataEnrichmentJob
+    now=datetime.now(timezone.utc)
+    watches=['W'+chr(65+i) for i in range(21)]
+    requests=['Z'+chr(65+i) for i in range(21)]
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',watches)
+    with factory() as db:
+        for symbol in requests+['CACHED','FUTURE','FINISHED','OTHER']:
+            db.add(DataEnrichmentJob(symbol=symbol,job_type='ticker_meta' if symbol=='OTHER' else 'ticker_financials',
+                dedupe_key=symbol,status='succeeded' if symbol=='FINISHED' else 'queued',
+                next_run_at=now+timedelta(days=1) if symbol=='FUTURE' else now,priority=45))
+        db.add(InsightsSnapshot(kind='sec-financials:CACHED:v1',source='sec_edgar',fetched_at=now,
+            payload_json=json.dumps({'source':'sec_edgar','symbol':'CACHED','status':'unavailable'})))
+        db.commit()
+    seen=[]
+    def prepare(symbol):
+        seen.append(symbol)
+        payload={'symbol':symbol,'source':'sec_edgar','status':'partial','annual':[],'quarterly':[],'updatedAt':now.isoformat()}
+        with factory() as db:
+            db.add(InsightsSnapshot(kind=f'sec-financials:{symbol}:v1',source='sec_edgar',fetched_at=now,payload_json=json.dumps(payload)));db.commit()
+        return payload
+    monkeypatch.setattr(sec_financial_statements,'prepared',prepare)
+    first=job.run();assert first['completed_scopes']==20 and first['requested_cache_misses']==21
+    assert seen[:10]==requests[:10] and seen[10:]==watches[:10]
+    seen.clear();second=job.run()
+    assert second['completed_scopes']==20 and second['requested_cache_misses']==11
+    assert seen[:10]==requests[10:20] and seen[10:]==watches[10:20]
+    assert not set(seen)&{'CACHED','FUTURE','FINISHED','OTHER'}
+    assert first['canonical_writes']==second['emails']==0

@@ -58,10 +58,14 @@ def collector_lock(bind=engine, *, recover_orphaned=True):
             yield False
             return
         guard.detach()
+        # This is a session lock. End the acquisition transaction before source
+        # requests so collection holds neither a pool slot nor an idle transaction.
+        guard.commit()
         try:
             yield True
         finally:
             guard.execute(text("SELECT pg_advisory_unlock(84193647)"))
+            guard.commit()
 
 
 def _default_end_date(sources, today):

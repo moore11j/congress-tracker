@@ -6,7 +6,7 @@ import uuid
 
 from sqlalchemy import func, select, text
 from app.db import SessionLocal
-from app.models import InsightsSnapshot, Security, Watchlist, WatchlistItem
+from app.models import InsightsSnapshot, Security, Watchlist, WatchlistItem, DataEnrichmentJob
 from app.services import sec_financial_statements
 from app.background_job_guard import check_background_job_guard
 from app.jobs.collect_direct_feeds import collector_lock
@@ -36,8 +36,29 @@ def _run_locked():
         from app.services.data_enrichment_queue import _recently_viewed_ticker_symbols, DEFAULT_PREWARM_SYMBOLS
         symbols = sorted({s for raw in [*watched[:1000], *_recently_viewed_ticker_symbols(db, limit=100),
             *DEFAULT_PREWARM_SYMBOLS] if (s := normalize_symbol(raw))})
-        attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
-        symbols.sort(key=lambda s: (attempts.get(s, ''), s))
+        # A newly requested panel may sit behind unrelated general enrichment.
+        # Read only due financial requests, then bulk-check their separate cache.
+        requested_rows = list(db.scalars(select(DataEnrichmentJob.symbol).where(
+            DataEnrichmentJob.job_type == 'ticker_financials',
+            DataEnrichmentJob.status == 'queued', DataEnrichmentJob.next_run_at <= now)
+            .order_by(DataEnrichmentJob.priority, DataEnrichmentJob.created_at, DataEnrichmentJob.id)
+            .limit(1001)))
+        requested = list(dict.fromkeys(s for raw in requested_rows[:1000] if (s := normalize_symbol(raw))))
+        cache_rows = {r.kind: r for r in db.scalars(select(InsightsSnapshot).where(
+            InsightsSnapshot.kind.in_([f'sec-financials:{s}:v1' for s in requested])))} if requested else {}
+        missing = [s for s in requested if sec_financial_statements.cached_row_payload(
+            cache_rows.get(f'sec-financials:{s}:v1'), s, now=now) is None]
+        retained = set(symbols) | set(requested)
+        attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in retained}
+        order = lambda s: (attempts.get(s, ''), s)
+        # Reserve up to half the existing 20 slots for fresh demand. Continue
+        # rotating watched/default scopes, then fill unused slots with demand.
+        request_order = {s: i for i, s in enumerate(requested)}
+        missing.sort(key=lambda s: (attempts.get(s, ''), request_order[s]))
+        selected = missing[:10]
+        selected.extend(s for s in sorted(symbols, key=order) if s not in selected)
+        selected.extend(s for s in missing if s not in selected)
+        symbols = selected
         token = uuid.uuid4().hex
         if row is None:
             row = InsightsSnapshot(kind=KEY, source='free_direct', fetched_at=now, payload_json='{}')
@@ -63,8 +84,9 @@ def _run_locked():
         attempts[symbol] = now.isoformat()
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP 403:', 'Source HTTP 429:')):
             break
-    receipt = {'status': 'partial' if len(watched)>1000 or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
-        'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': len(watched)>1000,
+    receipt = {'status': 'partial' if len(watched)>1000 or len(requested_rows)>1000 or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
+        'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': len(watched)>1000 or len(requested_rows)>1000,
+        'requested_scopes': len(requested), 'requested_cache_misses': len(missing),
         'planned_scopes': min(20, len(symbols)), 'completed_scopes': len(results), 'results': results,
         'financial_selection': os.getenv('FINANCIAL_STATEMENTS_PROVIDER', 'fmp'),
         'metadata_selection': os.getenv('COMPANY_METADATA_PROVIDER', 'fmp'), 'canonical_writes': 0, 'emails': 0}
