@@ -119,6 +119,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
     filings = recent[:filing_limit]
     document_ids = []
     failures = 0
+    source_limit = None
     for filing in filings:
         try:
             raw = client.get(filing['submission_url'])
@@ -134,6 +135,12 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
         except Exception as exc:
             failures += 1
             logger.warning('sec_earnings_material_held symbol=%s error_type=%s', symbol, type(exc).__name__)
+            if isinstance(exc, DirectSourceError) and str(exc).startswith('Source exceeds size limit:'):
+                # A bounded source cannot be read; this is an explicit coverage
+                # limitation, not evidence of no releases or a transient outage.
+                source_limit = {'reason': 'sec_submission_size_limit',
+                                'accession_number': filing['accession_number']}
+                break
             if isinstance(exc, DirectSourceError):
                 raise  # Let the scheduled batch stop on a source refusal.
             # Stop this issuer on a fetch/parse failure. No automatic burst of
@@ -164,11 +171,17 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
                 'lookback_days': 365, 'filing_limit': filing_limit, 'filings_discovered': len(recent),
                 'filings_checked': len(document_ids), 'held': held, 'source_failures': failures,
                 'truncated': len(recent) > filing_limit or len(all_filings) == 100}}
+        if source_limit:
+            payload['status'] = 'partial' if items else 'unavailable'
+            payload['reason'] = source_limit['reason']
+            payload['message'] += ' A filing exceeds the supported download size; release coverage is incomplete.'
+            payload['coverage'].update(source_limit=source_limit,
+                filings_unchecked=len(filings)-len(document_ids))
         if not authorized():
             raise ValueError('Direct SEC provider changed during refresh')
         # A failed refresh must not replace previously prepared source links
         # with a misleading empty result. The caller reports unavailable.
-        if failures:
+        if failures and source_limit is None:
             raise RuntimeError('SEC earnings collection incomplete')
         _save_payload(db, symbol, payload, now)
         db.commit()

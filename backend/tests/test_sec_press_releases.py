@@ -181,3 +181,50 @@ def test_default_refresh_is_bounded_and_documents_coverage(selected, monkeypatch
     assert len(calls) == 11  # One history plus two requests for each of five filings.
     assert result['coverage']['truncated'] and result['coverage']['filings_checked'] == 5
     assert result['coverage']['held'] == 5  # Identical source content under different accessions.
+
+
+@pytest.mark.parametrize('prior_success', [False, True])
+def test_size_limit_is_explicit_cached_coverage_without_repeat_download(selected, monkeypatch, prior_success):
+    from app.clients.direct_sources import DirectSourceError
+    factory, calls = selected
+    original = DirectSourceClient.get
+    def get(client, url):
+        if url.endswith('.json') and prior_success:
+            calls.append(url)
+            return company(accessionNumber=['0001234567-26-000001','0001234567-26-000002'],
+                filingDate=['2026-07-30','2026-07-29'], form=['8-K','8-K'],
+                primaryDocument=['report.htm','report.htm'], items=['2.02,9.01','2.02,9.01'],
+                acceptanceDateTime=['2026-07-30T20:00:00Z','2026-07-29T20:00:00Z'])
+        if url.endswith('.txt') and (not prior_success or '-000002.txt' in url):
+            calls.append(url)
+            raise DirectSourceError('Source exceeds size limit: '+url)
+        return original(client, url)
+    monkeypatch.setattr(DirectSourceClient, 'get', get)
+    payload = news.get_press_releases(symbol='TEST')
+    assert payload['status'] == ('partial' if prior_success else 'unavailable')
+    assert len(payload['items']) == int(prior_success)
+    assert payload['coverage']['source_failures'] == 1
+    assert payload['coverage']['filings_unchecked'] == 1
+    assert payload['reason'] == 'sec_submission_size_limit'
+    assert 'download size' in payload['message']
+    count = len(calls)
+    assert news.get_press_releases(symbol='TEST') == payload
+    assert len(calls) == count
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(Event)) == 0
+        assert db.scalar(select(func.count()).select_from(ResearchSourceDocument)) == 0
+
+
+def test_transient_source_refusal_never_becomes_cached_absence(selected, monkeypatch):
+    from app.clients.direct_sources import DirectSourceError
+    factory, calls = selected
+    original = DirectSourceClient.get
+    def get(client, url):
+        if url.endswith('.txt'):
+            raise DirectSourceError('Source HTTP 429: '+url)
+        return original(client, url)
+    monkeypatch.setattr(DirectSourceClient, 'get', get)
+    result = news.get_press_releases(symbol='TEST')
+    assert result['status'] == 'unavailable'
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(TickerContentCache)) == 0
