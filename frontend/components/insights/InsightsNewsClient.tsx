@@ -235,14 +235,15 @@ function EmptyState({ text }: { text: string }) {
 
 function HeadlineRow({ item }: { item: NewsItem }) {
   const chips = tickerChips(item);
-  const [imageVisible, setImageVisible] = useState(Boolean(item.image_url));
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const imageVisible = Boolean(item.image_url && failedImage !== item.image_url);
   const summary = item.walnut_summary || item.summary || item.site || "Summary unavailable.";
 
   return (
     <article className="grid gap-3 border-b border-white/10 py-3 last:border-b-0 md:grid-cols-[7.5rem_minmax(0,1fr)_9rem_7rem_minmax(12rem,0.75fr)] md:items-center">
       <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-white/10 bg-slate-950/70">
         {imageVisible && item.image_url ? (
-          <img src={item.image_url} alt="" className="h-20 w-full object-cover md:h-16" onError={() => setImageVisible(false)} />
+          <img src={item.image_url} alt="" className="h-20 w-full object-cover md:h-16" onError={() => setFailedImage(item.image_url ?? null)} />
         ) : (
           <div className="grid h-20 w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(45,212,191,0.22),transparent_28%),linear-gradient(135deg,rgba(15,23,42,1),rgba(8,47,73,0.64))] text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 md:h-16">
             News

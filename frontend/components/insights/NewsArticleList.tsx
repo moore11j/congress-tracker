@@ -82,7 +82,8 @@ function NewsArticleRow({
   showImage: boolean;
   compact: boolean;
 }) {
-  const [showThumbnail, setShowThumbnail] = useState(Boolean(showImage && item.image_url));
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const showThumbnail = Boolean(showImage && item.image_url && failedImage !== item.image_url);
   const marketReadLabel = marketReadText(item.market_read);
   const compactMediaLayout = compact && showThumbnail;
   const standardMediaLayout = !compact && showThumbnail;
@@ -95,10 +96,10 @@ function NewsArticleRow({
       <div className={`grid gap-3 ${compactMediaLayout ? "grid-cols-[auto_minmax(0,1fr)] items-start" : standardMediaLayout ? "md:grid-cols-[120px_minmax(0,1fr)]" : ""}`}>
         {showThumbnail && item.image_url ? (
           compact ? (
-            <NewsThumbnail src={item.image_url} onError={() => setShowThumbnail(false)} />
+            <NewsThumbnail src={item.image_url} onError={() => setFailedImage(item.image_url ?? null)} />
           ) : (
             <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/70">
-              <img src={item.image_url} alt="" className="h-24 w-full object-cover" onError={() => setShowThumbnail(false)} />
+              <img src={item.image_url} alt="" className="h-24 w-full object-cover" onError={() => setFailedImage(item.image_url ?? null)} />
             </div>
           )
         ) : null}

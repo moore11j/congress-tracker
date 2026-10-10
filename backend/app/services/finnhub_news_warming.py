@@ -107,13 +107,15 @@ def run(db, *, limit=20):
         if result.get('reason') in STOP_REASONS:
             break
     partial = len(watched) > 1000 or any(r.get('stale') or r['status'] not in {'ok','empty'} for r in results)
+    from app.services.news_thumbnails import prepare_news_thumbnails
+    thumbnails = prepare_news_thumbnails(db)
     from app.services.insights_snapshots import seed_finnhub_headlines
     headlines = seed_finnhub_headlines(db)
     receipt = {'status':'partial' if partial else 'ok', 'observed_at':now.isoformat(),
         'universe_size':len(symbols), 'universe_truncated':len(watched)>1000,
         'planned_scopes':len(work), 'completed_scopes':len(results), 'results':results,
         'public_selection':os.getenv('NEWS_PROVIDER','fmp'), 'canonical_writes':0, 'emails':0,
-        'headlines_cache':headlines}
+        'headlines_cache':headlines, 'thumbnails':thumbnails}
     row = db.get(InsightsSnapshot, KEY, populate_existing=True, with_for_update=True)
     current = json.loads(row.payload_json) if row else {}
     if (current.get('lease') or {}).get('token') != token:
