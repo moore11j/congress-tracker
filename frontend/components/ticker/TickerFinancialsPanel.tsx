@@ -734,6 +734,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
 
   return (
     <div className="space-y-4">
+      {data.revenueBasis && <p className="text-sm text-slate-400">Revenue basis: {data.revenueBasis}.</p>}
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
         <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm)} />
         <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />

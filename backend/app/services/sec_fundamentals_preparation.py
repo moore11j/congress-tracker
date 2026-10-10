@@ -19,6 +19,8 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    if symbol == 'PROV':
+        return VERSION+'_bank_revenue_v1'
     return VERSION+'_xom_continuity_v1' if symbol == 'XOM' else VERSION
 
 

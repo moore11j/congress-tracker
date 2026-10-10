@@ -248,7 +248,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
-    records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement)
+    records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company)
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
     if end is None or (available_by - end).days > 180:
@@ -276,6 +276,11 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         "instant": {}, "calculations": {}, "limitations": ["USD US GAAP standard concepts only",
             "No consensus estimates, EBITDA/debt proxies, or inferred per-share inputs",
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
+    from app.services.sec_bank_revenue import basis
+    revenue_basis = basis(records)
+    if revenue_basis:
+        evidence['revenue_basis'] = revenue_basis
+        evidence['limitations'].append('Bank revenue uses a derived net-interest basis, not gross interest income')
     if continuity is not None:
         evidence['financial_continuity'] = continuity
     if filing_supplement is not None:
