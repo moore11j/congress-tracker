@@ -105,8 +105,6 @@ def prepare_research_document(db, *, security_id, publish_since):
     source = prepared_transcript(db, security.symbol)
     if source['status'] != 'prepared':
         return source
-    if date.fromisoformat(source['published_date']) < publish_since:
-        return {'status': 'held', 'reason': 'before_issuer_publication_boundary'}
     period = f"Q{source['quarter']}-{source['year']}"
     legacy_key = f"earnings_transcript:{security.id}:{source['year']}:Q{source['quarter']}"
     # A different transcript rendering for one quarter is a reconciliation task,
@@ -116,6 +114,11 @@ def prepare_research_document(db, *, security_id, publish_since):
         ResearchSourceDocument.document_type == 'earnings_transcript',
         or_(ResearchSourceDocument.filing_type == period,
             ResearchSourceDocument.external_id.in_([legacy_key, source['canonical_key']])))))
+    if date.fromisoformat(source['published_date']) < publish_since:
+        return _retain_historical_period(db, security, source, candidates, publish_since)
+    staged = db.get(DirectFeedDocument, source['source_document_id'])
+    if json.loads(staged.reconciliation_json or '{}').get('issuer_transcript_history'):
+        raise ValueError('Issuer historical publication boundary changed')
     if len(candidates) > 1 or (candidates and (candidates[0].content_hash != source['text_sha256']
             or candidates[0].filing_type not in (None, period))):
         return {'status': 'held', 'reason': 'existing_period_requires_reconciliation'}
@@ -136,29 +139,85 @@ def prepare_research_document(db, *, security_id, publish_since):
         proof['transcript_publisher'] = source['transcript_publisher']
     previous = receipt.get('issuer_transcript_research')
     if previous is not None:
-        semantic_keys = ('text_sha256', 'source_url', 'published_date', 'publication_precision',
-                         'canonical_key', 'document_id', 'publish_since', 'source_page_url', 'source_page_sha256')
-        if (any(previous.get(key) != proof.get(key) for key in semantic_keys)
-                or previous.get('transcript_publisher') != proof.get('transcript_publisher')):
-            raise ValueError('Issuer publication identity or boundary changed')
-        # Publisher HTML may change while the transcript remains identical.
-        # Retain the first source receipt instead of refreshing availability.
-        original = db.get(DirectFeedRevision, previous.get('source_revision_id'))
-        if (original is None or original.document_id != staged.id or not original.source_bytes
-                or len(original.source_bytes) > 2_000_000
-                or hashlib.sha256(original.source_bytes).hexdigest() != previous.get('source_sha256')
-                or source_content_hash(original.source_text) != previous['text_sha256']):
-            raise ValueError('Original issuer publication evidence changed')
-        original_text, _ = parse_issuer_material(original.source_bytes, json.loads(staged.metadata_json))
-        if original_text != original.source_text or source_content_hash(original_text) != previous['text_sha256']:
-            raise ValueError('Original issuer source text changed')
-        first_observed = original.fetched_at
-        if first_observed.tzinfo is None:
-            first_observed = first_observed.replace(tzinfo=timezone.utc)
-        if first_observed.isoformat() != previous.get('observed_at'):
-            raise ValueError('Original issuer observation changed')
+        _verify_first_receipt(db, staged, previous, proof)
     if previous is None:
         receipt['issuer_transcript_research'] = proof
         staged.reconciliation_json = dumps(receipt)
     return {'status': 'prepared', 'document': document, 'created': created,
             'source_text': source['content'], 'source': source, 'publication_evidence': previous or proof}
+
+
+def _verify_first_receipt(db, staged, previous, proof):
+    semantic_keys = ('text_sha256', 'source_url', 'published_date', 'publication_precision',
+                     'canonical_key', 'document_id', 'publish_since', 'source_page_url', 'source_page_sha256')
+    if (any(previous.get(key) != proof.get(key) for key in semantic_keys)
+            or previous.get('transcript_publisher') != proof.get('transcript_publisher')):
+        raise ValueError('Issuer publication identity or boundary changed')
+    # Publisher HTML may change while the transcript remains identical.
+    # Retain the first source receipt instead of refreshing availability.
+    original = db.get(DirectFeedRevision, previous.get('source_revision_id'))
+    if (original is None or original.document_id != staged.id or not original.source_bytes
+            or len(original.source_bytes) > 2_000_000
+            or hashlib.sha256(original.source_bytes).hexdigest() != previous.get('source_sha256')
+            or source_content_hash(original.source_text) != previous['text_sha256']):
+        raise ValueError('Original issuer publication evidence changed')
+    original_text, _ = parse_issuer_material(original.source_bytes, json.loads(staged.metadata_json))
+    if original_text != original.source_text or source_content_hash(original_text) != previous['text_sha256']:
+        raise ValueError('Original issuer source text changed')
+    first_observed = original.fetched_at
+    if first_observed.tzinfo is None:
+        first_observed = first_observed.replace(tzinfo=timezone.utc)
+    if first_observed.isoformat() != previous.get('observed_at'):
+        raise ValueError('Original issuer observation changed')
+
+
+def _retain_historical_period(db, security, source, candidates, publish_since):
+    """Keep pre-cutover analysis under its original provider, never re-extract it.
+
+    Different transcript renderings are not claimed equivalent. The official
+    source is independently prepared; old research retains its original source.
+    A missing or incomplete baseline is a hold, not successful migration.
+    """
+    if not candidates:
+        return {'status': 'held', 'reason': 'before_issuer_publication_boundary'}
+    if len(candidates) != 1:
+        return {'status': 'held', 'reason': 'existing_period_requires_reconciliation'}
+    document = candidates[0]
+    period = f"Q{source['quarter']}-{source['year']}"
+    legacy_key = f"earnings_transcript:{security.id}:{source['year']}:Q{source['quarter']}"
+    published = document.published_at
+    if (document.source_provider != 'fmp' or document.external_id != legacy_key
+            or document.filing_type != period or document.processing_status != 'processed'
+            or not document.content_hash or published is None):
+        return {'status': 'held', 'reason': 'historical_transcript_baseline_incomplete'}
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=timezone.utc)
+    if published.astimezone(timezone.utc).date().isoformat() != source['published_date']:
+        return {'status': 'held', 'reason': 'historical_transcript_publication_conflict'}
+    baseline = {key: getattr(document, key) for key in (
+        'id', 'security_id', 'document_type', 'source_provider', 'external_id',
+        'content_hash', 'processing_status', 'processing_version', 'filing_type', 'source_url')}
+    baseline['published_at'] = published.isoformat()
+    staged = db.get(DirectFeedDocument, source['source_document_id'])
+    receipt = json.loads(staged.reconciliation_json or '{}')
+    if receipt.get('issuer_transcript_research'):
+        raise ValueError('Issuer publication cannot become historical retention')
+    proof = {key: source[key] for key in (
+        'source_sha256', 'text_sha256', 'source_revision_id', 'source_url',
+        'observed_at', 'published_date', 'publication_precision', 'canonical_key')}
+    proof.update(document_id=document.id, publish_since=publish_since.isoformat(),
+                 historical_document=baseline, mode='retain_original_research_without_reprocessing')
+    proof.update({key: source[key] for key in (
+        'source_page_url', 'source_page_sha256', 'transcript_publisher') if source.get(key)})
+    previous = receipt.get('issuer_transcript_history')
+    if previous is not None:
+        if previous.get('historical_document') != baseline or previous.get('mode') != proof['mode']:
+            raise ValueError('Historical transcript baseline changed')
+        _verify_first_receipt(db, staged, previous, proof)
+    else:
+        receipt['issuer_transcript_history'] = proof
+        staged.reconciliation_json = dumps(receipt)
+    # Deliberately omit source_text: issuer text must never be passed to the
+    # extraction function with a legacy document's source hash or attribution.
+    return {'status': 'retained_history', 'document': document, 'created': False,
+            'source': source, 'publication_evidence': previous or proof}
