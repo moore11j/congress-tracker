@@ -229,6 +229,17 @@ def _fmp_rows(endpoint: str, params: dict[str, Any]) -> list[dict[str, Any]]:
 def _ingest_latest_transcript(db: Session, *, security: Security, budget: _ExtractionBudget | None = None) -> dict[str, int]:
     if not transcript_analysis_enabled() or not security.symbol:
         return {"documents": 0, "events": 0, "matches": 0, "skipped": 0}
+    from app.services.issuer_transcripts import selected_transcript_provider, prepare_research_document
+    if selected_transcript_provider() == 'issuer':
+        boundary = os.getenv('ISSUER_TRANSCRIPT_PUBLISH_SINCE', '').strip()
+        if not boundary:
+            raise ProviderUnavailable('issuer_publication_boundary_missing')
+        prepared = prepare_research_document(db, security_id=security.id, publish_since=date.fromisoformat(boundary))
+        if prepared['status'] != 'prepared':
+            raise ProviderUnavailable(prepared.get('reason') or 'issuer_transcript_unavailable')
+        result = _process_transcript_document(db, security=security, document=prepared['document'],
+            changed=prepared['created'], content=prepared['source_text'], budget=budget)
+        return {**result, 'document_id': prepared['document'].id}
     dates = _fmp_rows("earning-call-transcript-dates", {"symbol": security.symbol})
     candidates: list[tuple[int, int, dict[str, Any]]] = []
     for row in dates:
@@ -265,6 +276,11 @@ def _ingest_latest_transcript(db: Session, *, security: Security, budget: _Extra
         period_end=None,
         filing_type=f"Q{quarter}-{year}",
     )
+    return _process_transcript_document(db, security=security, document=document,
+        changed=changed, content=content, budget=budget)
+
+
+def _process_transcript_document(db, *, security, document, changed, content, budget):
     if not changed and document.processing_status == "processed" and document.processing_version == EVIDENCE_PROCESSING_VERSION:
         return {"documents": 0, "events": 0, "matches": _match_document_events(db, document.id), "skipped": 1, "documents_seen": 1}
     try:
@@ -311,7 +327,9 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                 continue
             from app.services.sec_press_releases import selected_press_provider
             direct_press = document_type == 'press_release' and selected_press_provider() == 'sec_edgar'
-            coverage_key = 'sec_earnings_release' if direct_press else document_type
+            from app.services.issuer_transcripts import selected_transcript_provider
+            direct_transcript = document_type == 'earnings_transcript' and selected_transcript_provider() == 'issuer'
+            coverage_key = 'sec_earnings_release' if direct_press else 'issuer_transcript' if direct_transcript else document_type
             coverage = _coverage(db, security.id, coverage_key)
             if document_type == "earnings_transcript" and not transcript_analysis_enabled():
                 coverage.status = "disabled"
@@ -324,7 +342,7 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                 totals['skipped'] += 1
                 db.commit()
                 continue
-            if fmp_provider_disabled() and not direct_press:
+            if fmp_provider_disabled() and not direct_press and not direct_transcript:
                 coverage.status, coverage.failure_reason = "unavailable", "provider_disabled"
                 db.commit()
                 continue
@@ -367,7 +385,7 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                 # A successful fetch is distinct from completed analysis.
                 from app.models import ResearchSourceDocument
                 unfinished_query = select(ResearchSourceDocument.id).where(ResearchSourceDocument.security_id == security.id, ResearchSourceDocument.document_type == document_type, ResearchSourceDocument.processing_status != "processed")
-                if direct_press:
+                if direct_press or direct_transcript:
                     # Historical FMP failures do not describe the selected SEC
                     # batch. Exact reused legacy documents are included by ID.
                     unfinished_query = unfinished_query.where(ResearchSourceDocument.id.in_([r['document_id'] for r in results if r.get('document_id')]))
@@ -379,7 +397,7 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
             except Exception as exc:
                 db.rollback()
                 coverage = _coverage(db, security.id, coverage_key)
-                coverage.status, coverage.failure_reason = "unavailable", type(exc).__name__
+                coverage.status, coverage.failure_reason = "unavailable", str(exc) if direct_transcript and isinstance(exc, ProviderUnavailable) else type(exc).__name__
                 db.commit()
                 logger.warning("research_source_refresh_failed security_id=%s source=%s error=%s", security.id, document_type, type(exc).__name__)
         if budget.remaining <= 0:
@@ -436,13 +454,15 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
     for source in ("news_article", "press_release", "earnings_transcript"):
         from app.services.sec_press_releases import selected_press_provider
         direct_press = source == 'press_release' and selected_press_provider() == 'sec_edgar'
-        row = by_source.get('sec_earnings_release' if direct_press else source)
+        from app.services.issuer_transcripts import selected_transcript_provider
+        direct_transcript = source == 'earnings_transcript' and selected_transcript_provider() == 'issuer'
+        row = by_source.get('sec_earnings_release' if direct_press else 'issuer_transcript' if direct_transcript else source)
         status = row.status if row else "not_checked"
         if source == "earnings_transcript" and not transcript_analysis_enabled():
             status = "disabled"
         elif source == "earnings_transcript" and status == "disabled":
             status = "not_checked"
-        if fmp_provider_disabled() and status != "disabled" and not direct_press:
+        if fmp_provider_disabled() and status != "disabled" and not direct_press and not direct_transcript:
             status = "unavailable"
         if direct_press:
             from app.services.feed_source_control import FeedSourceControl
@@ -453,6 +473,10 @@ def ticker_operational_intelligence(db: Session, *, security: Security, limit: i
         if status in {"ready", "empty"} and last and now - last > timedelta(hours=6):
             status = "stale"
         coverage.append({"source_type": source, "status": status, "last_checked_at": row.last_attempt_at.isoformat() if row and row.last_attempt_at else None, "last_success_at": last.isoformat() if last else None, "documents_seen": row.documents_seen if row else 0})
+        if direct_transcript:
+            coverage[-1].update(provider='issuer', complete=False,
+                reason=row.failure_reason if row else 'reviewed_period_not_prepared',
+                message='Transcripts cover selected, reviewed company periods. Other companies and periods may be unavailable.')
         from app.services.finnhub_research import selected_news_provider
         if source == 'news_article' and selected_news_provider() == 'finnhub':
             coverage[-1].update(status='unavailable', provider='finnhub', complete=False,
