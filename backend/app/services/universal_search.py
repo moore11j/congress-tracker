@@ -379,6 +379,19 @@ def _entity_terms(entity: SearchEntity) -> list[SearchEntityTerm]:
 def _company_name_maps(db: Session) -> tuple[dict[str, str], dict[str, str | None]]:
     names: dict[str, str] = {}
     exchanges: dict[str, str | None] = {}
+    from app.services import sec_directory, sec_metadata
+    if sec_directory.selected():
+        directory, _ = sec_metadata.prepared_directory(db)
+        if not directory:
+            from app.clients.direct_sources import DirectSourceError
+            raise DirectSourceError('prepared_sec_directory_unavailable_for_index')
+        names = {symbol: row['name'] for symbol,row in directory.items()}
+        exchanges = {symbol: row['exchange'] for symbol,row in directory.items()}
+        for symbol, (label, exchange) in _STATIC_COMPANY_META.items():
+            symbol = sec_directory._symbol_key(symbol)
+            names.setdefault(symbol, label)
+            exchanges.setdefault(symbol, exchange)
+        return names, exchanges
     for row in db.execute(select(TickerMeta.symbol, TickerMeta.company_name, TickerMeta.exchange)).all():
         symbol = normalize_symbol(row.symbol)
         if not symbol:
@@ -401,6 +414,8 @@ def _company_name_maps(db: Session) -> tuple[dict[str, str], dict[str, str | Non
 
 
 def _stock_entities(db: Session) -> list[SearchEntity]:
+    from app.services import sec_directory, sec_metadata
+    sec_symbols = set(sec_metadata.prepared_directory(db)[0]) if sec_directory.selected() else set()
     names, exchanges = _company_name_maps(db)
     entities: list[SearchEntity] = []
     for symbol in sorted(names):
@@ -412,7 +427,7 @@ def _stock_entities(db: Session) -> list[SearchEntity]:
             _entity(
                 entity_id=f"stock:{symbol}",
                 entity_type="stock",
-                source_table="ticker_meta",
+                source_table="sec_directory" if symbol in sec_symbols else "static" if sec_directory.selected() else "ticker_meta",
                 source_id=symbol,
                 display_name=label,
                 canonical_name=label,
