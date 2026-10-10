@@ -46,7 +46,7 @@ def parse_company_filings(raw, *, symbol, cik):
         base = f'https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace("-", "")}/'
         if document:
             parts = str(document).split('/')
-            if not 1 <= len(parts) <= 4 or any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', part) or '..' in part for part in parts):
+            if not 1 <= len(parts) <= 4 or any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', part) or part in {'.', '..'} for part in parts):
                 raise ValueError('SEC primary filename unsafe')
             url = base + document
         else:
