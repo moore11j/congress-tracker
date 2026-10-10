@@ -38,6 +38,17 @@ def _periods(today):
 def plan_scopes(db, now, attempted_at, universe=None):
     periods = _periods(now.date())
     if universe is None:
+        # Completed identities must not permanently occupy the bounded queue.
+        # A later plan can then advance beyond its initial 5000-scope window.
+        already_prepared = set()
+        for key, raw in db.execute(select(DirectFeedDocument.source_key, DirectFeedDocument.parsed_json).where(
+                DirectFeedDocument.feed == FEED, DirectFeedDocument.status == 'parsed',
+                or_(*(DirectFeedDocument.source_key.like('%:' + period) for period in periods)))):
+            try:
+                if json.loads(raw)['identity']['status'] == 'verified':
+                    already_prepared.add(key)
+            except (ValueError, TypeError, KeyError):
+                continue
         mappings = {}
         for cusip,symbol,first in db.execute(select(InstitutionalPosition.cusip,
                 InstitutionalPosition.normalized_symbol,func.min(InstitutionalPosition.filing_date))
@@ -66,6 +77,7 @@ def plan_scopes(db, now, attempted_at, universe=None):
                 candidates={symbol for symbol,first in mappings.get(cusip,[]) if first<=filed}
                 if mapped_symbol(cusip,candidates,year,quarter) is not None:continue
                 key=cusip+':'+period
+                if key in already_prepared:continue
                 if key not in weights and len(weights)>=MAX_SCOPES:truncated=True;continue
                 weights[key]=weights.get(key,0)+1
     else:

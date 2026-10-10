@@ -79,7 +79,7 @@ def staged_comparisons(db, *, byte_budget, report_periods=None):
     return documents
 
 
-def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False):
+def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False):
     if not 1 <= limit <= 200:
         raise ValueError('Publication limit must be between 1 and 200')
     if db.new or db.dirty or db.deleted:
@@ -105,6 +105,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     from app.services.direct_13f_priors import _saved_source
     from app.clients.direct_sources import DirectSourceError
     report_periods = set()
+    reference_scopes = {}
     for document_id in ids:
         try:
             _, _, parsed, _ = _saved_source(db, db.get(DirectFeedDocument, document_id))
@@ -114,15 +115,22 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
             report_periods = None
             break
         report_periods.add(parsed['metadata']['report_period'])
+        reference_scopes[document_id] = {(r['cusip'].strip().upper(), parsed['metadata']['report_period']) for r in parsed['positions']}
     comparisons = staged_comparisons(db,
         byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents),
         report_periods=report_periods)
+    references = []
+    if use_staged_references:
+        from app.services.institutional_reference import load_reference_batch
+        references = load_reference_batch(db, set().union(*reference_scopes.values()) if reference_scopes else set())
     db.rollback()  # Recheck durable ownership inside every filing transaction.
     evidence=Prepared13FEvidence.build(identifier_documents,comparisons)
     results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
-        identifier_documents=identifier_documents, comparison_documents=comparisons, prepared_evidence=evidence)) for document_id in ids]
+        identifier_documents=identifier_documents, comparison_documents=comparisons, prepared_evidence=evidence,
+        reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
         'comparison_periods': sorted(report_periods) if report_periods is not None else None,
+        'reference_documents': len(references),
         'comparison_documents': len(comparisons), 'comparison_bytes': sum(len(d['raw']) for d in comparisons),
         'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
         'results': results, 'email_deliveries': 0}

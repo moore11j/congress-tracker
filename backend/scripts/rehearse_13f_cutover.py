@@ -21,10 +21,11 @@ def main():
     parser.add_argument('--mapping-supplement',type=Path,help='Read-only captured earlier mapping rows and their actual parent filings')
     parser.add_argument('--identifiers',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--references',type=Path,help='Captured query-bound reference documents; no provider calls')
     parser.add_argument('--prepared-evidence',action='store_true')
     args=parser.parse_args()
     root=args.evidence_root or Path(__file__).resolve().parents[2]/'artifacts/direct-feeds'
-    assert all(p.resolve().is_relative_to(root.resolve()) for p in (args.baseline,args.priors,args.identifiers,args.output,args.mapping_parents,args.mapping_supplement) if p is not None)
+    assert all(p.resolve().is_relative_to(root.resolve()) for p in (args.baseline,args.priors,args.identifiers,args.output,args.mapping_parents,args.mapping_supplement,args.references) if p is not None)
     os.environ['DATABASE_URL']='sqlite:///:memory:'
     from sqlalchemy import Date,DateTime,select,func
     from app.db import Base,engine,SessionLocal
@@ -42,6 +43,7 @@ def main():
     assert engine.dialect.name=='sqlite' and engine.url.database==':memory:'
     baseline_raw=args.baseline.read_bytes();baseline_hash=hashlib.sha256(baseline_raw).hexdigest()
     baseline=json.loads(baseline_raw);del baseline_raw
+    references=json.loads(args.references.read_bytes())['documents'] if args.references else []
     assert baseline['transaction_read_only'] and baseline['filing_date']=='2026-10-07'
     parents=(json.loads(args.mapping_parents.read_bytes()) if args.mapping_parents else
              dict(filings=baseline['mapping_filings'],transaction_read_only=True,baseline_sha256=baseline_hash))
@@ -158,7 +160,7 @@ def main():
             results=[]
             for source in documents:
                 result=publish_13f_document(db,staged_ids[source['metadata']['key']],
-                    identifier_documents=identifiers,comparison_documents=comparisons,prepared_evidence=prepared)
+                    identifier_documents=identifiers,comparison_documents=comparisons,prepared_evidence=prepared,reference_documents=references)
                 results.append(dict(accession=source['metadata']['key'],cik=source['metadata']['cik'],**result))
                 if verbose:print(dumps(dict(accession=source['metadata']['key'],status=result['status'],
                     derived_state=result.get('derived_state'),feed_events=result.get('feed_events',0))),flush=True)
@@ -215,7 +217,7 @@ def main():
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
         report=dict(baseline_sha256=baseline_hash,baseline_captured_at=baseline['captured_at'],source_documents=len(documents),
             mapping_supplement_sha256=hashlib.sha256(args.mapping_supplement.read_bytes()).hexdigest() if args.mapping_supplement else None,
-            comparison_periods=sorted(target_periods),comparison_documents=len(comparisons),excluded_other_period_comparisons=comparison_count_before-len(comparisons),prepared_evidence=args.prepared_evidence,staged_prior_pairs=len(priors) if args.staged_priors else None,staged_excluded_pairs=staged_excluded_pairs,elapsed_seconds=round(time.monotonic()-started,2),
+            reference_documents=len(references),comparison_periods=sorted(target_periods),comparison_documents=len(comparisons),excluded_other_period_comparisons=comparison_count_before-len(comparisons),prepared_evidence=args.prepared_evidence,staged_prior_pairs=len(priors) if args.staged_priors else None,staged_excluded_pairs=staged_excluded_pairs,elapsed_seconds=round(time.monotonic()-started,2),
             statuses=dict(Counter(r['status'] for r in first)),derived_states=dict(Counter(r.get('derived_state',r['status']) for r in first)),
             results=first,totals={key:sum(r.get(key,0) for r in first) for key in ['inserted_filings','inserted_positions','changes','summaries','activity_events','feed_events']},
             qualifying_events=[dict(symbol=e.symbol,event_type=e.event_type,payload=json.loads(e.payload_json)) for e in events],

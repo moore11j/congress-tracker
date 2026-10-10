@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--identifier-manifest')
     parser.add_argument('--staged-identifiers', action='store_true', help='Load the reviewed manifest from shared staging')
     parser.add_argument('--retry-waiting', action='store_true')
+    parser.add_argument('--staged-references', action='store_true', help='Use verified, dated saved reference identities')
     args = parser.parse_args()
     if os.getenv('DIRECT_13F_PUBLICATION_ENABLED', 'false').strip().lower() != 'true':
         print(dumps({'status': 'disabled'}))
@@ -31,7 +32,7 @@ def main():
             identifiers = (load_staged_identifiers(db, args.identifier_manifest) if args.staged_identifiers
                            else load_identifier_manifest(args.identifier_manifest))
             result = publish_13f_batch(db, identifier_documents=identifiers,
-                limit=args.limit, retry_waiting=args.retry_waiting)
+                limit=args.limit, retry_waiting=args.retry_waiting, use_staged_references=args.staged_references)
     except (FeedSourceMismatch, FeedWriterBusy) as exc:
         print(dumps({'status': 'skipped', 'reason': type(exc).__name__}))
         return

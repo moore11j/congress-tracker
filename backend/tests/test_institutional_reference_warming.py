@@ -118,3 +118,19 @@ def test_new_sources_wait_for_bounded_plan_refresh_and_truncation_is_explicit(se
     with factory() as db:
         plan=job.plan_scopes(db,clock[0],{})
         assert plan['universe_truncated'] is True
+
+
+def test_verified_identities_leave_queue_on_refresh_so_bounded_scope_can_advance(setup,monkeypatch):
+    factory,clock,calls=setup
+    seed(factory,cusips=('000361105','000361106','000361107'))
+    monkeypatch.setattr(job,'MAX_SCOPES',1)
+    assert job.run()['completed_scopes']==1
+    clock[0]+=timedelta(minutes=16)
+    assert job.run()['completed_scopes']==1
+    clock[0]+=timedelta(minutes=16)
+    assert job.run()['completed_scopes']==1
+    assert {r['cusip'] for r in calls}=={'000361105','000361106','000361107'}
+    clock[0]+=timedelta(minutes=16)
+    result=job.run()
+    assert result['pending_scopes']==0 and result['completed_scopes']==0
+    assert result['universe_truncated'] is False
