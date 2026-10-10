@@ -150,3 +150,53 @@ def test_literal_adjacent_periods_in_official_filename_are_not_path_traversal(fi
 def test_path_segments_and_encoded_traversal_remain_rejected(filename):
     data=source();data['filings']['recent']['primaryDocument'][0]=filename
     with pytest.raises(ValueError):parse(data)
+
+
+def test_verified_directory_absence_is_persisted_and_public_without_retry(selected, monkeypatch):
+    monkeypatch.setattr(fundamentals, 'company_directory', lambda day: {})
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda *a: pytest.fail('Absent issuer must not fetch'))
+    first = news.get_sec_filings(symbol='ABC')
+    assert first['status'] == 'unavailable' and first['reason'] == 'symbol_absent_from_sec_directory'
+    with selected() as db:
+        row = db.query(TickerContentCache).one()
+        assert row.status == 'unavailable' and row.item_count == 0
+        assert row.content_type == 'sec_company_filings'
+    news.clear_news_cache()
+    monkeypatch.setattr(news, 'get_request_context', lambda: {'path': '/api/tickers/ABC/sec-filings'})
+    monkeypatch.setattr(news, '_enqueue_news_refresh', lambda **kw: pytest.fail('Fresh absence queued again'))
+    monkeypatch.setattr(fundamentals, 'company_directory', lambda day: pytest.fail('Public directory lookup'))
+    public = news.get_sec_filings(symbol='ABC', page=2)
+    assert public['status'] == 'unavailable' and public['items'] == []
+    assert public['provider'] == first['provider'] and public['page'] == 2
+
+
+def test_directory_absence_expires_and_can_recover(selected, monkeypatch):
+    monkeypatch.setattr(fundamentals, 'company_directory', lambda day: {})
+    assert news.get_sec_filings(symbol='ABC')['status'] == 'unavailable'
+    with selected() as db:
+        db.query(TickerContentCache).one().fetched_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        db.commit()
+    news.clear_news_cache()
+    monkeypatch.setattr(fundamentals, 'company_directory', lambda day: {'ABC': {'cik': '0000000001'}})
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda *a: json.dumps(source()).encode())
+    recovered = news.get_sec_filings(symbol='ABC', from_date='2026-10-01', to_date='2026-10-08')
+    assert recovered['status'] == 'ok' and len(recovered['items']) == 2
+    with selected() as db:
+        assert db.query(TickerContentCache).one().status == 'ok'
+
+
+def test_verified_empty_source_is_cached_but_transport_failure_is_not(selected, monkeypatch):
+    def deny(*a): raise RuntimeError('transient transport failure')
+    monkeypatch.setattr(DirectSourceClient, 'get', deny)
+    assert news.get_sec_filings(symbol='ABC')['status'] == 'unavailable'
+    with selected() as db:
+        assert db.query(TickerContentCache).count() == 0
+    data = source()
+    for key in data['filings']['recent']: data['filings']['recent'][key] = []
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda *a: json.dumps(data).encode())
+    assert news.get_sec_filings(symbol='ABC')['status'] == 'empty'
+    news.clear_news_cache()
+    monkeypatch.setattr(DirectSourceClient, 'get', lambda *a: pytest.fail('Empty source fetched again'))
+    assert news.get_sec_filings(symbol='ABC')['status'] == 'empty'
+    with selected() as db:
+        assert db.query(TickerContentCache).one().status == 'empty'

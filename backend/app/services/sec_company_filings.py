@@ -98,9 +98,14 @@ def get_company_filings(*, symbol, from_date=None, to_date=None, page=0, limit=1
     try:
         issuer = company_directory(str(today)).get(symbol)
         if issuer is None:
-            raise ValueError('Symbol absent from SEC directory')
-        raw = DirectSourceClient().get(f'https://data.sec.gov/submissions/CIK{issuer["cik"]}.json')
-        payload = parse_company_filings(raw, symbol=symbol, cik=issuer['cik'])
+            payload = news._unavailable_payload(page=page, limit=limit,
+                message='This symbol is not listed in the SEC company directory.',
+                reason='symbol_absent_from_sec_directory')
+            payload.update(provider=PROVIDER, reason='symbol_absent_from_sec_directory',
+                coverage={'kind': 'recent_submissions', 'complete': False})
+        else:
+            raw = DirectSourceClient().get(f'https://data.sec.gov/submissions/CIK{issuer["cik"]}.json')
+            payload = parse_company_filings(raw, symbol=symbol, cik=issuer['cik'])
         payload['updated_at'] = datetime.now(timezone.utc).isoformat()
         # Persist the entire bounded recent list once, so later pages/windows
         # do not mistake an earlier requested page for the complete source.

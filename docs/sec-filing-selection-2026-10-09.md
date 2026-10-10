@@ -22,3 +22,10 @@ PR519/4d0a1e41 is deployed with100matching hashes on four workers. Actual04:40UT
 Original SEC submissions prove both refusals concern literal consecutive periods within official filenames, such as `cemex.s.a.b..de.c.v..txt` and `lamar.advertising.co..cl.a.txt`. The parser now rejects dot traversal segments, rather than every adjacent period anywhere in a filename. Absolute, encoded or unsafe path characters remain rejected. Twenty-seven focused checks pass, including traversal rejection. Actual payload replay accepts1000CX/1001LAMRfilings with unchanged source hashes, dates and accession identities. Both still need refreshed production caches after release.
 
 Source hashes: CX`3bd8261d0cec70695ef68c865c21c8193f511eab4aa587eb999dc218db9191c0`; LAMR`4fb3a06b89ac3ee110ebaa79de999a56bd64c3822d1e75a97dca0618d3ac469b`. Receipts: filing-scope-preparation-0444.json, filing-absence-probe.json and filing-filename-replay.json in the current ignored evidence folder. No canonical writes, emails or source activation.
+
+
+## Verified empty and absent sources, October 9 Pacific
+
+The live 54-symbol preparation found three SEC-directory absences in addition to 49 prepared lists and two official filename cases corrected by PR522. The isolated SEC filing cache now persists verified directory absence and verified empty submission lists for one hour, preserving unavailable versus empty status during pagination. Public requests return that coverage without repeatedly queuing work. Transient source failures are not persisted as directory absence, and an expired absence can recover to a valid list. The metadata warmer attempts explicit filing coverage for a verified directory absence but stops on transport refusal.
+
+Forty focused checks pass on Python 3.14.2. The existing admin debug test still expects one price point but receives zero; the same failure was reproduced against unchanged source in the preceding filing release. There is no full-suite claim. Public filing selection remains FMP until deployment and live coverage verification. No canonical events, emails, purchases or price-provider changes.
