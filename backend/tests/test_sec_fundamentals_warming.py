@@ -173,3 +173,32 @@ def test_issuer_revision_refreshes_only_changed_priority_before_universe(factory
         state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
         assert state['attempted_versions']['ABC']==sec_fundamentals_preparation.VERSION
         assert state['attempted_versions']['XOM']==sec_fundamentals_preparation.version_for_symbol('XOM')
+
+
+def test_metrics_are_bounded_fair_daily_and_stop_on_shared_quota(factory,monkeypatch):
+    from app.services import finnhub_metrics
+    from app.services.finnhub_research import FinnhubUnavailable
+    from datetime import datetime,timezone
+    now=datetime.now(timezone.utc)
+    monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','DEF','XYZ'])
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    calls=[]
+    def prepare(s):
+        calls.append(s)
+        return {'status':'partial','values':{'roe':25}}
+    monkeypatch.setattr(finnhub_metrics,'prepare',prepare)
+    assert len(job.run()['metric_results'])==2 and calls==['ABC','DEF']
+    assert len(job.run()['metric_results'])==1 and calls==['ABC','DEF','XYZ']
+    assert job.run()['metric_results']==[]
+    with factory() as db:
+        row=db.get(InsightsSnapshot,job.KEY);state=json.loads(row.payload_json)
+        state['metric_attempted_at']={};row.payload_json=json.dumps(state);db.commit()
+    def deny(s):
+        calls.append(s)
+        raise FinnhubUnavailable('request_budget_exhausted')
+    calls.clear();monkeypatch.setattr(finnhub_metrics,'prepare',deny)
+    result=job.run()
+    assert len(calls)==1 and result['status']=='partial'
+    with factory() as db:
+        assert json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']=={}

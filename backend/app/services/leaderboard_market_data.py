@@ -34,7 +34,7 @@ def enrich_leaderboard_market_data(db, candidates: list[dict], *, now: datetime)
     """
     if not candidates:
         return
-    if selected_fundamentals_provider() == 'sec_edgar':
+    if selected_fundamentals_provider() in {'sec_edgar', 'free_direct'}:
         _use_verified_selected_market_data(db, candidates, now=now)
         return
     by_symbol = {row['symbol']: row for row in candidates}
@@ -118,7 +118,7 @@ def _use_verified_selected_market_data(db, candidates, *, now):
     """Selected fundamentals refresh owns acquisition and its price provenance."""
     symbols = [row['symbol'] for row in candidates]
     cached = {row.symbol: row for row in db.scalars(select(FundamentalsCache).where(
-        FundamentalsCache.provider == 'sec_edgar', FundamentalsCache.status == 'ok',
+        FundamentalsCache.provider == selected_fundamentals_provider(), FundamentalsCache.status == 'ok',
         FundamentalsCache.symbol.in_(symbols)))}
     now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
     for row in candidates:

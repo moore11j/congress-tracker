@@ -14,7 +14,7 @@ from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapsh
 from app.services.confirmation_monitoring import refresh_watchlist_confirmation_monitoring
 
 
-@pytest.mark.parametrize('provider,suffix', [('fmp',''), ('sec_edgar','_sec_fundamentals_v1')])
+@pytest.mark.parametrize('provider,suffix', [('fmp',''), ('sec_edgar','_sec_fundamentals_v1'), ('free_direct','_free_fundamentals_v1')])
 @pytest.mark.parametrize('retired', [False, True])
 def test_fresh_workers_share_provider_version(provider, suffix, retired):
     env = {**os.environ, 'DATABASE_URL': 'sqlite:///:memory:', 'FUNDAMENTALS_PROVIDER': provider,
@@ -30,7 +30,7 @@ def test_fresh_workers_share_provider_version(provider, suffix, retired):
                         'confirmation_score_v9_macro_freshness'+suffix, 'confirmation_direction_v10_macro_freshness'+suffix]
 
 
-@pytest.mark.parametrize('suffix', ['_sec_fundamentals_v1', '_sec_fundamentals_v1_fmp_retired_v1'])
+@pytest.mark.parametrize('suffix', ['_sec_fundamentals_v1', '_sec_fundamentals_v1_fmp_retired_v1', '_free_fundamentals_v1', '_free_fundamentals_v1_fmp_retired_v1'])
 def test_sec_coverage_transition_preserves_history_and_does_not_alert(monkeypatch, suffix):
     before_version = 'confirmation_direction_v10_macro_freshness'
     after_version = before_version + suffix
