@@ -3305,10 +3305,18 @@ def _government_contract_action_event_id_select():
 
 
 def _government_contract_action_events_only_clause():
-    action_event_ids = _government_contract_action_event_id_select()
+    # A global IN/EXISTS subquery can hash every action before the first feed row.
+    # A bounded correlated scalar probe uses the event_id index for each candidate.
+    action_match = (
+        select(GovernmentContractAction.event_id)
+        .where(GovernmentContractAction.event_id == Event.id)
+        .correlate(Event)
+        .limit(1)
+        .scalar_subquery()
+    )
     return or_(
         Event.event_type.notin_(GOVERNMENT_CONTRACT_EVENT_TYPES),
-        Event.id.in_(action_event_ids),
+        action_match.is_not(None),
     )
 
 
