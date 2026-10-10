@@ -123,3 +123,19 @@ def test_failed_filing_preparation_is_reported_partial(factory, monkeypatch):
     assert result['status']=='partial'
     assert result['results'][0]['filings_status']=='unavailable'
     assert result['canonical_writes']==result['emails']==0
+
+
+@pytest.mark.parametrize('reason,expected', [('symbol_absent_from_sec_directory', ['ABC']), ('Source HTTP 403: source', [])])
+def test_absent_directory_prepares_explicit_filing_coverage_but_denial_does_not(factory, monkeypatch, reason, expected):
+    from app.services import sec_company_filings
+    monkeypatch.setenv('SEC_FILINGS_WARMING_ENABLED', '1')
+    def absent(symbol): raise DirectSourceError(reason)
+    monkeypatch.setattr(sec_directory, 'symbol_metadata', absent)
+    seen = []
+    def prepare(**kw):
+        seen.append(kw['symbol'])
+        return {'status': 'unavailable', 'provider': 'sec_edgar_submissions'}
+    monkeypatch.setattr(sec_company_filings, 'get_company_filings', prepare)
+    result = job.run()
+    assert seen == expected and result['status'] == 'partial'
+    assert result['results'][0]['status'] == 'unavailable'

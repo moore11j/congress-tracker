@@ -136,7 +136,7 @@ def paginate_ticker_content_payload(
         "limit": bounded_limit,
         "has_next": len(window) > bounded_limit,
         "item_count": len(page_items),
-        "status": "ok" if page_items else "empty",
+        "status": "ok" if page_items else ("unavailable" if payload.get("status") == "unavailable" else "empty"),
         "cache_status": "stale" if stale else "hit",
     }
     if stale:
@@ -165,12 +165,15 @@ def db_ticker_content_cache_get(
     own_session = session is None
     db = session or SessionLocal()
     try:
+        # Only the isolated SEC filing cache supports verified empty/absent sources.
+        valid_rows = (TickerContentCache.status == "ok") & (TickerContentCache.item_count > 0)
+        if content_type == "sec_company_filings":
+            valid_rows = TickerContentCache.status.in_(["ok", "empty", "unavailable"])
         row = db.execute(
             select(TickerContentCache)
             .where(TickerContentCache.content_type == content_type)
             .where(func.upper(TickerContentCache.symbol) == normalized)
-            .where(TickerContentCache.status == "ok")
-            .where(TickerContentCache.item_count > 0)
+            .where(valid_rows)
             .order_by(TickerContentCache.fetched_at.desc(), TickerContentCache.id.desc())
             .limit(1)
         ).scalar_one_or_none()
@@ -224,7 +227,13 @@ def db_ticker_content_cache_set(
     items = payload.get("items")
     item_count = len(items) if isinstance(items, list) else int(payload.get("item_count") or 0)
     status = str(payload.get("status") or "")
-    if status != "ok" or item_count <= 0:
+    verified_sec_empty = (
+        content_type == "sec_company_filings" and source == "sec_edgar"
+        and payload.get("provider") == "sec_edgar_submissions" and items == []
+        and (status == "empty" or (status == "unavailable"
+             and payload.get("reason") == "symbol_absent_from_sec_directory"))
+    )
+    if not verified_sec_empty and (status != "ok" or item_count <= 0):
         return
     own_session = session is None
     db = session or SessionLocal()
@@ -234,7 +243,7 @@ def db_ticker_content_cache_set(
         **payload,
         "items": items,
         "item_count": item_count,
-        "status": "ok",
+        "status": status,
         "updated_at": payload.get("updated_at") or now.isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
     try:
@@ -253,7 +262,7 @@ def db_ticker_content_cache_set(
                     symbol=normalized,
                     window_key=window_key or "latest",
                     cache_key=cache_key_value,
-                    status="ok",
+                    status=status,
                     item_count=item_count,
                     payload_json=payload_json,
                     source=source,
@@ -262,7 +271,7 @@ def db_ticker_content_cache_set(
             )
         else:
             row.cache_key = cache_key_value
-            row.status = "ok"
+            row.status = status
             row.item_count = item_count
             row.payload_json = payload_json
             row.source = source

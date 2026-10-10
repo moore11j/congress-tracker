@@ -54,20 +54,27 @@ def _run_locked():
             result = {'scope': symbol, 'status': 'ok', 'source': sec_directory.SOURCE,
                       'has_name': bool(name), 'has_exchange': bool(exchange),
                       'has_sic_industry': bool(industry)}
-            if os.getenv('SEC_FILINGS_WARMING_ENABLED', '0') == '1':
-                from app.services.sec_company_filings import get_company_filings
-                filing_list = get_company_filings(symbol=symbol)
-                result['filings_status'] = filing_list.get('status')
-                result['filings_provider'] = filing_list.get('provider')
-                result['filings_source_count'] = (filing_list.get('coverage') or {}).get('source_row_count')
-                if filing_list.get('status') not in {'ok', 'empty'}:
-                    result['status'] = 'partial'
 
         except Exception as exc:
             result = {'scope': symbol, 'status': 'unavailable', 'reason': type(exc).__name__}
             if isinstance(exc, DirectSourceError):
                 # This transport accepts only fixed public SEC hosts; no credentials.
                 result['reason'] = str(exc)[:300]
+        if (os.getenv('SEC_FILINGS_WARMING_ENABLED', '0') == '1'
+                and (result['status'] == 'ok' or result.get('reason') == 'symbol_absent_from_sec_directory')):
+            try:
+                from app.services.sec_company_filings import get_company_filings
+                filing_list = get_company_filings(symbol=symbol)
+                result['filings_status'] = filing_list.get('status')
+                result['filings_provider'] = filing_list.get('provider')
+                result['filings_source_count'] = (filing_list.get('coverage') or {}).get('source_row_count')
+                if result['status'] == 'ok' and filing_list.get('status') not in {'ok', 'empty'}:
+                    result['status'] = 'partial'
+            except Exception as exc:
+                result['filings_status'] = 'unavailable'
+                result['filings_reason'] = type(exc).__name__
+                if result['status'] == 'ok':
+                    result['status'] = 'partial'
         results.append(result)
         attempts[symbol] = now.isoformat()
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
