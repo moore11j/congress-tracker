@@ -89,7 +89,8 @@ type ApiRequestInit = RequestInit & {
 export const PUBLIC_STALE_PAGE_REVALIDATE_SECONDS = 60 * 60 * 24;
 // Keep Vercel's long-lived anonymous ticker-page fetch cache aligned with the
 // backend Context payload contract. Bump this alongside bundle fields.
-const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 12;
+// Version both SSR paths when selected provider semantics change. Next data caches survive deployments.
+const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 13;
 
 // Source corrections must not remain in anonymous member pages for a day.
 // Version the request to retire caches created before the direct-feed cutover.
@@ -6804,7 +6805,9 @@ export async function getCongressTraderLeaderboard(params?: {
 }
 
 export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal; stalePageCache?: boolean }): Promise<TickerProfile> {
-  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}`);
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}`, {
+    context_version: TICKER_CONTEXT_BUNDLE_CACHE_VERSION,
+  });
   if (typeof window === "undefined" && !options?.signal) {
     return serverCachedJson(
       `ticker-profile:${url}`,
