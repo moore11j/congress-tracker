@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
+import json
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -163,3 +164,44 @@ def test_congress_member_resolver_replays_only_publicly_ingested_post_activation
         assert resolution.candidates[0].qualification_snapshot["memberBioguideId"] == "F000110"
     finally:
         db.close()
+
+
+@pytest.mark.parametrize('new_score,new_direction', [(40,'bullish'),(90,'bearish')])
+def test_latest_visible_nonqualifying_score_cannot_fall_back_to_prior_buy(new_score,new_direction):
+    sessions=_session()
+    with sessions() as db:
+        version=_version(db,'{"candidate_source":"confirmation_score_snapshots","min_score":70,"min_active_sources":2}')
+        security=Security(symbol='NOW',name='Now',asset_class='stock');db.add(security);db.flush()
+        day=date(2026,8,10);at=datetime(2026,8,10,14,tzinfo=timezone.utc)
+        _snapshot(db,security,snapshot_id=1,symbol='NOW',score=80,sources=3,market_date=day,calculated_at=at)
+        _snapshot(db,security,snapshot_id=2,symbol='NOW',score=new_score,sources=3,market_date=day,calculated_at=at+timedelta(minutes=10))
+        next(row for row in db.new if isinstance(row,ConfirmationScoreSnapshot) and row.id==2).direction=new_direction
+        db.add(OutcomeEntry(snapshot_id=1,security_id=security.id,ticker_at_time='NOW',entry_key='previous-qualifying',qualifying_event_at=at,evidence_cutoff_at=at,entry_session_date=day,entry_price=100,entry_price_at=at,entry_price_source='fixture',adjustment_type='split_adjusted_price_return',benchmark_entry_price=100,benchmark_entry_price_at=at,benchmark_price_source='fixture',methodology_version='test',audit_version='test'))
+        db.commit()
+        result=resolve_strategy_candidates(db,strategy_version_id=version.id,evaluation_date=day,available_at=at+timedelta(hours=1))
+        assert result.candidates==[]
+
+
+def test_required_methodology_holds_until_new_visible_snapshot_and_preserves_history():
+    from app.models import ConfirmationMethodologyVersion
+    from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION
+    sessions=_session()
+    with sessions() as db:
+        version=_version(db,'{"candidate_source":"confirmation_score_snapshots","min_score":70,"min_active_sources":2}')
+        sec=Security(symbol='NEW',name='New',asset_class='stock');db.add(sec);db.flush()
+        at=datetime(2026,8,10,14,tzinfo=timezone.utc);day=at.date()
+        method=ConfirmationMethodologyVersion(id=2,version='prepared-source',description='Prepared',configuration_json=json.dumps({'scoring_version':CONFIRMATION_SCORING_VERSION}),deployed_at=at,is_current=True)
+        db.add(method)
+        _snapshot(db,sec,snapshot_id=1,symbol='NEW',score=95,sources=3,market_date=day,calculated_at=at)
+        db.commit()
+        args=dict(strategy_version_id=version.id,evaluation_date=day,available_at=at+timedelta(hours=1),required_methodology_version='prepared-source')
+        with pytest.raises(ValueError,match='snapshots are not prepared'):
+            resolve_strategy_candidates(db,**args)
+        _snapshot(db,sec,snapshot_id=2,symbol='NEW',score=75,sources=3,market_date=day,calculated_at=at+timedelta(minutes=10))
+        next(row for row in db.new if isinstance(row,ConfirmationScoreSnapshot)).methodology_version_id=2
+        db.add(OutcomeEntry(snapshot_id=2,security_id=sec.id,ticker_at_time='NEW',entry_key='prepared-current',qualifying_event_at=at+timedelta(minutes=10),evidence_cutoff_at=at+timedelta(minutes=10),entry_session_date=day,entry_price=100,entry_price_at=at+timedelta(minutes=20),entry_price_source='fixture',adjustment_type='split_adjusted_price_return',benchmark_entry_price=100,benchmark_entry_price_at=at+timedelta(minutes=20),benchmark_price_source='fixture',methodology_version='test',audit_version='test'))
+        db.commit()
+        result=resolve_strategy_candidates(db,**args)
+        assert len(result.candidates)==1 and result.candidates[0].score==75
+        assert result.candidates[0].qualification_snapshot['methodologyVersionId']==2
+        assert db.get(ConfirmationScoreSnapshot,1).score==95

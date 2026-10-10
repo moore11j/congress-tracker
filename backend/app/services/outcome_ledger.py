@@ -57,6 +57,14 @@ OUTCOMES_LEDGER_STALE_REFERENCE_PRICE_KEY = "outcome_ledger_stale_reference_pric
 OUTCOMES_LEDGER_MISSING_SECURITY_KEY = "outcome_ledger_missing_security_ids"
 OUTCOMES_LEDGER_MISSING_SOURCE_PAYLOAD_KEY = "outcome_ledger_missing_source_contribution_payloads"
 CURRENT_CONFIRMATION_METHODOLOGY_VERSION = "confirmation-v8-agreement-coverage"
+# Keep recorded histories distinct across provider coverage changes.
+from app.services.replacement_analysts import selected as replacement_analysts_selected
+from app.services.provider_usage import fmp_provider_disabled
+if replacement_analysts_selected():
+    CURRENT_CONFIRMATION_METHODOLOGY_VERSION += "_analyst_display_only_v1"
+if fmp_provider_disabled():
+    CURRENT_CONFIRMATION_METHODOLOGY_VERSION += "_fmp_retired_v1"
+
 OUTCOME_HORIZONS = (7, 30, 90, 180, 365)
 PriceRowsBySymbol = dict[str, list[PriceCache]]
 OutcomeEntriesBySnapshot = dict[int, OutcomeEntry]
@@ -763,6 +771,9 @@ def capture_live_confirmation_score_snapshot(
         return None
     normalized_symbol = (symbol or "").strip().upper()
     if not normalized_symbol or not isinstance(bundle, dict):
+        return None
+    if (replacement_analysts_selected() or fmp_provider_disabled()) and bundle.get("scoring_version") != CONFIRMATION_SCORING_VERSION:
+        # Never attach an old cached score to the new provider methodology.
         return None
     if not outcome_ledger_enabled(db):
         return None
