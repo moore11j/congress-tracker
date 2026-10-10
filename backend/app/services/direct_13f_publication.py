@@ -69,16 +69,9 @@ def _derived_state(db, filing, publish_since):
     if any(p.cusip in prior_symbols and prior_symbols[p.cusip] != p.normalized_symbol
            for p in _positions(db, filing) if not p.put_call):
         return 'waiting_symbol_transition', prior
-    # A changed CUSIP for the same symbol may be a reorganization rather than
-    # a sale followed by a purchase. Require explicit corporate-action treatment.
-    def identities(rows):
-        result = {}
-        for position in rows:
-            if not position.put_call:
-                result.setdefault(position.normalized_symbol, set()).add(position.cusip)
-        return result
-    before, after = identities(_positions(db, prior)), identities(_positions(db, filing))
-    if any(before[symbol] != after[symbol] for symbol in before.keys() & after.keys()):
+    from app.services.institutional_security_transitions import filing_comparison_plan
+    plan = filing_comparison_plan(filing, _positions(db, prior), _positions(db, filing))
+    if plan['status'] != 'ready':
         return 'waiting_security_transition', prior
     return 'ready', prior
 
@@ -140,6 +133,10 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             if (state != 'ready' or proof.get('prior_filing_id') != prior.id
                     or proof.get('prior_positions_sha256') != _positions_digest(db, prior)):
                 return held('Derived prior-quarter state changed; reconciliation required')
+            from app.services.institutional_security_transitions import filing_comparison_plan
+            plan = filing_comparison_plan(filing, _positions(db, prior), _positions(db, filing))
+            if proof.get('security_transition_evidence', []) != plan['evidence']:
+                return held('Published security continuity changed; reconciliation required')
             return {'status': 'existing', 'inserted_filings': 0, 'inserted_positions': 0,
                     'feed_events': 0, 'derived_state': 'published', 'production_writes': 0}
     else:
@@ -271,6 +268,11 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
         filing.raw_metadata_json = dumps(meta)
         metrics = {'changes': 0, 'summaries': 0, 'activity_events': 0, 'feed_events': 0}
         if state == 'ready':
+            from app.services.institutional_security_transitions import filing_comparison_plan
+            plan = filing_comparison_plan(filing, _positions(db, prior), _positions(db, filing))
+            if plan['evidence']:
+                meta[RECEIPT_KEY]['security_transition_evidence'] = plan['evidence']
+                filing.raw_metadata_json = dumps(meta)
             before_events = set(db.scalars(select(Event.id)))
             metrics = activity.process_filing_changes_and_events(db, filing, holder_only=True)
             db.flush()
@@ -289,6 +291,8 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
                 reference_sources = [*_receipt(prior).get('reference_evidence', []), *meta[RECEIPT_KEY].get('reference_evidence', [])]
                 if reference_sources:
                     payload['identifier_reference_evidence'] = reference_sources
+                if plan['evidence']:
+                    payload['security_transition_evidence'] = plan['evidence']
                 event.ts = published_at
                 payload['source_availability'] = {'date': published_at.date().isoformat(),
                     'basis': 'direct_publication', 'observed_at': published_at.isoformat()}

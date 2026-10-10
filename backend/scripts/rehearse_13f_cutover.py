@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--references',type=Path,help='Captured query-bound reference documents; no provider calls')
     parser.add_argument('--prepared-evidence',action='store_true')
+    parser.add_argument('--accession',action='append',default=[],help='Explicit current accession subset; original baseline and all peer evidence remain intact')
     args=parser.parse_args()
     root=args.evidence_root or Path(__file__).resolve().parents[2]/'artifacts/direct-feeds'
     assert all(p.resolve().is_relative_to(root.resolve()) for p in (args.baseline,args.priors,args.identifiers,args.output,args.mapping_parents,args.mapping_supplement,args.references) if p is not None)
@@ -82,6 +83,11 @@ def main():
             raw=path.read_bytes();assert hashlib.sha256(raw).hexdigest()==source['content_hash']
             assert hashlib.sha256(history.read_bytes()).hexdigest()==source['history_sha256']
             priors.append({**source,'raw':raw})
+    if args.accession:
+        by_id={row['id']:row for row in baseline['documents']}
+        requested=set(args.accession)
+        priors=[p for p in priors if by_id[p['current_document_id']]['metadata']['key'] in requested]
+        assert len(priors)==len(requested), 'Requested comparison not present in captured complete pairs'
     assert 1<=len(priors)<=200
     selected_ids={r['current_document_id'] for r in priors}
     current=[];comparisons=[]
@@ -202,6 +208,30 @@ def main():
                 assert all(b.items_count>0 for b in builds), [(b.template_key,b.items_count) for b in builds]
                 return [dict(items=b.items_count,template=b.template_key,context=b.context) for b in builds]
             previews=preview()
+        continuity_checks=[]
+        for filing in db.scalars(select(InstitutionalFiling)):
+            proof=json.loads(filing.raw_metadata_json or '{}').get('_walnut_direct_13f',{})
+            for action in proof.get('security_transition_evidence',[]):
+                prior=db.get(InstitutionalFiling,proof['prior_filing_id'])
+                old_source=unique_documents[prior.accession_number]
+                new_source=unique_documents[filing.accession_number]
+                old_rows=parse_document('sec_13f',old_source['raw'],old_source['metadata'])[1]['positions']
+                new_rows=parse_document('sec_13f',new_source['raw'],new_source['metadata'])[1]['positions']
+                old_shares=sum(float(r['shares']) for r in old_rows if r['cusip']==action['old_cusip'] and not r.get('putCall'))
+                new_shares=sum(float(r['shares']) for r in new_rows if r['cusip']==action['new_cusip'] and not r.get('putCall'))
+                change=db.scalar(select(InstitutionalPositionChange).where(
+                    InstitutionalPositionChange.cik==filing.cik,
+                    InstitutionalPositionChange.report_year==filing.report_year,
+                    InstitutionalPositionChange.report_quarter==filing.report_quarter,
+                    InstitutionalPositionChange.normalized_symbol==action['symbol']))
+                assert change is not None and old_shares>0 and new_shares>0
+                assert change.prev_shares==old_shares and change.curr_shares==new_shares
+                assert change.shares_delta==new_shares-old_shares and change.change_type not in {'new_position','exit'}
+                continuity_checks.append(dict(accession=filing.accession_number,symbol=action['symbol'],
+                    old_cusip=action['old_cusip'],new_cusip=action['new_cusip'],
+                    original_prior_shares=old_shares,original_current_shares=new_shares,
+                    change_type=change.change_type,shares_delta=change.shares_delta,
+                    evidence_observed_at=action['observed_at']))
         def fingerprint():
             digest=hashlib.sha256()
             for table in Base.metadata.sorted_tables:
@@ -215,7 +245,7 @@ def main():
             for event in events:assert not _ensure_alert_for_event(db,user_id=user.id,watchlist=watchlist,event=event)
             assert preview()==previews and fingerprint()==before
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
-        report=dict(baseline_sha256=baseline_hash,baseline_captured_at=baseline['captured_at'],source_documents=len(documents),
+        report=dict(continuity_checks=continuity_checks,selected_accessions=sorted(set(args.accession)),baseline_sha256=baseline_hash,baseline_captured_at=baseline['captured_at'],source_documents=len(documents),
             mapping_supplement_sha256=hashlib.sha256(args.mapping_supplement.read_bytes()).hexdigest() if args.mapping_supplement else None,
             reference_documents=len(references),comparison_periods=sorted(target_periods),comparison_documents=len(comparisons),excluded_other_period_comparisons=comparison_count_before-len(comparisons),prepared_evidence=args.prepared_evidence,staged_prior_pairs=len(priors) if args.staged_priors else None,staged_excluded_pairs=staged_excluded_pairs,elapsed_seconds=round(time.monotonic()-started,2),
             statuses=dict(Counter(r['status'] for r in first)),derived_states=dict(Counter(r.get('derived_state',r['status']) for r in first)),
