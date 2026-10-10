@@ -15,3 +15,6 @@ Seventy-five focused Python3.14.2 checks pass across news normalization, safe me
 A bounded live probe of six currently displayed article URLs retrieves four publisher thumbnails from CNBC. Two Google News redirect-wrapper links expose no usable metadata and remain without images. This is four successful current-page extractions, not a promise of complete publisher coverage. Receipt: artifacts/direct-feeds/free-replacements-2026-10-09/thumbnail-live-probe.json. The probe makes no database writes or emails.
 
 Release, actual scheduled preparation, API/browser image rendering and post-release Treasury request observation remain next. No purchase, customer test email, price switch or FMP shutdown.
+
+
+The first actual 04:40UTC warmer prepares eight URLs and finds five images without event/email writes. Its unordered database query served a secondary feed first, leaving the main headline list unchanged. The follow-up explicitly prioritizes general headlines, then crypto and forex, with a regression proving one-request budget goes to the main feed. The same eight-request/time limits remain. PR520/819cfcae itself is deployed:120source hashes match all four workers and both frontend hosts report the same release.
