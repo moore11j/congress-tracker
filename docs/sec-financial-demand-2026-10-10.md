@@ -15,3 +15,17 @@ The final actual-source replay prepares XOM from a queued request with no watche
 Initial34financial/demand checks pass on Python3.14.2; final expanded financial, metadata, earnings, institutional-prior/reference and collector-schedule group passes106checks (overlapping the initial group). No full-suite claim. Local evidence: financial-demand-postgres-result.json and original XOM manifests.
 
 Release and ordinary scheduled demand/public-reader verification remain pending. CoreFMP, institutional/transcript gates, remaining source coverage, consumer windows and finalMassive remain unchanged.
+
+
+## Approved release
+
+PR547 merged as a365d3c666fd44fe9a67327d194da05ac9af7e54; workflow38092703846 dispatched. Secret scan passes; unchanged dependency audits still fail in Next.js-related packages and Pillow10.4.0. No admin bypass or full-CI-pass claim. Runtime and ordinary scheduled demand verification remain pending until the workflow completes.
+
+
+## Final deployed and scheduled verification,22:49 UTC
+
+PR546/a4989c00 and follow-up PR547/a365d3c6 are deployed; workflows38091993340/38092703846 succeed. Eight exact source/job/proof hashes match. The ordinary22:49 SEC run now picks up XOM's queued demand, prepares6annual/12quarterly rows and30.553bn trailing free cash flow, with zero canonical writes/emails in the receipt. The original queue identity remains queued for its later general-worker cache hit, without duplicate source publication.
+
+Backend and app.walnutmarkets.com each return the same complete retained response subset twice: source sec_edgar,6annual/12quarterly, expected cash flow, fingerprint0949ce79b222afee724f4135be5f0ac4d25d1ecbc4a9770fc1ff10a1563ad055. Four200responses take0.456–0.540seconds. Unsupported forecast, market-ratio and other financial fields remain explicit; partial status does not claim universal metric coverage. Receipts continuity-runtime-1791672563.json and continuity-public-final-1791672583.json preserve evidence.
+
+Final two-service receipt1791672533 verifies imagea365d3c6/seven operational hashes,1556MB available and empty queues before the due run. Feed0.55–0.79s, profile0.48s and new AAPL/NVDA contexts1.62/1.02s, all200. No further capacity or provider selection change. XOM's separate current-ratio preparation cache has not yet rotated; core remains defaultFMP. NEE direct-filing fallback, other source/consumer coverage and finalMassive remain open. No new subscriptions, customer test email or FMP cancellation.
