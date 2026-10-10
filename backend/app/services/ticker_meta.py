@@ -213,6 +213,13 @@ def _fmp_search_cik(cik: str, api_key: str) -> str | None:
 
 
 def debug_stable_search_row(symbol: str) -> dict[str, str | None] | None:
+    from app.services import sec_directory
+    if sec_directory.selected():
+        return {'error': 'fmp_identity_not_selected'}
+    try:
+        ensure_fmp_live_allowed(category='ticker_meta:diagnostic', symbol=symbol)
+    except ProviderUnavailable as exc:
+        return {'error': reason_from_exception(exc)}
     api_key = _fmp_api_key()
     if not api_key:
         return {"error": "missing_api_key"}
@@ -387,6 +394,18 @@ def get_ticker_meta(
         if not normalized:
             return {}
 
+        from app.services import sec_directory, sec_metadata
+        if sec_directory.selected():
+            if allow_refresh and not _is_public_request_context():
+                _release_read_transaction(db, reason='sec_identity_refresh')
+                for symbol in normalized:
+                    try:
+                        sec_directory.symbol_metadata(symbol)
+                    except Exception:
+                        logger.info('SEC identity unavailable symbol=%s', symbol)
+            return sec_metadata.ticker_metadata(db, normalized,
+                enqueue=enqueue_refresh and _is_public_request_context())
+
         existing_rows = db.query(TickerMeta).filter(TickerMeta.symbol.in_(normalized)).all()
         by_symbol = {row.symbol: row for row in existing_rows}
 
@@ -527,6 +546,18 @@ def get_cik_meta(
         normalized = sorted({cik for raw in ciks for cik in [normalize_cik(raw)] if cik})
         if not normalized:
             return {}
+
+        from app.services import sec_directory, sec_metadata
+        if sec_directory.selected():
+            if allow_refresh and not _is_public_request_context():
+                _release_read_transaction(db, reason='sec_cik_identity_refresh')
+                for cik in normalized:
+                    try:
+                        sec_directory.company(cik)
+                    except Exception:
+                        logger.info('SEC CIK identity unavailable cik=%s', cik)
+            return sec_metadata.cik_metadata(db, normalized,
+                enqueue=enqueue_refresh and _is_public_request_context())
 
         existing_rows = db.query(CikMeta).filter(CikMeta.cik.in_(normalized)).all()
         by_cik = {row.cik: row for row in existing_rows}

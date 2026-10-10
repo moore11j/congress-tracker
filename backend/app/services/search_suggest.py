@@ -285,6 +285,16 @@ def _exact_ticker_suggestion(db: Session, query: str, personalization: SearchPer
     if not variants:
         return None
 
+    from app.services import sec_directory, sec_metadata
+    if sec_directory.selected():
+        directory, _ = sec_metadata.prepared_directory(db)
+        row = directory.get(sec_directory._symbol_key(symbol))
+        if row is None:
+            return None
+        resolved = row['symbol']
+        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved, 0.0)
+        return _ticker_item(resolved, row['name'], row['exchange'], 5000.0 + boost)
+
     metadata_rows = db.execute(
         select(TickerMeta.symbol, TickerMeta.company_name.label("metadata_name"), TickerMeta.exchange)
         .where(func.upper(TickerMeta.symbol).in_(variants))
@@ -549,6 +559,20 @@ def _candidate_clauses(query: str, symbol_col: Any, label_cols: list[Any]) -> An
 
 def _ticker_suggestions(db: Session, query: str, limit: int, personalization: SearchPersonalization | None = None) -> list[SearchSuggestItem]:
     personalization = personalization or SearchPersonalization()
+    from app.services import sec_directory, sec_metadata
+    if sec_directory.selected():
+        directory, _ = sec_metadata.prepared_directory(db)
+        names = {symbol: (row['name'],row['exchange']) for symbol,row in directory.items()}
+        for symbol, identity in _STATIC_TICKER_META.items():
+            names.setdefault(sec_directory._symbol_key(symbol), identity)
+        items = []
+        for symbol, (label, exchange) in names.items():
+            score = _score(query, symbol=symbol, label=label,
+                context_boost=personalization.symbol_boosts.get(symbol, 0.0))
+            if score > 0:
+                items.append(_ticker_item(symbol, label, exchange, score))
+        return sorted(items, key=lambda item: (-float(item.get('score') or 0),str(item.get('symbol') or '')))[:limit]
+
     boosted_symbols = sorted(personalization.symbol_boosts)
     candidate_limit = max(limit * 12, 80)
 
