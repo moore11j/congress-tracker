@@ -6,13 +6,13 @@ import uuid
 
 from sqlalchemy import func, select, text
 from app.db import SessionLocal
-from app.models import InsightsSnapshot, ResearchThesis, Security, Watchlist, WatchlistItem
+from app.models import FundamentalsCache, InsightsSnapshot, ResearchThesis, Security, Watchlist, WatchlistItem
 from app.services import sec_fundamentals_preparation
 from app.background_job_guard import check_background_job_guard
 from app.jobs.collect_direct_feeds import collector_lock
 from app.clients.direct_sources import DirectSourceError
 from app.services.finnhub_news_warming import _owner, _lease_active
-from app.utils.symbols import normalize_symbol
+from app.utils.symbols import normalize_symbol, classify_symbol
 
 KEY = 'sec-fundamentals:warming:v1'
 
@@ -37,8 +37,30 @@ def _run_locked():
         from app.services.data_enrichment_queue import _recently_viewed_ticker_symbols, DEFAULT_PREWARM_SYMBOLS
         symbols = sorted({s for raw in [*watched[:1000], *research[:1000], *_recently_viewed_ticker_symbols(db, limit=100),
             *DEFAULT_PREWARM_SYMBOLS] if (s := normalize_symbol(raw))})
+        priority_symbols = set(symbols)
+        ranked = []
+        broad = os.getenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED', '0') == '1'
+        if broad:
+            # Retained legacy cache defines migration scope, not new FMP requests.
+            ranked = list(db.scalars(select(FundamentalsCache.symbol).where(
+                FundamentalsCache.provider == 'fmp', FundamentalsCache.status == 'ok')
+                .distinct().order_by(FundamentalsCache.symbol).limit(5001)))
+            symbols = sorted(set(symbols) | {symbol for raw in ranked[:5000]
+                if (symbol := normalize_symbol(raw)) and classify_symbol(symbol)[0] == 'eligible'})
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
-        symbols.sort(key=lambda s: (attempts.get(s, ''), s))
+        def due_priority(symbol):
+            if not broad or symbol not in priority_symbols:
+                return False
+            try:
+                last = datetime.fromisoformat(attempts[symbol])
+                return not timedelta(0) <= now-last < timedelta(hours=20)
+            except (KeyError, ValueError, TypeError):
+                return True
+        symbols.sort(key=lambda s: (0 if due_priority(s) else 1, attempts.get(s, ''), s))
+        batch_limit = 5
+        if broad:
+            batch_limit = max(1, min(10, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
+        truncated = len(watched)>1000 or len(research)>1000 or len(ranked)>5000
         token = uuid.uuid4().hex
         if row is None:
             row = InsightsSnapshot(kind=KEY, source='free_direct', fetched_at=now, payload_json='{}')
@@ -48,7 +70,7 @@ def _run_locked():
         db.commit()
     # Planning commits before nested directory/panel cache transactions.
     results = []
-    for symbol in symbols[:5]:
+    for symbol in symbols[:batch_limit]:
         try:
             payload = sec_fundamentals_preparation.prepare(symbol)
             result = {'scope': symbol, 'status': payload['status'], 'source': payload['source'],
@@ -63,9 +85,9 @@ def _run_locked():
         attempts[symbol] = now.isoformat()
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
-    receipt = {'status': 'partial' if (len(watched)>1000 or len(research)>1000) or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
-        'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': (len(watched)>1000 or len(research)>1000),
-        'planned_scopes': min(5, len(symbols)), 'completed_scopes': len(results), 'results': results,
+    receipt = {'status': 'partial' if truncated or any(r['status'] not in {'ok','partial'} for r in results) else 'ok',
+        'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': truncated, 'ranking_universe_enabled': broad, 'priority_universe_size': len(priority_symbols), 'ranking_cache_symbols': min(len(ranked),5000), 'batch_limit': batch_limit,
+        'planned_scopes': min(batch_limit, len(symbols)), 'completed_scopes': len(results), 'results': results,
         'fundamentals_selection': os.getenv('FUNDAMENTALS_PROVIDER', 'fmp'),
         'canonical_writes': 0, 'model_calls': 0, 'emails': 0}
     with SessionLocal() as db:

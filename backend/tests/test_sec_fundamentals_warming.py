@@ -96,3 +96,38 @@ def test_transport_denial_stops_batch_and_clears_lease(factory, monkeypatch):
         assert 'lease' not in state and list(state['attempted_at']) == ['ABC']
 
 
+
+
+def test_opt_in_ranking_universe_prepares_without_starving_due_watch_symbols(factory,monkeypatch):
+    from datetime import datetime,timezone,timedelta
+    from app.models import FundamentalsCache
+    monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
+    monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','1')
+    now=datetime.now(timezone.utc)
+    with factory() as db:
+        db.add_all([FundamentalsCache(symbol='AAA',provider='fmp',status='ok',fetched_at=now),
+                    FundamentalsCache(symbol='BBB',provider='fmp',status='failed',fetched_at=now)])
+        db.commit()
+    seen=[]
+    def prepare(symbol):
+        seen.append(symbol)
+        return {'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()}
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',prepare)
+    assert job.run()['results'][0]['scope']=='ABC'
+    second=job.run();assert second['results'][0]['scope']=='AAA'
+    assert second['ranking_cache_symbols']==1 and second['canonical_writes']==0
+    with factory() as db:
+        state=db.get(InsightsSnapshot,job.KEY);payload=json.loads(state.payload_json)
+        payload['attempted_at']['ABC']=(now-timedelta(hours=21)).isoformat()
+        state.payload_json=json.dumps(payload);db.commit()
+    assert job.run()['results'][0]['scope']=='ABC'
+    assert 'BBB' not in seen
+
+
+def test_universe_batch_limit_is_bounded_and_opt_in(factory,monkeypatch):
+    monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','999')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['T'+chr(65+i) for i in range(15)])
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s:{'status':'partial','source':'sec_edgar','values':{},'observed_at':'2026-10-10T00:00:00+00:00'})
+    assert job.run()['completed_scopes']==5
+    monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
+    result=job.run();assert result['completed_scopes']==result['batch_limit']==10
