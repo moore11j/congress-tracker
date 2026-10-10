@@ -21,6 +21,14 @@ def mapped_symbol(cusip, symbols, year, quarter):
     if (cusip == "N97284108" and (year, quarter) >= (2024, 3)
             and symbols and symbols <= {"YNDX", "NBIS"}):
         return "NBIS"
+    # Qnity confirms regular-way Q trading from 2025-11-03. A later N-PORT
+    # still reports Q-W for this same common-stock CUSIP. Resolve that conflict
+    # only when an independently available Q candidate exists and the quarter
+    # ends after regular-way trading began; retain both original evidence rows.
+    # https://www.sec.gov/Archives/edgar/data/2058873/000119312525261603/d65598d8k.htm
+    if (cusip == "74743L100" and (year, quarter) >= (2025, 4)
+            and "Q" in symbols and symbols <= {"Q", "Q-W"}):
+        return "Q"
     return next(iter(symbols)) if len(symbols) == 1 else None
 
 

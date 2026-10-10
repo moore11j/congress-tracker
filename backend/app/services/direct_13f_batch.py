@@ -40,7 +40,7 @@ def load_identifier_manifest(path):
     return documents
 
 
-def staged_comparisons(db, *, byte_budget):
+def staged_comparisons(db, *, byte_budget, report_periods=None):
     """Use a bounded saved cohort; absence of matching peers is not value proof."""
     query = select(DirectFeedDocument, DirectFeedRevision.id, func.length(DirectFeedRevision.source_bytes)).join(
         DirectFeedRevision, (DirectFeedRevision.document_id == DirectFeedDocument.id) &
@@ -48,7 +48,9 @@ def staged_comparisons(db, *, byte_budget):
         DirectFeedDocument.feed == 'sec_13f', DirectFeedDocument.status == 'parsed',
         DirectFeedRevision.source_bytes.is_not(None)).order_by(DirectFeedDocument.id.desc()).limit(500)
     rows = list(db.execute(query))
-    if not rows or sum(size for _, _, size in rows) > byte_budget:
+    if not rows or sum(size for _, _, size in rows) > 100_000_000:
+        raise ValueError('Missing or oversized staged source scan')
+    if report_periods is None and sum(size for _, _, size in rows) > byte_budget:
         raise ValueError('Missing or oversized staged comparison cohort; supply a bounded staging batch')
     documents = []
     for doc, revision_id, size in rows:
@@ -59,6 +61,20 @@ def staged_comparisons(db, *, byte_budget):
         raw = db.scalar(select(DirectFeedRevision.source_bytes).where(DirectFeedRevision.id == revision_id))
         if len(raw) != size or hashlib.sha256(raw).hexdigest() != doc.content_hash:
             raise ValueError('Staged comparison checksum changed')
+        if report_periods is not None:
+            from app.services.direct_feed_collection import parse_document
+            from app.clients.direct_sources import DirectSourceError
+            try:
+                _, parsed, _ = parse_document('sec_13f', raw, metadata)
+            except DirectSourceError:
+                # Retain invalid evidence so the existing validator handles it;
+                # a stored parsed_json field never decides source selection.
+                pass
+            else:
+                if parsed['metadata']['report_period'] not in report_periods:
+                    continue
+        if sum(len(item['raw']) for item in documents) + len(raw) > byte_budget:
+            raise ValueError('Relevant staged comparison cohort exceeds evidence budget')
         documents.append({'feed': 'sec_13f', 'metadata': metadata, 'raw': raw, 'content_hash': doc.content_hash})
     return documents
 
@@ -80,11 +96,33 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     if not ids:
         db.rollback()
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
-    comparisons = staged_comparisons(db, byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents))
+    target_bytes = db.scalar(select(func.sum(func.length(DirectFeedRevision.source_bytes))).join(
+        DirectFeedDocument, (DirectFeedDocument.id == DirectFeedRevision.document_id) &
+        (DirectFeedDocument.content_hash == DirectFeedRevision.content_hash)).where(
+            DirectFeedDocument.id.in_(ids))) or 0
+    if target_bytes > 100_000_000:
+        raise ValueError('Target source scan exceeds byte bounds')
+    from app.services.direct_13f_priors import _saved_source
+    from app.clients.direct_sources import DirectSourceError
+    report_periods = set()
+    for document_id in ids:
+        try:
+            _, _, parsed, _ = _saved_source(db, db.get(DirectFeedDocument, document_id))
+        except DirectSourceError:
+            # Preserve existing per-document hold behavior if a target cannot
+            # be trusted. Never use cached metadata to omit comparison evidence.
+            report_periods = None
+            break
+        report_periods.add(parsed['metadata']['report_period'])
+    comparisons = staged_comparisons(db,
+        byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents),
+        report_periods=report_periods)
     db.rollback()  # Recheck durable ownership inside every filing transaction.
     evidence=Prepared13FEvidence.build(identifier_documents,comparisons)
     results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
         identifier_documents=identifier_documents, comparison_documents=comparisons, prepared_evidence=evidence)) for document_id in ids]
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
+        'comparison_periods': sorted(report_periods) if report_periods is not None else None,
+        'comparison_documents': len(comparisons), 'comparison_bytes': sum(len(d['raw']) for d in comparisons),
         'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
         'results': results, 'email_deliveries': 0}
