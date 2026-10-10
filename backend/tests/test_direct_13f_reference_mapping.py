@@ -134,3 +134,16 @@ def test_public_holder_fallback_cannot_bypass_waiting_mapping_or_transition(db):
     run(db,prior,refs);run(db,current,refs)
     result=activity_for_holder(db,CIK)
     assert result['items'] and result.get('reason') is None
+
+
+def test_mapped_spinoff_position_waits_for_distribution_treatment_instead_of_buy_signal(db):
+    prior=document(quarter=2,serial=2,rows=[('000361106',10_000_000,100_000_000,'')])
+    current=document(rows=[('60744M106',10_000_000,100_000_000,'')])
+    value=payload();value['results'][0]['ticker']='MBGL'
+    ref=capture_reference(Client(value),cusip='60744M106',report_period='2026-09-30',observed_at='2026-10-08T05:00:00+00:00')
+    run(db,prior);result=run(db,current,[ref])
+    assert result['derived_state']=='waiting_distribution_treatment' and result['feed_events']==0
+    assert db.scalar(select(func.count()).select_from(Event))==0
+    saved=snapshot(db)
+    assert run(db,current,[ref])['derived_state']=='waiting_distribution_treatment'
+    assert snapshot(db)==saved

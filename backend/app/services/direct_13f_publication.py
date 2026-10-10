@@ -54,6 +54,13 @@ def _derived_state(db, filing, publish_since):
             or proof.get('positions_sha256') != _positions_digest(db, prior)):
         return 'waiting_verified_prior_quarter', None
     positions = _positions(db, prior) + _positions(db, filing)
+    # S&P Global distributed MBGL on July 1, 2026. A first reported position
+    # across this boundary cannot establish a discretionary purchase.
+    # https://www.sec.gov/Archives/edgar/data/64040/000110465926080571/tm2619099d2_ex99-2.htm
+    if ((prior.report_year, prior.report_quarter) == (2026, 2)
+            and (filing.report_year, filing.report_quarter) == (2026, 3)
+            and any(p.cusip == '60744M106' and not p.put_call for p in _positions(db, filing))):
+        return 'waiting_distribution_treatment', prior
     if any(not p.normalized_symbol for p in positions if not p.put_call):
         return 'waiting_equity_symbol_mapping', prior
     # A symbol rename with the same CUSIP must not leave the older symbol's
@@ -177,13 +184,14 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
     for identifier in identifiers:
         if identifier['cusip'] in cusips:
             mappings.setdefault(identifier['cusip'], set()).add(identifier['symbol'])
-    for cusip, symbol in db.execute(select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol).outerjoin(
-            InstitutionalFiling, InstitutionalPosition.filing_id == InstitutionalFiling.id).where(
-            or_(InstitutionalFiling.id.is_(None), InstitutionalFiling.raw_metadata_json.is_(None),
-                ~InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%')),
-            InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
-            InstitutionalPosition.filing_date <= date.fromisoformat(metadata['filing_date'])).distinct()):
-        mappings.setdefault(cusip, set()).add(symbol)
+    if created or reference_by_cusip:
+        for cusip, symbol in db.execute(select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol).outerjoin(
+                InstitutionalFiling, InstitutionalPosition.filing_id == InstitutionalFiling.id).where(
+                or_(InstitutionalFiling.id.is_(None), InstitutionalFiling.raw_metadata_json.is_(None),
+                    ~InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%')),
+                InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
+                InstitutionalPosition.filing_date <= date.fromisoformat(metadata['filing_date'])).distinct()):
+            mappings.setdefault(cusip, set()).add(symbol)
     used_references = {}
     def resolve(cusip):
         candidates = mappings.get(cusip, set())
