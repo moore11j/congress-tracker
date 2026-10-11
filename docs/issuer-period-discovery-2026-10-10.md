@@ -1,5 +1,15 @@
 # Issuer transcript period discovery
 
+## Live index discovery and interruption follow-up,00:25UTC
+
+PR553/c03ec669 merged as2f0b0fd2; backend workflow38098153151 succeeds. Twelve source/runtime hashes match, discovery1 and existing warming flag verified, public transcript selector remains defaultFMP. Secret scan and Vercel preview pass; inspected dependency audits fail in unchanged Next.js ecosystem and Pillow10.4.0 packages, with unchanged dependency manifests.
+
+Explicit validation run110 at00:23:13 uses the existing data lane and unchanged two-page command. It prepares the2026 and2025 official indexes, discovers five additional period records, leaves those PDFs pending, and makes zero public writes. Current index hash matches captured original; prior index SHA256445418b75524c45491fea02bd578272f53c46a02e00a713a6a02f5440b44cc96. Both indexes have one attempt/one revision. Original nine source records and selected Reddit Q2 reader are unchanged, with zero issuer research documents. This is an explicit validation run, not a new ordinary hourly observation. Receipts issuer-discovery-live-1791678057/1791678173/1791678240 retain baseline, runtime and collection evidence.
+
+Further recovery testing reproduces three failures: interruption inside an index, discovered PDF or existing static-page download could leave its daily check timestamp unset and allow an early retry. Reserve the timestamp/attempt and pending status before HTTP, preserving captured revisions and publication receipts. Interrupted pages remain explicitly pending until their next daily attempt; a returned failure remains failed. The reservation commit holds no connection during network work and does not increase the two-page budget.
+
+All176 focused source/consumer/alert checks pass after the repair. Isolated PostgreSQL16.15 checks verify index/static reservations survive closing and reopening sessions, prevent same-day retry and retain zero pool checkouts/idle transactions during source reads. Schema removed and server stopped; no real source requests or production writes in that test. Reservation follow-up release and live PDF preparation remain pending. Public selection remainsFMP; no new schedule, customer email, subscription or cancellation.
+
 October10 local date, October11 UTC. Existing source preparation has reviewed documents for eight issuers but only fixed period URLs. The active FMP audit at00:08UTC still records106 operational transcript authorizations in90minutes; these are authorizations, not proven outbound request counts. Public transcripts remain FMP and broad issuer coverage is incomplete.
 
 ## Prepared behavior

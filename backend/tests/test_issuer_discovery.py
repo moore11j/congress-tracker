@@ -70,6 +70,39 @@ class Client:
         return transcript()
 
 
+@pytest.mark.parametrize('stage', ['index', 'pdf'])
+def test_interrupted_discovery_reserves_daily_attempt_before_network(setup, stage):
+    class Interrupted(BaseException): pass
+    if stage == 'pdf':
+        discovery.collect_discovery(setup,Client(setup),[company()],limit=2,recheck_hours=24)
+    calls=[]
+    class InterruptClient(Client):
+        def get(self,url):
+            calls.append(url)
+            raise Interrupted()
+    with pytest.raises(Interrupted):
+        discovery.collect_discovery(setup,InterruptClient(setup),[company()],limit=1,recheck_hours=24)
+    row=setup.scalar(select(DirectFeedDocument).where(DirectFeedDocument.source_url==calls[0]))
+    assert row.attempts==1 and row.checked_at is not None and row.status=='pending'
+    followup=Client(setup)
+    discovery.collect_discovery(setup,followup,[company()],limit=2,recheck_hours=24)
+    assert calls[0] not in followup.calls
+
+
+def test_interrupted_static_page_reserves_daily_attempt_before_network(setup,monkeypatch):
+    monkeypatch.delenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED',raising=False)
+    class Interrupted(BaseException):pass
+    calls=[]
+    class InterruptClient:
+        def get(self,url):
+            calls.append(url)
+            raise Interrupted()
+    args=dict(sources=['issuer_earnings'],start=date(2026,10,10),end=date(2026,10,10),issuer_registry=[company()],limit=2)
+    with pytest.raises(Interrupted):collect_direct_feeds(setup,InterruptClient(),**args)
+    result=collect_direct_feeds(setup,InterruptClient(),**args)
+    assert len(calls)==1 and result['pending_documents']==1
+
+
 def prepare(db):
     client = Client(db)
     first = discovery.collect_discovery(db, client, [company()], limit=2, recheck_hours=24)

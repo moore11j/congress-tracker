@@ -185,6 +185,9 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
         row_id, feed, url = row.id, row.feed, row.source_url
         company = companies[metadata['symbol']]
         spent += 1
+        row.attempts += 1
+        row.checked_at, row.status = now, 'pending'
+        db.commit()  # Persist the daily attempt even if this process is interrupted.
         try:
             if feed == INDEX_FEED:
                 if metadata != index_metadata(company, metadata['year']) or url != metadata['url']:
@@ -219,13 +222,11 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                 row = db.get(DirectFeedDocument, row_id)
                 row.metadata_json = dumps(resolved)
                 record_document(db, row, raw, text, parsed)
-            row.attempts += 1
             db.commit()
             processed += 1
         except Exception as exc:
             db.rollback()
             row = db.get(DirectFeedDocument, row_id)
-            row.attempts += 1
             row.status, row.checked_at = 'failed', now
             row.error = f'{type(exc).__name__}: {exc}'[:1000]
             errors.append({'feed': feed, 'key': row.source_key, 'error': row.error})
