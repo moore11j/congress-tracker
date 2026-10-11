@@ -17,6 +17,7 @@ from app.utils.symbols import normalize_symbol, classify_symbol
 
 KEY = 'sec-fundamentals:warming:v1'
 METRIC_MAX_SECONDS = 20
+PRIORITY_REFRESH = timedelta(hours=20)
 
 
 def metric_batch_limit():
@@ -69,14 +70,27 @@ def _run_locked():
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
         metric_attempts = {key: value for key, value in state.get('metric_attempted_at', {}).items() if key in symbols}
         versions = {key: value for key, value in state.get('attempted_versions', {}).items() if key in symbols}
+        refresh_after = {key: value for key, value in state.get('priority_refresh_after', {}).items() if key in priority_symbols}
+        # Seed old state from compact cache metadata, never large source payloads.
+        # Otherwise an old cache hit could retain its postponed deadline at rollout.
+        if broad:
+            missing_deadlines = priority_symbols - refresh_after.keys()
+            keys = {f'sec-current-fundamentals:{s}:v1': s for s in missing_deadlines}
+            if keys:
+                for kind, fetched_at in db.execute(select(InsightsSnapshot.kind, InsightsSnapshot.fetched_at).where(
+                        InsightsSnapshot.kind.in_(keys), InsightsSnapshot.source == 'sec_edgar')):
+                    stamp = fetched_at.replace(tzinfo=fetched_at.tzinfo or timezone.utc)
+                    refresh_after[keys[kind]] = (stamp + PRIORITY_REFRESH if stamp <= now else now).isoformat()
         def due_priority(symbol):
             if not broad or symbol not in priority_symbols:
                 return False
             if versions.get(symbol) != sec_fundamentals_preparation.version_for_symbol(symbol):
                 return True
             try:
+                if symbol in refresh_after:
+                    return now >= datetime.fromisoformat(refresh_after[symbol])
                 last = datetime.fromisoformat(attempts[symbol])
-                return not timedelta(0) <= now-last < timedelta(hours=20)
+                return not timedelta(0) <= now-last < PRIORITY_REFRESH
             except (KeyError, ValueError, TypeError):
                 return True
         symbols.sort(key=lambda s: (0 if due_priority(s) else 1, attempts.get(s, ''), s))
@@ -94,8 +108,19 @@ def _run_locked():
     # Planning commits before nested directory/panel cache transactions.
     results = []
     for symbol in symbols[:batch_limit]:
+        priority = broad and symbol in priority_symbols
+        # Attempts order the broad rotation. Observation time, not cache access,
+        # sets the next priority refresh; failures keep the existing backoff.
+        next_refresh = now + PRIORITY_REFRESH
         try:
-            payload = sec_fundamentals_preparation.prepare(symbol)
+            if priority:
+                payload = sec_fundamentals_preparation.prepare(symbol, max_cache_age=PRIORITY_REFRESH)
+                observed = datetime.fromisoformat(payload['observed_at'])
+                if observed.tzinfo is None:
+                    raise ValueError('SEC preparation observation must be timezone aware')
+                next_refresh = observed + PRIORITY_REFRESH
+            else:
+                payload = sec_fundamentals_preparation.prepare(symbol)
             result = {'scope': symbol, 'status': payload['status'], 'source': payload['source'],
                       'metrics': len(payload['values']), 'reason': payload.get('reason'),
                       'observed_at': payload['observed_at']}
@@ -106,6 +131,8 @@ def _run_locked():
                 result['reason'] = str(exc)[:300]
         results.append(result)
         attempts[symbol] = now.isoformat()
+        if priority:
+            refresh_after[symbol] = next_refresh.isoformat()
         versions[symbol] = sec_fundamentals_preparation.version_for_symbol(symbol)
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
@@ -160,7 +187,7 @@ def _run_locked():
         current = json.loads(row.payload_json) if row else {}
         if (current.get('lease') or {}).get('token') != token:
             return {**receipt, 'status': 'partial', 'reason': 'warming_lease_lost'}
-        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'metric_attempted_at': metric_attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
+        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'priority_refresh_after': refresh_after, 'metric_attempted_at': metric_attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
         row.fetched_at = now
         db.commit()
     return receipt

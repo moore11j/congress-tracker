@@ -24,32 +24,35 @@ def version_for_symbol(symbol):
     return VERSION+'_xom_continuity_v1' if symbol == 'XOM' else VERSION
 
 
-def _cached(symbol, now):
+def _cached(symbol, now, max_cache_age=TTL):
     with SessionLocal() as db:
         row = db.get(InsightsSnapshot, f'sec-current-fundamentals:{symbol}:v1')
         if row is None or row.source != 'sec_edgar':
             return None
         stamp = row.fetched_at.replace(tzinfo=row.fetched_at.tzinfo or timezone.utc)
-        if not timedelta(0) <= now-stamp < TTL:
+        if not timedelta(0) <= now-stamp < max_cache_age:
             return None
         try:
             payload = json.loads(row.payload_json)
-        except (ValueError, TypeError):
+            observed = datetime.fromisoformat(payload['observed_at'])
+        except (ValueError, TypeError, KeyError):
             return None
         if (payload.get('version') == version_for_symbol(symbol) and payload.get('symbol') == symbol
-                and payload.get('source') == 'sec_edgar'):
+                and payload.get('source') == 'sec_edgar' and observed == stamp):
             return payload
     return None
 
 
-def prepare(symbol):
+def prepare(symbol, *, max_cache_age=TTL):
     if os.getenv('SEC_FUNDAMENTALS_WARMING_ENABLED', '0') != '1':
         raise ValueError('SEC ratio preparation is disabled')
     symbol = sec_directory._symbol_key(symbol)
     if not symbol:
         raise ValueError('Invalid symbol')
+    if not isinstance(max_cache_age, timedelta) or not timedelta(0) < max_cache_age <= TTL:
+        raise ValueError('Invalid SEC preparation cache age')
     now = datetime.now(timezone.utc)
-    cached = _cached(symbol, now)
+    cached = _cached(symbol, now, max_cache_age)
     if cached is not None:
         return cached
     identity = sec_directory.directory().get(symbol)

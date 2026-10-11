@@ -72,7 +72,7 @@ def test_failed_scopes_rotate_and_lease_prevents_overlap(factory, monkeypatch):
     symbols = ['T'+chr(65+i) for i in range(6)]
     monkeypatch.setattr(queue, 'DEFAULT_PREWARM_SYMBOLS', symbols)
     calls = []
-    def prepare(symbol):
+    def prepare(symbol, **kwargs):
         assert job.run()['reason'] == 'active_warming_lease'
         calls.append(symbol)
         raise DirectSourceError('financial_symbol_identity_mismatch')
@@ -109,7 +109,7 @@ def test_opt_in_ranking_universe_prepares_without_starving_due_watch_symbols(fac
                     FundamentalsCache(symbol='BBB',provider='fmp',status='failed',fetched_at=now)])
         db.commit()
     seen=[]
-    def prepare(symbol):
+    def prepare(symbol, **kwargs):
         seen.append(symbol)
         return {'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()}
     monkeypatch.setattr(sec_fundamentals_preparation,'prepare',prepare)
@@ -127,7 +127,7 @@ def test_opt_in_ranking_universe_prepares_without_starving_due_watch_symbols(fac
 def test_universe_batch_limit_is_bounded_and_opt_in(factory,monkeypatch):
     monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','999')
     monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['T'+chr(65+i) for i in range(15)])
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s:{'status':'partial','source':'sec_edgar','values':{},'observed_at':'2026-10-10T00:00:00+00:00'})
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s, **kwargs:{'status':'partial','source':'sec_edgar','values':{},'observed_at':'2026-10-10T00:00:00+00:00'})
     assert job.run()['completed_scopes']==5
     monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
     result=job.run();assert result['completed_scopes']==result['batch_limit']==10
@@ -144,7 +144,7 @@ def test_new_parser_version_refreshes_priority_once_then_resumes_universe(factor
         db.add(InsightsSnapshot(kind=job.KEY,source='free_direct',fetched_at=now,payload_json=json.dumps({
             'attempted_at':{'ABC':now.isoformat()},'attempted_versions':{'ABC':'old'}})))
         db.commit()
-    def prepare(symbol):return {'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()}
+    def prepare(symbol, **kwargs):return {'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()}
     monkeypatch.setattr(sec_fundamentals_preparation,'prepare',prepare)
     assert job.run()['results'][0]['scope']=='ABC'
     assert job.run()['results'][0]['scope']=='AAA'
@@ -166,7 +166,7 @@ def test_issuer_revision_refreshes_only_changed_priority_before_universe(factory
             'attempted_at':{s:now.isoformat() for s in ['ABC','XOM']},
             'attempted_versions':{s:sec_fundamentals_preparation.VERSION for s in ['ABC','XOM']}})))
         db.commit()
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol, **kwargs:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
     assert job.run()['results'][0]['scope']=='XOM'
     assert job.run()['results'][0]['scope']=='AAA'
     with factory() as db:
@@ -182,7 +182,7 @@ def test_metrics_are_bounded_fair_daily_and_stop_on_shared_quota(factory,monkeyp
     now=datetime.now(timezone.utc)
     monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
     monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','DEF','XYZ'])
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol, **kwargs:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
     calls=[]
     def prepare(s):
         calls.append(s)
@@ -228,7 +228,7 @@ def test_denied_metric_symbol_does_not_starve_the_rest_of_the_universe(factory,m
     monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
     monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','2')
     monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['AAPL.TO','ABC','DEF'])
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol, **kwargs:{
         'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
     calls=[]
     def prepare(symbol):
@@ -259,7 +259,7 @@ def test_global_metric_failure_stops_without_deferring_unattempted_symbols(facto
     monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
     monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','8')
     monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','DEF'])
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol, **kwargs:{
         'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
     calls=[]
     def denied(symbol):calls.append(symbol);raise FinnhubUnavailable(reason)
@@ -283,7 +283,7 @@ def test_metric_elapsed_budget_does_not_mark_unattempted_scopes(factory,monkeypa
     monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
     monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','8')
     monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','DEF','XYZ'])
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s, **kwargs:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
     elapsed=[0.0];calls=[]
     monkeypatch.setattr(job.time,'monotonic',lambda:elapsed[0])
     def prepare(symbol):
@@ -303,7 +303,7 @@ def test_near_expiry_metric_cache_hit_does_not_defer_refresh_another_day(factory
     from datetime import datetime,timedelta,timezone
     now=datetime.now(timezone.utc);observed=now-timedelta(hours=24)+timedelta(seconds=10)
     monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
-    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s, **kwargs:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
     monkeypatch.setattr(finnhub_metrics,'prepare',lambda s:{'status':'partial','values':{'roe':25},'observed_at':observed.isoformat()})
     job.run()
     with factory() as db:attempts=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']
