@@ -14,9 +14,6 @@ from urllib.parse import urljoin, urlsplit
 from xml.etree import ElementTree as ET
 
 import requests
-from lxml import html
-from pypdf import PdfReader
-from pypdf.constants import UserAccessPermissions
 
 
 class DirectSourceError(RuntimeError):
@@ -281,6 +278,7 @@ _HOUSE_TRADE = re.compile(
 def parse_house_pdf(raw: bytes, metadata: dict) -> tuple[str, dict]:
     if not raw.startswith(b"%PDF"):
         raise DirectSourceError("Expected a House PDF")
+    from pypdf import PdfReader
     reader = PdfReader(io.BytesIO(raw))
     if len(reader.pages) > 150:
         raise DirectSourceError("House report exceeds page limit")
@@ -374,6 +372,7 @@ def parse_house_pdf(raw: bytes, metadata: dict) -> tuple[str, dict]:
 
 def parse_senate_html(raw: bytes, metadata: dict) -> tuple[str, dict]:
     """Parse an accessible official PTR; consent/challenges are never bypassed."""
+    from lxml import html
     root = html.fromstring(raw)
     if metadata.get('filing_date'):
         filed = re.findall(r'\bFiled\s+(\d{2}/\d{2}/\d{4})\s*@', root.text_content())
@@ -426,6 +425,8 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
         raise DirectSourceError("Issuer material exceeds size limit or is empty")
     source_format = metadata.get("source_format", "html")
     if source_format == "pdf":
+        from pypdf import PdfReader
+        from pypdf.constants import UserAccessPermissions
         if not raw.startswith(b"%PDF-"):
             raise DirectSourceError("Reviewed issuer PDF format mismatch")
         if not all(metadata.get(key) for key in ("company_pattern", "publication_pattern",
@@ -463,6 +464,7 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
             if not re.search(metadata[key], text, re.I):
                 raise DirectSourceError("Issuer PDF reviewed identity did not match")
     elif source_format == "html" and not raw.startswith(b"%PDF-"):
+        from lxml import html
         root = html.fromstring(raw)
         for node in root.xpath("//script|//style|//nav|//footer|//header"):
             node.drop_tree()

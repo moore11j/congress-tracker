@@ -163,7 +163,7 @@ def test_house_official_asset_codes_preserve_classification(monkeypatch,code,exp
     class Page:
         def extract_text(self, **kwargs):return source_text
     class Reader:pages=[Page()]
-    monkeypatch.setattr(sources,'PdfReader',lambda raw:Reader())
+    monkeypatch.setattr('pypdf.PdfReader',lambda raw:Reader())
     _,parsed,reasons=parse_document('house_ptr',b'%PDF fixture',{'filing_id':'1',
         'url':'https://disclosures-clerk.house.gov/1.pdf','filing_date':'2026-10-03'})
     assert not reasons and parsed['transactions'][0]['asset_type_normalized']==expected

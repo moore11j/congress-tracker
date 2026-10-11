@@ -74,7 +74,7 @@ def reader_fixture(monkeypatch, columns, *, name='Hon. Kevin Hern', filing='2003
             return prefix + '\n'.join(token[2] for token in self.tokens)
     class Reader:
         pages = [Page(tokens, i == 0) for i, tokens in enumerate(columns)]
-    monkeypatch.setattr(direct_sources, 'PdfReader', lambda raw: Reader())
+    monkeypatch.setattr('pypdf.PdfReader', lambda raw: Reader())
     return {'filing_id': '20035491', 'filing_date': '2026-09-21', 'member_name': 'Kevin Hern',
             'url': 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035491.pdf'}
 
