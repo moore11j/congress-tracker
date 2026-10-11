@@ -26,7 +26,7 @@ KEY = 'institutional-reference:warming:v1'
 BATCH_SIZE = 2
 MAX_DOCUMENTS = 500
 MAX_SCOPES = 5000
-PLAN_VERSION = 3
+PLAN_VERSION = 4
 
 
 def _now():
@@ -44,8 +44,10 @@ def _periods(today):
     return result
 
 
-def plan_scopes(db, now, attempted_at, universe=None):
+def plan_scopes(db, now, attempted_at, universe=None, *, source_scan_before_id=None):
     periods = _periods(now.date())
+    if type(source_scan_before_id) is not int or source_scan_before_id <= 0:
+        source_scan_before_id = None
     recent_attempts = {}
     for key, stamp in attempted_at.items():
         try:
@@ -77,12 +79,20 @@ def plan_scopes(db, now, attempted_at, universe=None):
                 .group_by(InstitutionalPosition.cusip,InstitutionalPosition.normalized_symbol)):
             if first is not None: mappings.setdefault(cusip,[]).append((symbol,first.isoformat()))
         period_weights = {period: {} for period in periods}
-        truncated = False; examined = 0; held = 0
-        query = select(DirectFeedDocument.parsed_json).where(DirectFeedDocument.feed=='sec_13f',
-            DirectFeedDocument.status=='parsed').order_by(DirectFeedDocument.id.desc()).limit(MAX_DOCUMENTS+1)
-        for raw in db.scalars(query.execution_options(yield_per=5)):
+        # Keyset rotation reaches older filings without increasing the scan or
+        # source-request budget. Finish a descending pass, then wrap to new arrivals.
+        truncated = source_scan_before_id is not None
+        examined = 0; held = 0; last_source_id = None; next_before_id = None
+        query = select(DirectFeedDocument.id, DirectFeedDocument.parsed_json).where(
+            DirectFeedDocument.feed=='sec_13f', DirectFeedDocument.status=='parsed')
+        if source_scan_before_id is not None:
+            query = query.where(DirectFeedDocument.id < source_scan_before_id)
+        query = query.order_by(DirectFeedDocument.id.desc()).limit(MAX_DOCUMENTS+1)
+        for source_id, raw in db.execute(query.execution_options(yield_per=5)):
             examined += 1
-            if examined > MAX_DOCUMENTS: truncated=True;break
+            if examined > MAX_DOCUMENTS:
+                truncated = True; next_before_id = last_source_id; break
+            last_source_id = source_id
             if not raw or len(raw)>16_000_000: held+=1;continue
             try:
                 parsed=json.loads(raw);meta=parsed['metadata'];period=meta['report_period'];filed=meta['filing_date']
@@ -114,6 +124,8 @@ def plan_scopes(db, now, attempted_at, universe=None):
         weights = universe['weights']
         truncated = universe['universe_truncated']
         held = universe['held_documents']
+        next_before_id = universe.get('source_scan_next_before_id')
+        examined = universe.get('source_scan_documents', 0)
     prepared=set()
     for row in db.scalars(select(DirectFeedDocument).where(DirectFeedDocument.feed==FEED,
             DirectFeedDocument.source_key.in_(list(weights))) if weights else select(DirectFeedDocument).where(False)):
@@ -139,7 +151,9 @@ def plan_scopes(db, now, attempted_at, universe=None):
             # A changed bounded window must not erase the daily retry limit
             # for a failed identity which temporarily falls outside it.
             'attempted_at':{key:stamp for key,stamp in recent_attempts.items() if key not in prepared},
-            'universe':{'version':PLAN_VERSION,'weights':weights,'universe_truncated':truncated,'held_documents':held,'periods':sorted(periods)}}
+            'universe':{'version':PLAN_VERSION,'weights':weights,'universe_truncated':truncated,'held_documents':held,'periods':sorted(periods),
+                        'source_scan_next_before_id':next_before_id,
+                        'source_scan_documents':min(examined, MAX_DOCUMENTS)}}
 
 
 def _run_locked():
@@ -156,7 +170,13 @@ def _run_locked():
         fresh_plan=(cached_universe and cached_universe.get('version')==PLAN_VERSION
                     and planned_at and cached_universe.get('periods')==sorted(_periods(now.date()))
                     and now-datetime.fromisoformat(planned_at)<timedelta(minutes=15))
-        plan=plan_scopes(db,now,state.get('attempted_at',{}),cached_universe if fresh_plan else None)
+        # Cursor belongs to this plan version and quarter set. Never carry an
+        # old schema/quarter cursor into a newly selected universe.
+        compatible_plan=(cached_universe and cached_universe.get('version')==PLAN_VERSION
+                         and cached_universe.get('periods')==sorted(_periods(now.date())))
+        cursor=cached_universe.get('source_scan_next_before_id') if compatible_plan else None
+        plan=plan_scopes(db,now,state.get('attempted_at',{}),cached_universe if fresh_plan else None,
+                         source_scan_before_id=cursor)
         planned_at=planned_at if fresh_plan else now.isoformat()
         if row is None:
             row=InsightsSnapshot(kind=KEY,source=FEED,fetched_at=now,payload_json='{}');db.add(row)
