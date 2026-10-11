@@ -101,3 +101,19 @@ def test_previous_cache_version_cannot_masquerade_as_new_field_coverage(factory,
         db.get(InsightsSnapshot,'finnhub:metrics:ABC').payload_json=json.dumps(first)
         db.commit()
     assert m.cached('ABC',NOW)==first
+
+
+@pytest.mark.parametrize('value',[float('nan'),float('inf'),float('-inf')])
+def test_nonfinite_optional_annual_values_preserve_ratios_and_hash(value):
+    raw=source();raw['series']['annual']['ebitda'][0]['v']=value
+    panel=m.normalize(raw,symbol='ABC',observed_at=NOW)
+    assert panel['values']['current_ratio']==2
+    assert 'ebitda_growth' not in panel['values']
+    assert panel['field_holds']['ebitda_growth']=='invalid_annual_metric_number'
+    assert panel['payload_hash_format']=='python_json_sorted_nonfinite_annual'
+    assert panel==m.normalize(raw,symbol='ABC',observed_at=NOW)
+    json.dumps(panel,allow_nan=False)
+    raw['metric']['unknown_provider_field']=float('nan')
+    from app.services.finnhub_research import FinnhubUnavailable
+    with pytest.raises(FinnhubUnavailable,match='invalid_metric_payload'):
+        m.normalize(raw,symbol='ABC',observed_at=NOW)

@@ -31,3 +31,11 @@ Focused and expanded tests, review, deployment and live v2 preparation are track
 ## Pre-release validation
 
 111 focused/expanded checks pass on Python 3.14.2 in 197.93 seconds: metrics, issuer identity, invalid/overflow annual data, v1 cache rejection, SEC warming, provider baselines, snapshots and confirmation consistency. Initial 61 narrower checks also passed. Actual source replay handle94279 is terminal/pass. PR589 is under automatic review; no deployment yet. Existing dependency audit failures are not changed by this package.
+
+## Review repair and raw FMP reconciliation
+
+Automatic review of PR589 found that numeric NaN/Infinity in optional annual data failed strict payload hashing before the per-field hold. The adapter now validates annual history first, retains a labeled deterministic hash of an annual-only non-finite source representation, and still rejects non-finite data elsewhere. Output caches remain strict JSON. Three regressions cover NaN and both infinities; the final ten-symbol saved-source replay passes unchanged.
+
+A bounded four-request comparison on the existing FMP plan captured raw annual statements/growth for SGRP and NVDA in `raw-ebitda-comparison-1791760901.json`. NVIDIA FMP EBITDA is net income + tax + interest + D&A (144.552B / 86.137B), producing 67.8164% growth, whereas the Finnhub sample matches operating income + D&A (133.230B / 83.317B), producing 59.9073%. That is a real definition difference, not merely response formatting.
+
+SGRP FMP raw growth is -7.101256 as a fraction, supported by annual EBITDA -16.028M versus 2.627M. The existing magnitude heuristic leaves values below -1 unchanged, displaying -7.1013% instead of -710.1256%. The new adapter explicitly multiplies a fraction by 100, but Finnhub's EBITDA observations themselves differ (-15.269M / 2.253M). The old FMP unit bug is confirmed and remains a separate narrow repair requiring consumer/baseline handling; do not silently rewrite published history. Public core selection is unchanged. This diagnostic makes no claim that all provider methodology differences have been reconciled.
