@@ -181,6 +181,7 @@ def recover(db, lane):
 
 def worker(queue, manifest, lane, *, idle=.5):
     import fcntl
+    import resource
     stopped = False
 
     def shutdown(*_):
@@ -203,6 +204,7 @@ def worker(queue, manifest, lane, *, idle=.5):
             env = {**os.environ, **definition['environment'], 'FLY_PROCESS_GROUP': 'cron',
                    'WALNUT_JOB_TOKEN': job['token'], 'PYTHONUNBUFFERED': '1'}
             process = None
+            usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
             try:
                 # A group per job lets shutdown stop shells and descendants.
                 process = subprocess.Popen(['nice', '-n', '10', '/bin/sh', '-c', definition['command']],
@@ -217,9 +219,15 @@ def worker(queue, manifest, lane, *, idle=.5):
                 if process.poll() is None:
                     stop_process(process.pid, job['token'])
                 code = process.wait(timeout=15)
+                # CPU includes reaped descendants, unlike wall time spent on HTTP.
+                # One child tree runs per lane, so the delta belongs to this job.
+                usage_after = resource.getrusage(resource.RUSAGE_CHILDREN)
+                cpu_seconds = ((usage_after.ru_utime - usage_before.ru_utime) +
+                               (usage_after.ru_stime - usage_before.ru_stime))
                 finish(db, job, code)
                 print(json.dumps({'event': 'scheduled_job_finished', 'key': job['key'], 'lane': lane,
-                                  'exit_code': code, 'seconds': round(time.time()-job['started_at'], 2)}), flush=True)
+                                  'exit_code': code, 'seconds': round(time.time()-job['started_at'], 2),
+                                  'cpu_seconds': round(cpu_seconds, 4)}), flush=True)
             finally:
                 if process is not None and process.poll() is None:
                     stop_process(process.pid, job['token'])

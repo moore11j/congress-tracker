@@ -83,6 +83,37 @@ def test_only_selected_machine_runs_scheduler():
     assert not scheduler_enabled({**env,'COMBINED_SCHEDULER_ENABLED':'false'})
 
 
+@pytest.mark.skipif(sys.platform != 'linux', reason='Native child CPU accounting')
+def test_job_cpu_counts_descendants_and_excludes_prior_jobs(tmp_path):
+    # CPU-heavy grandchild exits via a shell; the next job mostly waits.
+    busy = 'import time;end=time.process_time()+.15\nwhile time.process_time()<end:pass'
+    first = shlex.join([sys.executable, '-c',
+        'import subprocess;subprocess.run('+repr([sys.executable, '-c', busy])+',check=True)'])
+    second = shlex.join([sys.executable, '-c', 'import time;time.sleep(.3)'])
+    manifest = {key: {'lane':'data','command':command,'environment':{}}
+                for key,command in [('busy',first),('waiting',second)]}
+    path=tmp_path/'manifest';path.write_text(json.dumps(manifest));queue=tmp_path/'queue'
+    with jobs.database(queue) as db:
+        for index,key in enumerate(manifest):jobs.enqueue(db,key,manifest[key],now=time.time()+index)
+    output=tmp_path/'worker.log'
+    with output.open('w') as log:
+        process=subprocess.Popen([sys.executable,str(SCRIPTS/'scheduled_jobs.py'),'--queue',str(queue),
+            '--manifest',str(path),'worker','data'],stdout=log,stderr=subprocess.STDOUT)
+        try:
+            deadline=time.monotonic()+30
+            while time.monotonic()<deadline:
+                rows=[json.loads(line) for line in output.read_text().splitlines() if line.startswith('{')]
+                finished=[r for r in rows if r['event']=='scheduled_job_finished']
+                if len(finished)==2:break
+                time.sleep(.05)
+            assert len(finished)==2
+            assert finished[0]['key']=='busy' and finished[0]['cpu_seconds']>=.14
+            assert finished[1]['key']=='waiting' and finished[1]['cpu_seconds']<.14
+            assert all(r['exit_code']==0 for r in finished)
+        finally:
+            process.terminate();process.wait(timeout=15)
+
+
 @pytest.mark.skipif(sys.platform != 'linux', reason='Real flock and process groups require Linux')
 def test_linux_workers_serialize_imports_and_keep_delivery_independent(tmp_path):
     import shlex
