@@ -40,7 +40,7 @@ def validate_directory(data):
     return rows
 
 
-def discover_sources(db, client, *, sources, start, end, symbols, issuer_registry, senate_reports, senate_client=None):
+def discover_sources(db, client, *, sources, start, end, symbols, issuer_registry, senate_reports, senate_client=None, senate_window=None):
     counts, errors = {}, []
     directory = None
     if any(source in sources for source in ("sec_directory", "sec_company", "sec_facts")):
@@ -116,7 +116,9 @@ def discover_sources(db, client, *, sources, start, end, symbols, issuer_registr
         try:
             if senate_client is None:
                 raise DirectSourceError('Senate session collector is not configured; reviewed URLs are not coverage')
-            rows = senate_client.discover(start=start, end=end)
+            rows = senate_client.discover(
+                start=date.fromisoformat(senate_window["start"]) if senate_window else start,
+                end=date.fromisoformat(senate_window["end"]) if senate_window else end)
             for row in rows:
                 discover(db, 'senate_ptr', row)
             db.commit()
@@ -208,11 +210,15 @@ def parse_document(feed, raw, metadata):
     raise DirectSourceError(f"Unsupported direct source: {feed}")
 
 
-def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(), issuer_registry=(), senate_reports=(), senate_client=None, limit=25, recheck_hours=24, retry_failed=False):
+def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(), issuer_registry=(), senate_reports=(), senate_client=None, limit=25, recheck_hours=24, retry_failed=False, recover_senate_window=False):
     if not 1 <= limit <= 200 or not 1 <= recheck_hours <= 720 or end < start or (end - start).days > 93:
         raise ValueError("Invalid direct feed collection bounds")
     if not set(sources).issubset(SOURCES):
         raise ValueError("Unknown direct source")
+    senate_window = None
+    if recover_senate_window and "senate_ptr" in sources:
+        from app.services.senate_discovery_recovery import plan_window
+        senate_window = plan_window(db, start=start, end=end, now=utcnow())
     run = DirectFeedRun(report_json=dumps({"sources": sources, "start": start, "end": end, "symbols": symbols}))
     db.add(run)
     db.commit()
@@ -222,8 +228,9 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
         from app.services.issuer_discovery import collect_discovery
         discovery_receipt = collect_discovery(db, client, issuer_registry, limit=limit, recheck_hours=recheck_hours)
     discovered, errors = discover_sources(db, client, sources=sources, start=start, end=end, symbols=symbols,
-                                          issuer_registry=issuer_registry, senate_reports=senate_reports, senate_client=senate_client)
+                                          issuer_registry=issuer_registry, senate_reports=senate_reports, senate_client=senate_client, senate_window=senate_window)
     errors.extend(discovery_receipt['errors'])
+    senate_discovery_errors = [error for error in errors if error.get("feed") == "senate_ptr"]
     processed = discovery_receipt['processed']
     results = {'parsed': processed} if processed else {}
     cutoff = utcnow() - timedelta(hours=recheck_hours)
@@ -231,6 +238,12 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
     # A per-feed budget prevents one large SEC day starving Congress or earnings.
     for feed in sources:
         if feed == "sec_directory":
+            continue
+        if feed == "senate_ptr" and any(str(error.get("error", "")).startswith((
+                "Source transport failed", "Source HTTP 403:", "Source HTTP 429:"))
+                for error in senate_discovery_errors):
+            # Discovery already established the source is unavailable this run.
+            # Preserve staged originals and retry on the next scheduled run.
             continue
         eligible = or_(DirectFeedDocument.status == "pending", DirectFeedDocument.checked_at.is_(None), DirectFeedDocument.checked_at < cutoff,
                        (DirectFeedDocument.status == 'failed') & (DirectFeedDocument.checked_at <= failed_cutoff),
@@ -309,8 +322,13 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
               "cutover_ready": False, "fmp_disabled": False}
     if senate_client is not None:
         report['senate_discovery'] = senate_client.search_receipt
+    if senate_window is not None:
+        from app.services.senate_discovery_recovery import finish_window
+        report['senate_recovery'] = finish_window(db, plan=senate_window,
+            receipt=report.get('senate_discovery'), errors=senate_discovery_errors,
+            run_id=run_id, now=utcnow())
     run = db.get(DirectFeedRun, run_id)
-    run.status = "partial" if errors or unresolved else "collected"
+    run.status = "partial" if errors or unresolved or (senate_window is not None and not report["senate_recovery"]["caught_up"]) else "collected"
     run.finished_at = utcnow()
     run.report_json = dumps(report)
     db.commit()
