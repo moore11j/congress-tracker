@@ -282,6 +282,20 @@ def _percent(value: Any) -> float | None:
     return parsed * 100 if abs(parsed) <= 1 else parsed
 
 
+def _fraction_percent(value: Any) -> float | None:
+    """A documented fractional input stays fractional even outside [-1, 1]."""
+    if isinstance(value, str) and "%" in value:
+        return None
+    try:
+        parsed = _number(value)
+    except OverflowError:
+        return None
+    if parsed is None:
+        return None
+    scaled = parsed * 100
+    return scaled if isfinite(scaled) else None
+
+
 def _ratio_from_percentish(value: Any) -> float | None:
     parsed = _number(value)
     if parsed is None:
@@ -566,7 +580,11 @@ def normalize_fundamentals_payload(
             growth_row.get("epsDilutedGrowth"),
             growth_row.get("epsdilutedGrowth"),
         ),
-        "ebitda_growth": _first_percent(screener_row.get("ebitdaGrowth"), growth_row.get("ebitdaGrowth"), growth_row.get("growthEBITDA")),
+        "ebitda_growth": _first_number(
+            _first_percent(screener_row.get("ebitdaGrowth"), growth_row.get("ebitdaGrowth")),
+            # income-statement-growth uses fractions, including losses >100%.
+            _fraction_percent(growth_row.get("growthEBITDA")),
+        ),
         "free_cash_flow": _first_number(screener_row.get("freeCashFlow"), metrics_row.get("freeCashFlowTTM"), metrics_row.get("freeCashFlow")),
         "fcf_yield": _first_percent(
             screener_row.get("freeCashFlowYield"),

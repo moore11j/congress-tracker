@@ -296,3 +296,9 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October 11 free annual metrics:** [Implementation and actual-source comparison](free-annual-metrics-2026-10-11.md) prepares annual EBITDA growth and exact-security beta. Public core remains FMP; material source differences and full consumer/rebaseline gates remain. Deployment and broad live v2 coverage are not yet verified.
+
+
+**2026-10-11, 23:27 UTC:** [Free annual metrics PR589](free-annual-metrics-2026-10-11.md) is deployed and two production v2 caches/repeats are verified. PubliccoreFMP; broader ordinary v2 rotation, demonstrated FMP percent bug, EBITDA definition/netdebt coverage and all consumer/rebaseline gates remain.34runtime hashes and111/107checks pass; no source activation or new spending.
+
+
+**2026-10-11, 23:31 UTC:** [EBITDA fraction repair](ebitda-percent-contract-2026-10-11.md) implemented/tested; deployment pending. Correcting the migration comparator does not resolve provider formula differences or authorize public source switching.
