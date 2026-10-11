@@ -17,3 +17,13 @@ Python3.14.2:94 focused tests pass across Senate recovery, Senate session/parser
 At20:45UTC the separate read-only capacity sample has zero current five-minute throttling, API reserve about53.49 CPU seconds and background nice CPU0.0817. This is still short-window evidence. Scheduled SEC metadata/earnings completed5/5 scopes; SEC financial preparation completed20/20 with partial coverage, and fundamentals10/10 with explicit missing-directory/current-financial coverage. A separate insights job logged malformed Walnut Take model responses, requiring diagnosis. No new machine/resource/provider selection or subscription changes.
 
 Release and scheduled verification remain pending. Senate403, institutional capacity/growth, remaining financial/transcript coverage, all alert/ranking consumers and final Massive/global-FMP/billing gates remain open.
+
+## Deployed and runtime verified, October11 20:58UTC
+
+PR581 merged4d0d69023e65ea9c27c70e417b2178902db041a6; backend deployment38174258100 succeeded. Secret scan and Vercel preview pass. Existing frontend/backend dependency audits fail in unchanged dependency files; automated code-review quota remains unavailable and no independent review pass is claimed. The app could not attach the PR because this chat already exceeds100 attachment identities; its ordinary GitHub link remains usable.
+
+Receipt two-service-verify-1791752288.json verifies23 exact runtime hashes, the release image, unchanged two-host sizes, zero pending jobs/one ordinary active job and institutional publication stillfalse. Six public requests return200; feeds0.387/0.390s, NVDAprofile0.464s and cached contexts0.373/0.532s. Earlier before restart, fresh AAPL/NVDA contexts1.336/0.972s passed. Neither sample proves sustained full-load recovery.
+
+An isolated in-memory SQLite exercise using the deployed Python3.12.15 code verifies that a denied October1-11 search retains its anchor, then a later complete October1-31 search advances it. Receipt senate-recovery-runtime-1791752286.json makes zero production queries, source requests or canonical writes. The next ordinary hourly Congress run is still required to verify the production checkpoint; official access has not been restored by this repair.
+
+Two read-only news-response audit helpers timed out while observing remote SSH. The first was subsequently confirmed absent; the completed deployment ended pre-deployment processes. A new bounded read-only audit is being checked separately. No production source selection, schedule, public event, customer test email, purchase or FMP cancellation was performed by this release.
