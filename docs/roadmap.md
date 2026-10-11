@@ -293,3 +293,6 @@ October 9 final news activation preparation: PR488 also isolates and prewarms th
 
 
 October9 scheduled-recovery follow-up: final news normalization/cache release58dfb797 is live on both sites/all four workers, but deployment interrupted a warming lease created20:13:24. Add same-machine boot/PID-start evidence to recover only a proven dead owner; keep unknown/foreign owners held. Source selection remainsFMP and canonical publication remains off. See the news report; fresh full-universe operation remains a gate.
+
+
+**October 11 free annual metrics:** [Implementation and actual-source comparison](free-annual-metrics-2026-10-11.md) prepares annual EBITDA growth and exact-security beta. Public core remains FMP; material source differences and full consumer/rebaseline gates remain. Deployment and broad live v2 coverage are not yet verified.

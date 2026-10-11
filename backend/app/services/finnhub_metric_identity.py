@@ -5,7 +5,7 @@ from app.services.finnhub_research import FinnhubUnavailable
 
 POLICY = 'reviewed_consolidated_issuer_v1'
 ISSUER_FIELDS = frozenset({'current_ratio', 'debt_to_equity', 'roe', 'roic',
-    'gross_margin', 'operating_margin', 'net_margin', 'revenue_growth'})
+    'gross_margin', 'operating_margin', 'net_margin', 'revenue_growth', 'ebitda_growth'})
 _BERKSHIRE = ('0001067983', [
     'https://www.sec.gov/Archives/edgar/data/1067983/000119312526083899/R1.htm'])
 _REVIEWED = {

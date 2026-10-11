@@ -14,11 +14,13 @@ from app.models import InsightsSnapshot
 from app.services.finnhub_research import FinnhubUnavailable, request_json
 from app.utils.symbols import normalize_symbol
 
-VERSION = 'finnhub_metrics_v1'
+VERSION = 'finnhub_metrics_v2'
 TTL = timedelta(hours=24)
 MAX_PERIOD_AGE = timedelta(days=150)
 URL = 'https://finnhub.io/docs/api/company-basic-financials'
+DERIVED = frozenset({'ebitda_growth'})
 SCALARS = {
+    'beta': ('beta', 'ratio'),
     'trailing_pe': ('peTTM', 'multiple'),
     'forward_pe': ('forwardPE', 'multiple'),
     'price_to_sales': ('psTTM', 'multiple'),
@@ -130,6 +132,18 @@ def normalize(payload, *, symbol, observed_at):
             result['fields'][field] = {'source': 'finnhub', 'path': 'metric.'+key,
                 'period_date': None, 'basis': 'provider_current_snapshot', 'unit': unit,
                 'scale': 1, 'observed_at': observed_at.isoformat()}
+    from app.services.finnhub_metric_growth import annual_ebitda_growth
+    try:
+        annual_growth = annual_ebitda_growth(series, observed_at)
+    except FinnhubUnavailable as exc:
+        # Optional malformed growth history cannot discard other valid metrics.
+        result['field_holds'] = {'ebitda_growth': str(exc)}
+    else:
+        if annual_growth is not None:
+            result['values']['ebitda_growth'], result['fields']['ebitda_growth'] = annual_growth
+    if 'beta' in result['fields']:
+        result['fields']['beta']['limitations'] = [
+            'Provider beta snapshot; benchmark, lookback and return frequency are not supplied.']
     if identity is not None:
         for field in result['fields'].values():
             field.update(source_symbol=reported_symbol, identity_basis='consolidated_issuer')

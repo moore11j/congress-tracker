@@ -16,7 +16,7 @@ CASES = [('BRK.B', 'BRK.A', '0001067983'), ('BRK-B', 'BRK.A', '0001067983'),
 def payload(symbol):
     return {'symbol': symbol, 'metricType': 'all',
         'metric': {key: 12 for key, _ in metrics.SCALARS.values()},
-        'series': {'quarterly': {key: [{'period': '2026-06-30', 'v': .25}]
+        'series': {'annual': {'ebitda': [{'period':'2025-12-31','v':120}, {'period':'2024-12-31','v':100}]}, 'quarterly': {key: [{'period': '2026-06-30', 'v': .25}]
             for key, _, _ in metrics.SERIES.values()}}}
 
 
@@ -100,6 +100,6 @@ def test_recent_dated_financials_still_required_and_newer_sec_period_preserved()
 
 def test_exact_security_retains_all_original_fields_and_no_cross_listing_policy():
     result = metrics.normalize(payload('BRK.A'), symbol='BRK.A', observed_at=NOW)
-    assert set(result['values']) == set(metrics.SCALARS) | set(metrics.SERIES)
+    assert set(result['values']) == set(metrics.SCALARS) | set(metrics.SERIES) | set(metrics.DERIVED)
     assert 'issuer_identity' not in result
     assert all('source_symbol' not in field for field in result['fields'].values())
