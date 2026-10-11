@@ -202,3 +202,60 @@ def test_metrics_are_bounded_fair_daily_and_stop_on_shared_quota(factory,monkeyp
     assert len(calls)==1 and result['status']=='partial'
     with factory() as db:
         assert json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']=={}
+
+
+def test_metric_capacity_covers_universe_without_starving_priority():
+    from datetime import datetime,timedelta,timezone
+    now=datetime(2026,10,10,tzinfo=timezone.utc)
+    symbols=[f'S{i:04}' for i in range(1751)]
+    priority=set(symbols[-48:]);attempts={};seen=[]
+    for tick in range(219):
+        at=now+timedelta(minutes=5*tick)
+        scopes=job.metric_scopes(symbols,priority,attempts,at,8)
+        if tick==0: assert set(scopes)<=priority
+        seen.extend(scopes)
+        for symbol in scopes:attempts[symbol]=at.isoformat()
+    assert len(seen)==len(set(seen))==1751
+    assert job.metric_scopes(symbols,priority,attempts,now+timedelta(hours=23),8)==[]
+    assert set(job.metric_scopes(symbols,priority,attempts,now+timedelta(hours=24),8))<=priority
+
+
+@pytest.mark.parametrize('configured,expected',[('999',8),('8',8),('0',1),('bad',2)])
+def test_metric_configuration_has_hard_request_cap(monkeypatch,configured,expected):
+    monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE',configured)
+    assert job.metric_batch_limit()==expected
+
+
+def test_metric_elapsed_budget_does_not_mark_unattempted_scopes(factory,monkeypatch):
+    from app.services import finnhub_metrics
+    from datetime import datetime,timezone
+    now=datetime.now(timezone.utc)
+    monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
+    monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','8')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','DEF','XYZ'])
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    elapsed=[0.0];calls=[]
+    monkeypatch.setattr(job.time,'monotonic',lambda:elapsed[0])
+    def prepare(symbol):
+        calls.append(symbol);elapsed[0]=21.0
+        return {'status':'partial','values':{},'observed_at':now.isoformat()}
+    monkeypatch.setattr(finnhub_metrics,'prepare',prepare)
+    result=job.run()
+    assert calls==['ABC'] and result['metric_stop_reason']=='elapsed_budget'
+    with factory() as db:
+        attempts=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']
+        assert set(attempts)=={'ABC'}
+    assert job.metric_scopes(['ABC','DEF','XYZ'],set(),attempts,now,8)==['DEF','XYZ']
+
+
+def test_near_expiry_metric_cache_hit_does_not_defer_refresh_another_day(factory,monkeypatch):
+    from app.services import finnhub_metrics
+    from datetime import datetime,timedelta,timezone
+    now=datetime.now(timezone.utc);observed=now-timedelta(hours=24)+timedelta(seconds=10)
+    monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s:{'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    monkeypatch.setattr(finnhub_metrics,'prepare',lambda s:{'status':'partial','values':{'roe':25},'observed_at':observed.isoformat()})
+    job.run()
+    with factory() as db:attempts=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']
+    assert attempts['ABC']==observed.isoformat()
+    assert job.metric_scopes(['ABC'],{'ABC'},attempts,now+timedelta(minutes=5),8)==['ABC']
