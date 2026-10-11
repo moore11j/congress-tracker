@@ -161,6 +161,7 @@
   },
   {
     "symbol": "RDDT",
+    "discovery": {"kind": "reddit_q4_v1"},
     "company_website": "https://www.redditinc.com/",
     "investor_website": "https://investor.redditinc.com/",
     "verification": "Official quarterly page and its public Q4 financial report API reviewed October 10, 2026. API returns the exact PDF link; quarter end is not the call publication date.",

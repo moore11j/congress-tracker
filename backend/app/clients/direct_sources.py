@@ -475,7 +475,7 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
         raise DirectSourceError("Unknown earnings material type")
     if len(text) < 1000 or not re.search(r"earnings|financial results", text, re.I):
         raise DirectSourceError("Issuer page does not contain earnings material")
-    if kind == "earnings_transcript" and not re.search(r"transcript|prepared remarks", text, re.I):
+    if kind == "earnings_transcript" and not re.search(metadata.get('transcript_pattern') or r"transcript|prepared remarks", text, re.I):
         raise DirectSourceError("Issuer page does not identify transcript text")
     if not re.search(metadata["period_pattern"], text, re.I):
         raise DirectSourceError("Issuer fiscal period did not match reviewed configuration")
