@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date, timedelta
 
 from sqlalchemy import case, or_, select
@@ -216,9 +217,15 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
     db.add(run)
     db.commit()
     run_id = run.id
+    discovery_receipt = {'attempted': 0, 'processed': 0, 'errors': []}
+    if 'issuer_earnings' in sources and os.getenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED', '0') == '1':
+        from app.services.issuer_discovery import collect_discovery
+        discovery_receipt = collect_discovery(db, client, issuer_registry, limit=limit, recheck_hours=recheck_hours)
     discovered, errors = discover_sources(db, client, sources=sources, start=start, end=end, symbols=symbols,
                                           issuer_registry=issuer_registry, senate_reports=senate_reports, senate_client=senate_client)
-    processed, results = 0, {}
+    errors.extend(discovery_receipt['errors'])
+    processed = discovery_receipt['processed']
+    results = {'parsed': processed} if processed else {}
     cutoff = utcnow() - timedelta(hours=recheck_hours)
     failed_cutoff = utcnow() - timedelta(hours=1)
     # A per-feed budget prevents one large SEC day starving Congress or earnings.
@@ -230,6 +237,7 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
                        DirectFeedDocument.status == "failed" if retry_failed else False)
         scope = DirectFeedDocument.feed == feed
         if feed == "issuer_earnings":
+            feed_limit = 0 if discovery_receipt.get('stop_reason') else max(0, limit-discovery_receipt['attempted'])
             # The approved issuer bound includes failed pages and explicit retries.
             # Removed registry entries must not remain fetchable from old staging.
             reviewed_keys = [f"{company['symbol']}:{item['document_type']}:{item['fiscal_year']}:Q{item['fiscal_quarter']}"
@@ -237,16 +245,21 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
             scope = scope & DirectFeedDocument.source_key.in_(reviewed_keys)
             issuer_cutoff = utcnow() - timedelta(hours=max(24, recheck_hours))
             eligible = or_(DirectFeedDocument.checked_at.is_(None), DirectFeedDocument.checked_at <= issuer_cutoff)
+        else:
+            feed_limit = limit
         ids = list(db.scalars(select(DirectFeedDocument.id).where(
             scope, eligible,
         ).order_by(case((DirectFeedDocument.status == 'pending', 0), (DirectFeedDocument.status == 'failed', 1), else_=2),
-                   DirectFeedDocument.checked_at.asc().nullsfirst(), DirectFeedDocument.id.asc()).limit(limit)))
+                   DirectFeedDocument.checked_at.asc().nullsfirst(), DirectFeedDocument.id.asc()).limit(feed_limit)))
         for document_id in ids:
             document = db.get(DirectFeedDocument, document_id)
             document.attempts += 1
             metadata = json.loads(document.metadata_json)
+            source_url = document.source_url
+            if feed == 'issuer_earnings':
+                db.commit()  # No idle transaction/pool checkout during issuer HTTP.
             try:
-                raw = (senate_client if feed == 'senate_ptr' and senate_client else client).get(document.source_url)
+                raw = (senate_client if feed == 'senate_ptr' and senate_client else client).get(source_url)
                 text, parsed, reasons = parse_document(feed, raw, metadata)
                 record_document(db, document, raw, text, parsed, reasons=reasons)
                 if feed == "sec_form4":
@@ -266,7 +279,8 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
             except Exception as exc:
                 db.rollback()
                 document = db.get(DirectFeedDocument, document_id)
-                document.attempts += 1
+                if feed != 'issuer_earnings':
+                    document.attempts += 1
                 document.status = "failed"
                 document.checked_at = utcnow()
                 document.error = f"{type(exc).__name__}: {exc}"[:1000]
@@ -279,11 +293,15 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
                 if isinstance(exc, DirectSourceError) and str(exc).startswith((
                         'Source transport failed', 'Source cooldown', 'Source HTTP 403:', 'Source HTTP 429:')):
                     break
+    unresolved_sources = list(sources)
+    if 'issuer_earnings' in sources and os.getenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED', '0') == '1':
+        unresolved_sources.append('issuer_earnings_index')
     unresolved = list(db.scalars(select(DirectFeedDocument).where(
-        DirectFeedDocument.feed.in_(sources),
+        DirectFeedDocument.feed.in_(unresolved_sources),
         DirectFeedDocument.status.in_(("pending", "failed", "quarantined")),
     )))
     report = {"sources": sources, "window": {"start": start, "end": end}, "symbols": symbols,
+              "issuer_discovery": discovery_receipt,
               "discovered": discovered, "processed": processed, "results": results,
               "pending_documents": sum(row.status == "pending" for row in unresolved),
               "unresolved_documents": len(unresolved), "errors": errors, "public_writes": 0,

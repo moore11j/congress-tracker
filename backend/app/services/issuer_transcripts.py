@@ -52,6 +52,8 @@ def _reviewed_latest(symbol):
 def prepared_transcript(db, symbol, *, observed_by=None):
     """Read only; never fetch, substitute another quarter or fall back to FMP."""
     metadata = _reviewed_latest(symbol)
+    from app.services.issuer_discovery import latest_metadata
+    metadata = latest_metadata(db, json.loads(REGISTRY.read_bytes()), symbol, metadata)
     unavailable = lambda reason: {'status': 'unavailable', 'reason': reason, 'provider': 'issuer',
                                   'coverage': 'reviewed_companies_and_periods_only'}
     if metadata is None:
