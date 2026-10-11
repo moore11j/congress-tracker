@@ -79,8 +79,29 @@ def export_records(db, stream):
         DirectFeedRevision.parsed_json).outerjoin(DirectFeedRevision,
             (DirectFeedRevision.document_id == DirectFeedDocument.id) &
             (DirectFeedRevision.content_hash == DirectFeedDocument.content_hash)).where(
-                DirectFeedDocument.feed == 'sec_13f').order_by(DirectFeedDocument.id).limit(1001)
-    for row in db.execute(query.execution_options(yield_per=1)).mappings():
+                DirectFeedDocument.feed == 'sec_13f').order_by(DirectFeedDocument.id)
+    sizes=list(db.execute(query.with_only_columns(DirectFeedDocument.id,
+        func.coalesce(func.octet_length(DirectFeedRevision.source_bytes),0).label('raw_size'),
+        (func.coalesce(func.octet_length(DirectFeedRevision.parsed_json),0)+
+         func.coalesce(func.octet_length(DirectFeedDocument.metadata_json),0)+
+         func.coalesce(func.octet_length(DirectFeedDocument.reconciliation_json),0)).label('json_size')).limit(1001)).mappings())
+    if not 1<=len(sizes)<=1000 or sum(r['raw_size'] for r in sizes)>100_000_000:
+        raise ValueError('Source inventory exceeds reviewed document/byte bounds')
+    if any(r['raw_size']>30_000_000 or r['raw_size']+r['json_size']>80_000_000 for r in sizes):
+        raise ValueError('Source row exceeds reviewed memory bound')
+    def source_rows():
+        # Avoid one network round trip per source without an unbounded fetch.
+        # Ordinary chunks are <=8MB/25rows; a larger row is fetched alone.
+        ids=[];size=0
+        for item in sizes:
+            next_size=item['raw_size']+item['json_size']
+            if ids and (len(ids)>=25 or size+next_size>8_000_000):
+                yield from db.execute(query.where(DirectFeedDocument.id.in_(ids))).mappings()
+                ids=[];size=0
+            ids.append(item['id']);size+=next_size
+        if ids:
+            yield from db.execute(query.where(DirectFeedDocument.id.in_(ids))).mappings()
+    for row in source_rows():
         count += 1
         if count > 1000:
             raise ValueError('Source cohort exceeds1000document bound')
