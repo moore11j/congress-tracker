@@ -46,6 +46,7 @@ def load_identifier_manifest(path):
 MAX_SCAN_DOCUMENTS = 10_000
 MAX_SCAN_BYTES = 100_000_000
 MAX_SOURCE_BYTES = 30_000_000
+MAX_TARGET_BYTES = 100_000_000
 FETCH_DOCUMENTS = 25
 FETCH_BYTES = 8_000_000
 MAX_PERIOD_DOCUMENTS = 500
@@ -192,6 +193,46 @@ def _save_retry_position(db, generation, expected_state, document_id):
         return True
 
 
+def _bound_target_work(db, ids, retry_ids):
+    """Defer whole target filings, preserving each queue's ordered prefix.
+
+    This bounds target work only. Every comparison original is still verified;
+    deferred targets are never omitted from the complete peer evidence scan.
+    """
+    sizes = dict(db.execute(select(DirectFeedDocument.id,
+        func.length(DirectFeedRevision.source_bytes)).outerjoin(DirectFeedRevision,
+        (DirectFeedRevision.document_id == DirectFeedDocument.id) &
+        (DirectFeedRevision.content_hash == DirectFeedDocument.content_hash))
+        .where(DirectFeedDocument.id.in_(ids))).all())
+    if len(sizes) != len(ids) or any(size is None or not 0 < size <= MAX_SOURCE_BYTES for size in sizes.values()):
+        raise ValueError('Missing or oversized target original source')
+    if sum(sizes.values()) <= MAX_TARGET_BYTES:
+        return ids, retry_ids
+    retry_set = set(retry_ids)
+    queues = [[document_id for document_id in ids if document_id not in retry_set], retry_ids]
+    selected = [[], []]
+    remaining = MAX_TARGET_BYTES
+    def take_prefix(index, budget):
+        nonlocal remaining
+        for document_id in queues[index][len(selected[index]):]:
+            size = sizes[document_id]
+            if size > budget:
+                break
+            selected[index].append(document_id)
+            budget -= size
+            remaining -= size
+    share = MAX_TARGET_BYTES // 2 if all(queues) else MAX_TARGET_BYTES
+    for index in range(2):
+        take_prefix(index, min(share, remaining))
+    # Each nonempty queue gets a reserved share before spare bytes are reused.
+    # Never advance a retry cursor past a deferred filing, even if later ones fit.
+    for index in range(2):
+        take_prefix(index, remaining)
+    if any(queue and not chosen for queue, chosen in zip(queues, selected)):
+        raise ValueError('Target work budget cannot preserve queue progress')
+    return selected[0] + selected[1], selected[1]
+
+
 def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False):
     if not 1 <= limit <= 200:
         raise ValueError('Publication limit must be between 1 and 200')
@@ -224,12 +265,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     if not ids:
         db.rollback()
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
-    target_bytes = db.scalar(select(func.sum(func.length(DirectFeedRevision.source_bytes))).join(
-        DirectFeedDocument, (DirectFeedDocument.id == DirectFeedRevision.document_id) &
-        (DirectFeedDocument.content_hash == DirectFeedRevision.content_hash)).where(
-            DirectFeedDocument.id.in_(ids))) or 0
-    if target_bytes > 100_000_000:
-        raise ValueError('Target source scan exceeds byte bounds')
+    ids, retry_ids = _bound_target_work(db, ids, retry_ids)
     from app.services.direct_13f_priors import _saved_source
     from app.clients.direct_sources import DirectSourceError
     report_periods = set()

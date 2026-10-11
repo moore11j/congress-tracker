@@ -460,3 +460,69 @@ def test_chunked_reference_bounds_and_integrity_apply_across_all_chunks(db,monke
     with pytest.raises(ValueError):
         reference.load_reference_batch(db,{(f'{n:09d}',PERIOD) for n in (0,1)})
     assert db.scalar(select(func.count()).select_from(Event))==0
+
+
+
+def _padded_source(serial, size=10000):
+    from test_direct_13f_publication import document
+    doc=document(serial=serial,quarter=2)
+    assert len(doc['raw']) < size
+    doc['raw'] += b'\n' * (size-len(doc['raw']))
+    doc['content_hash']=hashlib.sha256(doc['raw']).hexdigest()
+    return doc
+
+
+def test_target_byte_budget_defers_whole_filings_until_next_batch(db,monkeypatch):
+    ids=[stage(db,_padded_source(n)) for n in range(10,14)]
+    monkeypatch.setattr(batch,'MAX_TARGET_BYTES',20000)
+    first=batch.publish_13f_batch(db,identifier_documents=[],limit=4)
+    second=batch.publish_13f_batch(db,identifier_documents=[],limit=4)
+    assert [r['document_id'] for r in first['results']]==ids[:2]
+    assert [r['document_id'] for r in second['results']]==ids[2:]
+    assert first['comparison_documents']==second['comparison_documents']==4
+    assert batch.publish_13f_batch(db,identifier_documents=[],limit=4)['processed']==0
+    assert db.scalar(select(func.count()).select_from(DirectFeedPublication))==4
+
+
+def test_byte_limited_combined_batch_preserves_both_queues_and_retry_cursor(db,monkeypatch):
+    from app.models import InsightsSnapshot
+    retries=[]
+    for n in range(10,13):
+        document_id=stage(db,_padded_source(n));retries.append(document_id)
+        row=db.get(DirectFeedDocument,document_id)
+        row.metadata_json=json.dumps({**json.loads(row.metadata_json),'filing_date':'2099-01-01'});db.commit()
+    batch.publish_13f_batch(db,identifier_documents=[])
+    new=[stage(db,_padded_source(n)) for n in range(20,23)]
+    monkeypatch.setattr(batch,'MAX_TARGET_BYTES',20000)
+    for new_id,retry_id in zip(new,retries):
+        result=batch.publish_13f_batch(db,identifier_documents=[],limit=6,include_waiting=True)
+        assert [r['document_id'] for r in result['results']]==[new_id,retry_id]
+        assert result['comparison_documents']==6
+        assert json.loads(db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY).payload_json)['last_document_id']==retry_id
+    assert db.scalar(select(func.count()).select_from(Event))==0
+
+
+def test_target_byte_budget_does_not_skip_large_next_retry_to_fit_smaller_one(db,monkeypatch):
+    ids=[stage(db,_padded_source(10,10000)),stage(db,_padded_source(11,15000)),stage(db,_padded_source(12,5000))]
+    monkeypatch.setattr(batch,'MAX_TARGET_BYTES',20000)
+    assert batch._bound_target_work(db,ids,ids)==([ids[0]],[ids[0]])
+    assert batch._bound_target_work(db,ids[1:],ids[1:])==(ids[1:],ids[1:])
+
+
+def test_target_byte_budget_reuses_spare_bytes_without_losing_group_order(db,monkeypatch):
+    new=[stage(db,_padded_source(n,15000)) for n in range(10,13)]
+    retry=[stage(db,_padded_source(20,5000))]
+    monkeypatch.setattr(batch,'MAX_TARGET_BYTES',40000)
+    assert batch._bound_target_work(db,new+retry,retry)==(new[:2]+retry,retry)
+
+
+@pytest.mark.parametrize('defect',['missing','oversized','impossible_budget'])
+def test_invalid_target_original_or_budget_fails_before_publication(db,monkeypatch,defect):
+    document_id=stage(db,_padded_source(10))
+    if defect=='missing':
+        row=db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id==document_id));row.source_bytes=None;db.commit()
+    elif defect=='oversized':monkeypatch.setattr(batch,'MAX_SOURCE_BYTES',9999)
+    else:monkeypatch.setattr(batch,'MAX_TARGET_BYTES',9999)
+    monkeypatch.setattr(batch,'publish_13f_document',lambda *a,**k:pytest.fail('Invalid target was published'))
+    with pytest.raises(ValueError):batch.publish_13f_batch(db,identifier_documents=[])
+    assert db.scalar(select(func.count()).select_from(DirectFeedPublication))==0
