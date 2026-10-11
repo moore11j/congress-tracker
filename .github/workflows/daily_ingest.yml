@@ -35,6 +35,7 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -80,8 +81,8 @@ jobs:
             exit 1
           fi
 
-          REMOTE_COMMAND="cd /app && python -m app.ingest_run --job $JOB_MODE"
-          echo "Running ingest job: $JOB_MODE"
+          REMOTE_COMMAND="cd /app && python /app/scripts/scheduled_jobs.py dispatch-ingest $JOB_MODE --request-id ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "Queueing ingest job and waiting for its result: $JOB_MODE"
           echo "Remote command: $REMOTE_COMMAND"
           log_file="$(mktemp)"
           for attempt in 1 2 3; do
