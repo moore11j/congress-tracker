@@ -54,6 +54,36 @@ def test_late_references_enrich_owned_nulls_preserve_facts_and_repeat_without_de
     assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
 
 
+def test_foreign_prior_needs_its_own_us_reference_and_retains_history(db):
+    cusip='F92124100'
+    historical=InstitutionalPosition(filing_id=999,cik='0000000999',cusip=cusip,
+        normalized_symbol='TOTB.DE',symbol='TOTB.DE',shares=1,value_usd=1,
+        report_year=2025,report_quarter=4,filing_date=datetime(2026,2,1).date())
+    db.add(historical);db.commit()
+    prior=document(quarter=2,serial=2,rows=[(cusip,10_000_000,100_000_000,''),
+        ('000361106',10_000_000,100_000_000,'')])
+    current=document(rows=[(cusip,30_000_000,300_000_000,'')])
+    raw=payload();raw['results'][0]['ticker']='TTE'
+    refs=[capture_reference(Client(raw),cusip=cusip,report_period=p,
+          observed_at='2026-10-08T05:00:00+00:00') for p in ('2026-06-30','2026-09-30')]
+    run(db,prior)
+    assert run(db,current,[refs[1]])['derived_state']=='waiting_equity_symbol_mapping'
+    assert run(db,prior,[refs[0]])['enriched_positions']==1
+    result=run(db,current,refs)
+    assert result['derived_state']=='published' and result['feed_events']>0
+    assert historical.normalized_symbol==historical.symbol=='TOTB.DE'
+    positions=list(db.scalars(select(InstitutionalPosition).where(
+        InstitutionalPosition.filing_id!=999,InstitutionalPosition.cusip==cusip)))
+    assert {p.normalized_symbol for p in positions}=={'TTE'}
+    assert {p.shares for p in positions}=={10_000_000,30_000_000}
+    for event in db.scalars(select(Event)):
+        assert event.ts.replace(tzinfo=timezone.utc)>=datetime.fromisoformat(refs[0]['observed_at'])
+    saved=snapshot(db)
+    run(db,prior,refs);run(db,current,refs)
+    assert snapshot(db)==saved
+    assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
+
+
 def test_reference_mapped_prior_does_not_become_undated_identity_for_another_period(db):
     prior,current=docs()
     run(db,prior,[reference('2026-06-30')])

@@ -100,6 +100,24 @@ def test_share_class_normalization_is_explicit():
     assert resolve_reference_candidate(result,{'BRKB'}) is None
 
 
+@pytest.mark.parametrize('cusip,foreign,us,previous',[
+    ('F92124100','TOTB.DE','TTE','2025-09-30'),
+    ('496902404','K','KGC','2025-12-31'),
+])
+def test_reviewed_us_common_share_requires_dated_independent_reference(cusip,foreign,us,previous):
+    raw=payload();raw['results'][0]['ticker']=us
+    doc=capture_reference(Client(raw),cusip=cusip,report_period=PERIOD,observed_at=NOW)
+    result=reference_identity(doc,cusip=cusip,report_period=PERIOD,observed_by=NOW)
+    assert resolve_reference_candidate(result,{foreign})==us
+    assert result['observed_at']==NOW and result['report_period']==PERIOD
+    assert resolve_reference_candidate(result,{foreign,'UNRELATED'}) is None
+    for field,value in [('cusip','89151E109'),('report_period',previous),('security_type','ADRC')]:
+        changed={**result,field:value}
+        assert resolve_reference_candidate(changed,{foreign}) is None
+    future=reference_identity(doc,cusip=cusip,report_period=PERIOD,observed_by='2026-10-08T00:00:00Z')
+    assert resolve_reference_candidate(future,{foreign}) is None
+
+
 def test_durable_staging_repeat_retains_first_observation_and_preserves_revisions():
     import json
     from sqlalchemy import create_engine, select, func

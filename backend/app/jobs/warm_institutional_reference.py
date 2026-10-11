@@ -19,7 +19,7 @@ KEY = 'institutional-reference:warming:v1'
 BATCH_SIZE = 2
 MAX_DOCUMENTS = 500
 MAX_SCOPES = 5000
-PLAN_VERSION = 2
+PLAN_VERSION = 3
 
 
 def _now():

@@ -14,6 +14,21 @@ def snapshot_digest(rows):
     return hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def reviewed_us_listing(cusip, symbols, year, quarter):
+    """Return the reviewed US target, not evidence that it was observed then."""
+    # Exact common-share classes only. Issuer sources and date boundaries:
+    # docs/institutional-symbol-resolution-2026-10-11.md
+    listings = (
+        ("F92124100", {"TOTB.DE", "TTE"}, "TTE", (2025, 4)),
+        ("496902404", {"K", "KGC"}, "KGC", (2026, 1)),
+    )
+    for exact_cusip, aliases, us_symbol, first_period in listings:
+        if (cusip == exact_cusip and (year, quarter) >= first_period
+                and symbols and symbols <= aliases):
+            return us_symbol
+    return None
+
+
 def mapped_symbol(cusip, symbols, year, quarter):
     # Issuer-confirmed change effective 2024-08-21; Q3 is the first quarter-end
     # under NBIS. Preserve older reporting periods and reject unrelated conflicts.
@@ -61,11 +76,24 @@ def mapped_symbol(cusip, symbols, year, quarter):
         ("228903100", {"CRY", "AORT"}, "AORT", (2022, 1)),
         ("62886E108", {"NCR", "VYX"}, "VYX", (2023, 4)),
         ("887399103", {"TMST", "MTUS"}, "MTUS", (2024, 1)),
+        # Completed issuer changes: docs/institutional-symbol-resolution-2026-10-11.md
+        ("019330109", {"AMOT", "ALNT"}, "ALNT", (2023, 3)),
+        ("46138G888", {"CLTL", "TBLL"}, "TBLL", (2023, 3)),
+        ("03761U502", {"AINV", "MFIC"}, "MFIC", (2022, 3)),
     )
     for exact_cusip, aliases, current, first_period in transitions:
         if (cusip == exact_cusip and (year, quarter) >= first_period
                 and current in symbols and symbols <= aliases):
             return current
+    # Exchange-specific disambiguation is distinct from a symbol rename. These
+    # exact common-share identities have independently available US candidates
+    # and reviewed issuer confirmation for the periods below. Do not infer a
+    # US listing from an issuer name, a foreign singleton, or another CUSIP.
+    us_symbol = reviewed_us_listing(cusip, symbols, year, quarter)
+    if us_symbol:
+        # A foreign singleton requires independent dated US reference evidence.
+        # It must not short-circuit reference preparation as already resolved.
+        return us_symbol if us_symbol in symbols else None
     return next(iter(symbols)) if len(symbols) == 1 else None
 
 
