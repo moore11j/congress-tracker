@@ -1,0 +1,11 @@
+# Skip heavy startup during an existing reference cooldown
+
+Ordinary reference-job receipts showed about 1.5–1.7 CPU seconds even when the worker could not proceed. The CLI now checks its existing enablement flags and, for PostgreSQL, reads only the two saved cooldown timestamps before loading SQLAlchemy, the model registry and collectors. A future provider retry timestamp or a start less than 60 seconds ago returns the same cooldown response. Expired, missing, malformed or unavailable state falls through to the unchanged worker.
+
+The connection uses a two-second connection timeout, a read-only transaction and bounded statement/lock timeouts. It never changes source attempts, retry dates, queue ordering, schedules, rate budgets, prices or publication flags. A due run still executes all original guards and collection logic. An early cooldown avoids unnecessary work; it is not evidence that more sources were collected.
+
+28 preflight and reference-warming tests pass on Python 3.14.2, including exact retry boundaries, unavailable state, disabled mode, and CLI proof that a cooldown exits before heavy imports. An actual PostgreSQL 16.15 disposable schema verifies five state cases, read-only transactions and unchanged stored payloads. Alternating six fresh local processes return identical cooldown receipts; median CPU is 1.625 seconds for the full worker versus 0.46875 for preflight, about 71% lower for that specific path. Local timings do not establish production-wide savings. An initial test fixture omitted updated_at; correcting the fixture allowed the full existing reader comparison. Schemas were removed and the local server stopped. No provider calls, production writes or emails.
+
+This package is not yet deployed. Remaining requirements are exact-release checks, ordinary due and cooldown runs, and sustained quota/queue/public-latency observations. The current API is not throttled in the 03:21 sample, but background use still leaves little sustained CPU headroom. Extra short-lived metrics series are not proof of additional servers; machine inventory still shows one API host.
+
+The five institutional peer-window holds remain unresolved and direct publication stays off. Core and transcripts remain gated, Massive remains last and FMP remains active. No new subscription or infrastructure spend.

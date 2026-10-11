@@ -5,6 +5,13 @@ from itertools import zip_longest
 import os
 import re
 
+if __name__ == '__main__':
+    from app.jobs.reference_preflight import early_result
+    early = early_result()
+    if early is not None:
+        print(json.dumps(early, sort_keys=True))
+        raise SystemExit(0)
+
 from sqlalchemy import and_, or_, func, select
 from app.background_job_guard import check_background_job_guard
 from app.clients.massive_stocks import MassiveStocksClient, MassiveStocksError
