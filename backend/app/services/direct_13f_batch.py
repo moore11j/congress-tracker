@@ -11,7 +11,7 @@ from app.services.direct_feed_worker import DirectFeedPublication, _source_url
 from app.services.direct_13f_worker import publish_13f_document
 from app.services.feed_source_control import require_selected_source, writer_transaction, FeedSourceMismatch
 from app.models import InsightsSnapshot
-from app.services.direct_13f_evidence import Prepared13FEvidence, PreparedComparisonCache
+from app.services.direct_13f_evidence import Prepared13FEvidence, PreparedComparisonCache, prepare_streamed_peer_groups
 
 
 def load_identifier_manifest(path):
@@ -51,7 +51,7 @@ FETCH_BYTES = 8_000_000
 MAX_PERIOD_DOCUMENTS = 500
 
 
-def _staged_sources(db):
+def _staged_sources(db, *, retain_originals=True):
     """Read every current parsed original or refuse an incomplete inventory."""
     query = select(DirectFeedDocument.id, DirectFeedDocument.metadata_json,
         DirectFeedDocument.source_key, DirectFeedDocument.source_url,
@@ -66,7 +66,7 @@ def _staged_sources(db):
         raise ValueError('Missing or oversized complete staged source inventory')
     if any(row['size'] is None or not 0 < row['size'] <= MAX_SOURCE_BYTES for row in rows):
         raise ValueError('Missing or oversized staged original source')
-    if sum(row['size'] for row in rows) > MAX_SCAN_BYTES:
+    if retain_originals and sum(row['size'] for row in rows) > MAX_SCAN_BYTES:
         raise ValueError('Complete staged source scan exceeds byte bounds')
     offset = 0
     while offset < len(rows):
@@ -222,6 +222,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     report_periods = set()
     reference_scopes = {}
     target_periods = {}
+    value_scopes = {}
     for document_id in ids:
         try:
             _, _, parsed, _ = _saved_source(db, db.get(DirectFeedDocument, document_id))
@@ -232,21 +233,22 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
             break
         target_periods[document_id] = parsed['metadata']['report_period']
         report_periods.add(target_periods[document_id])
+        # Reference lookup normalizes identifiers; peer value checks preserve
+        # the original parser keys to keep existing comparison semantics.
+        value_scopes.setdefault(target_periods[document_id], set()).update(r['cusip'] for r in parsed['positions'])
         reference_scopes[document_id] = {(r['cusip'].strip().upper(), parsed['metadata']['report_period']) for r in parsed['positions']}
-    comparison_cache = PreparedComparisonCache()
-    groups = staged_comparison_groups(db,
-        byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents),
-        report_periods=report_periods, comparison_cache=comparison_cache)
+    groups = prepare_streamed_peer_groups(_staged_sources(db, retain_originals=False),
+        scopes=value_scopes if report_periods is not None else None)
     references = []
     if use_staged_references:
         from app.services.institutional_reference import load_reference_batch
         references = load_reference_batch(db, set().union(*reference_scopes.values()) if reference_scopes else set())
     db.rollback()  # Recheck durable ownership inside every filing transaction.
-    # Prepare every complete group before the first writer transaction. Mixed
-    # quarter batches retain input order without fitting both quarters into500.
-    evidence = {period: Prepared13FEvidence.build(identifier_documents, documents, comparison_cache=comparison_cache)
-                for period, documents in groups.items()}
-    comparisons = list({id(d): d for group in groups.values() for d in group}.values())
+    # All originals are checked before the first writer transaction. Mixed
+    # quarter batches retain complete peer summaries and target order.
+    evidence = {period: Prepared13FEvidence.build_for_cohort(identifier_documents, cohort)
+                for period, cohort in groups.items()}
+    comparisons = {record.identity: record for cohort in groups.values() for record in cohort.records}
     def group_key(document_id):
         return target_periods[document_id] if report_periods is not None else None
     results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
@@ -259,6 +261,6 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         'comparison_periods': sorted(report_periods) if report_periods is not None else None,
         'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
         'reference_documents': len(references),
-        'comparison_documents': len(comparisons), 'comparison_bytes': sum(len(d['raw']) for d in comparisons),
+        'comparison_documents': len(comparisons), 'comparison_bytes': sum(record.source_bytes for record in comparisons.values()),
         'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
         'results': results, 'email_deliveries': 0}
