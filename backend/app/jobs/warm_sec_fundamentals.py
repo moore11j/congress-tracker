@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import time
 import uuid
 
 from sqlalchemy import func, select, text
@@ -15,6 +16,24 @@ from app.services.finnhub_news_warming import _owner, _lease_active
 from app.utils.symbols import normalize_symbol, classify_symbol
 
 KEY = 'sec-fundamentals:warming:v1'
+METRIC_MAX_SECONDS = 20
+
+
+def metric_batch_limit():
+    try:
+        return max(1, min(8, int(os.getenv('FINNHUB_METRICS_BATCH_SIZE', '2'))))
+    except ValueError:
+        return 2
+
+
+def metric_scopes(symbols, priority_symbols, attempts, now, limit):
+    def due(symbol):
+        try:
+            return not timedelta(0) <= now-datetime.fromisoformat(attempts[symbol]) < timedelta(hours=24)
+        except (KeyError, ValueError, TypeError):
+            return True
+    return sorted((s for s in symbols if due(s)),
+                  key=lambda s: (s not in priority_symbols, attempts.get(s, ''), s))[:limit]
 
 
 def _run_locked():
@@ -91,33 +110,44 @@ def _run_locked():
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
     metric_results = []
+    metric_limit = metric_batch_limit()
+    metric_started = time.monotonic()
+    metric_stop = None
+    metric_planned = 0
     if os.getenv('FINNHUB_METRICS_WARMING_ENABLED', '0') == '1':
         from app.services import finnhub_metrics
         from app.services.finnhub_research import FinnhubUnavailable
         from app.services.finnhub_news_warming import STOP_REASONS
-        def metric_due(s):
-            try:
-                return not timedelta(0) <= now-datetime.fromisoformat(metric_attempts[s]) < timedelta(hours=24)
-            except (KeyError, ValueError, TypeError):
-                return True
-        scopes = sorted((s for s in symbols if metric_due(s)),
-                        key=lambda s: (s not in priority_symbols, metric_attempts.get(s, ''), s))[:2]
+        scopes = metric_scopes(symbols, priority_symbols, metric_attempts, now, metric_limit)
+        metric_planned = len(scopes)
         for symbol in scopes:
+            if time.monotonic()-metric_started >= METRIC_MAX_SECONDS:
+                metric_stop = 'elapsed_budget'
+                break
+            attempted_at = datetime.now(timezone.utc).isoformat()
             try:
                 panel = finnhub_metrics.prepare(symbol)
-                item = {'scope': symbol, 'status': panel['status'], 'metrics': len(panel['values'])}
+                # A cached response is not a new observation. Retain its actual
+                # timestamp so a near-expiry hit cannot delay refresh a day.
+                attempted_at = panel.get('observed_at', attempted_at)
+                item = {'scope': symbol, 'status': panel['status'], 'metrics': len(panel['values']),
+                        'observed_at': panel.get('observed_at')}
             except FinnhubUnavailable as exc:
                 item = {'scope': symbol, 'status': 'unavailable', 'reason': str(exc)}
             except Exception as exc:
                 item = {'scope': symbol, 'status': 'unavailable', 'reason': type(exc).__name__}
             metric_results.append(item)
             if item.get('reason') in STOP_REASONS or item.get('reason') == 'shared_budget_required':
+                metric_stop = item.get('reason')
                 break
-            metric_attempts[symbol] = now.isoformat()
-    receipt = {'status': 'partial' if truncated or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
+            metric_attempts[symbol] = attempted_at
+    receipt = {'status': 'partial' if truncated or metric_stop or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': truncated, 'ranking_universe_enabled': broad, 'priority_universe_size': len(priority_symbols), 'ranking_cache_symbols': min(len(ranked),5000), 'batch_limit': batch_limit,
         'planned_scopes': min(batch_limit, len(symbols)), 'completed_scopes': len(results), 'results': results,
         'metric_results': metric_results,
+        'planned_metric_scopes': metric_planned, 'completed_metric_scopes': len(metric_results),
+        'metric_batch_limit': metric_limit, 'metric_elapsed_seconds': round(time.monotonic()-metric_started, 3),
+        'metric_stop_reason': metric_stop,
         'fundamentals_selection': os.getenv('FUNDAMENTALS_PROVIDER', 'fmp'),
         'canonical_writes': 0, 'model_calls': 0, 'emails': 0}
     with SessionLocal() as db:

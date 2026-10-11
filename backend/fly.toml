@@ -29,9 +29,10 @@ processes = ["app"]
   COMBINED_SCHEDULER_MACHINE_ID = "8d1099c53ed378"
   SCHEDULED_JOB_MAX_SECONDS = "1200"
   ISSUER_TRANSCRIPT_WARMING_ENABLED = "true"
-  # Reuse the serialized SEC ratio job: at most two free metrics requests/run.
+  # Reuse the serialized SEC ratio job: at most eight free metrics requests/run.
   # Preparation only; public fundamentals selection stays separately gated.
   FINNHUB_METRICS_WARMING_ENABLED = "1"
+  FINNHUB_METRICS_BATCH_SIZE = "8"
   DIRECT_FEEDS_MODE = "shadow"
   SENATE_PUBLIC_NOTICE_ACKNOWLEDGED = "true"
   DIRECT_FEED_PUBLICATION_ENABLED = "false"

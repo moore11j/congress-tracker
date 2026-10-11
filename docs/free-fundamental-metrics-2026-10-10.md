@@ -1,5 +1,15 @@
 # Free financial metrics, October 10
 
+## Release and scheduled preparation verified,23:56UTC
+
+PR551 headaa0a9b92 mergedcc5af076. Final overlapping42 lock/warming/methodology and16 numeric/consumer checks pass, four frontend tests and TypeScript pass. Four actual React markup renders show compound attribution and snapshot/horizon limitations; no interactive browser claim. Fly configuration validates after retrying outside the filesystem sandbox because flyctl requires its own local config permission file.
+
+Workflow38096578782 successfully deploys the exact release, but its immediate anonymous MU research-route check receives503, so the workflow concludes failure. CI diagnostics confirm this failed step. A subsequent exact-route repeat returns readiness200/databaseok and both protected routes401/sign-in-required. Do not describe the workflow as successful. Eight metrics/consumer hashes plus seven operational hashes match; both production sites serve the updated238379-byte attribution bundle. Secret scan and Vercel preview pass; unchanged Next.js/Pillow10.4 dependency audits fail.
+
+Ordinary23:56:03 SEC-ratio run prepares AAPL and ACN,13 normalized metrics each at23:56:12. Read-only combination of actual fresh prepared panels preserves every SEC value, adding seven fields to AAPL and eight to ACN. FMP remains selected for public fundamentals; zero canonical free_direct rows exist. Shared quota/combined scheduler flags remain enabled. This is preparation and read-only consumer evidence, not public selection, full coverage or all-alert verification.
+
+Receipts: metrics-live-1791676519.json(before scheduled work),metrics-live-1791676583.json(first ordinary run),two-service-verify-1791676553.json,metrics-source-bundle-1791676562.json and metrics-source-bundle-1791676591.json. Exactly two machines,1461MB API memory available and empty queues sampled. Six public responses200: feeds0.46-0.48s/profile0.69s/new AAPL/NVDA contexts1.37/1.05s. Local PostgreSQL stopped; all local tool sessions complete. Existing invalid indexes, sustained weekday/weekly reliability and broad source coverage remain separate gates. No new subscription, customer email or FMP shutdown.
+
 ## Replacement and boundaries
 
 Finnhub's free `stock/metric?metric=all` responses captured October 9 include forward/trailing P/E, price/sales, EV/EBITDA, TTM margins/growth and dated ratio series. The [official provider schema](https://github.com/Finnhub-Stock-API/finnhub-go/blob/master/api/openapi.yaml) establishes the endpoint and response envelope, but does not supply per-field definitions or market timestamps. Captured source comparisons establish field units; no magnitude heuristic converts small percentages.
