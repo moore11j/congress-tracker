@@ -27,3 +27,7 @@ These differences are material. The FMP comparison is a read-only provider-filte
 ## Remaining release and cutover gates
 
 Focused and expanded tests, review, deployment and live v2 preparation are tracked below. Core selection stays FMP; no source switch is included. Annual definition and raw-FMP outlier reconciliation, net debt/EBITDA, earlier earnings releases, full coverage, score/ranking rebaseline, monitoring/watchlist/daily/weekly consumers, sustained capacity and final Massive validation remain open. No new paid subscription is established by the adapter's former field omissions.
+
+## Pre-release validation
+
+111 focused/expanded checks pass on Python 3.14.2 in 197.93 seconds: metrics, issuer identity, invalid/overflow annual data, v1 cache rejection, SEC warming, provider baselines, snapshots and confirmation consistency. Initial 61 narrower checks also passed. Actual source replay handle94279 is terminal/pass. PR589 is under automatic review; no deployment yet. Existing dependency audit failures are not changed by this package.
