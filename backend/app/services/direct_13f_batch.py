@@ -1,5 +1,6 @@
 """Bounded institutional publication from captured evidence, without network I/O."""
 import hashlib
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -8,7 +9,8 @@ from sqlalchemy import func, select
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision
 from app.services.direct_feed_worker import DirectFeedPublication, _source_url
 from app.services.direct_13f_worker import publish_13f_document
-from app.services.feed_source_control import require_selected_source
+from app.services.feed_source_control import require_selected_source, writer_transaction, FeedSourceMismatch
+from app.models import InsightsSnapshot
 from app.services.direct_13f_evidence import Prepared13FEvidence, PreparedComparisonCache
 
 
@@ -143,20 +145,69 @@ def staged_comparisons(db, *, byte_budget, report_periods=None):
     return documents
 
 
+RETRY_POSITION_KEY = 'direct-13f-retry-position:v1'
+
+
+def _retry_position(db, generation):
+    row = db.get(InsightsSnapshot, RETRY_POSITION_KEY, populate_existing=True)
+    if row is None:
+        return None, None
+    state = json.loads(row.payload_json)
+    if (row.source != 'sec_edgar' or not isinstance(state, dict)
+            or state.get('version') != 1 or type(state.get('generation')) is not int
+            or type(state.get('last_document_id')) is not int or state['last_document_id'] <= 0):
+        raise ValueError('Invalid institutional retry position')
+    return (state['last_document_id'] if state['generation'] == generation else None), row.payload_json
+
+
+def _retry_ids(db, query, limit, position):
+    after = query.where(DirectFeedDocument.id > position) if position is not None else query
+    ids = list(db.scalars(after.order_by(DirectFeedDocument.id).limit(limit)))
+    if position is not None and len(ids) < limit:
+        ids.extend(db.scalars(query.where(DirectFeedDocument.id <= position)
+            .order_by(DirectFeedDocument.id).limit(limit-len(ids))))
+    return ids
+
+
+def _save_retry_position(db, generation, expected_state, document_id):
+    # This is operational rotation state. Canonical filing receipts and their
+    # timestamps remain immutable when repeated evidence changes nothing.
+    with writer_transaction(db, 'sec_13f', 'sec_edgar') as control:
+        if control.generation != generation:
+            raise FeedSourceMismatch('Institutional source generation changed during retry')
+        row = db.get(InsightsSnapshot, RETRY_POSITION_KEY, populate_existing=True)
+        if (row.payload_json if row else None) != expected_state:
+            return False  # A newer completed batch owns the rotation position.
+        payload = json.dumps({'version':1, 'generation':generation,
+                              'last_document_id':document_id}, sort_keys=True)
+        if row is not None and row.payload_json == payload:
+            return False
+        now = datetime.now(timezone.utc)
+        if row is None:
+            row = InsightsSnapshot(kind=RETRY_POSITION_KEY, source='sec_edgar',
+                                   fetched_at=now, payload_json=payload)
+            db.add(row)
+        else:
+            row.source, row.fetched_at, row.payload_json = 'sec_edgar', now, payload
+        return True
+
+
 def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False):
     if not 1 <= limit <= 200:
         raise ValueError('Publication limit must be between 1 and 200')
     if db.new or db.dirty or db.deleted:
         raise ValueError('Feed writer session has unrelated pending changes')
-    require_selected_source(db, 'sec_13f', 'sec_edgar')
+    generation = require_selected_source(db, 'sec_13f', 'sec_edgar').generation
     query = select(DirectFeedDocument.id).outerjoin(DirectFeedPublication,
         DirectFeedPublication.document_id == DirectFeedDocument.id).where(
         DirectFeedDocument.feed == 'sec_13f', DirectFeedDocument.status == 'parsed')
     if retry_waiting:
         query = query.where(DirectFeedPublication.status.in_(('waiting', 'held')))
+        position, expected_state = _retry_position(db, generation)
     else:
         query = query.where(DirectFeedPublication.id.is_(None))
-    ids = list(db.scalars(query.order_by(DirectFeedDocument.id).limit(limit)))
+    ids = (_retry_ids(db, query, limit, position) if retry_waiting else
+           list(db.scalars(query.order_by(DirectFeedDocument.id).limit(limit))))
     if not ids:
         db.rollback()
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
@@ -202,6 +253,8 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         identifier_documents=identifier_documents, comparison_documents=groups[group_key(document_id)],
         prepared_evidence=evidence[group_key(document_id)],
         reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
+    if retry_waiting:
+        _save_retry_position(db, generation, expected_state, ids[-1])
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
         'comparison_periods': sorted(report_periods) if report_periods is not None else None,
         'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
