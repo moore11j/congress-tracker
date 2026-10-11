@@ -220,6 +220,56 @@ def test_metric_capacity_covers_universe_without_starving_priority():
     assert set(job.metric_scopes(symbols,priority,attempts,now+timedelta(hours=24),8))<=priority
 
 
+def test_denied_metric_symbol_does_not_starve_the_rest_of_the_universe(factory,monkeypatch):
+    from app.services import finnhub_metrics
+    from app.services.finnhub_research import FinnhubUnavailable
+    from datetime import datetime,timezone,timedelta
+    now=datetime.now(timezone.utc)
+    monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
+    monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','2')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['AAPL.TO','ABC','DEF'])
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{
+        'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    calls=[]
+    def prepare(symbol):
+        calls.append(symbol)
+        if symbol=='AAPL.TO':raise FinnhubUnavailable('access_denied')
+        return {'status':'partial','values':{'roe':25},'observed_at':now.isoformat()}
+    monkeypatch.setattr(finnhub_metrics,'prepare',prepare)
+    first=job.run()
+    assert calls==['AAPL.TO','ABC']
+    assert first['metric_stop_reason'] is None and first['status']=='partial'
+    assert first['metric_results'][0]['reason']=='access_denied'
+    assert first['canonical_writes']==first['emails']==0
+    job.run();assert calls==['AAPL.TO','ABC','DEF']
+    with factory() as db:
+        attempts=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']
+    assert 'AAPL.TO' in attempts
+    assert job.metric_scopes(['AAPL.TO'],set(),attempts,now+timedelta(hours=23),8)==[]
+    assert job.metric_scopes(['AAPL.TO'],set(),attempts,now+timedelta(days=2),8)==['AAPL.TO']
+
+
+@pytest.mark.parametrize('reason',['authentication_failed','missing_api_key','rate_limited',
+    'provider_cooldown','request_budget_exhausted','shared_budget_required'])
+def test_global_metric_failure_stops_without_deferring_unattempted_symbols(factory,monkeypatch,reason):
+    from app.services import finnhub_metrics
+    from app.services.finnhub_research import FinnhubUnavailable
+    from datetime import datetime,timezone
+    now=datetime.now(timezone.utc)
+    monkeypatch.setenv('FINNHUB_METRICS_WARMING_ENABLED','1')
+    monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','8')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['ABC','DEF'])
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda symbol:{
+        'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()})
+    calls=[]
+    def denied(symbol):calls.append(symbol);raise FinnhubUnavailable(reason)
+    monkeypatch.setattr(finnhub_metrics,'prepare',denied)
+    result=job.run()
+    assert calls==['ABC'] and result['metric_stop_reason']==reason
+    with factory() as db:
+        assert json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']=={}
+
+
 @pytest.mark.parametrize('configured,expected',[('999',8),('8',8),('0',1),('bad',2)])
 def test_metric_configuration_has_hard_request_cap(monkeypatch,configured,expected):
     monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE',configured)

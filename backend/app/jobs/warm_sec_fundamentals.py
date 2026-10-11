@@ -118,6 +118,11 @@ def _run_locked():
         from app.services import finnhub_metrics
         from app.services.finnhub_research import FinnhubUnavailable
         from app.services.finnhub_news_warming import STOP_REASONS
+        # A market/symbol entitlement denial is not an account-wide outage.
+        # Defer that scope for the usual day, then use the rest of this bounded
+        # batch. Authentication, shared quota and missing credentials still stop.
+        metric_stop_reasons = (STOP_REASONS - {'access_denied'}) | {
+            'missing_api_key', 'shared_budget_required'}
         scopes = metric_scopes(symbols, priority_symbols, metric_attempts, now, metric_limit)
         metric_planned = len(scopes)
         for symbol in scopes:
@@ -137,7 +142,7 @@ def _run_locked():
             except Exception as exc:
                 item = {'scope': symbol, 'status': 'unavailable', 'reason': type(exc).__name__}
             metric_results.append(item)
-            if item.get('reason') in STOP_REASONS or item.get('reason') == 'shared_budget_required':
+            if item.get('reason') in metric_stop_reasons:
                 metric_stop = item.get('reason')
                 break
             metric_attempts[symbol] = attempted_at
