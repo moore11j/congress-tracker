@@ -46,14 +46,22 @@ def publish_13f_document(db, document_id, *, identifier_documents, comparison_do
     """
     if len(reference_documents) > 5000 or len(dumps(reference_documents).encode()) > 20_000_000:
         raise ValueError('Reference evidence exceeds bounds')
-    if len(identifier_documents) > 50 or not 1 <= len(comparison_documents) <= 500:
-        raise ValueError('Supply bounded identifier and nonempty peer evidence')
-    if sum(len(d['raw']) for d in (*identifier_documents, *comparison_documents)) > 100_000_000:
-        raise ValueError('Evidence batch exceeds 100 MB')
-    for peer in comparison_documents:
-        if peer.get('feed') != 'sec_13f':
-            raise ValueError('Wrong comparison evidence feed')
-        _source_url(peer['metadata'])
+    from app.services.direct_13f_evidence import VerifiedPeerCohort, Prepared13FEvidence
+    if isinstance(comparison_documents, VerifiedPeerCohort):
+        if (not isinstance(prepared_evidence, Prepared13FEvidence)
+                or prepared_evidence._streamed_cohort is not comparison_documents):
+            raise ValueError('Verified cohort and prepared evidence do not match')
+        if len(identifier_documents) > 50 or sum(len(d['raw']) for d in identifier_documents) > 100_000_000:
+            raise ValueError('Identifier evidence exceeds bounds')
+    else:
+        if len(identifier_documents) > 50 or not 1 <= len(comparison_documents) <= 500:
+            raise ValueError('Supply bounded identifier and nonempty peer evidence')
+        if sum(len(d['raw']) for d in (*identifier_documents, *comparison_documents)) > 100_000_000:
+            raise ValueError('Evidence batch exceeds 100 MB')
+        for peer in comparison_documents:
+            if peer.get('feed') != 'sec_13f':
+                raise ValueError('Wrong comparison evidence feed')
+            _source_url(peer['metadata'])
     with writer_transaction(db, 'sec_13f', 'sec_edgar') as control:
         staged = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.id == document_id).with_for_update())
         if staged is None or staged.feed != 'sec_13f':

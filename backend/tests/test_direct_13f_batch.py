@@ -165,14 +165,14 @@ def test_mixed_quarter_batch_keeps_complete_peers_and_target_order(db):
                for r in db.scalars(select(DirectFeedPublication)))
 
 
-@pytest.mark.parametrize('bound', ['inventory', 'period', 'bytes', 'missing'])
+@pytest.mark.parametrize('bound', ['inventory', 'source', 'summary', 'missing'])
 def test_incomplete_peer_inventory_stops_before_any_publication(db, monkeypatch, bound):
     from test_direct_13f_publication import document
     for serial in range(1, 4):
         stage(db, document(serial=serial))
     if bound == 'inventory': monkeypatch.setattr(batch, 'MAX_SCAN_DOCUMENTS', 2)
-    if bound == 'period': monkeypatch.setattr(batch, 'MAX_PERIOD_DOCUMENTS', 2)
-    if bound == 'bytes': monkeypatch.setattr(batch, 'MAX_SCAN_BYTES', 1)
+    if bound == 'source': monkeypatch.setattr(batch, 'MAX_SOURCE_BYTES', 1)
+    if bound == 'summary': monkeypatch.setattr('app.services.direct_13f_evidence.MAX_STREAM_SUMMARY_BYTES', 1)
     if bound == 'missing':
         db.scalar(select(DirectFeedRevision)).source_bytes = None
         db.commit()

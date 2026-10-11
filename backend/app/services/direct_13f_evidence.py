@@ -86,6 +86,107 @@ class PreparedComparisonCache:
         return json.loads(compact[0])['report_period'] if compact is not None else None
 
 
+MAX_STREAM_SUMMARY_BYTES = 20_000_000
+
+
+@dataclass(frozen=True)
+class VerifiedPeerRecord:
+    identity: str
+    metadata_json: str
+    content_hash: str
+    source_bytes: int
+    compact: tuple | None
+
+
+@dataclass(frozen=True)
+class VerifiedPeerCohort:
+    """Immutable values derived from every verified original in one cohort.
+
+    Transport bytes are released after verification and parsing. Only target
+    CUSIPs are retained, and a consumer outside that declared scope fails.
+    Metadata and totals are immutable values, never a saved unverified parse.
+    """
+    records: tuple
+    period: str | None
+    cusips: frozenset | None
+    summary_bytes: int
+
+    def __len__(self):
+        return len(self.records)
+
+    def __iter__(self):
+        for record in self.records:
+            yield {'feed': 'sec_13f', 'metadata': json.loads(record.metadata_json),
+                   'content_hash': record.content_hash}
+
+    @property
+    def source_bytes(self):
+        return sum(record.source_bytes for record in self.records)
+
+    def values_for(self, parsed):
+        wanted = {row['cusip'] for row in parsed['positions']}
+        if ((self.period is not None and parsed['metadata']['report_period'] != self.period)
+                or (self.cusips is not None and not wanted <= self.cusips)):
+            raise DirectSourceError('Target falls outside verified peer evidence scope')
+        for record in self.records:
+            if record.compact is None:
+                continue
+            metadata, reasons, totals = record.compact
+            yield json.loads(metadata), json.loads(reasons), _equity_prices(totals, wanted)
+
+
+def prepare_streamed_peer_groups(documents, *, scopes):
+    """Scan complete originals, retaining bounded summaries instead of raw files.
+
+    scopes maps report periods to target CUSIPs; None retains complete values
+    for callers whose target cannot be parsed. Invalid originals remain in
+    every cohort, matching the existing fail-closed selection semantics.
+    """
+    from app.services.direct_feed_worker import _source_url
+    groups = {period: [] for period in sorted(scopes)} if scopes is not None else {None: []}
+    sizes = {period: 0 for period in groups}
+    total_size = 0
+    for document in documents:
+        if document.get('feed') != 'sec_13f':
+            raise ValueError('Wrong comparison evidence feed')
+        _source_url(document['metadata'])
+        identity = _evidence_key(document)
+        compact = None
+        periods = groups
+        try:
+            _, parsed, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
+        except DirectSourceError:
+            pass
+        else:
+            period = parsed['metadata']['report_period']
+            periods = [period] if period in groups else []
+            if scopes is None:
+                periods = [None]
+            if periods:
+                wanted = scopes[period] if scopes is not None else None
+                totals = tuple(row for row in _equity_totals(parsed['positions'])
+                               if wanted is None or row[0] in wanted)
+                compact = (json.dumps(parsed['metadata'], default=str), json.dumps(reasons), totals)
+            del parsed
+        if not periods:
+            continue
+        record = VerifiedPeerRecord(identity, json.dumps(document['metadata'], sort_keys=True),
+                                    document['content_hash'], len(document['raw']), compact)
+        size = len(json.dumps((record.identity, record.metadata_json, record.content_hash,
+                              record.source_bytes, record.compact), default=str).encode())
+        for period in periods:
+            total_size += size
+            if total_size > MAX_STREAM_SUMMARY_BYTES:
+                raise ValueError('Complete streamed peer summaries exceed memory budget')
+            groups[period].append(record)
+            sizes[period] += size
+    if any(not records for records in groups.values()):
+        raise ValueError('Missing staged comparison period evidence')
+    return {period: VerifiedPeerCohort(tuple(records), period,
+                frozenset(scopes[period]) if scopes is not None else None, sizes[period])
+            for period, records in groups.items()}
+
+
 @dataclass(frozen=True)
 class Prepared13FEvidence:
     """Per-batch immutable parses; every reuse still checks original bytes/identity.
@@ -99,6 +200,20 @@ class Prepared13FEvidence:
     _identifiers: tuple
     _comparisons: tuple
     _value_comparisons: tuple
+    _streamed_cohort: VerifiedPeerCohort | None = None
+
+    @classmethod
+    def build_for_cohort(cls, identifier_documents, cohort):
+        if not isinstance(cohort, VerifiedPeerCohort) or not len(cohort):
+            raise ValueError('Missing verified peer cohort')
+        if len(identifier_documents) > 50 or sum(len(d['raw']) for d in identifier_documents) > 100_000_000:
+            raise ValueError('Identifier evidence exceeds bounds')
+        identifiers = []
+        for document in identifier_documents:
+            key = _evidence_key(document)
+            identifiers.append((key, json.dumps(nport_identifiers(document, available_by=date.max)),
+                                document['raw'] if type(document['raw']) is bytes else None))
+        return cls(tuple(identifiers), (), (), cohort)
 
     @classmethod
     def build(cls, identifier_documents, comparison_documents, *, comparison_cache=None):
@@ -209,20 +324,27 @@ def value_consistency_issues(parsed, documents, *, prepared=None):
     meta = parsed['metadata']
     peers = defaultdict(dict)
     target_prices = _equity_prices(_equity_totals(parsed['positions']))
-    for document in documents:
-        if prepared is not None:
-            saved=prepared.comparison_values(document,target_prices)
-            if saved is None:continue
-            pm,reasons,peer_prices=saved
-        else:
-            if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
-                raise DirectSourceError('13F comparison source checksum mismatch')
-            try:
-                _, peer, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
-            except DirectSourceError:
-                continue
-            pm = peer['metadata']
-            peer_prices = _equity_prices(_equity_totals(peer['positions']),target_prices)
+    if isinstance(documents, VerifiedPeerCohort):
+        if prepared is None or prepared._streamed_cohort is not documents:
+            raise DirectSourceError('Verified cohort and prepared evidence do not match')
+        values = documents.values_for(parsed)
+    else:
+        def original_values():
+            for document in documents:
+                if prepared is not None:
+                    saved = prepared.comparison_values(document, target_prices)
+                    if saved is not None:
+                        yield saved
+                else:
+                    if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
+                        raise DirectSourceError('13F comparison source checksum mismatch')
+                    try:
+                        _, peer, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
+                    except DirectSourceError:
+                        continue
+                    yield peer['metadata'], reasons, _equity_prices(_equity_totals(peer['positions']), target_prices)
+        values = original_values()
+    for pm, reasons, peer_prices in values:
         if (reasons or pm['cik'] == meta['cik'] or pm['report_period'] != meta['report_period']
                 or pm['filing_date'] > meta['filing_date']):
             continue
