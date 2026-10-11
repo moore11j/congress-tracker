@@ -77,7 +77,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", action="store_true", help="Read staging coverage without requesting providers")
     parser.add_argument("--sources", nargs="+", choices=SOURCES, default=list(SOURCES))
-    parser.add_argument("--start", type=date.fromisoformat, default=date.today() - timedelta(days=7))
+    parser.add_argument("--start", type=date.fromisoformat, help="Default: seven days, retaining any unfinished Senate recovery window")
     parser.add_argument("--end", type=date.fromisoformat, help="Default: today for Congress-only runs, yesterday for other sources")
     parser.add_argument("--symbols", nargs="*", default=os.getenv("DIRECT_FEEDS_SYMBOLS", "AAPL,MSFT,NVDA").split(","))
     parser.add_argument("--limit", type=int, default=25, help="Maximum documents per source per run")
@@ -86,6 +86,9 @@ def main(argv=None):
     parser.add_argument("--issuer-registry", type=Path, default=Path(__file__).resolve().parents[2] / "config" / "direct_issuer_sources.json")
     parser.add_argument("--senate-reports", type=Path, help="Reviewed official PTR URL/filing metadata JSON list")
     args = parser.parse_args(argv)
+    recover_senate_window = args.start is None and args.end is None
+    if args.start is None:
+        args.start = datetime.now(timezone.utc).date() - timedelta(days=7)
     if args.end is None:
         args.end = _default_end_date(args.sources, datetime.now(timezone.utc).date())
     if args.report:
@@ -121,7 +124,7 @@ def main(argv=None):
             result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts, issuer_redirect_urls=redirect_urls, issuer_document_urls=document_urls), sources=args.sources,
                                          start=args.start, end=args.end, symbols=args.symbols, limit=args.limit,
                                          recheck_hours=args.recheck_hours, retry_failed=args.retry_failed, issuer_registry=registry, senate_reports=senate,
-                                         senate_client=senate_client)
+                                         senate_client=senate_client, recover_senate_window=recover_senate_window)
             print(dumps(result))
     if result["errors"]:
         raise SystemExit(1)
