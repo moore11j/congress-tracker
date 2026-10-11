@@ -16,11 +16,12 @@ KIND = 'reddit_q4_v1'
 INDEX_FEED = 'issuer_earnings_index'
 QUARTERS = {'First Quarter': 1, 'Second Quarter': 2, 'Third Quarter': 3, 'Fourth Quarter': 4}
 DATE_PATTERN = r'\b\d{2}\s*-\s*\d{2}\s*-\s*\d{4}\b'
-PARSER_POLICY = 2
+PARSER_POLICY = 3
 QA_PATTERNS = {
     # Version 1 remains byte-for-byte compatible with stored publication proofs.
     1: r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+Our first)|First)\s+question comes from\b',
     2: r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+(?:Our|Your) first)|First)\s+question comes from\b',
+    3: r'Operator\s*:\s*(?:\(Operator Instructions\)\s+)?(?:(?:Our|Your)\s+)?(?:first|\ufb01rst)\s+question comes from\b',
 }
 
 
@@ -29,6 +30,17 @@ def parser_policy(metadata):
     if type(version) is not int or version not in QA_PATTERNS:
         raise DirectSourceError('Unreviewed issuer parser policy')
     return version
+
+
+def format_policy(year, quarter, policy):
+    parser_policy({'parser_policy': policy})
+    period = rf"Reddit Q{quarter}['\u2019]{str(year)[2:]} Earnings Call"
+    if policy >= 3:
+        label = next(label for label, number in QUARTERS.items() if number == quarter)
+        period = (rf"\bReddit(?:,?\s+Inc\.?)?\s+"
+                  rf"(?:Q{quarter}['\u2019]{str(year)[2:]}|{label}\s+{year})\s+Earnings(?:\s+Call)?\b")
+    return {'period_pattern': period, 'qa_pattern': QA_PATTERNS[policy],
+            **({'parser_policy': policy} if policy != 1 else {})}
 
 
 def enabled_company(company):
@@ -94,13 +106,10 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
                 'company_pattern': r'Reddit,?\s+Inc\b\.?', 'publisher_pattern': r'Reddit,?\s+Inc\b\.?',
                 'transcript_publisher': 'Issuer-hosted transcript; publisher not identified',
                 'transcript_pattern': r'\bTRANSCRIPT\b|CORPORATE SPEAKERS:.{1,3000}PARTICIPANTS:.{1,3000}PRESENTATION:',
-                'period_pattern': rf"Reddit Q{quarter}['\u2019]{str(year)[2:]} Earnings Call",
                 'publication_pattern': DATE_PATTERN,
-                'qa_pattern': QA_PATTERNS[policy],
+                **format_policy(year, quarter, policy),
                 'source_page_url': index_url(company, year), 'source_page_sha256': hashlib.sha256(raw).hexdigest(),
                 'discovery_kind': KIND, 'discovery_year': year, 'period_end': end.isoformat()}
-            if policy != 1:
-                found[key]['parser_policy'] = policy
     return list(found.values())
 
 
@@ -219,8 +228,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                     DirectFeedRevision.document_id == row_id).limit(1)) is not None
                 if (not has_revision and not metadata.get('published_at')
                         and parser_policy(base) < PARSER_POLICY):
-                    base = {**base, 'parser_policy': PARSER_POLICY,
-                            'qa_pattern': QA_PATTERNS[PARSER_POLICY]}
+                    base = {**base, **format_policy(base['fiscal_year'], base['fiscal_quarter'], PARSER_POLICY)}
                 # Grant this one validated link, never its CDN host or siblings.
                 client.issuer_document_urls = frozenset([*client.issuer_document_urls, url])
             db.commit()  # Release pooled connection/transaction before HTTP.

@@ -1,5 +1,15 @@
 # Issuer transcript format policy
 
+## Historical format follow-up
+
+PR555 merged asbde9071a2dfaa6c16c7a6db32ceb6bf6723615b9; workflow38099246290 succeeds and twelve live hashes match. Existing sources/current Q2 reader remain unchanged. Explicit bounded run112 attempts older2025Q3/Q2 and holds both for fiscal-label mismatches, with zero public writes. The live policy2 export correctly finds no successfully prepared policy2 documents; that check is not a pass. Q4 retains its daily reservation and is not forcibly retried.
+
+Captured original2025Q3/Q2/Q1 PDFs show spelled-out quarter labels, an optional Inc. in the title, optional operator instructions and a PDF fi-ligature. Policy3 accepts only these reviewed fiscal-label/Q&A formats while preserving policies1/2 exactly. Matching the ligature does not normalize or rewrite source text. Company, year, quarter, call-date window, official-index proof and actual operator question remain required. New metadata uses policy3; only never-parsed due documents can adopt it.190 focused tests pass, including frozen legacy1/2 readers and hostile year/quarter/operator cases. Full original-source PostgreSQL cohort validation and follow-up deployment remain pending here.
+
+Source originals:2025Q3 b052e9f04e2152b7ad839aef00a2f1b42cc3dc281dd7401d71725bd17fe55b19,2025Q2 8a82ae9adc20c47b790faf3d9cb821bda5585b00a1f5cf4a1e7de37c3ab9861a,2025Q1 af3fbc7df219f16300431829392aae93fe5ccf22ec51e57079fbc3a9fe93b53c. Diagnostic captures are local and do not reset production timestamps or publish research. They are not ordinary scheduled collection evidence.
+
+The complete PostgreSQL16.15 captured-original replay passes for2025Q1–Q4, with call dates2025-05-01,2025-07-31,2025-10-30 and2026-02-05. Four due legacy records adopt policy3 in two bounded batches; same-day repeat makes zero attempts. Source bytes, extracted text and parsed revision agree for all four. Existing2026Q1 document/metadata, all original revisions, latest2026Q2 reader and repeated research output stay identical. Four overlap attempts are refused and all transports have zero pool checkouts/idle transactions; no production writes, emails or external requests. Artifact issuer-discovery-oct10/postgres-historical-replay.json; disposable schema removed.190 focused checks remain passing. PR556 audit logs show the same failures in unchanged Next.js/Pillow dependencies; secret scan passes. Live preparation and ordinary scheduling remain separate release gates.
+
 October 10 local / October 11 UTC. The previous goal turn confirmed hosting health without advancing a provider cutover. This follow-up repairs a reproduced transcript coverage gap while keeping the broader FMP exit active.
 
 The original Reddit 2025 Q4 transcript has an operator transition using “Your first question”. Discovery policy 1 accepts two other reviewed phrases and correctly held this source. Updating its pattern in place would change metadata reconstructed from immutable index evidence and invalidate the already prepared 2026 Q1 source.

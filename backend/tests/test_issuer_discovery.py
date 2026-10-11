@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone, date, timedelta
 import json
+import re
 
 import pytest
 from sqlalchemy import create_engine, select, func
@@ -266,14 +267,14 @@ def test_changed_index_does_not_rewrite_first_proof_and_conflicting_url_holds(se
     assert issuer.prepared_transcript(setup,'RDDT')['reason']=='reviewed_period_not_prepared'
 
 
-def legacy_candidate(db, *, parsed=False):
+def legacy_candidate(db, *, parsed=False, policy=1):
     c = company()
     for year in (2026, 2025):
         raw = raw_index() if year == 2026 else b'{"GetFinancialReportListResult":[]}'
         index_row = discover(db, discovery.INDEX_FEED, discovery.index_metadata(c, year))
-        record_document(db, index_row, raw, raw.decode(), {'candidates': discovery.parse_index(raw, c, year, NOW, policy=1)})
+        record_document(db, index_row, raw, raw.decode(), {'candidates': discovery.parse_index(raw, c, year, NOW, policy=policy)})
         index_row.checked_at = NOW
-    metadata = discovery.parse_index(raw_index(), c, 2026, NOW, policy=1)[0]
+    metadata = discovery.parse_index(raw_index(), c, 2026, NOW, policy=policy)[0]
     row = discover(db, 'issuer_earnings', metadata)
     row.attempts, row.checked_at = 1, NOW
     if parsed:
@@ -287,13 +288,14 @@ def legacy_candidate(db, *, parsed=False):
     return row
 
 
-def test_legacy_parsed_proof_and_reader_survive_current_policy_and_refresh(setup, monkeypatch):
-    row = legacy_candidate(setup, parsed=True)
+@pytest.mark.parametrize('policy', [1, 2])
+def test_legacy_parsed_proof_and_reader_survive_current_policy_and_refresh(setup, monkeypatch, policy):
+    row = legacy_candidate(setup, parsed=True, policy=policy)
     before = (row.metadata_json, row.parsed_json, row.content_hash)
     revision = setup.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id == row.id))
     original_revision = (revision.parsed_json, revision.source_bytes, revision.source_text, revision.fetched_at)
     reader = issuer.prepared_transcript(setup, 'RDDT')
-    assert reader['status'] == 'prepared' and 'parser_policy' not in json.loads(row.metadata_json)
+    assert reader['status'] == 'prepared' and json.loads(row.metadata_json).get('parser_policy',1) == policy
     monkeypatch.setattr(discovery, 'utcnow', lambda: NOW + timedelta(days=1))
     client = Client(setup)
     for _ in range(2):
@@ -322,9 +324,9 @@ def test_legacy_failed_document_adopts_reviewed_policy_only_when_due(setup, monk
         assert not result['errors']
     setup.refresh(row)
     metadata = json.loads(row.metadata_json)
-    assert row.status == 'parsed' and row.attempts == 2 and metadata['parser_policy'] == 2
+    assert row.status == 'parsed' and row.attempts == 2 and metadata['parser_policy'] == discovery.PARSER_POLICY
     assert metadata['source_page_sha256'] == json.loads(original_metadata)['source_page_sha256']
-    assert discovery.verified_metadata(setup, company(), metadata)['parser_policy'] == 2
+    assert discovery.verified_metadata(setup, company(), metadata)['parser_policy'] == discovery.PARSER_POLICY
     assert issuer.prepared_transcript(setup, 'RDDT')['has_qa']
     repeat = discovery.collect_discovery(setup, client, [company()], limit=2, recheck_hours=24)
     assert repeat['attempted'] == 0
@@ -340,7 +342,7 @@ def test_policy_two_accepts_reviewed_phrase_but_old_policy_remains_strict():
     metadata = discovery.parse_index(raw_index(), company(), 2026, NOW, policy=1)[0]
     with pytest.raises(DirectSourceError, match='question-and-answer'):
         discovery.parse_candidate(transcript_your(), metadata, NOW)
-    current = discovery.parse_index(raw_index(), company(), 2026, NOW)[0]
+    current = discovery.parse_index(raw_index(), company(), 2026, NOW, policy=2)[0]
     assert discovery.parse_candidate(transcript_your(), current, NOW)[2]['has_qa']
     missing_operator = pdf("TRANSCRIPT 10 - 09 - 2026 Reddit Inc Reddit Q3'26 Earnings Call "
         'Your first question comes from A Reviewer. ' + 'Prepared remarks. '*80)
@@ -348,7 +350,7 @@ def test_policy_two_accepts_reviewed_phrase_but_old_policy_remains_strict():
         discovery.parse_candidate(missing_operator, current, NOW)
 
 
-@pytest.mark.parametrize('policy', [0, 3, '2', True, None])
+@pytest.mark.parametrize('policy', [0, 4, '2', True, None])
 def test_unreviewed_policy_cannot_authorize_metadata(setup, policy):
     row = legacy_candidate(setup)
     metadata = json.loads(row.metadata_json)
@@ -363,3 +365,27 @@ def test_changing_policy_number_does_not_authorize_custom_pattern(setup):
     metadata.update(parser_policy=2, qa_pattern='.*')
     with pytest.raises(DirectSourceError, match='metadata changed'):
         discovery.verified_metadata(setup, company(), metadata)
+
+
+@pytest.mark.parametrize('quarter,label,stamp,operator', [
+    (1,"Reddit Inc. Q1'25 Earnings Call",'05 - 01 - 2025','Your first'),
+    (2,'Reddit, Inc. Second Quarter 2025 Earnings','07 - 31 - 2025','(Operator Instructions) Your first'),
+    (3,'Reddit Inc Third Quarter 2025 Earnings Call','10 - 30 - 2025','Our first'),
+])
+def test_reviewed_historical_headings_require_the_exact_year_and_quarter(quarter,label,stamp,operator):
+    metadata = discovery.parse_index(raw_index(quarter=quarter,year=2025),company(),2025,NOW)[0]
+    content = f'TRANSCRIPT {stamp} {label} Operator: {operator} question comes from An Analyst. '
+    raw = pdf(content+'Synthetic earnings evidence. '*60)
+    resolved,_,parsed = discovery.parse_candidate(raw,metadata,NOW)
+    assert resolved['parser_policy']==3 and parsed['has_qa']
+    for wrong in [label.replace('2025','2024').replace("'25","'24"),
+                  label.replace('Q1','Q2').replace('Second','Third').replace('Third','Fourth')]:
+        with pytest.raises(DirectSourceError,match='fiscal period'):
+            discovery.parse_candidate(pdf(content.replace(label,wrong)+'Synthetic earnings evidence. '*60),metadata,NOW)
+
+
+def test_pdf_ligature_is_matched_without_rewriting_evidence_text():
+    pattern = discovery.format_policy(2025,2,3)['qa_pattern']
+    assert re.search(pattern,'Operator: (Operator Instructions) Your \ufb01rst question comes from the line of An Analyst.',re.I)
+    assert not re.search(pattern,'A Speaker: Your first question comes from the community.',re.I)
+    assert not re.search(pattern,'Operator: Your next question comes from An Analyst.',re.I)
