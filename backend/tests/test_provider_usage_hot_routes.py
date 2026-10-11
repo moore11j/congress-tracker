@@ -98,7 +98,8 @@ def test_member_cache_bookkeeping_stays_in_memory_but_real_activity_persists(mon
             for kind in ["provider_call", "provider_error", "throttle", "fallback", "content_write"]:
                 usage._record(kind, category="quote", symbol="AAPL")
             assert len(added) == 5
-            assert all(row.route == path and row.cache_status is None for row in added)
+            assert all(row.route == path for row in added)
+            assert [row.cache_status for row in added] == ["provider_call", "provider_error", "throttle", "fallback", "content_write"]
             added.clear()
         finally:
             reset_request_context(token)
@@ -110,3 +111,49 @@ def test_explicit_hot_route_cache_persistence_override_remains(monkeypatch):
     from app.services.provider_usage import _skip_hot_route_usage_persistence
     monkeypatch.setenv("FMP_PERSIST_HOT_ROUTE_USAGE_EVENTS", "1")
     assert not _skip_hot_route_usage_persistence({"route":"/api/members/F000110", "kind":"cache_hit"})
+
+
+def test_persisted_summary_counts_only_attempts_and_exposes_legacy_unknowns(monkeypatch):
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base
+    from app.models import ProviderUsageEvent
+    from app.services import provider_usage as usage
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr("app.db.SessionLocal", sessions)
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "1")
+    monkeypatch.setenv("FMP_PROVIDER_DISABLED", "1")
+    monkeypatch.delenv("FMP_PERSIST_HOT_ROUTE_USAGE_EVENTS", raising=False)
+    usage.reset_provider_usage()
+    token = set_request_context({"path": "/api/members/test"})
+    try:
+        try:
+            usage.ensure_fmp_live_allowed(category="quote", symbol="AAPL")
+        except usage.ProviderDisabled:
+            pass
+        else:
+            raise AssertionError("disabled provider must be denied")
+        with sessions() as db:
+            summary = usage.provider_usage_summary(db=db)
+            assert summary["database_usage_status"] == "ok"
+            assert summary["calls_today"] == 0
+            assert summary["legacy_unclassified_events_24h"] == 0
+        usage._record("provider_call", category="quote")
+        usage._record("provider_error", category="quote", status_code=500)
+        usage._record("fallback", category="quote", reason="provider_unavailable")
+        usage._record("content_write", category="news", item_count=5)
+        with sessions() as db:
+            db.add(ProviderUsageEvent(provider="fmp", cache_status=None))
+            db.commit()
+            summary = usage.provider_usage_summary(db=db)
+            assert summary["database_usage_status"] == "ok"
+            assert summary["calls_today"] == 1
+            assert summary["call_windows"]["last_24_hours"] == 1
+            assert summary["legacy_unclassified_events_24h"] == 1
+            kinds = list(db.scalars(select(ProviderUsageEvent.cache_status)))
+            assert kinds.count("provider_call") == 1
+            assert "provider_error" in kinds and "content_write" in kinds
+    finally:
+        reset_request_context(token); usage.reset_provider_usage(); engine.dispose()

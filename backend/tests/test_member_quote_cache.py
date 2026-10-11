@@ -85,3 +85,68 @@ def test_member_quotes_preserve_trades_and_reuse_validated_cache(monkeypatch, mo
     finally:
         db.close(); engine.dispose()
         quote_lookup._QUOTE_CACHE.clear(); quote_lookup._QUOTE_META_CACHE.clear(); quote_lookup._MISS_CACHE.clear()
+
+
+def test_cold_quotes_release_single_connection_and_fetch_misses_concurrently(monkeypatch, tmp_path):
+    import threading
+    from types import SimpleNamespace
+    from sqlalchemy import text
+    from app.request_priority import get_request_context, set_request_context, reset_request_context
+    from app.services.provider_usage import reset_provider_usage, provider_usage_summary
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'cold-quotes.db'}", pool_size=1,
+                          max_overflow=0, pool_timeout=0.3,
+                          connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    quote_lookup._QUOTE_CACHE.clear(); quote_lookup._QUOTE_META_CACHE.clear()
+    quote_lookup._MISS_CACHE.clear(); quote_lookup._QUOTE_CALL_TIMESTAMPS.clear()
+    quote_lookup._quotes_disabled_until = None
+    reset_provider_usage()
+    monkeypatch.setenv("FMP_API_KEY", "test-only")
+    monkeypatch.setenv("FMP_PROVIDER_DISABLED", "0")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("QUOTE_FORCE_ENDPOINT_MAX_WORKERS", "3")
+    monkeypatch.setenv("QUOTE_PROVIDER_SLOW_MS", "10000")
+    db.add(QuoteCache(symbol="AAPL", price=200, asof_ts=datetime.now(timezone.utc)))
+    db.commit()
+    caller = threading.get_ident()
+    configured = []
+    def configure(session, domain, *, symbol, **kwargs):
+        assert threading.get_ident() == caller
+        session.execute(text("SELECT 1"))  # Reacquires the connection, as real config does.
+        configured.append(symbol)
+        return [SimpleNamespace(request_url=f"https://example.test/{role}",
+                    request_params={"symbol": symbol}, endpoint_name=role, endpoint_contract={})
+                for role in ("primary", "fallback")]
+    monkeypatch.setattr(quote_lookup, "fmp_endpoint_requests_for_domain", configure)
+    barrier = threading.Barrier(3)
+    calls = []
+    def fetch(url, *, params, **kwargs):
+        assert not db.in_transaction()
+        assert get_request_context()["path"] == "/api/members/test"
+        # A separate checkout must succeed while HTTP is in flight.
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT 1")).scalar_one() == 1
+        calls.append((url, params["symbol"]))
+        if url.endswith("primary"):
+            barrier.wait(timeout=3)
+        return SimpleNamespace(status_code=200, json=lambda: [] if url.endswith("primary")
+            else [{"symbol": params["symbol"], "price": 123}])
+    monkeypatch.setattr(quote_lookup.requests, "get", fetch)
+    token = set_request_context({"path": "/api/members/test"})
+    try:
+        result = quote_lookup.get_current_prices_meta_db(db, ["AAPL", "MSFT", "NVDA", "AMD"],
+            release_connection_before_fetch=True, allow_cache_write=False,
+            allow_live_user_fetch=True, skip_db_sanity=True, lane="feed_quote")
+        assert set(result) == {"AAPL", "MSFT", "NVDA", "AMD"}
+        assert result["AAPL"]["price"] == 200
+        assert all(result[symbol]["price"] == 123 for symbol in ("MSFT", "NVDA", "AMD"))
+        assert configured == ["AMD", "MSFT", "NVDA"]
+        assert len(calls) == 6
+        assert provider_usage_summary()["totals"]["provider_calls"] == 6
+    finally:
+        reset_request_context(token)
+        db.close(); engine.dispose(); reset_provider_usage()
+        quote_lookup._QUOTE_CACHE.clear(); quote_lookup._QUOTE_META_CACHE.clear()
+        quote_lookup._MISS_CACHE.clear(); quote_lookup._QUOTE_CALL_TIMESTAMPS.clear()

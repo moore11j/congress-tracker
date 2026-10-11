@@ -11,3 +11,12 @@ Initial suspicion of refresh enqueue overhead was superseded by the exact usage 
 ## Validation
 
 Python3.14.2: nine focused tests pass across real in-memory member/event/outcome/price caches and telemetry behavior. Fresh/stale caches avoid HTTP, missing cache retains one mocked provider fetch, a divergent1000quote is corrected to199by the existing EOD guard,12 complete trade identities/dates/returns survive each case, and stale timing is explicit. Actual provider activity persists on all four affected hot route families while cache counters remain available. Broader71checks yield59passes and12leaderboard-fixture failures due missing leaderboard_snapshots. All12 reproduce using the unchanged pre-repair functions; those fixtures do not establish current leaderboard acceptance. Initial root-directory pytest invocation failed to import app before tests; correct backend invocation passes. No full-suite pass claimed. Release/live parity pending.
+
+
+## Review corrections before release
+
+Automated review of 0a6380ce identified three real gaps: configuration reads could reopen the released session across HTTP, cached-mode misses lost bounded concurrency, and untyped durable fallback/error rows could be miscounted as calls. All are corrected before deployment. Configuration is resolved on the caller and its connection closed before HTTP; workers receive plain requests and copied request context. Only misses use the existing worker limit. Each configured endpoint attempt passes the provider guard, including fallback requests.
+
+The existing cache_status field now stores each event kind, avoiding a schema change. Durable call totals count provider_call only, expose legacy unclassified 24-hour rows separately and warn that they prevent a zero-traffic conclusion. Failed database summaries have explicit unavailable status. No historical rows are reclassified.
+
+Expanded Python3.14.2 checks:85 pass across member, quote timezone, market quotes, insights quote overview, feed enrichment and usage schema/telemetry. A real one-connection SQLite pool remains available during three simultaneous cold symbol fetches; one cached symbol avoids HTTP, three primary/fallback pairs yield six attempts, and request context survives each worker. A disabled provider produces zero durable calls; errors/fallback/content writes remain distinct and a legacy unknown row is surfaced. The earlier12 unchanged leaderboard fixture failures remain separate. Release and production checks are still pending.
