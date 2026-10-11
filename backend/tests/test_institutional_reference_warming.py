@@ -248,3 +248,60 @@ def test_small_quarter_does_not_waste_the_shared_scope_budget(setup,monkeypatch)
     assert sum(k.endswith('2026-09-30') for k in plan['universe']['weights'])==3
     assert sum(k.endswith('2026-06-30') for k in plan['universe']['weights'])==1
     assert calls==[]
+
+
+def test_bounded_source_scan_rotates_to_older_filings_then_new_arrivals(setup, monkeypatch):
+    factory, clock, calls = setup
+    monkeypatch.setattr(job, 'MAX_DOCUMENTS', 2)
+    seed(factory, key='old-only', cusips=('000361101',))
+    seed(factory, key='newer-a', cusips=('000361102',))
+    seed(factory, key='newer-b', cusips=('000361102',))
+    first = job.run()
+    assert first['completed_scopes'] == 1
+    assert [r['cusip'] for r in calls] == ['000361102']
+    clock[0] += timedelta(minutes=16)
+    second = job.run()
+    assert second['completed_scopes'] == 1
+    assert [r['cusip'] for r in calls] == ['000361102', '000361101']
+    seed(factory, key='arrived-during-scan', cusips=('000361103',))
+    clock[0] += timedelta(minutes=16)
+    third = job.run()
+    assert third['completed_scopes'] == 1
+    assert [r['cusip'] for r in calls] == ['000361102', '000361101', '000361103']
+    assert all(r['public_writes'] == r['price_requests'] == r['emails'] == 0
+               for r in (first, second, third))
+
+
+def test_source_rotation_keeps_cached_window_then_wraps_a_deleted_tail(setup, monkeypatch):
+    factory, clock, calls = setup
+    monkeypatch.setattr(job, 'MAX_DOCUMENTS', 1)
+    seed(factory, key='old', cusips=('000361101',))
+    seed(factory, key='new', cusips=('000361102',))
+    job.run()
+    with factory() as db:
+        state = json.loads(db.get(InsightsSnapshot, job.KEY).payload_json)
+        cursor = state['universe']['source_scan_next_before_id']
+        assert cursor is not None and state['universe']['source_scan_documents'] == 1
+        old = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.source_key == 'old'))
+        db.delete(old); db.commit()
+    clock[0] += timedelta(minutes=1)
+    assert job.run()['completed_scopes'] == 0
+    with factory() as db:
+        assert json.loads(db.get(InsightsSnapshot, job.KEY).payload_json)['universe']['source_scan_next_before_id'] == cursor
+    clock[0] += timedelta(minutes=16)
+    assert job.run()['completed_scopes'] == 0
+    with factory() as db:
+        assert json.loads(db.get(InsightsSnapshot, job.KEY).payload_json)['universe']['source_scan_next_before_id'] is None
+    seed(factory, key='later', cusips=('000361103',))
+    clock[0] += timedelta(minutes=16)
+    assert job.run()['completed_scopes'] == 1
+    assert [r['cusip'] for r in calls] == ['000361102', '000361103']
+
+
+@pytest.mark.parametrize('cursor', [True, -1, 0, '100'])
+def test_invalid_source_cursor_restarts_bounded_scan(setup, cursor):
+    factory, clock, calls = setup
+    seed(factory, cusips=('000361101',))
+    with factory() as db:
+        plan = job.plan_scopes(db, clock[0], {}, source_scan_before_id=cursor)
+    assert plan['scopes'][0]['cusip'] == '000361101' and calls == []
