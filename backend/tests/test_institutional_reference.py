@@ -118,6 +118,58 @@ def test_reviewed_us_common_share_requires_dated_independent_reference(cusip,for
     assert resolve_reference_candidate(future,{foreign}) is None
 
 
+@pytest.mark.parametrize('mutation', [None,'cik','exchange','symbol','type','figi','locale','currency','inactive','cusip','period'])
+def test_missing_figi_requires_the_exact_reviewed_totalenergies_listing(mutation):
+    raw=payload();row=raw['results'][0]
+    row.update(ticker='TTE',cik='0000879764',share_class_figi=None,composite_figi=None)
+    cusip,period='F92124100',PERIOD
+    changes={'cik':('cik','0000000001'),'exchange':('primary_exchange','XNAS'),
+        'symbol':('ticker','OTHER'),'type':('type','ADRC'),'figi':('share_class_figi','BAD'),
+        'locale':('locale','global'),'currency':('currency_name','eur'),'inactive':('active',False)}
+    if mutation in changes:
+        key,value=changes[mutation];row[key]=value
+    if mutation=='cusip':cusip='89151E109'
+    if mutation=='period':period='2025-09-30'
+    doc=capture_reference(Client(raw),cusip=cusip,report_period=period,observed_at=NOW)
+    result=reference_identity(doc,cusip=cusip,report_period=period,observed_by=NOW)
+    if mutation is None:
+        assert result['status']=='verified' and result['share_class_figi'] is None
+        assert result['identity_basis']=='reviewed_cusip_issuer_us_listing'
+        assert len(result['reviewed_sources'])==2 and result['observed_at']==NOW
+        assert resolve_reference_candidate(result,{'TOTB.DE'})=='TTE'
+    else:
+        assert result['status']=='held'
+
+
+def test_reused_evidence_reinterprets_only_derived_identity_and_retains_original():
+    import json
+    from sqlalchemy import create_engine, select, func
+    from sqlalchemy.orm import Session
+    from app.db import Base
+    from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision
+    from app.services.institutional_reference import stage_reference, load_reference
+    engine=create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(engine,tables=[DirectFeedDocument.__table__,DirectFeedRevision.__table__])
+    try:
+        with Session(engine) as db:
+            raw=payload();raw['results'][0].update(ticker='TTE',cik='0000879764',share_class_figi=None)
+            original=capture_reference(Client(raw),cusip='F92124100',report_period=PERIOD,observed_at=NOW)
+            stage_reference(db,original);db.commit()
+            row=db.scalar(select(DirectFeedDocument));revision=db.scalar(select(DirectFeedRevision))
+            saved=(row.content_hash,row.checked_at,revision.source_bytes,revision.parsed_json)
+            row.parsed_json=json.dumps({'identity':{'status':'held','reason':'unsupported_reference_security'}})
+            db.commit()
+            later=capture_reference(Client(raw),cusip='F92124100',report_period=PERIOD,observed_at='2026-10-11T02:00:00Z')
+            assert stage_reference(db,later)['status']=='reused';db.commit()
+            identity=json.loads(row.parsed_json)['identity']
+            assert identity['status']=='verified' and identity['observed_at']==NOW
+            assert (row.content_hash,row.checked_at,revision.source_bytes,revision.parsed_json)==saved
+            assert load_reference(db,cusip='F92124100',report_period=PERIOD)==original
+            assert db.scalar(select(func.count()).select_from(DirectFeedRevision))==1
+    finally:
+        engine.dispose()
+
+
 def test_durable_staging_repeat_retains_first_observation_and_preserves_revisions():
     import json
     from sqlalchemy import create_engine, select, func
