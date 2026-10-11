@@ -18,4 +18,11 @@ Fresh CPU evidence cpu-quota-1791756991.json has97 one-minute zero-throttle samp
 
 ## Release state
 
-Prepared locally; no deployment, source activation, resource change, subscription or cancellation. Previous PR585/6ee941f0 remains production. Next review/deploy the disabled schedule and verify its ordinary disabled receipt, finish full16423, then establish bounded active-work capacity and remaining source/consumer gates before institutional activation.
+[PR586/9618ee6c](https://github.com/moore11j/congress-tracker/pull/586) deployed successfully through38180394245. All28 runtime hashes match at22:28-22:29UTC, both approved hosts remain unchanged, and the queue is empty. The compiled institutional job runs at minute37 with limit20, combined waiting retries and staged evidence in the data lane; publication remainsfalse. Disabled invocation uses0.0117CPU seconds without ORM imports. All eight public requests return200: feeds0.394/0.611s, freshAAPL1.570/NVDA1.602s and50news items. This is sampled recovery, not sustained capacity proof. Receipt two-service-verify-1791757747.json.
+
+The ordinary minute37 serialized data-lane run has now finished with exit0 and publication false; this is a disabled-run receipt, not active publication or capacity proof. Receipt institutional-schedule-runtime-1791758246.json.
+
+Full streamed replay16423 remains live in repeat/consumers; its first-pass parity is documented above. No provider activation, resource change, subscription, customer email or cancellation. Finish complete replay, active-work capacity and remaining source/consumer acceptance before institutional activation.
+
+
+Scheduler logs independently confirm enqueue at22:37:00UTC,8.08seconds lane wait, successful completion in0.2wall seconds and0.038CPU seconds. This verifies serialization/disabled execution only. At22:37:26, other ordinary jobs account for one pending and one running entry; the institutional job itself is finished with runs1/exit0.
