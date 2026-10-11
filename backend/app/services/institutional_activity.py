@@ -708,7 +708,7 @@ def _reset_holder_period_changes_and_activity(db: Session, filing: Institutional
 
 
 @canonical_writer('sec_13f')
-def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False, holder_only: bool = False) -> dict[str, int]:
+def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, *, reset_existing: bool = False, holder_only: bool = False, created_feed_events: list[Event] | None = None) -> dict[str, int]:
     # Direct publication owns immutable pair provenance and event availability.
     # A generic recalculation must not replace those with legacy timestamps.
     proof = json.loads(filing.raw_metadata_json or '{}').get('_walnut_direct_13f', {})
@@ -787,7 +787,7 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, 
             summaries += 1
             events += generate_activity_events_for_symbol(db, summary, holder_cik=filing.cik if holder_only else None)
             db.flush()
-            feed_events += materialize_feed_events_for_symbol(db, summary, holder_cik=filing.cik if holder_only else None)
+            feed_events += materialize_feed_events_for_symbol(db, summary, holder_cik=filing.cik if holder_only else None, created_feed_events=created_feed_events)
     filing.processed_at = datetime.now(timezone.utc)
     return {"changes": changes, "summaries": summaries, "activity_events": events, "feed_events": feed_events}
 
@@ -1265,7 +1265,7 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
 
 
 @canonical_writer('sec_13f')
-def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None) -> int:
+def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None, created_feed_events: list[Event] | None = None) -> int:
     activities = db.execute(
         select(InstitutionalActivityEvent).where(
             InstitutionalActivityEvent.normalized_symbol == summary.normalized_symbol,
@@ -1281,7 +1281,7 @@ def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbol
     for activity in activities:
         if not is_institutional_activity_all_feed_eligible(activity):
             continue
-        if _upsert_feed_event(db, activity):
+        if _upsert_feed_event(db, activity, created_feed_events=created_feed_events):
             created += 1
     return created
 
@@ -3191,7 +3191,7 @@ def _upsert_activity_event_from_summary(db: Session, summary: InstitutionalSymbo
     return created
 
 
-def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent) -> bool:
+def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, created_feed_events: list[Event] | None = None) -> bool:
     source_filing_id = f"institutional:{activity.id}:{activity.event_type}:{activity.report_year}q{activity.report_quarter}"
     existing = db.execute(
         select(Event).where(
@@ -3229,6 +3229,8 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent) -> boo
     existing.source_document_url = None
     existing.data_source = INSTITUTIONAL_SOURCE_LABEL
     existing.payload_json = json.dumps(payload, sort_keys=True, default=str)
+    if created and created_feed_events is not None:
+        created_feed_events.append(existing)
     return created
 
 

@@ -94,20 +94,29 @@ def publish_13f_document(db, document_id, *, identifier_documents, comparison_do
             return held('Published canonical state changed; reconciliation required')
         # Revalidate peers on every explicit replay, including terminal receipts:
         # newly available contradictory evidence must not earn an "existing" pass.
+        events = []
         result = _project_new_13f(db, {'feed': 'sec_13f', 'metadata': metadata,
             'raw': revision.source_bytes, 'content_hash': staged.content_hash}, publish_since=control.publish_since,
-            identifier_documents=identifier_documents, comparison_documents=comparison_documents, prepared_evidence=prepared_evidence, reference_documents=reference_documents)
+            identifier_documents=identifier_documents, comparison_documents=comparison_documents, prepared_evidence=prepared_evidence, reference_documents=reference_documents, published_events=events)
         result.pop('production_writes', None)  # This entry point can write its selected database.
         if result['status'] == 'held':
             return held(result.get('reason', 'Source requires reconciliation'), result)
         if receipt and receipt.status in {'published', 'existing'} and not result.get('enriched_positions'):
             return {**result, 'status': 'existing', 'receipt_id': receipt.id}
         filing = db.scalar(select(InstitutionalFiling).where(InstitutionalFiling.accession_number == metadata['key']))
-        events = []
-        for event in db.scalars(select(Event).where(Event.source_provider == INSTITUTIONAL_EVENT_SOURCE)):
-            proof = json.loads(event.payload_json or '{}').get('sec_verification', {})
-            if proof.get('accession') == metadata['key']:
-                events.append(event)
+        # Re-read only the created IDs so receipt hashes use persisted timestamp
+        # representations (including SQLite's timezone normalization in replay).
+        if events:
+            event_ids = [event.id for event in events]
+            if None in event_ids or len(set(event_ids)) != len(event_ids):
+                raise ValueError('Institutional created event identity mismatch')
+            events = list(db.scalars(select(Event).where(Event.id.in_(event_ids))
+                                    .execution_options(populate_existing=True)))
+        if len({event.id for event in events}) != len(events) or any(
+                event.id is None or event.source_provider != INSTITUTIONAL_EVENT_SOURCE
+                or json.loads(event.payload_json or '{}').get('sec_verification', {}).get('accession') != metadata['key']
+                for event in events):
+            raise ValueError('Institutional created event identity mismatch')
         if len(events) != result.get('feed_events', 0):
             raise ValueError('Institutional event receipt count mismatch')
         for event in events:

@@ -173,3 +173,57 @@ def test_scope_and_cached_ownership_do_not_survive_commit(db):
 def test_provider_enrichment_cannot_overwrite_direct_holdings_context(db, helper, args):
     with pytest.raises(FeedSourceMismatch):
         helper(db, *args)
+
+
+def test_publication_receipts_do_not_scan_unrelated_event_history(db):
+    from sqlalchemy import event as sql_event
+    import re
+    old = Event(event_type='news', symbol='OTHER', ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                source='fixture', source_provider='unrelated', payload_json='{"preserve":true}')
+    db.add(old); db.commit()
+    saved_id = old.id
+    def guard(conn, cursor, statement, parameters, context, executemany):
+        sql = ' '.join(statement.lower().split())
+        if sql.startswith('select ') and ' from events' in sql:
+            assert ' where ' in sql, 'Unbounded all-event scan during filing publication'
+            assert not re.search(r' where events.source_provider = \?$', sql), 'Unbounded institutional-event scan'
+    sql_event.listen(db.bind, 'before_cursor_execute', guard)
+    try:
+        prior, current = pair()
+        assert publish(db, prior)['derived_state'] == 'historical_no_alerts'
+        result = publish(db, current)
+        assert result['feed_events'] > 0 and len(result['event_ids']) == result['feed_events']
+        assert saved_id not in result['event_ids']
+        assert publish(db, current)['feed_events'] == 0
+    finally:
+        sql_event.remove(db.bind, 'before_cursor_execute', guard)
+    db.expire_all()
+    preserved = db.get(Event, saved_id)
+    assert preserved.payload_json == '{"preserve":true}' and preserved.ts.year == 2026
+    assert preserved.ts.month == 1 and preserved.source_provider == 'unrelated'
+
+
+@pytest.mark.parametrize('cik,event_type', [('0000000001', 'new_institutional_position'), (None, 'cluster_accumulation')])
+def test_created_event_collector_includes_holder_and_cluster_but_not_updates(db, cik, event_type):
+    from app.models import InstitutionalActivityEvent
+    row = InstitutionalActivityEvent(symbol='ABC', normalized_symbol='ABC', cik=cik,
+        event_type=event_type, title='Fixture', summary='Fixture', filing_date=date(2026, 10, 6),
+        report_year=2026, report_quarter=3, materiality_score=95, holder_breadth=5)
+    db.add(row); db.flush()
+    created = []
+    assert activity._upsert_feed_event(db, row, created_feed_events=created)
+    db.flush()
+    assert len(created) == 1 and created[0].id is not None
+    assert created[0].member_bioguide_id == cik and created[0].event_type == event_type
+    assert not activity._upsert_feed_event(db, row, created_feed_events=created)
+    assert len(created) == 1
+    discarded = []
+    with db.begin_nested() as transaction:
+        row.report_quarter = 2
+        db.flush()
+        assert activity._upsert_feed_event(db, row, created_feed_events=discarded)
+        db.flush()
+        rolled_back_id = discarded[0].id
+        transaction.rollback()
+    assert db.get(Event, rolled_back_id) is None
+    assert len(created) == 1

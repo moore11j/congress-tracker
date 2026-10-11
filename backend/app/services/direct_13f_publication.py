@@ -85,7 +85,7 @@ def rehearse_new_13f(db, document, *, publish_since: date, identifier_documents=
     return {**result, 'status': 'rehearsed' if result['status'] == 'projected' else result['status'], 'production_writes': 0}
 
 
-def _project_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), prepared_evidence=None, reference_documents=()):
+def _project_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), prepared_evidence=None, reference_documents=(), published_events=None):
     if db.new or db.dirty or db.deleted:
         raise ValueError('Rehearsal session has unrelated pending changes')
     raw, discovery = document['raw'], document['metadata']
@@ -273,16 +273,19 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             if plan['evidence']:
                 meta[RECEIPT_KEY]['security_transition_evidence'] = plan['evidence']
                 filing.raw_metadata_json = dumps(meta)
-            before_events = set(db.scalars(select(Event.id)))
-            metrics = activity.process_filing_changes_and_events(db, filing, holder_only=True)
+            # Collect the actual inserts, including cluster events, without
+            # reading unrelated event history before or after each filing.
+            created_events = []
+            metrics = activity.process_filing_changes_and_events(db, filing, holder_only=True,
+                                                                 created_feed_events=created_events)
             db.flush()
             proof = {'feed': 'sec_13f', 'accession': filing.accession_number, 'url': metadata['url'],
                      'sha256': digest, 'prior_accession': prior.accession_number,
                      'prior_url': prior.filing_url, 'prior_sha256': _receipt(prior)['source_sha256']}
             published_at = datetime.now(timezone.utc)
-            for event in db.scalars(select(Event).where(Event.source_provider == activity.INSTITUTIONAL_EVENT_SOURCE)):
-                if event.id in before_events:
-                    continue
+            if len(created_events) != metrics['feed_events']:
+                raise ValueError('Created institutional event count mismatch')
+            for event in created_events:
                 payload = json.loads(event.payload_json or '{}')
                 # Cluster summaries can include other holders. This pair proves
                 # the triggering holder only, never every cluster constituent.
@@ -299,6 +302,8 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
                 event.payload_json = dumps(payload)
                 if holder_event:
                     event.source_document_url = metadata['url']
+            if published_events is not None:
+                published_events.extend(created_events)
             meta[RECEIPT_KEY]['derived_state'] = state = 'published'
             meta[RECEIPT_KEY]['prior_filing_id'] = prior.id
             meta[RECEIPT_KEY]['prior_positions_sha256'] = _positions_digest(db, prior)
