@@ -164,3 +164,30 @@ def test_projection_preserves_raw_hash_and_uses_total_revenue_consistently():
     with pytest.raises(inline.InlineFactsError): inline.merge(data, filing, available_by=date(2026, 7, 1))
     other = deepcopy(data); other['cik'] = 2
     with pytest.raises(inline.InlineFactsError): inline.merge(other, filing, available_by=date(2026, 10, 9))
+
+
+@pytest.mark.parametrize('basis', [None, {'namespace':'us-gaap', 'currency':'USD', 'tags':sec.TAGS}])
+def test_large_complete_filing_preserves_values_and_hashes_once(monkeypatch, basis):
+    # A real PFG filing is 16,055,207 bytes. Keep every byte, including padding.
+    raw = document(extra='<!--' + 'x'*1_000_000 + '-->')
+    raw = raw.replace(b'</body>', (b'<!--' + b'x'*1_000_000 + b'-->')*16 + b'</body>')
+    expected = hashlib.sha256(raw).hexdigest()
+    original = inline.hashlib.sha256
+    calls = []
+    def count(value):
+        calls.append(len(value))
+        return original(value)
+    monkeypatch.setattr(inline.hashlib, 'sha256', count)
+    result = parse(raw, basis=basis)
+    assert result['facts'][TAG]['units']['USD'][0]['val'] == 70
+    assert result['evidence']['sha256'] == expected
+    assert all(p['source_sha256'] == expected for p in result['provenance'].values())
+    assert calls == [len(raw)]
+
+
+def test_oversized_inline_source_is_rejected_before_dom_allocation(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError('DOM allocated for oversized source')
+    monkeypatch.setattr(inline.html, 'fromstring', forbidden)
+    with pytest.raises(inline.InlineFactsError, match='filing_size'):
+        parse(b' '*(inline.MAX_INLINE_BYTES+1))
