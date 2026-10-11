@@ -1,13 +1,17 @@
 """Daily SEO has its own opt-in gate; existing campaign settings are unchanged."""
 import logging
 
-from app.db import SessionLocal
-from app.services.research_seo import run_daily_plan
-from app.services.search_console import sync
+from app.jobs.research_preflight import seo_idle
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
+    if seo_idle():
+        logging.getLogger(__name__).info("research_seo_idle preflight=true")
+        return 0
+    from app.db import SessionLocal
+    from app.services.research_seo import run_daily_plan
+    from app.services.search_console import sync
     with SessionLocal() as db:
         sync_result = sync(db)
         logging.getLogger(__name__).info("search_console_sync status=%s", sync_result["status"])

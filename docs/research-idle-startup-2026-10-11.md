@@ -1,0 +1,13 @@
+# Research idle startup repair, October 11, 2026
+
+Reliability remains a gate before further FMP cutovers. The approved two-service topology, schedules, source selectors and spending are unchanged.
+
+Fresh production job receipts at 19:33-19:35 UTC show SEC research 2.359 CPU seconds, news 2.922, campaign publication 2.545, SEC metadata 3.022, daily SEO 2.196 and strategy delivery 2.085. The serial queue prevents import overlap but repeating the entire ORM/application startup still consumes the shared host allowance. A local SEC metadata import profile attributes 1.72 wall seconds to the full model registry alone; this profile is not a production CPU measurement.
+
+This scoped change adds bounded read-only PostgreSQL checks before research campaign and daily SEO startup. Campaign checks use the same due-status, active-campaign and timestamp predicates as the existing workers. Daily SEO preserves local timezone, scheduled draft time, durable day claims, manual queued runs and the independent daily Search Console attempt. Only established no-work state exits early. Missing tables, malformed settings, connection errors and timeouts run the existing worker. No claim, timestamp or setting is written by preflight. Due work retains original operations, limits, provider calls and failure exit status.
+
+The connection is read-only with a two-second connect timeout, 1.5-second statement timeout and 0.5-second lock timeout, closed before application imports. No credentials or customer data are logged. No scheduler cadence, source freshness rule, alert identity or publication approval changes.
+
+A read-only production PostgreSQL probe at 19:39 UTC finds SEO and generation idle, while publication does not take the shortcut. The first check including driver startup uses 0.169 CPU seconds; all three checks together use 0.184, without app.db, app.models or SQLAlchemy loaded. This is a probe of candidate code, not an ordinary deployed receipt or proof of sustained capacity recovery.
+
+All 61 focused preflight/SEO/Search Console checks pass on Python 3.14.2. The broader research run has 171 passes and seven failures in the unchanged research brief service tests; an isolated main-source comparison is in progress. Deployment remains pending. Evidence: scheduled-job-cpu-1791747357.json and research-preflight-1791747544.json in the local direct-feeds artifact directory. Remaining work includes ordinary receipts/public latency under sustained operation, institutional publication capacity/growth, core financial coverage, transcripts, all affected consumers and final Massive/global FMP/billing gates. No FMP cancellation.
