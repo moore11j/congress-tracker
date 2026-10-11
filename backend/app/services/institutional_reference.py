@@ -88,21 +88,35 @@ def reference_identity(document, *, cusip, report_period, observed_by):
     if not isinstance(row, dict):
         raise ValueError('Malformed reference row')
     symbol = _symbol_key(row.get('ticker'))
+    figi_valid = bool(re.fullmatch(r'BBG[A-Z0-9]{9}', str(row.get('share_class_figi') or '')))
+    # The issuer explicitly identifies this US ordinary-share CUSIP. Massive
+    # returns a null FIGI for it in both captured 2026 reporting quarters.
+    # Accept only the independently reviewed issuer/class/exchange/date tuple;
+    # do not generalize a missing FIGI to other securities or the former ADR.
+    reviewed_listing = (cusip == 'F92124100' and query['date'] >= '2025-12-31'
+        and symbol == 'TTE' and str(row.get('cik') or '').lstrip('0') == '879764'
+        and row.get('primary_exchange') == 'XNYS' and row.get('type') == 'CS'
+        and row.get('share_class_figi') is None)
     if (not symbol or not re.fullmatch(r'[A-Z]{1,6}(?:-[A-Z])?', symbol)
             or row.get('market') != 'stocks' or row.get('locale') != 'us'
             or str(row.get('currency_name', '')).lower() != 'usd' or row.get('active') is not True
             or row.get('type') not in {'CS', 'ETF', 'ADRC'}
-            or not re.fullmatch(r'BBG[A-Z0-9]{9}', str(row.get('share_class_figi') or ''))):
+            or not (figi_valid or reviewed_listing)):
         return {'status': 'held', 'reason': 'unsupported_reference_security'}
     updated = _stamp(row['last_updated_utc']) if row.get('last_updated_utc') else None
     if updated and updated > observed:
         raise ValueError('Provider update is after the captured observation')
-    return {'status': 'verified', 'cusip': cusip, 'symbol': symbol,
+    identity = {'status': 'verified', 'cusip': cusip, 'symbol': symbol,
             'report_period': query['date'], 'provider': SOURCE,
             'source_url': expected_url, 'source_sha256': document['response_sha256'],
             'observed_at': observed.isoformat(), 'provider_updated_at': updated.isoformat() if updated else None,
             'share_class_figi': row['share_class_figi'], 'security_type': row['type'],
             'source_availability_basis': 'reference_observed_at'}
+    if reviewed_listing:
+        identity.update(identity_basis='reviewed_cusip_issuer_us_listing', reviewed_sources=[
+            'https://totalenergies.com/investors/shares-and-dividends/totalenergies-shares/totalenergies-shares-listed-on-the-nyse',
+            'https://www.sec.gov/Archives/edgar/data/879764/000110465925119004/tm2526657d2_6k.htm'])
+    return identity
 
 
 def resolve_reference_candidate(evidence, candidates):
@@ -201,6 +215,17 @@ def stage_reference(db, document):
         def facts(item):
             return {key: value for key, value in item['response'].items() if key != 'request_id'}
         if facts(saved) == facts(document):
+            # Re-evaluate only the derived interpretation of the original
+            # observation. Keep original bytes/hash/revisions and checked_at.
+            identity = reference_identity(saved, cusip=cusip, report_period=period,
+                                          observed_by=document['observed_at'])
+            from sqlalchemy import select
+            from app.services.direct_feed_store import DirectFeedDocument
+            row = db.scalar(select(DirectFeedDocument).where(
+                DirectFeedDocument.feed == FEED, DirectFeedDocument.source_key == cusip + ':' + period))
+            parsed = dumps({'identity': identity})
+            if row.parsed_json != parsed:
+                row.parsed_json = parsed
             return {'status': 'reused', 'identity_status': identity['status'], 'identity_reason': identity.get('reason'), 'public_writes': 0}
         if _stamp(document['observed_at']) <= _stamp(saved['observed_at']):
             raise ValueError('Conflicting reference cannot rewind source observation')
