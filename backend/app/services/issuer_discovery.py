@@ -16,6 +16,19 @@ KIND = 'reddit_q4_v1'
 INDEX_FEED = 'issuer_earnings_index'
 QUARTERS = {'First Quarter': 1, 'Second Quarter': 2, 'Third Quarter': 3, 'Fourth Quarter': 4}
 DATE_PATTERN = r'\b\d{2}\s*-\s*\d{2}\s*-\s*\d{4}\b'
+PARSER_POLICY = 2
+QA_PATTERNS = {
+    # Version 1 remains byte-for-byte compatible with stored publication proofs.
+    1: r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+Our first)|First)\s+question comes from\b',
+    2: r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+(?:Our|Your) first)|First)\s+question comes from\b',
+}
+
+
+def parser_policy(metadata):
+    version = metadata.get('parser_policy', 1)
+    if type(version) is not int or version not in QA_PATTERNS:
+        raise DirectSourceError('Unreviewed issuer parser policy')
+    return version
 
 
 def enabled_company(company):
@@ -40,7 +53,8 @@ def index_metadata(company, year):
             'symbol': company['symbol'], 'year': year, 'discovery_kind': KIND}
 
 
-def parse_index(raw, company, year, observed):
+def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    parser_policy({'parser_policy': policy})
     if not raw or len(raw) > 2_000_000:
         raise DirectSourceError('Issuer index size invalid')
     try:
@@ -82,9 +96,11 @@ def parse_index(raw, company, year, observed):
                 'transcript_pattern': r'\bTRANSCRIPT\b|CORPORATE SPEAKERS:.{1,3000}PARTICIPANTS:.{1,3000}PRESENTATION:',
                 'period_pattern': rf"Reddit Q{quarter}['\u2019]{str(year)[2:]} Earnings Call",
                 'publication_pattern': DATE_PATTERN,
-                'qa_pattern': r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+Our first)|First)\s+question comes from\b',
+                'qa_pattern': QA_PATTERNS[policy],
                 'source_page_url': index_url(company, year), 'source_page_sha256': hashlib.sha256(raw).hexdigest(),
                 'discovery_kind': KIND, 'discovery_year': year, 'period_end': end.isoformat()}
+            if policy != 1:
+                found[key]['parser_policy'] = policy
     return list(found.values())
 
 
@@ -125,7 +141,7 @@ def verified_metadata(db, company, metadata):
     observed = revision.fetched_at
     if observed.tzinfo is None:
         observed = observed.replace(tzinfo=utcnow().tzinfo)
-    candidates = parse_index(revision.source_bytes, company, year, observed)
+    candidates = parse_index(revision.source_bytes, company, year, observed, policy=parser_policy(metadata))
     matches = [c for c in candidates if c['key'] == metadata.get('key')]
     if len(matches) != 1:
         raise DirectSourceError('Issuer transcript absent from original index')
@@ -197,6 +213,14 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                 base = verified_metadata(db, company, metadata)
                 if url != base['url']:
                     raise DirectSourceError('Issuer document URL changed')
+                # Only a never-parsed document can adopt a newer policy. Stored
+                # revisions and publication receipts keep their original parser.
+                has_revision = db.scalar(select(DirectFeedRevision.id).where(
+                    DirectFeedRevision.document_id == row_id).limit(1)) is not None
+                if (not has_revision and not metadata.get('published_at')
+                        and parser_policy(base) < PARSER_POLICY):
+                    base = {**base, 'parser_policy': PARSER_POLICY,
+                            'qa_pattern': QA_PATTERNS[PARSER_POLICY]}
                 # Grant this one validated link, never its CDN host or siblings.
                 client.issuer_document_urls = frozenset([*client.issuer_document_urls, url])
             db.commit()  # Release pooled connection/transaction before HTTP.
