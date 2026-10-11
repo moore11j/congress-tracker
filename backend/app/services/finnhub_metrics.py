@@ -73,8 +73,13 @@ def normalize(payload, *, symbol, observed_at):
     if not symbol or observed_at.tzinfo is None:
         raise FinnhubUnavailable('invalid_metric_request')
     observed_at = observed_at.astimezone(timezone.utc)
-    if not isinstance(payload, dict) or normalize_symbol(payload.get('symbol')) != symbol:
+    if not isinstance(payload, dict):
         raise FinnhubUnavailable('metric_symbol_mismatch')
+    reported_symbol = normalize_symbol(payload.get('symbol'))
+    identity = None
+    if reported_symbol != symbol:
+        from app.services.finnhub_metric_identity import association
+        identity = association(symbol, reported_symbol)
     if payload.get('metricType') != 'all' or not isinstance(payload.get('metric'), dict):
         raise FinnhubUnavailable('invalid_metric_payload')
     series = payload.get('series')
@@ -95,6 +100,10 @@ def normalize(payload, *, symbol, observed_at):
                   'Snapshot metrics have no supplied financial-period or market-price timestamp.',
                   'Forward P/E has no supplied forecast horizon or underlying estimate series.',
                   'No currency amounts, prices, net debt/EBITDA or annual analyst forecasts are inferred.']}
+    if identity is not None:
+        result['issuer_identity'] = identity
+        result['limitations'].append('Reviewed consolidated-issuer financial ratios only; '
+            'source security differs. Valuation, market and per-share fields are excluded.')
     for field, point in points.items():
         if point is None:
             continue
@@ -110,6 +119,10 @@ def normalize(payload, *, symbol, observed_at):
     # financial series. This does not assert all scalar fields share that date.
     if result['values']:
         for field, (key, unit) in SCALARS.items():
+            if identity is not None:
+                from app.services.finnhub_metric_identity import ISSUER_FIELDS
+                if field not in ISSUER_FIELDS:
+                    continue
             value = _number(payload['metric'].get(key))
             if value is None or (unit == 'multiple' and value <= 0):
                 continue
@@ -117,6 +130,9 @@ def normalize(payload, *, symbol, observed_at):
             result['fields'][field] = {'source': 'finnhub', 'path': 'metric.'+key,
                 'period_date': None, 'basis': 'provider_current_snapshot', 'unit': unit,
                 'scale': 1, 'observed_at': observed_at.isoformat()}
+    if identity is not None:
+        for field in result['fields'].values():
+            field.update(source_symbol=reported_symbol, identity_basis='consolidated_issuer')
     result['status'] = 'partial' if result['values'] else 'unavailable'
     return result
 

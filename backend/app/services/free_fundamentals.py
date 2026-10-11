@@ -16,6 +16,8 @@ def combine(values, metrics):
     result = deepcopy(values)
     result['provider'] = 'free_direct'
     evidence = json.loads(result['source_evidence_json'])
+    from app.services.finnhub_metric_identity import verify_combination
+    verify_combination(metrics, evidence)
     evidence['methodology'] = VERSION
     evidence['supplement'] = deepcopy(metrics)
     evidence['supplement']['used_fields'] = []
@@ -40,10 +42,10 @@ def fetch_fundamentals(symbol):
     values = sec_fundamentals.fetch_fundamentals(symbol)
     try:
         metrics = finnhub_metrics.prepare(symbol)
+        return combine(values, metrics)
     except FinnhubUnavailable as exc:
         values['provider'] = 'free_direct'
         evidence = json.loads(values['source_evidence_json'])
         evidence.update(methodology=VERSION, supplement_error=str(exc))
         values['source_evidence_json'] = json.dumps(evidence, sort_keys=True)
         return values
-    return combine(values, metrics)
