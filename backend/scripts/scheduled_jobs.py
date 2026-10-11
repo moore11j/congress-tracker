@@ -40,6 +40,19 @@ MANUAL_JOBS = {
 }
 
 
+# Existing GitHub triggers use these fixed commands through the same data lane.
+EXTERNAL_INGEST_JOBS = (
+    'core', 'recent-congress', 'government-contracts-daily',
+    'government-contracts-weekly', 'daily-repair', 'market-data-refresh-daily',
+    'portfolio-simulation-refresh', 'portfolio-methodology-guard', 'all',
+)
+for _job in EXTERNAL_INGEST_JOBS:
+    MANUAL_JOBS['external-ingest-' + _job] = {
+        'command': 'cd /app && python -m app.ingest_run --job ' + _job,
+        'environment': {}, 'lane': 'data',
+    }
+
+
 def load_manifest(path):
     return {**json.loads(Path(path).read_text()), **MANUAL_JOBS}
 
@@ -81,6 +94,9 @@ def database(path):
         key TEXT PRIMARY KEY, lane TEXT NOT NULL, pending_at REAL,
         started_at REAL, token TEXT, pid INTEGER, finished_at REAL,
         exit_code INTEGER, runs INTEGER NOT NULL DEFAULT 0)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS external_requests (
+        request_id TEXT PRIMARY KEY, job_key TEXT NOT NULL, target_run INTEGER NOT NULL,
+        created_at REAL NOT NULL, finished_at REAL, exit_code INTEGER)''')
     try:
         yield db
     finally:
@@ -121,9 +137,61 @@ def claim(db, lane, manifest, now=None):
 
 
 def finish(db, job, code, now=None):
-    db.execute('''UPDATE jobs SET started_at=NULL,token=NULL,pid=NULL,
-        finished_at=?,exit_code=?,runs=runs+1 WHERE key=? AND token=?''',
-        (time.time() if now is None else now, code, job['key'], job['token']))
+    now = time.time() if now is None else now
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        row = db.execute('SELECT runs FROM jobs WHERE key=? AND token=?',
+                         (job['key'], job['token'])).fetchone()
+        if row is not None:
+            db.execute('UPDATE jobs SET started_at=NULL,token=NULL,pid=NULL,finished_at=?,exit_code=?,runs=runs+1 WHERE key=? AND token=?',
+                       (now, code, job['key'], job['token']))
+            db.execute('UPDATE external_requests SET finished_at=?,exit_code=? WHERE job_key=? AND target_run=? AND finished_at IS NULL',
+                       (now, code, job['key'], row['runs'] + 1))
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def dispatch_ingest(db, job, request_id, manifest, now=None):
+    """Atomic request identity makes an ambiguous SSH retry safe."""
+    if job not in EXTERNAL_INGEST_JOBS or not re.fullmatch(r'[0-9]{1,20}-[0-9]{1,6}', request_id):
+        raise ValueError('Invalid external ingestion request')
+    key = 'external-ingest-' + job
+    definition = manifest[key]
+    if definition != MANUAL_JOBS[key]:
+        raise ValueError('External ingestion command differs from the fixed manifest')
+    now = time.time() if now is None else now
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        existing = db.execute('SELECT * FROM external_requests WHERE request_id=?', (request_id,)).fetchone()
+        if existing is not None:
+            if existing['job_key'] != key:
+                raise ValueError('External request identity already belongs to another job')
+        else:
+            current = db.execute('SELECT runs,started_at FROM jobs WHERE key=?', (key,)).fetchone()
+            # A request arriving during execution asks for the next run, just
+            # like cron. Several requests for that next run can coalesce.
+            target = (current['runs'] if current else 0) + (2 if current and current['started_at'] is not None else 1)
+            enqueue(db, key, definition, now=now)
+            db.execute('INSERT INTO external_requests(request_id,job_key,target_run,created_at) VALUES (?,?,?,?)',
+                       (request_id, key, target, now))
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+    return dict(db.execute('SELECT * FROM external_requests WHERE request_id=?', (request_id,)).fetchone())
+
+
+def wait_external_request(db, request_id, *, wait_seconds=1800):
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        row = dict(db.execute('SELECT * FROM external_requests WHERE request_id=?', (request_id,)).fetchone())
+        if row['finished_at'] is not None:
+            return {**row, 'status': 'succeeded' if row['exit_code'] == 0 else 'failed'}
+        if time.monotonic() >= deadline:
+            return {**row, 'status': 'pending'}
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
 
 
 def owns_process(pid, token):
@@ -242,13 +310,29 @@ def main():
     sub.add_parser('enqueue').add_argument('key')
     sub.add_parser('worker').add_argument('lane', choices=['data', 'delivery'])
     sub.add_parser('status')
+    dispatch = sub.add_parser('dispatch-ingest')
+    dispatch.add_argument('job', choices=EXTERNAL_INGEST_JOBS)
+    dispatch.add_argument('--request-id', required=True)
+    dispatch.add_argument('--wait-seconds', type=int, default=1800)
     args = parser.parse_args()
+    if args.action == 'dispatch-ingest':
+        if (os.getenv('COMBINED_SCHEDULER_ENABLED', '').lower() != 'true'
+                or not os.getenv('COMBINED_SCHEDULER_MACHINE_ID')
+                or os.getenv('COMBINED_SCHEDULER_MACHINE_ID') != os.getenv('FLY_MACHINE_ID')
+                or not Path(args.queue).is_file()
+                or not 0 <= args.wait_seconds <= 3600):
+            raise SystemExit('External ingestion requires the active scheduler owner and existing queue')
     manifest = load_manifest(args.manifest)
     if args.action == 'worker':
         worker(args.queue, manifest, args.lane)
     else:
         with database(args.queue) as db:
-            if args.action == 'enqueue':
+            if args.action == 'dispatch-ingest':
+                dispatch_ingest(db, args.job, args.request_id, manifest)
+                result = wait_external_request(db, args.request_id, wait_seconds=args.wait_seconds)
+                print(json.dumps(result), flush=True)
+                raise SystemExit(0 if result['status'] == 'succeeded' else 75 if result['status'] == 'pending' else 1)
+            elif args.action == 'enqueue':
                 enqueue(db, args.key, manifest[args.key])
             else:
                 print(json.dumps([dict(r) for r in db.execute('SELECT * FROM jobs ORDER BY lane,key')]))

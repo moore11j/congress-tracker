@@ -207,3 +207,74 @@ def test_shutdown_kills_descendant_that_outlives_group_leader(tmp_path):
     finally:
         jobs.stop_process(process.pid,token,grace_seconds=.2)
         process.wait(timeout=5)
+
+
+def test_external_retry_after_completion_never_enqueues_again(tmp_path):
+    manifest = jobs.MANUAL_JOBS
+    with jobs.database(tmp_path/'queue') as db:
+        first = jobs.dispatch_ingest(db, 'core', '123-1', manifest, now=1)
+        retry = jobs.dispatch_ingest(db, 'core', '123-1', manifest, now=2)
+        assert first == retry and first['target_run'] == 1
+        assert jobs.wait_external_request(db, '123-1', wait_seconds=0)['status'] == 'pending'
+        job = jobs.claim(db, 'data', manifest, now=3)
+        jobs.finish(db, job, 0, now=4)
+        receipt = jobs.wait_external_request(db, '123-1', wait_seconds=0)
+        assert receipt['status'] == 'succeeded'
+        jobs.dispatch_ingest(db, 'core', '123-1', manifest, now=5)
+        assert jobs.claim(db, 'data', manifest) is None
+        assert jobs.wait_external_request(db, '123-1', wait_seconds=0) == receipt
+
+
+def test_external_requests_during_execution_wait_for_next_run(tmp_path):
+    manifest = jobs.MANUAL_JOBS
+    with jobs.database(tmp_path/'queue') as db:
+        jobs.dispatch_ingest(db, 'core', '123-1', manifest)
+        first = jobs.claim(db, 'data', manifest)
+        assert jobs.dispatch_ingest(db, 'core', '124-1', manifest)['target_run'] == 2
+        assert jobs.dispatch_ingest(db, 'core', '125-1', manifest)['target_run'] == 2
+        jobs.finish(db, first, 0)
+        assert jobs.wait_external_request(db, '124-1', wait_seconds=0)['status'] == 'pending'
+        second = jobs.claim(db, 'data', manifest)
+        jobs.finish(db, second, 7)
+        assert jobs.wait_external_request(db, '123-1', wait_seconds=0)['status'] == 'succeeded'
+        for request_id in ('124-1','125-1'):
+            receipt = jobs.wait_external_request(db, request_id, wait_seconds=0)
+            assert receipt['status'] == 'failed' and receipt['exit_code'] == 7
+        assert jobs.claim(db, 'data', manifest) is None
+
+
+def test_external_requests_serialize_with_cron_and_preserve_delivery(tmp_path):
+    manifest = {**jobs.MANUAL_JOBS, 'cron': {'lane':'data'}, 'mail': {'lane':'delivery'}}
+    queue = tmp_path/'queue'
+    with jobs.database(queue) as db, jobs.database(queue) as second:
+        jobs.enqueue(db, 'cron', manifest['cron'], now=1)
+        cron = jobs.claim(db, 'data', manifest, now=2)
+        jobs.dispatch_ingest(second, 'core', '123-1', manifest, now=3)
+        assert jobs.claim(second, 'data', manifest) is None
+        jobs.enqueue(second, 'mail', manifest['mail'])
+        assert jobs.claim(second, 'delivery', manifest)['key'] == 'mail'
+        jobs.finish(db, cron, 0)
+        assert jobs.claim(second, 'data', manifest)['key'] == 'external-ingest-core'
+
+
+def test_external_request_identity_and_commands_fail_closed(tmp_path):
+    with jobs.database(tmp_path/'queue') as db:
+        jobs.dispatch_ingest(db, 'core', '123-1', jobs.MANUAL_JOBS)
+        with pytest.raises(ValueError, match='another job'):
+            jobs.dispatch_ingest(db, 'all', '123-1', jobs.MANUAL_JOBS)
+        for job, request in [('core;false','124-1'),('core','invalid'),('core','1-2;false')]:
+            with pytest.raises(ValueError): jobs.dispatch_ingest(db, job, request, jobs.MANUAL_JOBS)
+        altered = {**jobs.MANUAL_JOBS, 'external-ingest-core': {'lane':'data','command':'false','environment':{}}}
+        with pytest.raises(ValueError, match='fixed manifest'):
+            jobs.dispatch_ingest(db, 'core', '124-1', altered)
+        assert db.execute('SELECT count(*) FROM external_requests').fetchone()[0] == 1
+
+
+def test_wrong_finish_token_does_not_complete_external_request(tmp_path):
+    with jobs.database(tmp_path/'queue') as db:
+        jobs.dispatch_ingest(db, 'core', '123-1', jobs.MANUAL_JOBS)
+        job=jobs.claim(db,'data',jobs.MANUAL_JOBS)
+        jobs.finish(db, {**job,'token':'wrong'},0)
+        assert jobs.wait_external_request(db, '123-1', wait_seconds=0)['status'] == 'pending'
+        jobs.finish(db,job,-15)
+        assert jobs.wait_external_request(db, '123-1', wait_seconds=0)['status'] == 'failed'
