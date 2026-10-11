@@ -40,42 +40,95 @@ def load_identifier_manifest(path):
     return documents
 
 
-def staged_comparisons(db, *, byte_budget, report_periods=None):
-    """Use a bounded saved cohort; absence of matching peers is not value proof."""
-    query = select(DirectFeedDocument, DirectFeedRevision.id, func.length(DirectFeedRevision.source_bytes)).join(
+# Inventory bounds protect memory and work; they are never a truncation policy.
+MAX_SCAN_DOCUMENTS = 10_000
+MAX_SCAN_BYTES = 100_000_000
+MAX_SOURCE_BYTES = 30_000_000
+FETCH_DOCUMENTS = 25
+FETCH_BYTES = 8_000_000
+MAX_PERIOD_DOCUMENTS = 500
+
+
+def _staged_sources(db):
+    """Read every current parsed original or refuse an incomplete inventory."""
+    query = select(DirectFeedDocument.id, DirectFeedDocument.metadata_json,
+        DirectFeedDocument.source_key, DirectFeedDocument.source_url,
+        DirectFeedDocument.content_hash, DirectFeedRevision.id.label('revision_id'),
+        func.length(DirectFeedRevision.source_bytes).label('size')).outerjoin(
         DirectFeedRevision, (DirectFeedRevision.document_id == DirectFeedDocument.id) &
         (DirectFeedRevision.content_hash == DirectFeedDocument.content_hash)).where(
-        DirectFeedDocument.feed == 'sec_13f', DirectFeedDocument.status == 'parsed',
-        DirectFeedRevision.source_bytes.is_not(None)).order_by(DirectFeedDocument.id.desc()).limit(500)
-    rows = list(db.execute(query))
-    if not rows or sum(size for _, _, size in rows) > 100_000_000:
-        raise ValueError('Missing or oversized staged source scan')
-    if report_periods is None and sum(size for _, _, size in rows) > byte_budget:
-        raise ValueError('Missing or oversized staged comparison cohort; supply a bounded staging batch')
-    documents = []
-    for doc, revision_id, size in rows:
-        metadata = json.loads(doc.metadata_json)
-        _source_url(metadata)
-        if metadata['key'] != doc.source_key or metadata['url'] != doc.source_url:
-            raise ValueError('Staged comparison identity changed')
-        raw = db.scalar(select(DirectFeedRevision.source_bytes).where(DirectFeedRevision.id == revision_id))
-        if len(raw) != size or hashlib.sha256(raw).hexdigest() != doc.content_hash:
-            raise ValueError('Staged comparison checksum changed')
-        if report_periods is not None:
-            from app.services.direct_feed_collection import parse_document
-            from app.clients.direct_sources import DirectSourceError
+        DirectFeedDocument.feed == 'sec_13f', DirectFeedDocument.status == 'parsed'
+        ).order_by(DirectFeedDocument.id.desc()).limit(MAX_SCAN_DOCUMENTS + 1)
+    rows = list(db.execute(query).mappings())
+    if not rows or len(rows) > MAX_SCAN_DOCUMENTS:
+        raise ValueError('Missing or oversized complete staged source inventory')
+    if any(row['size'] is None or not 0 < row['size'] <= MAX_SOURCE_BYTES for row in rows):
+        raise ValueError('Missing or oversized staged original source')
+    if sum(row['size'] for row in rows) > MAX_SCAN_BYTES:
+        raise ValueError('Complete staged source scan exceeds byte bounds')
+    offset = 0
+    while offset < len(rows):
+        chunk, size = [], 0
+        for row in rows[offset:offset + FETCH_DOCUMENTS]:
+            if chunk and size + row['size'] > FETCH_BYTES:
+                break
+            chunk.append(row)
+            size += row['size']
+        originals = dict(db.execute(select(DirectFeedRevision.id, DirectFeedRevision.source_bytes)
+            .where(DirectFeedRevision.id.in_([row['revision_id'] for row in chunk]))).all())
+        for row in chunk:
+            metadata = json.loads(row['metadata_json'])
+            _source_url(metadata)
+            if metadata['key'] != row['source_key'] or metadata['url'] != row['source_url']:
+                raise ValueError('Staged comparison identity changed')
+            raw = originals.pop(row['revision_id'], None)
+            if raw is None or len(raw) != row['size'] or hashlib.sha256(raw).hexdigest() != row['content_hash']:
+                raise ValueError('Staged comparison checksum changed')
+            yield {'feed': 'sec_13f', 'metadata': metadata, 'raw': raw, 'content_hash': row['content_hash']}
+        offset += len(chunk)
+
+
+def staged_comparison_groups(db, *, byte_budget, report_periods=None):
+    """Complete original-bound period cohorts, with no global newest-N window.
+
+    All inventory/byte/period bounds fail before publication. Invalid originals
+    remain in every requested group for the existing evidence validator; saved
+    parsed_json is never trusted to exclude a source.
+    """
+    from app.services.direct_feed_collection import parse_document
+    from app.clients.direct_sources import DirectSourceError
+    groups = {period: [] for period in sorted(report_periods)} if report_periods else {None: []}
+    retained_bytes = 0
+    for document in _staged_sources(db):
+        periods = groups
+        if report_periods:
             try:
-                _, parsed, _ = parse_document('sec_13f', raw, metadata)
+                _, parsed, _ = parse_document('sec_13f', document['raw'], document['metadata'])
             except DirectSourceError:
-                # Retain invalid evidence so the existing validator handles it;
-                # a stored parsed_json field never decides source selection.
                 pass
             else:
-                if parsed['metadata']['report_period'] not in report_periods:
-                    continue
-        if sum(len(item['raw']) for item in documents) + len(raw) > byte_budget:
-            raise ValueError('Relevant staged comparison cohort exceeds evidence budget')
-        documents.append({'feed': 'sec_13f', 'metadata': metadata, 'raw': raw, 'content_hash': doc.content_hash})
+                period = parsed['metadata']['report_period']
+                periods = [period] if period in groups else []
+        if not periods:
+            continue
+        retained_bytes += len(document['raw'])
+        if retained_bytes > byte_budget:
+            raise ValueError('Missing or oversized relevant staged comparison cohort exceeds evidence budget')
+        for period in periods:
+            groups[period].append(document)
+            if len(groups[period]) > MAX_PERIOD_DOCUMENTS:
+                raise ValueError('Complete staged period cohort exceeds document bounds')
+    if any(not documents for documents in groups.values()):
+        raise ValueError('Missing staged comparison period evidence')
+    return groups
+
+
+def staged_comparisons(db, *, byte_budget, report_periods=None):
+    """Compatibility reader for callers requiring one bounded evidence object."""
+    groups = staged_comparison_groups(db, byte_budget=byte_budget, report_periods=report_periods)
+    documents = list({id(d): d for group in groups.values() for d in group}.values())
+    if len(documents) > MAX_PERIOD_DOCUMENTS:
+        raise ValueError('Combined comparison cohort exceeds document bounds; use period groups')
     return documents
 
 
@@ -106,6 +159,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     from app.clients.direct_sources import DirectSourceError
     report_periods = set()
     reference_scopes = {}
+    target_periods = {}
     for document_id in ids:
         try:
             _, _, parsed, _ = _saved_source(db, db.get(DirectFeedDocument, document_id))
@@ -114,9 +168,10 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
             # be trusted. Never use cached metadata to omit comparison evidence.
             report_periods = None
             break
-        report_periods.add(parsed['metadata']['report_period'])
+        target_periods[document_id] = parsed['metadata']['report_period']
+        report_periods.add(target_periods[document_id])
         reference_scopes[document_id] = {(r['cusip'].strip().upper(), parsed['metadata']['report_period']) for r in parsed['positions']}
-    comparisons = staged_comparisons(db,
+    groups = staged_comparison_groups(db,
         byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents),
         report_periods=report_periods)
     references = []
@@ -124,12 +179,20 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         from app.services.institutional_reference import load_reference_batch
         references = load_reference_batch(db, set().union(*reference_scopes.values()) if reference_scopes else set())
     db.rollback()  # Recheck durable ownership inside every filing transaction.
-    evidence=Prepared13FEvidence.build(identifier_documents,comparisons)
+    # Prepare every complete group before the first writer transaction. Mixed
+    # quarter batches retain input order without fitting both quarters into500.
+    evidence = {period: Prepared13FEvidence.build(identifier_documents, documents)
+                for period, documents in groups.items()}
+    comparisons = list({id(d): d for group in groups.values() for d in group}.values())
+    def group_key(document_id):
+        return target_periods[document_id] if report_periods is not None else None
     results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
-        identifier_documents=identifier_documents, comparison_documents=comparisons, prepared_evidence=evidence,
+        identifier_documents=identifier_documents, comparison_documents=groups[group_key(document_id)],
+        prepared_evidence=evidence[group_key(document_id)],
         reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
         'comparison_periods': sorted(report_periods) if report_periods is not None else None,
+        'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
         'reference_documents': len(references),
         'comparison_documents': len(comparisons), 'comparison_bytes': sum(len(d['raw']) for d in comparisons),
         'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
