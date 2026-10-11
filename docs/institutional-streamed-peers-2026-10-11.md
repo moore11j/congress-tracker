@@ -1,6 +1,6 @@
 # Complete streamed institutional peer evidence
 
-October 11, 2026. Institutional publication remains disabled; this repair is not deployed.
+October 11, 2026. Deployed as7b471190; institutional publication remains disabled. Final release verification appears below.
 
 The publisher previously retained all original source bytes and complete parsed positions. It refused a complete scan above100MB or a quarter above500documents. Dropping older peers is not acceptable: they can establish the independent value-unit holds required before publication. Current read-only production inventory is718parsed originals/82,758,139bytes, largest3,328,754bytes, zero missing transport originals. This is parsed inventory, not all staged statuses.
 
@@ -13,3 +13,23 @@ Initial focused validation passed100checks, including504same-quarter peers with 
 The first actual718-original/100-target replay terminated on a scope error before completion: production originals include lowercase CUSIPs, while reference lookups normalize them to uppercase. Fifteen captured originals contain noncanonical CUSIP text. The correction keeps original parser keys for value comparisons and normalized keys solely for reference lookup, preserving prior semantics. A new regression compares the actual publication hold against the unprepared path for lowercase02079k305. No production data was changed. Failed artifactinstitutional-streamed-batch-oct11.json is retained; corrected full suite and independently namedv2 replay are pending. An initial test invocation from repository root failed to importapp; the corrected backend invocation is the valid test run.
 
 Actual full-result parity, local CPU/RSS and the positive DKS pair/repeated consumer previews must pass before release. Current production remains26882f77. Source selection, schedules, host sizes and subscriptions are unchanged. Sustained production workload, broader source coverage and all-consumer acceptance remain separate FMP exit gates.
+
+
+## Completed local acceptance and release in progress, 21:51 UTC
+
+The corrected final suite passes101checks on Python3.14.2. Actual captured718-original/100-target replay completes with the accepted baseline SHA5762d171fbf53a617b9b0681cb488b376c89950065fadd95bb002c5f38ee066b. The entire result JSON matches the previous immutable-original release, including all canonical/evidence hashes:708complete comparison originals across ten periods,50references,10published/84waiting/6held, zero events/emails/provider calls/production writes. Local CPU falls87.547to65.031seconds (25.72%); wall65.548seconds. RSS553.48to641.20MB, versus prior final612.93MB; overall memory reduction is NOT established. Peak885.45MBwas already reached during fixture restoration. These are Windows/SQLite/Python3.14measurements, not production scheduling capacity.
+
+The actual DKS pair independently completes62.10seconds with694complete current/prior peers and132references. Two filings/58positions/one event are created; repeat preserves the entire database state and zero additional rows/events. Monitoring, signal and watchlist previews each contain one item and repeat identically without sending. Fingerprintaefb243f20834cdf00041415ad244ce93c71caae4211fad77f62f9bcf8543f2e is an equality check within the run, not a cross-run claim. Original-case CUSIP semantics remain unchanged.
+
+PR584 head789536ea completed automated review with no inline findings. Secret scan/Vercelpass; unchanged dependency audits fail. Merged7b471190220ea34b20e7baf7bba056671c5ceef5; backend workflow38177943529 is in progress. Runtime verification is pending; institutional publication remains disabled. The job entry point exists but the current crontab has no publish_direct_13fs entry. Bounded unattended publication/rotation and sustained capacity must therefore still be prepared and verified before source selection; collection schedules alone are not publication proof.
+
+Artifacts in the primary artifacts/direct-feeds/free-replacements-2026-10-09 directory: institutional-stream-inventory-oct11.json; retained failed institutional-streamed-batch-oct11.json; completed institutional-streamed-batch-v2-oct11.json and institutional-streamed-batch-parity-oct11.json; institutional-streamed-dks-oct11.json. All local replay/test handles are terminal, no local PostgreSQL. The only current live operation is the confirmed GitHub deployment. No source/schedule/resource/purchase/customer-email/cancellation change.
+
+
+## Production verification, 21:53 UTC
+
+Backend workflow38177943529 completesSUCCESS for7b471190. Receipt two-service-verify-1791755483.json confirms26matching source hashes, exactly the same two approved machines,1423.8MBavailable, no pending/running queue jobs and publicationfalse. Eight HTTPresponses pass: feeds0.372/0.492s, news50items0.349s, NVDA profile0.325s, fresh AAPL/NVDA contexts1.879/1.273s and member1.636s. These are post-release samples, not sustained-load or all-source acceptance.
+
+Read-only deployed-original receipt streamed-originals-live-1791755501.json verifies actual1/61/1342-position SEC originals, exact parser hashes, streamed/unprepared value parity and tamper rejection on Python3.12. Source sizes4880/35568/706017bytes become1321/3663/47949bytes of serialized summaries in this sample. CPU0.0414/0.0199/0.4186seconds. No provider calls, writes or emails.
+
+A full captured current/prior cohort replay is now running locally under tool handle16423 with output institutional-streamed-full-cohort-oct11.json; it uses the deployed streaming functions, all original peers, guarded no-send monitoring/signal/watchlist builds and full-state repeat assertions. It is not yet a completed acceptance receipt. Do not restart because it is quiet; poll the same live handle. All other new tool/test/replay handles are terminal. This fuller replay and bounded unattended publication/fair retries/sustained production capacity remain next; source coverage and all other free/core/transcript/consumer/Massive/globalFMP/billing gates are unchanged.
