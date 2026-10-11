@@ -208,3 +208,102 @@ def test_separate_quarter_budgets_keep_complete_inputs_and_global_scan_bound(db,
     monkeypatch.setattr(batch, 'MAX_SCAN_BYTES', budget)
     with pytest.raises(ValueError, match='Complete staged source scan exceeds byte bounds'):
         batch.staged_comparison_groups(db, byte_budget=budget, report_periods=set(groups))
+
+
+def test_persistent_hold_cannot_starve_later_ready_retry(db):
+    from app.services.direct_feed_worker import DirectFeedPublication
+    from test_direct_13f_publication import document
+    blocked = stage(db, document(serial=9))
+    row = db.get(DirectFeedDocument, blocked)
+    row.metadata_json = json.dumps({**json.loads(row.metadata_json), 'filing_date':'2099-01-01'})
+    db.commit()
+    prior, current = pair()
+    ready = stage(db, current)
+    first = batch.publish_13f_batch(db, identifier_documents=[], limit=2)
+    assert [r['status'] for r in first['results']] == ['held','waiting']
+    stage(db, prior)
+    assert batch.publish_13f_batch(db, identifier_documents=[], limit=1)['processed'] == 1
+    held_receipt = db.scalar(select(DirectFeedPublication).where(DirectFeedPublication.document_id==blocked))
+    held_before=(held_receipt.updated_at,held_receipt.report_json)
+    one=batch.publish_13f_batch(db,identifier_documents=[],limit=1,retry_waiting=True)
+    two=batch.publish_13f_batch(db,identifier_documents=[],limit=1,retry_waiting=True)
+    assert one['results'][0]['document_id']==blocked
+    assert two['results'][0]['document_id']==ready
+    assert two['results'][0]['derived_state']=='published' and two['feed_events']>0
+    count=db.scalar(select(func.count()).select_from(Event))
+    three=batch.publish_13f_batch(db,identifier_documents=[],limit=1,retry_waiting=True)
+    assert three['results'][0]['document_id']==blocked and three['feed_events']==0
+    assert db.scalar(select(func.count()).select_from(Event))==count
+    db.refresh(held_receipt)
+    assert (held_receipt.updated_at,held_receipt.report_json)==held_before
+
+
+def test_retry_cursor_rotates_within_bound_and_wraps_without_duplicates(db):
+    from datetime import datetime,timezone
+    from app.models import InsightsSnapshot
+    from app.services.direct_feed_worker import DirectFeedPublication
+    from test_direct_13f_publication import document
+    ids=[]
+    for serial in range(20,25):
+        source=document(serial=serial);document_id=stage(db,source);ids.append(document_id)
+        db.add(DirectFeedPublication(document_id=document_id,source_hash=source['content_hash'],
+            metadata_hash='fixture',source_generation=1,publish_since='2026-10-01',status='held',
+            report_json='{}',updated_at=datetime.now(timezone.utc)))
+        db.commit()
+    query=select(DirectFeedDocument.id).join(DirectFeedPublication,
+        DirectFeedPublication.document_id==DirectFeedDocument.id).where(DirectFeedPublication.status=='held')
+    position=None;seen=[]
+    for expected in [ids[:2],ids[2:4],[ids[4],ids[0]]]:
+        selected=batch._retry_ids(db,query,2,position)
+        assert selected==expected and len(set(selected))==len(selected)
+        seen.extend(selected);position=selected[-1]
+    assert set(seen)==set(ids)
+    assert db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY) is None
+
+
+def test_retry_cursor_compare_and_set_cannot_rewind_newer_batch(db):
+    from app.models import InsightsSnapshot
+    assert batch._save_retry_position(db,1,None,10)
+    old=db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY).payload_json
+    assert not batch._save_retry_position(db,1,None,5)
+    assert batch._save_retry_position(db,1,old,20)
+    assert not batch._save_retry_position(db,1,old,10)
+    current=db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY)
+    stamp=current.fetched_at
+    assert json.loads(current.payload_json)['last_document_id']==20
+    assert not batch._save_retry_position(db,1,current.payload_json,20)
+    assert db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY).fetched_at==stamp
+
+
+def test_retry_cursor_cannot_cross_source_generation_or_pause(db):
+    from app.models import InsightsSnapshot
+    from app.services.feed_source_control import select_feed_source,FeedSourceMismatch
+    from test_direct_13f_publication import SINCE
+    assert batch._save_retry_position(db,1,None,10)
+    old=db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY).payload_json
+    select_feed_source(db,feed='sec_13f',provider='sec_edgar',publish_since=SINCE,
+        expected_generation=1,reason='New selected generation');db.commit()
+    assert batch._retry_position(db,2)==(None,old)
+    db.rollback()
+    with pytest.raises(FeedSourceMismatch,match='generation'):
+        batch._save_retry_position(db,1,old,20)
+    assert batch._save_retry_position(db,2,old,20)
+    latest=db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY).payload_json
+    select_feed_source(db,feed='sec_13f',provider='paused',publish_since=SINCE,
+        expected_generation=2,reason='Pause fixture');db.commit()
+    with pytest.raises(FeedSourceMismatch):batch._save_retry_position(db,2,latest,30)
+    assert db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY).payload_json==latest
+
+
+@pytest.mark.parametrize('state', [[],{'version':1,'generation':1,'last_document_id':True},
+    {'version':1,'generation':1,'last_document_id':0},
+    {'version':1,'generation':False,'last_document_id':4}])
+def test_invalid_retry_rotation_state_fails_before_publication(db,state):
+    from datetime import datetime,timezone
+    from app.models import InsightsSnapshot
+    db.add(InsightsSnapshot(kind=batch.RETRY_POSITION_KEY,source='sec_edgar',
+        fetched_at=datetime.now(timezone.utc),payload_json=json.dumps(state)));db.commit()
+    with pytest.raises(ValueError,match='retry position'):
+        batch.publish_13f_batch(db,identifier_documents=[],retry_waiting=True)
+    db.rollback()
+    assert db.scalar(select(func.count()).select_from(Event))==0
