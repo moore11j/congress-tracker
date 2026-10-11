@@ -302,3 +302,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **2026-10-11, 23:31 UTC:** [EBITDA fraction repair](ebitda-percent-contract-2026-10-11.md) implemented/tested; deployment pending. Correcting the migration comparator does not resolve provider formula differences or authorize public source switching.
+
+
+**2026-10-11, 23:37 UTC:** [PR590 EBITDA unit repair](ebitda-percent-contract-2026-10-11.md) is deployed and the verified SGRP current row corrected.85checks/35runtime hashes, unchanged five-metric summary/historical hash and zero-change repeat pass. PubliccoreFMP; definitions/netdebt/fullcoverage and all source/consumer/finalMassive/globalFMP gates remain.
