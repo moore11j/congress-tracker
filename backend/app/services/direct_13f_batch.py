@@ -98,7 +98,9 @@ def staged_comparison_groups(db, *, byte_budget, report_periods=None):
     from app.services.direct_feed_collection import parse_document
     from app.clients.direct_sources import DirectSourceError
     groups = {period: [] for period in sorted(report_periods)} if report_periods else {None: []}
-    retained_bytes = 0
+    # Each independently prepared quarter has the same identifier+peer budget.
+    # The complete original scan remains bounded globally by MAX_SCAN_BYTES.
+    retained_bytes = {period: 0 for period in groups}
     for document in _staged_sources(db):
         periods = groups
         if report_periods:
@@ -111,10 +113,10 @@ def staged_comparison_groups(db, *, byte_budget, report_periods=None):
                 periods = [period] if period in groups else []
         if not periods:
             continue
-        retained_bytes += len(document['raw'])
-        if retained_bytes > byte_budget:
-            raise ValueError('Missing or oversized relevant staged comparison cohort exceeds evidence budget')
         for period in periods:
+            retained_bytes[period] += len(document['raw'])
+            if retained_bytes[period] > byte_budget:
+                raise ValueError('Missing or oversized relevant staged comparison cohort exceeds evidence budget')
             groups[period].append(document)
             if len(groups[period]) > MAX_PERIOD_DOCUMENTS:
                 raise ValueError('Complete staged period cohort exceeds document bounds')
@@ -129,6 +131,8 @@ def staged_comparisons(db, *, byte_budget, report_periods=None):
     documents = list({id(d): d for group in groups.values() for d in group}.values())
     if len(documents) > MAX_PERIOD_DOCUMENTS:
         raise ValueError('Combined comparison cohort exceeds document bounds; use period groups')
+    if sum(len(d['raw']) for d in documents) > byte_budget:
+        raise ValueError('Combined comparison cohort exceeds evidence budget; use period groups')
     return documents
 
 
