@@ -1,4 +1,6 @@
-from __future__ import annotations
+# Native annotations avoid repeated SQLAlchemy string evaluation at job startup.
+# Qualify date types because some model columns are themselves named date.
+import datetime as dt
 
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -54,15 +56,15 @@ class IndexMembership(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     index_code: Mapped[str] = mapped_column(Text, nullable=False)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
-    effective_from: Mapped[date] = mapped_column(nullable=False)
-    effective_to: Mapped[Optional[date]]
+    effective_from: Mapped[dt.date] = mapped_column(nullable=False)
+    effective_to: Mapped[Optional[dt.date]]
     source: Mapped[str] = mapped_column(Text, nullable=False)
     source_kind: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_page: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_revision_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     resolved_source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    source_as_of: Mapped[date] = mapped_column(nullable=False)
+    source_as_of: Mapped[dt.date] = mapped_column(nullable=False)
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
 
@@ -72,7 +74,7 @@ class Filing(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     member_id: Mapped[int]
     source: Mapped[str]
-    filing_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[dt.date]]
     document_url: Mapped[Optional[str]]
     document_hash: Mapped[Optional[str]]
 
@@ -86,8 +88,8 @@ class Transaction(Base):
 
     owner_type: Mapped[str]
     transaction_type: Mapped[str]
-    trade_date: Mapped[Optional[date]]
-    report_date: Mapped[Optional[date]]
+    trade_date: Mapped[Optional[dt.date]]
+    report_date: Mapped[Optional[dt.date]]
     amount_range_min: Mapped[Optional[float]]
     amount_range_max: Mapped[Optional[float]]
     description: Mapped[Optional[str]]
@@ -110,8 +112,8 @@ class InsiderTransaction(Base):
     transaction_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     role: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ownership: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    transaction_date: Mapped[Optional[date]]
-    filing_date: Mapped[Optional[date]]
+    transaction_date: Mapped[Optional[dt.date]]
+    filing_date: Mapped[Optional[dt.date]]
     shares: Mapped[Optional[float]]
     price: Mapped[Optional[float]]
     payload_json: Mapped[str] = mapped_column(Text)
@@ -136,8 +138,8 @@ class InstitutionalTransaction(Base):
     symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     institution_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     institution_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    filing_date: Mapped[Optional[date]]
-    report_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[dt.date]]
+    report_date: Mapped[Optional[dt.date]]
     shares: Mapped[Optional[float]]
     market_value: Mapped[Optional[float]]
     avg_price: Mapped[Optional[float]]
@@ -162,7 +164,7 @@ class InstitutionalHolder(Base):
     holder_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_passive_like: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    latest_filing_date: Mapped[Optional[date]]
+    latest_filing_date: Mapped[Optional[dt.date]]
     latest_report_year: Mapped[Optional[int]]
     latest_report_quarter: Mapped[Optional[int]]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -193,10 +195,10 @@ class InstitutionalFiling(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     cik: Mapped[str] = mapped_column(Text, nullable=False)
     accession_number: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    filing_date: Mapped[date]
+    filing_date: Mapped[dt.date]
     report_year: Mapped[int]
     report_quarter: Mapped[int]
-    report_period_end: Mapped[Optional[date]]
+    report_period_end: Mapped[Optional[dt.date]]
     filing_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     form_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_amendment: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
@@ -240,7 +242,7 @@ class InstitutionalPosition(Base):
     ownership_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     report_year: Mapped[int]
     report_quarter: Mapped[int]
-    filing_date: Mapped[date]
+    filing_date: Mapped[dt.date]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -277,7 +279,7 @@ class InstitutionalPositionChange(Base):
     cusip: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     report_year: Mapped[int]
     report_quarter: Mapped[int]
-    filing_date: Mapped[date]
+    filing_date: Mapped[dt.date]
     prev_shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     curr_shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     shares_delta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -321,7 +323,7 @@ class InstitutionalSymbolSummary(Base):
     normalized_symbol: Mapped[str] = mapped_column(Text, nullable=False)
     report_year: Mapped[int]
     report_quarter: Mapped[int]
-    latest_filing_date: Mapped[Optional[date]]
+    latest_filing_date: Mapped[Optional[dt.date]]
     total_holders: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     holders_increased: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     holders_reduced: Mapped[int] = mapped_column(default=0, server_default=text("0"))
@@ -376,7 +378,7 @@ class InstitutionalActivityEvent(Base):
     direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    filing_date: Mapped[date]
+    filing_date: Mapped[dt.date]
     report_year: Mapped[int]
     report_quarter: Mapped[int]
     reported_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -453,21 +455,21 @@ class InstitutionalHolderPerformanceMetric(Base):
     label: Mapped[str] = mapped_column(Text, nullable=False)
     return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     coverage_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    start_date: Mapped[Optional[date]]
-    end_date: Mapped[Optional[date]]
+    start_date: Mapped[Optional[dt.date]]
+    end_date: Mapped[Optional[dt.date]]
     price_basis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     minimum_coverage_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     report_year: Mapped[Optional[int]]
     report_quarter: Mapped[Optional[int]]
     report_period: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    report_period_end: Mapped[Optional[date]]
+    report_period_end: Mapped[Optional[dt.date]]
     basis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     position_count: Mapped[Optional[int]]
     covered_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    generated_on: Mapped[date] = mapped_column(nullable=False)
+    generated_on: Mapped[dt.date] = mapped_column(nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -536,7 +538,7 @@ class ResearchSourceDocument(Base):
     title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    period_end: Mapped[Optional[date]] = mapped_column(nullable=True)
+    period_end: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     filing_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
     processing_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
@@ -606,8 +608,8 @@ class ResearchEvidenceEvent(Base):
     actual_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     previous_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     current_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    event_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    effective_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    event_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    effective_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     source_type: Mapped[str] = mapped_column(Text, nullable=False)
     source_provider: Mapped[str] = mapped_column(Text, nullable=False)
@@ -798,9 +800,9 @@ class ResearchThesisCatalyst(Base):
     thesis_id: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     catalyst_type: Mapped[str] = mapped_column(Text, nullable=False)
-    expected_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    expected_window_start: Mapped[Optional[date]] = mapped_column(nullable=True)
-    expected_window_end: Mapped[Optional[date]] = mapped_column(nullable=True)
+    expected_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    expected_window_start: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    expected_window_end: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(Text, default="upcoming", server_default="upcoming", nullable=False)
     monitoring_mode: Mapped[str] = mapped_column(Text, default="manual", server_default="manual", nullable=False)
     importance: Mapped[str] = mapped_column(Text, default="medium", server_default="medium", nullable=False)
@@ -1736,14 +1738,14 @@ class GovernmentContract(Base):
     symbol: Mapped[str] = mapped_column(Text)
     recipient_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_recipient_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    award_date: Mapped[date]
+    award_date: Mapped[dt.date]
     award_amount: Mapped[float]
     awarding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     awarding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     funding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     funding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    period_start: Mapped[Optional[date]]
-    period_end: Mapped[Optional[date]]
+    period_start: Mapped[Optional[dt.date]]
+    period_end: Mapped[Optional[dt.date]]
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     contract_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -1794,7 +1796,7 @@ class GovernmentContractAction(Base):
     company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     awarding_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     awarding_sub_agency: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    action_date: Mapped[date]
+    action_date: Mapped[dt.date]
     obligated_amount: Mapped[float]
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     action_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -2160,7 +2162,7 @@ class ConfirmationScoreSnapshot(Base):
     security_id: Mapped[int] = mapped_column(nullable=False)
     ticker_at_time: Mapped[str] = mapped_column(Text, nullable=False)
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    market_date: Mapped[date] = mapped_column(nullable=False)
+    market_date: Mapped[dt.date] = mapped_column(nullable=False)
     score: Mapped[int] = mapped_column(nullable=False)
     direction: Mapped[str] = mapped_column(Text, nullable=False)
     strength: Mapped[str] = mapped_column(Text, nullable=False)
@@ -2203,7 +2205,7 @@ class OutcomeEntry(Base):
     entry_key: Mapped[str] = mapped_column(Text, nullable=False)
     qualifying_event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     evidence_cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    entry_session_date: Mapped[date] = mapped_column(nullable=False)
+    entry_session_date: Mapped[dt.date] = mapped_column(nullable=False)
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     entry_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     entry_price_type: Mapped[str] = mapped_column(Text, default="official_open", server_default="official_open", nullable=False)
@@ -2237,14 +2239,14 @@ class OutcomeHorizonObservation(Base):
     entry_id: Mapped[int] = mapped_column(nullable=False)
     snapshot_id: Mapped[int] = mapped_column(nullable=False)
     horizon_days: Mapped[int] = mapped_column(nullable=False)
-    target_date: Mapped[date] = mapped_column(nullable=False)
+    target_date: Mapped[dt.date] = mapped_column(nullable=False)
     security_price: Mapped[float] = mapped_column(Float, nullable=False)
     security_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    security_session_date: Mapped[date] = mapped_column(nullable=False)
+    security_session_date: Mapped[dt.date] = mapped_column(nullable=False)
     security_price_source: Mapped[str] = mapped_column(Text, nullable=False)
     benchmark_price: Mapped[float] = mapped_column(Float, nullable=False)
     benchmark_price_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    benchmark_session_date: Mapped[date] = mapped_column(nullable=False)
+    benchmark_session_date: Mapped[dt.date] = mapped_column(nullable=False)
     benchmark_price_source: Mapped[str] = mapped_column(Text, nullable=False)
     price_type: Mapped[str] = mapped_column(Text, default="official_close", server_default="official_close", nullable=False)
     adjustment_type: Mapped[str] = mapped_column(Text, nullable=False)
@@ -2422,7 +2424,7 @@ class FundamentalsCache(Base):
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     provider: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    period_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    period_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok", nullable=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_evidence_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -2478,10 +2480,10 @@ class FundamentalsSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     provider: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
-    snapshot_date: Mapped[date] = mapped_column(nullable=False)
+    snapshot_date: Mapped[dt.date] = mapped_column(nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source_fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    period_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    period_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok", nullable=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_evidence_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -2551,7 +2553,7 @@ class AnalystConsensusSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     provider_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    snapshot_date: Mapped[date] = mapped_column(nullable=False)
+    snapshot_date: Mapped[dt.date] = mapped_column(nullable=False)
     strong_buy_count: Mapped[Optional[int]] = mapped_column(nullable=True)
     buy_count: Mapped[Optional[int]] = mapped_column(nullable=True)
     hold_count: Mapped[Optional[int]] = mapped_column(nullable=True)
@@ -2606,7 +2608,7 @@ class AnalystGradeEvent(Base):
     new_grade: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     provider_action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    published_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    published_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     provider_event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     event_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
@@ -2638,7 +2640,7 @@ class AnalystPriceTargetEvent(Base):
     adjusted_price_target: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     price_when_posted: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    published_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    published_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     news_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     news_publisher: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     news_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -2796,7 +2798,7 @@ class FredObservation(Base):
     )
 
     series_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    observation_date: Mapped[date] = mapped_column(primary_key=True)
+    observation_date: Mapped[dt.date] = mapped_column(primary_key=True)
     value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(Text, default="fred", server_default="fred", nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
@@ -2819,7 +2821,7 @@ class MacroPositioningAsset(Base):
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     bias: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
     rating: Mapped[int] = mapped_column(default=3, server_default=text("3"), nullable=False)
-    positioning_date: Mapped[date] = mapped_column(nullable=False)
+    positioning_date: Mapped[dt.date] = mapped_column(nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -2844,7 +2846,7 @@ class MacroPositioningCache(Base):
     drivers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
     mapped_sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mapped_asset_class: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    updated: Mapped[date] = mapped_column(nullable=False)
+    updated: Mapped[dt.date] = mapped_column(nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source_refresh_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
@@ -2863,7 +2865,7 @@ class MacroPositioningFeedEvent(Base):
     )
 
     event_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    report_date: Mapped[date] = mapped_column(nullable=False)
+    report_date: Mapped[dt.date] = mapped_column(nullable=False)
     market_id: Mapped[str] = mapped_column(Text, nullable=False)
     market_name: Mapped[str] = mapped_column(Text, nullable=False)
     market_group: Mapped[str] = mapped_column(Text, nullable=False)
@@ -2896,7 +2898,7 @@ class FredSeriesRefresh(Base):
     source: Mapped[str] = mapped_column(Text, default="fred", server_default="fred", nullable=False)
     status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
     observation_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
-    latest_observation_date: Mapped[Optional[date]]
+    latest_observation_date: Mapped[Optional[dt.date]]
     last_refreshed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
@@ -2941,11 +2943,11 @@ class TradeOutcome(Base):
     symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     trade_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    trade_date: Mapped[Optional[date]]
+    trade_date: Mapped[Optional[dt.date]]
     entry_price: Mapped[Optional[float]]
-    entry_price_date: Mapped[Optional[date]]
+    entry_price_date: Mapped[Optional[dt.date]]
     current_price: Mapped[Optional[float]]
-    current_price_date: Mapped[Optional[date]]
+    current_price_date: Mapped[Optional[dt.date]]
     benchmark_symbol: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY")
     benchmark_entry_price: Mapped[Optional[float]]
     benchmark_current_price: Mapped[Optional[float]]
@@ -2990,8 +2992,8 @@ class ReplicatedPortfolioRun(Base):
     mode: Mapped[str] = mapped_column(Text)
     lookback_days: Mapped[int]
     benchmark_symbol: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY")
-    start_date: Mapped[date]
-    end_date: Mapped[date]
+    start_date: Mapped[dt.date]
+    end_date: Mapped[dt.date]
     starting_value: Mapped[float] = mapped_column(Float, default=100000.0, server_default=text("100000.0"))
     ending_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     benchmark_ending_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3028,7 +3030,7 @@ class ReplicatedPortfolioPoint(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     run_id: Mapped[int] = mapped_column(index=True)
-    asof_date: Mapped[date]
+    asof_date: Mapped[dt.date]
     strategy_value: Mapped[float] = mapped_column(Float)
     benchmark_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     strategy_return_pct: Mapped[float] = mapped_column(Float)
@@ -3052,8 +3054,8 @@ class ReplicatedPortfolioPosition(Base):
     source_event_id: Mapped[Optional[int]] = mapped_column(nullable=True)
     symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     side: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    exit_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    exit_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3180,7 +3182,7 @@ class CongressDisclosureFiling(Base):
     document_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     member_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     member_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    filing_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[dt.date]]
     report_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     amendment_flag: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
     raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
@@ -3218,8 +3220,8 @@ class CongressTransactionNormalized(Base):
     member_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     owner_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     owner_normalized: Mapped[str] = mapped_column(Text, default="unknown", server_default="unknown", nullable=False)
-    transaction_date: Mapped[Optional[date]]
-    disclosure_date: Mapped[Optional[date]]
+    transaction_date: Mapped[Optional[dt.date]]
+    disclosure_date: Mapped[Optional[dt.date]]
     ticker_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ticker_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     issuer_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -3262,7 +3264,7 @@ class SecForm4Filing(Base):
     issuer_trading_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reporting_owner_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reporting_owner_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    filing_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[dt.date]]
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     xml_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     document_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -3306,8 +3308,8 @@ class InsiderTransactionNormalized(Base):
     is_director: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
     is_officer: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
     is_ten_percent_owner: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
-    transaction_date: Mapped[Optional[date]]
-    filing_date: Mapped[Optional[date]]
+    transaction_date: Mapped[Optional[dt.date]]
+    filing_date: Mapped[Optional[dt.date]]
     security_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     transaction_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     transaction_code_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -3383,7 +3385,7 @@ class HouseAnnualDisclosureDocument(Base):
     filing_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     report_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     document_id: Mapped[str] = mapped_column(Text)
-    filing_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[dt.date]]
     state_district: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -3419,7 +3421,7 @@ class HouseAnnualDisclosureHolding(Base):
     member_bioguide_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     filing_year: Mapped[int]
     filing_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    filing_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[dt.date]]
     report_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     document_id: Mapped[str] = mapped_column(Text)
     asset_name: Mapped[str] = mapped_column(Text)
@@ -3516,8 +3518,8 @@ class StrategyBacktestRun(Base):
     status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    backtest_start_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    backtest_end_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    backtest_start_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    backtest_end_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     benchmark: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY", nullable=False)
     methodology_version: Mapped[str] = mapped_column(Text, nullable=False)
     code_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -3553,7 +3555,7 @@ class StrategyPerformanceSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     strategy_id: Mapped[int] = mapped_column(nullable=False)
     run_id: Mapped[int] = mapped_column(nullable=False)
-    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    as_of_date: Mapped[dt.date] = mapped_column(nullable=False)
     period: Mapped[str] = mapped_column(Text, nullable=False)
     total_return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     cagr_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3586,7 +3588,7 @@ class StrategyEquityCurvePoint(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     strategy_id: Mapped[int] = mapped_column(nullable=False)
     run_id: Mapped[int] = mapped_column(nullable=False)
-    date: Mapped[date] = mapped_column(nullable=False)
+    date: Mapped[dt.date] = mapped_column(nullable=False)
     strategy_value: Mapped[float] = mapped_column(Float, nullable=False)
     benchmark_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     drawdown_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3607,7 +3609,7 @@ class StrategyHoldingsSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     strategy_id: Mapped[int] = mapped_column(nullable=False)
     run_id: Mapped[int] = mapped_column(nullable=False)
-    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    as_of_date: Mapped[dt.date] = mapped_column(nullable=False)
     holdings_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
     total_weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     cash_weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3632,7 +3634,7 @@ class StrategyHoldingRow(Base):
     sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rank: Mapped[Optional[int]] = mapped_column(nullable=True)
     weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     avg_entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     last_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3653,13 +3655,13 @@ class StrategyCurrentHolding(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     strategy_id: Mapped[int] = mapped_column(nullable=False)
     run_id: Mapped[int] = mapped_column(nullable=False)
-    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    as_of_date: Mapped[dt.date] = mapped_column(nullable=False)
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rank: Mapped[Optional[int]] = mapped_column(nullable=True)
     weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     last_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_signal_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
@@ -3690,8 +3692,8 @@ class StrategyVersion(Base):
     parameters_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
     universe_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
     methodology: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    effective_from: Mapped[Optional[date]] = mapped_column(nullable=True)
-    effective_to: Mapped[Optional[date]] = mapped_column(nullable=True)
+    effective_from: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    effective_to: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     created_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -3710,7 +3712,7 @@ class StrategyEvaluationRun(Base):
     strategy_id: Mapped[int] = mapped_column(nullable=False)
     strategy_version_id: Mapped[int] = mapped_column(nullable=False)
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
-    evaluation_date: Mapped[date] = mapped_column(nullable=False)
+    evaluation_date: Mapped[dt.date] = mapped_column(nullable=False)
     scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
@@ -3750,12 +3752,12 @@ class StrategyLiveHolding(Base):
     sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rank: Mapped[Optional[int]] = mapped_column(nullable=True)
     weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    entry_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_count: Mapped[Optional[int]] = mapped_column(nullable=True)
     qualification_snapshot_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
-    as_of_date: Mapped[date] = mapped_column(nullable=False)
+    as_of_date: Mapped[dt.date] = mapped_column(nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -3784,8 +3786,8 @@ class StrategyTrade(Base):
     ticker_at_time: Mapped[str] = mapped_column(Text, nullable=False)
     action: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, default="open", server_default="open", nullable=False)
-    signal_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    effective_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    signal_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    effective_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -3822,9 +3824,9 @@ class StrategyHistoricalTransaction(Base):
     ticker_at_time: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     action: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    effective_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    entry_date: Mapped[Optional[date]] = mapped_column(nullable=True)
-    exit_date: Mapped[Optional[date]] = mapped_column(nullable=True)
+    effective_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    entry_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
+    exit_date: Mapped[Optional[dt.date]] = mapped_column(nullable=True)
     entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     return_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
