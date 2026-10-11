@@ -14,11 +14,13 @@ from app.models import InsightsSnapshot
 from app.services.finnhub_research import FinnhubUnavailable, request_json
 from app.utils.symbols import normalize_symbol
 
-VERSION = 'finnhub_metrics_v1'
+VERSION = 'finnhub_metrics_v2'
 TTL = timedelta(hours=24)
 MAX_PERIOD_AGE = timedelta(days=150)
 URL = 'https://finnhub.io/docs/api/company-basic-financials'
+DERIVED = frozenset({'ebitda_growth'})
 SCALARS = {
+    'beta': ('beta', 'ratio'),
     'trailing_pe': ('peTTM', 'multiple'),
     'forward_pe': ('forwardPE', 'multiple'),
     'price_to_sales': ('psTTM', 'multiple'),
@@ -88,9 +90,26 @@ def normalize(payload, *, symbol, observed_at):
     quarterly = series.get('quarterly', {})
     points = {field: _latest(quarterly.get(key, []), observed_at)
               for field, (key, _, _) in SERIES.items()}
+    from app.services.finnhub_metric_growth import annual_ebitda_growth
+    annual_hold = None
     try:
-        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True,
-            separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        annual_growth = annual_ebitda_growth(series, observed_at)
+    except FinnhubUnavailable as exc:
+        annual_growth, annual_hold = None, str(exc)
+    hash_format = None
+    try:
+        try:
+            serialized = json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        except ValueError:
+            if annual_hold is None:
+                raise
+            # Python's JSON decoder accepts NaN/Infinity. Only an already-held
+            # annual series may contain them; all other source data stays strict.
+            without_annual = {**payload, 'series': {**series, 'annual': {}}}
+            json.dumps(without_annual, sort_keys=True, allow_nan=False)
+            serialized = json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=True)
+            hash_format = 'python_json_sorted_nonfinite_annual'
+        fingerprint = hashlib.sha256(serialized.encode()).hexdigest()
     except (ValueError, TypeError):
         raise FinnhubUnavailable('invalid_metric_payload') from None
     result = {'version': VERSION, 'source': 'finnhub', 'symbol': symbol,
@@ -130,6 +149,15 @@ def normalize(payload, *, symbol, observed_at):
             result['fields'][field] = {'source': 'finnhub', 'path': 'metric.'+key,
                 'period_date': None, 'basis': 'provider_current_snapshot', 'unit': unit,
                 'scale': 1, 'observed_at': observed_at.isoformat()}
+    if annual_hold is not None:
+        result['field_holds'] = {'ebitda_growth': annual_hold}
+    elif annual_growth is not None:
+        result['values']['ebitda_growth'], result['fields']['ebitda_growth'] = annual_growth
+    if hash_format is not None:
+        result['payload_hash_format'] = hash_format
+    if 'beta' in result['fields']:
+        result['fields']['beta']['limitations'] = [
+            'Provider beta snapshot; benchmark, lookback and return frequency are not supplied.']
     if identity is not None:
         for field in result['fields'].values():
             field.update(source_symbol=reported_symbol, identity_basis='consolidated_issuer')
