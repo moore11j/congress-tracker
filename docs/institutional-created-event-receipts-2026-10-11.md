@@ -22,4 +22,4 @@ Draft PR569 is attached and stacked on PR567. Secret scan and Vercel preview pas
 
 ## Independent release, October 11 at04:25UTC
 
-The receipt repair has no dependency on PR567's evidence-budget changes. It was rebased directly onto verified main7113519c so the query improvement can release while the separate current-cohort validation continues. The three production service files and worker tests are byte-identical to the PostgreSQL-validated7588a022 revision. Focused checks on this exact main-based release are running. Publication remains disabled and the per-quarter budget patch is not included.
+The receipt repair has no dependency on PR567's evidence-budget changes. It was rebased directly onto verified main7113519c so the query improvement can release while the separate current-cohort validation continues. The three production service files and worker tests are byte-identical to the PostgreSQL-validated7588a022 revision. Focused checks on this exact main-based release pass120 tests, with the one previously reproduced profile baseline excluded. Publication remains disabled and the per-quarter budget patch is not included.
