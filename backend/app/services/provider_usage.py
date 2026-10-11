@@ -245,6 +245,10 @@ def _persist_event(event: dict[str, Any]) -> None:
 
 
 def _skip_hot_route_usage_persistence(event: dict[str, Any]) -> bool:
+    # Actual provider activity must remain durable for retirement verification.
+    # Only cache bookkeeping can stay in the in-process hot-route counters.
+    if event.get("kind") not in {"cache_hit", "cache_miss"}:
+        return False
     if _env_bool("FMP_PERSIST_HOT_ROUTE_USAGE_EVENTS", False):
         return False
     route = str(event.get("route") or "")
@@ -253,6 +257,8 @@ def _skip_hot_route_usage_persistence(event: dict[str, Any]) -> bool:
     context = get_request_context() or {}
     path = str(context.get("path") or context.get("walnut_route") or "")
     if path in {"/api/events", "/api/market/quotes"}:
+        return True
+    if route.startswith("/api/members/") or path.startswith("/api/members/"):
         return True
     if path.startswith("/api/tickers/") and path.endswith("/context-bundle"):
         return True
