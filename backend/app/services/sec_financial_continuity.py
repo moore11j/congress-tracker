@@ -37,12 +37,13 @@ def fetch_history(symbol, cik, *, client, observed_at):
     return client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{PREDECESSOR_CIK}.json')
 
 
-def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None, filing_supplement=None, company=None):
+def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None, filing_supplement=None, company=None, instant_metrics=()):
     from app.services import sec_fundamentals as sec
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
+    instant_names = sec.INSTANT | set(instant_metrics)
     from app.services import sec_inline_financials as inline
     effective = inline.merge(payload,filing_supplement,available_by=available_by)
-    current = {name:sec._records(effective,name,available_by,concepts=tags,unit=unit)
+    current = {name:sec._records(effective,'equity' if name in instant_names else name,available_by,concepts=tags,unit=unit)
                for name,(tags,unit) in metrics.items()}
     inline.annotate(current,filing_supplement)
     from app.services.sec_bank_revenue import apply
@@ -74,7 +75,7 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
             proof['metrics'][name]={'status':'current_concept_unavailable'}
             continue
         tag=next(iter(tags));unit=metrics[name][1]
-        old=sec._records(history,name,available_by,concepts=(tag,),unit=unit)
+        old=sec._records(history,'equity' if name in instant_names else name,available_by,concepts=(tag,),unit=unit)
         old={key:r for key,r in old.items() if key[1]<=LAST_PREDECESSOR_PERIOD}
         common=set(rows)&set(old)
         if not common:

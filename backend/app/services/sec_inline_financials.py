@@ -150,6 +150,9 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
                     and [m.text_content().strip() for m in nodes(denominator, 'measure')] == ['xbrli:shares']):
                 units[key] = currency+'/shares'
     wanted = {tag for concepts in tags.values() for tag in concepts} | ({'EarningsPerShareDiluted'} if basis is None else set())
+    if basis is None:
+        from app.services.sec_leverage import TAGS as leverage_tags
+        wanted |= {tag for concepts in leverage_tags.values() for tag in concepts}
     records = {}; provenance = {}
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')

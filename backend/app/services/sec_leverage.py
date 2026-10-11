@@ -1,0 +1,135 @@
+"""Period-aligned leverage candidates, never silently selected public ratios.
+
+Debt policies differ between providers. Keep each complete reported basis apart
+until coverage and the score/alert transition have been validated.
+"""
+from datetime import date
+import math
+
+VERSION = 'sec_leverage_evidence_v1'
+DURATION = {
+    'leverage_net_income': ('NetIncomeLoss',),
+    'leverage_tax': ('IncomeTaxExpenseBenefit',),
+    'leverage_interest': ('InterestExpense', 'InterestExpenseNonoperating'),
+    'leverage_da': ('DepreciationDepletionAndAmortization', 'DepreciationAndAmortization'),
+}
+INSTANT = {
+    'leverage_cash': ('CashAndCashEquivalentsAtCarryingValue',),
+    'leverage_borrowings': ('DebtLongtermAndShorttermCombinedAmount',),
+    'leverage_debt_with_finance_leases': ('DebtAndCapitalLeaseObligations',),
+    'leverage_current_debt': ('DebtCurrent',),
+    'leverage_noncurrent_debt_with_finance_leases': ('LongTermDebtAndCapitalLeaseObligations',),
+    'leverage_finance_leases': ('FinanceLeaseLiability',),
+    'leverage_operating_leases': ('OperatingLeaseLiability',),
+}
+TAGS = {**DURATION, **INSTANT}
+
+
+def _finite(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _compatible(facts):
+    # Combining stale accounting components with a later restatement is unsafe.
+    return bool(facts) and all(facts) and len({
+        (f['start'], f['end'], f['filed'], f['accession'], f['unit'], f.get('source_cik'))
+        for f in facts
+    }) == 1
+
+
+def _ebitda(records, end, start):
+    from app.services import sec_fundamentals as sec
+    components = {name: sec._ttm(records.get(name, {}), end) for name in DURATION}
+    missing = [name for name, point in components.items()
+        if point is None or point['start'] != start or not _finite(point['value'])]
+    result = {'period_start': start, 'period_end': str(end), 'unit': 'USD',
+        'formula': 'net income + income tax expense/benefit + interest expense + depreciation and amortization',
+        'components': components, 'missing_components': missing}
+    if missing:
+        return {**result, 'status': 'incomplete'}
+    legs = [{(f['start'], f['end']): f for f in point['inputs']} for point in components.values()]
+    if any(set(leg) != set(legs[0]) for leg in legs[1:]) or any(
+            not _compatible([leg[key] for leg in legs]) for key in legs[0]):
+        return {**result, 'status': 'incompatible_filing_components'}
+    # A negative income or tax benefit is legitimate; negative expense addbacks
+    # require issuer-specific reconciliation and cannot make a generic metric.
+    if any(f['value'] < 0 for name in ('leverage_interest', 'leverage_da')
+           for f in components[name]['inputs']):
+        return {**result, 'status': 'negative_expense_component'}
+    value = sum(point['value'] for point in components.values())
+    if not _finite(value):
+        return {**result, 'status': 'nonfinite_calculation'}
+    return {**result, 'status': 'components_complete', 'value': value}
+
+
+def project(records, *, end, start):
+    """Return auditable candidates. Caller must not select a public metric here."""
+    if not isinstance(end, date) or date.fromisoformat(start) > end:
+        raise ValueError('invalid_leverage_period')
+    ebitda = _ebitda(records, end, start)
+    instant = {name: records.get(name, {}).get((None, end)) for name in INSTANT}
+    candidates = []
+    holds = {}
+
+    def candidate(basis, names, definition):
+        facts = [instant.get(name) for name in names]
+        cash = instant['leverage_cash']
+        missing = [name for name, fact in zip(names, facts) if fact is None]
+        if cash is None:
+            missing.append('leverage_cash')
+        if missing:
+            holds[basis] = {'reason': 'missing_reported_components', 'components': missing}
+            return
+        if not _compatible([*facts, cash]):
+            holds[basis] = {'reason': 'incompatible_balance_sheet_components'}
+            return
+        if any(not _finite(f['value']) or f['value'] < 0 for f in [*facts, cash]):
+            holds[basis] = {'reason': 'invalid_balance_sheet_component'}
+            return
+        debt = sum(f['value'] for f in facts)
+        net_debt = debt-cash['value']
+        if not _finite(debt) or not _finite(net_debt):
+            holds[basis] = {'reason': 'nonfinite_calculation'}
+            return
+        row = {'basis': basis, 'definition': definition, 'period_date': str(end),
+            'debt': debt, 'cash': cash['value'], 'net_debt': net_debt, 'unit': 'USD',
+            'debt_inputs': facts, 'cash_input': cash, 'status': 'debt_components_complete'}
+        if ebitda.get('status') == 'components_complete' and ebitda['value'] > 0:
+            closing = [f for f in ebitda['components']['leverage_net_income']['inputs']
+                       if f['end'] == str(end)]
+            keys = ('end', 'filed', 'accession', 'unit', 'source_cik')
+            if len(closing) != 1 or any(closing[0].get(k) != cash.get(k) for k in keys):
+                row['ratio_hold'] = 'income_balance_filing_mismatch'
+            else:
+                ratio = net_debt/ebitda['value']
+                if _finite(ratio):
+                    row.update(net_debt_to_ebitda=ratio, ratio_unit='multiple', status='ratio_candidate')
+        candidates.append(row)
+
+    candidate('reported_borrowings', ('leverage_borrowings',),
+        'Reported aggregate short- and long-term borrowings less cash; no separately reported lease liabilities added.')
+    # These are independent alternatives, never added together. One aggregate
+    # already includes finance leases; the other adds a separately reported sum.
+    candidate('reported_debt_including_finance_leases', ('leverage_debt_with_finance_leases',),
+        'Reported debt and capital lease obligations less cash; excludes separately reported operating leases.')
+    candidate('current_plus_noncurrent_debt_including_finance_leases',
+        ('leverage_current_debt', 'leverage_noncurrent_debt_with_finance_leases'),
+        'Current debt plus noncurrent debt and capital leases less cash; excludes separately reported operating leases.')
+    candidate('borrowings_plus_finance_leases', ('leverage_borrowings', 'leverage_finance_leases'),
+        'Reported borrowings plus separately reported finance lease liabilities less cash; requires overlap review before selection.')
+    candidate('reported_debt_plus_operating_leases',
+        ('leverage_debt_with_finance_leases', 'leverage_operating_leases'),
+        'Reported debt and capital leases plus operating lease liabilities less cash.')
+    candidate('borrowings_plus_finance_and_operating_leases',
+        ('leverage_borrowings', 'leverage_finance_leases', 'leverage_operating_leases'),
+        'Reported borrowings plus finance and operating leases less cash; requires overlap review before selection.')
+    return {'version': VERSION, 'status': 'preparation_only', 'period_date': str(end),
+        'ebitda': ebitda, 'candidates': candidates, 'holds': holds,
+        'limitations': ['No candidate is selected as the canonical net-debt/EBITDA field.',
+            'Missing debt, lease, interest or D&A components are not assumed zero.',
+            'Issuer-adjusted EBITDA and D&A including other items are not substituted.',
+            'Parent/consolidated income and lease overlap require issuer reconciliation.',
+            'Negative or zero EBITDA cannot produce a leverage ratio.']}

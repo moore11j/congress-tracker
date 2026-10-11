@@ -1,5 +1,9 @@
 # Project context log
 
+## 2026-10-11: Leverage evidence implementation, release pending
+
+Continued the full FMP exit goal. [Preparation implementation](sec-leverage-preparation-2026-10-11.md) adds filing-aligned EBITDA and separate debt/lease candidates without selecting a canonical metric. 214 expanded checks, two integration checks and one additional restatement case pass (217 distinct; final20 affected pass). Full20-company saved-source replay preserves all previous financial values/evidence and exact repeats; complete coverage remains open. Versionv5 uses existing bounded warming. Not deployed; review and runtime validation next. No source activation, public score change, purchase, schedule/resource change or customer delivery. Previous audit and current implementation both concrete progress; goalactive.
+
 ## 2026-10-11, 23:46 UTC: SEC leverage source reconciliation
 
 Continued the full FMP exit goal after the landing-only verification. [Completed audit](sec-leverage-reconciliation-2026-10-11.md) verifies the full saved 20-company SEC cohort, four live FMP ratio reconstructions and two original filings. NVIDIA exact parity requires operating leases; AAPL/MSFT/LIN expose distinct component and definition gaps. This changes the next action from a generic ratio mapping to explicit issuer/component reconciliation. No application change or deployment; goal active and public core FMP. The offline Python 3.14.2 audit passes, with hashes, period alignment and exact/1e-12 comparisons; no regression-suite or broad completeness claim. All new handles terminal, no local PG. Primary unrelated edits preserved. Next implement source-defined leverage evidence and consumer rebaseline while preserving the remaining source, schedule, Massive and zero-FMP/billing gates. No subscription, source activation, email, video, resource or recurring-schedule change.

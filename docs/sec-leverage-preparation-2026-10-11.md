@@ -1,0 +1,21 @@
+# SEC leverage preparation, October 11, 2026
+
+## Implemented, release pending
+
+The [source reconciliation](sec-leverage-reconciliation-2026-10-11.md) showed that mapping a generic vendor ratio would silently change debt and EBITDA definitions. The backend now prepares independently attributed candidates alongside the existing SEC evidence. It does not select a canonical net-debt/EBITDA value, change public financial fields or scores, or activate free core fundamentals.
+
+`sec_leverage.py` aligns net income, income tax, interest and D&A across the same TTM period and each underlying filing leg. It records missing components and holds mismatched filings, unsupported addbacks and nonpositive denominators. A restated income statement cannot produce a ratio against an unreconciled older balance-sheet filing. Tax benefits and net cash are retained. Borrowings, debt including finance leases, and alternatives including operating leases remain distinct. Aggregate finance-lease debt is never combined again with a separate finance-lease amount. Alternatives adding separately reported leases explicitly require overlap review before selection. Missing lease disclosures are not interpreted as zero.
+
+The existing SEC record pipeline prepares these extra concepts in one pass without another source request or a second full companyfacts merge. Original inline filings retain the relevant standard concepts and provenance. Acquisition freshness still uses the established core concepts; adding a newer leverage fact cannot suppress an otherwise required financial filing fetch. Existing XOM continuity guards apply to additional records. Preparation version v5 prevents old caches from masquerading as panels with the new evidence; the existing bounded warming schedule and source budgets are unchanged.
+
+## Verification
+
+Local Python 3.14.2: 214 affected financial/parser/cache/continuity/provider checks pass, plus two new inline-provenance/cache-version integration checks and one income/balance restatement guard (217 distinct checks). Final 20 affected checks pass after adding that guard. The initial 39 focused checks are a subset. An initial expanded test command named a nonexistent test file and ran no tests; the corrected command produced the 214-pass result. No full-suite or all-CI claim.
+
+The full saved 20-company source replay verifies every SEC source/company hash, preserves all prior financial values and prior evidence, and repeats identical complete results with network transport prohibited. Six original revenue-coverage holds remain unchanged. Four panels have complete aligned EBITDA components; LIN has a borrowings-basis ratio candidate of 1.7242279576309116. NVIDIA's separately reconstructed FMP ratio is not automatically generalized: absent finance-lease coverage is still held. PROV and WMT have debt evidence without a complete accepted EBITDA denominator. The saved cohort predates later inline/XOM continuity repairs; this is not a fresh whole-universe coverage count.
+
+Extra evidence ranges from 2,599 to 5,230 JSON characters per successful panel. One warmed local cohort CPU sample is 2.65625 seconds for baseline and 2.578125 seconds for the candidate; this is not a measured production improvement or sustained capacity proof. The replay receipt is `artifacts/direct-feeds/free-replacements-2026-10-09/sec-leverage-preparation-replay-oct11.json`; its helper compares against source commit `06137035`. Both are local ignored artifacts; findings are retained here.
+
+## Release and remaining work
+
+At this checkpoint the implementation is local, not merged or deployed. Review, exact-release verification and a bounded live preparation/repeat remain before release acceptance. Core provider remains FMP and institutional publication remains disabled. The change creates comparable evidence, not a completed leverage replacement. Broader issuer components, debt-policy reconciliation, complete numerical/coverage validation and score/ranking/all-alert rebaseline remain required before public activation. Senate, institutions, transcripts, scheduled consumers, final Massive and zero-FMP/billing gates remain open. No new subscription, canonical financial write, customer email, source activation, recurring schedule or capacity change.

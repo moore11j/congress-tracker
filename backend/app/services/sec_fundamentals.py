@@ -248,7 +248,11 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
-    records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company)
+    from app.services import sec_leverage
+    metric_tags = {**TAGS, **sec_leverage.TAGS}
+    all_records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company,
+        metrics={name:(tags, 'USD') for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
+    records = {name: all_records[name] for name in TAGS}
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
     if end is None or (available_by - end).days > 180:
@@ -329,5 +333,6 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     save("fcf_margin", ratio(fcf, val("revenue"), 100), "TTM free cash flow / TTM revenue * 100")
     fcf_growth = ratio(fcf, old_fcf, 100)
     save("fcf_growth", fcf_growth - 100 if fcf_growth is not None else None, "(TTM free cash flow / prior TTM free cash flow - 1) * 100")
+    evidence["leverage_preparation"] = sec_leverage.project(all_records, end=end, start=reference_start)
     values["source_evidence_json"] = json.dumps(evidence, sort_keys=True)
     return values
