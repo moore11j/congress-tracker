@@ -84,3 +84,59 @@ def test_compact_values_preserve_independent_available_peer_rules(scenario, monk
     changed=copy.deepcopy(first);changed['metadata']['filing_date']='2026-01-01'
     with pytest.raises(DirectSourceError,match='identity'):
         prepared.comparison_values(changed,{'000361105'})
+
+
+def test_period_selection_and_preparation_share_each_original_parse(db, monkeypatch):
+    from app.services import direct_feed_collection
+    from app.services.direct_13f_batch import publish_13f_batch
+    for source in pair():
+        stage(db, source)
+    calls = []
+    original = evidence.parse_document
+    def counted(*args, **kwargs):
+        calls.append(args[2]['key'])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(evidence, 'parse_document', counted)
+    monkeypatch.setattr(direct_feed_collection, 'parse_document', counted)
+    result = publish_13f_batch(db, identifier_documents=[], limit=2)
+    assert result['feed_events'] > 0
+    assert len(calls) == 2 and len(set(calls)) == 2
+
+
+@pytest.mark.parametrize('bound', ['documents', 'bytes'])
+def test_shared_parse_cache_keeps_complete_scan_bounds_and_rechecks_hash(monkeypatch, bound):
+    first, second = peer('0000000001'), peer('0000000002', serial=3)
+    cache = evidence.PreparedComparisonCache()
+    if bound == 'documents':
+        monkeypatch.setattr(evidence, 'MAX_COMPARISON_CACHE_DOCUMENTS', 1)
+    else:
+        monkeypatch.setattr(evidence, 'MAX_COMPARISON_CACHE_BYTES', len(first['raw']))
+    assert cache.period(first) == '2026-09-30'
+    assert cache.period(first) == '2026-09-30'
+    with pytest.raises(ValueError, match='complete scan bounds'):
+        cache.period(second)
+    changed = copy.deepcopy(first)
+    changed['raw'] += b'changed'
+    with pytest.raises(DirectSourceError, match='checksum'):
+        cache.period(changed)
+
+
+def test_shared_cache_preserves_invalid_original_hold_and_immutable_results(monkeypatch):
+    first = peer('0000000001')
+    cache = evidence.PreparedComparisonCache()
+    cache.period(first)
+    prepared = evidence.Prepared13FEvidence.build([], [first], comparison_cache=cache)
+    original = prepared.comparison(first)
+    original[0]['metadata']['cik'] = 'tampered'
+    monkeypatch.setattr(evidence, 'parse_document', lambda *a, **k: pytest.fail('Repeated parse'))
+    again = evidence.Prepared13FEvidence.build([], [first], comparison_cache=cache)
+    assert again.comparison(first)[0]['metadata']['cik'] != 'tampered'
+    changed = copy.deepcopy(first)
+    changed['metadata']['filing_date'] = '2000-01-01'
+    with pytest.raises(DirectSourceError, match='identity'):
+        again.comparison(changed)
+    monkeypatch.setattr(evidence, 'parse_document', lambda *a, **k: (_ for _ in ()).throw(DirectSourceError('Invalid original')))
+    invalid = peer('0000000003', serial=4)
+    assert cache.period(invalid) is None
+    monkeypatch.setattr(evidence, 'parse_document', lambda *a, **k: pytest.fail('Repeated invalid parse'))
+    assert evidence.Prepared13FEvidence.build([], [invalid], comparison_cache=cache).comparison(invalid) is None

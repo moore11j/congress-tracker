@@ -23,3 +23,8 @@ Draft PR569 is attached and stacked on PR567. Secret scan and Vercel preview pas
 ## Independent release, October 11 at04:25UTC
 
 The receipt repair has no dependency on PR567's evidence-budget changes. It was rebased directly onto verified main7113519c so the query improvement can release while the separate current-cohort validation continues. The three production service files and worker tests are byte-identical to the PostgreSQL-validated7588a022 revision. Focused checks on this exact main-based release pass120 tests, with the one previously reproduced profile baseline excluded. Publication remains disabled and the per-quarter budget patch is not included.
+
+
+## Production verified, October 11 at04:28UTC
+
+PR569 final head1f8b6e5d merged1aa1e7c7ee3479b917cb4fe284a7b413c93ff8ac and workflow38111563506 succeeds. Ten operational/publication hashes match production Python3.12.15, institutional publication remainsfalse and exactly the approved two machines are started. Queues empty,1493.6MB application memory available. Six public responses200: feeds0.363/0.534s, profile0.684s, fresh AAPL3.199s/NVDA1.586s. The slower AAPL sample remains a cold-latency concern; no general sustained-speed claim. Source activation and the separate PR567 budget/current-consumer gates remain. Existing audits report33Pillow vulnerabilities and five frontend vulnerabilities in unchanged dependency files; secret scan passes. No capacity change, provider switch, subscription or customer email. Receipt two-service-verify-1791692912.json.
