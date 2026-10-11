@@ -140,3 +140,68 @@ def test_shared_cache_preserves_invalid_original_hold_and_immutable_results(monk
     assert cache.period(invalid) is None
     monkeypatch.setattr(evidence, 'parse_document', lambda *a, **k: pytest.fail('Repeated invalid parse'))
     assert evidence.Prepared13FEvidence.build([], [invalid], comparison_cache=cache).comparison(invalid) is None
+
+
+
+@pytest.mark.parametrize('kind', ['identifier', 'comparison'])
+def test_only_exact_verified_immutable_original_reuses_checksum(monkeypatch, kind):
+    source = nport() if kind == 'identifier' else peer('0000000001')
+    prepared = evidence.Prepared13FEvidence.build(
+        [source] if kind == 'identifier' else [],
+        [peer('0000000002')] if kind == 'identifier' else [source])
+    def lookup(doc):
+        return (prepared.identifiers(doc, SINCE) if kind == 'identifier'
+                else prepared.comparison_values(doc, {'000361105'}))
+    expected = lookup(source)
+    calls = []
+    original_hash = hashlib.sha256
+    def counted(raw, *args, **kwargs):
+        calls.append(len(raw))
+        return original_hash(raw, *args, **kwargs)
+    monkeypatch.setattr(evidence.hashlib, 'sha256', counted)
+    for _ in range(3):
+        assert lookup(source) == expected
+    assert calls == []
+    replacement = {**source, 'raw': bytes(bytearray(source['raw']))}
+    assert replacement['raw'] is not source['raw']
+    assert lookup(replacement) == expected
+    assert calls == [len(source['raw'])]
+    replacement['raw'] += b'changed'
+    with pytest.raises(DirectSourceError, match='checksum'):
+        lookup(replacement)
+    changed_identity = {**source, 'content_hash': 'wrong'}
+    with pytest.raises(DirectSourceError, match='identity'):
+        lookup(changed_identity)
+
+
+@pytest.mark.parametrize('kind', ['identifier', 'comparison'])
+def test_mutable_original_is_never_trusted_by_object_identity(monkeypatch, kind):
+    source = nport() if kind == 'identifier' else peer('0000000001')
+    source['raw'] = bytearray(source['raw'])
+    prepared = evidence.Prepared13FEvidence.build(
+        [source] if kind == 'identifier' else [],
+        [peer('0000000002')] if kind == 'identifier' else [source])
+    def lookup():
+        return (prepared.identifiers(source, SINCE) if kind == 'identifier'
+                else prepared.comparison_values(source, {'000361105'}))
+    calls = []
+    original_hash = hashlib.sha256
+    def counted(raw, *args, **kwargs):
+        calls.append(len(raw))
+        return original_hash(raw, *args, **kwargs)
+    monkeypatch.setattr(evidence.hashlib, 'sha256', counted)
+    assert lookup() is not None
+    assert calls == [len(source['raw'])]
+    source['raw'][-1] ^= 1
+    with pytest.raises(DirectSourceError, match='checksum'):
+        lookup()
+
+
+def test_prepared_value_checks_reject_replaced_peer_bytes_before_using_totals():
+    target = document(rows=[('000361105',100,100,'')])
+    _, parsed, _ = parse_document('sec_13f', target['raw'], target['metadata'])
+    peers = [peer('0000000001'), peer('0000000002', serial=3)]
+    prepared = evidence.Prepared13FEvidence.build([], peers)
+    peers[0]['raw'] += b'changed'
+    with pytest.raises(DirectSourceError, match='checksum'):
+        evidence.value_consistency_issues(parsed, peers, prepared=prepared)

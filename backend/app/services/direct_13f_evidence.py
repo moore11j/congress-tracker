@@ -13,11 +13,24 @@ from app.clients.direct_sources import DirectSourceError
 from app.services.direct_feed_collection import parse_document
 
 
-def _evidence_key(document):
-    if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
+def _verify_original(document, verified_original=None):
+    raw = document['raw']
+    # Only the exact immutable bytes object verified during preparation can
+    # reuse its checksum. Replacements and mutable buffers are always hashed.
+    if type(raw) is bytes and raw is verified_original:
+        return
+    if hashlib.sha256(raw).hexdigest() != document['content_hash']:
         raise DirectSourceError('Prepared evidence checksum mismatch')
+
+
+def _identity_key(document):
     return json.dumps({key:document.get(key) for key in ('content_hash','url','metadata','feed')},
                       sort_keys=True,default=str)
+
+
+def _evidence_key(document):
+    _verify_original(document)
+    return _identity_key(document)
 
 
 def _equity_totals(rows):
@@ -77,8 +90,11 @@ class PreparedComparisonCache:
 class Prepared13FEvidence:
     """Per-batch immutable parses; every reuse still checks original bytes/identity.
 
-    JSON strings keep returned dictionaries from mutating cached evidence. No
-    process-wide cache retains large source files after the bounded batch ends.
+    JSON strings keep returned dictionaries from mutating cached evidence.
+    Retained immutable originals prove unchanged bytes by object identity; any
+    replacement or mutable buffer still requires a checksum. Full source
+    identity is checked on every lookup. No process-wide cache retains files
+    after the bounded batch ends.
     """
     _identifiers: tuple
     _comparisons: tuple
@@ -93,20 +109,24 @@ class Prepared13FEvidence:
         identifiers=[];comparisons=[];values=[]
         for document in identifier_documents:
             key=_evidence_key(document)
-            identifiers.append((key,json.dumps(nport_identifiers(document,available_by=date.max))))
+            identifiers.append((key,json.dumps(nport_identifiers(document,available_by=date.max)),
+                                document['raw'] if type(document['raw']) is bytes else None))
         cache = comparison_cache if comparison_cache is not None else PreparedComparisonCache()
         if not isinstance(cache, PreparedComparisonCache):
             raise TypeError('Invalid comparison parse cache')
         for document in comparison_documents:
             key, value, compact = cache.record(document)
-            values.append((key, compact))
-            comparisons.append((key, value))
+            original = document['raw'] if type(document['raw']) is bytes else None
+            values.append((key, compact, original))
+            comparisons.append((key, value, original))
         return cls(tuple(identifiers),tuple(comparisons),tuple(values))
 
     def _lookup(self, document, records):
-        key=_evidence_key(document)
-        for saved,value in records:
-            if saved==key:return json.loads(value) if value is not None else None
+        key=_identity_key(document)
+        for saved,value,original in records:
+            if saved==key:
+                _verify_original(document, original)
+                return json.loads(value) if value is not None else None
         raise DirectSourceError('Prepared evidence identity changed')
 
     def identifiers(self, document, available_by):
@@ -119,9 +139,10 @@ class Prepared13FEvidence:
     def comparison_values(self, document, cusips):
         # Immutable Decimal totals avoid reconstructing every peer position for
         # every filing; division still uses the caller's Decimal context.
-        key=_evidence_key(document)
-        for saved, compact in self._value_comparisons:
+        key=_identity_key(document)
+        for saved, compact, original in self._value_comparisons:
             if saved == key:
+                _verify_original(document, original)
                 if compact is None:return None
                 metadata,reasons,totals=compact
                 return json.loads(metadata),json.loads(reasons),_equity_prices(totals,cusips)
@@ -189,13 +210,13 @@ def value_consistency_issues(parsed, documents, *, prepared=None):
     peers = defaultdict(dict)
     target_prices = _equity_prices(_equity_totals(parsed['positions']))
     for document in documents:
-        if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
-            raise DirectSourceError('13F comparison source checksum mismatch')
         if prepared is not None:
             saved=prepared.comparison_values(document,target_prices)
             if saved is None:continue
             pm,reasons,peer_prices=saved
         else:
+            if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
+                raise DirectSourceError('13F comparison source checksum mismatch')
             try:
                 _, peer, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
             except DirectSourceError:
