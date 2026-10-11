@@ -12,6 +12,7 @@ from app.services.sec_fundamentals import SecFundamentalsError
 
 VERSION = 'sec_inline_standard_facts_v1'
 FORMS = {'10-Q', '10-K', '10-Q/A', '10-K/A'}
+MAX_INLINE_BYTES = 20_000_000
 TRR = {'http://www.xbrl.org/inlineXBRL/transformation/2020-02-12',
        'http://www.xbrl.org/inlineXBRL/transformation/2022-02-16'}
 
@@ -62,8 +63,9 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
     tags = basis['tags'] if basis else TAGS
     if namespace not in {'us-gaap', 'ifrs-full'} or not re.fullmatch(r'[A-Z]{3}', currency):
         raise InlineFactsError('unsupported_accounting_basis')
-    if not raw or len(raw) > (16_000_000 if basis else 8_000_000):
+    if not raw or len(raw) > MAX_INLINE_BYTES:
         raise InlineFactsError('filing_size')
+    source_sha256 = hashlib.sha256(raw).hexdigest()
     tree = html.fromstring(raw)
     namespace_pattern = r'https?://fasb\.org/us-gaap/[0-9]{4}' if namespace == 'us-gaap' else r'https?://xbrl\.ifrs\.org/taxonomy/[0-9]{4}-[0-9]{2}-[0-9]{2}/ifrs-full'
     if (not re.fullmatch(namespace_pattern, tree.get('xmlns:'+namespace, ''))
@@ -153,7 +155,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
             raise InlineFactsError('conflicting_reported_facts')
         records[key] = fact
         provenance[key] = {'source_kind':'sec_inline_xbrl', 'source_url':url,
-            'source_sha256':hashlib.sha256(raw).hexdigest(), 'source_cik':cik,
+            'source_sha256':source_sha256, 'source_cik':cik,
             'context_id':n.get('contextref'), 'fact_id':n.get('id')}
     if not any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records):
         raise InlineFactsError('latest_reported_revenue_unavailable')
@@ -162,7 +164,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         gaap.setdefault(tag, {'units':{}})['units'].setdefault(unit, []).append(fact)
     return {'facts':gaap, 'provenance':provenance, 'evidence':{'methodology':VERSION,
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
-        'url':url, 'sha256':hashlib.sha256(raw).hexdigest(), 'reported_facts':len(records),
+        'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
         'namespace':namespace, 'currency':currency}}
 
 
