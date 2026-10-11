@@ -19,6 +19,7 @@ KEY = 'institutional-reference:warming:v1'
 BATCH_SIZE = 2
 MAX_DOCUMENTS = 500
 MAX_SCOPES = 5000
+PLAN_VERSION = 2
 
 
 def _now():
@@ -38,6 +39,16 @@ def _periods(today):
 
 def plan_scopes(db, now, attempted_at, universe=None):
     periods = _periods(now.date())
+    recent_attempts = {}
+    for key, stamp in attempted_at.items():
+        try:
+            cusip, period = key.split(':')
+            previous = datetime.fromisoformat(stamp)
+            if (period in periods and re.fullmatch(r'[A-Z0-9]{9}', cusip)
+                    and previous.tzinfo is not None and now-previous < timedelta(days=1)):
+                recent_attempts[key] = stamp
+        except (ValueError, TypeError, AttributeError):
+            continue
     if universe is None:
         # Completed identities must not permanently occupy the bounded queue.
         # A later plan can then advance beyond its initial 5000-scope window.
@@ -58,7 +69,8 @@ def plan_scopes(db, now, attempted_at, universe=None):
                                InstitutionalPosition.report_quarter==int(period[5:7])//3) for period in periods)))
                 .group_by(InstitutionalPosition.cusip,InstitutionalPosition.normalized_symbol)):
             if first is not None: mappings.setdefault(cusip,[]).append((symbol,first.isoformat()))
-        weights = {}; truncated = False; examined = 0; held = 0
+        period_weights = {period: {} for period in periods}
+        truncated = False; examined = 0; held = 0
         query = select(DirectFeedDocument.parsed_json).where(DirectFeedDocument.feed=='sec_13f',
             DirectFeedDocument.status=='parsed').order_by(DirectFeedDocument.id.desc()).limit(MAX_DOCUMENTS+1)
         for raw in db.scalars(query.execution_options(yield_per=5)):
@@ -73,7 +85,8 @@ def plan_scopes(db, now, attempted_at, universe=None):
                 cusips={str(row.get('cusip','')).strip().upper() for row in parsed['positions']
                         if row.get('shareType')=='SH' and not row.get('putCall')}
             except (ValueError,TypeError,KeyError,AttributeError):held+=1;continue
-            for cusip in cusips:
+            weights = period_weights[period]
+            for cusip in sorted(cusips):
                 if not re.fullmatch(r'[A-Z0-9]{9}',cusip):continue
                 candidates={symbol for symbol,first in mappings.get(cusip,[]) if first<=filed}
                 if mapped_symbol(cusip,candidates,year,quarter) is not None:continue
@@ -81,6 +94,15 @@ def plan_scopes(db, now, attempted_at, universe=None):
                 if key in already_prepared:continue
                 if key not in weights and len(weights)>=MAX_SCOPES:truncated=True;continue
                 weights[key]=weights.get(key,0)+1
+        # Bound collection separately for both quarters before applying the
+        # shared cap. Otherwise the first large source can fill the entire
+        # window before the other quarter is even visited.
+        ranked = [sorted(period_weights[period],
+                         key=lambda key: (period_weights[period][key], key), reverse=True)
+                  for period in sorted(periods, reverse=True)]
+        balanced = [key for pair in zip_longest(*ranked) for key in pair if key is not None]
+        truncated = truncated or len(balanced) > MAX_SCOPES
+        weights = {key: period_weights[key.split(':')[1]][key] for key in balanced[:MAX_SCOPES]}
     else:
         weights = universe['weights']
         truncated = universe['universe_truncated']
@@ -95,13 +117,7 @@ def plan_scopes(db, now, attempted_at, universe=None):
     candidates=[]
     for key,weight in weights.items():
         if key in prepared:continue
-        stamp=attempted_at.get(key)
-        if stamp:
-            try:
-                previous=datetime.fromisoformat(stamp)
-                if previous.tzinfo is None:raise ValueError('naive attempt')
-                if now-previous<timedelta(days=1):continue
-            except (ValueError,TypeError):pass
+        if key in recent_attempts:continue
         cusip,period=key.split(':')
         candidates.append({'key':key,'cusip':cusip,'report_period':period,'filing_count':weight})
     candidates.sort(key=lambda r:(r['report_period'],r['filing_count'],r['cusip']),reverse=True)
@@ -113,8 +129,10 @@ def plan_scopes(db, now, attempted_at, universe=None):
     interleaved = [row for pair in zip_longest(*by_period) for row in pair if row is not None]
     return {'scopes':interleaved[:BATCH_SIZE],'universe_size':len(weights),'pending_scopes':len(candidates),
             'prepared_scopes':len(prepared),'deferred_scopes':len(weights)-len(prepared)-len(candidates),'universe_truncated':truncated,'held_documents':held,
-            'attempted_at':{key:stamp for key,stamp in attempted_at.items() if key in weights and key not in prepared},
-            'universe':{'weights':weights,'universe_truncated':truncated,'held_documents':held,'periods':sorted(periods)}}
+            # A changed bounded window must not erase the daily retry limit
+            # for a failed identity which temporarily falls outside it.
+            'attempted_at':{key:stamp for key,stamp in recent_attempts.items() if key not in prepared},
+            'universe':{'version':PLAN_VERSION,'weights':weights,'universe_truncated':truncated,'held_documents':held,'periods':sorted(periods)}}
 
 
 def _run_locked():
@@ -128,7 +146,8 @@ def _run_locked():
         if last and now-datetime.fromisoformat(last)<timedelta(seconds=60):return {'status':'cooldown'}
         cached_universe=state.get('universe')
         planned_at=state.get('universe_prepared_at')
-        fresh_plan=(cached_universe and planned_at and cached_universe.get('periods')==sorted(_periods(now.date()))
+        fresh_plan=(cached_universe and cached_universe.get('version')==PLAN_VERSION
+                    and planned_at and cached_universe.get('periods')==sorted(_periods(now.date()))
                     and now-datetime.fromisoformat(planned_at)<timedelta(minutes=15))
         plan=plan_scopes(db,now,state.get('attempted_at',{}),cached_universe if fresh_plan else None)
         planned_at=planned_at if fresh_plan else now.isoformat()

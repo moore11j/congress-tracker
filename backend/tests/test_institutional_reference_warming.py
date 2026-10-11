@@ -167,3 +167,69 @@ def test_daily_deferred_prior_does_not_waste_current_quarter_capacity(setup):
     assert len(plan['scopes'])==2 and plan['deferred_scopes']==1
     assert {r['report_period'] for r in plan['scopes']}=={'2026-09-30'}
     assert calls==[]
+
+
+@pytest.mark.parametrize('first_period',['2026-06-30','2026-09-30'])
+def test_scope_cap_cannot_exclude_the_other_quarter(setup,monkeypatch,first_period):
+    factory,clock,calls=setup
+    other='2026-09-30' if first_period=='2026-06-30' else '2026-06-30'
+    # The newest source is visited first and alone exceeds the whole scope cap.
+    seed(factory,key='older',period=other,cusips=('000000901','000000902'))
+    seed(factory,key='newest',period=first_period,cusips=tuple(f'{n:09d}' for n in range(1,9)))
+    monkeypatch.setattr(job,'MAX_SCOPES',4)
+    with factory() as db:
+        plan=job.plan_scopes(db,clock[0],{})
+    assert plan['universe_size']==4 and plan['universe_truncated']
+    assert {r['report_period'] for r in plan['scopes']}=={first_period,other}
+    assert sum(k.endswith(first_period) for k in plan['universe']['weights'])==2
+    assert sum(k.endswith(other) for k in plan['universe']['weights'])==2
+    assert calls==[]
+
+
+def test_changed_bounded_plan_preserves_daily_attempts_outside_its_window(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=('000000101',))
+    stamp=clock[0].isoformat()
+    with factory() as db:
+        plan=job.plan_scopes(db,clock[0],{'000000999:2026-06-30':stamp})
+    assert plan['attempted_at']=={'000000999:2026-06-30':stamp}
+    seed(factory,key='new',period='2026-06-30',cusips=('000000999',))
+    with factory() as db:
+        later=job.plan_scopes(db,clock[0]+timedelta(minutes=16),plan['attempted_at'])
+        expired=job.plan_scopes(db,clock[0]+timedelta(days=1),plan['attempted_at'])
+    assert all(r['cusip']!='000000999' for r in later['scopes'])
+    assert any(r['cusip']=='000000999' for r in expired['scopes'])
+    assert expired['attempted_at']=={} and calls==[]
+
+
+def test_legacy_cached_plan_refreshes_without_changing_retry_budget(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=('000000101',))
+    seed(factory,key='prior',period='2026-06-30',cusips=('000000201',))
+    with factory() as db:
+        db.add(InsightsSnapshot(kind=job.KEY,source=FEED,fetched_at=clock[0],payload_json=json.dumps({
+            'universe_prepared_at':clock[0].isoformat(),
+            'attempted_at':{'000000101:2026-09-30':clock[0].isoformat()},
+            'universe':{'weights':{'000000999:2026-06-30':20},'periods':['2026-06-30','2026-09-30'],
+                        'universe_truncated':True,'held_documents':0}})))
+        db.commit()
+    receipt=job.run()
+    assert receipt['completed_scopes']==1 and receipt['deferred_scopes']==1
+    assert [r['cusip'] for r in calls]==['000000201']
+    with factory() as db:
+        state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
+    assert state['universe']['version']==job.PLAN_VERSION
+    assert '000000101:2026-09-30' in state['attempted_at']
+
+
+def test_small_quarter_does_not_waste_the_shared_scope_budget(setup,monkeypatch):
+    factory,clock,calls=setup
+    seed(factory,cusips=tuple(f'{n:09d}' for n in range(1,9)))
+    seed(factory,key='prior',period='2026-06-30',cusips=('000000901',))
+    monkeypatch.setattr(job,'MAX_SCOPES',4)
+    with factory() as db:
+        plan=job.plan_scopes(db,clock[0],{})
+    assert plan['universe_size']==4
+    assert sum(k.endswith('2026-09-30') for k in plan['universe']['weights'])==3
+    assert sum(k.endswith('2026-06-30') for k in plan['universe']['weights'])==1
+    assert calls==[]
