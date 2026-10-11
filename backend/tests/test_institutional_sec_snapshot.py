@@ -241,3 +241,32 @@ def test_additional_issuer_aliases_preserve_prior_and_unrelated_evidence():
         assert mapped_symbol(cusip,{old,current,"UNRELATED"},year,quarter) is None
         assert mapped_symbol("WRONGCUSIP",{old,current},year,quarter) is None
         assert mapped_symbol(cusip,set(),year,quarter) is None
+
+
+@pytest.mark.parametrize('cusip,other,current,first,previous',[
+    ('019330109','AMOT','ALNT',(2023,3),(2023,2)),
+    ('46138G888','CLTL','TBLL',(2023,3),(2023,2)),
+    ('03761U502','AINV','MFIC',(2022,3),(2022,2)),
+    ('F92124100','TOTB.DE','TTE',(2025,4),(2025,3)),
+    ('496902404','K','KGC',(2026,1),(2025,4)),
+])
+def test_remaining_issuer_conflicts_require_exact_security_period_and_us_candidate(cusip,other,current,first,previous):
+    from app.services.institutional_sec_snapshot import mapped_symbol
+    assert mapped_symbol(cusip,{other,current},*first)==current
+    assert mapped_symbol(cusip,{other,current},*previous) is None
+    expected = None if cusip in {'F92124100','496902404'} else other
+    assert mapped_symbol(cusip,{other},*first)==expected
+    assert mapped_symbol(cusip,{other},*previous)==other
+    assert mapped_symbol(cusip,{current},*first)==current
+    assert mapped_symbol(cusip,{other,current,'UNRELATED'},*first) is None
+    assert mapped_symbol('DIFFERENT',{other,current},*first) is None
+    assert mapped_symbol(cusip,set(),*first) is None
+
+
+def test_foreign_listing_resolution_never_relabels_a_different_share_class():
+    from app.services.institutional_sec_snapshot import mapped_symbol
+    # The former TotalEnergies ADR and the US-listed ordinary are distinct IDs.
+    assert mapped_symbol('89151E109',{'TOTB.DE','TTE'},2026,3) is None
+    assert mapped_symbol('F92124100',{'TOTB.DE'},2026,3) is None
+    # K by itself is not enough to infer a Kinross US mapping.
+    assert mapped_symbol('496902404',{'K'},2026,3) is None

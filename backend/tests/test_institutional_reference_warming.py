@@ -79,6 +79,21 @@ def test_scope_respects_historical_identifier_availability_and_source_status(set
     assert len(calls)==1
 
 
+def test_foreign_singleton_is_not_a_completed_us_reference_scope(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=('F92124100',))
+    seed(factory,key='prior',period='2026-06-30',filed='2026-08-08',cusips=('F92124100',))
+    with factory() as db:
+        db.add(InstitutionalPosition(filing_id=999,cik='0000000999',cusip='F92124100',
+            normalized_symbol='TOTB.DE',symbol='TOTB.DE',shares=1,value_usd=1,
+            report_year=2025,report_quarter=4,filing_date=date(2026,2,1)))
+        db.commit()
+        plan=job.plan_scopes(db,clock[0],{})
+    assert {(r['cusip'],r['report_period']) for r in plan['scopes']}=={
+        ('F92124100','2026-06-30'),('F92124100','2026-09-30')}
+    assert calls==[]
+
+
 def test_quota_refusal_stops_batch_and_has_persistent_recovery_cooldown(setup,monkeypatch):
     factory,clock,calls=setup;seed(factory)
     client=job.MassiveStocksClient()

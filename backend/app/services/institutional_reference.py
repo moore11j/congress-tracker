@@ -106,12 +106,26 @@ def reference_identity(document, *, cusip, report_period, observed_by):
 
 
 def resolve_reference_candidate(evidence, candidates):
-    """Independent reference may disambiguate existing candidates, not overwrite a conflict."""
+    """Resolve observed evidence, retaining unreviewed identity conflicts."""
     if evidence.get('status') != 'verified':
         return None
     symbol = evidence['symbol']
     normalized = {_symbol_key(value) for value in candidates if _symbol_key(value)}
-    return symbol if not normalized or symbol in normalized else None
+    if not normalized or symbol in normalized:
+        return symbol
+    from app.services.institutional_sec_snapshot import reviewed_us_listing
+    # Only a verified, date-query-bound common-share reference may supply a
+    # missing US candidate for an exact reviewed foreign listing. Availability
+    # remains the real observation timestamp retained in the publication proof.
+    try:
+        period = date.fromisoformat(evidence['report_period'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if (evidence.get('security_type') == 'CS'
+            and reviewed_us_listing(evidence.get('cusip'), normalized,
+                                    period.year, (period.month - 1) // 3 + 1) == symbol):
+        return symbol
+    return None
 
 
 FEED = 'massive_reference'
