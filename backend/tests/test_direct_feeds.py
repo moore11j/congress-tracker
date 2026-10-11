@@ -131,7 +131,7 @@ S (P) 06/01/2026 06/02/2026 $15,001 - $50,000
             return source_text
     class Reader:
         pages = [Page()]
-    monkeypatch.setattr(sources, "PdfReader", lambda raw: Reader())
+    monkeypatch.setattr("pypdf.PdfReader", lambda raw: Reader())
     metadata = {"key": "2026:1", "filing_id": "1", "url": "https://disclosures-clerk.house.gov/1.pdf", "filing_date": "2026-06-03"}
     _, report = parse_house_pdf(b"%PDF fixture", metadata)
     assert len(report["transactions"]) == 2

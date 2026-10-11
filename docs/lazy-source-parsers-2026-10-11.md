@@ -1,0 +1,9 @@
+# Load source parsers only when needed
+
+Repeated SEC/XML and JSON preparation imported PDF and HTML parser dependencies before doing any work. Move those imports into the House PDF, Senate HTML and issuer PDF/HTML paths. Parser arguments, permission checks, source validation and collection cadence are unchanged. Existing parser tests patch the dependency at its own module boundary.
+
+All96 focused direct-source, House, Senate, issuer-PDF and institutional-batch checks pass on Python3.14.2. A local alternating six-process import comparison retains the same institutional-reference job and uses the unchanged main source versus the new loader. Median startup CPU falls from1.40625 to1.25seconds (11.1%); one pair is noisy, and Windows/local timings are not a production throughput guarantee. PDF modules remain unloaded for the non-PDF job. Artifact lazy-source-import-benchmark-oct11.json stores all samples, with zero production requests.
+
+Related CPU measurement PR563/b3e5cc63 is deployed through workflow38107663797. Seven operational hashes and both intended machines verify at03:15UTC; queues are empty, feeds0.53s/profile0.42s and new AAPL/NVDA contexts1.26/1.12s. This recovery after restart is not sustained proof that the background workload fits the shared CPU allowance. Ordinary receipts show cached/no-op preparation can still consume1.5–1.7CPU seconds per invocation, making repeated startup a concrete next target. Current imports reduction is not yet deployed at this checkpoint.
+
+No source/publication selection, scheduled time, delivery behavior, capacity or subscription changes. Institutional peer-window repair remains required; FMP stays active and Massive remains last. Continue measuring full job CPU, freshness, quota balance and public response times before claiming durable recovery.
