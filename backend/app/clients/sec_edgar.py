@@ -183,30 +183,56 @@ def parse_13f_information_table(payload: bytes, *, accession_number: str, source
     Values are USD for the current SEC schema. Callers handling pre-2023
     filings must establish the historical value unit separately.
     """
-    root = ET.fromstring(payload)
+    return _parse_13f_information_table_root(
+        ET.fromstring(payload), accession_number=accession_number, source_url=source_url,
+    )
+
+
+def _13f_row_texts(item: ET.Element) -> dict[str, str | None]:
+    """Index direct fields once, preserving XPath's first matching leaf.
+
+    Repeated parent elements can contain different leaves. A blank first leaf
+    must also stay blank instead of falling through to a later duplicate.
+    """
+    fields = {}
+    for child in item:
+        name = child.tag.rsplit("}", 1)[-1]
+        fields.setdefault(name, (child.text or "").strip() or None)
+        if name in {"shrsOrPrnAmt", "votingAuthority"}:
+            for leaf in child:
+                key = name + "/" + leaf.tag.rsplit("}", 1)[-1]
+                fields.setdefault(key, (leaf.text or "").strip() or None)
+    return fields
+
+
+def _parse_13f_information_table_root(
+    root: ET.Element, *, accession_number: str, source_url: str,
+) -> list[dict[str, Any]]:
+    """Normalize an already parsed table without parsing its XML a second time."""
     rows: list[dict[str, Any]] = []
     for item in root.findall(".//{*}infoTable"):
-        cusip = _text(item, "{*}cusip")
+        fields = _13f_row_texts(item)
+        cusip = fields.get("cusip")
         if not cusip:
             continue
-        value_usd = _number(_text(item, "{*}value"))
+        value_usd = _number(fields.get("value"))
         rows.append(
             {
                 "cusip": cusip,
-                "issuerName": _text(item, "{*}nameOfIssuer"),
-                "titleOfClass": _text(item, "{*}titleOfClass"),
-                "shareType": _text(item, "{*}shrsOrPrnAmt/{*}sshPrnamtType"),
+                "issuerName": fields.get("nameOfIssuer"),
+                "titleOfClass": fields.get("titleOfClass"),
+                "shareType": fields.get("shrsOrPrnAmt/sshPrnamtType"),
                 "sourceUrl": source_url,
-                "shares": _number(_text(item, "{*}shrsOrPrnAmt/{*}sshPrnamt")),
+                "shares": _number(fields.get("shrsOrPrnAmt/sshPrnamt")),
                 # The XML information-table values returned for the
                 # recovered filings are already dollar-denominated.
                 "valueUsd": value_usd,
-                "putCall": _text(item, "{*}putCall"),
-                "investmentDiscretion": _text(item, "{*}investmentDiscretion"),
+                "putCall": fields.get("putCall"),
+                "investmentDiscretion": fields.get("investmentDiscretion"),
                 "votingAuthority": {
-                    "sole": _number(_text(item, "{*}votingAuthority/{*}Sole")),
-                    "shared": _number(_text(item, "{*}votingAuthority/{*}Shared")),
-                    "none": _number(_text(item, "{*}votingAuthority/{*}None")),
+                    "sole": _number(fields.get("votingAuthority/Sole")),
+                    "shared": _number(fields.get("votingAuthority/Shared")),
+                    "none": _number(fields.get("votingAuthority/None")),
                 },
                 "source": "sec_edgar",
                 "accessionNumber": accession_number,

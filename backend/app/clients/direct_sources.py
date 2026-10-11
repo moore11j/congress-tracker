@@ -162,7 +162,7 @@ def validated_ownership_xml(raw: bytes, metadata: dict) -> str:
 
 def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
     """Validate a complete modern EDGAR submission before staging its holdings."""
-    from app.clients.sec_edgar import parse_13f_information_table
+    from app.clients.sec_edgar import _parse_13f_information_table_root
 
     text = raw.decode("utf-8")
     header = text.split("</SEC-HEADER>", 1)[0]
@@ -228,7 +228,7 @@ def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
     except InvalidOperation as exc:
         raise DirectSourceError("SEC 13F holding/cover number missing or invalid") from exc
     source_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{metadata['key'].replace('-', '')}/{tables[0][0]}"
-    rows = parse_13f_information_table(tables[0][1], accession_number=metadata["key"], source_url=source_url)
+    rows = _parse_13f_information_table_root(tables[0][2], accession_number=metadata["key"], source_url=source_url)
     if len(rows) != expected_count or not rows:
         raise DirectSourceError("SEC 13F row coverage incomplete or empty")
     for index, row in enumerate(rows):
