@@ -11,7 +11,7 @@ from app.db import Base
 from app.clients.direct_sources import DirectSourceError
 from app.models import Security, ResearchSourceDocument, ResearchEvidenceEvent
 from app.services import issuer_discovery as discovery, issuer_transcripts as issuer
-from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps
+from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps, discover, record_document
 from app.services.direct_feed_collection import collect_direct_feeds
 from test_issuer_pdf import pdf
 
@@ -264,3 +264,102 @@ def test_changed_index_does_not_rewrite_first_proof_and_conflicting_url_holds(se
     setup.refresh(row)
     assert row.status == 'quarantined' and result['errors'] and row.metadata_json == first_metadata
     assert issuer.prepared_transcript(setup,'RDDT')['reason']=='reviewed_period_not_prepared'
+
+
+def legacy_candidate(db, *, parsed=False):
+    c = company()
+    for year in (2026, 2025):
+        raw = raw_index() if year == 2026 else b'{"GetFinancialReportListResult":[]}'
+        index_row = discover(db, discovery.INDEX_FEED, discovery.index_metadata(c, year))
+        record_document(db, index_row, raw, raw.decode(), {'candidates': discovery.parse_index(raw, c, year, NOW, policy=1)})
+        index_row.checked_at = NOW
+    metadata = discovery.parse_index(raw_index(), c, 2026, NOW, policy=1)[0]
+    row = discover(db, 'issuer_earnings', metadata)
+    row.attempts, row.checked_at = 1, NOW
+    if parsed:
+        resolved, text, result = discovery.parse_candidate(transcript(), metadata, NOW)
+        row.metadata_json = dumps(resolved)
+        record_document(db, row, transcript(), text, result)
+        row.checked_at = NOW
+    else:
+        row.status, row.error = 'failed', 'DirectSourceError: Issuer reviewed question-and-answer section did not match'
+    db.commit()
+    return row
+
+
+def test_legacy_parsed_proof_and_reader_survive_current_policy_and_refresh(setup, monkeypatch):
+    row = legacy_candidate(setup, parsed=True)
+    before = (row.metadata_json, row.parsed_json, row.content_hash)
+    revision = setup.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id == row.id))
+    original_revision = (revision.parsed_json, revision.source_bytes, revision.source_text, revision.fetched_at)
+    reader = issuer.prepared_transcript(setup, 'RDDT')
+    assert reader['status'] == 'prepared' and 'parser_policy' not in json.loads(row.metadata_json)
+    monkeypatch.setattr(discovery, 'utcnow', lambda: NOW + timedelta(days=1))
+    client = Client(setup)
+    for _ in range(2):
+        result = discovery.collect_discovery(setup, client, [company()], limit=2, recheck_hours=24)
+        assert not result['errors']
+    setup.refresh(row); setup.refresh(revision)
+    assert (row.metadata_json, row.parsed_json, row.content_hash) == before
+    assert (revision.parsed_json, revision.source_bytes, revision.source_text, revision.fetched_at) == original_revision
+    assert issuer.prepared_transcript(setup, 'RDDT') == reader
+    assert setup.scalar(select(func.count()).select_from(DirectFeedRevision).where(DirectFeedRevision.document_id == row.id)) == 1
+
+
+def test_legacy_failed_document_adopts_reviewed_policy_only_when_due(setup, monkeypatch):
+    row = legacy_candidate(setup)
+    original_metadata = row.metadata_json
+    class UpdatedClient(Client):
+        def get(self, url):
+            raw = super().get(url)
+            return raw if '/feed/' in url else transcript_your()
+    client = UpdatedClient(setup)
+    result = discovery.collect_discovery(setup, client, [company()], limit=2, recheck_hours=24)
+    assert result['attempted'] == 0 and not client.calls and row.metadata_json == original_metadata
+    monkeypatch.setattr(discovery, 'utcnow', lambda: NOW + timedelta(days=1))
+    for _ in range(2):
+        result = discovery.collect_discovery(setup, client, [company()], limit=2, recheck_hours=24)
+        assert not result['errors']
+    setup.refresh(row)
+    metadata = json.loads(row.metadata_json)
+    assert row.status == 'parsed' and row.attempts == 2 and metadata['parser_policy'] == 2
+    assert metadata['source_page_sha256'] == json.loads(original_metadata)['source_page_sha256']
+    assert discovery.verified_metadata(setup, company(), metadata)['parser_policy'] == 2
+    assert issuer.prepared_transcript(setup, 'RDDT')['has_qa']
+    repeat = discovery.collect_discovery(setup, client, [company()], limit=2, recheck_hours=24)
+    assert repeat['attempted'] == 0
+
+
+def transcript_your():
+    return pdf("TRANSCRIPT 10 - 09 - 2026 Reddit, Inc. Reddit Q3'26 Earnings Call "
+               'Operator: (Operator Instructions) Your first question comes from A Reviewer. '
+               + 'Synthetic company earnings evidence and analyst responses. '*40)
+
+
+def test_policy_two_accepts_reviewed_phrase_but_old_policy_remains_strict():
+    metadata = discovery.parse_index(raw_index(), company(), 2026, NOW, policy=1)[0]
+    with pytest.raises(DirectSourceError, match='question-and-answer'):
+        discovery.parse_candidate(transcript_your(), metadata, NOW)
+    current = discovery.parse_index(raw_index(), company(), 2026, NOW)[0]
+    assert discovery.parse_candidate(transcript_your(), current, NOW)[2]['has_qa']
+    missing_operator = pdf("TRANSCRIPT 10 - 09 - 2026 Reddit Inc Reddit Q3'26 Earnings Call "
+        'Your first question comes from A Reviewer. ' + 'Prepared remarks. '*80)
+    with pytest.raises(DirectSourceError, match='question-and-answer'):
+        discovery.parse_candidate(missing_operator, current, NOW)
+
+
+@pytest.mark.parametrize('policy', [0, 3, '2', True, None])
+def test_unreviewed_policy_cannot_authorize_metadata(setup, policy):
+    row = legacy_candidate(setup)
+    metadata = json.loads(row.metadata_json)
+    metadata['parser_policy'] = policy
+    with pytest.raises(DirectSourceError, match='parser policy'):
+        discovery.verified_metadata(setup, company(), metadata)
+
+
+def test_changing_policy_number_does_not_authorize_custom_pattern(setup):
+    row = legacy_candidate(setup)
+    metadata = json.loads(row.metadata_json)
+    metadata.update(parser_policy=2, qa_pattern='.*')
+    with pytest.raises(DirectSourceError, match='metadata changed'):
+        discovery.verified_metadata(setup, company(), metadata)

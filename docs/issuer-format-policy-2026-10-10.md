@@ -1,0 +1,9 @@
+# Issuer transcript format policy
+
+October 10 local / October 11 UTC. The previous goal turn confirmed hosting health without advancing a provider cutover. This follow-up repairs a reproduced transcript coverage gap while keeping the broader FMP exit active.
+
+The original Reddit 2025 Q4 transcript has an operator transition using “Your first question”. Discovery policy 1 accepts two other reviewed phrases and correctly held this source. Updating its pattern in place would change metadata reconstructed from immutable index evidence and invalidate the already prepared 2026 Q1 source.
+
+Policy 2 adds the reviewed wording. Existing metadata without a policy number still reconstructs policy 1 exactly. New index candidates use policy 2. At the next permitted collection attempt, a document can adopt policy 2 only if it has no source revision and no resolved publication date; its original index checksum and exact URL remain unchanged. Policy adoption is persisted only after successful parsing. Existing revisions and publication receipts are not migrated. Unknown policy numbers and arbitrary replacement patterns fail closed. Daily attempt reservation, source permission, fiscal identity, PDF bounds, publication date and operator/Q&A validation remain in force.
+
+Local Python 3.14.2: 185 focused issuer/discovery/PDF/source/schedule/research/alert checks pass, with two existing FastAPI lifecycle deprecation warnings. Tests include legacy revision and reader identity across refresh, due-only failed-document adoption, same-day retry prevention, original index proof retention, unsupported policies and hostile patterns. Captured-source PostgreSQL replay and release verification remain pending at this checkpoint. No production selector, schedule, provider subscription or billing cancellation changed.
