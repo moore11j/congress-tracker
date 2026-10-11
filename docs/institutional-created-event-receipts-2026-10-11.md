@@ -18,3 +18,8 @@ The larger current-cohort replay89349 continues with its original PR567 code; th
 Disposable loopback PostgreSQL16.15 replay now passes three actual captured SEC holder pairs on this exact implementation. A query guard during first publication and repeat records zero broad event-table queries. The expected DKS event is present; complete canonical state repeats identically (SHA256d2eee8f442bcb4d23c0c86cfca50b02ad87dc80b401a99bb8eeda471936dee51), with zero provider requests, emails or production writes. This uses the earlier captured baseline87bf23c06546589ff97509ba50dff8e63894c3dfd6d5246831ee3732e76c312e and is an engine/parity check, not current full-cohort coverage. Artifact institutional-event-receipts-postgres-oct11.json. Disposable schema removed and local server stopped.
 
 Draft PR569 is attached and stacked on PR567. Secret scan and Vercel preview pass; existing frontend/Pillow dependency audits fail. No production deployment or institutional activation. Larger current-cohort first-pass artifact now exists; its final whole-state repeat and consumers remain running separately with PR567 code.
+
+
+## Independent release, October 11 at04:25UTC
+
+The receipt repair has no dependency on PR567's evidence-budget changes. It was rebased directly onto verified main7113519c so the query improvement can release while the separate current-cohort validation continues. The three production service files and worker tests are byte-identical to the PostgreSQL-validated7588a022 revision. Focused checks on this exact main-based release are running. Publication remains disabled and the per-quarter budget patch is not included.
