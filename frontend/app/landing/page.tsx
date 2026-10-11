@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { unstable_cache } from "next/cache";
 import type { ReactNode } from "react";
 import { HomepageResearchExample, homepageDate } from "@/components/landing/HomepageResearchExample";
 import { PortfolioBlueprint, HomepageMethodology, HomepageFaq } from "@/components/landing/HomepageWorkflow";
@@ -132,11 +133,32 @@ async function loadPlanConfig(): Promise<PlanConfig | null> {
   }
 }
 
+// Cache only the anonymous projection. A failed refresh throws so Next retains
+// the last successful preview instead of caching an empty landing page.
+const loadPublicRankings = unstable_cache(async () => {
+  const snapshot = await landingFetchJson<LeaderboardDashboardResponse>(
+    "/api/leaderboards/preview", { version: 2 }, 45000, "no-store",
+  );
+  for (const key of ["top_stocks", "congress", "insiders", "institutions"] as const) {
+    const ranks = new Set(snapshot[key]?.items?.map(row => row.rank));
+    if (![3, 4, 5].every(rank => ranks.has(rank))) {
+      throw new Error("Incomplete public ranking preview");
+    }
+  }
+  return snapshot;
+}, ["landing-public-ranking-preview-v1"], { revalidate: 300 });
+
 async function loadRankings(): Promise<LeaderboardDashboardResponse | null> {
   try {
     const { token } = await optionalPageAuthState();
-    if (token) return await getLeaderboardDashboard({authToken: token, source: "LandingPage"});
-    return await landingFetchJson<LeaderboardDashboardResponse>("/api/leaderboards/preview", {version: 2}, 2500, "no-store");
+    if (token) {
+      try {
+        return await getLeaderboardDashboard({ authToken: token, source: "LandingPage" });
+      } catch {
+        // A private dashboard outage may fall back to the public preview only.
+      }
+    }
+    return await loadPublicRankings();
   } catch {
     return null;
   }
@@ -170,9 +192,9 @@ function formatPlanMoney(price: PlanPrice): string {
 
 function landingPlanPriceDisplay(config: PlanConfig | null, tier: PlanTier): LandingPlanPriceDisplay {
   if (tier === "free") return { primary: "Free" };
-  const monthly = planPriceFor(config, tier, "monthly");
-  if (!monthly) return { primary: "See pricing page" };
-  const annual = planPriceFor(config, tier, "annual");
+  const effectiveConfig = planPriceFor(config, tier, "monthly") ? config : defaultPlanConfig;
+  const monthly = planPriceFor(effectiveConfig, tier, "monthly")!;
+  const annual = planPriceFor(effectiveConfig, tier, "annual");
   const annualSavings = annual ? monthly.amount_cents * 12 - annual.amount_cents : 0;
   return {
     primary: `${formatPlanMoney(monthly)}/mo`,
