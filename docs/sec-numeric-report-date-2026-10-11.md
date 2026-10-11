@@ -14,4 +14,17 @@ Offline actual-source preparation passes using an isolated in-memory SQLite data
 
 Regression reproduces unsupported_report_date before the repair. Afterward, 102 focused checks pass on local Python 3.14.2 across inline parsing, fundamentals, preparation and priority cache refresh. Checks include both registry namespaces, short-year semantics, leap days, invalid dates, untrusted transforms and report-date mismatch. Existing large-filing and issuer isolation checks pass.
 
-Local replay receipt: `artifacts/direct-feeds/free-replacements-2026-10-09/etr-inline-oct11/preparation-replay.json`. Release and production verification are pending. Public core remains FMP; this change does not activate a provider, alter prices, schedules or resources, or close wider coverage/consumer gates.
+Local replay receipt: `artifacts/direct-feeds/free-replacements-2026-10-09/etr-inline-oct11/preparation-replay.json`. Release and production verification are recorded below. Public core remains FMP; this change does not activate a provider, alter prices, schedules or resources, or close wider coverage/consumer gates.
+
+
+## Deployed and live verified, October 11, 23:04 UTC
+
+PR588 merged as1551526fdf0090563b04fafe806ef1ade569f3f9; backend workflow38182646952 succeeded, including readiness and Premium privacy probes. Automated review found stale implementation status in memory; corrected before merge. No parser findings. Existing unchanged dependency audits fail; secret scan and Vercel pass. PR attachment hit the100-item task limit; use https://github.com/moore11j/congress-tracker/pull/588. Initial merge command used an abbreviated expected-head SHA and was rejected without changing state; full-SHA retry succeeded.
+
+All30 runtime hashes match and both approved hosts retain their sizes. Queue empty; eight HTTP200 checks. Feeds0.426/0.562seconds, fresh AAPL1.639/NVDA1.359seconds, news50items0.360seconds. This sampled post-deployment recovery is not sustained capacity proof. Runtime receipt two-service-verify-1791759783.json.
+
+Guarded live ETR preparation at23:03:36 succeeds with six fields for2026-06-30, version4 and explicit partial coverage. All values exactly equal the saved-source replay. Companyfacts/submissions/filing hashes match the captured originals; inline evidence retains accession0000065984-26-000283, filed2026-07-31, CIK0000065984 and22 reported facts. A second preparation with source-client construction forbidden returns the same payload and stored observation timestamp. Receipt etr-preparation-1791759820.json. No public-core activation, canonical event write or email.
+
+Ordinary22:56 SEC warming also refreshed AAPL and NVDA with deadlines exactly20hours after their source observations. ACN remained due at22:57 and must be rechecked later. All50 priority deadlines matched source observation plus20hours. Receipt priority-warming-runtime-1791759456.json. Later23:01 batch completed10scopes but per-symbol refresh was not inspected.
+
+Next coverage work remains net debt/EBITDA, EBITDA growth, beta, earlier issuer earnings releases and explicit unsupported instruments; then source/publication/consumer gates and final Massive. Saved Finnhub identity probes contain beta and annual/quarterly EBITDA but refer to different securities for BRK-B/CX/TSM. Do not transfer beta across listings, treat five-year CAGR as annual growth, or assume quarterly amounts are TTM. These are candidates requiring source/formula verification, not completed replacements.
