@@ -9,7 +9,7 @@ import React from "react";
 import {renderToStaticMarkup} from "react-dom/server";
 
 const require = createRequire(import.meta.url);
-function modules({fetch, consent = true, events = [], authenticated = false, dashboard} = {}) {
+function modules({fetch, consent = true, events = [], authenticated = false, dashboard, cacheCalls = []} = {}) {
   const cache = new Map();
   function load(file) {
     if (cache.has(file)) return cache.get(file);
@@ -21,6 +21,7 @@ function modules({fetch, consent = true, events = [], authenticated = false, das
     vm.runInNewContext(js, {exports, process: {env: {}}, URL, URLSearchParams, Date, Intl, AbortController, setTimeout, clearTimeout,
       window: {location: {pathname: "/"}}, fetch,
       require(name) {
+        if (name === "next/cache") return {unstable_cache: (fn, keys, options) => {cacheCalls.push({keys, options}); return fn;}};
         if (name === "@/lib/api") return {API_BASE: "https://api.test", getLeaderboardDashboard: async () => dashboard};
         if (name === "@/lib/serverAuth") return {optionalPageAuthState: async () => ({token: authenticated ? "test-session" : null})};
         if (name === "@/lib/googleAnalytics") return {recordGoogleAnalyticsEvent: (...args) => events.push(args)};
@@ -44,6 +45,9 @@ const at = "2026-09-12T01:00:00Z";
 const ranking = {top_stocks: {locked_ranks: [1, 2], generated_at: at, filter_items: {secret: ["PRO_ONLY"]}, items: ["SECRET1", "SECRET2", "BWFG", "AMZN", "TSM"].map((symbol, i) => ({
   rank: i + 1, symbol, company_name: symbol, confirmation_score: 98.7654, key_drivers: ["Congress"], updated_at: at, premium_metric: "PRO_ONLY",
 }))}};
+for (const key of ["congress", "insiders", "institutions"]) {
+  ranking[key] = {generated_at: at, items: [3, 4, 5].map(rank => ({rank, name: `${key} person ${rank}`}))};
+}
 function context(symbol, risks = true) {
   const evidence = (category, title) => ({category, title, description: `${title} details`});
   return {symbol, generated_at: at,
@@ -126,6 +130,9 @@ test("source outages keep the working navigation and never fabricate an example"
   const load = modules({fetch: async () => {throw Error("Unavailable");}});
   const html = renderToStaticMarkup(await load("app/landing/page.tsx").default());
   assert.match(html, /ranked preview is unavailable/);
+  assert.match(html, /\$24\.95\/mo/);
+  assert.match(html, /\$39\.95\/mo/);
+  assert.doesNotMatch(html, /See pricing page/);
   assert.match(html, /source-backed example is not available/);
   assert.doesNotMatch(html, /data-homepage-ranked-stock=/);
   assert.match(html, />Open Screener<\/a>/);
@@ -154,4 +161,19 @@ test("CTA analytics preserve event names and consent without blocking navigation
     }
     assert.equal(events.length, consent ? 6 : 0);
   }
+});
+
+
+test("public preview retains all three ranks in every category and uses a separate persistent cache", async () => {
+  const cacheCalls = [];
+  const load = modules({cacheCalls, fetch: async url => ({ok: true, json: async () => String(url).includes("leaderboards/preview") ? ranking : {plan_prices: []}})});
+  const html = renderToStaticMarkup(await load("app/landing/page.tsx").default());
+  assert.equal((html.match(/data-homepage-ranked-stock=/g) || []).length, 3);
+  for (const key of ["congress", "insiders", "institutions"]) {
+    for (const rank of [3, 4, 5]) assert.ok(html.includes(`${key} person ${rank}`));
+  }
+  assert.equal(cacheCalls.length, 1);
+  assert.equal(cacheCalls[0].options.revalidate, 300);
+  assert.match(html, /\$24\.95\/mo/);
+  assert.match(html, /\$39\.95\/mo/);
 });
