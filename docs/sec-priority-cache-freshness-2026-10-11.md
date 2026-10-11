@@ -18,4 +18,19 @@ The final expanded local suite passes 125 checks on Python 3.14.2. It covers pre
 
 ## Release and remaining gates
 
-Prepared, not yet deployed. Verify the exact release and an ordinary warming run after deployment. Core field coverage, ETR source failure, ACN/AZO reporting-period differences, institutional active capacity, Senate access, transcripts, all retained consumers and final Massive remain separate gates. This repair does not authorize an early core switch or establish complete financial coverage. No new subscription, hardware change, customer email or FMP cancellation.
+Deployed and first ordinary warming run verified; details below. Core field coverage, ETR source failure, ACN/AZO reporting-period differences, institutional active capacity, Senate access, transcripts, all retained consumers and final Massive remain separate gates. This repair does not authorize an early core switch or establish complete financial coverage. No new subscription, hardware change, customer email or FMP cancellation.
+
+
+## 2026-10-11, 22:52 UTC: Release and scheduled verification
+
+PR #587 merged as `9723cff1e5fe3a627dc07f7a1be86fa26484da51`; backend workflow38181813937 succeeds. At22:49UTC all30 checked runtime file hashes match, both approved hosts retain their sizes, and the queue is empty. Eight sampled public requests return200: feeds0.388/0.434s, fresh AAPL2.423/NVDA1.028s, and50 news items. Core remains FMP, institutional publication false. Receipt `two-service-verify-1791758986.json`. These are sampled responses, not sustained capacity proof.
+
+The first ordinary22:51 scheduled warmer processes10/10 symbols and records10 fresh source observations, versus zero new observations in the preceding four sampled batches. Fifty persisted priority deadlines all equal source observation plus20hours. Two unsupported financial-coverage results remain explicit; no public canonical writes or emails. AAPL, NVDA and ACN still await later bounded priority batches in this receipt, so their full refresh is not yet claimed. Receipt `priority-warming-runtime-1791759098.json`.
+
+Automated review reports exhausted quota; the final application diff was directly reviewed. Secret scan and Vercel checks pass. Both dependency audits fail in unchanged dependencies; no full-suite or all-CI-green claim. PR attachment failed because this chat has100 attachments; the ordinary PR link remains usable. The local test setup errors recorded above are not passes. No purchase, capacity change, source activation, customer email or cancellation.
+
+## Remaining source diagnostics
+
+Fresh SEC submission indexes at22:47UTC confirm the latest periodic reports are ACN10-Q forMay31,2026 and AZO10-Q forMay9,2026. Their current prepared periods match those filings. FMP's later August periods are not evidence of a missed later periodic SEC filing; source availability differs, and earlier verified earnings-release inputs remain a coverage task. Receipt `sec-reporting-periods-1791758821.json` records both current index hashes and accessions.
+
+A guarded, collector-serialized ETR preparation at22:50 reproduces `InlineFactsError: unsupported_report_date`. Its exact public company submissions, companyfacts and June30 filing are saved under `etr-inline-oct11` with verified hashes. The6,438,291-byte original filing hash is `8cba3a1c3a58ebd2ecd722493e51e08d840d9c936cb31aa5fbc9c00f3a20a3e9`. The date is explicitly `6/30/2026`, transformation `ixt:date-month-day-year`, namespace `http://www.xbrl.org/inlineXBRL/transformation/2020-02-12`, context `c-1`. This is the next bounded parser repair, not yet implemented. Failed preparation preserves the old cache. No source or fiscal date is guessed.

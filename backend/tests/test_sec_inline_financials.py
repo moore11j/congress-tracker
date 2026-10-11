@@ -191,3 +191,38 @@ def test_oversized_inline_source_is_rejected_before_dom_allocation(monkeypatch):
     monkeypatch.setattr(inline.html, 'fromstring', forbidden)
     with pytest.raises(inline.InlineFactsError, match='filing_size'):
         parse(b' '*(inline.MAX_INLINE_BYTES+1))
+
+
+def report_date_document(value, transform='ixt:date-month-day-year'):
+    return document().replace(
+        b'contextRef="parent">2026-06-30</ix:nonNumeric>',
+        f'contextRef="parent" format="{transform}">{value}</ix:nonNumeric>'.encode())
+
+
+@pytest.mark.parametrize('namespace', sorted(inline.TRR))
+@pytest.mark.parametrize('value', ['6/30/2026', '06.30.26', '6 - 30 - 2026', ' 6/30/2026 '])
+def test_numeric_report_date_preserves_original_provenance(namespace, value):
+    raw = report_date_document(value).replace(
+        b'http://www.xbrl.org/inlineXBRL/transformation/2020-02-12', namespace.encode())
+    result = parse(raw)
+    assert result['facts'][TAG]['units']['USD'][0]['end'] == '2026-06-30'
+    assert next(iter(result['provenance'].values()))['source_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert result == parse(raw)
+
+
+@pytest.mark.parametrize('value,expected', [('2/29/24', '2024-02-29'), ('1/2/9', '2009-01-02'), ('12/31/99', '2099-12-31')])
+def test_numeric_report_date_short_year_is_2000_based(value, expected):
+    raw = report_date_document(value).replace(b'2026-06-30', expected.encode()).replace(b'2026-01-01', (expected[:4]+'-01-01').encode())
+    assert parse(raw, report_date=expected)['facts'][TAG]['units']['USD'][0]['end'] == expected
+
+
+@pytest.mark.parametrize('value', ['2/30/2026', '2/29/2025', '13/1/2026', '0/30/2026', '6/0/2026', '6/30/026', '2026/6/30', '6/30/20260', '6/30', '6/30/2026/1'])
+def test_invalid_numeric_report_dates_are_rejected(value):
+    with pytest.raises(inline.InlineFactsError):
+        parse(report_date_document(value))
+
+
+@pytest.mark.parametrize('value,transform', [('6/29/2026', 'ixt:date-month-day-year'), ('6/30/2026', 'fake:date-month-day-year'), ('6/30/2026', 'ixt:other')])
+def test_numeric_report_date_does_not_bypass_identity_or_transform_guards(value, transform):
+    with pytest.raises(inline.InlineFactsError):
+        parse(report_date_document(value, transform))
