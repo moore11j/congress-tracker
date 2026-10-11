@@ -13,6 +13,9 @@ CRON_TZ=America/Los_Angeles
 # New/changed filings precede bounded retries; canonical publication is separate.
 3-58/5 * * * * cd /app && python -m app.jobs.collect_direct_13f_priors --since 2026-10-07 --limit 20 --recheck-hours 24
 57 * * * * cd /app && DIRECT_FEED_PUBLICATION_ENABLED=true python -m app.jobs.publish_direct_feeds --limit 200 --retry-held
+# Institutional preparation for activation: global flag stays false until cutover.
+# One serialized data-lane run serves both new filings and rotating waiting cases.
+37 * * * * cd /app && python -m app.jobs.publish_direct_13fs --limit 20 --include-waiting --identifier-manifest /app/config/sec_13f_identifiers.json --staged-identifiers --staged-references
 # Opt-in Daily SEO planner. Database day claims prevent duplicate paid runs.
 */5 * * * * cd /app && python -m app.jobs.run_research_seo
 

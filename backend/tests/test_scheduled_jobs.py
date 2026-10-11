@@ -278,3 +278,23 @@ def test_wrong_finish_token_does_not_complete_external_request(tmp_path):
         assert jobs.wait_external_request(db, '123-1', wait_seconds=0)['status'] == 'pending'
         jobs.finish(db,job,-15)
         assert jobs.wait_external_request(db, '123-1', wait_seconds=0)['status'] == 'failed'
+
+
+
+def test_institutional_schedule_is_bounded_serialized_and_does_not_enable_publication(tmp_path):
+    source=(SCRIPTS.parent/'crontab').read_text()
+    lines=[line for line in source.splitlines() if 'python -m app.jobs.publish_direct_13fs ' in line]
+    assert len(lines)==1
+    assert lines[0].split(None,5)[:5]==['37','*','*','*','*']
+    _,manifest=jobs.compile_schedule(source,SCRIPTS/'scheduled_jobs.py',tmp_path/'manifest',tmp_path/'queue')
+    definition=next(d for d in manifest.values() if 'python -m app.jobs.publish_direct_13fs ' in d['command'])
+    command=definition['command']
+    assert definition['lane']=='data'
+    assert '--limit 20' in command and '--include-waiting' in command
+    assert '--staged-identifiers' in command and '--staged-references' in command
+    assert '--identifier-manifest /app/config/sec_13f_identifiers.json' in command
+    assert 'DIRECT_13F_PUBLICATION_ENABLED' not in command
+    assert 'DIRECT_13F_PUBLICATION_ENABLED' not in definition['environment']
+    import tomllib
+    config=tomllib.loads((SCRIPTS.parent/'fly.toml').read_text())
+    assert config['env']['DIRECT_13F_PUBLICATION_ENABLED']=='false'
