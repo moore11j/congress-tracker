@@ -114,9 +114,23 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
             transform = n.get('format')
             if transform:
                 prefix, _, local = transform.partition(':')
-                if tree.get('xmlns:'+prefix) not in TRR or local != 'date-monthname-day-year-en':
+                if tree.get('xmlns:'+prefix) not in TRR:
                     raise InlineFactsError('unsupported_report_date')
-                value = str(datetime.strptime(value, '%B %d, %Y').date())
+                if local == 'date-monthname-day-year-en':
+                    value = str(datetime.strptime(value, '%B %d, %Y').date())
+                elif local == 'date-month-day-year':
+                    # XBRL TRR 4/5: numeric M/D/Y, nonnumeric separators,
+                    # and one/two-digit years in the 2000s (not strptime's pivot).
+                    match = re.fullmatch(r'([0-9]{1,2})[^0-9]+([0-9]{1,2})[^0-9]+([0-9]{1,2}|[0-9]{4})', value)
+                    if match is None:
+                        raise InlineFactsError('unsupported_report_date')
+                    month, day, year = match.groups()
+                    try:
+                        value = str(date(int(year) + (2000 if len(year) < 4 else 0), int(month), int(day)))
+                    except ValueError as exc:
+                        raise InlineFactsError('unsupported_report_date') from exc
+                else:
+                    raise InlineFactsError('unsupported_report_date')
             dates.add(str(date.fromisoformat(value)))
     if identity != {cik} or forms != {form} or dates != {report_date}:
         raise InlineFactsError('filing_identity')
