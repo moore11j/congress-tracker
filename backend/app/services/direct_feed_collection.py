@@ -257,6 +257,7 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
             metadata = json.loads(document.metadata_json)
             source_url = document.source_url
             if feed == 'issuer_earnings':
+                document.checked_at, document.status = utcnow(), 'pending'
                 db.commit()  # No idle transaction/pool checkout during issuer HTTP.
             try:
                 raw = (senate_client if feed == 'senate_ptr' and senate_client else client).get(source_url)
