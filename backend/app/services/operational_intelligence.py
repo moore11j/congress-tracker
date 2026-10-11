@@ -370,7 +370,13 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                     # consumes prepared evidence without opening nested crawls.
                     payload = (loader(symbol=security.symbol, limit=20, prepared_only=True)
                                if direct_press else loader(symbol=security.symbol, limit=20, force_refresh=True))
-                    if payload.get("status") not in {"ok", "empty", "no_data"} or payload.get("cache_status") == "stale" or payload.get("is_stale"):
+                    accepted_statuses = {"ok", "empty", "no_data"}
+                    if direct_press:
+                        # A bounded SEC batch may retain verified releases while
+                        # another filing is held. Each item still passes the
+                        # canonical source and publication-time checks below.
+                        accepted_statuses.add("partial")
+                    if payload.get("status") not in accepted_statuses or payload.get("cache_status") == "stale" or payload.get("is_stale"):
                         raise RuntimeError("source_unavailable")
                     items = [item for item in payload.get("items", []) if isinstance(item, dict)]
                     count = len(items)
@@ -379,7 +385,7 @@ def refresh_operational_intelligence(db: Session, *, security_id: int | None = N
                             raise ValueError('Unexpected direct press provider')
                         results = [_ingest_sec_release(db, security=security, item=item, budget=source_budget) for item in items]
                         limits = payload.get('coverage') or {}
-                        source_partial = bool(limits.get('held') or limits.get('truncated') or any(r.get('held') for r in results))
+                        source_partial = bool(payload.get('status') == 'partial' or limits.get('held') or limits.get('truncated') or limits.get('source_failures') or any(r.get('held') for r in results))
                     else:
                         results = [_ingest_article(db, security=security, item=item, document_type=document_type, budget=source_budget) for item in items]
                 for result in results:

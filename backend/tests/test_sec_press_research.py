@@ -176,3 +176,56 @@ def test_retired_source_coverage_and_old_failures_are_not_reused_for_sec(db, mon
     coverage = operational.ticker_operational_intelligence(db, security=db.get(Security,1))['coverage'][1]
     assert coverage['status'] == 'ready' and coverage['documents_seen'] == 1
     assert db.get(ResearchSourceDocument, 'old-failed').processing_status == 'failed'
+
+
+def partial_worker(db, monkeypatch, **extra):
+    calls = configure_worker(db, monkeypatch)
+    loader = operational.get_press_releases
+    def partial(**kwargs):
+        return {**loader(**kwargs), 'status': 'partial',
+                'reason': 'sec_submission_size_limit', **extra}
+    monkeypatch.setattr(operational, 'get_press_releases', partial)
+    return calls
+
+
+def test_partial_sec_batch_consumes_verified_release_once_and_retains_gap(db, monkeypatch):
+    calls = partial_worker(db, monkeypatch)
+    first = operational.refresh_operational_intelligence(db, security_id=1, source_types={'press_release'})
+    second = operational.refresh_operational_intelligence(db, security_id=1, source_types={'press_release'})
+    assert (first['documents'], first['events']) == (1, 1)
+    assert (second['documents'], second['events'], second['extraction_attempts']) == (0, 0, 0)
+    assert len(calls) == 1
+    coverage = db.get(ResearchSourceCoverage, (1, 'sec_earnings_release'))
+    assert coverage.status == 'partial' and coverage.documents_seen == 1
+    view = operational.ticker_operational_intelligence(db, security=db.get(Security, 1))
+    assert view['coverage'][1]['status'] == 'partial'
+    assert view['coverage'][1]['complete'] is False
+    assert len(view['catalysts']) == 1
+    assert db.scalar(select(func.count()).select_from(ResearchSourceDocument)) == 1
+    assert db.scalar(select(func.count()).select_from(Event)) == 1
+    assert db.scalar(select(func.count()).select_from(EmailDelivery)) == 0
+
+
+@pytest.mark.parametrize('extra', [
+    {'cache_status': 'stale'}, {'is_stale': True}, {'provider': 'fmp'},
+    {'status': 'unavailable'}, {'status': 'warming'},
+])
+def test_partial_sec_batch_does_not_bypass_staleness_provider_or_availability(db, monkeypatch, extra):
+    calls = partial_worker(db, monkeypatch, **extra)
+    operational.refresh_operational_intelligence(db, security_id=1, source_types={'press_release'})
+    assert calls == []
+    assert db.get(ResearchSourceCoverage, (1, 'sec_earnings_release')).status == 'unavailable'
+    assert db.scalar(select(func.count()).select_from(ResearchSourceDocument)) == 0
+    assert db.scalar(select(func.count()).select_from(Event)) == 0
+
+
+def test_partial_sec_batch_preserves_publication_time_guard(db, monkeypatch):
+    calls = partial_worker(db, monkeypatch)
+    monkeypatch.setenv('SEC_EARNINGS_PUBLISH_AFTER', datetime.now(timezone.utc).isoformat())
+    result = operational.refresh_operational_intelligence(db, security_id=1, source_types={'press_release'})
+    assert result['documents'] == result['events'] == 0
+    assert calls == []
+    coverage = db.get(ResearchSourceCoverage, (1, 'sec_earnings_release'))
+    assert coverage.status == 'partial' and coverage.documents_seen == 1
+    assert db.scalar(select(func.count()).select_from(ResearchSourceDocument)) == 0
+    assert db.scalar(select(func.count()).select_from(Event)) == 0
