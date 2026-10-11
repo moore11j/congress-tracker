@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**October 11, 22:07 UTC:** October 11 institutional publisher preparation: PR585 adds bounded combined new/retry publication and cheap disabled startup. Actual 718-source rehearsal exposed a combined reference scope above 5,000; the loader now queries in chunks of at most 5,000, retaining a 100,000-scope guard, 20 MB total original evidence guard and per-filing evidence limits. All 151 focused tests pass; the corrected captured-source run remains running. Publication remains disabled, with no schedule or source change. See [fair publication report](institutional-fair-publication-2026-10-11.md). Deployment and unattended/capacity validation remain pending; do not mark FMP retirement complete.
+
 **Updated October 4, 2026.** Code baseline: `80aaa7f7` (local and GitHub `main` matched at review). This is the current planning source; [AGENTS.md](../AGENTS.md) holds working context and [the context log](context-log.md) records subsequent tasks.
 
 ## What changed since the previous roadmap

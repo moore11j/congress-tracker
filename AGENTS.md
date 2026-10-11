@@ -74,6 +74,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- **2026-10-11, 22:07 UTC:** October 11 institutional publisher preparation: PR585 adds bounded combined new/retry publication and cheap disabled startup. Actual 718-source rehearsal exposed a combined reference scope above 5,000; the loader now queries in chunks of at most 5,000, retaining a 100,000-scope guard, 20 MB total original evidence guard and per-filing evidence limits. All 151 focused tests pass; the corrected captured-source run remains running. Publication remains disabled, with no schedule or source change. See [fair publication report](docs/institutional-fair-publication-2026-10-11.md). Deployment and unattended/capacity validation remain pending; do not mark FMP retirement complete.
+
 - **2026-10-09: SEC unavailable-panel correction:** Actual preparation finds AL/BNPQY/DRAM absent from the SEC directory. Cache their verified unavailable state so selected public panels do not remain warming; transient source failures are not cached as absence. Public financial selection remains FMP. Primary25 tests pass; exact release/rollout follows. Institutional staging reaches100 distinct filings over five actual batches,91 collected/nine held, with public ownership unchanged. Exact news boundary PR494/add1f199 deployment is running.
 
 

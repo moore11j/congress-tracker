@@ -15,3 +15,9 @@ Local Python 3.14.2: 39 batch/CLI tests pass, plus the unchanged 75 institutiona
 The first sandbox run had three temporary-directory permission errors and an incorrect fixture expectation: newly held incoming filings also enter the rotating retry queue. An escalated run resolved permissions; the corrected test verifies the original three held filings all receive a retry while new filings keep arriving. A subsequent 39-test batch/CLI run passes. This is focused coverage, not a full-suite claim.
 
 Captured 718-original mixed-batch validation is running; no completion claim yet. The separate full streamed cohort replay remains running. No publisher schedule or source activation is included in this repair; live capacity, unattended operation, coverage and alert-consumer acceptance remain gates. No frontend changes, subscriptions or resource changes.
+
+## Captured-source blocker and complete reference repair
+
+The actual mixed batch exceeded the existing 5,000-identity reference loader bound. This is a real retained-product blocker, not a reason to shrink the acceptance batch. Reference reads now use chunks of at most 5,000 scope keys, with a 100,000-key complete-scope guard and the existing 20 MB original-evidence limit applied across every chunk. The per-filing worker retains its 5,000-document and 20 MB limits. Every selected reference is still hash/URL/identity verified before publication; there is no truncation, HTTP request or symbol-identity relaxation.
+
+Tests cover 5,501 scopes spanning multiple queries, cross-chunk total bytes, late-chunk tampering and explicit scope rejection. The first rehearsal helper failed on a missing import after its initial batch; the corrected second attempt reproduced the real reference bound before mixed publication. The third attempt is running. No failed run touched production.

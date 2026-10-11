@@ -416,3 +416,47 @@ def test_enabled_cli_forwards_combined_mode_and_preserves_partial_exit(monkeypat
     assert exc.value.code==1
     assert seen==[dict(identifier_documents=identifiers,limit=20,retry_waiting=False,use_staged_references=True,include_waiting=True)]
     assert json.loads(capsys.readouterr().out)['status']=='partial'
+
+
+
+def test_reference_scope_over_5000_loads_complete_evidence_in_bounded_queries(db):
+    from sqlalchemy import event
+    from app.services.institutional_reference import capture_reference, stage_reference, load_reference_batch
+    from test_institutional_reference import Client, payload, NOW, PERIOD
+    scopes={(f'{n:09d}',PERIOD) for n in range(5501)}
+    expected=[]
+    for n in (0,5500):
+        doc=capture_reference(Client(payload()),cusip=f'{n:09d}',report_period=PERIOD,observed_at=NOW)
+        stage_reference(db,doc);db.commit();expected.append(doc)
+    statements=[]
+    def record(connection,cursor,statement,parameters,context,executemany):
+        statements.append((statement,parameters))
+    event.listen(db.bind,'before_cursor_execute',record)
+    try:
+        assert load_reference_batch(db,scopes)==expected
+    finally:
+        event.remove(db.bind,'before_cursor_execute',record)
+    assert len(statements)==2
+    assert all(len(parameters)<=5001 for _,parameters in statements)
+
+
+@pytest.mark.parametrize('bound',['scope','bytes','late_tamper'])
+def test_chunked_reference_bounds_and_integrity_apply_across_all_chunks(db,monkeypatch,bound):
+    from app.services import institutional_reference as reference
+    from test_institutional_reference import Client,payload,NOW,PERIOD
+    docs=[]
+    for n in (0,1):
+        doc=reference.capture_reference(Client(payload()),cusip=f'{n:09d}',report_period=PERIOD,observed_at=NOW)
+        reference.stage_reference(db,doc);db.commit();docs.append(doc)
+    monkeypatch.setattr(reference,'REFERENCE_QUERY_SCOPES',1)
+    if bound=='scope':monkeypatch.setattr(reference,'MAX_REFERENCE_SCOPES',1)
+    if bound=='bytes':
+        from app.services.direct_feed_store import dumps
+        monkeypatch.setattr(reference,'MAX_REFERENCE_BYTES',len(dumps(docs[0]).encode())+1)
+    if bound=='late_tamper':
+        row=db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.source_key=='000000001:'+PERIOD))
+        saved=db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id==row.id))
+        saved.source_bytes+=b'changed';db.commit()
+    with pytest.raises(ValueError):
+        reference.load_reference_batch(db,{(f'{n:09d}',PERIOD) for n in (0,1)})
+    assert db.scalar(select(func.count()).select_from(Event))==0
