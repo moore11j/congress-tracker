@@ -1,0 +1,18 @@
+# Rotate the bounded institutional reference source scan
+
+October 11 UTC / October 10 local, 2026. Institutional publication remains disabled.
+
+The reference planner always read the newest 500 parsed filings. A filing outside that window could never contribute an identifier request, even after every newer filing was prepared. Scope balancing between quarters did not repair source exclusion. An isolated regression with three filings and a two-document window reproduces the defect: the second refresh completes zero scopes instead of reaching the older filing.
+
+The planner now saves a descending source-ID cursor with its versioned, 15-minute cached plan. Each refresh reads the next bounded window, then wraps to include new arrivals after reaching the end. A deleted or empty tail also wraps. A source revision retains its ID and is reconsidered on a later pass. Invalid cursor types/values, an old plan version or a changed quarter set restart the bounded scan. Existing source/status/date checks, balanced 5,000-scope plan, two requests per run, daily retry timestamps, provider cooldown and serial scheduling remain unchanged. Each window is explicitly partial when it excludes earlier or later source rows; a rotated page is never labelled a complete source inventory.
+
+This is reference discovery, not publication evidence selection. The complete original-bound peer validator and all financial-value holds remain mandatory. No source is declared publishable because it appeared in this planner. New arrivals may wait for the current descending pass; at the captured 718 parsed sources, two 15-minute plan windows cover a pass. Growing inventories take longer and remain a capacity concern.
+
+Python 3.14.2: the new starvation regression fails on the original implementation and passes after the fix. 67 reference, preparation and preflight checks pass, including cached-window reuse, deleted-tail recovery, new arrivals, invalid cursors, existing quota/retry behavior and zero publication/email writes. Original-source replay now passes against the accepted SHA2565762d171fbf53a617b9b0681cb488b376c89950065fadd95bb002c5f38ee066b snapshot. All718 parsed originals are checksum-verified and reparsed into an isolated SQLite database with captured known mappings. Windows cover500 then218 documents, each retaining the5,000-scope cap. The second window admits2,536 candidate scopes absent from the first. Saved prepared-reference documents are not restored in this diagnostic, so this is not a count of newly missing or verified mappings. Repeated second-window and wraparound first-window outputs are identical; stored rows unchanged, no requests/writes/emails. Four planning calls consume5.703 local CPU seconds/5.717 elapsed, excluding original staging; this is not production capacity proof. Artifact reference-source-rotation-replay-oct11.json.
+
+This follow-up is based on PR567. Neither this source-rotation change nor PR567 is deployed at preparation time; production remains31dead84 with institutional publication disabled. The full current canonical/repeat/digest replay89349 continues independently, with the tested publication code unchanged. No new production export, provider purchase, extra request budget, pricing request, email or source activation.
+
+
+## Independent release preparation
+
+The rotation repair has no code dependency on PR567. Rebased it onto verified production31dead84 so source preparation can improve while the separate publication replay continues. Job and test blobs remain identical to the67-test/718-source validated versions. Public institutional publication remains disabled; no publication budget or event code is included in this release.

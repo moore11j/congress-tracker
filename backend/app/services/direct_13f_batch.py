@@ -9,7 +9,7 @@ from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevisio
 from app.services.direct_feed_worker import DirectFeedPublication, _source_url
 from app.services.direct_13f_worker import publish_13f_document
 from app.services.feed_source_control import require_selected_source
-from app.services.direct_13f_evidence import Prepared13FEvidence
+from app.services.direct_13f_evidence import Prepared13FEvidence, PreparedComparisonCache
 
 
 def load_identifier_manifest(path):
@@ -88,7 +88,7 @@ def _staged_sources(db):
         offset += len(chunk)
 
 
-def staged_comparison_groups(db, *, byte_budget, report_periods=None):
+def staged_comparison_groups(db, *, byte_budget, report_periods=None, comparison_cache=None):
     """Complete original-bound period cohorts, with no global newest-N window.
 
     All inventory/byte/period bounds fail before publication. Invalid originals
@@ -104,13 +104,20 @@ def staged_comparison_groups(db, *, byte_budget, report_periods=None):
     for document in _staged_sources(db):
         periods = groups
         if report_periods:
-            try:
-                _, parsed, _ = parse_document('sec_13f', document['raw'], document['metadata'])
-            except DirectSourceError:
-                pass
+            if comparison_cache is not None:
+                if not isinstance(comparison_cache, PreparedComparisonCache):
+                    raise TypeError('Invalid comparison parse cache')
+                period = comparison_cache.period(document)
+                if period is not None:
+                    periods = [period] if period in groups else []
             else:
-                period = parsed['metadata']['report_period']
-                periods = [period] if period in groups else []
+                try:
+                    _, parsed, _ = parse_document('sec_13f', document['raw'], document['metadata'])
+                except DirectSourceError:
+                    pass
+                else:
+                    period = parsed['metadata']['report_period']
+                    periods = [period] if period in groups else []
         if not periods:
             continue
         for period in periods:
@@ -175,9 +182,10 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         target_periods[document_id] = parsed['metadata']['report_period']
         report_periods.add(target_periods[document_id])
         reference_scopes[document_id] = {(r['cusip'].strip().upper(), parsed['metadata']['report_period']) for r in parsed['positions']}
+    comparison_cache = PreparedComparisonCache()
     groups = staged_comparison_groups(db,
         byte_budget=100_000_000 - sum(len(d['raw']) for d in identifier_documents),
-        report_periods=report_periods)
+        report_periods=report_periods, comparison_cache=comparison_cache)
     references = []
     if use_staged_references:
         from app.services.institutional_reference import load_reference_batch
@@ -185,7 +193,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     db.rollback()  # Recheck durable ownership inside every filing transaction.
     # Prepare every complete group before the first writer transaction. Mixed
     # quarter batches retain input order without fitting both quarters into500.
-    evidence = {period: Prepared13FEvidence.build(identifier_documents, documents)
+    evidence = {period: Prepared13FEvidence.build(identifier_documents, documents, comparison_cache=comparison_cache)
                 for period, documents in groups.items()}
     comparisons = list({id(d): d for group in groups.values() for d in group}.values())
     def group_key(document_id):

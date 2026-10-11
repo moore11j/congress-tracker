@@ -1,0 +1,30 @@
+# Institutional receipts from exact event inserts
+
+October 11 UTC / October 10 local, 2026. Prepared follow-up; institutional publication remains disabled.
+
+Every newly publishable filing previously read all Event IDs, then all institutional Event rows to annotate new events. The worker scanned all institutional Event rows again to find its receipt. Even a historical filing with no alerts incurred the worker scan. This work grows with unrelated product history and is unnecessary on the combined API/jobs host.
+
+The materializer now optionally retains references to the Event records it actually inserts. Existing event updates do not enter that list. The direct publisher annotates those exact records, including holder and cluster events, and the worker reloads only their primary keys before validating source/accession/count and building the canonical receipt. Reloading persisted values preserves database timestamp normalization. Existing eligibility, source dates, holder/cluster scope, source ownership, feed identities, enrichment jobs and email behavior remain unchanged. Default generic callers still receive the same counts.
+
+Validation on Python3.14.2: the broad-query regression fails before the change. Initial fixture setup omitted its required source field; corrected before reproducing the query failure. The first implementation exposed three receipt-repeat failures caused by holding in-memory aware timestamps while SQLite stored naive values. Exact-ID reload fixes that discrepancy without broad scans.119 publication/batch/activity checks pass, with one separately reproduced unchanged profile-access assertion excluded. A second worker/monitoring/watchlist/Top Ideas group passes120 checks including two additional holder/cluster collection and rollback cases; these groups overlap. Existing deprecation warnings remain. The excluded profile assertion also fails after loading the exact base724b6843 activity module in memory (SHA25621b31cac554afad007cde1ae029c49f98052e010e06e219e3f735e52eb7e07e9). No full-suite pass claimed.
+
+Two actual captured filing pairs now pass independently with complete original peer groups (402 current-quarter and 292 prior-quarter originals) and 132 saved reference documents, network/email disabled. Pair0001214659-26-012622 materializes308 positions with no eligible event and identical repeat. Its cluster event in the larger cohort depends on other holders and is not expected in isolation. Pair0001172661-26-004430 materializes58 positions,31 changes and the expected DKS holder-exit event. Monitoring, signal and watchlist previews each contain one item and repeat identically; whole-state SHA25617f7d0833582fdf85808b207f4d6ffcf12b7a4946abf2df224369b360c1861dd is unchanged. Elapsed167.45 seconds includes original preparation; it is not a production performance benchmark. Artifacts institutional-event-receipt-pair-oct11.json and institutional-event-receipt-holder-oct11.json. Zero production writes, provider requests or emails.
+
+The larger current-cohort replay89349 continues with its original PR567 code; this follow-up does not retroactively change that test's coverage. No new production export, source activation, request budget, schedule, subscription or hosting change. Runtime/PostgreSQL performance and exact release verification remain required before activation.
+
+
+## PostgreSQL verification, October 11 at04:21UTC
+
+Disposable loopback PostgreSQL16.15 replay now passes three actual captured SEC holder pairs on this exact implementation. A query guard during first publication and repeat records zero broad event-table queries. The expected DKS event is present; complete canonical state repeats identically (SHA256d2eee8f442bcb4d23c0c86cfca50b02ad87dc80b401a99bb8eeda471936dee51), with zero provider requests, emails or production writes. This uses the earlier captured baseline87bf23c06546589ff97509ba50dff8e63894c3dfd6d5246831ee3732e76c312e and is an engine/parity check, not current full-cohort coverage. Artifact institutional-event-receipts-postgres-oct11.json. Disposable schema removed and local server stopped.
+
+Draft PR569 is attached and stacked on PR567. Secret scan and Vercel preview pass; existing frontend/Pillow dependency audits fail. No production deployment or institutional activation. Larger current-cohort first-pass artifact now exists; its final whole-state repeat and consumers remain running separately with PR567 code.
+
+
+## Independent release, October 11 at04:25UTC
+
+The receipt repair has no dependency on PR567's evidence-budget changes. It was rebased directly onto verified main7113519c so the query improvement can release while the separate current-cohort validation continues. The three production service files and worker tests are byte-identical to the PostgreSQL-validated7588a022 revision. Focused checks on this exact main-based release pass120 tests, with the one previously reproduced profile baseline excluded. Publication remains disabled and the per-quarter budget patch is not included.
+
+
+## Production verified, October 11 at04:28UTC
+
+PR569 final head1f8b6e5d merged1aa1e7c7ee3479b917cb4fe284a7b413c93ff8ac and workflow38111563506 succeeds. Ten operational/publication hashes match production Python3.12.15, institutional publication remainsfalse and exactly the approved two machines are started. Queues empty,1493.6MB application memory available. Six public responses200: feeds0.363/0.534s, profile0.684s, fresh AAPL3.199s/NVDA1.586s. The slower AAPL sample remains a cold-latency concern; no general sustained-speed claim. Source activation and the separate PR567 budget/current-consumer gates remain. Existing audits report33Pillow vulnerabilities and five frontend vulnerabilities in unchanged dependency files; secret scan passes. No capacity change, provider switch, subscription or customer email. Receipt two-service-verify-1791692912.json.

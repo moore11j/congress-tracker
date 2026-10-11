@@ -36,6 +36,43 @@ def _equity_prices(totals, cusips=None):
             if (cusips is None or cusip in cusips) and shares > 0 and value > 0}
 
 
+MAX_COMPARISON_CACHE_DOCUMENTS = 10_000
+MAX_COMPARISON_CACHE_BYTES = 100_000_000
+
+
+class PreparedComparisonCache:
+    """Bounded batch-local original parses shared by grouping and preparation.
+
+    Keys bind transport hashes and full source identity. Records contain only
+    immutable strings, tuples and Decimals, never mutable parser dictionaries.
+    No process-wide or database cache survives the publication batch.
+    """
+    def __init__(self):
+        self._records = {}
+        self._bytes = 0
+
+    def record(self, document):
+        key = _evidence_key(document)
+        if key in self._records:
+            return key, *self._records[key]
+        if len(self._records) >= MAX_COMPARISON_CACHE_DOCUMENTS or self._bytes + len(document['raw']) > MAX_COMPARISON_CACHE_BYTES:
+            raise ValueError('Comparison parse cache exceeds complete scan bounds')
+        try:
+            _, parsed, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
+            value = json.dumps([parsed, reasons], default=str)
+            compact = (json.dumps(parsed['metadata'], default=str), json.dumps(reasons),
+                       _equity_totals(parsed['positions']))
+        except DirectSourceError:
+            value = compact = None
+        self._records[key] = (value, compact)
+        self._bytes += len(document['raw'])
+        return key, value, compact
+
+    def period(self, document):
+        _, _, compact = self.record(document)
+        return json.loads(compact[0])['report_period'] if compact is not None else None
+
+
 @dataclass(frozen=True)
 class Prepared13FEvidence:
     """Per-batch immutable parses; every reuse still checks original bytes/identity.
@@ -48,7 +85,7 @@ class Prepared13FEvidence:
     _value_comparisons: tuple
 
     @classmethod
-    def build(cls, identifier_documents, comparison_documents):
+    def build(cls, identifier_documents, comparison_documents, *, comparison_cache=None):
         if len(identifier_documents)>50 or not 1<=len(comparison_documents)<=500:
             raise ValueError('Prepared evidence exceeds document bounds')
         if sum(len(d['raw']) for d in (*identifier_documents,*comparison_documents))>100_000_000:
@@ -57,17 +94,13 @@ class Prepared13FEvidence:
         for document in identifier_documents:
             key=_evidence_key(document)
             identifiers.append((key,json.dumps(nport_identifiers(document,available_by=date.max))))
+        cache = comparison_cache if comparison_cache is not None else PreparedComparisonCache()
+        if not isinstance(cache, PreparedComparisonCache):
+            raise TypeError('Invalid comparison parse cache')
         for document in comparison_documents:
-            key=_evidence_key(document)
-            try:
-                _,parsed,reasons=parse_document('sec_13f',document['raw'],document['metadata'])
-                value=json.dumps([parsed,reasons],default=str)
-                compact=(json.dumps(parsed['metadata'],default=str),json.dumps(reasons),_equity_totals(parsed['positions']))
-            except DirectSourceError:
-                value=None
-                compact=None
-            values.append((key,compact))
-            comparisons.append((key,value))
+            key, value, compact = cache.record(document)
+            values.append((key, compact))
+            comparisons.append((key, value))
         return cls(tuple(identifiers),tuple(comparisons),tuple(values))
 
     def _lookup(self, document, records):
