@@ -187,7 +187,7 @@ def test_insights_headlines_refresh_generates_and_saves_walnut_takes(monkeypatch
                         {
                             "items": [
                                 {
-                                    "id": "url:https://example.com/chips",
+                                    "id": "0",
                                     "summary": "Chip shares rallied ahead of major tech earnings.",
                                     "bias": "bullish",
                                     "take": "Positive read for chip exposure, but follow-through depends on earnings guidance.",
@@ -354,7 +354,7 @@ def test_insights_headlines_refresh_regenerates_old_walnut_take_prompt_versions(
                         {
                             "items": [
                                 {
-                                    "id": "url:https://example.com/valuations",
+                                    "id": "0",
                                     "summary": "Valuation and cash-flow pressure are the key market risks.",
                                     "bias": "bearish",
                                     "take": "Stretched valuations and weaker cash flow make this a bearish risk-asset read.",
@@ -422,10 +422,10 @@ def test_insights_headlines_refresh_calibrates_walnut_take_reads(monkeypatch):
                     "output_text": json.dumps(
                         {
                             "items": [
-                                {"id": "url:https://example.com/stretched", "summary": "Valuations remain stretched.", "bias": "bullish", "take": long_take},
-                                {"id": "url:https://example.com/bond-anxiety", "summary": "Bond-market anxiety is growing.", "bias": "neutral", "take": long_take},
-                                {"id": "url:https://example.com/ireland-trade", "summary": "Ireland wants to stabilize trade.", "bias": "neutral", "take": long_take},
-                                {"id": "url:https://example.com/lisa-su-ai", "summary": "AI demand is resilient.", "bias": "neutral", "take": long_take},
+                                {"id": "0", "summary": "Valuations remain stretched.", "bias": "bullish", "take": long_take},
+                                {"id": "1", "summary": "Bond-market anxiety is growing.", "bias": "neutral", "take": long_take},
+                                {"id": "2", "summary": "Ireland wants to stabilize trade.", "bias": "neutral", "take": long_take},
+                                {"id": "3", "summary": "AI demand is resilient.", "bias": "neutral", "take": long_take},
                             ]
                         }
                     )

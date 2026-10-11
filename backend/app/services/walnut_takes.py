@@ -187,6 +187,9 @@ def enrich_walnut_takes(
 
 def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     model = _walnut_take_model(db)
+    # The output budget is for the analysis, not for echoing long provider URLs.
+    # These IDs are local to this request; durable article/cache identity stays intact.
+    article_ids = {str(index): _article_id(item) for index, item in enumerate(articles)}
     request_payload = {
         "model": model,
         "input": _prompt(articles),
@@ -212,18 +215,35 @@ def _generate_openai_takes(db: Session, *, api_key: str, articles: list[dict[str
     if response.status_code >= 400:
         raise RuntimeError(f"OpenAI Walnut Take request failed with status {response.status_code}.")
     data = response.json()
-    _record_openai_usage_cost(db, model=model, data=data, feature="walnut_takes", web_search_calls=1, commit=False)
+    _record_openai_usage_cost(db, model=model, data=data, feature="walnut_takes", web_search_calls=0, commit=False)
+    if data.get("status", "completed") != "completed":
+        reason = (data.get("incomplete_details") or {}).get("reason", "unknown")
+        raise ValueError(f"OpenAI Walnut Take response was not complete: {reason}.")
     parsed = _extract_json_payload(_extract_responses_text(data))
     raw_items = parsed.get("items") if isinstance(parsed, dict) else None
     if not isinstance(raw_items, list):
         raise ValueError("OpenAI Walnut Take response did not include items.")
-    return [item for item in raw_items if isinstance(item, dict)]
+    results = []
+    seen = set()
+    for item in raw_items:
+        key = item.get("id") if isinstance(item, dict) else None
+        if not isinstance(key, str) or key not in article_ids or key in seen:
+            raise ValueError("OpenAI Walnut Take response has an unknown or repeated article ID.")
+        if item.get("bias") not in VALID_BIASES or not isinstance(item.get("take"), str) or not item["take"].strip():
+            raise ValueError("OpenAI Walnut Take response has an invalid bias or empty take.")
+        seen.add(key)
+        results.append({**item, "id": article_ids[key]})
+    if seen != set(article_ids):
+        raise ValueError("OpenAI Walnut Take response did not cover every requested article.")
+    logger.info("walnut_takes_openai_completed count=%s output_tokens=%s id_format=short_v1",
+                len(results), (data.get("usage") or {}).get("output_tokens"))
+    return results
 
 
 def _prompt(articles: list[dict[str, Any]]) -> str:
     compact_articles = [
         {
-            "id": _article_id(item),
+            "id": str(index),
             "title": item.get("title"),
             "article_url": item.get("url"),
             "source": item.get("site") or item.get("source"),
@@ -232,7 +252,7 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
             "provider_summary": item.get("summary"),
             "provider_market_read": item.get("market_read"),
         }
-        for item in articles
+        for index, item in enumerate(articles)
     ]
     return "\n".join(
         [
@@ -254,6 +274,7 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
             "Use first-person plural for our own views. Say 'our take' if needed, not 'Walnut's take.'",
             "Do not provide trading instructions, price targets, guarantees, or hype.",
             "Do not invent facts beyond the title, summary, ticker, source, and existing market read.",
+            "Return every supplied short id exactly once. IDs are request-local strings; do not echo article URLs as IDs.",
             "Return only valid JSON with this exact shape:",
             '{"items":[{"id":"article id","bias":"bullish|bearish|neutral","take":"one-sentence Walnut take"}]}',
             "Articles:",
