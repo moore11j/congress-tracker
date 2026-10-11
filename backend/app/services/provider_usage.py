@@ -227,7 +227,7 @@ def _persist_event(event: dict[str, Any]) -> None:
                 symbol=event.get("symbol"),
                 source=event.get("source"),
                 route=event.get("route"),
-                cache_status=kind if kind.startswith("cache_") else None,
+                cache_status=kind or None,
                 status_code=str(event.get("status_code") if event.get("status_code") is not None else event.get("item_count") if event.get("item_count") is not None else "") or None,
                 duration_ms=None,
                 success=kind in {"cache_hit", "provider_call", "content_write"},
@@ -245,6 +245,10 @@ def _persist_event(event: dict[str, Any]) -> None:
 
 
 def _skip_hot_route_usage_persistence(event: dict[str, Any]) -> bool:
+    # Actual provider activity must remain durable for retirement verification.
+    # Only cache bookkeeping can stay in the in-process hot-route counters.
+    if event.get("kind") not in {"cache_hit", "cache_miss"}:
+        return False
     if _env_bool("FMP_PERSIST_HOT_ROUTE_USAGE_EVENTS", False):
         return False
     route = str(event.get("route") or "")
@@ -253,6 +257,8 @@ def _skip_hot_route_usage_persistence(event: dict[str, Any]) -> bool:
     context = get_request_context() or {}
     path = str(context.get("path") or context.get("walnut_route") or "")
     if path in {"/api/events", "/api/market/quotes"}:
+        return True
+    if route.startswith("/api/members/") or path.startswith("/api/members/"):
         return True
     if path.startswith("/api/tickers/") and path.endswith("/context-bundle"):
         return True
@@ -603,8 +609,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             now_dt = datetime.now(timezone.utc)
             call_filter = (
                 ProviderUsageEvent.provider == PROVIDER,
-                ProviderUsageEvent.cache_status.is_(None),
-                ProviderUsageEvent.throttled.is_(False),
+                ProviderUsageEvent.cache_status == "provider_call",
             )
             calls_today = db.execute(
                 select(func.count(ProviderUsageEvent.id)).where(*call_filter, ProviderUsageEvent.created_at >= day_start)
@@ -651,6 +656,18 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
                 .order_by(ProviderUsageEvent.created_at.desc(), ProviderUsageEvent.id.desc())
                 .limit(10)
             ).scalars().all()
+            # Pre-kind rows cannot distinguish attempts from fallback/error events.
+            # Keep them explicit so a zero known-call count is not retirement proof.
+            summary["legacy_unclassified_events_24h"] = int(db.execute(
+                select(func.count(ProviderUsageEvent.id)).where(
+                    ProviderUsageEvent.provider == PROVIDER,
+                    ProviderUsageEvent.cache_status.is_(None),
+                    ProviderUsageEvent.created_at >= now_dt - timedelta(hours=24),
+                )
+            ).scalar_one() or 0)
+            if summary["legacy_unclassified_events_24h"]:
+                summary["warnings"].append("Recent legacy usage events have unknown kinds; known call counts alone cannot verify provider retirement.")
+            summary["database_usage_status"] = "ok"
             summary["calls_today"] = int(calls_today or 0)
             summary["call_windows"] = call_windows
             summary["recent_throttles"] = [_event_row(row) for row in recent_throttles]
@@ -699,6 +716,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             summary["fred_macro_cache"] = fred_macro_cache_diagnostics(db)
         except Exception:
             logger.info("provider_usage db summary unavailable", exc_info=True)
+            summary["database_usage_status"] = "unavailable"
             summary["calls_today"] = summary["totals"]["provider_calls"]
             summary["recent_throttles"] = []
             summary["recent_errors"] = []

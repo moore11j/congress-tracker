@@ -2227,7 +2227,8 @@ def _member_recent_trades(
                         lane="feed_quote",
                         allow_live_user_fetch=True,
                         stale_while_revalidate=True,
-                        force_quote_endpoint=True,
+                        # Ordinary profile loads reuse validated quotes and refresh stale prices.
+                        force_quote_endpoint=False,
                     )
                     if quote_symbols
                     else {}
@@ -2358,6 +2359,9 @@ def _member_recent_trades(
                     "trade_price": trade_price,
                     "estimated_price": trade_price,
                     "current_price": current_price,
+                    "current_price_as_of": (current_quote_meta.get(symbol) or {}).get("asof_ts") if fresh_current_price is not None else None,
+                    "current_price_is_stale": (current_quote_meta.get(symbol) or {}).get("is_stale") if fresh_current_price is not None else None,
+                    "current_price_source": (current_quote_meta.get(symbol) or {}).get("source") if fresh_current_price is not None else display_metrics.pnl_source,
                     "pnl_pct": pnl_pct,
                     "return_pct": pnl_pct,
                     "alpha_pct": alpha_pct,

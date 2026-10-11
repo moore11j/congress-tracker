@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from datetime import datetime, time as datetime_time, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -754,6 +755,24 @@ def get_current_prices_meta_db(
             _enqueue_quote_refreshes(need_fetch, reason="missing_api_key")
             return quote_meta
 
+        # Resolve ORM-backed configuration on the calling thread, then release
+        # the connection before any HTTP. Worker threads receive plain requests.
+        configured_requests = {}
+        if not force_quote_endpoint and db is not None:
+            try:
+                for symbol in need_fetch:
+                    try:
+                        configured_requests[symbol] = fmp_endpoint_requests_for_domain(
+                            db, "prices_intraday", symbol=symbol, api_key=api_key,
+                            include_fallback=True,
+                        )
+                    except Exception:
+                        logger.info("quote_lookup endpoint settings unavailable; using historical EOD light fallback", exc_info=True)
+                        configured_requests[symbol] = []
+            finally:
+                if release_connection_before_fetch:
+                    db.close()
+
         equities: list[str] = []
         crypto: list[str] = []
         for symbol in need_fetch:
@@ -819,24 +838,6 @@ def get_current_prices_meta_db(
                 lock.release()
                 return True
             try:
-                ensure_fmp_live_allowed(category=lane, symbol=symbol, allow_user_request=allow_live_user_fetch)
-            except ProviderUnavailable as exc:
-                reason = getattr(exc, "reason", "provider_unavailable")
-                record_fallback(category="quote", symbol=symbol, reason=reason)
-                with mutation_lock:
-                    quote_meta.setdefault(
-                        symbol,
-                        {
-                            "price": None,
-                            "asof_ts": None,
-                            "is_stale": False,
-                            "status": reason,
-                        },
-                    )
-                _enqueue_quote_refreshes([symbol], reason=reason)
-                lock.release()
-                return True
-            try:
                 if force_quote_endpoint:
                     intraday_end_day = datetime.now(timezone.utc).date()
                     try:
@@ -866,16 +867,8 @@ def get_current_prices_meta_db(
                         intraday_request,
                         eod_request,
                     ]
-                elif db is not None:
-                    endpoint_requests = fmp_endpoint_requests_for_domain(
-                        db,
-                        "prices_intraday",
-                        symbol=symbol,
-                        api_key=api_key,
-                        include_fallback=True,
-                    )
                 else:
-                    endpoint_requests = []
+                    endpoint_requests = configured_requests.get(symbol, [])
             except Exception:
                 logger.info("quote_lookup endpoint settings unavailable; using historical EOD light fallback", exc_info=True)
                 endpoint_requests = []
@@ -896,6 +889,23 @@ def get_current_prices_meta_db(
             saw_429 = False
             try:
                 for endpoint_request in endpoint_requests:
+                    try:
+                        ensure_fmp_live_allowed(category=lane, symbol=symbol, allow_user_request=allow_live_user_fetch)
+                    except ProviderUnavailable as exc:
+                        reason = getattr(exc, "reason", "provider_unavailable")
+                        record_fallback(category="quote", symbol=symbol, reason=reason)
+                        with mutation_lock:
+                            quote_meta.setdefault(
+                                symbol,
+                                {
+                                    "price": None,
+                                    "asof_ts": None,
+                                    "is_stale": False,
+                                    "status": reason,
+                                },
+                            )
+                        _enqueue_quote_refreshes([symbol], reason=reason)
+                        return True
                     started = time.monotonic()
                     try:
                         response = requests.get(
@@ -966,14 +976,14 @@ def get_current_prices_meta_db(
             equities_to_fetch = equities
             logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
-            if force_quote_endpoint and len(equities_to_fetch) > 1:
+            if (force_quote_endpoint or release_connection_before_fetch) and len(equities_to_fetch) > 1:
                 try:
                     max_workers = max(1, int(os.getenv("QUOTE_FORCE_ENDPOINT_MAX_WORKERS", "4") or 4))
                 except ValueError:
                     max_workers = 4
                 with ThreadPoolExecutor(max_workers=min(max_workers, len(equities_to_fetch))) as executor:
                     futures = {
-                        executor.submit(_fetch_configured_quote, symbol, "equity"): symbol
+                        executor.submit(copy_context().run, _fetch_configured_quote, symbol, "equity"): symbol
                         for symbol in equities_to_fetch
                     }
                     for future in as_completed(futures):

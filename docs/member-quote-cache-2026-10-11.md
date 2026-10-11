@@ -1,0 +1,22 @@
+# Member quote-cache reliability repair, October 11, 2026
+
+A fresh production request to /api/members/by-slug/CLEO_FIELDS?include_trades=true returns200trades in3.642s versus0.232s without trades. Server attribution reports3.163s,27database checkouts and90queries. The exact21:19:39-45UTC usage window contains24 page-load cache misses and24 feed_quote provider-call receipts. Worker-thread receipts are labelled background, so route-based traffic audits alone are insufficient; final retirement must inspect global provider traffic. Earlier concurrent profiles took73-76s, but this isolated request does not recreate that concurrency.
+
+The member reader passed force_quote_endpoint=true, which explicitly bypasses both memory and persistent quote caches. Ordinary profile loads now reuse validated cached quotes with the existing stale-while-revalidate behavior. Missing prices retain bounded provider fallback; stale prices enqueue their existing refresh jobs. Existing EOD sanity checks remain. No new source/provider selection, cache TTL, request budget, schedule or hardware change. Canonical events, trade/report dates, trade prices and outcome semantics remain intact. Three additive API fields expose current_price_as_of, current_price_is_stale and current_price_source; existing fields remain.
+
+Cache-hit/miss bookkeeping on member routes now uses the existing in-process counters instead of one database write per symbol. Actual provider calls, errors, throttles, fallback and content writes are always persisted when usage persistence is enabled, including previously excluded hot routes. The explicit hot-route cache persistence override remains. This closes a retirement-observation gap; it is not a claim of zero global FMP calls or restored sustained capacity.
+
+Initial suspicion of refresh enqueue overhead was superseded by the exact usage audit; no batch-enqueue change was made. Slow-checkout telemetry measures request age, not pool waiting, so it cannot substantiate a pool-size increase. An earlier member-ID request returned404; the verified frontend slug route was used for diagnosis.
+
+## Validation
+
+Python3.14.2: nine focused tests pass across real in-memory member/event/outcome/price caches and telemetry behavior. Fresh/stale caches avoid HTTP, missing cache retains one mocked provider fetch, a divergent1000quote is corrected to199by the existing EOD guard,12 complete trade identities/dates/returns survive each case, and stale timing is explicit. Actual provider activity persists on all four affected hot route families while cache counters remain available. Broader71checks yield59passes and12leaderboard-fixture failures due missing leaderboard_snapshots. All12 reproduce using the unchanged pre-repair functions; those fixtures do not establish current leaderboard acceptance. Initial root-directory pytest invocation failed to import app before tests; correct backend invocation passes. No full-suite pass claimed. Release/live parity pending.
+
+
+## Review corrections before release
+
+Automated review of 0a6380ce identified three real gaps: configuration reads could reopen the released session across HTTP, cached-mode misses lost bounded concurrency, and untyped durable fallback/error rows could be miscounted as calls. All are corrected before deployment. Configuration is resolved on the caller and its connection closed before HTTP; workers receive plain requests and copied request context. Only misses use the existing worker limit. Each configured endpoint attempt passes the provider guard, including fallback requests.
+
+The existing cache_status field now stores each event kind, avoiding a schema change. Durable call totals count provider_call only, expose legacy unclassified 24-hour rows separately and warn that they prevent a zero-traffic conclusion. Failed database summaries have explicit unavailable status. No historical rows are reclassified.
+
+Expanded Python3.14.2 checks:85 pass across member, quote timezone, market quotes, insights quote overview, feed enrichment and usage schema/telemetry. A real one-connection SQLite pool remains available during three simultaneous cold symbol fetches; one cached symbol avoids HTTP, three primary/fallback pairs yield six attempts, and request context survives each worker. A disabled provider produces zero durable calls; errors/fallback/content writes remain distinct and a legacy unknown row is surfaced. The earlier12 unchanged leaderboard fixture failures remain separate. Release and production checks are still pending.

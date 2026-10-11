@@ -31,3 +31,10 @@ Two read-only news-response audit helpers timed out while observing remote SSH. 
 ## Final read-only news finding,21:00UTC
 
 The bounded audit completes (take-response-audit-1791752372.json):39 of the last40 Walnut Take responses exactly hit the configured output-token cap, including all shown eight-article720-token batches; the one-article256-token request used141. Their HTTP200 audit result does not establish valid complete JSON. Code echoes article cache identifiers derived from URLs up to500characters in each output item; this is a concrete candidate cause of replacement-news enrichment failures. Short request-scoped identifiers can preserve durable article URLs/cache identity and avoid raising the token allowance, but this fix is not yet implemented. No paid validation/model request was issued by this audit.
+
+
+## Ordinary scheduled recovery receipt, October 11, 21:17 UTC
+
+Actual collector run179 starts21:17:05.167527UTC and finishes21:17:07.632664UTC. The source again returns403 at the public home page. Its separate Senate recovery window is October1-11, while the unchanged ordinary House window remains October4-11. The persisted checkpoint retains anchor2026-10-01, covered_through=null, last_attempt_run_id179 and caught_up=false/advanced=false. Both saved original hashes/statuses/checked timestamps and source generations remain unchanged. This verifies production outage retention, not restored Senate access or completeness. Twenty-six denied attempts are now recorded since October10; last complete official discovery remains October10,16:22UTC.
+
+The first read at21:17:06 observed the checkpoint before run179 completed; the second at21:17:40 captured its terminal receipt. No source retry was manually launched. The intervening queue observation's active b6268a9ce4ddfb678d92c12f was ordinary enrichment, not proof of an active Senate collector. Evidence: senate-runtime-1791753426.json and senate-runtime-1791753460.json.
