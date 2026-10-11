@@ -86,8 +86,8 @@ def test_disabled_job_never_opens_manifest_or_database(monkeypatch, capsys):
     from app.jobs import publish_direct_13fs as job
     monkeypatch.delenv('DIRECT_13F_PUBLICATION_ENABLED', raising=False)
     monkeypatch.setattr('sys.argv', ['publisher'])
-    monkeypatch.setattr(job, 'SessionLocal', lambda: pytest.fail('Opened DB'))
-    monkeypatch.setattr(job, 'load_identifier_manifest', lambda *a: pytest.fail('Opened manifest'))
+    monkeypatch.setattr('app.db.SessionLocal', lambda: pytest.fail('Opened DB'))
+    monkeypatch.setattr(batch, 'load_identifier_manifest', lambda *a: pytest.fail('Opened manifest'))
     job.main()
     assert json.loads(capsys.readouterr().out)['status'] == 'disabled'
 
@@ -306,4 +306,157 @@ def test_invalid_retry_rotation_state_fails_before_publication(db,state):
     with pytest.raises(ValueError,match='retry position'):
         batch.publish_13f_batch(db,identifier_documents=[],retry_waiting=True)
     db.rollback()
+    assert db.scalar(select(func.count()).select_from(Event))==0
+
+
+def test_combined_batch_publishes_new_prior_before_retry_without_duplicates(db, monkeypatch):
+    prior, current = pair()
+    current_id = stage(db, current)
+    assert batch.publish_13f_batch(db, identifier_documents=[])['results'][0]['status'] == 'waiting'
+    prior_id = stage(db, prior)
+    scans = []
+    original = batch._staged_sources
+    def counted(*args, **kwargs):
+        scans.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(batch, '_staged_sources', counted)
+    result = batch.publish_13f_batch(db, identifier_documents=[], limit=2, include_waiting=True)
+    assert [r['document_id'] for r in result['results']] == [prior_id, current_id]
+    assert result['results'][1]['derived_state'] == 'published' and result['feed_events'] > 0
+    assert len(scans) == 1
+    count = db.scalar(select(func.count()).select_from(Event))
+    repeat = batch.publish_13f_batch(db, identifier_documents=[], limit=2, include_waiting=True)
+    assert repeat['processed'] == 0
+    assert len(scans) == 1 and db.scalar(select(func.count()).select_from(Event)) == count
+
+
+def test_combined_batch_rotates_holds_while_new_filings_keep_arriving(db):
+    from test_direct_13f_publication import document
+    held = []
+    for serial in range(10, 13):
+        document_id = stage(db, document(serial=serial))
+        row = db.get(DirectFeedDocument, document_id)
+        row.metadata_json = json.dumps({**json.loads(row.metadata_json), 'filing_date':'2099-01-01'})
+        db.commit()
+        held.append(document_id)
+    assert all(r['status'] == 'held' for r in batch.publish_13f_batch(db, identifier_documents=[])['results'])
+    for serial, expected in zip(range(30, 33), held):
+        new_id = stage(db, document(serial=serial, quarter=2))
+        result = batch.publish_13f_batch(db, identifier_documents=[], limit=2, include_waiting=True)
+        assert [r['document_id'] for r in result['results']] == [new_id, expected]
+        assert result['feed_events'] == 0
+
+
+@pytest.mark.parametrize('new_count,retry_count,limit', [(5,0,4),(0,5,4),(1,5,4),(5,1,4),(5,5,5)])
+def test_combined_batch_fills_spare_capacity_and_preserves_retry_order(db, new_count, retry_count, limit):
+    from test_direct_13f_publication import document
+    from app.models import InsightsSnapshot
+    retries=[]
+    for serial in range(10,10+retry_count):
+        document_id=stage(db,document(serial=serial))
+        row=db.get(DirectFeedDocument,document_id)
+        row.metadata_json=json.dumps({**json.loads(row.metadata_json),'filing_date':'2099-01-01'})
+        db.commit(); retries.append(document_id)
+    batch.publish_13f_batch(db,identifier_documents=[])
+    new=[stage(db,document(serial=serial,quarter=2)) for serial in range(40,40+new_count)]
+    result=batch.publish_13f_batch(db,identifier_documents=[],limit=limit,include_waiting=True)
+    selected=[r['document_id'] for r in result['results']]
+    retry_slots=min(retry_count,max(limit//2,limit-new_count))
+    assert selected == new[:limit-retry_slots]+retries[:retry_slots]
+    assert len(selected)==min(limit,new_count+retry_count) and len(set(selected))==len(selected)
+    cursor=db.get(InsightsSnapshot,batch.RETRY_POSITION_KEY)
+    if retry_slots:
+        assert json.loads(cursor.payload_json)['last_document_id']==retries[retry_slots-1]
+    else:
+        assert cursor is None
+
+
+@pytest.mark.parametrize('kwargs', [{'limit':1,'include_waiting':True}, {'retry_waiting':True,'include_waiting':True}])
+def test_combined_invalid_limits_fail_before_reading_database(kwargs):
+    with pytest.raises(ValueError, match='Combined publication'):
+        batch.publish_13f_batch(None,identifier_documents=[],**kwargs)
+
+
+def test_disabled_publisher_imports_no_application_or_database_modules():
+    import os, subprocess, sys
+    script = "import runpy,sys; sys.argv=['publisher','--include-waiting']; runpy.run_module('app.jobs.publish_direct_13fs',run_name='__main__'); assert not any(n == 'sqlalchemy' or n.startswith('app.services.') or n == 'app.db' for n in sys.modules)"
+    result = subprocess.run([sys.executable,'-c',script],env={**os.environ,'DIRECT_13F_PUBLICATION_ENABLED':'false'},capture_output=True,text=True,timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)['status']=='disabled'
+
+
+@pytest.mark.parametrize('argv', [['--include-waiting','--retry-waiting'], ['--include-waiting','--limit','1']])
+def test_combined_cli_rejects_ambiguous_or_starving_configuration(monkeypatch, argv):
+    from app.jobs import publish_direct_13fs as job
+    monkeypatch.setenv('DIRECT_13F_PUBLICATION_ENABLED','true')
+    monkeypatch.setattr('sys.argv',['publisher',*argv])
+    monkeypatch.setattr('app.db.SessionLocal',lambda:pytest.fail('Opened database before argument validation'))
+    with pytest.raises(SystemExit) as exc:
+        job.main()
+    assert exc.value.code==2
+
+
+def test_enabled_cli_forwards_combined_mode_and_preserves_partial_exit(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from contextlib import nullcontext
+    from app.jobs import publish_direct_13fs as job
+    monkeypatch.setenv('DIRECT_13F_PUBLICATION_ENABLED','true')
+    monkeypatch.setattr('sys.argv',['publisher','--include-waiting','--limit','20','--identifier-manifest','reviewed.json','--staged-identifiers','--staged-references'])
+    session=object();identifiers=[object()];seen=[]
+    monkeypatch.setattr('app.background_job_guard.check_background_job_guard',lambda *_:SimpleNamespace(proceed=True))
+    monkeypatch.setattr('app.db.SessionLocal',lambda:nullcontext(session))
+    monkeypatch.setattr('app.services.direct_13f_identifiers.load_staged_identifiers',lambda db,path:identifiers if db is session and path=='reviewed.json' else pytest.fail('Wrong manifest'))
+    def publish(db, **kwargs):
+        assert db is session
+        seen.append(kwargs)
+        return {'status':'partial','processed':20,'email_deliveries':0}
+    monkeypatch.setattr(batch,'publish_13f_batch',publish)
+    with pytest.raises(SystemExit) as exc:
+        job.main()
+    assert exc.value.code==1
+    assert seen==[dict(identifier_documents=identifiers,limit=20,retry_waiting=False,use_staged_references=True,include_waiting=True)]
+    assert json.loads(capsys.readouterr().out)['status']=='partial'
+
+
+
+def test_reference_scope_over_5000_loads_complete_evidence_in_bounded_queries(db):
+    from sqlalchemy import event
+    from app.services.institutional_reference import capture_reference, stage_reference, load_reference_batch
+    from test_institutional_reference import Client, payload, NOW, PERIOD
+    scopes={(f'{n:09d}',PERIOD) for n in range(5501)}
+    expected=[]
+    for n in (0,5500):
+        doc=capture_reference(Client(payload()),cusip=f'{n:09d}',report_period=PERIOD,observed_at=NOW)
+        stage_reference(db,doc);db.commit();expected.append(doc)
+    statements=[]
+    def record(connection,cursor,statement,parameters,context,executemany):
+        statements.append((statement,parameters))
+    event.listen(db.bind,'before_cursor_execute',record)
+    try:
+        assert load_reference_batch(db,scopes)==expected
+    finally:
+        event.remove(db.bind,'before_cursor_execute',record)
+    assert len(statements)==2
+    assert all(len(parameters)<=5001 for _,parameters in statements)
+
+
+@pytest.mark.parametrize('bound',['scope','bytes','late_tamper'])
+def test_chunked_reference_bounds_and_integrity_apply_across_all_chunks(db,monkeypatch,bound):
+    from app.services import institutional_reference as reference
+    from test_institutional_reference import Client,payload,NOW,PERIOD
+    docs=[]
+    for n in (0,1):
+        doc=reference.capture_reference(Client(payload()),cusip=f'{n:09d}',report_period=PERIOD,observed_at=NOW)
+        reference.stage_reference(db,doc);db.commit();docs.append(doc)
+    monkeypatch.setattr(reference,'REFERENCE_QUERY_SCOPES',1)
+    if bound=='scope':monkeypatch.setattr(reference,'MAX_REFERENCE_SCOPES',1)
+    if bound=='bytes':
+        from app.services.direct_feed_store import dumps
+        monkeypatch.setattr(reference,'MAX_REFERENCE_BYTES',len(dumps(docs[0]).encode())+1)
+    if bound=='late_tamper':
+        row=db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.source_key=='000000001:'+PERIOD))
+        saved=db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id==row.id))
+        saved.source_bytes+=b'changed';db.commit()
+    with pytest.raises(ValueError):
+        reference.load_reference_batch(db,{(f'{n:09d}',PERIOD) for n in (0,1)})
     assert db.scalar(select(func.count()).select_from(Event))==0

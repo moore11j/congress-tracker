@@ -192,22 +192,35 @@ def _save_retry_position(db, generation, expected_state, document_id):
         return True
 
 
-def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False):
+def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False):
     if not 1 <= limit <= 200:
         raise ValueError('Publication limit must be between 1 and 200')
+    if include_waiting and (retry_waiting or limit < 2):
+        raise ValueError('Combined publication requires at least two slots and no retry-only mode')
     if db.new or db.dirty or db.deleted:
         raise ValueError('Feed writer session has unrelated pending changes')
     generation = require_selected_source(db, 'sec_13f', 'sec_edgar').generation
     query = select(DirectFeedDocument.id).outerjoin(DirectFeedPublication,
         DirectFeedPublication.document_id == DirectFeedDocument.id).where(
         DirectFeedDocument.feed == 'sec_13f', DirectFeedDocument.status == 'parsed')
-    if retry_waiting:
-        query = query.where(DirectFeedPublication.status.in_(('waiting', 'held')))
+    retry_ids = []
+    if retry_waiting or include_waiting:
         position, expected_state = _retry_position(db, generation)
+        retry_query = query.where(DirectFeedPublication.status.in_(('waiting', 'held')))
+    if include_waiting:
+        # Reserve half the batch for rotating retries and half for first visits.
+        # Unused slots flow to the other group; originals are scanned only once.
+        # Publish new priors first so a waiting current filing can use them now.
+        new_ids = list(db.scalars(query.where(DirectFeedPublication.id.is_(None))
+            .order_by(DirectFeedDocument.id).limit(limit)))
+        retry_ids = _retry_ids(db, retry_query, max(limit // 2, limit - len(new_ids)), position)
+        ids = new_ids[:limit - len(retry_ids)] + retry_ids
+    elif retry_waiting:
+        retry_ids = _retry_ids(db, retry_query, limit, position)
+        ids = retry_ids
     else:
-        query = query.where(DirectFeedPublication.id.is_(None))
-    ids = (_retry_ids(db, query, limit, position) if retry_waiting else
-           list(db.scalars(query.order_by(DirectFeedDocument.id).limit(limit))))
+        ids = list(db.scalars(query.where(DirectFeedPublication.id.is_(None))
+            .order_by(DirectFeedDocument.id).limit(limit)))
     if not ids:
         db.rollback()
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
@@ -255,8 +268,8 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         identifier_documents=identifier_documents, comparison_documents=groups[group_key(document_id)],
         prepared_evidence=evidence[group_key(document_id)],
         reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
-    if retry_waiting:
-        _save_retry_position(db, generation, expected_state, ids[-1])
+    if retry_ids:
+        _save_retry_position(db, generation, expected_state, retry_ids[-1])
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
         'comparison_periods': sorted(report_periods) if report_periods is not None else None,
         'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},

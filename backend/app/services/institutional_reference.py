@@ -174,6 +174,11 @@ def _verified_staged(row, revision, *, cusip, report_period):
     return document
 
 
+MAX_REFERENCE_SCOPES = 100_000
+REFERENCE_QUERY_SCOPES = 5000
+MAX_REFERENCE_BYTES = 20_000_000
+
+
 def load_reference_batch(db, scopes):
     """Bounded saved evidence only, with no per-position query or source HTTP."""
     from sqlalchemy import select
@@ -182,22 +187,25 @@ def load_reference_batch(db, scopes):
     for cusip, period in scopes:
         query = reference_query(cusip, period)
         keys[query['cusip'] + ':' + query['date']] = (cusip, period)
-    if len(keys) > 5000:
-        raise ValueError('Reference scope exceeds 5000 identities')
+        if len(keys) > MAX_REFERENCE_SCOPES:
+            raise ValueError('Reference scope exceeds identity bounds')
     if not keys:
         return []
     documents = []
     total = 0
-    query = select(DirectFeedDocument, DirectFeedRevision).outerjoin(DirectFeedRevision,
-        (DirectFeedRevision.document_id == DirectFeedDocument.id) &
-        (DirectFeedRevision.content_hash == DirectFeedDocument.content_hash)).where(
-            DirectFeedDocument.feed == FEED, DirectFeedDocument.source_key.in_(list(keys)))
-    for row, revision in db.execute(query):
-        cusip, period = keys[row.source_key]
-        total += len(revision.source_bytes or b'') if revision else 0
-        if total > 20_000_000:
-            raise ValueError('Reference evidence exceeds 20 MB')
-        documents.append(_verified_staged(row, revision, cusip=cusip, report_period=period))
+    ordered_keys = sorted(keys)
+    for start in range(0, len(ordered_keys), REFERENCE_QUERY_SCOPES):
+        query = select(DirectFeedDocument, DirectFeedRevision).outerjoin(DirectFeedRevision,
+            (DirectFeedRevision.document_id == DirectFeedDocument.id) &
+            (DirectFeedRevision.content_hash == DirectFeedDocument.content_hash)).where(
+                DirectFeedDocument.feed == FEED,
+                DirectFeedDocument.source_key.in_(ordered_keys[start:start + REFERENCE_QUERY_SCOPES]))
+        for row, revision in db.execute(query):
+            cusip, period = keys[row.source_key]
+            total += len(revision.source_bytes or b'') if revision else 0
+            if total > MAX_REFERENCE_BYTES:
+                raise ValueError('Reference evidence exceeds 20 MB')
+            documents.append(_verified_staged(row, revision, cusip=cusip, report_period=period))
     return sorted(documents, key=lambda d: (d['query']['date'], d['query']['cusip']))
 
 
