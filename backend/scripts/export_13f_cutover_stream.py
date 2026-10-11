@@ -9,6 +9,7 @@ from collections import Counter
 from datetime import date, datetime, timezone
 import hashlib
 import json
+import os
 import sys
 import zlib
 
@@ -19,6 +20,7 @@ from app.models import (Event, InstitutionalFiling, InstitutionalPosition,
                         InstitutionalPositionChange, InstitutionalActivityEvent,
                         InstitutionalHolder, InstitutionalSymbolSummary)
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps
+from app.services.direct_feed_collection import parse_document
 
 
 class RecordStream:
@@ -67,8 +69,10 @@ def export_records(db, stream):
     """Caller owns one read-only snapshot; mapped ORM instances are never retained."""
     captured_at = datetime.now(timezone.utc)
     stream.write('metadata', dict(captured_at=captured_at,
-        transaction_read_only=True, filing_date='2026-10-07'))
+        transaction_read_only=True, filing_date='2026-10-07',
+        summary_scope='original_source_report_periods_since_cutover', summary_history_in_receipt=True))
     cusips, ciks, total, count = set(), set(), 0, 0
+    target_periods=set()
     query = select(DirectFeedDocument.id, DirectFeedDocument.metadata_json,
         DirectFeedDocument.content_hash, DirectFeedDocument.status, DirectFeedDocument.error,
         DirectFeedDocument.reconciliation_json, DirectFeedRevision.source_bytes,
@@ -93,6 +97,12 @@ def export_records(db, stream):
             del parsed
         if metadata['filing_date'] >= '2026-10-07':
             ciks.add(metadata['cik'].lstrip('0'))
+            if raw and row['status']=='parsed':
+                # Scope follows original bytes, never a mutable saved parse.
+                _,original,_=parse_document('sec_13f',raw,metadata)
+                period=date.fromisoformat(original['metadata']['report_period'])
+                target_periods.add((period.year,(period.month-1)//3+1))
+                del original
         stream.write('documents', dict(id=row['id'], metadata=metadata,
             content_hash=row['content_hash'], status=row['status'], error=row['error'],
             prior_collection=json.loads(row['reconciliation_json'] or '{}').get('_prior_collection'),
@@ -102,14 +112,24 @@ def export_records(db, stream):
     # Drop the last source payload before canonical row export.
     del row, raw
     symbols, parent_ids = set(), set()
+    summary_digest=hashlib.sha256()
+    summary_count=0
+    summary_excluded=0
 
     def records(name, model, condition, maximum=100000):
+        nonlocal summary_count,summary_excluded
         query = select(*model.__table__.columns).where(condition).order_by(
             *model.__table__.primary_key.columns).limit(maximum+1)
         for i, record in enumerate(db.execute(query.execution_options(yield_per=100)).mappings(), 1):
             if i > maximum:
                 raise ValueError(name + ' exceeds reviewed row bound')
             values = dict(record)
+            if name=='summaries':
+                summary_digest.update(dumps(values).encode()+b'\n')
+                summary_count+=1
+                if (values['report_year'],values['report_quarter']) not in target_periods:
+                    summary_excluded+=1
+                    continue
             stream.write(name, values)
             if name in {'positions', 'mapping_positions'}:
                 if values['normalized_symbol']:
@@ -141,10 +161,14 @@ def export_records(db, stream):
     records('holders',InstitutionalHolder,func.ltrim(InstitutionalHolder.cik,'0').in_(ciks),5000)
     records('summaries',InstitutionalSymbolSummary,InstitutionalSymbolSummary.symbol.in_(symbols))
     return dict(captured_at=captured_at, source_bytes=total, transaction_read_only=True,
-                production_writes=0)
+                production_writes=0,summary_evidence=dict(
+                    complete_history_rows=summary_count,history_sha256=summary_digest.hexdigest(),
+                    omitted_other_period_rows=summary_excluded,
+                    exported_periods=sorted(target_periods)))
 
 
 def main():
+    os.nice(10)  # Yield diagnostic serialization CPU to the API and delivery worker.
     stream = RecordStream()
     with SessionLocal() as db:
         if db.get_bind().dialect.name != 'postgresql':
