@@ -35,7 +35,7 @@ def main():
                             UserAccount,Watchlist,WatchlistItem,Security,MonitoringAlert,NotificationSubscription)
     from app.services.direct_feed_store import discover,record_document,dumps
     from app.services.direct_feed_collection import parse_document
-    from app.services.direct_13f_batch import load_identifier_manifest
+    from app.services.direct_13f_batch import load_identifier_manifest, staged_comparison_groups
     from app.services.direct_13f_worker import publish_13f_document
     from app.services.direct_13f_evidence import Prepared13FEvidence
     from app.services.feed_source_control import select_feed_source
@@ -88,7 +88,9 @@ def main():
         requested=set(args.accession)
         priors=[p for p in priors if by_id[p['current_document_id']]['metadata']['key'] in requested]
         assert len(priors)==len(requested), 'Requested comparison not present in captured complete pairs'
-    assert 1<=len(priors)<=200
+    # This is an offline cohort, not one publication batch. Each filing still
+    # uses its own bounded writer transaction; source inventory bounds apply.
+    assert 1<=len(priors)<=1000
     selected_ids={r['current_document_id'] for r in priors}
     current=[];comparisons=[]
     for source in baseline['documents']:
@@ -114,8 +116,6 @@ def main():
     started=time.monotonic()
     comparison_count_before=len(comparisons)
     target_periods={parse_document('sec_13f',d['raw'],d['metadata'])[1]['metadata']['report_period'] for d in documents}
-    comparisons=[d for d in comparisons if parse_document('sec_13f',d['raw'],d['metadata'])[1]['metadata']['report_period'] in target_periods]
-    prepared=Prepared13FEvidence.build(identifiers,comparisons) if args.prepared_evidence else None
     Base.metadata.create_all(engine)
     def forbidden(*a,**k):raise AssertionError('Offline replay attempted transport or email')
     with patch('requests.sessions.Session.request',forbidden),patch('httpx.Client.send',forbidden), \
@@ -151,22 +151,34 @@ def main():
         assert not summaries, 'Review newly present Q3 derived baseline before replay'
         db.commit()
         staged_ids={}
-        for source in documents:
+        # Stage every captured parsed peer, including other quarters, so the
+        # actual production selector is exercised rather than a hand-filtered list.
+        target_keys={d['metadata']['key'] for d in documents}
+        for source in comparisons:
             text,parsed,holds=parse_document('sec_13f',source['raw'],source['metadata'])
-            assert not holds
-            assert parsed['metadata']['report_period'] in {'2026-06-30','2026-09-30'}
+            if source['metadata']['key'] in target_keys:
+                assert not holds
+                assert parsed['metadata']['report_period'] in {'2026-06-30','2026-09-30'}
             staged=discover(db,'sec_13f',source['metadata'])
-            record_document(db,staged,source['raw'],text,parsed)
+            record_document(db,staged,source['raw'],text,parsed,reasons=holds)
+            staged.status=source['status']  # Restore captured state, not inferred eligibility.
             staged_ids[source['metadata']['key']]=staged.id
         db.commit()
+        groups=staged_comparison_groups(db,byte_budget=100_000_000-sum(len(d['raw']) for d in identifiers),
+                                       report_periods=target_periods)
+        db.rollback()
+        comparisons=list({id(d):d for group in groups.values() for d in group}.values())
+        prepared={period:Prepared13FEvidence.build(identifiers,group) for period,group in groups.items()} if args.prepared_evidence else {}
+        source_periods={d['metadata']['key']:parse_document('sec_13f',d['raw'],d['metadata'])[1]['metadata']['report_period'] for d in documents}
         select_feed_source(db,feed='sec_13f',provider='sec_edgar',publish_since=date(2026,10,7),
                            expected_generation=0,reason='Isolated current source and prior-quarter cutover replay')
         db.commit()
         def run(verbose=False):
             results=[]
             for source in documents:
+                period=source_periods[source['metadata']['key']]
                 result=publish_13f_document(db,staged_ids[source['metadata']['key']],
-                    identifier_documents=identifiers,comparison_documents=comparisons,prepared_evidence=prepared,reference_documents=references)
+                    identifier_documents=identifiers,comparison_documents=groups[period],prepared_evidence=prepared.get(period),reference_documents=references)
                 results.append(dict(accession=source['metadata']['key'],cik=source['metadata']['cik'],**result))
                 if verbose:print(dumps(dict(accession=source['metadata']['key'],status=result['status'],
                     derived_state=result.get('derived_state'),feed_events=result.get('feed_events',0))),flush=True)
@@ -247,7 +259,7 @@ def main():
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
         report=dict(continuity_checks=continuity_checks,selected_accessions=sorted(set(args.accession)),baseline_sha256=baseline_hash,baseline_captured_at=baseline['captured_at'],source_documents=len(documents),
             mapping_supplement_sha256=hashlib.sha256(args.mapping_supplement.read_bytes()).hexdigest() if args.mapping_supplement else None,
-            reference_documents=len(references),comparison_periods=sorted(target_periods),comparison_documents=len(comparisons),excluded_other_period_comparisons=comparison_count_before-len(comparisons),prepared_evidence=args.prepared_evidence,staged_prior_pairs=len(priors) if args.staged_priors else None,staged_excluded_pairs=staged_excluded_pairs,elapsed_seconds=round(time.monotonic()-started,2),
+            reference_documents=len(references),comparison_periods=sorted(target_periods),comparison_group_counts={period:len(group) for period,group in groups.items()},comparison_documents=len(comparisons),excluded_other_period_comparisons=comparison_count_before-len(comparisons),prepared_evidence=args.prepared_evidence,staged_prior_pairs=len(priors) if args.staged_priors else None,staged_excluded_pairs=staged_excluded_pairs,elapsed_seconds=round(time.monotonic()-started,2),
             statuses=dict(Counter(r['status'] for r in first)),derived_states=dict(Counter(r.get('derived_state',r['status']) for r in first)),
             results=first,totals={key:sum(r.get(key,0) for r in first) for key in ['inserted_filings','inserted_positions','changes','summaries','activity_events','feed_events']},
             qualifying_events=[dict(symbol=e.symbol,event_type=e.event_type,payload=json.loads(e.payload_json)) for e in events],

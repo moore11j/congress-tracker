@@ -192,3 +192,19 @@ def test_chunked_source_fetch_preserves_each_original(db, monkeypatch):
     monkeypatch.setattr(batch, 'FETCH_BYTES', len(sources[0]['raw']) + 1)
     result = batch.staged_comparisons(db, byte_budget=100_000_000, report_periods={'2026-09-30'})
     assert [(d['raw'], d['content_hash']) for d in result] == [(d['raw'],d['content_hash']) for d in reversed(sources)]
+
+
+def test_separate_quarter_budgets_keep_complete_inputs_and_global_scan_bound(db, monkeypatch):
+    prior, current = pair()
+    stage(db, prior); stage(db, current)
+    # Both individual groups fit; their union is not one prepared evidence object.
+    budget = max(len(prior['raw']),len(current['raw']))
+    groups = batch.staged_comparison_groups(db, byte_budget=budget,
+        report_periods={'2026-06-30','2026-09-30'})
+    assert {p:[d['content_hash'] for d in g] for p,g in groups.items()} == {
+        '2026-06-30':[prior['content_hash']], '2026-09-30':[current['content_hash']]}
+    with pytest.raises(ValueError, match='Combined comparison cohort exceeds evidence budget'):
+        batch.staged_comparisons(db, byte_budget=budget, report_periods=set(groups))
+    monkeypatch.setattr(batch, 'MAX_SCAN_BYTES', budget)
+    with pytest.raises(ValueError, match='Complete staged source scan exceeds byte bounds'):
+        batch.staged_comparison_groups(db, byte_budget=budget, report_periods=set(groups))
