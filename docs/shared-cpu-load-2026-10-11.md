@@ -1,0 +1,15 @@
+# Shared-host CPU limits, October 11
+
+The approved two-service topology remains one shared2/2GB API/jobs host and one performance1/2GB database. Slow requests at03:06UTC still returned200, but feeds took2.98–3.14s and new ticker contexts6.19–6.57s. This is unresolved product latency, not an accepted consequence of savings.
+
+Short-lived, organization-read-only credentials recovered the previously rejected Fly metrics read. Tokens were kept only in process memory with five-minute expiry; no credentials were printed or saved. Receipt `cpu-quota-1791688096.json` confirms the API baseline is0.125 CPU, burst balance is effectively zero and quota throttling is active. Background nice-priority work consumes about0.115 CPU over the sampled five minutes. The database baseline is1 CPU, with zero throttling and about93% idle CPU. Additional database capacity would not address this measured bottleneck.
+
+History receipt `cpu-quota-1791688216.json` shows API burst balance about97 CPU-seconds at02:06UTC and first near-zero at02:21UTC, during the diagnostic export attempts. Those attempts contributed to depletion. However, nice-priority work already averaged0.16–0.17 CPU in earlier five-minute windows, above the shared host's0.125 sustained baseline. Serialization prevents job overlap but does not itself make the workload fit that sustained allowance. All production exports have now ended; future full-cohort parsing stays local.
+
+The scheduler now records per-job child CPU seconds alongside wall time and exit status. Native child usage includes reaped shell descendants; deltas prevent previous jobs from being counted again. This permits measured reductions in repeated imports/planning while preserving data and delivery cadence. No command, queue order, schedule, resource allocation, provider selection or publication flag changes in this package. CPU logging alone is not a latency fix.
+
+Validation: five Windows scheduler checks pass, five Linux-only checks skip on Python3.14.2. The broad isolated Linux run hit an unchanged supervisor timing assertion under active CPU throttling; it is not an all-green suite. The targeted native check then passes on production Python3.12.15: grandchild CPU is counted and the following mostly sleeping job excludes its predecessor's CPU. Tests use disposable queues/files and no product data or production schedules. No production release yet.
+
+Next: observe CPU costs on ordinary jobs, reduce the dominant avoidable work, verify queue freshness and public latency under sustained operation, then continue the institutional peer-window repair. Public institutions/core/transcripts remain FMP; Massive personal Stocks remains last. No subscription purchase, infrastructure increase, customer test email or FMP cancellation.
+
+Sources: [Fly CPU limits](https://docs.fly.io/machines/cpu-performance), [metric units](https://docs.fly.io/monitoring/metrics). Fly distinguishes quota throttling from CPU steal caused by host contention; the dedicated throttle metric establishes the former here. Existing58.64USD/30-day compute/storage estimate remains before extras and above the owner's26USD target.
