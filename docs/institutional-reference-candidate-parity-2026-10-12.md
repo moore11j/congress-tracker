@@ -1,6 +1,6 @@
 # Align institutional reference planning with publication
 
-October 12, 2026. Implementation and read-only production comparison are complete; release is pending. Institutional publication remains disabled and FMP remains selected.
+October 12, 2026. Released as70bd3639; exact runtime and ordinary collection verified at01:33UTC. Institutional publication remains disabled and FMP remains selected.
 
 ## Confirmed cause
 
@@ -27,3 +27,13 @@ Receipts under artifacts/direct-feeds/free-replacements-2026-10-09: reference-pl
 ## Remaining gates
 
 Review, deploy and verify exact runtime code plus ordinary collection under version5. Full574-source replay46444 continues independently with a frozen579-reference input and unchanged publication code. Completion, provenance/duplicate/consumer repeats, actual bounded publication cost, source coverage and security transitions remain required before institutional selection. Senate access, core financials, transcripts, all monitoring/watchlist/daily/weekly/ranking consumers, final Massive Stocks entitlement checks, zero global FMP traffic and billing cancellation remain open.
+
+## Release and ordinary collection,01:33UTC
+
+[PR595](https://github.com/moore11j/congress-tracker/pull/595), tested129094db, merged as70bd3639cdfdee9ea27299a724646e262babdb66. Automated review completed without findings. Secret scan passed; existing Pillow10.4.0 and five frontend dependency vulnerabilities still fail the unchanged audits. Backend workflow38192116687 completed successfully. No all-CI/full-suite claim. Task attachment hit the existing100-item limit; no attachments were removed.
+
+At01:32UTC,40 expected application hashes match the deployed release; the API shared2CPU/2048MB and DB performance1CPU/2048MB are unchanged. Institutional publication remainsfalse; the disabled job imports no database/ORM and uses0.0112CPU seconds. The scheduler queue is empty at this observation. Eight public endpoints return200, including50newsitems, feeds0.526/0.438seconds and freshAAPL1.300/NVDA1.157seconds. These postdeployment samples do not prove sustainedcapacity. Receipt two-service-verify-1791768766.json.
+
+The ordinary01:31:08 run prepares version5 with500source documents,1846candidate scopes, nextsourcecursor4652 and retained dailyattempt timestamps. It completes exactlytwo identity requests, both verified:25400Q105 for2026-09-30, neededby12filings, and83418M103 for2026-06-30, neededby6filings. Staging IDs8181/8182 and response hashes are saved in reference-queue-1791768774.json, observed01:32:55. No price requests, public writes or emails, and no provider cooldown. This verifies deployed collection progress, not completion of all129scopes or their dependent filings. No manual source trigger, schedule change or extra request budget was used.
+
+Full574-source replay46444 remains confirmedlive in firstpass at01:33UTC; its frozen579-reference input and publication code were not changed by this collector repair. Finish its stronger provenance/full-state/consumer checks, coverage and actual publication capacity before sourceactivation. Previous release verification and this repair are both concretegoalprogress. All new diagnostics/tests/releaseverifiers are terminal; no localPostgreSQL. Other migration gates remain as above.
