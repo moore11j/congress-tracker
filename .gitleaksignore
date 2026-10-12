@@ -15,3 +15,7 @@ f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/orm/unitof
 
 # Public scheduler job name, not a credential; historical declaration renamed JOB_NAME.
 162c133f0b4a9670a36f9690d7a4980eb8915089:backend/app/jobs/check_direct_13f_capacity.py:generic-api-key:9
+
+# Exact historical prose false positives: the documented phrase market/trading/news.
+652394109611eb1c202baaa5b9ca6e59a81f2907:AGENTS.md:generic-api-key:77
+652394109611eb1c202baaa5b9ca6e59a81f2907:docs/context-log.md:generic-api-key:588
