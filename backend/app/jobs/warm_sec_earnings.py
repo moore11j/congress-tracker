@@ -1,4 +1,5 @@
 """Prepare SEC earnings source bundles without changing public selection or canonical data."""
+from app.services.issuer_financial_registry import PROFILES as ISSUER_PROFILES
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -35,7 +36,7 @@ def _run_locked():
             .distinct().order_by(func.upper(Security.symbol)).limit(1001)))
         research = list(db.scalars(select(func.upper(Security.symbol)).join(ResearchThesis, ResearchThesis.security_id == Security.id).where(ResearchThesis.status == 'active').distinct().order_by(func.upper(Security.symbol)).limit(1001)))
         from app.services.data_enrichment_queue import _recently_viewed_ticker_symbols, DEFAULT_PREWARM_SYMBOLS
-        reviewed = list(db.scalars(select(Security.symbol).where(Security.symbol.in_(['AZO']))))
+        reviewed = list(db.scalars(select(Security.symbol).where(Security.symbol.in_(list(ISSUER_PROFILES)))))
         symbols = sorted({s for raw in [*reviewed, *watched[:1000], *research[:1000], *_recently_viewed_ticker_symbols(db, limit=100),
             *DEFAULT_PREWARM_SYMBOLS] if (s := normalize_symbol(raw))})
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}

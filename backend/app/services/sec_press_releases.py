@@ -2,6 +2,7 @@
 
 This feed does not create research events or label SEC acceptance as press time.
 """
+from app.services.issuer_financial_registry import PROFILES as ISSUER_PROFILES
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -31,7 +32,7 @@ def selected_press_provider():
 
 def _cache_version(symbol):
     # Revisit only the reviewed issuer whose old classifier held this release.
-    return CACHE_VERSION + '_issuer_financial_v2' if symbol == 'AZO' else CACHE_VERSION
+    return CACHE_VERSION + '_issuer_financial_v2' if symbol in ISSUER_PROFILES else CACHE_VERSION
 
 
 def _cache_row(db, symbol):
@@ -135,7 +136,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
                 _lock_issuer(db, security_id)
                 doc = stage_earnings_material(db, company_raw=company_raw, submission_raw=raw,
                     index_raw=index_raw, symbol=symbol, cik=cik, accession=filing['accession_number'])
-                if symbol == 'AZO' and filing['accession_number'] == '0001171843-26-006159':
+                if symbol in ISSUER_PROFILES and filing['accession_number'] == ISSUER_PROFILES[symbol]['accession']:
                     from app.services.issuer_financial_staging import prepare_staged_financials
                     prepare_staged_financials(db, doc.id, security_id=security_id, observed_at=now)
                 document_ids.append(doc.id)
