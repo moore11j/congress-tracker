@@ -1,3 +1,5 @@
+2026-10-12: [Debt aggregate repair](sec-debt-aggregate-reconciliation-2026-10-12.md) implemented after originalON filing disproves two prepared candidates.140tests/21source replay pass, publiccoreFMP; releasepending and broad leverage coverage/consumer gates remain.
+
 2026-10-12 18:03: [ACN issuer preparation](accenture-issuer-financials-2026-10-12.md) PR616/c710534a deployed;245tests/74runtime hashes and actual deployed-source equality pass. Ordinary receipt propagation pending; coreFMP, financial semantic/coverage and consumer/capacity gates remain.
 
 2026-10-12: [ACN issuer financial preparation](accenture-issuer-financials-2026-10-12.md) locally implements ten annual fields and passes245tests/actual-source repeat. Growth parity is verified; margins differ and publiccore remainsFMP. Release and ordinary propagation pending, broader coverage/consumer/capacity gates unchanged.

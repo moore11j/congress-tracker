@@ -6,7 +6,7 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v3'
+VERSION = 'sec_leverage_evidence_v4'
 DURATION = {
     'leverage_net_income': ('NetIncomeLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
@@ -150,6 +150,47 @@ def _lease_totals(instant):
     return reconciliations
 
 
+def _debt_bounds(instant):
+    """Hold totals contradicted by same-filing components that they must include.
+
+    Standard tags alone do not establish statement meaning. For example, ON's
+    July 2026 filing tags a small guarantee as DebtAndCapitalLeaseObligations.
+    A compatible noncurrent debt component disproves that apparent total.
+    Bounds never reconstruct totals or assume that omitted components are zero.
+    """
+    included = {
+        'leverage_borrowings': ('leverage_noncurrent_borrowings',),
+        'leverage_debt_with_finance_leases': (
+            'leverage_borrowings', 'leverage_current_debt',
+            'leverage_noncurrent_debt_with_finance_leases',
+            'leverage_noncurrent_borrowings', 'leverage_finance_leases'),
+        'leverage_noncurrent_debt_with_finance_leases': (
+            'leverage_noncurrent_borrowings', 'leverage_finance_leases_noncurrent'),
+        'leverage_current_debt': ('leverage_finance_leases_current',),
+    }
+    holds = {}
+    # Compare the original independent observations, not a partially masked set.
+    for name, parts in included.items():
+        total = instant.get(name)
+        if total is None or not _finite(total['value']) or total['value'] < 0:
+            continue
+        contradictions = []
+        for part in parts:
+            component = instant.get(part)
+            if (component is not None and _compatible([total, component])
+                    and _finite(component['value']) and component['value'] >= 0
+                    and component['value'] > total['value']
+                    and not math.isclose(component['value'], total['value'], rel_tol=1e-12, abs_tol=.01)):
+                contradictions.append({'component':part, 'reported':component})
+        if contradictions:
+            holds[name] = {'status':'aggregate_below_reported_component',
+                'reported_aggregate':total, 'contradictions':contradictions,
+                'requirement':'A same-filing reported total must include each compatible nonnegative component.'}
+    for name in holds:
+        instant[name] = None
+    return holds
+
+
 def project(records, *, end, start):
     """Return auditable candidates. Caller must not select a public metric here."""
     if not isinstance(end, date) or date.fromisoformat(start) > end:
@@ -157,6 +198,7 @@ def project(records, *, end, start):
     ebitda = _ebitda(records, end, start)
     instant = {name: records.get(name, {}).get((None, end)) for name in INSTANT}
     reconciliations = _lease_totals(instant)
+    debt_reconciliations = _debt_bounds(instant)
     candidates = []
     holds = {}
 
@@ -166,6 +208,10 @@ def project(records, *, end, start):
         missing = [name for name, fact in zip(names, facts) if fact is None]
         if cash is None:
             missing.append('leverage_cash')
+        if any(name in debt_reconciliations for name in names):
+            holds[basis] = {'reason':'conflicting_reported_debt_total',
+                'components':[name for name in names if name in debt_reconciliations]}
+            return
         if missing:
             holds[basis] = {'reason': 'missing_reported_components', 'components': missing}
             return
@@ -224,7 +270,7 @@ def project(records, *, end, start):
         ('leverage_borrowings', 'leverage_finance_leases', 'leverage_operating_leases'),
         'Reported borrowings plus finance and operating leases less cash; requires overlap review before selection.')
     return {'version': VERSION, 'status': 'preparation_only', 'period_date': str(end),
-        'ebitda': ebitda, 'candidates': candidates, 'holds': holds, 'lease_reconciliations': reconciliations,
+        'ebitda': ebitda, 'candidates': candidates, 'holds': holds, 'lease_reconciliations': reconciliations, 'debt_reconciliations': debt_reconciliations,
         'limitations': ['No candidate is selected as the canonical net-debt/EBITDA field.',
             'Missing debt, lease, interest or D&A components are not assumed zero.',
             'Issuer-adjusted EBITDA and D&A including other items are not substituted.',
