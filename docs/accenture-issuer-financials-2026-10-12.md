@@ -1,6 +1,6 @@
 # Accenture annual issuer financial preparation
 
-October 12, 2026. Implemented and locally validated; release and ordinary scheduled observation pending. Public core fundamentals remain FMP.
+October 12, 2026. Deployed and runtime verified; ordinary collector-to-financial propagation pending. Public core fundamentals remain FMP.
 
 ## Gap and source
 
@@ -51,3 +51,19 @@ Local artifacts: primary `artifacts/direct-feeds/free-replacements-2026-10-09/ac
 ## Remaining release and migration gates
 
 Release review, deployment/runtime hashes, actual deployed parser and ordinary collector-to-ratio propagation remain. API sustained capacity and PR615's ordinary exhausted-plan CPU path remain observational gates. At 17:54 the ordinary reference worker still has due work and retains two-source requests per run; no idle saving is claimed. Broader financial coverage/definition parity, institutional publication capacity/coverage, transcripts, all scheduled consumers, final Massive subscription/validation, global zero-FMP traffic and billing cancellation remain. No public provider switch, price plan, host, schedule, customer email, landing-page change or cancellation occurs in this task.
+
+
+## Deployed release and runtime verification
+
+[PR616](https://github.com/moore11j/congress-tracker/pull/616), source `d2d56f3a90cf3ad16e2ce0079129b1a1d47fa998`, merged as `c710534a924ad653966ced67313c2d95766956bb`. Deployment workflow `38287994707`, job `114940884321`, succeeds. Exact-head secret scan passes. Dependency audit failures are the unchanged Pillow10.4.0 and frontend nanoid/Next/PostCSS/Sharp/source-map-js findings. No manifest/lockfile changes, full-suite/green-CI or automated-review claim. PR attachment was attempted; the thread's existing100-item limit prevents another attachment.
+
+`acn-release-1791828142.json` at18:02:20 verifies all74runtime hashes and deployedPython3.12.15. Two read-only re-projections of production's already-retained document5174 are identical; all ten values, inputs, formulas, periods and source SHA match the local actual-source replay. Combined two-projectionCPU0.7247seconds is a diagnostic sample, not an ordinary worker capacity benchmark. No provider request, production write or customer email occurs.
+
+Ordinary financial preparation at18:01:51 now records the issuer-aware version forACN but correctly keepsMay31 because the issuer receipt is not yet present. The earnings worker last attemptedACN at18:00:39 before rollout; its18:02 ordinary five-scope run succeeds on other names. The next ordinaryACN turn and dependent financial refresh remain to observe. No manual source receipt or misleading readiness flag was inserted to make that gate pass.
+
+`issuer-staging-public-1791828136.json` verifies all200responses: ready0.327s, feeds0.579/0.547s, AAPL1.433s,NVDA1.488s and unchanged four distinctAZO press links0.245s. These postrelease samples do not establish sustainedAPI capacity or every ticker's completeness.
+
+`reference-queue-1791828186.json` observes ordinary18:01:38 rotation into the remaining218originals,377scopes and one reused source. This preserves plan rotation and due work underPR615; no ordinary idle CPU saving is yet claimed by this receipt. Public institutional publication remainsfalse. All migration acceptance gates listed above remain open.
+
+
+October12,18:05: Bounded ordinary log observation1791828256 verifies reference18:03 exit1/0.2423CPU/0.40wall and18:04 exit1/1.4288CPU/2.01wall. The cheaper partial run is consistent with the new exhausted-plan branch, but this mixed sample is not sustained saving or whole-window capacity proof. Read-only preflight1791828296 returns same-minute cooldown,72hashes unchanged; does not establish the preceding run branch. All new handles terminal/no localPG. ACN ordinary collector-to-financial propagation remains pending; goalactive.
