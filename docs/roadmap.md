@@ -384,3 +384,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,15:20UTC:** Owner resumes. Official [TradingView MCP beta](https://www.tradingview.com/mcp/docs) identified as an untested research/validation candidate; coverage and Walnut-use permissions remain unverified, no production selection or subscription. REA is inspection tooling, not a replacement dataset. Preserve Massive final-price decision and Quiver exclusion. Alert source-baseline repair remains local36dd6221/185prior tests; release and full cutover gates remain.
+
+
+**October12,15:45UTC:** [Financial alert source/formula protection](financial-alert-source-baseline-2026-10-12.md) deployedPR606/1131b0d0 with isolated production-runtime proof. [Issuer financial preparation](issuer-release-financials-2026-10-12.md) deployedPR607/c01e03c5 and original-source parity: six AZO annual metrics, preparation only. Bounded persistent integration, broad coverage and public source/score/consumer acceptance remain open; no new provider activation or subscription.

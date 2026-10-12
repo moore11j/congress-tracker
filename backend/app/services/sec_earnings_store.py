@@ -110,7 +110,7 @@ def stage_earnings_material(db, *, company_raw, submission_raw, index_raw, symbo
     return document
 
 
-def reconcile_staged_earnings(db, document_id, *, security_id):
+def read_staged_earnings(db, document_id):
     document = db.get(DirectFeedDocument, document_id)
     if document is None or document.feed != 'sec_earnings_release':
         raise ValueError('No staged SEC earnings release')
@@ -136,6 +136,11 @@ def reconcile_staged_earnings(db, document_id, *, security_id):
     parsed = verify_filing_availability(prepare_earnings_release(raw, filing=filing), index_raw)
     if document.parsed_json != dumps(parsed):
         raise ValueError('Staged parsed evidence changed; reparse required')
+    return document, parsed, raw
+
+
+def reconcile_staged_earnings(db, document_id, *, security_id):
+    document, parsed, _ = read_staged_earnings(db, document_id)
     result = reconcile_research_document(db, parsed, security_id=security_id)
     if parsed['status'] == 'prepared':
         digest = parsed['release']['text_sha256']

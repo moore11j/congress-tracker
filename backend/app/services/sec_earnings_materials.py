@@ -140,7 +140,10 @@ def prepare_earnings_release(raw, *, filing):
         release = re.search(r'(?:earnings|press|news)\s+release', description, re.I)
         results = re.search(r'\b(?:reports?|reported|announces?|announced)\b.{0,160}\b(?:results|net income)\b|\bearnings release\b|\b(?:operating|financial) results\b.{0,160}\b(?:are|were) summarized\b', lead, re.I)
         financial = re.search(r'\b(?:revenues?|net income|net earnings|earnings per|eps)\b', lead, re.I)
-        accepted = bool(release and results and financial and not excluded and len(content) >= 1000)
+        sales_results = (re.search(r'\breported net sales\b', lead, re.I)
+            and re.search(r'\b(?:first|second|third|fourth) quarter\b.{0,120}\bended\b', lead, re.I)
+            and re.search(r'\bCondensed Consolidated Statements of Operations\b', content, re.I))
+        accepted = bool(release and (results or sales_results) and financial and not excluded and len(content) >= 1000)
         receipt['candidates'].append({'filename': filename, 'description': description,
                                       'selected': accepted, 'excluded_supplement_or_other_material': bool(excluded)})
         if accepted:
