@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12 05:09 UTC:** [SEC rejected-original retention](sec-cover-quarantine-2026-10-12.md) implemented locally;243 checks,718 accepted-original output parity and three actual rejected-original retention/retry checks pass. Not deployed or activated; coverage discrepancies remain held.
+
 **2026-10-12 04:25 UTC:** [Senate publication rehearsal](senate-backup-preparation-2026-10-12.md), draftPR600/source00b240dc, now verifies84published/51held filings,462transactions/358events, unchanged public state and12/8/358 no-send repeats. Shared ownership, atomic rollback and official recovery are implemented; production activation/job integration/source freshness/capacity and existing Fetterman duplicate/date repair remain gated. No source or schedule switch.
 
 **2026-10-12 04:08 UTC:** [Senate member/canonical preparation](senate-backup-preparation-2026-10-12.md), draftPR600, passes162checks and135member identities; full staged135filing inspection repeats identically with84new/51held plans. In-place Whitehouse matches5existing events; Fetterman date conflict remainsheld. Publication/job/recovery/consumer integration and broader migration gates remain, no activation.
