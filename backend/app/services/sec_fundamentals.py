@@ -82,6 +82,9 @@ def fetch_fundamentals(symbol: str):
                 'limitations': ['Financial facts unavailable; market data is independently verified']})}
     from app.services.sec_issuer_cash_flow import supplement
     values = supplement(values, facts, company, client=client)
+    if symbol == 'AZO':
+        from app.services.issuer_financial_reader import supplement as issuer_financials
+        values = issuer_financials(values, company, observed_at=now)
     # Financial facts remain useful when the separately sourced market data is
     # unavailable. Never carry old market ratios into a newly refreshed record.
     from app.clients.massive_stocks import MassiveStocksClient, MassiveStocksError, selected

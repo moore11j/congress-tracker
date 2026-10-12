@@ -14,13 +14,12 @@ ACCESSION = '0001171843-26-006159'
 KEY = 'issuer-financials:AZO:'+ACCESSION+':v1'
 
 
-def prepare_staged_financials(db, document_id, *, security_id, observed_at=None):
-    """Caller holds issuer lock and controls commit. Never creates canonical data."""
+def project_staged_financials(db, document_id, *, symbol, observed_at=None):
+    """Read and recompute retained evidence without any database writes."""
     observed_at = observed_at or datetime.now(timezone.utc)
     if observed_at.tzinfo is None:
         raise ValueError('Financial preparation observation requires timezone')
-    security = db.get(Security, security_id)
-    if security is None or security.symbol != 'AZO':
+    if symbol != 'AZO':
         raise ValueError('Financial preparation security mismatch')
     document, parsed, raw = read_staged_earnings(db, document_id)
     if (parsed['symbol'], parsed['cik'], parsed['accession_number']) != ('AZO','0000866787',ACCESSION):
@@ -63,6 +62,16 @@ def prepare_staged_financials(db, document_id, *, security_id, observed_at=None)
         except IssuerFinancialError as exc:
             # Financial format holds do not discard an otherwise valid release.
             result['reason']=str(exc)
+    return result
+
+
+def prepare_staged_financials(db, document_id, *, security_id, observed_at=None):
+    """Caller holds issuer lock and controls commit. Never creates canonical data."""
+    observed_at = observed_at or datetime.now(timezone.utc)
+    security = db.get(Security, security_id)
+    if security is None:
+        raise ValueError('Financial preparation security mismatch')
+    result = project_staged_financials(db, document_id, symbol=security.symbol, observed_at=observed_at)
     row=db.get(InsightsSnapshot,KEY,with_for_update=True)
     if row is not None:
         prior=json.loads(row.payload_json)

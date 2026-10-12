@@ -31,7 +31,7 @@ def selected_press_provider():
 
 def _cache_version(symbol):
     # Revisit only the reviewed issuer whose old classifier held this release.
-    return CACHE_VERSION + '_issuer_financial_v1' if symbol == 'AZO' else CACHE_VERSION
+    return CACHE_VERSION + '_issuer_financial_v2' if symbol == 'AZO' else CACHE_VERSION
 
 
 def _cache_row(db, symbol):

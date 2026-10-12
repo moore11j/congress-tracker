@@ -15,10 +15,12 @@ from app.services import sec_directory, sec_fundamentals
 VERSION = 'sec_ratio_preparation_v5'
 TTL = timedelta(hours=24)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
-    'operating_margin_expansion', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
+    'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
 
 
 def version_for_symbol(symbol):
+    if symbol == 'AZO':
+        return VERSION+'_issuer_release_v1'
     if symbol == 'PROV':
         return VERSION+'_bank_revenue_v1'
     return VERSION+'_xom_continuity_v1' if symbol == 'XOM' else VERSION
@@ -90,6 +92,9 @@ def prepare(symbol, *, max_cache_age=TTL):
             else:
                 from app.services.sec_issuer_cash_flow import supplement
                 values = supplement(values, raw, company, client=client)
+                if symbol == 'AZO':
+                    from app.services.issuer_financial_reader import supplement as issuer_financials
+                    values = issuer_financials(values, company, observed_at=now)
                 payload['values'] = {name: values[name] for name in METRICS if name in values}
                 payload['period_date'] = str(values['period_date'])
                 payload['calculation_evidence'] = json.loads(values['source_evidence_json'])

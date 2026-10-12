@@ -5,7 +5,7 @@ import hashlib
 import re
 from zoneinfo import ZoneInfo
 
-VERSION = 'issuer_release_financials_v1'
+VERSION = 'issuer_release_financials_v2'
 AZO_URL = 'https://www.sec.gov/Archives/edgar/data/866787/000117184326006159/exh_991.htm'
 AMOUNTS = {
     'Net sales': 'revenue', 'Cost of sales': 'cost_of_sales',
@@ -40,7 +40,7 @@ def prepare_autozone_annual(raw: bytes, *, source_url: str, observed_at: datetim
     """The reviewed FY2026 release only. New periods require source review.
 
     Use the actual annual GAAP table, never the quarter or adjusted EBITDAR.
-    EPS growth is annual reported diluted EPS growth, not analyst consensus.
+    EPS growth prefers annual basic EPS, retaining diluted EPS as an explicit fallback.
     """
     if source_url != AZO_URL:
         raise IssuerFinancialError('Unreviewed issuer release')
@@ -90,16 +90,16 @@ def prepare_autozone_annual(raw: bytes, *, source_url: str, observed_at: datetim
             group = label
             continue
         metric = AMOUNTS.get(label)
-        if label == 'Diluted' and group == 'Net income per share:':
-            metric = 'diluted_eps'
+        if label in {'Basic', 'Diluted'} and group == 'Net income per share:':
+            metric = 'basic_eps' if label == 'Basic' else 'diluted_eps'
         if not metric:
             continue
         values = _numbers(row[1:])
         if len(values) != 2 or metric in selected:
             raise IssuerFinancialError('Missing or duplicate annual values')
-        scale = 1 if metric == 'diluted_eps' else 1000
+        scale = 1 if metric in {'basic_eps','diluted_eps'} else 1000
         selected[metric] = [value * scale for value in values]
-    if set(selected) != {*AMOUNTS.values(), 'diluted_eps'}:
+    if not {*AMOUNTS.values(), 'diluted_eps'} <= set(selected):
         raise IssuerFinancialError('Incomplete annual statement')
     for i in (0, 1):
         def value(key): return selected[key][i]
@@ -122,9 +122,11 @@ def prepare_autozone_annual(raw: bytes, *, source_url: str, observed_at: datetim
              f'52-week GAAP {numerator} / revenue * 100')
     save('revenue_growth', (selected['revenue'][0]/selected['revenue'][1]-1)*100,
          '(52-week GAAP revenue / prior comparable 52-week revenue - 1) * 100')
-    if selected['diluted_eps'][1] > 0:
-        save('eps_growth', (selected['diluted_eps'][0]/selected['diluted_eps'][1]-1)*100,
-             '(52-week GAAP diluted EPS / prior comparable 52-week diluted EPS - 1) * 100')
+    eps = 'basic_eps' if 'basic_eps' in selected else 'diluted_eps'
+    eps_label = 'basic' if eps == 'basic_eps' else 'diluted'
+    if selected[eps][1] > 0:
+        save('eps_growth', (selected[eps][0]/selected[eps][1]-1)*100,
+             f'(52-week GAAP {eps_label} EPS / prior comparable 52-week {eps_label} EPS - 1) * 100')
     save('operating_margin_expansion', (selected['operating_income'][0]/selected['revenue'][0]-
          selected['operating_income'][1]/selected['revenue'][1])*100,
          'current minus prior comparable 52-week GAAP operating margin, percentage points')
@@ -137,7 +139,7 @@ def prepare_autozone_annual(raw: bytes, *, source_url: str, observed_at: datetim
         'prior_period_start': str(prior_end-timedelta(days=363)), 'prior_period_end': str(prior_end),
         'period_basis': '52-week annual GAAP', 'currency': 'USD',
         'inputs': {k: {'current':float(v[0]), 'prior':float(v[1]),
-            'unit':'USD/share' if k=='diluted_eps' else 'USD'} for k,v in selected.items()},
+            'unit':'USD/share' if k in {'basic_eps','diluted_eps'} else 'USD'} for k,v in selected.items()},
         'calculations': formulas, 'coverage': {'complete':False, 'available_metrics':sorted(values)},
         'limitations': ['Reviewed FY2026 source only; future periods require review.',
             'No valuation, cash-flow, balance-sheet or consensus fields published.',
