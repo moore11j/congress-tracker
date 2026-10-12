@@ -177,3 +177,49 @@ def test_actual_issuer_basis_change_rebaselines_alert_then_genuine_change_trigge
     row.operating_margin=30;assert run(20)['triggered']==1
     assert run(25)['triggered']==0
     assert len(db.scalars(select(MonitoringAlert)).all())==1
+
+
+def test_new_receipt_invalidates_fresh_financial_preparation_immediately(ready,monkeypatch):
+    from datetime import datetime,timezone
+    from app.services.issuer_financial_staging import KEY
+    now=datetime.now(timezone.utc)
+    monkeypatch.setattr(prep,'SessionLocal',ready)
+    with ready() as db:
+        dependency=prep._issuer_dependency(db,'AZO')
+        payload={'version':prep.version_for_symbol('AZO'),'source':'sec_edgar','symbol':'AZO',
+            'observed_at':now.isoformat(),'issuer_dependency':dependency,'status':'partial'}
+        db.add(InsightsSnapshot(kind='sec-current-fundamentals:AZO:v1',source='sec_edgar',
+            fetched_at=now,payload_json=json.dumps(payload)))
+        db.commit()
+    assert prep._cached('AZO',now)==payload
+    with ready() as db:
+        row=db.get(InsightsSnapshot,KEY)
+        value=json.loads(row.payload_json);value['version']='next-reviewed-version'
+        row.payload_json=json.dumps(value);db.commit()
+    assert prep._cached('AZO',now) is None
+    with ready() as db:
+        db.delete(db.get(InsightsSnapshot,KEY));db.commit()
+    assert prep._cached('AZO',now) is None
+
+
+def test_receipt_change_during_preparation_cannot_publish_mixed_snapshot(ready,monkeypatch):
+    from datetime import datetime,timezone
+    from app.services import sec_directory
+    monkeypatch.setattr(prep,'SessionLocal',ready)
+    monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_ENABLED','1')
+    with ready() as db:
+        db.add(InsightsSnapshot(kind='sec-current-fundamentals:AZO:v1',source='sec_edgar',
+            fetched_at=datetime.now(timezone.utc),payload_json='{"version":"older-valid-state"}'))
+        db.commit()
+    def changed_directory():
+        with ready() as db:
+            row=db.get(InsightsSnapshot,KEY)
+            value=json.loads(row.payload_json);value['version']='changed-during-collection'
+            row.payload_json=json.dumps(value);db.commit()
+        return {}
+    monkeypatch.setattr(sec_directory,'directory',changed_directory)
+    with pytest.raises(ValueError,match='source changed during preparation'):
+        prep.prepare('AZO')
+    with ready() as db:
+        assert db.get(InsightsSnapshot,'sec-current-fundamentals:AZO:v1').payload_json=='{"version":"older-valid-state"}'
+

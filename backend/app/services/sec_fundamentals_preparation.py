@@ -26,6 +26,13 @@ def version_for_symbol(symbol):
     return VERSION+'_xom_continuity_v1' if symbol == 'XOM' else VERSION
 
 
+def _issuer_dependency(db, symbol):
+    if symbol != 'AZO':
+        return None
+    row = db.get(InsightsSnapshot, 'issuer-financials:AZO:0001171843-26-006159:v1')
+    return hashlib.sha256((row.source+'\0'+row.payload_json).encode()).hexdigest() if row else 'missing'
+
+
 def _cached(symbol, now, max_cache_age=TTL):
     with SessionLocal() as db:
         row = db.get(InsightsSnapshot, f'sec-current-fundamentals:{symbol}:v1')
@@ -38,6 +45,8 @@ def _cached(symbol, now, max_cache_age=TTL):
             payload = json.loads(row.payload_json)
             observed = datetime.fromisoformat(payload['observed_at'])
         except (ValueError, TypeError, KeyError):
+            return None
+        if symbol == 'AZO' and payload.get('issuer_dependency') != _issuer_dependency(db, symbol):
             return None
         if (payload.get('version') == version_for_symbol(symbol) and payload.get('symbol') == symbol
                 and payload.get('source') == 'sec_edgar' and observed == stamp):
@@ -57,10 +66,16 @@ def prepare(symbol, *, max_cache_age=TTL):
     cached = _cached(symbol, now, max_cache_age)
     if cached is not None:
         return cached
+    dependency = None
+    if symbol == 'AZO':
+        with SessionLocal() as db:
+            dependency = _issuer_dependency(db, symbol)
     identity = sec_directory.directory().get(symbol)
     payload = {'version': version_for_symbol(symbol), 'symbol': symbol, 'source': 'sec_edgar',
         'observed_at': now.isoformat(), 'status': 'unavailable', 'values': {},
         'coverage': {'complete': False, 'market_data_included': False, 'available_metrics': []}}
+    if symbol == 'AZO':
+        payload['issuer_dependency'] = dependency
     if identity is None:
         payload['reason'] = 'symbol_absent_from_sec_directory'
     else:
@@ -108,6 +123,8 @@ def prepare(symbol, *, max_cache_age=TTL):
             db.execute(text("SET LOCAL idle_in_transaction_session_timeout='90s'"))
         if os.getenv('SEC_FUNDAMENTALS_WARMING_ENABLED', '0') != '1':
             raise ValueError('SEC ratio preparation changed during refresh')
+        if symbol == 'AZO' and _issuer_dependency(db, symbol) != dependency:
+            raise ValueError('Issuer financial source changed during preparation')
         key = f'sec-current-fundamentals:{symbol}:v1'
         row = db.get(InsightsSnapshot, key)
         if row is None:
