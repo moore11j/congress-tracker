@@ -72,3 +72,10 @@ A guarded, collector-serialized ETR preparation at22:50 reproduces `InlineFactsE
 
 
 October11,23:04UTC: ETR version gap is repaired by [PR588](sec-numeric-report-date-2026-10-11.md): six live SEC fields, exact original hashes and identical repeat verified. AAPL/NVDA refreshed in ordinary22:56 warming. Aggregate coverage counts above remain the dated22:33 audit, not a newly rerun whole-universe count. Core remains FMP.
+
+
+## Current-version rotation audit, October 12, 05:12 UTC
+
+Fresh read-only production aggregate audit over1751 retained FMP-baseline scopes finds357usable current-version SEC scopes,102verified issuers without supported SEC ratios, and230combined free scopes. Remaining SEC conditions include658expired caches,481identity/version mismatches,148directory absences,3missing caches and2companyfacts404s. This audit excludes older preparation versions rather than calling them current. It is not a numerical equivalence audit or a public cutover; FMP remains selected.
+
+The ordinary05:11 warmer completes10SEC scopes and8Finnhub attempts under the existing budgets, with no canonical writes/emails. Preparation inventory608v5 plus1XOM v5,1137v4 and2v1; Finnhub293v2 (246growth/254beta),1166v1. Thus rotation is advancing, but whole-universe readiness is unproven. Net-debt/EBITDA still has no selected free-field output; only source-specific preparation exists. These gaps do not establish a need for a paid plan. ACN/AZO reporting-period differences persist as documented. Ten observed news runs through05:10 are23/23okay; selected monthly analysts retain explicit identity holds. Receipts paired-free-coverage-1791781926.json and leverage-coverage-1791781969.json. No source requests, production writes or source change in these audits.
