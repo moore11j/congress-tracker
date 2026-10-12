@@ -2,7 +2,7 @@
 
 ## 2026-10-12, 00:41 UTC: Serialized institutional capacity implementation
 
-Continued the FMP replacement with a bounded one-time read-only job in the existing data lane, sharing real publisher preparation.87 focused checks and six Linux checks pass; initial option-validation ordering repaired. Actual718-source/100-target parity replay7642 is live. No recurring schedule, source activation, canonical write, customer email or deployment. [Report](institutional-production-preparation-2026-10-12.md). Next finish parity and review/deploy, then enqueue once and observe production preparation and public latency. Prior landing-only turn no migration progress; current turn concrete implementation progress.
+Continued the FMP replacement with a bounded one-time read-only job in the existing data lane, sharing real publisher preparation.87 focused checks and six Linux checks pass; initial option-validation ordering repaired. Actual718-source/100-target parity replay7642 is terminal/pass with exact prior result equality. No recurring schedule, source activation, canonical write, customer email or deployment. [Report](institutional-production-preparation-2026-10-12.md). Next finish parity and review/deploy, then enqueue once and observe production preparation and public latency. Prior landing-only turn no migration progress; current turn concrete implementation progress.
 
 ## 2026-10-12,00:32UTC: Current institutional inventory and bounded capacity checks
 
