@@ -64,3 +64,14 @@ def test_duplicate_annual_tables_are_held():
 def test_unreviewed_source_and_unavailable_dates_are_held(url,observed):
     with pytest.raises(IssuerFinancialError):
         prepare_autozone_annual(release(),source_url=url,observed_at=observed)
+
+
+def test_basic_eps_matches_existing_contract_without_losing_diluted_evidence():
+    raw=release().replace(b'<td>Diluted</td><td>$</td><td>4.00</td>',
+        b'<td>Basic</td><td>4.20</td><td>2.00</td></tr><tr><td>Diluted</td><td>$</td><td>4.00</td>',1)
+    result=prepare_autozone_annual(raw,source_url=AZO_URL,observed_at=NOW)
+    assert result['values']['eps_growth']==110
+    assert result['inputs']['basic_eps']=={'current':4.2,'prior':2.0,'unit':'USD/share'}
+    assert result['inputs']['diluted_eps']['current']==4
+    assert 'basic EPS' in result['calculations']['eps_growth']
+    assert 'diluted EPS' in prepare_autozone_annual(release(),source_url=AZO_URL,observed_at=NOW)['calculations']['eps_growth']
