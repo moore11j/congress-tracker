@@ -1,5 +1,11 @@
 # Walnut Markets product roadmap
 
+**2026-10-12, 00:41 UTC: Institutional diagnostic prepared:** [Shared preparation and fixed manual queue job](institutional-production-preparation-2026-10-12.md) passes87 local/six Linux checks. Exact718-source/100-target prior result equality also passes. Deployment and complete live preparation remain pending. Publication remains disabled; no new recurring schedule.
+
+**October12,00:32UTC: Institutional capacity remains gated:** [Current production check](institutional-production-preparation-2026-10-12.md) verifies718 complete staged originals/82.76MB, but opportunistic read-only preparation yields to scheduled imports before finishing. Need bounded read-only execution in the existing data lane, then complete capacity/coverage/consumer acceptance. Publication remainsoff; no new schedule, resources or spending.
+
+**October12,00:27UTC: Alphabet financial repair deployed:** [PR592/6fdebc85](alphabet-financial-identity-2026-10-12.md) passes116tests, exact production-source replay and38runtime hashes. LiveGOOG recovers four company fields, excludes share-class valuations/beta/per-share metrics, and repeats without provider traffic/canonical change. CoreFMP remains; broader coverage/consumer and finalMassive/globalFMP gates persist.
+
 **October12,00:21UTC:** [Alphabet issuer repair](alphabet-financial-identity-2026-10-12.md) locally recovers four missing free GOOG company metrics with SEC identity and market/per-share exclusions.116 tests and actual-source replay pass; release pending.
 
 **October12,00:16UTC: SEC leverage preparation live, activation gated:** [PR591 release](sec-leverage-preparation-2026-10-11.md) verifies222 affected checks,38runtime hashes, exact liveLIN calculation/cached repeat and unchanged canonical financial rows. Ordinary00:11/00:16 runs complete10scopes each without canonical writes/emails;21 SECv5 caches and19 Finnhubv2 caches now exist. Most caches remain older versions; broad coverage/definition reconciliation and score/ranking/all-alert rebaseline remain. CoreFMP/institutionsfalse; finalMassive/globalFMP/billing and other source gates remain. No new spending or source activation.

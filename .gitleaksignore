@@ -12,3 +12,6 @@ f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/ext/mypy/p
 f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/ext/mypy/decl_class.py:generic-api-key:514
 f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/orm/mapped_collection.py:generic-api-key:321
 f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/orm/unitofwork.py:generic-api-key:245
+
+# Public scheduler job name, not a credential; historical declaration renamed JOB_NAME.
+162c133f0b4a9670a36f9690d7a4980eb8915089:backend/app/jobs/check_direct_13f_capacity.py:generic-api-key:9

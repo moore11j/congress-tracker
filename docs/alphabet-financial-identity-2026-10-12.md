@@ -23,4 +23,15 @@ Replay: `alphabet-issuer-replay-oct12.json` under primary artifacts/direct-feeds
 
 ## Release state
 
-Implementation and local actual-source validation are complete; PR review, deployment, runtime hash and live cache/repeat acceptance remain pending. Broader provider coverage, issuer leverage definitions, numerical/score/ranking/all-alert rebaseline, institutions/Senate/transcripts and finalMassive/globalFMP/billing gates remain. No subscription or cancellation.
+PR592 is merged as6fdebc851d1fd357e3c5b3193eccd9546040cf9b and deployed through successful workflow38187860807. Runtime hash and live cache/repeat acceptance are complete below. Broader provider coverage, issuer leverage definitions, numerical/score/ranking/all-alert rebaseline, institutions/Senate/transcripts and finalMassive/globalFMP/billing gates remain. No subscription or cancellation.
+
+
+## Live release acceptance, 00:27 UTC
+
+[PR592](https://github.com/moore11j/congress-tracker/pull/592), exact head d2d1e7ab, passes Vercel preview and secret scan. Automated code-review quota is exhausted; no automated approval is claimed. Frontend/backend dependency audits fail on unchanged dependencies (including Next.js and Pillow10.4.0); runtime diff is only the two-line reviewed association, with no dependency edits. Scoped code review and116 tests plus actual-source replay support this release. PR attachment was attempted but the chat's100-artifact limit prevented attachment.
+
+[Backend deployment38187860807](https://github.com/moore11j/congress-tracker/actions/runs/38187860807) succeeds with readiness and privacy checks. All38 frozen hashes match. Approved APIshared2CPU/2GB and DBperformance1CPU/2GB remain; institutionsfalse. Queue2pending/1running, feeds0.472/0.564seconds, freshAAPL1.497/NVDA1.085seconds; eight public requests200 including50news items. This is recovery sampling, not sustained capacity acceptance. Receipt `two-service-verify-1791764774.json`.
+
+On production Python3.12.15, both saved responses normalize and combine identically to the local replay using read-only SEC access, zero provider requests and zero database writes. GOOG adds the same four fields; GOOGL retains its existing exact-security fields. Receipt `alphabet-runtime-1791764770.json`.
+
+Normal guarded GOOG preparation at00:26:34 produces nine issuer-only fields with sourceGOOGL and matching SEC identity. Its immediate repeat forbids provider transport and returns identical payload. A before/after hash of all canonical GOOG financial rows is unchanged. Public core remainsFMP. Receipt `alphabet-preparation-1791764795.json`. Subsequent ordinary GOOG refresh has not yet been observed; no schedule acceleration was introduced. All new local processes are terminal; no local PostgreSQL. Broader financial coverage/definitions and consumer validation remain required before source selection and FMP retirement.
