@@ -120,7 +120,8 @@ def _check_insider_freshness() -> str | None:
     """Retire the legacy diagnostic request with its canonical feed owner."""
     from app.services.feed_source_control import require_selected_source, FeedSourceMismatch, FeedWriterBusy
     try:
-        ensure_fmp_live_allowed(category="ingest:insider-freshness")
+        # Ownership must precede the request budget/usage counter.
+        # The transport guard below still enforces global retirement.
         with SessionLocal() as db:
             require_selected_source(db, 'sec_form4', 'fmp')
             return _check_insider_freshness_from_fmp()
