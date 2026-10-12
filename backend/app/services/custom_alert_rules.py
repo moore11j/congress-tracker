@@ -66,10 +66,12 @@ def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict
     used = used if isinstance(used, list) else []
     fields = supplement.get("fields")
     fields = fields if isinstance(fields, dict) else {}
+    calculations = evidence.get("calculations")
+    calculations = calculations if isinstance(calculations, dict) else {}
     result = {}
     for metric in sorted(metrics):
         identity = {"provider": row.provider, "methodology": evidence.get("methodology")}
-        if metric == "revenue_growth":
+        if metric in {"revenue_growth", "operating_margin"}:
             identity["revenue_basis"] = evidence.get("revenue_basis")
         if metric in used:
             field = fields.get(metric)
@@ -77,6 +79,8 @@ def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict
             identity["supplement"] = {key: field.get(key) for key in
                 ("source", "path", "basis", "unit", "scale", "source_symbol", "identity_basis")}
             identity["supplement_version"] = supplement.get("version")
+        else:
+            identity["calculation"] = calculations.get(metric)
         result[metric] = identity
     return result
 

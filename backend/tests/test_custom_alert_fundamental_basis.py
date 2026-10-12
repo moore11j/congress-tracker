@@ -158,3 +158,53 @@ def test_financial_rule_uses_one_cache_read_for_multiple_conditions(scenario):
     try: assert run(0)["initialized"] == 1
     finally: event.remove(db.bind, "before_cursor_execute", record)
     assert len(reads) == 1
+
+
+def test_formula_change_rebaselines_even_when_provider_and_version_match(scenario):
+    db, _, row, run = scenario
+    row.provider = "free_direct"
+    evidence = {"methodology": "free_v1", "calculations": {
+        "net_debt_to_ebitda": "net debt / operating-income-based EBITDA"}}
+    row.source_evidence_json = json.dumps(evidence)
+    assert run(0)["initialized"] == 1
+    evidence["calculations"]["net_debt_to_ebitda"] = "net debt / net-income-based EBITDA"
+    row.source_evidence_json = json.dumps(evidence)
+    row.net_debt_to_ebitda = 3
+    assert run(5)["initialized"] == 1
+    assert run(10)["triggered"] == 0
+    row.net_debt_to_ebitda = 1
+    run(15)
+    row.net_debt_to_ebitda = 3
+    assert run(20)["triggered"] == 1
+
+
+def test_actual_normalizers_preserve_real_changes_and_baseline_fallback(scenario):
+    from app.services import finnhub_metrics, free_fundamentals
+    db, rule, row, run = scenario
+    rule.conditions_json = json.dumps(validate_conditions([dict(metric="current_ratio",
+        operator="gt", comparison_type="value", comparison_value=2)]))
+    observed = row.fetched_at.replace(tzinfo=timezone.utc)
+    def apply(sec_value, vendor_value, minutes):
+        sec = dict(symbol="TEST", provider="sec_edgar", current_ratio=sec_value,
+            source_evidence_json=json.dumps({"methodology": "sec_fundamentals_v1",
+                "calculations": {"current_ratio": "period-end current assets / current liabilities"}}))
+        raw = {"symbol": "TEST", "metricType": "all", "metric": {},
+            "series": {"quarterly": {"currentRatio": [{"period": "2026-09-30", "v": vendor_value}]}}}
+        metrics = finnhub_metrics.normalize(raw, symbol="TEST", observed_at=observed+timedelta(minutes=minutes))
+        combined = free_fundamentals.combine(sec, metrics)
+        row.provider = combined["provider"]
+        row.current_ratio = combined["current_ratio"]
+        row.source_evidence_json = combined["source_evidence_json"]
+    apply(1, 3, 0)
+    assert run(0)["initialized"] == 1
+    apply(None, 3, 5)
+    assert run(5)["initialized"] == 1
+    apply(None, 1, 10)
+    assert run(10)["triggered"] == 0
+    apply(None, 3, 15)
+    assert run(15)["triggered"] == 1
+    apply(1, 3, 20)
+    assert run(20)["initialized"] == 1
+    apply(3, 3, 25)
+    assert run(25)["triggered"] == 1
+    assert len(db.scalars(select(MonitoringAlert)).all()) == 2

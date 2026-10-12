@@ -25,3 +25,9 @@ Audit receipt `finnhub-leverage-definition-audit-oct12.json` records every sourc
 ## Resume
 
 Review the exact local diff, strengthen real-source provenance cases if required, then create/review/release the tested repair and verify deployed behavior before financial activation. Production remains9ce01d59. Core fundamentals remain FMP and institutions publication is off. The ordinary SEC06:47quarantine observation has not been performed and must be checked on resume, without treating elapsed time as proof. Retain the full migration scope, including institutional capacity/coverage, transcripts, every scheduled consumer, final Massive subscription and zero-FMP traffic/billing cancellation. No new purchase, email, video, landing edit, schedule or hosting change.
+
+## October 12 review and release preparation
+
+The resumed direct review adds per-metric formula identity, plus revenue-basis identity for operating-margin rules. A formula change can otherwise cross a threshold with the same provider/version. The new regression verifies baseline suppression and a later genuine alert. An integration fixture runs the actual Finnhub normalizer and SEC-first combiner, verifies supplementation and return to SEC reset once, and preserves later numeric transitions and two distinct alert records.
+
+Expanded Python3.14.2 run:202 passed, one new SQLite fixture failed because its reloaded timestamp lacked timezone information. Corrected the fixture to explicitly preserve UTC; final affected financial/normalization run:30 passed. Together these cover203 selected tests, with four existing framework deprecation warnings in the expanded run. No application failure remains in these checks; no full-suite claim. Direct diff and whitespace review completed. No source activation, customer email or schema change.
