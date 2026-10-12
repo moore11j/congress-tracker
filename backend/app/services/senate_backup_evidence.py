@@ -75,6 +75,8 @@ def verify_partitions(snapshot, table, year, files):
 
 def prepare_filing(filing, rows, *, snapshot, observed_at, max_age=timedelta(hours=24)):
     """Preserve every reported row and name its unresolved publication requirements."""
+    if not isinstance(rows, list) or len(rows) > MAX_ROWS:
+        raise ValueError('Incomplete or oversized filing rows')
     filing, rows = deepcopy(filing), deepcopy(rows)
     now = _clock(observed_at)
     generated = _clock(snapshot['generatedAt'])

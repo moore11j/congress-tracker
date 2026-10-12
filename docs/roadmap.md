@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12 03:57 UTC:** [Senate backup transport/staging](senate-backup-preparation-2026-10-12.md), draft PR600, passes126checks and actual135filing/2176row download plus identical local staging repeat. Member/canonical/job/consumer integration still pending; no activation. Full institutional87489 now passes574sources/137currentcomparisons/142events/64continuity/12-8-142repeat; coverage/live capacity remain gates.
+
 **2026-10-12, 03:46 UTC:** [Senate backup preparation](senate-backup-preparation-2026-10-12.md), draftPR600, passes104tests and all135filing/2176row conversion plus seven original-row bindings. Not activated or deployed; bounded staging/canonical reconciliation/consumers remain. Official03:17run still403. Institutional87489 firstpass574docs/137currentcomparisons/142events; repeat/consumers remainLIVE.
 
 **2026-10-12, 03:26 UTC:** [Reference retry fairness](institutional-reference-retry-fairness-2026-10-12.md) is implemented locally:87tests and a read-only live-state comparison pass; review/deployment/ordinary collection pending. Same two-request budget, institutions remainoff and full87489replay remainslive.
