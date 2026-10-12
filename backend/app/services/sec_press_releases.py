@@ -29,6 +29,11 @@ def selected_press_provider():
     return 'sec_edgar' if os.getenv('PRESS_RELEASE_PROVIDER', 'fmp').strip().lower() == 'sec_edgar' else 'fmp'
 
 
+def _cache_version(symbol):
+    # Revisit only the reviewed issuer whose old classifier held this release.
+    return CACHE_VERSION + '_issuer_financial_v1' if symbol == 'AZO' else CACHE_VERSION
+
+
 def _cache_row(db, symbol):
     return db.scalar(select(TickerContentCache).where(TickerContentCache.content_type == CONTENT_TYPE,
         TickerContentCache.symbol == symbol, TickerContentCache.window_key == 'latest',
@@ -66,7 +71,7 @@ def _cached(symbol):
         if age < timedelta(0) or age > TTL:
             return None
         payload = json.loads(row.payload_json)
-        return payload if payload.get('provider') == PROVIDER and payload.get('cache_version') == CACHE_VERSION else None
+        return payload if payload.get('provider') == PROVIDER and payload.get('cache_version') == _cache_version(symbol) else None
 
 
 def _page(payload, page, limit):
@@ -99,7 +104,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
         raise ValueError('Ticker identity has not been prepared')
     if issuer is None:
         payload = {'items': [], 'status': 'unavailable', 'provider': PROVIDER,
-            'cache_version': CACHE_VERSION, 'item_count': 0, 'updated_at': now.isoformat(),
+            'cache_version': _cache_version(symbol), 'item_count': 0, 'updated_at': now.isoformat(),
             'reason': 'symbol_absent_from_sec_directory',
             'message': MESSAGE + ' No SEC ticker-directory match is available for this security.',
             'coverage': {'kind': 'selected_sec_earnings_releases', 'complete': False,
@@ -130,6 +135,9 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
                 _lock_issuer(db, security_id)
                 doc = stage_earnings_material(db, company_raw=company_raw, submission_raw=raw,
                     index_raw=index_raw, symbol=symbol, cik=cik, accession=filing['accession_number'])
+                if symbol == 'AZO' and filing['accession_number'] == '0001171843-26-006159':
+                    from app.services.issuer_financial_staging import prepare_staged_financials
+                    prepare_staged_financials(db, doc.id, security_id=security_id, observed_at=now)
                 document_ids.append(doc.id)
                 db.commit()
         except Exception as exc:
@@ -165,7 +173,7 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
                 'summary': f'Filed {parsed["filing_date"]}. Read the issuer earnings release in its SEC filing.',
                 'source': PROVIDER, 'canonical_key': parsed['canonical_key'],
                 'accession_number': parsed['accession_number'], 'source_sha256': parsed['source_sha256']})
-        payload = {'items': items, 'status': 'ok', 'provider': PROVIDER, 'cache_version': CACHE_VERSION, 'item_count': len(items),
+        payload = {'items': items, 'status': 'ok', 'provider': PROVIDER, 'cache_version': _cache_version(symbol), 'item_count': len(items),
             'updated_at': now.isoformat(), 'message': MESSAGE,
             'coverage': {'kind': 'selected_sec_earnings_releases', 'complete': False,
                 'lookback_days': 365, 'filing_limit': filing_limit, 'filings_discovered': len(recent),
