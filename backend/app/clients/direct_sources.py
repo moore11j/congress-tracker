@@ -20,6 +20,17 @@ class DirectSourceError(RuntimeError):
     pass
 
 
+class Sec13FCoverMismatch(DirectSourceError):
+    """A captured submission fails exact cover/table reconciliation."""
+
+    def __init__(self, *, declared_count, actual_count, declared_value, actual_value):
+        super().__init__("SEC 13F cover count/value does not match information table")
+        self.details = {
+            "declared_count": declared_count, "actual_count": actual_count,
+            "declared_value_usd": str(declared_value), "actual_value_usd": str(actual_value),
+        }
+
+
 def reviewed_issuer_document_urls(registry) -> frozenset[str]:
     """Exact external documents reviewed on an official investor page.
 
@@ -223,8 +234,11 @@ def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
                 raise DirectSourceError("SEC 13F holding missing CUSIP")
             if (node.findtext("{*}shrsOrPrnAmt/{*}sshPrnamtType") or "").strip() not in {"SH", "PRN"}:
                 raise DirectSourceError("SEC 13F share/principal type invalid")
-        if not expected_value.is_finite() or len(source_nodes) != expected_count or total != expected_value:
+        if not expected_value.is_finite():
             raise DirectSourceError("SEC 13F cover count/value does not match information table")
+        if len(source_nodes) != expected_count or total != expected_value:
+            raise Sec13FCoverMismatch(declared_count=expected_count, actual_count=len(source_nodes),
+                                     declared_value=expected_value, actual_value=total)
     except InvalidOperation as exc:
         raise DirectSourceError("SEC 13F holding/cover number missing or invalid") from exc
     source_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{metadata['key'].replace('-', '')}/{tables[0][0]}"

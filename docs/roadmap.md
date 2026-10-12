@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12 05:09 UTC:** [SEC rejected-original retention](sec-cover-quarantine-2026-10-12.md) implemented locally;243 checks,718 accepted-original output parity and three actual rejected-original retention/retry checks pass. Not deployed or activated; coverage discrepancies remain held.
+
 **2026-10-12 04:25 UTC:** [Senate publication rehearsal](senate-backup-preparation-2026-10-12.md), draftPR600/source00b240dc, now verifies84published/51held filings,462transactions/358events, unchanged public state and12/8/358 no-send repeats. Shared ownership, atomic rollback and official recovery are implemented; production activation/job integration/source freshness/capacity and existing Fetterman duplicate/date repair remain gated. No source or schedule switch.
 
 **2026-10-12 04:08 UTC:** [Senate member/canonical preparation](senate-backup-preparation-2026-10-12.md), draftPR600, passes162checks and135member identities; full staged135filing inspection repeats identically with84new/51held plans. In-place Whitehouse matches5existing events; Fetterman date conflict remainsheld. Publication/job/recovery/consumer integration and broader migration gates remain, no activation.
@@ -353,3 +355,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,04:49UTC:** [Senate candidate jobs and original-bound non-equity repair](senate-backup-preparation-2026-10-12.md) pass167checks, actual repeated source collection and PostgreSQL positive publication/rollback/concurrency rehearsal. PR600 remains undeployed; disabled gates and current source selection preserved. Exact deployed validation, scheduled observation and production repair remain before activation. No full FMP exit claim.
+
+
+**October12,04:59UTC:** [Senate PR600/c31b5afc](senate-backup-preparation-2026-10-12.md) deployed/55hashes/deployed3.12fixture. Reviewed non-equity duplicate repair applied with preserved survivor IDs, archives and zero events/emails; official ownershipgeneration4. Shadow collection enabled in existing schedule; first manually enqueued run stages135filings/2176rows, both October plans match production, backup publicationfalse. Ordinary scheduled/freshness/capacity acceptance remains; full FMP retirement incomplete.
