@@ -43,3 +43,8 @@ The unchanged hourly publisher is then manually enqueued once through the existi
 55runtimehashes match, APIshared2CPU/2048MB and DBperformance1CPU/2048MB remainunchanged, queueempty. News50items0.500s, feeds0.391/0.491s, freshAAPL1.551s/NVDA1.205s. Receipt senate-selected-runtime-1791782971.json; postrestart samples are not sustained capacity proof. Existing rows retain their original official provenance, not relabeled secondary. New secondary rows retain explicit secondary provenance and publication-time availability.
 
 Rollback is the existing generation-checked source pause or separately verified official recovery; do not restore an unguarded legacy FMP writer. No purchase, customer email, video or schedule/hardware change. Institutions remainoff, public core/transcripts/prices and complete consumer/global-FMP/billing gates remain unresolved. The new regression tests and this report do not require another backend deployment.
+
+
+## Evidence PR merged,05:32UTC
+
+[PR602](https://github.com/moore11j/congress-tracker/pull/602), head563a028ace7fc8f11b28cc7727a95a6daa563bfb, merged asfbd8c43efd8584de6fc638ea5006d732c004e354. Tests and documentation only; backend remainsce0ce857, with no new deployment. Secret scan passes; purpose-built diagnostics confirm unchanged Pillow/frontend dependency audit failures. Vercel preview status isfailed with no detailed cause exposed in CI metadata. No frontend or dependency files changed; no CI-clear claim or preview retry. The successful source activation/queuedrun34/runtime receipts remain as recorded.
