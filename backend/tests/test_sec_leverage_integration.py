@@ -64,8 +64,9 @@ def test_auxiliary_rounded_fact_keeps_finer_value_in_either_order():
     for other in [fact('12.0', tag='IncomeTaxExpenseBenefit', attrs='scale="9" decimals="-8"'),
                   fact('11.8', tag='IncomeTaxExpenseBenefit', attrs='scale="9"'),
                   fact('11820', tag='IncomeTaxExpenseBenefit', attrs='scale="6" decimals="-6"')]:
-        with pytest.raises(InlineFactsError, match='conflicting_reported_facts'):
-            parse(document(precise+other))
+        held = parse(document(precise+other))
+        assert 'IncomeTaxExpenseBenefit' not in held['facts']
+        assert held['evidence']['auxiliary_holds'][0]['tag'] == 'IncomeTaxExpenseBenefit'
 
 
 def test_core_conflicting_facts_keep_existing_hold_even_with_rounding_metadata():
@@ -74,3 +75,27 @@ def test_core_conflicting_facts_keep_existing_hold_even_with_rounding_metadata()
     primary = fact('70.1', attrs='decimals="1"')
     with pytest.raises(InlineFactsError, match='conflicting_reported_facts'):
         parse(document(fact('70', attrs='decimals="0"'), primary=primary))
+
+
+import pytest
+
+@pytest.mark.parametrize('extra', [
+    fact('0', tag='IncomeTaxExpenseBenefit', attrs='xsi:nil="true"'),
+    fact('unknown', tag='IncomeTaxExpenseBenefit'),
+    fact('7', tag='IncomeTaxExpenseBenefit')+fact('99', tag='IncomeTaxExpenseBenefit'),
+])
+def test_bad_auxiliary_fact_preserves_core_and_blocks_older_component_fallback(extra):
+    from datetime import datetime, timezone
+    from app.services.sec_financial_continuity import record_sets
+    from app.services.sec_leverage import TAGS
+    from test_sec_inline_financials import TAG, ACC
+    p = parse(document(extra))
+    assert p['facts'][TAG]['units']['USD'][0]['val'] == 70
+    assert p['evidence']['auxiliary_holds']
+    facts, company = prepared_sources()
+    records, _ = record_sets(facts,symbol='ABC',cik='1',available_by=date(2026,10,7),
+        observed_at=datetime(2026,10,8,tzinfo=timezone.utc), company=company,
+        metrics={'leverage_tax':(TAGS['leverage_tax'],'USD')},filing_supplement=p)
+    assert records['leverage_tax'][(date(2026,1,1),date(2026,6,30))] is None
+    # Another reporting period is neither discarded nor replaced.
+    assert records['leverage_tax'][(date(2025,1,1),date(2025,12,31))]['value'] == pytest.approx(2.4)

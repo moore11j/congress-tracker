@@ -45,7 +45,7 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     effective = inline.merge(payload,filing_supplement,available_by=available_by)
     current = {name:sec._records(effective,'equity' if name in instant_names else name,available_by,concepts=tags,unit=unit)
                for name,(tags,unit) in metrics.items()}
-    inline.annotate(current,filing_supplement)
+    inline.annotate(current,filing_supplement,metrics=metrics)
     from app.services.sec_bank_revenue import apply
     current = apply(current,effective,company,available_by=available_by)
     if history_raw is None:

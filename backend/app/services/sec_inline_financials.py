@@ -184,7 +184,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         from app.services.sec_leverage import TAGS as leverage_tags
         auxiliary = {tag for concepts in leverage_tags.values() for tag in concepts} - wanted
         wanted |= auxiliary
-    records = {}; provenance = {}; precisions = {}; rounded_duplicates = []
+    records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')
         if not name.startswith(namespace+':') or name.split(':', 1)[1] not in wanted:
@@ -193,16 +193,29 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         period, unit = contexts.get(n.get('contextref')), units.get(n.get('unitref'))
         if period is None or unit != (currency+'/shares' if tag == 'EarningsPerShareDiluted' else currency):
             continue
-        value = _number(n, tree)
         start, end = period
         key = (tag, unit, str(start) if start else None, str(end))
+        if key in auxiliary_holds:
+            continue
+        try:
+            value = _number(n, tree)
+        except InlineFactsError as exc:
+            if tag not in auxiliary:
+                raise
+            auxiliary_holds[key] = str(exc)
+            records.pop(key, None); provenance.pop(key, None); precisions.pop(key, None)
+            continue
         fact = {'end': str(end), 'val': value, 'filed': filed, 'form': form, 'accn': accession}
         if start:
             fact['start'] = str(start)
         if key in records and records[key]['val'] != value:
             preference = _consistent_precision(records[key]['val'], precisions[key], value, n.get('decimals')) if tag in auxiliary else None
             if preference is None:
-                raise InlineFactsError('conflicting_reported_facts')
+                if tag not in auxiliary:
+                    raise InlineFactsError('conflicting_reported_facts')
+                auxiliary_holds[key] = 'conflicting_reported_facts'
+                records.pop(key, None); provenance.pop(key, None); precisions.pop(key, None)
+                continue
             rounded_duplicates.append({'tag':tag, 'unit':unit, 'start':key[2], 'end':key[3],
                 'values':[records[key]['val'], value], 'decimals':[precisions[key], n.get('decimals')],
                 'selected_value':value if preference else records[key]['val']})
@@ -228,7 +241,9 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
         'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
         'namespace':namespace, 'currency':currency,
-        **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {})}}
+        **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {}),
+        **({'auxiliary_holds':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3], 'reason':v}
+            for k,v in sorted(auxiliary_holds.items(), key=lambda item: repr(item[0]))]} if auxiliary_holds else {})}}
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
@@ -284,10 +299,22 @@ def merge(payload, supplement, *, available_by):
     return merged
 
 
-def annotate(records, supplement):
+def annotate(records, supplement, *, metrics=None):
     if supplement is None:
         return records
-    for series in records.values():
+    from app.services import sec_fundamentals as sec
+    metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
+    for name, series in records.items():
+        # A held optional fact must not fall back to an older companyfacts value
+        # for the same period or be resurrected by continuity supplementation.
+        tags, unit = metrics.get(name, ((), None))
+        for hold in supplement['evidence'].get('auxiliary_holds', []):
+            if hold['tag'] not in tags or hold['unit'] != unit:
+                continue
+            period = (sec._day(hold['start']), sec._day(hold['end']))
+            fact = series.get(period)
+            if fact is None or fact['filed'] <= supplement['evidence']['filed']:
+                series[period] = None
         for fact in series.values():
             if fact and fact['accession'] == supplement['evidence']['accession']:
                 proof=supplement['provenance'].get((fact['tag'],fact['unit'],fact['start'],fact['end']))
