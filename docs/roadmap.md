@@ -353,3 +353,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,04:49UTC:** [Senate candidate jobs and original-bound non-equity repair](senate-backup-preparation-2026-10-12.md) pass167checks, actual repeated source collection and PostgreSQL positive publication/rollback/concurrency rehearsal. PR600 remains undeployed; disabled gates and current source selection preserved. Exact deployed validation, scheduled observation and production repair remain before activation. No full FMP exit claim.
+
+
+**October12,04:59UTC:** [Senate PR600/c31b5afc](senate-backup-preparation-2026-10-12.md) deployed/55hashes/deployed3.12fixture. Reviewed non-equity duplicate repair applied with preserved survivor IDs, archives and zero events/emails; official ownershipgeneration4. Shadow collection enabled in existing schedule; first manually enqueued run stages135filings/2176rows, both October plans match production, backup publicationfalse. Ordinary scheduled/freshness/capacity acceptance remains; full FMP retirement incomplete.
