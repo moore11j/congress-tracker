@@ -1,3 +1,5 @@
+2026-10-12, 18:34 UTC: [PR618 startup isolation](ingest-startup-isolation-2026-10-12.md) deployed403b0f4a/74hashes. Isolated import CPU39.8% lower; ordinary affected jobs and sustained capacity remain unverified. [Directory/source extension](financial-source-directory-2026-10-12.md) assessed and proposed; no Yahoo/Google/SEDAR adapter activated. All financial/consumer/cutover gates remain.
+
 2026-10-12, 18:18 UTC: [Debt aggregate repair](sec-debt-aggregate-reconciliation-2026-10-12.md) deployed PR617/c4a90c9f; 140 tests, 21-source replay and 74 runtime hashes pass. Actual ON evidence now holds two false preparation candidates. Public core remains FMP; ordinary propagation, broad financial coverage, formula/consumer acceptance and sustained capacity remain open.
 
 2026-10-12 18:03: [ACN issuer preparation](accenture-issuer-financials-2026-10-12.md) PR616/c710534a deployed;245tests/74runtime hashes and actual deployed-source equality pass. Ordinary receipt propagation pending; coreFMP, financial semantic/coverage and consumer/capacity gates remain.
