@@ -1,5 +1,9 @@
 # Project context log
 
+## 2026-10-12,00:32UTC: Current institutional inventory and bounded capacity checks
+
+Continued full migration by checking the institutional production-work gate. [Report](institutional-production-preparation-2026-10-12.md) captures718parsed originals/82.76MB/zero missing, allunvisited/FMPownership,121 zero-throttle samples and two guarded partial preparation attempts. Both stop when scheduled data work begins, zero source/canonical/email activity; second reaches peer scan14CPU seconds without completing. Next implementation must allow read-only preparation inside the existing serialized data lane; repeated opportunistic probes are not capacity proof. No application edit or deployment. Initial bad diagnostic column corrected after terminal failure. Allnewhandles terminal/no localPG. Both goal turns progress; broader coverage/consumer and finalMassive/globalFMP gates unchanged.
+
 ## 2026-10-12,00:27UTC: Alphabet financial repair live
 
 [PR592 release](alphabet-financial-identity-2026-10-12.md) completes the observed GOOG identity repair under the existing issuer-only rules.116tests and actual-source cache/summary/screener repeat pass. Deployment38187860807 succeeds;38hashes/twohosts and production3.12.15 replay verify. One normalGOOG preparation adds four missing fields; cached repeat makes no provider call, canonical row hash unchanged. Public coreFMP/institutionsfalse. Review quota exhausted and unchanged dependency audits fail; no all-CI claim. Initial local replay ownership and documentation encoding errors were corrected before release. All new handles terminal, no localPG. Ordinary laterGOOG run/sustainedcapacity/broadcoverage/allconsumers/finalMassive/globalFMP remain. No new spending, schedule/capacity, emails or source activation; goalactive and both turns progress.

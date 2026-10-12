@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**October12,00:32UTC: Institutional capacity remains gated:** [Current production check](institutional-production-preparation-2026-10-12.md) verifies718 complete staged originals/82.76MB, but opportunistic read-only preparation yields to scheduled imports before finishing. Need bounded read-only execution in the existing data lane, then complete capacity/coverage/consumer acceptance. Publication remainsoff; no new schedule, resources or spending.
+
 **October12,00:27UTC: Alphabet financial repair deployed:** [PR592/6fdebc85](alphabet-financial-identity-2026-10-12.md) passes116tests, exact production-source replay and38runtime hashes. LiveGOOG recovers four company fields, excludes share-class valuations/beta/per-share metrics, and repeats without provider traffic/canonical change. CoreFMP remains; broader coverage/consumer and finalMassive/globalFMP gates persist.
 
 **October12,00:21UTC:** [Alphabet issuer repair](alphabet-financial-identity-2026-10-12.md) locally recovers four missing free GOOG company metrics with SEC identity and market/per-share exclusions.116 tests and actual-source replay pass; release pending.
