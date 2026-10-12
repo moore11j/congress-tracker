@@ -182,7 +182,8 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
     auxiliary = set()
     if basis is None:
         from app.services.sec_leverage import TAGS as leverage_tags
-        auxiliary = {tag for concepts in leverage_tags.values() for tag in concepts} - wanted
+        from app.services.sec_parent_income import TAGS as parent_income_tags
+        auxiliary = {tag for concepts in {**leverage_tags, **parent_income_tags}.values() for tag in concepts} - wanted
         wanted |= auxiliary
     records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}
     for n in nodes(tree, 'nonfraction'):
