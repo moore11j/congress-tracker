@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services.feed_source_control import canonical_writer
 
+from collections import defaultdict
 import json
 import math
 import re
@@ -781,8 +782,7 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling, 
     summaries = events = feed_events = 0
     if symbols:
         db.flush()
-    for symbol in sorted(symbols):
-        summary = refresh_symbol_summary(db, symbol, filing.report_year, filing.report_quarter)
+    for summary in _refresh_filing_symbol_summaries(db, symbols, filing.report_year, filing.report_quarter):
         if summary:
             summaries += 1
             events += generate_activity_events_for_symbol(db, summary, holder_cik=filing.cik if holder_only else None)
@@ -947,8 +947,7 @@ def process_filing_changes_and_events_symbol_batch(
     summaries = events = feed_events = 0
     if symbols:
         db.flush()
-    for symbol in sorted(symbols):
-        summary = refresh_symbol_summary(db, symbol, filing.report_year, filing.report_quarter)
+    for summary in _refresh_filing_symbol_summaries(db, symbols, filing.report_year, filing.report_quarter):
         if summary:
             summaries += 1
             events += generate_activity_events_for_symbol(db, summary)
@@ -1121,6 +1120,53 @@ def is_material_change(
     return False
 
 
+# A filing can touch thousands of tickers. Bound each shared input read and
+# fall back to the complete single-symbol reader if it would exceed the cap.
+SUMMARY_SYMBOL_BATCH = 50
+SUMMARY_ROW_LIMIT = 10_000
+
+
+def _refresh_filing_symbol_summaries(db: Session, symbols, report_year: int, report_quarter: int):
+    ordered = sorted(symbols)
+    if not ordered:
+        return
+    active_ids = _active_filing_ids_for_period(db, report_year=report_year, report_quarter=report_quarter)
+    for offset in range(0, len(ordered), SUMMARY_SYMBOL_BATCH):
+        batch = ordered[offset:offset + SUMMARY_SYMBOL_BATCH]
+        if any(not symbol or normalize_symbol(symbol) != symbol for symbol in batch):
+            for symbol in batch:
+                yield refresh_symbol_summary(db, symbol, report_year, report_quarter)
+            continue
+        changes = list(db.scalars(select(InstitutionalPositionChange).where(
+            InstitutionalPositionChange.normalized_symbol.in_(batch),
+            InstitutionalPositionChange.report_year == report_year,
+            InstitutionalPositionChange.report_quarter == report_quarter,
+        ).limit(SUMMARY_ROW_LIMIT + 1)))
+        positions = []
+        if len(changes) <= SUMMARY_ROW_LIMIT and active_ids:
+            positions = list(db.scalars(select(InstitutionalPosition).where(
+                InstitutionalPosition.normalized_symbol.in_(batch),
+                InstitutionalPosition.report_year == report_year,
+                InstitutionalPosition.report_quarter == report_quarter,
+                InstitutionalPosition.filing_id.in_(active_ids),
+            ).limit(SUMMARY_ROW_LIMIT + 1)))
+        if len(changes) > SUMMARY_ROW_LIMIT or len(positions) > SUMMARY_ROW_LIMIT:
+            del changes, positions
+            # Never truncate holdings or changes to satisfy a performance bound.
+            for symbol in batch:
+                yield refresh_symbol_summary(db, symbol, report_year, report_quarter)
+            continue
+        change_groups, position_groups = defaultdict(list), defaultdict(list)
+        for change in changes:
+            change_groups[change.normalized_symbol].append(change)
+        for position in positions:
+            position_groups[position.normalized_symbol].append(position)
+        for symbol in batch:
+            yield _refresh_symbol_summary_from_rows(db, symbol, report_year, report_quarter,
+                change_groups[symbol], position_groups[symbol])
+        del changes, positions, change_groups, position_groups
+
+
 @canonical_writer('sec_13f')
 def refresh_symbol_summary(
     db: Session,
@@ -1149,6 +1195,11 @@ def refresh_symbol_summary(
                 InstitutionalPosition.filing_id.in_(active_filing_ids),
             )
         ).scalars().all()
+    return _refresh_symbol_summary_from_rows(db, normalized, report_year, report_quarter,
+        changes, current_positions)
+
+
+def _refresh_symbol_summary_from_rows(db, normalized, report_year, report_quarter, changes, current_positions):
     if not changes and not current_positions:
         return None
     latest_filing_date = max(
