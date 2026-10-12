@@ -32,3 +32,16 @@ PR596 application head `d7f9538a08b2cd1cad3cae6fad1c149c2fd85550`; local Python3
 Evidence: `institutional-summary-baseline-postgres-oct12.json`, `institutional-summary-candidate-postgres-oct12.json`, `institutional-summary-comparison-oct12.json`. Each mode drops its own disposable schema. An additional isolated runtime fixture passes locally for ordinary reads and both overflow branches; deployed Python verification remains pending. Existing dependency-audit failures are in unchanged dependencies; secret scan and Vercel pass. No all-CI/full-suite or production-capacity claim.
 
 Ordinary financial metadata at02:10:42UTC records241SECv5/74Finnhubv2 rows, versus221/58 at02:00. Three ordinary runs each complete10SEC/8Finnhub scopes without quota stops, public core remainsFMP. Adapter-version counts are not completeness or numeric-parity proof.
+
+
+## Release and deployed verification, October 12, 02:20 UTC
+
+PR596 merged as `d05acfa379d197e209fe11cd8c7f7a3246035a61`; workflow38195180766 succeeds. Automatic review reported one stale-checkpoint documentation finding, fixed in7898cb24; no application findings. An initial merge invocation failed argument parsing before any mutation; exact-head retry succeeded. The CI diagnostic request initially used the merge SHA where the tool requires the PR head, returned409, and succeeded with the correct PR head.
+
+Receipt `summary-query-runtime-1791771527.json` at02:18:32UTC verifies all40 runtime hashes, API shared2CPU/2048MB and DB performance1CPU/2048MB unchanged, publication false, configured20-target hourly data-lane job unchanged, disabled job0.0136CPU without ORM/database imports, and no queued/running jobs. Eight public requests succeed: feeds0.370/0.384seconds, freshAAPL1.492/NVDA1.163seconds,50newsitems0.304seconds. These post-restart samples do not establish sustained capacity.
+
+Deployed Python3.12.15 passes the isolated in-memory SQLite fixture with ordinary reads and both overflow paths producing identical complete states. Socket connects and requests are blocked; no production writes or emails. Receipt `summary-query-fixture-runtime-1791771593.json`. The first helper assumed the development-only httpx package existed and failed before fixture setup; diagnostics exposed the missing package, then the helper was corrected to block sockets without installing anything. Local Python3.14 repeat also passes.
+
+Two-hour pre-deploy metrics `cpu-quota-1791771476.json` have121samples of zero throttle but CPU balance declines8129 to3235, with current2701. Current API busy CPU is about0.161 versus0.125baseline, including background nice0.1266. Intervening releases and credit decline prohibit a sustained-headroom claim. `scheduled-job-cpu-1791771484.json` records enrichment16.7876CPU/48.84wall seconds, reference1.4407CPU and prior collection1.3762CPU. Next investigate recurring cost and live bounded publication capacity before activating another workload. No hardware or schedule change.
+
+All local rehearsal and verifier handles are terminal; the owned PostgreSQL instance is stopped and both schemas removed. Institutional selection staysFMP/publication false, public coreFMP. Source holds, broad financial parity, Senate access, transcripts, all scheduled consumers/rankings, finalMassive subscription/verification, zero global FMP traffic and billing cancellation remain open.
