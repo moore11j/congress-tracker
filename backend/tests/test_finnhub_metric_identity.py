@@ -9,7 +9,7 @@ from app.services.finnhub_metric_identity import ISSUER_FIELDS, association
 from app.services.finnhub_research import FinnhubUnavailable
 
 NOW = datetime(2026, 10, 11, tzinfo=timezone.utc)
-CASES = [('BRK.B', 'BRK.A', '0001067983'), ('BRK-B', 'BRK.A', '0001067983'),
+CASES = [('GOOG', 'GOOGL', '0001652044'), ('BRK.B', 'BRK.A', '0001067983'), ('BRK-B', 'BRK.A', '0001067983'),
          ('TSM', '2330.TW', '0001046179'), ('CX', 'CEMEXCPO.MX', '0001076378')]
 
 
@@ -55,13 +55,13 @@ def test_independent_sec_issuer_proof_is_required(cik):
 
 
 @pytest.mark.parametrize('requested,reported', [('ABC', 'BRK.A'), ('BRK.B', 'BRK27'),
-    ('BRK.B', 'BRK'), ('TSM', 'TSM.TO'), ('CX', 'CEMEX'), ('BRK/B', 'BRK.A')])
+    ('BRK.B', 'BRK'), ('TSM', 'TSM.TO'), ('CX', 'CEMEX'), ('BRK/B', 'BRK.A'), ('GOOG', 'GOOGM'), ('GOOG', 'GOOGN'), ('GOOGL', 'GOOG')])
 def test_unreviewed_pairs_do_not_gain_implicit_alias_or_issuer_permission(requested, reported):
     with pytest.raises(FinnhubUnavailable, match='symbol_mismatch'):
         metrics.normalize(payload(reported), symbol=requested, observed_at=NOW)
 
 
-@pytest.mark.parametrize('field', ['trailing_pe', 'forward_pe', 'price_to_sales', 'ev_to_ebitda', 'eps_growth'])
+@pytest.mark.parametrize('field', ['beta', 'trailing_pe', 'forward_pe', 'price_to_sales', 'ev_to_ebitda', 'eps_growth'])
 def test_combiner_refuses_injected_market_and_per_share_fields(field):
     result = metrics.normalize(payload('BRK.A'), symbol='BRK.B', observed_at=NOW)
     result['values'][field] = 10
@@ -103,3 +103,10 @@ def test_exact_security_retains_all_original_fields_and_no_cross_listing_policy(
     assert set(result['values']) == set(metrics.SCALARS) | set(metrics.SERIES) | set(metrics.DERIVED)
     assert 'issuer_identity' not in result
     assert all('source_symbol' not in field for field in result['fields'].values())
+
+
+@pytest.mark.parametrize('cik', ['0001067983', '', None])
+def test_alphabet_financial_association_requires_alphabet_sec_issuer(cik):
+    result = metrics.normalize(payload('GOOGL'), symbol='GOOG', observed_at=NOW)
+    with pytest.raises(FinnhubUnavailable, match='issuer_identity_invalid'):
+        free.combine(sec('GOOG', cik), result)
