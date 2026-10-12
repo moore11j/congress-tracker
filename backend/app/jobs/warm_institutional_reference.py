@@ -26,7 +26,7 @@ KEY = 'institutional-reference:warming:v1'
 BATCH_SIZE = 2
 MAX_DOCUMENTS = 500
 MAX_SCOPES = 5000
-PLAN_VERSION = 5
+PLAN_VERSION = 6
 
 
 def _now():
@@ -48,20 +48,25 @@ def plan_scopes(db, now, attempted_at, universe=None, *, source_scan_before_id=N
     periods = _periods(now.date())
     if type(source_scan_before_id) is not int or source_scan_before_id <= 0:
         source_scan_before_id = None
+    attempts = {}
+    attempt_times = {}
     recent_attempts = {}
     for key, stamp in attempted_at.items():
         try:
             cusip, period = key.split(':')
             previous = datetime.fromisoformat(stamp)
             if (period in periods and re.fullmatch(r'[A-Z0-9]{9}', cusip)
-                    and previous.tzinfo is not None and now-previous < timedelta(days=1)):
-                recent_attempts[key] = stamp
+                    and previous.tzinfo is not None):
+                attempts[key] = stamp
+                attempt_times[key] = previous
+                if now-previous < timedelta(days=1):
+                    recent_attempts[key] = stamp
         except (ValueError, TypeError, AttributeError):
             continue
+    already_prepared = set()
     if universe is None:
         # Completed identities must not permanently occupy the bounded queue.
         # A later plan can then advance beyond its initial 5000-scope window.
-        already_prepared = set()
         for key, raw in db.execute(select(DirectFeedDocument.source_key, DirectFeedDocument.parsed_json).where(
                 DirectFeedDocument.feed == FEED, DirectFeedDocument.status == 'parsed',
                 or_(*(DirectFeedDocument.source_key.like('%:' + period) for period in periods)))):
@@ -143,18 +148,22 @@ def plan_scopes(db, now, attempted_at, universe=None, *, source_scan_before_id=N
         if key in recent_attempts:continue
         cusip,period=key.split(':')
         candidates.append({'key':key,'cusip':cusip,'report_period':period,'filing_count':weight})
-    candidates.sort(key=lambda r:(r['report_period'],r['filing_count'],r['cusip']),reverse=True)
+    # Untried scopes precede expired failures. Once all have been attempted,
+    # oldest attempts lead; frequency remains the tie-breaker within a quarter.
+    candidates.sort(key=lambda r:(r['report_period'],r['key'] not in attempt_times,
+        -attempt_times.get(r['key'],now).timestamp(),r['filing_count'],r['cusip']),reverse=True)
     # Comparisons require both quarters. A large current-quarter backlog must
-    # not starve prior-quarter evidence. Keep frequency priority within each
+    # not starve prior-quarter evidence. Keep attempt/frequency priority within each
     # quarter, and let remaining work use both slots when one quarter is empty.
     by_period = [[row for row in candidates if row['report_period'] == period]
                  for period in sorted(periods, reverse=True)]
     interleaved = [row for pair in zip_longest(*by_period) for row in pair if row is not None]
     return {'scopes':interleaved[:BATCH_SIZE],'universe_size':len(weights),'pending_scopes':len(candidates),
             'prepared_scopes':len(prepared),'deferred_scopes':len(weights)-len(prepared)-len(candidates),'universe_truncated':truncated,'held_documents':held,
-            # A changed bounded window must not erase the daily retry limit
-            # for a failed identity which temporarily falls outside it.
-            'attempted_at':{key:stamp for key,stamp in recent_attempts.items() if key not in prepared},
+            # Retain both comparison quarters of history across windows and daily expiry,
+            # so expired failures cannot repeatedly starve unattempted scopes.
+            # Old quarters and completed scopes no longer need retry history.
+            'attempted_at':{key:stamp for key,stamp in attempts.items() if key not in prepared and key not in already_prepared},
             'universe':{'version':PLAN_VERSION,'weights':weights,'universe_truncated':truncated,'held_documents':held,'periods':sorted(periods),
                         'source_scan_next_before_id':next_before_id,
                         'source_scan_documents':min(examined, MAX_DOCUMENTS)}}

@@ -214,7 +214,7 @@ def test_changed_bounded_plan_preserves_daily_attempts_outside_its_window(setup)
         expired=job.plan_scopes(db,clock[0]+timedelta(days=1),plan['attempted_at'])
     assert all(r['cusip']!='000000999' for r in later['scopes'])
     assert any(r['cusip']=='000000999' for r in expired['scopes'])
-    assert expired['attempted_at']=={} and calls==[]
+    assert expired['attempted_at']=={'000000999:2026-06-30':stamp} and calls==[]
 
 
 def test_legacy_cached_plan_refreshes_without_changing_retry_budget(setup):
@@ -356,3 +356,66 @@ def test_independent_older_mapping_can_avoid_redundant_reference(setup):
         db.commit()
         plan = job.plan_scopes(db, clock[0], {})
     assert plan['scopes'] == [] and calls == []
+
+
+def test_expired_failed_scopes_do_not_precede_unattempted_scopes(setup):
+    factory, clock, calls = setup
+    for period in ('2026-06-30', '2026-09-30'):
+        seed(factory, key=period, period=period, cusips=('000000101','000000102','000000103'))
+        seed(factory, key=period+'-popular', period=period, cusips=('000000103',))
+    stamp=(clock[0]-timedelta(days=2)).isoformat()
+    attempts={f'000000103:{period}':stamp for period in ('2026-06-30','2026-09-30')}
+    with factory() as db:
+        plan=job.plan_scopes(db,clock[0],attempts)
+        cached=job.plan_scopes(db,clock[0],attempts,plan['universe'])
+    assert [r['cusip'] for r in plan['scopes']]==['000000102','000000102']
+    assert cached['scopes']==plan['scopes'] and plan['attempted_at']==attempts
+    assert calls==[]
+
+
+def test_unavailable_backlog_advances_across_daily_retry_boundaries(setup, monkeypatch):
+    factory,clock,calls=setup
+    for period in ('2026-06-30','2026-09-30'):
+        seed(factory,key=period,period=period,cusips=tuple(f'{i:09d}' for i in range(1,5)))
+    class UnavailableClient:
+        def get(self,path,params):
+            calls.append(params.copy())
+            return {'status':'OK','results':[]}
+    monkeypatch.setattr(job,'MassiveStocksClient',UnavailableClient)
+    receipts=[]
+    for _ in range(4):
+        receipts.append(job.run())
+        clock[0]+=timedelta(days=1)
+    assert len(calls)==8 and len({(r['cusip'],r['date']) for r in calls})==8
+    assert all(r['completed_scopes']==2 for r in receipts)
+    job.run()
+    assert calls[8:]==calls[:2]
+    with factory() as db:
+        state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
+        assert len(state['attempted_at'])==8
+        assert db.scalar(select(func.count()).select_from(Event))==0
+        assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
+
+
+def test_expired_retry_history_survives_window_rotation_but_not_quarter_rollover(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=('000000101',))
+    old=(clock[0]-timedelta(days=3)).isoformat()
+    attempts={'000000999:2026-06-30':old,'000000777:2026-03-31':old,'bad:2026-09-30':old}
+    with factory() as db:
+        plan=job.plan_scopes(db,clock[0],attempts)
+    assert plan['attempted_at']=={'000000999:2026-06-30':old}
+    assert calls==[]
+
+
+
+def test_verified_scope_retry_history_is_removed_after_plan_refresh(setup):
+    factory,clock,calls=setup
+    seed(factory,cusips=('000361105',))
+    assert job.run()['completed_scopes']==1
+    clock[0]+=timedelta(days=1)
+    assert job.run()['completed_scopes']==0
+    with factory() as db:
+        state=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)
+        assert state['attempted_at']=={}
+    assert len(calls)==1
