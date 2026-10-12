@@ -103,6 +103,7 @@ def test_share_class_normalization_is_explicit():
 @pytest.mark.parametrize('cusip,foreign,us,previous',[
     ('F92124100','TOTB.DE','TTE','2025-09-30'),
     ('496902404','K','KGC','2025-12-31'),
+    ('11777Q209','BTO','BTG','2026-03-31'),
 ])
 def test_reviewed_us_common_share_requires_dated_independent_reference(cusip,foreign,us,previous):
     raw=payload();raw['results'][0]['ticker']=us

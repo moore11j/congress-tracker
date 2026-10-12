@@ -21,6 +21,10 @@ def reviewed_us_listing(cusip, symbols, year, quarter):
     listings = (
         ("F92124100", {"TOTB.DE", "TTE"}, "TTE", (2025, 4)),
         ("496902404", {"K", "KGC"}, "KGC", (2026, 1)),
+        # May 6, 2026 issuer release confirms TSX BTO / NYSE American BTG.
+        # Exact common-share identity; require independent US evidence below.
+        # docs/institutional-scheduled-coverage-2026-10-12.md
+        ("11777Q209", {"BTO", "BTG"}, "BTG", (2026, 2)),
     )
     for exact_cusip, aliases, us_symbol, first_period in listings:
         if (cusip == exact_cusip and (year, quarter) >= first_period
