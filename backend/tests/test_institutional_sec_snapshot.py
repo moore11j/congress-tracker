@@ -249,12 +249,13 @@ def test_additional_issuer_aliases_preserve_prior_and_unrelated_evidence():
     ('03761U502','AINV','MFIC',(2022,3),(2022,2)),
     ('F92124100','TOTB.DE','TTE',(2025,4),(2025,3)),
     ('496902404','K','KGC',(2026,1),(2025,4)),
+    ('11777Q209','BTO','BTG',(2026,2),(2026,1)),
 ])
 def test_remaining_issuer_conflicts_require_exact_security_period_and_us_candidate(cusip,other,current,first,previous):
     from app.services.institutional_sec_snapshot import mapped_symbol
     assert mapped_symbol(cusip,{other,current},*first)==current
     assert mapped_symbol(cusip,{other,current},*previous) is None
-    expected = None if cusip in {'F92124100','496902404'} else other
+    expected = None if cusip in {'F92124100','496902404','11777Q209'} else other
     assert mapped_symbol(cusip,{other},*first)==expected
     assert mapped_symbol(cusip,{other},*previous)==other
     assert mapped_symbol(cusip,{current},*first)==current
