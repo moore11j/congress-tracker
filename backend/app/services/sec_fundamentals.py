@@ -106,11 +106,13 @@ def fetch_fundamentals(symbol: str):
                     values['price_to_sales'] = cap / revenue['value']
                     evidence['calculations']['price_to_sales'] = 'current Massive market cap / TTM revenue'
                 if income:
+                    from app.services.sec_parent_income import is_derived
+                    income_basis = 'TTM parent net income (consolidated profit minus reported noncontrolling interest)' if is_derived(income) else 'TTM net income'
                     values['earnings_yield'] = income['value'] / cap * 100
-                    evidence['calculations']['earnings_yield'] = 'TTM net income / current Massive market cap * 100'
+                    evidence['calculations']['earnings_yield'] = income_basis+' / current Massive market cap * 100'
                     if income['value'] > 0:
                         values['trailing_pe'] = cap / income['value']
-                        evidence['calculations']['trailing_pe'] = 'current Massive market cap / TTM net income'
+                        evidence['calculations']['trailing_pe'] = 'current Massive market cap / '+income_basis
                 if 'free_cash_flow' in values:
                     values['fcf_yield'] = values['free_cash_flow'] / cap * 100
                     evidence['calculations']['fcf_yield'] = 'TTM free cash flow / current Massive market cap * 100'
@@ -207,7 +209,7 @@ def _ttm(records, end):
     direct = [(s, e, f) for s, e, f in annual if e == end]
     if len(direct) == 1:
         s, e, f = direct[0]
-        return {"value": f["value"], "start": str(s), "end": str(e), "method": "reported_annual", "inputs": [f]}
+        return {"value": f["value"], "start": str(s), "end": str(e), "method": "derived_annual" if f.get("derived") else "reported_annual", "inputs": [f]}
     # Fiscal year plus this year's YTD minus comparable prior-year YTD.
     candidates = []
     for astart, aend, afact in annual:
@@ -251,10 +253,11 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
-    from app.services import sec_leverage
-    metric_tags = {**TAGS, **sec_leverage.TAGS}
+    from app.services import sec_leverage, sec_parent_income
+    metric_tags = {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
     all_records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company,
         metrics={name:(tags, 'USD') for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
+    all_records, parent_income_evidence = sec_parent_income.apply(all_records)
     records = {name: all_records[name] for name in TAGS}
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
@@ -283,6 +286,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         "instant": {}, "calculations": {}, "limitations": ["USD US GAAP standard concepts only",
             "No consensus estimates, EBITDA/debt proxies, or inferred per-share inputs",
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
+    if parent_income_evidence['derived_periods'] or parent_income_evidence['holds']:
+        evidence['parent_income_reconciliation'] = parent_income_evidence
     from app.services.sec_bank_revenue import basis
     revenue_basis = basis(records)
     if revenue_basis:
@@ -310,7 +315,9 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         return n / d * scale if n is not None and d is not None and d > 0 else None
 
     for name, numerator in (("gross_margin", "gross_profit"), ("operating_margin", "operating_income"), ("net_margin", "net_income")):
-        save(name, ratio(val(numerator), val("revenue"), 100), f"TTM {numerator} / TTM revenue * 100")
+        label = ('parent net income (consolidated profit minus reported noncontrolling interest)'
+            if numerator == 'net_income' and sec_parent_income.is_derived(current.get('net_income')) else numerator)
+        save(name, ratio(val(numerator), val("revenue"), 100), f"TTM {label} / TTM revenue * 100")
     growth = ratio(val("revenue"), val("revenue", True), 100)
     save("revenue_growth", growth - 100 if growth is not None else None, "(TTM revenue / prior TTM revenue - 1) * 100")
     old_margin = ratio(val("operating_income", True), val("revenue", True), 100)
@@ -327,7 +334,9 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     equity_then, equity_now = instant("equity", beginning), instant("equity")
     evidence["instant"]["beginning_equity"] = records["equity"].get((None, beginning))
     if equity_then is not None and equity_now is not None and min(equity_then, equity_now) > 0:
-        save("roe", ratio(val("net_income"), (equity_then + equity_now) / 2, 100), "TTM net income / average beginning and ending equity * 100")
+        income_label = ("parent net income (consolidated profit minus reported noncontrolling interest)"
+            if sec_parent_income.is_derived(current.get("net_income")) else "net income")
+        save("roe", ratio(val("net_income"), (equity_then + equity_now) / 2, 100), f"TTM {income_label} / average beginning and ending equity * 100")
     cash, capex = val("operating_cash_flow"), val("capex")
     old_cash, old_capex = val("operating_cash_flow", True), val("capex", True)
     fcf = cash - capex if cash is not None and capex is not None and capex >= 0 else None

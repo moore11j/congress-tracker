@@ -208,3 +208,42 @@ def test_actual_normalizers_preserve_real_changes_and_baseline_fallback(scenario
     apply(3, 3, 25)
     assert run(25)["triggered"] == 1
     assert len(db.scalars(select(MonitoringAlert)).all()) == 2
+
+
+
+def test_derived_parent_income_rebaselines_roe_then_real_change_alerts(scenario):
+    from test_sec_parent_income import parent_sources
+    from test_sec_leverage import prepared_sources
+    from test_sec_fundamentals import project
+    from app.services.free_fundamentals import combine
+    db, rule, row, run = scenario
+    rule.conditions_json = json.dumps(validate_conditions([dict(metric="roe",
+        operator="gt", comparison_type="value", comparison_value=15)]))
+    def apply(derived, factor):
+        facts = parent_sources()[0] if derived else prepared_sources()[0]
+        gaap = facts['facts']['us-gaap']
+        if derived:
+            for profit, nci in zip(gaap['ProfitLoss']['units']['USD'],
+                    gaap['NetIncomeLossAttributableToNoncontrollingInterest']['units']['USD']):
+                profit['val'] = (profit['val']-nci['val'])*factor+nci['val']
+        else:
+            for income in gaap['NetIncomeLoss']['units']['USD']: income['val'] *= factor
+        from app.services.finnhub_metrics import normalize
+        metrics = normalize({'symbol': 'ABC', 'metricType': 'all', 'metric': {}, 'series': {}},
+            symbol='ABC', observed_at=datetime(2026,10,8,18,tzinfo=timezone.utc))
+        result = combine(project(facts), metrics)
+        row.provider, row.roe = result['provider'], result['roe']
+        row.source_evidence_json = result['source_evidence_json']
+    apply(False, 1)
+    assert run(0)['initialized'] == 1
+    apply(True, 2)
+    assert run(5)['initialized'] == 1
+    assert run(10)['triggered'] == 0
+    apply(True, 1)
+    assert run(15)['triggered'] == 0
+    apply(True, 2)
+    assert run(20)['triggered'] == 1
+    assert run(25)['triggered'] == 0
+    apply(False, 1)
+    assert run(30)['initialized'] == 1
+    assert len(db.scalars(select(MonitoringAlert)).all()) == 1

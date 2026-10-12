@@ -65,7 +65,7 @@ def _align_reported_ttm(records, components, end):
                 break
             # A direct TTM observation cannot be reconciled using a different
             # closing filing, even when the numerical totals happen to match.
-            if primary['method'] == 'reported_annual':
+            if primary['method'] in {'reported_annual', 'derived_annual'}:
                 closing = [f for f in candidate['inputs'] if f['end'] == str(end)]
                 identity = ('end', 'filed', 'accession', 'unit', 'source_cik')
                 if (len(primary['inputs']) != 1 or len(closing) != 1 or any(
