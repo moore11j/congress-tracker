@@ -326,6 +326,13 @@ def parse_house_pdf(raw: bytes, metadata: dict) -> tuple[str, dict]:
             raise DirectSourceError(str(exc)) from exc
         if reviewed is not None:
             return reviewed
+        from app.clients.house_ptr_preparation import prepared_house_scan
+        try:
+            prepared = prepared_house_scan(raw, metadata, len(reader.pages))
+        except (ValueError, KeyError, TypeError) as exc:
+            raise DirectSourceError('Invalid House economic preparation') from exc
+        if prepared is not None:
+            return prepared
         raise HouseScanReviewRequired(len(reader.pages))
     if metadata.get('filing_id'):
         body_ids = set(re.findall(r'Filing ID\s*#(\d+)', text))

@@ -175,6 +175,15 @@ def parse_document(feed, raw, metadata):
                 item['symbol_resolution_status'] = 'reviewed_sec_listing'
                 # No ticker was printed on this form. Preserve ticker_raw=None
                 # and retain the listing evidence in source_report.
+        if feed == 'house_ptr' and report.get('preparation_review'):
+            # Candidate asset names must not acquire tickers via the ordinary
+            # known-issuer fallback. Only economic fields have been reviewed.
+            from app.clients.house_ptr_preparation import HOLD
+            reasons.append(HOLD)
+            for item in transactions:
+                item['ticker_normalized'] = None
+                item['symbol_resolution_status'] = 'scan_security_review_required'
+                item['asset_type_normalized'] = 'unresolved'
         if report.get("amendment_flag"):
             reasons.append("Congress amendment requires original filing reconciliation")
         for item in transactions:
@@ -186,7 +195,7 @@ def parse_document(feed, raw, metadata):
                 break
             if item["asset_type_normalized"] == "stock" and not item["ticker_normalized"]:
                 reasons.append("Unresolved stock symbol")
-            if item["asset_type_normalized"] == "unresolved":
+            if item["asset_type_normalized"] == "unresolved" and not report.get("preparation_review"):
                 reasons.append("Unresolved asset classification")
         hashes = [item['normalized_hash'] for item in transactions]
         if len(set(hashes)) != len(hashes):
@@ -313,7 +322,11 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
                 elif feed == "sec_13f":
                     document.reconciliation_json = dumps(reconcile_institutional(db, parsed))
                 elif feed in {"house_ptr", "senate_ptr"}:
-                    document.reconciliation_json = dumps(reconcile_congress(db, parsed))
+                    if parsed.get('source_report', {}).get('preparation_review'):
+                        document.reconciliation_json = dumps({'status': 'held',
+                            'reason': 'Economic transcription awaits description and security review'})
+                    else:
+                        document.reconciliation_json = dumps(reconcile_congress(db, parsed))
                 reconciliation = json.loads(document.reconciliation_json or "{}")
                 if reconciliation.get("ambiguous") or reconciliation.get("existing_only_ids"):
                     document.status = "quarantined"
