@@ -3,15 +3,10 @@ import argparse
 import os
 from datetime import date
 
-from app.background_job_guard import check_background_job_guard
-from app.clients.direct_sources import DirectSourceClient
-from app.db import SessionLocal
-from app.jobs.collect_direct_feeds import collector_lock
-from app.services.direct_13f_priors import collect_13f_priors, pending_prior_documents
-from app.services.direct_feed_store import dumps
+import json
 
 
-def main():
+def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument('--document-ids', nargs='+', type=int)
@@ -20,11 +15,32 @@ def main():
     parser.add_argument('--recheck-hours', type=int, default=24)
     parser.add_argument('--lookback-days', type=int, default=93)
     parser.add_argument('--preview', action='store_true', help='Read automatic selection without network or writes')
-    args = parser.parse_args()
+    return parser
+
+
+if __name__ == '__main__':
+    _cli_args = _parser().parse_args()
+    from app.jobs.prior_preflight import early_result
+    _early = early_result(_cli_args)
+    if _early is not None:
+        print(json.dumps(_early, sort_keys=True))
+        raise SystemExit(0)
+
+
+from app.background_job_guard import check_background_job_guard
+from app.clients.direct_sources import DirectSourceClient
+from app.db import SessionLocal
+from app.jobs.collect_direct_feeds import collector_lock
+from app.services.direct_13f_priors import collect_13f_priors, pending_prior_documents
+from app.services.direct_feed_store import dumps
+
+
+def main(args=None):
+    args = args or _parser().parse_args()
     if os.getenv('DIRECT_FEEDS_MODE', 'off').lower() != 'shadow':
         print(dumps({'status': 'disabled'})); return
     if args.preview and not args.since:
-        parser.error('--preview requires --since')
+        _parser().error('--preview requires --since')
     guard = check_background_job_guard('direct-13f-prior-collection')
     if not guard.proceed:
         print(dumps(guard.to_dict())); return
@@ -46,4 +62,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(_cli_args)
