@@ -1,5 +1,9 @@
 # Project context log
 
+## 2026-10-12, 00:51 UTC: Institutional preparation release and live result
+
+[PR593/f1677a3f](institutional-production-preparation-2026-10-12.md) deployed successfully through38189275783. Shared publisher preparation, a bounded manual queue job,87 focused tests, six Linux checks, exact captured718-source/100-target parity and39runtime hashes verify. One live read-only run completes20targets/402relevantpeers/12identifiers/38references in19.6547CPU/26.6555wall seconds,301.95MBpeak, zero source/canonical/email activity. Actual under-load feed0.824s/cachedcontexts0.407-0.567s; queued imports resume and drain. Reference/research jobs retain explicit partial coverage. Institutions remainFMP/publicationfalse. Secret false-positive corrected with exact historic fingerprint; unchanged dependency audits fail, no full-suite claim. Allhandles terminal/no localPG. Next actual publication/coverage/consumer acceptance and remaining Senate/core/transcript/allalerts/rankings/finalMassive/globalFMP/billing gates. No new recurring schedule, capacity, purchase, video or cancellation. Prior landing-only turn no migration progress; current turn concreteprogress and goalactive.
+
 ## 2026-10-12, 00:41 UTC: Serialized institutional capacity implementation
 
 Continued the FMP replacement with a bounded one-time read-only job in the existing data lane, sharing real publisher preparation.87 focused checks and six Linux checks pass; initial option-validation ordering repaired. Actual718-source/100-target parity replay7642 is terminal/pass with exact prior result equality. No recurring schedule, source activation, canonical write, customer email or deployment. [Report](institutional-production-preparation-2026-10-12.md). Next finish parity and review/deploy, then enqueue once and observe production preparation and public latency. Prior landing-only turn no migration progress; current turn concrete implementation progress.
