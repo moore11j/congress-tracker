@@ -233,14 +233,19 @@ def _bound_target_work(db, ids, retry_ids):
     return selected[0] + selected[1], selected[1]
 
 
-def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False):
+def _validate_batch_options(limit, retry_waiting, include_waiting):
     if not 1 <= limit <= 200:
         raise ValueError('Publication limit must be between 1 and 200')
     if include_waiting and (retry_waiting or limit < 2):
         raise ValueError('Combined publication requires at least two slots and no retry-only mode')
+
+
+def select_13f_batch(db, *, generation, limit=100, retry_waiting=False, include_waiting=False):
+    """Read the bounded ordered target plan without advancing retry state."""
+    _validate_batch_options(limit, retry_waiting, include_waiting)
     if db.new or db.dirty or db.deleted:
         raise ValueError('Feed writer session has unrelated pending changes')
-    generation = require_selected_source(db, 'sec_13f', 'sec_edgar').generation
+    expected_state = None
     query = select(DirectFeedDocument.id).outerjoin(DirectFeedPublication,
         DirectFeedPublication.document_id == DirectFeedDocument.id).where(
         DirectFeedDocument.feed == 'sec_13f', DirectFeedDocument.status == 'parsed')
@@ -262,10 +267,17 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     else:
         ids = list(db.scalars(query.where(DirectFeedPublication.id.is_(None))
             .order_by(DirectFeedDocument.id).limit(limit)))
-    if not ids:
-        db.rollback()
-        return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
-    ids, retry_ids = _bound_target_work(db, ids, retry_ids)
+    if ids:
+        ids, retry_ids = _bound_target_work(db, ids, retry_ids)
+    return ids, retry_ids, expected_state
+
+
+def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=False, checkpoint=lambda phase: None):
+    """Prepare complete original-bound evidence; no writes or transaction changes."""
+    if not ids or len(ids) > 200 or len(set(ids)) != len(ids):
+        raise ValueError("Preparation requires 1 to 200 distinct targets")
+    if db.new or db.dirty or db.deleted:
+        raise ValueError("Preparation session has unrelated pending changes")
     from app.services.direct_13f_priors import _saved_source
     from app.clients.direct_sources import DirectSourceError
     report_periods = set()
@@ -273,6 +285,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     target_periods = {}
     value_scopes = {}
     for document_id in ids:
+        checkpoint('targets')
         try:
             _, _, parsed, _ = _saved_source(db, db.get(DirectFeedDocument, document_id))
         except DirectSourceError:
@@ -286,18 +299,50 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         # the original parser keys to keep existing comparison semantics.
         value_scopes.setdefault(target_periods[document_id], set()).update(r['cusip'] for r in parsed['positions'])
         reference_scopes[document_id] = {(r['cusip'].strip().upper(), parsed['metadata']['report_period']) for r in parsed['positions']}
-    groups = prepare_streamed_peer_groups(_staged_sources(db, retain_originals=False),
+    def sources():
+        for document in _staged_sources(db, retain_originals=False):
+            checkpoint('complete_peer_scan')
+            yield document
+    groups = prepare_streamed_peer_groups(sources(),
         scopes=value_scopes if report_periods is not None else None)
+    checkpoint('references_and_evidence')
     references = []
     if use_staged_references:
         from app.services.institutional_reference import load_reference_batch
         references = load_reference_batch(db, set().union(*reference_scopes.values()) if reference_scopes else set())
-    db.rollback()  # Recheck durable ownership inside every filing transaction.
     # All originals are checked before the first writer transaction. Mixed
     # quarter batches retain complete peer summaries and target order.
     evidence = {period: Prepared13FEvidence.build_for_cohort(identifier_documents, cohort)
                 for period, cohort in groups.items()}
     comparisons = {record.identity: record for cohort in groups.values() for record in cohort.records}
+    checkpoint('complete')
+    return dict(groups=groups, evidence=evidence, references=references,
+        target_periods=target_periods, reference_scopes=reference_scopes,
+        summary={
+            'comparison_periods': sorted(report_periods) if report_periods is not None else None,
+            'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
+            'reference_documents': len(references),
+            'comparison_documents': len(comparisons),
+            'comparison_bytes': sum(record.source_bytes for record in comparisons.values()),
+        })
+
+
+def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False):
+    _validate_batch_options(limit, retry_waiting, include_waiting)
+    if db.new or db.dirty or db.deleted:
+        raise ValueError('Feed writer session has unrelated pending changes')
+    generation = require_selected_source(db, 'sec_13f', 'sec_edgar').generation
+    ids, retry_ids, expected_state = select_13f_batch(db, generation=generation, limit=limit,
+        retry_waiting=retry_waiting, include_waiting=include_waiting)
+    if not ids:
+        db.rollback()
+        return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
+    prepared = prepare_13f_batch(db, ids=ids, identifier_documents=identifier_documents,
+        use_staged_references=use_staged_references)
+    db.rollback()  # Recheck durable ownership inside every filing transaction.
+    groups, evidence, references = prepared['groups'], prepared['evidence'], prepared['references']
+    target_periods, reference_scopes = prepared['target_periods'], prepared['reference_scopes']
+    report_periods = prepared['summary']['comparison_periods']
     def group_key(document_id):
         return target_periods[document_id] if report_periods is not None else None
     results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
@@ -307,9 +352,6 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
     if retry_ids:
         _save_retry_position(db, generation, expected_state, retry_ids[-1])
     return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
-        'comparison_periods': sorted(report_periods) if report_periods is not None else None,
-        'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
-        'reference_documents': len(references),
-        'comparison_documents': len(comparisons), 'comparison_bytes': sum(record.source_bytes for record in comparisons.values()),
+        **prepared['summary'],
         'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
         'results': results, 'email_deliveries': 0}

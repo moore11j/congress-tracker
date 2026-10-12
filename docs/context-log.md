@@ -1,5 +1,9 @@
 # Project context log
 
+## 2026-10-12, 00:41 UTC: Serialized institutional capacity implementation
+
+Continued the FMP replacement with a bounded one-time read-only job in the existing data lane, sharing real publisher preparation.87 focused checks and six Linux checks pass; initial option-validation ordering repaired. Actual718-source/100-target parity replay7642 is live. No recurring schedule, source activation, canonical write, customer email or deployment. [Report](institutional-production-preparation-2026-10-12.md). Next finish parity and review/deploy, then enqueue once and observe production preparation and public latency. Prior landing-only turn no migration progress; current turn concrete implementation progress.
+
 ## 2026-10-12,00:32UTC: Current institutional inventory and bounded capacity checks
 
 Continued full migration by checking the institutional production-work gate. [Report](institutional-production-preparation-2026-10-12.md) captures718parsed originals/82.76MB/zero missing, allunvisited/FMPownership,121 zero-throttle samples and two guarded partial preparation attempts. Both stop when scheduled data work begins, zero source/canonical/email activity; second reaches peer scan14CPU seconds without completing. Next implementation must allow read-only preparation inside the existing serialized data lane; repeated opportunistic probes are not capacity proof. No application edit or deployment. Initial bad diagnostic column corrected after terminal failure. Allnewhandles terminal/no localPG. Both goal turns progress; broader coverage/consumer and finalMassive/globalFMP gates unchanged.

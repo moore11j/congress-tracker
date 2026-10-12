@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12, 00:41 UTC: Institutional diagnostic prepared:** [Shared preparation and fixed manual queue job](institutional-production-preparation-2026-10-12.md) passes87 local/six Linux checks. Exact captured replay, deployment and complete live preparation remain pending. Publication remains disabled; no new recurring schedule.
+
 **October12,00:32UTC: Institutional capacity remains gated:** [Current production check](institutional-production-preparation-2026-10-12.md) verifies718 complete staged originals/82.76MB, but opportunistic read-only preparation yields to scheduled imports before finishing. Need bounded read-only execution in the existing data lane, then complete capacity/coverage/consumer acceptance. Publication remainsoff; no new schedule, resources or spending.
 
 **October12,00:27UTC: Alphabet financial repair deployed:** [PR592/6fdebc85](alphabet-financial-identity-2026-10-12.md) passes116tests, exact production-source replay and38runtime hashes. LiveGOOG recovers four company fields, excludes share-class valuations/beta/per-share metrics, and repeats without provider traffic/canonical change. CoreFMP remains; broader coverage/consumer and finalMassive/globalFMP gates persist.
