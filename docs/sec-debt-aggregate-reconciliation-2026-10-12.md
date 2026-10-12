@@ -1,6 +1,6 @@
 # SEC debt aggregate reconciliation
 
-October 12, 2026. Implemented and locally validated; release pending. Public core remains FMP.
+October 12, 2026. Deployed and runtime verified through PR #617 / c4a90c9f. Public core remains FMP.
 
 ## Current coverage and discovered error
 
@@ -32,6 +32,29 @@ An offline21-issuer replay includes20 hash-verified October9 source pairs plus f
 
 `on-debt-oct12/runtime-fixture.json` captures137 source-bound observations and reproduces the entire full-source candidate panel exactly; it is prepared for deployedPython3.12 validation. Local artifacts are under primary `artifacts/direct-feeds/free-replacements-2026-10-09/`: audit, `on-debt-oct12` originals/manifest, `debt-bounds-replay-oct12.json`. Older manifest SHA052495c6b28b8f7b3837cdbafbadbe5e67ca51ef78c2d1576124c9ab3487acf8; ON manifest SHAee4ca5b8c9b20924964433796ed6c91402938dc4d58101dace4fda16130d5267. Initial audit query incorrectly treated a colon in its LIKE literal as a bind; corrected parameter binding completed the read-only audit.
 
+## Deployed verification, October 12 at 18:15 UTC
+
+[PR #617](https://github.com/moore11j/congress-tracker/pull/617) is merged as `c4a90c9f3975b7d552d4ecccde967bbbcc412dc8`. Deployment workflow `38289479562` succeeded. The exact source head was `0167f22b353ae0db8c9a1a6beb2d2fd399995c18`.
+
+Receipt `debt-bounds-release-1791828934.json` verifies all 74 runtime source hashes with zero mismatches on Python 3.12.15. The 137-observation source-bound ON fixture reproduces the entire expected leverage-v4 evidence panel, identical repeat and immutable inputs: zero eligible debt candidates, unchanged EBITDA of $1,565,700,000. The isolated fixture uses no database, provider requests or emails. Its 0.004451 CPU seconds measures only that fixture, not production capacity.
+
+Public receipt `issuer-staging-public-1791828933.json` returns HTTP 200 throughout: readiness 0.322 seconds, feeds 0.529/0.509 seconds, AAPL context 2.182 seconds, NVDA 1.242 seconds and AZO press 0.245 seconds with four distinct release links preserved. These postrelease samples do not establish sustained capacity or complete ticker coverage. Core fundamentals remains FMP and institutional publication remains disabled. Existing caches retain their recorded leverage versions until ordinary refresh; no broad forced refresh was performed.
+
+Exact-head CI run `38289347654` passes the secret scan. Backend and frontend dependency audits still fail on unchanged Pillow 10.4.0 and nanoid/Next/PostCSS/Sharp/source-map-js dependencies; manifests and lockfiles were unchanged. Those logs were inspected through the required CI tool. The 140 focused tests and 21-source replay passed, but this is not a green full-suite or automated-review claim. PR attachment was attempted and rejected by the app's 100-attachment limit.
+
+All local command handles are terminal; no local PostgreSQL was started. ACN's ordinary earnings receipt and dependent financial update remain pending from PR #616. Broader accounting coverage, public formula selection, sustained capacity and the other migration gates below remain open.
+
 ## Remaining migration gates
 
-Review/release/runtime verification are next. Broad missing debt/interest/D&A coverage, source-specific debt definitions, score/ranking/all-alert compatibility and ordinary freshness remain required; this guard does not fill1364 previously populated FMP leverage fields. ACN releasePR616 is live with74hashes, but its ordinary earnings-to-financial handoff remains pending. Institutions capacity/publication, transcripts, all retained consumers, finalMassive validation, globalzeroFMP traffic and subscription cancellation remain. No public provider switch, host/schedule/subscription/landing change or validation email.
+Release and runtime checks above are complete. Broad missing debt/interest/D&A coverage, source-specific debt definitions, score/ranking/all-alert compatibility and ordinary freshness remain required; this guard does not fill1364 previously populated FMP leverage fields. ACN releasePR616 is live with74hashes, but its ordinary earnings-to-financial handoff remains pending. Institutions capacity/publication, transcripts, all retained consumers, finalMassive validation, globalzeroFMP traffic and subscription cancellation remain. No public provider switch, host/schedule/subscription/landing change or validation email.
+
+
+## October 12 follow-up: source gaps and Alpaca assessment
+
+At 18:19 UTC, three fresh Microsoft SEC originals were captured and hash-verified: companyfacts `f8aae2965b20ad0df44bdf7ccbedf797d275b6b8dc030154a7a311361bb7246f`, submissions `2484a2a3b5677d892a1b25af573ce4eda7b6f449f5eda41bac6b3f106dc3139c`, and [FY2026 10-K](https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm) `c5a1adab275f377e5ef2635db066ef47bf415800c41e7ccb880baf3326d08429`. Local originals/manifest are under `msft-da-oct12`. An initial capture helper formed a wrong filing URL and received 404; the corrected request succeeded, with no production change.
+
+The reported depreciation is $34.3 billion and intangible amortization $4.7 billion. Their $39.0 billion sum differs from the $38.534 billion cash-flow extension, whose label includes other adjustments. Finance-lease amortization is also separately disclosed. This does not establish a complete, non-overlapping generic EBITDA addback or justify substituting the extension as pure D&A. No new metric was published or source selected. Saved 20-issuer source inspection also distinguishes debt-only interest concepts from total interest and combined accretion from pure D&A. Wider missing components require explicit reconciliation, not merely adding tag aliases.
+
+The owner then asked whether the new Alpaca plugin helps with financials or transcripts. Alpaca's [October 12 announcement](https://alpaca.markets/blog/paper-trading-and-live-portfolio-monitoring-now-available-in-chatgpt-with-alpaca/), [official current MCP tool inventory](https://github.com/alpacahq/alpaca-mcp-server#available-tools) and [Market Data API documentation](https://docs.alpaca.markets/us/docs/about-market-data-api) describe market prices/bars, options/crypto, news and trading/account capabilities. No financial-statement, fundamental-ratio or earnings-call-transcript tool is documented in the inspected inventory. This is a documentation assessment, not an authenticated capability probe or a universal claim about future offerings. The plugin adds a conversational interface to existing APIs; Walnut would still need a direct scheduled integration for any chosen dataset.
+
+Plugin-management discovery returned no Alpaca entry in this session's searchable catalog; that is not proof the announced plugins are unavailable in ChatGPT's wider directory. No install, connection, trade, subscription or recommendation to replace Massive was made. Alpaca is not selected to close the financials/transcript gaps. Existing free sources and Massive-last direction remain. Reviewed worker code confirms subprocess startup per queued job; no persistent-worker change or new CPU saving is claimed. Next investigate measured recurring startup/load and observe ACN's normal earnings-to-financial refresh when due.
