@@ -1,3 +1,11 @@
+2026-10-12,19:04: [Yahoo bounded collector](yahoo-financial-evidence-2026-10-12.md) locally implemented/default off:110tests, actual one-request106observations/cache repeat and PostgreSQL concurrency/dedup/failure retention verified. ACN ordinary current periodAugust31 nowverified. Production unchanged; sustainablecapacity, original definitions/coverage and full consumer/cutover gates remain.
+
+2026-10-12,18:55: [Yahoo preparation](yahoo-financial-evidence-2026-10-12.md) now diagnoses actual annual/quarterly conflicts, with91focused tests/110original observations/repeat; local only, canonical eligibility false. Ordinary ACN annual receipt verified18:47, current financial cache handoff still pending. No deployment/source/schedule change.
+
+2026-10-12: [Yahoo financial evidence](yahoo-financial-evidence-2026-10-12.md) locally implemented75tests/444page observations/20quarterly observations after successful publicJSON transport. No sourceactivation or productioncollector. Annual/quarterly discrepancies, staleACN, identity/fiscal-date/revision/coverage/cache/consumer gates remain; coreFMP and finalMassive direction unchanged.
+
+2026-10-12, 18:34 UTC: [PR618 startup isolation](ingest-startup-isolation-2026-10-12.md) deployed403b0f4a/74hashes. Isolated import CPU39.8% lower; ordinary affected jobs and sustained capacity remain unverified. [Directory/source extension](financial-source-directory-2026-10-12.md) assessed and proposed; no Yahoo/Google/SEDAR adapter activated. All financial/consumer/cutover gates remain.
+
 2026-10-12, 18:18 UTC: [Debt aggregate repair](sec-debt-aggregate-reconciliation-2026-10-12.md) deployed PR617/c4a90c9f; 140 tests, 21-source replay and 74 runtime hashes pass. Actual ON evidence now holds two false preparation candidates. Public core remains FMP; ordinary propagation, broad financial coverage, formula/consumer acceptance and sustained capacity remain open.
 
 2026-10-12 18:03: [ACN issuer preparation](accenture-issuer-financials-2026-10-12.md) PR616/c710534a deployed;245tests/74runtime hashes and actual deployed-source equality pass. Ordinary receipt propagation pending; coreFMP, financial semantic/coverage and consumer/capacity gates remain.
