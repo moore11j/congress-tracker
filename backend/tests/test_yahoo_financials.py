@@ -180,3 +180,9 @@ def test_captured_quarterly_data_does_not_become_annual_or_trailing():
     data['timeseries']['result'][0][keys[0]][0]['periodType']='12M'
     with pytest.raises(YahooStatementError,match='statement_period_mismatch'):
         parse(data,source_url=api_url(keys))
+
+
+def test_omitted_requested_supported_series_is_explicitly_unavailable():
+    result=parse(body(),source_url=api_url(('annualEBITDA','quarterlyEBITDA','annualTaxRateForCalcs')))
+    assert result['unavailable_series']==['quarterlyEBITDA']
+    assert result['null_observation_counts']=={}

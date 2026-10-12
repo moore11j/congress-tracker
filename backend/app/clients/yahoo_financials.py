@@ -152,6 +152,7 @@ def _project(body, *, raw, symbol, statement, source_url, observed_at, requested
     if not isinstance(rows, list) or not 0 < len(rows) <= 1000:
         raise YahooStatementError('statement_series_invalid')
     points, missing, nulls = {}, set(), {}
+    returned_keys = set()
     for row in rows:
         meta = row.get('meta') if isinstance(row, dict) else None
         if not isinstance(meta, dict) or meta.get('symbol') != [symbol]:
@@ -160,6 +161,7 @@ def _project(body, *, raw, symbol, statement, source_url, observed_at, requested
         if not isinstance(kinds, list) or len(kinds) != 1 or not isinstance(kinds[0], str):
             raise YahooStatementError('statement_metric_invalid')
         key = kinds[0]
+        returned_keys.add(key)
         if requested is not None and key not in requested:
             raise YahooStatementError('unrequested_statement_metric')
         match = re.fullmatch(r'(annual|trailing|quarterly)([A-Z][A-Za-z0-9]+)', key)
@@ -208,6 +210,11 @@ def _project(body, *, raw, symbol, statement, source_url, observed_at, requested
             if identity in points and points[identity] != item:
                 raise YahooStatementError('conflicting_statement_point')
             points[identity] = item
+    if requested is not None:
+        for key in requested - returned_keys:
+            match = re.fullmatch(r'(annual|trailing|quarterly)([A-Z][A-Za-z0-9]+)', key)
+            if match and match[2] in METRICS[statement] and not (statement == 'balance' and match[1] == 'trailing'):
+                missing.add(key)
     if not points:
         raise YahooStatementError('statement_has_no_supported_values')
     return {'version': VERSION, 'provider': 'yahoo_finance', 'status': 'evidence_only',

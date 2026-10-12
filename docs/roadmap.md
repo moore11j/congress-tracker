@@ -1,3 +1,5 @@
+2026-10-12,19:04: [Yahoo bounded collector](yahoo-financial-evidence-2026-10-12.md) locally implemented/default off:110tests, actual one-request106observations/cache repeat and PostgreSQL concurrency/dedup/failure retention verified. ACN ordinary current periodAugust31 nowverified. Production unchanged; sustainablecapacity, original definitions/coverage and full consumer/cutover gates remain.
+
 2026-10-12,18:55: [Yahoo preparation](yahoo-financial-evidence-2026-10-12.md) now diagnoses actual annual/quarterly conflicts, with91focused tests/110original observations/repeat; local only, canonical eligibility false. Ordinary ACN annual receipt verified18:47, current financial cache handoff still pending. No deployment/source/schedule change.
 
 2026-10-12: [Yahoo financial evidence](yahoo-financial-evidence-2026-10-12.md) locally implemented75tests/444page observations/20quarterly observations after successful publicJSON transport. No sourceactivation or productioncollector. Annual/quarterly discrepancies, staleACN, identity/fiscal-date/revision/coverage/cache/consumer gates remain; coreFMP and finalMassive direction unchanged.
