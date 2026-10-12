@@ -6,7 +6,7 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v1'
+VERSION = 'sec_leverage_evidence_v2'
 DURATION = {
     'leverage_net_income': ('NetIncomeLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
@@ -19,6 +19,11 @@ INSTANT = {
     'leverage_debt_with_finance_leases': ('DebtAndCapitalLeaseObligations',),
     'leverage_current_debt': ('DebtCurrent',),
     'leverage_noncurrent_debt_with_finance_leases': ('LongTermDebtAndCapitalLeaseObligations',),
+    'leverage_noncurrent_borrowings': ('LongTermDebtNoncurrent',),
+    'leverage_finance_leases_current': ('FinanceLeaseLiabilityCurrent',),
+    'leverage_finance_leases_noncurrent': ('FinanceLeaseLiabilityNoncurrent',),
+    'leverage_operating_leases_current': ('OperatingLeaseLiabilityCurrent',),
+    'leverage_operating_leases_noncurrent': ('OperatingLeaseLiabilityNoncurrent',),
     'leverage_finance_leases': ('FinanceLeaseLiability',),
     'leverage_operating_leases': ('OperatingLeaseLiability',),
 }
@@ -65,12 +70,56 @@ def _ebitda(records, end, start):
     return {**result, 'status': 'components_complete', 'value': value}
 
 
+
+def _lease_totals(instant):
+    """Reconcile reported totals against complete, disjoint maturity components."""
+    reconciliations = {}
+    for name in ('leverage_finance_leases', 'leverage_operating_leases'):
+        total = instant[name]
+        parts = [instant[name+'_current'], instant[name+'_noncurrent']]
+        if not all(parts):
+            # A reported aggregate is independently sufficient; a lone maturity
+            # component can never manufacture its missing counterpart as zero.
+            continue
+        if not _compatible(parts) or (total is not None and not _compatible([total, *parts])):
+            reconciliations[name] = {'status': 'incompatible_lease_components', 'inputs': parts}
+            instant[name] = None
+            instant[name+'_current'] = instant[name+'_noncurrent'] = None
+            continue
+        if any(not _finite(f['value']) or f['value'] < 0 for f in parts):
+            reconciliations[name] = {'status': 'invalid_lease_components', 'inputs': parts}
+            instant[name] = None
+            instant[name+'_current'] = instant[name+'_noncurrent'] = None
+            continue
+        value = sum(f['value'] for f in parts)
+        if not _finite(value):
+            reconciliations[name] = {'status': 'nonfinite_lease_total', 'inputs': parts}
+            instant[name] = None
+            instant[name+'_current'] = instant[name+'_noncurrent'] = None
+            continue
+        if total is not None:
+            if not _finite(total['value']) or not math.isclose(total['value'], value, rel_tol=1e-12, abs_tol=.01):
+                reconciliations[name] = {'status': 'conflicting_lease_total', 'reported': total, 'inputs': parts}
+                instant[name] = None
+                instant[name+'_current'] = instant[name+'_noncurrent'] = None
+                continue
+            reconciliations[name] = {'status': 'reported_total_verified', 'reported': total, 'inputs': parts}
+        else:
+            derived = {**parts[0], 'value': value, 'tag': name+'_current_plus_noncurrent',
+                'formula': 'reported current plus reported noncurrent lease liability',
+                'inputs': parts, 'derived': True}
+            instant[name] = derived
+            reconciliations[name] = {'status': 'complete_maturity_sum', 'derived': derived}
+    return reconciliations
+
+
 def project(records, *, end, start):
     """Return auditable candidates. Caller must not select a public metric here."""
     if not isinstance(end, date) or date.fromisoformat(start) > end:
         raise ValueError('invalid_leverage_period')
     ebitda = _ebitda(records, end, start)
     instant = {name: records.get(name, {}).get((None, end)) for name in INSTANT}
+    reconciliations = _lease_totals(instant)
     candidates = []
     holds = {}
 
@@ -118,6 +167,17 @@ def project(records, *, end, start):
     candidate('current_plus_noncurrent_debt_including_finance_leases',
         ('leverage_current_debt', 'leverage_noncurrent_debt_with_finance_leases'),
         'Current debt plus noncurrent debt and capital leases less cash; excludes separately reported operating leases.')
+    # DebtCurrent already includes current capital lease obligations. Add only
+    # noncurrent finance leases to the explicitly lease-exclusive noncurrent debt.
+    candidate('current_debt_plus_noncurrent_borrowings_and_finance_leases',
+        ('leverage_current_debt', 'leverage_noncurrent_borrowings', 'leverage_finance_leases_noncurrent'),
+        'Current debt including current capital leases plus noncurrent borrowings and noncurrent finance leases less cash.')
+    candidate('current_debt_plus_noncurrent_borrowings_finance_and_operating_leases',
+        ('leverage_current_debt', 'leverage_noncurrent_borrowings', 'leverage_finance_leases_noncurrent', 'leverage_operating_leases'),
+        'Current debt including current capital leases plus noncurrent borrowings, noncurrent finance leases and total operating leases less cash.')
+    candidate('current_plus_noncurrent_debt_including_finance_and_operating_leases',
+        ('leverage_current_debt', 'leverage_noncurrent_debt_with_finance_leases', 'leverage_operating_leases'),
+        'Current debt plus noncurrent debt and capital leases plus operating lease liabilities less cash.')
     candidate('borrowings_plus_finance_leases', ('leverage_borrowings', 'leverage_finance_leases'),
         'Reported borrowings plus separately reported finance lease liabilities less cash; requires overlap review before selection.')
     candidate('reported_debt_plus_operating_leases',
@@ -127,7 +187,7 @@ def project(records, *, end, start):
         ('leverage_borrowings', 'leverage_finance_leases', 'leverage_operating_leases'),
         'Reported borrowings plus finance and operating leases less cash; requires overlap review before selection.')
     return {'version': VERSION, 'status': 'preparation_only', 'period_date': str(end),
-        'ebitda': ebitda, 'candidates': candidates, 'holds': holds,
+        'ebitda': ebitda, 'candidates': candidates, 'holds': holds, 'lease_reconciliations': reconciliations,
         'limitations': ['No candidate is selected as the canonical net-debt/EBITDA field.',
             'Missing debt, lease, interest or D&A components are not assumed zero.',
             'Issuer-adjusted EBITDA and D&A including other items are not substituted.',
