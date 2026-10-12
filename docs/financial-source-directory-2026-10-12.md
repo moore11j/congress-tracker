@@ -24,3 +24,6 @@ Run bounded collection in the background and serve prepared cache entries. Reuse
 Both [Nasdaq-listed](https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt) and [other-listed](https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt) text downloads were successfully opened in this review. Their headers and rows are machine-readable; the observed Nasdaq file includes ordinary shares, ADRs, ETFs, units and warrants. Counts cannot be treated as a count of operating companies without classification and deduplication.
 
 Measure directory joins and verified website coverage against the current supported universe, starting with financial gaps and followed tickers. Prove representative automated retrieval and original-source reconciliation before expanding to a scheduled adapter. Preserve current financial, ranking, monitoring and alert contracts; Massive remains the final price subscription step.
+
+
+October12 follow-up: [bounded live Yahoo retrieval and local parser](yahoo-financial-evidence-2026-10-12.md) now establish a viable publicJSON candidate, including quarterly data. Google direct requests redirect to unsupported. Yahoo production integration remains unselected; original-source and annual/quarterly/freshness discrepancies are recorded in the follow-up.

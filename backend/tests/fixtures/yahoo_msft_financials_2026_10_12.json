@@ -1,0 +1,222 @@
+{
+  "capture": {
+    "observed_at": "2026-10-12T18:39:20.737485+00:00",
+    "original_response_sha256": "3e6ceb158f3d614ce40c601edad351be92ea359da7216253afe335d7d3960c2f",
+    "selection": "Four unchanged series from the public MSFT income response"
+  },
+  "timeseries": {
+    "result": [
+      {
+        "meta": {
+          "symbol": [
+            "MSFT"
+          ],
+          "type": [
+            "annualNetIncome"
+          ]
+        },
+        "timestamp": [
+          1688083200,
+          1719705600,
+          1751241600,
+          1782777600
+        ],
+        "annualNetIncome": [
+          {
+            "dataId": 20091,
+            "asOfDate": "2023-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 72361000000.0,
+              "fmt": "72.36B"
+            }
+          },
+          {
+            "dataId": 20091,
+            "asOfDate": "2024-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 88136000000.0,
+              "fmt": "88.14B"
+            }
+          },
+          {
+            "dataId": 20091,
+            "asOfDate": "2025-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 101832000000.0,
+              "fmt": "101.83B"
+            }
+          },
+          {
+            "dataId": 20091,
+            "asOfDate": "2026-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 133749000000.0,
+              "fmt": "133.75B"
+            }
+          }
+        ]
+      },
+      {
+        "meta": {
+          "symbol": [
+            "MSFT"
+          ],
+          "type": [
+            "trailingEBITDA"
+          ]
+        },
+        "timestamp": [
+          1751241600,
+          1782777600
+        ],
+        "trailingEBITDA": [
+          {
+            "dataId": 20190,
+            "asOfDate": "2025-06-30",
+            "periodType": "TTM",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 160165000000.0,
+              "fmt": "160.16B"
+            }
+          },
+          {
+            "dataId": 20190,
+            "asOfDate": "2026-06-30",
+            "periodType": "TTM",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 207519000000.0,
+              "fmt": "207.52B"
+            }
+          }
+        ]
+      },
+      {
+        "meta": {
+          "symbol": [
+            "MSFT"
+          ],
+          "type": [
+            "annualReconciledDepreciation"
+          ]
+        },
+        "timestamp": [
+          1688083200,
+          1719705600,
+          1751241600,
+          1782777600
+        ],
+        "annualReconciledDepreciation": [
+          {
+            "dataId": 20315,
+            "asOfDate": "2023-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 13861000000.0,
+              "fmt": "13.86B"
+            }
+          },
+          {
+            "dataId": 20315,
+            "asOfDate": "2024-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 20958000000.0,
+              "fmt": "20.96B"
+            }
+          },
+          {
+            "dataId": 20315,
+            "asOfDate": "2025-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 29433000000.0,
+              "fmt": "29.43B"
+            }
+          },
+          {
+            "dataId": 20315,
+            "asOfDate": "2026-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 38534000000.0,
+              "fmt": "38.53B"
+            }
+          }
+        ]
+      },
+      {
+        "meta": {
+          "symbol": [
+            "MSFT"
+          ],
+          "type": [
+            "annualEBITDA"
+          ]
+        },
+        "timestamp": [
+          1688083200,
+          1719705600,
+          1751241600,
+          1782777600
+        ],
+        "annualEBITDA": [
+          {
+            "dataId": 20190,
+            "asOfDate": "2023-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 105140000000.0,
+              "fmt": "105.14B"
+            }
+          },
+          {
+            "dataId": 20190,
+            "asOfDate": "2024-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 131680000000.0,
+              "fmt": "131.68B"
+            }
+          },
+          {
+            "dataId": 20190,
+            "asOfDate": "2025-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 155445000000.0,
+              "fmt": "155.44B"
+            }
+          },
+          {
+            "dataId": 20190,
+            "asOfDate": "2026-06-30",
+            "periodType": "12M",
+            "currencyCode": "USD",
+            "reportedValue": {
+              "raw": 207519000000.0,
+              "fmt": "207.52B"
+            }
+          }
+        ]
+      }
+    ],
+    "error": null
+  }
+}
