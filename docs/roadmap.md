@@ -381,3 +381,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,06:40UTC:** Owner-requested sleep pause. [Financial alert source baseline](financial-alert-source-baseline-2026-10-12.md) implemented locally with185 selected consumer tests; not deployed. Provider/calculation changes must rebaseline without false alerts. Existing production and all migration gates remain; no new source activation. Resume only at owner command.
+
+
+**October12,15:20UTC:** Owner resumes. Official [TradingView MCP beta](https://www.tradingview.com/mcp/docs) identified as an untested research/validation candidate; coverage and Walnut-use permissions remain unverified, no production selection or subscription. REA is inspection tooling, not a replacement dataset. Preserve Massive final-price decision and Quiver exclusion. Alert source-baseline repair remains local36dd6221/185prior tests; release and full cutover gates remain.
