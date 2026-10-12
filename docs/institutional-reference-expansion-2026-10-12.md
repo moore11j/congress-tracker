@@ -51,3 +51,7 @@ Session18677 is terminal/pass: the same92originals/21,405positions/46pairs/694pe
 The verifier now asserts that every event ID recorded by publication still belongs to the final SEC-backed event set. Applied independently, that assertion rejects the old first-pass receipt and accepts the fixed receipt. The running replay loaded before this verifier edit; the assertion was checked against its actual saved result rather than claiming it executed inside that earlier process. The complete574-source replay must be rerun under the stronger guard before broad cutover acceptance.
 
 PR594 is open at https://github.com/moore11j/congress-tracker/pull/594. Secret scan passes; unchanged Pillow10.4.0 and frontend dependency audit findings remain. Automated review is still running; no deployment at this checkpoint. PR attachment failed at the existing100-item task limit; nothing was unlinked.
+
+## 01:12 UTC checkpoint
+
+PR594 final82857a96 remains open, automated review running on initial2f7378bb. Full captured574-source replay46444 is confirmed live with579reference scopes and the stronger guard; no restart. Local runtime-verification helpers and39 expected hashes are prepared but not executed remotely. Production remainsf1677a3f; no deployment or source activation. All other new handles are terminal, no local PostgreSQL. Remaining work and task-state classification are recorded in AGENTS/context log.
