@@ -209,9 +209,16 @@ def _parse_13f_information_table_root(
     root: ET.Element, *, accession_number: str, source_url: str,
 ) -> list[dict[str, Any]]:
     """Normalize an already parsed table without parsing its XML a second time."""
+    return _parse_13f_information_fields(
+        (_13f_row_texts(item) for item in root.findall(".//{*}infoTable")),
+        accession_number=accession_number, source_url=source_url,
+    )
+
+
+def _parse_13f_information_fields(fields_rows, *, accession_number: str, source_url: str) -> list[dict[str, Any]]:
+    """Normalize the same extracted fields used by complete-submission validation."""
     rows: list[dict[str, Any]] = []
-    for item in root.findall(".//{*}infoTable"):
-        fields = _13f_row_texts(item)
+    for fields in fields_rows:
         cusip = fields.get("cusip")
         if not cusip:
             continue

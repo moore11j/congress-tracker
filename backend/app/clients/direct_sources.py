@@ -173,7 +173,7 @@ def validated_ownership_xml(raw: bytes, metadata: dict) -> str:
 
 def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
     """Validate a complete modern EDGAR submission before staging its holdings."""
-    from app.clients.sec_edgar import _parse_13f_information_table_root
+    from app.clients.sec_edgar import _13f_row_texts, _parse_13f_information_fields
 
     text = raw.decode("utf-8")
     header = text.split("</SEC-HEADER>", 1)[0]
@@ -222,17 +222,18 @@ def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
     try:
         expected_value = Decimal(value(".//{*}tableValueTotal").replace(",", ""))
         source_nodes = tables[0][2].findall(".//{*}infoTable")
+        fields_rows = [_13f_row_texts(node) for node in source_nodes]
         total = Decimal(0)
-        for node in source_nodes:
-            for path in ("{*}value", "{*}shrsOrPrnAmt/{*}sshPrnamt"):
-                number = Decimal((node.findtext(path) or "").replace(",", ""))
+        for fields in fields_rows:
+            for path in ("value", "shrsOrPrnAmt/sshPrnamt"):
+                number = Decimal((fields.get(path) or "").replace(",", ""))
                 if not number.is_finite() or number < 0 or not math.isfinite(float(number)):
                     raise DirectSourceError("SEC 13F holding number invalid")
-                if path == "{*}value":
+                if path == "value":
                     total += number
-            if not (node.findtext("{*}cusip") or "").strip():
+            if not (fields.get("cusip") or "").strip():
                 raise DirectSourceError("SEC 13F holding missing CUSIP")
-            if (node.findtext("{*}shrsOrPrnAmt/{*}sshPrnamtType") or "").strip() not in {"SH", "PRN"}:
+            if (fields.get("shrsOrPrnAmt/sshPrnamtType") or "").strip() not in {"SH", "PRN"}:
                 raise DirectSourceError("SEC 13F share/principal type invalid")
         if not expected_value.is_finite():
             raise DirectSourceError("SEC 13F cover count/value does not match information table")
@@ -242,7 +243,7 @@ def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
     except InvalidOperation as exc:
         raise DirectSourceError("SEC 13F holding/cover number missing or invalid") from exc
     source_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{metadata['key'].replace('-', '')}/{tables[0][0]}"
-    rows = _parse_13f_information_table_root(tables[0][2], accession_number=metadata["key"], source_url=source_url)
+    rows = _parse_13f_information_fields(fields_rows, accession_number=metadata["key"], source_url=source_url)
     if len(rows) != expected_count or not rows:
         raise DirectSourceError("SEC 13F row coverage incomplete or empty")
     for index, row in enumerate(rows):
