@@ -227,3 +227,52 @@ def test_created_event_collector_includes_holder_and_cluster_but_not_updates(db,
         transaction.rollback()
     assert db.get(Event, rolled_back_id) is None
     assert len(created) == 1
+
+
+@pytest.mark.parametrize('cik,event_type', [('0000000001', 'new_institutional_position'), (None, 'cluster_accumulation')])
+def test_verified_feed_event_stays_immutable_when_activity_refreshes(db, cik, event_type):
+    from app.models import InstitutionalActivityEvent
+    row = InstitutionalActivityEvent(symbol='ABC', normalized_symbol='ABC', cik=cik,
+        event_type=event_type, title='Original', summary='Original', filing_date=date(2026, 10, 6),
+        report_year=2026, report_quarter=3, materiality_score=95, holder_breadth=5)
+    db.add(row); db.flush()
+    created = []
+    assert activity._upsert_feed_event(db, row, created_feed_events=created)
+    event = created[0]
+    payload = json.loads(event.payload_json)
+    payload['sec_verification'] = {'feed': 'sec_13f', 'accession': 'original',
+        'scope': 'holder_pair' if cik else 'triggering_holder_pair', 'sha256': 'a' * 64}
+    payload['source_availability'] = {'basis': 'direct_publication',
+        'observed_at': '2026-10-12T00:00:00+00:00', 'date': '2026-10-12'}
+    event.payload_json = json.dumps(payload)
+    event.ts = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    event.source_document_url = 'https://www.sec.gov/Archives/original'
+    db.commit(); db.refresh(event)
+    before = {c.name: getattr(event, c.name) for c in Event.__table__.columns}
+    row.title = 'Updated current activity'
+    row.holder_breadth = 6
+    row.materiality_score = 99
+    row.filing_date = date(2026, 10, 8)
+    assert not activity._upsert_feed_event(db, row, created_feed_events=created)
+    db.commit(); db.refresh(event); db.refresh(row)
+    assert {c.name: getattr(event, c.name) for c in Event.__table__.columns} == before
+    assert row.title == 'Updated current activity' and row.holder_breadth == 6
+    assert len(created) == 1 and db.scalar(select(func.count()).select_from(Event)) == 1
+
+
+@pytest.mark.parametrize('saved_payload', ['{}', '{"sec_verification":{"feed":"other"}}', '[]', 'invalid'])
+def test_unverified_feed_events_still_refresh(db, saved_payload):
+    from app.models import InstitutionalActivityEvent
+    row = InstitutionalActivityEvent(symbol='ABC', normalized_symbol='ABC', cik=None,
+        event_type='cluster_accumulation', title='Original', summary='Original',
+        filing_date=date(2026, 10, 6), report_year=2026, report_quarter=3,
+        materiality_score=95, holder_breadth=5)
+    db.add(row); db.flush()
+    created = []
+    assert activity._upsert_feed_event(db, row, created_feed_events=created)
+    event = created[0]; event.payload_json = saved_payload
+    row.title = 'Updated'; row.holder_breadth = 6
+    assert not activity._upsert_feed_event(db, row, created_feed_events=created)
+    db.flush()
+    assert json.loads(event.payload_json)['title'] == 'Updated'
+    assert len(created) == 1
