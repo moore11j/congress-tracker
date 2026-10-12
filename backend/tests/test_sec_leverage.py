@@ -222,3 +222,45 @@ def test_explicit_zero_noncurrent_finance_lease_is_required_for_complete_debt():
     del gaap['FinanceLeaseLiabilityNoncurrent']
     _, p=panel(facts)
     assert basis in p['holds']
+
+
+
+def mixed_ttm_records():
+    from datetime import timedelta
+    end=date(2026,6,30); annual_start=date(2025,1,1); annual_end=date(2025,12,31)
+    prior_end=date(2025,6,30); current_start=date(2026,1,1)
+    records={}
+    for index,name in enumerate(leverage.DURATION,1):
+        def fact(start,stop,value,accession):
+            return {'start':str(start),'end':str(stop),'value':value,'unit':'USD',
+                'filed':'2026-08-01' if accession=='current' else '2026-02-01',
+                'accession':accession,'tag':leverage.DURATION[name][0],'source_cik':'0000000001'}
+        records[name]={(annual_start,annual_end):fact(annual_start,annual_end,index*10,'annual'),
+            (current_start,end):fact(current_start,end,index*8,'current'),
+            (annual_start,prior_end):fact(annual_start,prior_end,index*5,'current')}
+        if name in {'leverage_net_income','leverage_da'}:
+            records[name][(prior_end+timedelta(days=1),end)]=fact(prior_end+timedelta(days=1),end,index*13,'current')
+    return records,end,'2025-07-01'
+
+
+def test_reported_and_derived_ttm_align_only_with_exact_common_filing_proof():
+    records,end,start=mixed_ttm_records(); original=deepcopy(records)
+    result=leverage._ebitda(records,end,start)
+    assert result['status']=='components_complete'
+    assert result['value']==130
+    assert result['reported_ttm_reconciliation']['selected_reported_components']['leverage_net_income']['method']=='reported_annual'
+    assert all(v['method']=='annual_plus_ytd_minus_prior_ytd' for v in result['components'].values())
+    assert result==leverage._ebitda(records,end,start)
+    assert records==original
+
+
+@pytest.mark.parametrize('defect',['value','closing_filing','annual_filing','missing_leg','currency'])
+def test_reported_ttm_does_not_bypass_restatement_or_missing_leg(defect):
+    records,end,start=mixed_ttm_records()
+    point=records['leverage_net_income'][(date(2025,7,1),end)]
+    if defect=='value': point['value']+=1
+    if defect=='closing_filing': point['accession']='different'
+    if defect=='annual_filing': records['leverage_tax'][(date(2025,1,1),date(2025,12,31))]['accession']='restated'
+    if defect=='missing_leg': del records['leverage_da'][(date(2025,1,1),date(2025,6,30))]
+    if defect=='currency': point['unit']='EUR'
+    assert leverage._ebitda(records,end,start)['status']=='incompatible_filing_components'

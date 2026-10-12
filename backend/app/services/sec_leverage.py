@@ -6,7 +6,7 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v2'
+VERSION = 'sec_leverage_evidence_v3'
 DURATION = {
     'leverage_net_income': ('NetIncomeLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
@@ -29,13 +29,11 @@ INSTANT = {
 }
 TAGS = {**DURATION, **INSTANT}
 
-
 def _finite(value):
     try:
         return type(value) in (int, float) and math.isfinite(value)
     except OverflowError:
         return False
-
 
 def _compatible(facts):
     # Combining stale accounting components with a later restatement is unsafe.
@@ -44,6 +42,40 @@ def _compatible(facts):
         for f in facts
     }) == 1
 
+
+def _matching_legs(components):
+    legs = [{(f['start'], f['end']): f for f in point['inputs']} for point in components.values()]
+    return (all(len(leg) == len(point['inputs']) for leg, point in zip(legs, components.values()))
+        and all(set(leg) == set(legs[0]) for leg in legs[1:])
+        and all(_compatible([leg[key] for leg in legs]) for key in legs[0]))
+
+def _align_reported_ttm(records, components, end):
+    """Accept a common decomposition only if it proves every selected TTM value."""
+    from app.services import sec_fundamentals as sec
+    anchors = {tuple(sorted((f['start'], f['end']) for f in point['inputs']))
+        for point in components.values() if len(point['inputs']) > 1}
+    accepted = []
+    for anchor in sorted(anchors):
+        keys = {(date.fromisoformat(start), date.fromisoformat(stop)) for start, stop in anchor}
+        aligned = {}
+        for name, primary in components.items():
+            candidate = sec._ttm({key: value for key, value in records.get(name, {}).items() if key in keys}, end)
+            if (candidate is None or candidate['value'] != primary['value']
+                    or candidate['start'] != primary['start'] or candidate['end'] != primary['end']):
+                break
+            # A direct TTM observation cannot be reconciled using a different
+            # closing filing, even when the numerical totals happen to match.
+            if primary['method'] == 'reported_annual':
+                closing = [f for f in candidate['inputs'] if f['end'] == str(end)]
+                identity = ('end', 'filed', 'accession', 'unit', 'source_cik')
+                if (len(primary['inputs']) != 1 or len(closing) != 1 or any(
+                        primary['inputs'][0].get(key) != closing[0].get(key) for key in identity)):
+                    break
+            aligned[name] = candidate
+        if len(aligned) == len(components) and _matching_legs(aligned):
+            accepted.append(aligned)
+    # Competing complete decompositions require explicit resolution.
+    return accepted[0] if len(accepted) == 1 else None
 
 def _ebitda(records, end, start):
     from app.services import sec_fundamentals as sec
@@ -55,10 +87,16 @@ def _ebitda(records, end, start):
         'components': components, 'missing_components': missing}
     if missing:
         return {**result, 'status': 'incomplete'}
-    legs = [{(f['start'], f['end']): f for f in point['inputs']} for point in components.values()]
-    if any(set(leg) != set(legs[0]) for leg in legs[1:]) or any(
-            not _compatible([leg[key] for leg in legs]) for key in legs[0]):
-        return {**result, 'status': 'incompatible_filing_components'}
+    if not _matching_legs(components):
+        aligned = _align_reported_ttm(records, components, end)
+        if aligned is None:
+            return {**result, 'status': 'incompatible_filing_components'}
+        result['reported_ttm_reconciliation'] = {
+            'method': 'identical_value_common_filing_decomposition_v1',
+            'selected_reported_components': components,
+            'requirement': 'exact values, identical full periods and closing filings; common filing for every derived leg'}
+        components = aligned
+        result['components'] = components
     # A negative income or tax benefit is legitimate; negative expense addbacks
     # require issuer-specific reconciliation and cannot make a generic metric.
     if any(f['value'] < 0 for name in ('leverage_interest', 'leverage_da')
@@ -68,7 +106,6 @@ def _ebitda(records, end, start):
     if not _finite(value):
         return {**result, 'status': 'nonfinite_calculation'}
     return {**result, 'status': 'components_complete', 'value': value}
-
 
 
 def _lease_totals(instant):
