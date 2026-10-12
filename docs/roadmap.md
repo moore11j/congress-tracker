@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12 05:30 UTC:** [Guarded Senate backup selected](senate-freshness-recovery-2026-10-12.md) atgeneration5/October1boundary after156checks, actual40hour stale/recovery and full no-send consumer proof. Existingtwofilings adopted with no public inserts; queued selectedrun34/55hashes pass. Strict24hour freshness retained; ordinary selected publication/rollover and complete source continuity remain observational gates. FMP global retirement remains incomplete.
+
 **2026-10-12 05:18 UTC:** [Ordinary Senate shadow collection](senate-backup-preparation-2026-10-12.md) run213 succeeds135filings/2176rows with no backup publication. Official403 and historical27/40hour freshness gaps remain; publication staysoff pending recovery.
 
 **2026-10-12 05:15 UTC:** [SEC quarantine PR601/ce0ce857](sec-cover-quarantine-2026-10-12.md) deployed/55hashes and actual deployed3.12 original retention/retry verified. Ordinary SEC receipt pending. [Senate source history](senate-backup-preparation-2026-10-12.md) shows27/40hour freshness gaps against24hour guard; publication remainsoff. [Current free coverage](free-fundamentals-paired-coverage-2026-10-11.md) is357usableSEC/230combined scopes during active version rotation; full numerical/consumer/capacity gates remain.

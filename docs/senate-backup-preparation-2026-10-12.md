@@ -147,3 +147,8 @@ Receipts senate-source-history-1791782040.json and senate-source-cadence-1791782
 ## Ordinary scheduled collection verified, October 12, 05:17 UTC
 
 Existing hourly job35ce1f506a61e35515a360fb advances to35 completed runs, terminalexit1 because official discovery remains403. ParentDirectFeedRun212 starts05:17:08.901UTC and retains6unresolved documents/zero processed. Separate backup run213 completes05:17:09.380-05:17:13.919UTC with statusok,135filings/2176rows and unchanged snapshotSHA5769a981. This is an ordinary calendar-trigger run, not manual enqueue.135 stagedfilings, zero backup publicationreceipts, official_senate generation4/boundaryOctober1 remain verified. Receipt direct-scheduled-state-1791782250.json. The05:27 official publisher and next freshness rollover are not yet observed; no backup activation claimed.
+
+
+## Selected with strict freshness, October12,05:30UTC
+
+[Actual stale recovery and selected-source receipt](senate-freshness-recovery-2026-10-12.md) supersede earlier publication-off checkpoints. Full historical40hour recovery and12/8/358 no-send repeats pass; generation5 backup selected at unchangedOctober1 boundary, two current filings adopted with zero public inserts and identical canonical hashes. Both flags true. Existing queued publisher run34exit0/two receipts/55runtimehashes verify. Next calendar-trigger publication and freshness rollover remain; strict24hour guard retained, no continuous freshness claim.
