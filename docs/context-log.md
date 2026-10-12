@@ -1,5 +1,9 @@
 # Project context log
 
+## 2026-10-12,00:27UTC: Alphabet financial repair live
+
+[PR592 release](alphabet-financial-identity-2026-10-12.md) completes the observed GOOG identity repair under the existing issuer-only rules.116tests and actual-source cache/summary/screener repeat pass. Deployment38187860807 succeeds;38hashes/twohosts and production3.12.15 replay verify. One normalGOOG preparation adds four missing fields; cached repeat makes no provider call, canonical row hash unchanged. Public coreFMP/institutionsfalse. Review quota exhausted and unchanged dependency audits fail; no all-CI claim. Initial local replay ownership and documentation encoding errors were corrected before release. All new handles terminal, no localPG. Ordinary laterGOOG run/sustainedcapacity/broadcoverage/allconsumers/finalMassive/globalFMP remain. No new spending, schedule/capacity, emails or source activation; goalactive and both turns progress.
+
 ## 2026-10-12,00:21UTC: Alphabet financial association prepared
 
 Continued migration by diagnosing an ordinary GOOG hold. [Report](alphabet-financial-identity-2026-10-12.md) records two bounded free responses, SEC class/issuer evidence, scoped association and116 tests plus exact-source downstream repeat. Implementation ready for review, not deployed. CoreFMP; no activation, schedule/capacity, email, purchase or cancellation. Initial documentation helper stopped on Windows default encoding; explicit UTF-8 repair preserves existing files.
