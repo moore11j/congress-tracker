@@ -20,6 +20,14 @@ class DirectSourceError(RuntimeError):
     pass
 
 
+class HouseScanReviewRequired(DirectSourceError):
+    """A valid, unreviewed PDF has no extractable text layer."""
+
+    def __init__(self, page_count):
+        super().__init__('House report has no text layer; scanned form/OCR review required')
+        self.page_count = page_count
+
+
 class Sec13FCoverMismatch(DirectSourceError):
     """A captured submission fails exact cover/table reconciliation."""
 
@@ -318,7 +326,7 @@ def parse_house_pdf(raw: bytes, metadata: dict) -> tuple[str, dict]:
             raise DirectSourceError(str(exc)) from exc
         if reviewed is not None:
             return reviewed
-        raise DirectSourceError('House report has no text layer; scanned form/OCR review required')
+        raise HouseScanReviewRequired(len(reader.pages))
     if metadata.get('filing_id'):
         body_ids = set(re.findall(r'Filing ID\s*#(\d+)', text))
         if body_ids != {str(metadata['filing_id'])}:

@@ -1,3 +1,5 @@
+2026-10-12,19:30: [House scan retention](house-scan-retention-2026-10-12.md) implemented locally,75checks/actualfour-original dedup replay. Deployment/ordinary retention and transaction review pending; provider gates unchanged.
+
 2026-10-12,19:21: [PR620 entitlement query repair](entitlement-default-query-cost-2026-10-12.md) deployed99c2bf49/75hashes and ordinary pricejob verified. Public feeds0.49-0.52s/tickercontexts1.35-1.50s are immediatepostrestart samples; sustainedcapacity and fullFMPexit gates remain. No source/schedule/resource change.
 
 2026-10-12,19:16: [Entitlement query repair](entitlement-default-query-cost-2026-10-12.md) local224passes/three reproduced baseline failures; actualPG six-user1339-to61SELECT/fullprojection parity. Release/ordinary savings and sustainedcapacity pending. Separate [Yahoo draft619](https://github.com/moore11j/congress-tracker/pull/619) remains defaultoff; no source or schedule change.
