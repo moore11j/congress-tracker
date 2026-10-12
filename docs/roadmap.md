@@ -1,3 +1,5 @@
+2026-10-12,18:55: [Yahoo preparation](yahoo-financial-evidence-2026-10-12.md) now diagnoses actual annual/quarterly conflicts, with91focused tests/110original observations/repeat; local only, canonical eligibility false. Ordinary ACN annual receipt verified18:47, current financial cache handoff still pending. No deployment/source/schedule change.
+
 2026-10-12: [Yahoo financial evidence](yahoo-financial-evidence-2026-10-12.md) locally implemented75tests/444page observations/20quarterly observations after successful publicJSON transport. No sourceactivation or productioncollector. Annual/quarterly discrepancies, staleACN, identity/fiscal-date/revision/coverage/cache/consumer gates remain; coreFMP and finalMassive direction unchanged.
 
 2026-10-12, 18:34 UTC: [PR618 startup isolation](ingest-startup-isolation-2026-10-12.md) deployed403b0f4a/74hashes. Isolated import CPU39.8% lower; ordinary affected jobs and sustained capacity remain unverified. [Directory/source extension](financial-source-directory-2026-10-12.md) assessed and proposed; no Yahoo/Google/SEDAR adapter activated. All financial/consumer/cutover gates remain.
