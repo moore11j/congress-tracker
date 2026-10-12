@@ -14,24 +14,29 @@ from app.services.feed_source_control import FeedSourceControl
 from app.services.direct_congress_repair import inspect_duplicate_repair, apply_reviewed_duplicate_repair
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--document-id', type=int, required=True)
     parser.add_argument('--source-sha256', required=True)
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--directory-sha256', required=True)
+    parser.add_argument('--kind', choices=('stock','nonstock'), default='stock')
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--before-sha256')
     parser.add_argument('--jobs-sha256')
     parser.add_argument('--generation', type=int)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.apply and os.getenv('DIRECT_CONGRESS_REPAIR_ENABLED', 'false').lower() != 'true':
         print(dumps({'status': 'disabled'}))
         return
     if engine.dialect.name != 'postgresql':
         raise ValueError('Production inspection/application requires PostgreSQL')
-    if args.apply and (not args.before_sha256 or not args.jobs_sha256 or args.generation is None):
-        raise ValueError('Application requires both inspected hashes and paused generation')
+    if args.apply and (not args.before_sha256 or (args.kind=='stock' and not args.jobs_sha256) or args.generation is None):
+        raise ValueError('Application requires the inspected population hash, paused generation and stock-job hash when applicable')
+    inspector, applier = inspect_duplicate_repair, apply_reviewed_duplicate_repair
+    if args.kind=='nonstock':
+        from app.services.direct_congress_nonstock_repair import inspect_nonstock_repair, apply_reviewed_nonstock_repair
+        inspector, applier = inspect_nonstock_repair, apply_reviewed_nonstock_repair
     raw_directory = args.directory.read_bytes()
     if len(raw_directory) > 10_000_000 or hashlib.sha256(raw_directory).hexdigest() != args.directory_sha256:
         raise ValueError('Directory checksum differs')
@@ -59,15 +64,19 @@ def main():
             control = db.get(FeedSourceControl, staged.feed)
             source_state = {'provider': control.provider if control else 'fmp',
                             'generation': control.generation if control else 0}
-            plan = inspect_duplicate_repair(db, document, directory)
+            plan = inspector(db, document, directory)
     if not args.apply:
+        if args.kind=='nonstock':
+            plan = {key:plan.get(key) for key in ('status','reason','before_hash','source_hash','previous_date','official_date','database_writes')} | {
+                'preserved_transactions':len(plan.get('preserve_transaction_ids',[])),
+                'retired_transactions':len(plan.get('retire_transactions',[]))}
         print(dumps({'document_id': args.document_id, 'source_control': source_state,
                      'transaction_read_only': True, 'plan': plan}))
         return
     with SessionLocal() as db:
-        result = apply_reviewed_duplicate_repair(db, document, directory,
-            expected_before_hash=args.before_sha256, expected_jobs_hash=args.jobs_sha256,
-            expected_generation=args.generation)
+        kwargs = dict(expected_before_hash=args.before_sha256, expected_generation=args.generation)
+        if args.kind=='stock': kwargs['expected_jobs_hash']=args.jobs_sha256
+        result = applier(db, document, directory, **kwargs)
     print(dumps(result))
     if result['status'] not in {'applied', 'existing'}:
         raise SystemExit(1)

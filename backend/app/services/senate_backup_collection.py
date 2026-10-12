@@ -53,11 +53,15 @@ def _snapshot(raw, now):
     return value
 
 
-def _inventory(snapshot, years):
+def validate_years(years):
     if (not isinstance(years, (tuple, list)) or not 1 <= len(years) <= 2
             or len(set(years)) != len(years)
             or any(type(y) is not int or not 2012 <= y <= 2100 for y in years)):
         raise ValueError('One or two explicit disclosure years required')
+
+
+def _inventory(snapshot, years):
+    validate_years(years)
     result = {}
     for table in TABLES:
         for year in years:
@@ -111,6 +115,7 @@ def _get(session, url, limit, deadline):
 
 def download_snapshot(*, years, observed_at=None, session=None):
     """Download only fixed dataset paths, pinned to the manifest's repository commit."""
+    validate_years(years)
     import requests
     now = observed_at or datetime.now(timezone.utc)
     owned = session is None

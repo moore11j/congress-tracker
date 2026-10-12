@@ -350,3 +350,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **2026-10-11, 23:37 UTC:** [PR590 EBITDA unit repair](ebitda-percent-contract-2026-10-11.md) is deployed and the verified SGRP current row corrected.85checks/35runtime hashes, unchanged five-metric summary/historical hash and zero-change repeat pass. PubliccoreFMP; definitions/netdebt/fullcoverage and all source/consumer/finalMassive/globalFMP gates remain.
+
+
+**October12,04:49UTC:** [Senate candidate jobs and original-bound non-equity repair](senate-backup-preparation-2026-10-12.md) pass167checks, actual repeated source collection and PostgreSQL positive publication/rollback/concurrency rehearsal. PR600 remains undeployed; disabled gates and current source selection preserved. Exact deployed validation, scheduled observation and production repair remain before activation. No full FMP exit claim.

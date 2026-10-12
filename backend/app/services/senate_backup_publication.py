@@ -220,3 +220,56 @@ def publish_document(db, document_id, *, directory, now=None):
         receipt.status, receipt.report_json, receipt.updated_at = result['status'], dumps(report), now
         db.flush()
         return report
+
+
+def publish_batch(db, *, directory, limit=20, retry_held=False, now=None):
+    """Bounded new-first/oldest-held selection within the latest complete scope."""
+    from sqlalchemy import case, or_, func
+    from sqlalchemy.dialects.postgresql import JSONB
+    from app.services.feed_source_control import require_selected_source
+    from app.services.senate_backup_collection import _snapshot
+    from app.services.direct_feed_store import DirectFeedRevision
+    import hashlib
+    if type(limit) is not int or not 1 <= limit <= 20:
+        raise ValueError('Senate backup publication limit must be between 1 and 20')
+    if db.new or db.dirty or db.deleted:
+        raise ValueError('Publisher session has unrelated pending changes')
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None or clock.utcoffset() is None:
+        raise ValueError('Publication clock must be timezone aware')
+    control = require_selected_source(db, 'senate_ptr', PROVIDER)
+    snapshot = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed==FEED+'_snapshot')
+        .order_by(DirectFeedDocument.checked_at.desc(), DirectFeedDocument.id.desc()).limit(1))
+    if snapshot is None:
+        db.rollback()
+        return {'status':'waiting', 'reason':'No captured Senate backup snapshot', 'processed':0,
+                'inserted_events':0, 'inserted_transactions':0, 'email_deliveries':0, 'results':[]}
+    revision = db.scalar(select(DirectFeedRevision).where(
+        DirectFeedRevision.document_id==snapshot.id, DirectFeedRevision.content_hash==snapshot.content_hash))
+    if revision is None or hashlib.sha256(revision.source_bytes or b'').hexdigest()!=snapshot.content_hash:
+        raise ValueError('Snapshot receipt is missing or corrupt')
+    _snapshot(revision.source_bytes, clock)
+    if db.get_bind().dialect.name=='postgresql':
+        filed = DirectFeedDocument.parsed_json.cast(JSONB)['source_record']['filingDate'].astext
+        scope = DirectFeedDocument.metadata_json.cast(JSONB)['snapshot_sha256'].astext
+    else:
+        filed = func.json_extract(DirectFeedDocument.parsed_json, '$.source_record.filingDate')
+        scope = func.json_extract(DirectFeedDocument.metadata_json, '$.snapshot_sha256')
+    query = select(DirectFeedDocument.id).outerjoin(DirectFeedPublication,
+        DirectFeedPublication.document_id==DirectFeedDocument.id).where(
+        DirectFeedDocument.feed==FEED, scope==snapshot.content_hash,
+        filed>=control.publish_since.isoformat(),
+        filed<clock.astimezone(ZoneInfo('America/New_York')).date().isoformat())
+    query = query.where(or_(DirectFeedPublication.id.is_(None), DirectFeedPublication.status=='held')
+        if retry_held else DirectFeedPublication.id.is_(None))
+    ids = list(db.scalars(query.order_by(case((DirectFeedPublication.id.is_(None),0),else_=1),
+        DirectFeedPublication.updated_at.asc(), DirectFeedDocument.id).limit(limit)))
+    db.rollback()
+    # Each document reacquires ownership. A source switch between filings stops
+    # the next write; an earlier committed filing remains idempotent on retry.
+    results = [{'document_id':identifier, **publish_document(db,identifier,directory=directory,now=now)}
+               for identifier in ids]
+    return dict(status='partial' if any(r['status']=='held' for r in results) else 'ok',
+        processed=len(results), inserted_events=sum(r.get('inserted_events',0) for r in results),
+        inserted_transactions=sum(r.get('inserted_transactions',0) for r in results),
+        email_deliveries=0, results=results)
