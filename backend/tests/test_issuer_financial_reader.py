@@ -222,4 +222,3 @@ def test_receipt_change_during_preparation_cannot_publish_mixed_snapshot(ready,m
         prep.prepare('AZO')
     with ready() as db:
         assert db.get(InsightsSnapshot,'sec-current-fundamentals:AZO:v1').payload_json=='{"version":"older-valid-state"}'
-

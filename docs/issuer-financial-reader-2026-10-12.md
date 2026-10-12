@@ -35,4 +35,3 @@ PR609 head d736474879046431888868d0d60c53164caa111f merged as3c5d52f86ac488a6b27
 The same live sequence exposes a real dependency defect: financial preparation ran before earnings refresh and cached the May9 period under the new version. It remained fresh for24hours even after version2 earnings evidence arrived. A manual refresh would conceal this ordering problem.
 
 Follow-up adds an AZO-only receipt fingerprint to the financial preparation. A changed or removed receipt invalidates the fresh cache immediately; a dependency change during acquisition aborts the write and preserves the previous snapshot. Other issuer cache behavior is unchanged.49 focused reader/preparation/warmer checks pass, including immediate invalidation and concurrent-change preservation. One invocation from the repository root failed module collection; the configured backend invocation passes. Follow-up release and automatic preparation recovery remain pending.
-
