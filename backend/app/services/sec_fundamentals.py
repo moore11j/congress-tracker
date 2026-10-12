@@ -5,6 +5,7 @@ Companyfacts covers standard entity-wide concepts, not every issuer extension.
 """
 from __future__ import annotations
 
+from app.services.issuer_financial_registry import PROFILES as ISSUER_PROFILES
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
@@ -82,7 +83,7 @@ def fetch_fundamentals(symbol: str):
                 'limitations': ['Financial facts unavailable; market data is independently verified']})}
     from app.services.sec_issuer_cash_flow import supplement
     values = supplement(values, facts, company, client=client)
-    if symbol == 'AZO':
+    if symbol in ISSUER_PROFILES:
         from app.services.issuer_financial_reader import supplement as issuer_financials
         values = issuer_financials(values, company, observed_at=now)
     # Financial facts remain useful when the separately sourced market data is

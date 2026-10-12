@@ -1,4 +1,5 @@
 """Prepare SEC financial ratios without changing public selection or canonical data."""
+from app.services.issuer_financial_registry import PROFILES as ISSUER_PROFILES
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -70,8 +71,8 @@ def _run_locked():
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
         metric_attempts = {key: value for key, value in state.get('metric_attempted_at', {}).items() if key in symbols}
         versions = {key: value for key, value in state.get('attempted_versions', {}).items() if key in symbols}
-        issuer_dependencies = {key:value for key,value in state.get('issuer_dependencies', {}).items() if key in symbols and key == 'AZO'}
-        current_dependencies = {symbol:sec_fundamentals_preparation._issuer_dependency(db, symbol) for symbol in symbols if symbol == 'AZO'}
+        issuer_dependencies = {key:value for key,value in state.get('issuer_dependencies', {}).items() if key in symbols and key in ISSUER_PROFILES}
+        current_dependencies = {symbol:sec_fundamentals_preparation._issuer_dependency(db, symbol) for symbol in symbols if symbol in ISSUER_PROFILES}
         changed_dependencies = {symbol for symbol,value in current_dependencies.items() if issuer_dependencies.get(symbol) != value}
         refresh_after = {key: value for key, value in {**state.get('priority_refresh_after', {}),
             **state.get('scope_refresh_after', {})}.items() if key in symbols}

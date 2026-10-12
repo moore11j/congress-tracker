@@ -2,6 +2,7 @@
 
 No market-data transport, canonical cache overwrite, score calculation or email.
 """
+from app.services.issuer_financial_registry import PROFILES as ISSUER_PROFILES, key_for
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -19,7 +20,7 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
-    if symbol == 'AZO':
+    if symbol in ISSUER_PROFILES:
         return VERSION+'_issuer_release_v1'
     if symbol == 'PROV':
         return VERSION+'_bank_revenue_v1'
@@ -27,9 +28,9 @@ def version_for_symbol(symbol):
 
 
 def _issuer_dependency(db, symbol):
-    if symbol != 'AZO':
+    if symbol not in ISSUER_PROFILES:
         return None
-    row = db.get(InsightsSnapshot, 'issuer-financials:AZO:0001171843-26-006159:v1')
+    row = db.get(InsightsSnapshot, key_for(symbol))
     return hashlib.sha256((row.source+'\0'+row.payload_json).encode()).hexdigest() if row else 'missing'
 
 
@@ -46,7 +47,7 @@ def _cached(symbol, now, max_cache_age=TTL):
             observed = datetime.fromisoformat(payload['observed_at'])
         except (ValueError, TypeError, KeyError):
             return None
-        if symbol == 'AZO' and payload.get('issuer_dependency') != _issuer_dependency(db, symbol):
+        if symbol in ISSUER_PROFILES and payload.get('issuer_dependency') != _issuer_dependency(db, symbol):
             return None
         if (payload.get('version') == version_for_symbol(symbol) and payload.get('symbol') == symbol
                 and payload.get('source') == 'sec_edgar' and observed == stamp):
@@ -67,14 +68,14 @@ def prepare(symbol, *, max_cache_age=TTL):
     if cached is not None:
         return cached
     dependency = None
-    if symbol == 'AZO':
+    if symbol in ISSUER_PROFILES:
         with SessionLocal() as db:
             dependency = _issuer_dependency(db, symbol)
     identity = sec_directory.directory().get(symbol)
     payload = {'version': version_for_symbol(symbol), 'symbol': symbol, 'source': 'sec_edgar',
         'observed_at': now.isoformat(), 'status': 'unavailable', 'values': {},
         'coverage': {'complete': False, 'market_data_included': False, 'available_metrics': []}}
-    if symbol == 'AZO':
+    if symbol in ISSUER_PROFILES:
         payload['issuer_dependency'] = dependency
     if identity is None:
         payload['reason'] = 'symbol_absent_from_sec_directory'
@@ -107,7 +108,7 @@ def prepare(symbol, *, max_cache_age=TTL):
             else:
                 from app.services.sec_issuer_cash_flow import supplement
                 values = supplement(values, raw, company, client=client)
-                if symbol == 'AZO':
+                if symbol in ISSUER_PROFILES:
                     from app.services.issuer_financial_reader import supplement as issuer_financials
                     values = issuer_financials(values, company, observed_at=now)
                 payload['values'] = {name: values[name] for name in METRICS if name in values}
@@ -123,7 +124,7 @@ def prepare(symbol, *, max_cache_age=TTL):
             db.execute(text("SET LOCAL idle_in_transaction_session_timeout='90s'"))
         if os.getenv('SEC_FUNDAMENTALS_WARMING_ENABLED', '0') != '1':
             raise ValueError('SEC ratio preparation changed during refresh')
-        if symbol == 'AZO' and _issuer_dependency(db, symbol) != dependency:
+        if symbol in ISSUER_PROFILES and _issuer_dependency(db, symbol) != dependency:
             raise ValueError('Issuer financial source changed during preparation')
         key = f'sec-current-fundamentals:{symbol}:v1'
         row = db.get(InsightsSnapshot, key)
