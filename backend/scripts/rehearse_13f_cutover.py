@@ -191,6 +191,8 @@ def main():
             phase='first_pass_only_consumers_and_repeat_unverified',baseline_sha256=baseline_hash,
             results=first,events=[{column.name:getattr(event,column.name)
                 for column in Event.__table__.columns} for event in events],production_writes=0)),encoding='utf-8')
+        declared_event_ids={event_id for result in first for event_id in result.get('event_ids', [])}
+        assert declared_event_ids <= {event.id for event in events}, 'Published SEC events lost their source proof'
         previews=None
         if events:
             user=UserAccount(email='institutional-cutover@example.test',entitlement_tier='pro',watchlist_activity_notifications=True)
