@@ -144,3 +144,81 @@ def test_income_restatement_cannot_mix_with_unreconciled_balance_sheet():
     assert p['candidates']
     assert all(row.get('ratio_hold') == 'income_balance_filing_mismatch' for row in p['candidates'])
     assert all('net_debt_to_ebitda' not in row for row in p['candidates'])
+
+
+
+def maturity_sources():
+    facts, _ = prepared_sources()
+    gaap = facts['facts']['us-gaap']
+    template = gaap['CashAndCashEquivalentsAtCarryingValue']['units']['USD'][-1]
+    for tag, value in [('FinanceLeaseLiabilityCurrent', 3), ('FinanceLeaseLiabilityNoncurrent', 7),
+            ('OperatingLeaseLiabilityCurrent', 4), ('OperatingLeaseLiabilityNoncurrent', 16),
+            ('DebtCurrent', 13), ('LongTermDebtNoncurrent', 40)]:
+        gaap[tag] = {'units': {'USD': [{**template, 'val': value}]}}
+    return facts
+
+
+def test_maturity_components_reconstruct_totals_with_original_filing_evidence():
+    facts = maturity_sources()
+    gaap = facts['facts']['us-gaap']
+    del gaap['FinanceLeaseLiability'], gaap['OperatingLeaseLiability']
+    _, p = panel(facts)
+    assert all(r['status']=='complete_maturity_sum' for r in p['lease_reconciliations'].values())
+    row = next(r for r in p['candidates'] if r['basis']=='borrowings_plus_finance_and_operating_leases')
+    assert row['debt']==80
+    assert row['debt_inputs'][1]['derived'] is True
+    assert [f['value'] for f in row['debt_inputs'][1]['inputs']]==[3,7]
+    assert len({f['accession'] for f in row['debt_inputs'][1]['inputs']})==1
+    assert panel(facts)[1]==p
+
+
+def test_current_debt_never_adds_current_finance_lease_twice():
+    _, p = panel(maturity_sources())
+    rows={r['basis']:r for r in p['candidates']}
+    row=rows['current_debt_plus_noncurrent_borrowings_and_finance_leases']
+    assert row['debt']==60  # 13 already contains the current finance lease of 3.
+    assert [f['tag'] for f in row['debt_inputs']]==['DebtCurrent','LongTermDebtNoncurrent','FinanceLeaseLiabilityNoncurrent']
+    assert rows['current_debt_plus_noncurrent_borrowings_finance_and_operating_leases']['debt']==80
+    assert all(r['status']=='reported_total_verified' for r in p['lease_reconciliations'].values())
+
+
+@pytest.mark.parametrize('defect', ['absent','stale','filing','negative','conflict'])
+def test_incomplete_or_conflicting_maturity_components_cannot_create_total(defect):
+    facts = maturity_sources()
+    gaap=facts['facts']['us-gaap']
+    del gaap['FinanceLeaseLiability']
+    row=gaap['FinanceLeaseLiabilityNoncurrent']['units']['USD'][0]
+    if defect=='absent': del gaap['FinanceLeaseLiabilityNoncurrent']
+    if defect=='stale': row['end']='2026-03-31'
+    if defect=='filing': row['accn']='0000000001-26-000099'
+    if defect=='negative': row['val']=-1
+    if defect=='conflict': gaap['FinanceLeaseLiabilityNoncurrent']['units']['USD'].append({**row,'val':9})
+    _, p=panel(facts)
+    assert 'borrowings_plus_finance_leases' in p['holds']
+    assert not any(r['basis']=='borrowings_plus_finance_and_operating_leases' for r in p['candidates'])
+    # The independently reported debt total remains usable.
+    assert any(r['basis']=='reported_debt_including_finance_leases' for r in p['candidates'])
+
+
+def test_conflicting_reported_total_is_held_without_mutating_input():
+    facts=maturity_sources(); original=deepcopy(facts)
+    facts['facts']['us-gaap']['FinanceLeaseLiability']['units']['USD'][0]['val']=12
+    changed=deepcopy(facts)
+    _, p=panel(facts)
+    assert p['lease_reconciliations']['leverage_finance_leases']['status']=='conflicting_lease_total'
+    assert 'borrowings_plus_finance_leases' in p['holds']
+    assert 'current_debt_plus_noncurrent_borrowings_and_finance_leases' in p['holds']
+    assert facts==changed
+    assert original!=changed
+
+
+def test_explicit_zero_noncurrent_finance_lease_is_required_for_complete_debt():
+    facts=maturity_sources(); gaap=facts['facts']['us-gaap']
+    del gaap['FinanceLeaseLiability']
+    gaap['FinanceLeaseLiabilityNoncurrent']['units']['USD'][0]['val']=0
+    _, p=panel(facts)
+    basis='current_debt_plus_noncurrent_borrowings_and_finance_leases'
+    assert next(r['debt'] for r in p['candidates'] if r['basis']==basis)==53
+    del gaap['FinanceLeaseLiabilityNoncurrent']
+    _, p=panel(facts)
+    assert basis in p['holds']
