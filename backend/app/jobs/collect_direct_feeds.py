@@ -106,25 +106,44 @@ def main(argv=None):
     if not guard.proceed:
         print(dumps(guard.to_dict()))
         return
-    registry = json.loads(args.issuer_registry.read_text(encoding="utf-8")) if "issuer_earnings" in args.sources else []
-    senate = json.loads(args.senate_reports.read_text(encoding="utf-8")) if args.senate_reports else []
-    senate_client = SenateEfdClient(accept_notice=os.getenv('SENATE_PUBLIC_NOTICE_ACKNOWLEDGED', 'false').lower() == 'true') if 'senate_ptr' in args.sources else None
-    # Host permission comes from the reviewed company registry, not a fetched
-    # page or a redirect. Filings cannot add arbitrary hosts to the allowlist.
-    hosts = {urlsplit(company["investor_website"]).hostname for company in registry}
-    redirect_urls = {url for company in registry for item in company.get("documents", [])
-                     for url in item.get("redirect_urls", [])}
-    document_urls = reviewed_issuer_document_urls(registry)
     with collector_lock() as acquired:
         if not acquired:
             print(dumps({"status": "busy"}))
             return
         ensure_direct_feed_schema(engine)
+        backup_enabled = 'senate_ptr' in args.sources and os.getenv('SENATE_BACKUP_COLLECTION_ENABLED','false').strip().lower()=='true'
+        sources = list(args.sources)
+        if 'senate_ptr' in sources:
+            from app.services.feed_source_control import FeedSourceControl
+            from app.services.senate_backup_evidence import PROVIDER
+            with SessionLocal() as db:
+                control = db.get(FeedSourceControl, 'senate_ptr')
+                selected = control.provider if control else 'fmp'
+            if selected == PROVIDER:
+                if not backup_enabled:
+                    raise ValueError('Selected Senate backup collection is disabled')
+                sources.remove('senate_ptr')
+        registry = json.loads(args.issuer_registry.read_text(encoding="utf-8")) if "issuer_earnings" in sources else []
+        senate = json.loads(args.senate_reports.read_text(encoding="utf-8")) if args.senate_reports else []
+        senate_client = SenateEfdClient(accept_notice=os.getenv('SENATE_PUBLIC_NOTICE_ACKNOWLEDGED', 'false').lower() == 'true') if 'senate_ptr' in sources else None
+        # Host permission comes from the reviewed company registry, not a fetched
+        # page or a redirect. Filings cannot add arbitrary hosts to the allowlist.
+        hosts = {urlsplit(company["investor_website"]).hostname for company in registry}
+        redirect_urls = {url for company in registry for item in company.get("documents", [])
+                         for url in item.get("redirect_urls", [])}
+        document_urls = reviewed_issuer_document_urls(registry)
         with SessionLocal() as db:
-            result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts, issuer_redirect_urls=redirect_urls, issuer_document_urls=document_urls), sources=args.sources,
+            result = collect_direct_feeds(db, DirectSourceClient(issuer_hosts=hosts, issuer_redirect_urls=redirect_urls, issuer_document_urls=document_urls), sources=sources,
                                          start=args.start, end=args.end, symbols=args.symbols, limit=args.limit,
                                          recheck_hours=args.recheck_hours, retry_failed=args.retry_failed, issuer_registry=registry, senate_reports=senate,
                                          senate_client=senate_client, recover_senate_window=recover_senate_window)
+            if backup_enabled:
+                from app.jobs.collect_senate_backup import collect
+                years = list(range(args.start.year, args.end.year+1))
+                try:
+                    result['senate_backup'] = collect(db, years=years)
+                except Exception as exc:
+                    result['errors'].append({'feed':'senate_backup', 'error':type(exc).__name__})
             print(dumps(result))
     if result["errors"]:
         raise SystemExit(1)

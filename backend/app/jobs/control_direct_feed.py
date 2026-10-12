@@ -16,7 +16,7 @@ from app.services.feed_source_control import FeedSourceControl, select_feed_sour
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('status', 'migrate', 'select'), default='status', nargs='?')
-    parser.add_argument('--provider', choices=('sec_edgar', 'official_house', 'official_senate', 'paused'))
+    parser.add_argument('--provider', choices=('sec_edgar', 'official_house', 'official_senate', 'community_congressional_disclosures', 'paused'))
     parser.add_argument('--feed', choices=('sec_form4', 'sec_13f', 'house_ptr', 'senate_ptr'), default='sec_form4')
     parser.add_argument('--publish-since', type=date.fromisoformat)
     parser.add_argument('--expected-generation', type=int)

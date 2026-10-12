@@ -1,5 +1,13 @@
 # Walnut Markets product roadmap
 
+**2026-10-12 04:25 UTC:** [Senate publication rehearsal](senate-backup-preparation-2026-10-12.md), draftPR600/source00b240dc, now verifies84published/51held filings,462transactions/358events, unchanged public state and12/8/358 no-send repeats. Shared ownership, atomic rollback and official recovery are implemented; production activation/job integration/source freshness/capacity and existing Fetterman duplicate/date repair remain gated. No source or schedule switch.
+
+**2026-10-12 04:08 UTC:** [Senate member/canonical preparation](senate-backup-preparation-2026-10-12.md), draftPR600, passes162checks and135member identities; full staged135filing inspection repeats identically with84new/51held plans. In-place Whitehouse matches5existing events; Fetterman date conflict remainsheld. Publication/job/recovery/consumer integration and broader migration gates remain, no activation.
+
+**2026-10-12 03:57 UTC:** [Senate backup transport/staging](senate-backup-preparation-2026-10-12.md), draft PR600, passes126checks and actual135filing/2176row download plus identical local staging repeat. Member/canonical/job/consumer integration still pending; no activation. Full institutional87489 now passes574sources/137currentcomparisons/142events/64continuity/12-8-142repeat; coverage/live capacity remain gates.
+
+**2026-10-12, 03:46 UTC:** [Senate backup preparation](senate-backup-preparation-2026-10-12.md), draftPR600, passes104tests and all135filing/2176row conversion plus seven original-row bindings. Not activated or deployed; bounded staging/canonical reconciliation/consumers remain. Official03:17run still403. Institutional87489 firstpass574docs/137currentcomparisons/142events; repeat/consumers remainLIVE.
+
 **2026-10-12, 03:26 UTC:** [Reference retry fairness](institutional-reference-retry-fairness-2026-10-12.md) is implemented locally:87tests and a read-only live-state comparison pass; review/deployment/ordinary collection pending. Same two-request budget, institutions remainoff and full87489replay remainslive.
 
 **October 12, 03:02 UTC:** [Scheduled institutional evidence](institutional-scheduled-coverage-2026-10-12.md) verifies 13 additional comparisons/four events and identical 4/4/4 previews. B2Gold exact-listing repair is implemented and passes 100 checks/one actual pair; all nine affected pairs now pass; review and deployment pending. Publication remains off; all broader migration gates remain.
@@ -342,3 +350,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **2026-10-11, 23:37 UTC:** [PR590 EBITDA unit repair](ebitda-percent-contract-2026-10-11.md) is deployed and the verified SGRP current row corrected.85checks/35runtime hashes, unchanged five-metric summary/historical hash and zero-change repeat pass. PubliccoreFMP; definitions/netdebt/fullcoverage and all source/consumer/finalMassive/globalFMP gates remain.
+
+
+**October12,04:49UTC:** [Senate candidate jobs and original-bound non-equity repair](senate-backup-preparation-2026-10-12.md) pass167checks, actual repeated source collection and PostgreSQL positive publication/rollback/concurrency rehearsal. PR600 remains undeployed; disabled gates and current source selection preserved. Exact deployed validation, scheduled observation and production repair remain before activation. No full FMP exit claim.

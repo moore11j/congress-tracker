@@ -12,19 +12,33 @@ from app.services.direct_congress_worker import publish_batch
 from app.services.feed_source_control import FeedSourceMismatch, FeedWriterBusy
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--feed', required=True, choices=('house_ptr', 'senate_ptr'))
     parser.add_argument('--directory', required=True, type=Path)
     parser.add_argument('--directory-sha256', required=True)
     parser.add_argument('--limit', type=int, default=100)
     parser.add_argument('--retry-held', action='store_true')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if os.getenv('DIRECT_CONGRESS_PUBLICATION_ENABLED', 'false').strip().lower() != 'true':
         print(dumps({'status': 'disabled'})); return
     guard = check_background_job_guard('direct-congress-publication')
     if not guard.proceed:
         print(dumps(guard.to_dict())); return
+    publisher = publish_batch
+    limit = args.limit
+    if args.feed == 'senate_ptr':
+        from app.services.feed_source_control import FeedSourceControl
+        from app.services.senate_backup_evidence import PROVIDER
+        with SessionLocal() as db:
+            control = db.get(FeedSourceControl, args.feed)
+            selected = control.provider if control else 'fmp'
+        if selected == PROVIDER:
+            if os.getenv('SENATE_BACKUP_PUBLICATION_ENABLED','false').strip().lower() != 'true':
+                print(dumps({'status':'disabled', 'reason':'Senate backup publication flag is off'})); return
+            from app.services.senate_backup_publication import publish_batch as backup_batch
+            publisher = lambda db, **kwargs: backup_batch(db, **{k:v for k,v in kwargs.items() if k!='feed'})
+            limit = min(args.limit, 20)
     raw = args.directory.read_bytes()
     if len(raw) > 10_000_000 or hashlib.sha256(raw).hexdigest() != args.directory_sha256:
         raise ValueError('Verified Congress directory checksum differs')
@@ -33,7 +47,7 @@ def main():
         raise ValueError('Congress directory is not a bounded person list')
     try:
         with SessionLocal() as db:
-            result = publish_batch(db, feed=args.feed, directory=directory, limit=args.limit, retry_held=args.retry_held)
+            result = publisher(db, feed=args.feed, directory=directory, limit=limit, retry_held=args.retry_held)
     except (FeedSourceMismatch, FeedWriterBusy) as exc:
         print(dumps({'status': 'skipped', 'reason': type(exc).__name__})); return
     print(dumps(result))

@@ -130,7 +130,7 @@ def test_real_watchlist_and_monitoring_windows_keep_corrected_rows_without_new_a
     since=rows[0].ts.replace(tzinfo=timezone.utc)
     from datetime import timedelta
     end=since+timedelta(days=1)
-    monkeypatch.setattr(digests,'_upcoming_calendar_events_for_digest',lambda *a,**k:([], 'Calendar outside date-only correction'))
+    monkeypatch.setattr(digests,'_upcoming_calendar_events_for_digest',lambda *a,**k:([], 'Calendar outside date-only correction', None))
     def previews():
         return [digests.build_watchlist_activity_digest(db,user,watch,since),
             digests.build_monitoring_digest(db,user,watch,since,window_end=end),
