@@ -1,6 +1,6 @@
 # Idle prior-collection startup, October 12, 2026
 
-Local implementation and real PostgreSQL read-only parity validated; release pending. This reduces startup work while existing 13F prior sources are cooling down. No schedule, source selection, retry deadline, collector limit, canonical data or alert changes.
+Deployed as PR605/9ce01d59; exact runtime and ordinary idle run verified below. This reduces startup work while existing 13F prior sources are cooling down. No schedule, source selection, retry deadline, collector limit, canonical data or alert changes.
 
 ## Diagnosis and repair
 
@@ -19,3 +19,14 @@ An eight-day simulated clock on the same actual saved PostgreSQL rows yields308e
 ## Remaining gates
 
 Release exact tested source, verify runtime hashes and an ordinary idle collector run; retain due-source behavior. Continue sustained CPU and complete source/consumer validation before institutional activation. Core remains FMP, institutional publication remains disabled, and finalMassive/globalFMP/billing gates remain. Scheduled Senate06:27 and SEC quarantine06:47 observations remain separate. No purchase or cancellation.
+
+
+## Deployed and ordinary run verified,06:29UTC
+
+[PR605](https://github.com/moore11j/congress-tracker/pull/605), finalheadd862d11f, merges9ce01d59e0d0008e54ec55882c81be2008252f89. Backend workflow38212265635 succeeds.59runtimehashes match, both approved host sizes unchanged, queue39has no pending/running work and1448.7MB available. Eight public responses succeed; feeds0.511/0.413s and freshly generatedAAPL1.707/NVDA1.208s are samples, not sustained capacity proof. Core remainsFMP, institutional publicationfalse, already selected Senateflags true. Receipt prior-preflight-runtime-1791786317.json.
+
+Ordinary06:28 prior collector completesexit0 in0.4wall/0.2399CPU seconds, versus the earlier06:13 ordinary1.3193CPU. Receipt scheduled-job-cpu-1791786516.json. No cadence or retry change; due-source/failure fallback is covered by the exact PostgreSQL and regression checks above. This reduces idle overhead only, not active institutional publication cost. Secret and Vercel checks pass; unchanged Pillow and five frontend dependency vulnerabilities still fail audits. Direct diff review completed; no automated review pass claimed. Attachment attempted but task100-item limit reached.
+
+Current SEC financial rotation continues on PR604: due1033/1023/1013 over the06:11/06:16/06:21 batches, each10SEC/8Finnhub and zero canonical writes/emails. Full rotation and source coverage remain open. First selected Senate scheduled publication is independently verified in the Senate report; due SEC quarantine06:47 remains pending. All new helper handles terminal; no local PostgreSQL started.
+
+Explicit ordinary stdout receipt prior-idle-receipt-1791786579.json also confirms status idle,308cooling-down candidates, zero eligible/document IDs and zero public writes.

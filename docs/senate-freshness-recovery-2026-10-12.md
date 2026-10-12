@@ -48,3 +48,10 @@ Rollback is the existing generation-checked source pause or separately verified 
 ## Evidence PR merged,05:32UTC
 
 [PR602](https://github.com/moore11j/congress-tracker/pull/602), head563a028ace7fc8f11b28cc7727a95a6daa563bfb, merged asfbd8c43efd8584de6fc638ea5006d732c004e354. Tests and documentation only; backend remainsce0ce857, with no new deployment. Secret scan passes; purpose-built diagnostics confirm unchanged Pillow/frontend dependency audit failures. Vercel preview status isfailed with no detailed cause exposed in CI metadata. No frontend or dependency files changed; no CI-clear claim or preview retry. The successful source activation/queuedrun34/runtime receipts remain as recorded.
+
+
+## First ordinary selected publication, October12,06:27UTC
+
+The calendar-triggered publisher, keyfd937f3bafa7d88ca6628e54, completesrun35/exit0 at06:27:04 without manual enqueue. Source remainscommunity_congressional_disclosures/generation5/October1boundary. Both backup receipts remainexisting and two in number. Read-only06:27:50 verification recomputes both canonical fingerprints and matches the activation hashes exactly, establishing unchanged filing/trade/event identities and no duplicate inserts for this run. No raw canonical rows exported. Receipts direct-scheduled-state-1791786449.json and senate-scheduled-identity-1791786470.json.
+
+Ordinary06:17 backup collection218 succeeds with135filings/2176rows and unchanged snapshot5769a981. The official403 and historical source gaps remain; this proves the first ordinary selected cycle, not uninterrupted future freshness or resolution of51historical holds. Strict24hour freshness and whole-filing evidence gates remain unchanged. No new activation, source request from the identity verifier, customer test email or cancellation. Backend is9ce01d59 after unrelated idle-prior repair,59runtimehashes verified.
