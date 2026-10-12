@@ -1,5 +1,13 @@
 # Project context log
 
+## 2026-10-12,00:21UTC: Alphabet financial association prepared
+
+Continued migration by diagnosing an ordinary GOOG hold. [Report](alphabet-financial-identity-2026-10-12.md) records two bounded free responses, SEC class/issuer evidence, scoped association and116 tests plus exact-source downstream repeat. Implementation ready for review, not deployed. CoreFMP; no activation, schedule/capacity, email, purchase or cancellation. Initial documentation helper stopped on Windows default encoding; explicit UTF-8 repair preserves existing files.
+
+## 2026-10-12, 00:16 UTC: Leverage release and ordinary operation verified
+
+Continued the full migration after the landing-only check. [Release report](sec-leverage-preparation-2026-10-11.md) now records PR591/2e36c261 deployment38186832093,222 affected tests,38runtime hashes and two unchanged hosts. The previously pending15201 was missing; its saved receipt proves terminal/held, not success. After confirming the collector finished, guarded9027 validates LIN's exact calculation, transport-forbidden repeat and unchanged canonical-row hash. Read-only96440/33102 observe two ordinary10-scope runs and SECv5/Finnhubv2 progression while recording remaining versions/holds. All handles terminal; no local PostgreSQL. Broad coverage, semantics, sustained capacity, all consumer checks and finalMassive/globalFMP/billing remain. No new activation, schedule, hardware, purchase, customeremail or cancellation. Prior landing-only turn no migration progress; this turn completes bounded live release acceptance and changes the next action to remaining coverage/identity/consumer gates. Goal remains active.
+
 ## 2026-10-11: Leverage evidence implementation, release pending
 
 Continued the full FMP exit goal. [Preparation implementation](sec-leverage-preparation-2026-10-11.md) adds filing-aligned EBITDA and separate debt/lease candidates without selecting a canonical metric. 214 expanded checks, two integration checks and one additional restatement case pass (217 distinct; final20 affected pass). Full20-company saved-source replay preserves all previous financial values/evidence and exact repeats; complete coverage remains open. Versionv5 uses existing bounded warming. Not deployed; review and runtime validation next. No source activation, public score change, purchase, schedule/resource change or customer delivery. Previous audit and current implementation both concrete progress; goalactive.

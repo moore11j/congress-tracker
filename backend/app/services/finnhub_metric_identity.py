@@ -9,6 +9,8 @@ ISSUER_FIELDS = frozenset({'current_ratio', 'debt_to_equity', 'roe', 'roic',
 _BERKSHIRE = ('0001067983', [
     'https://www.sec.gov/Archives/edgar/data/1067983/000119312526083899/R1.htm'])
 _REVIEWED = {
+    ('GOOG', 'GOOGL'): ('0001652044', [
+        'https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630.htm']),
     ('BRK.B', 'BRK.A'): _BERKSHIRE,
     ('BRK-B', 'BRK.A'): _BERKSHIRE,
     ('TSM', '2330.TW'): ('0001046179', [

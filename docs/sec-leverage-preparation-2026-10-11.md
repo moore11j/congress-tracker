@@ -1,6 +1,6 @@
 # SEC leverage preparation, October 11, 2026
 
-## Implemented, release pending
+## Deployed preparation, public activation remains gated
 
 The [source reconciliation](sec-leverage-reconciliation-2026-10-11.md) showed that mapping a generic vendor ratio would silently change debt and EBITDA definitions. The backend now prepares independently attributed candidates alongside the existing SEC evidence. It does not select a canonical net-debt/EBITDA value, change public financial fields or scores, or activate free core fundamentals.
 
@@ -30,4 +30,15 @@ Existing frontend/backend dependency audits fail in unchanged dependencies (Pill
 
 ## Release and remaining work
 
-At this checkpoint the implementation is local, not merged or deployed. Review, exact-release verification and a bounded live preparation/repeat remain before release acceptance. Core provider remains FMP and institutional publication remains disabled. The change creates comparable evidence, not a completed leverage replacement. Broader issuer components, debt-policy reconciliation, complete numerical/coverage validation and score/ranking/all-alert rebaseline remain required before public activation. Senate, institutions, transcripts, scheduled consumers, final Massive and zero-FMP/billing gates remain open. No new subscription, canonical financial write, customer email, source activation, recurring schedule or capacity change.
+PR591 merged as `2e36c2612836e45e3e6d954512f7e406de77d079` and backend workflow38186832093 completed successfully. Exact runtime and bounded live preparation are verified below. Core provider remains FMP and institutional publication remains disabled. The change creates comparable evidence, not a completed leverage replacement. Broader issuer components, debt-policy reconciliation, complete numerical/coverage validation and score/ranking/all-alert rebaseline remain required before public activation. Senate, institutions, transcripts, scheduled consumers, final Massive and zero-FMP/billing gates remain open. No new subscription, canonical financial write, customer email, source activation, recurring schedule or capacity change.
+
+
+## Production acceptance, October 12, 00:16 UTC
+
+The successful [release workflow](https://github.com/moore11j/congress-tracker/actions/runs/38186832093) deploys PR591. All38 frozen expected runtime hashes match at00:09UTC, with the existing two hosts unchanged. Eight public responses return200: feeds0.408/0.474seconds, freshAAPL1.590seconds and freshNVDA1.090seconds. The restart sample has five pending/two running jobs, so it is neither an empty-queue nor sustained-capacity proof. Receipt `two-service-verify-1791763808.json`.
+
+The original manual attempt is terminal/held because the ordinary collector owned its lock (`leverage-preparation-1791763864.json`). After verifying that scheduled run completed, a single guarded retry at00:15UTC succeeds on production Python3.12.15. LIN retains nine core fields and the source-defined borrowings candidate1.7242279576309116 forJune30. Source evidence matches the saved-source calculation. The repeat forbids DirectSourceClient access and returns the identical payload and cache timestamp; all canonical LIN financial rows retain SHA256 `341df0d559ff25f3f7b9f886784272301fa97fa0ce97fb5e15414a02aa1620a1`. Candidate leverage remains outside public values. Receipt `leverage-preparation-1791764122.json`, prepared payload SHA256 `dd456769f6c411eaaf2ae43cd77038d7216fdb502490ebafbd7592a5a09a809c`.
+
+Two ordinary postdeployment SEC batches at00:11 and00:16 complete10/10 assigned scopes apiece, with zero canonical writes/emails and FMP still selected. Their two/one unsupported financial coverage holds remain explicit. There are21 v5 caches including the manual LIN preparation;1724 v4 and3 v1 caches remain. The first receipt at00:14 showed10 v5 rows; this demonstrates ordinary progress, not whole-universe readiness. NVDA's actual ordinary preparation has complete EBITDA components after the rounded-original repair. Finnhub annual metrics also progress through the ordinary schedule:19 v2 rows,17 with growth and15 with beta;1439 v1 rows remain (1431fresh). GOOG metric_symbol_mismatch is a real retained hold, not silently mapped to another share class. Current free-provider budget reports28 reservations in60seconds and no blocked-until value. Receipt `leverage-coverage-1791764180.json`.
+
+No new source selection, canonical correction, customer email, purchase, recurring schedule, capacity change or FMP cancellation. Broad refresh, missing issuer components and leverage semantics, complete numerical coverage and score/ranking/all-alert rebaseline still precede activation. Preparation release validation is complete at this bounded scope; FMP retirement is not.
