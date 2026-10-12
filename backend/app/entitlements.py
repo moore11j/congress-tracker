@@ -980,10 +980,12 @@ def required_tier_for_feature(db: Session | None, feature_key: FeatureKey) -> Ti
 
 
 def seed_feature_gates(db: Session) -> None:
+    # Check the current transaction in one query. Do not cache presence across
+    # calls: deleted defaults still need reseeding, and admin overrides remain.
+    existing = set(db.scalars(select(FeatureGate.feature_key)))
     changed = False
     for feature_key, config in DEFAULT_FEATURE_GATES.items():
-        existing = db.get(FeatureGate, feature_key)
-        if existing:
+        if feature_key in existing:
             continue
         db.add(
             FeatureGate(
@@ -998,11 +1000,11 @@ def seed_feature_gates(db: Session) -> None:
 
 
 def seed_plan_limits(db: Session) -> None:
+    existing = set(db.execute(select(PlanLimit.tier, PlanLimit.feature_key)).all())
     changed = False
     for tier, entitlements in ENTITLEMENTS.items():
         for feature_key, limit_value in entitlements.limits.items():
-            existing = db.get(PlanLimit, {"tier": tier, "feature_key": feature_key})
-            if existing:
+            if (tier, feature_key) in existing:
                 continue
             db.add(PlanLimit(tier=tier, feature_key=feature_key, limit_value=limit_value))
             changed = True

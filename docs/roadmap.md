@@ -1,3 +1,5 @@
+2026-10-12,19:16: [Entitlement query repair](entitlement-default-query-cost-2026-10-12.md) local224passes/three reproduced baseline failures; actualPG six-user1339-to61SELECT/fullprojection parity. Release/ordinary savings and sustainedcapacity pending. Separate [Yahoo draft619](https://github.com/moore11j/congress-tracker/pull/619) remains defaultoff; no source or schedule change.
+
 2026-10-12, 18:18 UTC: [Debt aggregate repair](sec-debt-aggregate-reconciliation-2026-10-12.md) deployed PR617/c4a90c9f; 140 tests, 21-source replay and 74 runtime hashes pass. Actual ON evidence now holds two false preparation candidates. Public core remains FMP; ordinary propagation, broad financial coverage, formula/consumer acceptance and sustained capacity remain open.
 
 2026-10-12 18:03: [ACN issuer preparation](accenture-issuer-financials-2026-10-12.md) PR616/c710534a deployed;245tests/74runtime hashes and actual deployed-source equality pass. Ordinary receipt propagation pending; coreFMP, financial semantic/coverage and consumer/capacity gates remain.
