@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12, 03:26 UTC:** [Reference retry fairness](institutional-reference-retry-fairness-2026-10-12.md) is implemented locally:87tests and a read-only live-state comparison pass; review/deployment/ordinary collection pending. Same two-request budget, institutions remainoff and full87489replay remainslive.
+
 **October 12, 03:02 UTC:** [Scheduled institutional evidence](institutional-scheduled-coverage-2026-10-12.md) verifies 13 additional comparisons/four events and identical 4/4/4 previews. B2Gold exact-listing repair is implemented and passes 100 checks/one actual pair; all nine affected pairs now pass; review and deployment pending. Publication remains off; all broader migration gates remain.
 
 **2026-10-12, 02:35 UTC: Insider lookup repair prepared:** Production upper(ticker_normalized) history queries use full-table scans; AAPL about824ms/NVDA124ms/BRK.B123ms. A bounded manual concurrent expression/date index is prepared, preserving canonical data and leaving three older invalid indexes untouched.25 tests/five Linux skips and actual PostgreSQL16.15 mixed-case/dotted/absent parity plus idempotent build pass. No production application yet. Longer capacity samples rule out assuming DB fits shared CPU. Previous landing-only turn no migration progress; current measured diagnosis/code/validation is concrete progress. Goal active; source/capacity/consumer/Massive/globalFMP/billing gates remain. See [report](insider-lookup-index-2026-10-12.md).
