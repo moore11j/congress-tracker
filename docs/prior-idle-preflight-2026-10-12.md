@@ -12,7 +12,7 @@ The CLI now checks automatic prior selection before importing SQLAlchemy or appl
 
 85 focused tests pass on local Python3.14.2, covering exact retry boundaries, changed current/prior hashes/status, priority order, admission bounds, DB failure, read-only driver options and the idle CLI refusing heavy imports. Existing original-source collection/repeat/canonical preservation and preview tests also pass. Diff whitespace passes.
 
-Three cold read-only production comparisons against deployed79a30e49 yield identical full selections:308candidates,308cooling down, zeroeligible. Baseline CPU1.038568/1.027817/1.018245 seconds; candidate0.177858/0.178751/0.176120. Candidate does not import SQLAlchemy or application models. Median component reduction82.61percent. This is selection/startup cost, not total application throughput or proof of capacity for active institutional publication.
+Three cold read-only production comparisons against deployed79a30e49 yield identical full selections:308candidates,308cooling down, zeroeligible. Baseline CPU1.038568/1.027817/1.018245 seconds; candidate0.177858/0.178751/0.176120. Candidate does not import SQLAlchemy or application models. Median component reduction82.70percent. This is selection/startup cost, not total application throughput or proof of capacity for active institutional publication.
 
 An eight-day simulated clock on the same actual saved PostgreSQL rows yields308eligible and an identical selected20-document batch and whole-result hash. No future observations are claimed. Both comparisons are read-only, with zero source requests/public writes/emails. Receipts: prior-preflight-probe-1791785927.json and prior-preflight-future-1791785973.json. Both handles terminal; no local PostgreSQL started.
 
