@@ -20,6 +20,13 @@ DIRECT_PROVIDERS = {'sec_form4': 'sec_edgar', 'sec_13f': 'sec_edgar',
                     'house_ptr': 'official_house', 'senate_ptr': 'official_senate', 'sec_earnings_release': 'sec_edgar'}
 
 
+SECONDARY_PROVIDERS = {'senate_ptr': {'community_congressional_disclosures'}}
+
+
+def direct_providers(feed):
+    return {DIRECT_PROVIDERS[feed]} | SECONDARY_PROVIDERS.get(feed, set())
+
+
 class FeedSourceControl(Base):
     __tablename__ = 'feed_source_controls'
     feed: Mapped[str] = mapped_column(primary_key=True)
@@ -69,7 +76,7 @@ def require_selected_source(db, feed, provider):
     row = db.get(FeedSourceControl, feed, populate_existing=True)
     if (row.provider if row else 'fmp') != provider:
         raise FeedSourceMismatch('Requested publisher is not the selected feed source')
-    if provider == DIRECT_PROVIDERS.get(feed) and (row is None or row.publish_since is None):
+    if provider in direct_providers(feed) and (row is None or row.publish_since is None):
         raise FeedSourceMismatch('Direct publication has no immutable filing boundary')
     db.info.setdefault('feed_source_checks', {})[(feed, provider)] = (db.get_transaction(), row)
     return row
@@ -115,7 +122,7 @@ def select_feed_source(db, *, feed, provider, publish_since, expected_generation
     legacy writer requires separate cross-provider reconciliation, so this
     interface deliberately cannot re-enable FMP after activation.
     """
-    if feed not in DIRECT_PROVIDERS or provider not in {DIRECT_PROVIDERS[feed], 'paused'} or not reason.strip():
+    if feed not in DIRECT_PROVIDERS or provider not in direct_providers(feed) | {'paused'} or not reason.strip():
         raise ValueError('Select the matching direct provider/paused and record the operational reason')
     if not isinstance(publish_since, date) or isinstance(publish_since, datetime):
         raise ValueError('An explicit filing-date boundary is required')

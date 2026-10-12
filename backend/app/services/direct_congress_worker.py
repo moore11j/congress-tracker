@@ -38,7 +38,7 @@ def _context(db, url, member):
     return state, stored
 
 
-def _canonical_hash(db, url):
+def _canonical_hash(db, url, *, include_bindings=True):
     state = filing_state(db, url)
     # Outcomes and mutable ranking/enrichment fields do not define identity.
     state.pop('outcomes')
@@ -46,8 +46,9 @@ def _canonical_hash(db, url):
                     'source_provider', 'source_filing_id', 'source_document_url', 'trade_type',
                     'transaction_type', 'amount_min', 'amount_max', 'payload_json')
     state['events'] = [{k: row[k] for k in event_fields} for row in state['events']]
-    state['bindings'] = [_record(r) for r in db.scalars(select(CongressRowBinding).where(
-        CongressRowBinding.source_url == url).order_by(CongressRowBinding.source_line_ref))]
+    if include_bindings:
+        state['bindings'] = [_record(r) for r in db.scalars(select(CongressRowBinding).where(
+            CongressRowBinding.source_url == url).order_by(CongressRowBinding.source_line_ref))]
     return _hash(state)
 
 
@@ -89,6 +90,11 @@ def _project(db, document, metadata, raw, directory, boundary):
     day = date.fromisoformat(metadata['filing_date'])
     if day < boundary or day >= datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York')).date():
         return {'status': 'held', 'reason': 'Filing falls outside completed publication days'}
+    if document.feed == 'senate_ptr':
+        from app.services.senate_backup_publication import verify_original_recovery
+        recovery_hold = verify_original_recovery(db, document, raw)
+        if recovery_hold is not None:
+            return recovery_hold
     rows = parsed['transactions']
     if any(r['amendment_flag'] or r['asset_type_normalized'] in {'unresolved', 'option', 'etf', 'etn'}
            or r['transaction_type_normalized'] not in {'purchase', 'sale'}

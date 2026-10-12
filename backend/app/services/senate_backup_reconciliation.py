@@ -144,8 +144,8 @@ def reconcile(prepared, directory, *, filings, transactions, securities, members
                 remaining_gate='locked_publication_and_recovery_validation')
 
 
-def inspect_staged(db, document_id, directory, *, now=None):
-    """Recheck immutable staging evidence and current canonical rows without writing."""
+def load_staged_evidence(db, document_id, *, expected_hash=None):
+    """Reconstruct held evidence from its immutable bytes and original manifest."""
     from datetime import datetime, timezone
     import hashlib
     import json
@@ -174,6 +174,8 @@ def inspect_staged(db, document_id, directory, *, now=None):
         if row is None or row.content_hash != digest:
             raise ValueError('Snapshot manifest receipt is missing')
         return _snapshot(revision(row).source_bytes, observed)
+    if expected_hash is not None and document.content_hash != expected_hash:
+        raise ValueError('Staged source changed since publication')
     item = revision(document)
     prepared = json.loads(item.parsed_json)
     if document.parsed_json != item.parsed_json:
@@ -186,6 +188,19 @@ def inspect_staged(db, document_id, directory, *, now=None):
     rebuilt['snapshot_manifest_sha256'] = original_digest
     if rebuilt != prepared or document.source_key != prepared['filing_id'] or document.source_url != prepared['document_url']:
         raise ValueError('Prepared evidence differs from its captured source')
+    return document, prepared, item.content_hash, manifest
+
+
+def inspect_staged(db, document_id, directory, *, now=None):
+    """Recheck immutable staging evidence and current canonical rows without writing."""
+    from datetime import datetime, timezone
+    import json
+    from sqlalchemy import select
+    from app.services.direct_feed_store import DirectFeedDocument
+    from app.services.senate_backup_collection import FEED
+    from app.services.direct_congress_worker import _context
+    from app.services.direct_congress_repair import _record
+    document, prepared, source_hash, manifest = load_staged_evidence(db, document_id)
     # Identical evidence can retain its first observation while a newer complete
     # snapshot verifies that it is still present. Require that latest receipt fresh.
     latest_digest = json.loads(document.metadata_json)['snapshot_sha256']
@@ -193,7 +208,7 @@ def inspect_staged(db, document_id, directory, *, now=None):
                         .order_by(DirectFeedDocument.checked_at.desc(), DirectFeedDocument.id.desc()).limit(1))
     if current is None or current.source_key != latest_digest:
         raise ValueError('Filing is absent from the latest staged snapshot scope')
-    manifest(latest_digest, now or datetime.now(timezone.utc))
+    latest_snapshot = manifest(latest_digest, now or datetime.now(timezone.utc))
     identity = resolve_member(prepared, directory)
     if identity['status'] != 'resolved':
         return {**identity, 'publishable':False}
@@ -203,5 +218,6 @@ def inspect_staged(db, document_id, directory, *, now=None):
     plan = reconcile(prepared, directory,
         **{key:state[key] for key in ('filings', 'transactions', 'securities', 'members', 'events')},
         member_trades=state.get('member_trades', []), member_securities=state.get('member_securities', {}))
-    return {**plan, 'document_id':document_id, 'source_evidence_sha256':item.content_hash,
-            'latest_snapshot_sha256':latest_digest}
+    return {**plan, 'document_id':document_id, 'source_evidence_sha256':source_hash,
+            'latest_snapshot_sha256':latest_digest,
+            'latest_source_checked_at':latest_snapshot['lastSourceCheckAt']}

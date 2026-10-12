@@ -226,6 +226,8 @@ def stage_bundle(db, bundle, *, now=None):
     prepared = decode_bundle(bundle)
     from sqlalchemy import select
     from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, discover, record_document
+    from app.services.feed_source_control import lock_feed
+    lock_feed(db, 'senate_ptr')
     digest = hashlib.sha256(bundle['manifest']).hexdigest()
     latest = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == FEED+'_snapshot')
                        .order_by(DirectFeedDocument.checked_at.desc(), DirectFeedDocument.id.desc()).limit(1))
