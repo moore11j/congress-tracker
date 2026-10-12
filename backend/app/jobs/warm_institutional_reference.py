@@ -12,12 +12,12 @@ if __name__ == '__main__':
         print(json.dumps(early, sort_keys=True))
         raise SystemExit(0)
 
-from sqlalchemy import and_, or_, func, select
+from sqlalchemy import or_, func, select
 from app.background_job_guard import check_background_job_guard
 from app.clients.massive_stocks import MassiveStocksClient, MassiveStocksError
 from app.db import SessionLocal
 from app.jobs.collect_direct_feeds import collector_lock
-from app.models import InsightsSnapshot, InstitutionalPosition
+from app.models import InsightsSnapshot, InstitutionalPosition, InstitutionalFiling
 from app.services.direct_feed_store import DirectFeedDocument
 from app.services.institutional_reference import FEED, capture_reference, stage_reference
 from app.services.institutional_sec_snapshot import mapped_symbol
@@ -26,7 +26,7 @@ KEY = 'institutional-reference:warming:v1'
 BATCH_SIZE = 2
 MAX_DOCUMENTS = 500
 MAX_SCOPES = 5000
-PLAN_VERSION = 4
+PLAN_VERSION = 5
 
 
 def _now():
@@ -70,12 +70,16 @@ def plan_scopes(db, now, attempted_at, universe=None, *, source_scan_before_id=N
                     already_prepared.add(key)
             except (ValueError, TypeError, KeyError):
                 continue
+        # Match publication: historical independent mappings can introduce an
+        # alias conflict, while a reference-derived position cannot prove a
+        # different quarter's identity. Actual filing dates still gate each use.
         mappings = {}
         for cusip,symbol,first in db.execute(select(InstitutionalPosition.cusip,
                 InstitutionalPosition.normalized_symbol,func.min(InstitutionalPosition.filing_date))
-                .where(InstitutionalPosition.normalized_symbol.is_not(None),InstitutionalPosition.cusip.is_not(None),
-                    or_(*(and_(InstitutionalPosition.report_year==int(period[:4]),
-                               InstitutionalPosition.report_quarter==int(period[5:7])//3) for period in periods)))
+                .outerjoin(InstitutionalFiling, InstitutionalPosition.filing_id == InstitutionalFiling.id)
+                .where(InstitutionalPosition.normalized_symbol.is_not(None), InstitutionalPosition.cusip.is_not(None),
+                    or_(InstitutionalFiling.id.is_(None), InstitutionalFiling.raw_metadata_json.is_(None),
+                        ~InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%')))
                 .group_by(InstitutionalPosition.cusip,InstitutionalPosition.normalized_symbol)):
             if first is not None: mappings.setdefault(cusip,[]).append((symbol,first.isoformat()))
         period_weights = {period: {} for period in periods}
