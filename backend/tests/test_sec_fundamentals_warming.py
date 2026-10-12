@@ -120,6 +120,12 @@ def test_opt_in_ranking_universe_prepares_without_starving_due_watch_symbols(fac
         state=db.get(InsightsSnapshot,job.KEY);payload=json.loads(state.payload_json)
         payload['attempted_at']['ABC']=(now-timedelta(hours=21)).isoformat()
         state.payload_json=json.dumps(payload);db.commit()
+    # An old attempt cannot override the actual observation deadline.
+    assert job.run()['completed_scopes']==0
+    with factory() as db:
+        state=db.get(InsightsSnapshot,job.KEY);payload=json.loads(state.payload_json)
+        payload['scope_refresh_after']['ABC']=(now-timedelta(seconds=1)).isoformat()
+        state.payload_json=json.dumps(payload);db.commit()
     assert job.run()['results'][0]['scope']=='ABC'
     assert 'BBB' not in seen
 
