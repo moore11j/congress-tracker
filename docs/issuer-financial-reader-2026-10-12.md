@@ -27,3 +27,13 @@ The replay initially set its observation before creating the source preparation,
 ## Release gates
 
 Implemented and locally verified; exact deployment/runtime, production preparation refresh and ordinary scheduled observation pending. No public core activation, institutional activation, new subscription, host size, recurring time, landing or video change, or FMP cancellation. Broad issuer/period coverage, all score/ranking/digest/watchlist consumers, institutional publication/transcripts and final Massive validation remain open.
+
+## Live ordering defect and follow-up, October12 16:34UTC
+
+PR609 head d736474879046431888868d0d60c53164caa111f merged as3c5d52f86ac488a6b27a58b2864d264492de966a; backend38277795655 succeeds and68runtime hashes match on Python3.12.15. The initial live check correctly holds the older version1 receipt. Ordinary earnings warming at16:32:09 includes AZO in its bounded rotation and prepares version2. The deployed read-only reader then matches all six FMP fields within1e-9 and repeats identically in0.19284CPU seconds. No canonical writes or emails. Receipt issuer-reader-runtime-1791822875.json retains these results; its final hash assertion differs only for the locally edited, not-yet-released preparation file. The earlier receipt1791822725 verifies all68 against PR609.
+
+The same live sequence exposes a real dependency defect: financial preparation ran before earnings refresh and cached the May9 period under the new version. It remained fresh for24hours even after version2 earnings evidence arrived. A manual refresh would conceal this ordering problem.
+
+Follow-up adds an AZO-only receipt fingerprint to the financial preparation. A changed or removed receipt invalidates the fresh cache immediately; a dependency change during acquisition aborts the write and preserves the previous snapshot. Other issuer cache behavior is unchanged.49 focused reader/preparation/warmer checks pass, including immediate invalidation and concurrent-change preservation. One invocation from the repository root failed module collection; the configured backend invocation passes. Follow-up release and automatic preparation recovery remain pending.
+
+Final follow-up also records the dependency in the bounded warmer planner, making a changed reviewed receipt due ahead of its old observation deadline and avoiding another run until the dependency changes again.61 focused reader/preparation/planner/priority-refresh tests pass, including source-change scheduling and no repeated work. Existing batch limits and recurring times remain unchanged.
