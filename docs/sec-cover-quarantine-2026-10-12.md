@@ -32,3 +32,6 @@ Implementation is local and not yet deployed. Both source acceptance and institu
 Deployed Python3.12.15 runs the actual101-position original in isolated in-memory SQLite: exact bytes retained under the expected SHA, source totals still held, second-hour run performs no source fetch, zero canonical writes/emails. Receipt sec-cover-deployed-fixture-1791782001.json. This proves runtime behavior, not an ordinary SEC collection receipt; next ordinary SEC run remains required.
 
 Runtime receipt sec-cover-runtime-1791782014.json confirms zero pending/running queued jobs, institutional publicationfalse, Senate collectiontrue/publicationfalse and unchanged bounded schedules. News50items0.314s, feeds0.392/0.497s, freshAAPL1.569s/NVDA1.239s. These postrestart samples do not prove sustained capacity. No source selection, schedule, purchase or cancellation change.
+
+
+October12,05:47 ordinary run215 finishes with0processed/noerrors but1592unresolvedSECdocuments. It does not exercise the17failedoriginal quarantines, so ordinary retention remains pending. Deployed isolated actual101position fixture passes again afterPR603 at05:52; do not equate that with ordinary due-source collection. NextSEC06:47.

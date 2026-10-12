@@ -70,33 +70,37 @@ def _run_locked():
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
         metric_attempts = {key: value for key, value in state.get('metric_attempted_at', {}).items() if key in symbols}
         versions = {key: value for key, value in state.get('attempted_versions', {}).items() if key in symbols}
-        refresh_after = {key: value for key, value in state.get('priority_refresh_after', {}).items() if key in priority_symbols}
+        refresh_after = {key: value for key, value in {**state.get('priority_refresh_after', {}),
+            **state.get('scope_refresh_after', {})}.items() if key in symbols}
         # Seed old state from compact cache metadata, never large source payloads.
         # Otherwise an old cache hit could retain its postponed deadline at rollout.
         if broad:
-            missing_deadlines = priority_symbols - refresh_after.keys()
+            missing_deadlines = set(symbols) - refresh_after.keys()
             keys = {f'sec-current-fundamentals:{s}:v1': s for s in missing_deadlines}
             if keys:
                 for kind, fetched_at in db.execute(select(InsightsSnapshot.kind, InsightsSnapshot.fetched_at).where(
                         InsightsSnapshot.kind.in_(keys), InsightsSnapshot.source == 'sec_edgar')):
                     stamp = fetched_at.replace(tzinfo=fetched_at.tzinfo or timezone.utc)
                     refresh_after[keys[kind]] = (stamp + PRIORITY_REFRESH if stamp <= now else now).isoformat()
-        def due_priority(symbol):
-            if not broad or symbol not in priority_symbols:
+        def due_scope(symbol):
+            if not broad:
                 return False
             if versions.get(symbol) != sec_fundamentals_preparation.version_for_symbol(symbol):
                 return True
             try:
                 if symbol in refresh_after:
-                    return now >= datetime.fromisoformat(refresh_after[symbol])
+                    remaining = datetime.fromisoformat(refresh_after[symbol]) - now
+                    return not timedelta(0) < remaining <= PRIORITY_REFRESH
                 last = datetime.fromisoformat(attempts[symbol])
                 return not timedelta(0) <= now-last < PRIORITY_REFRESH
             except (KeyError, ValueError, TypeError):
                 return True
-        symbols.sort(key=lambda s: (0 if due_priority(s) else 1, attempts.get(s, ''), s))
+        symbols.sort(key=lambda s: (0 if s in priority_symbols and due_scope(s) else 1, attempts.get(s, ''), s))
         batch_limit = 5
         if broad:
             batch_limit = max(1, min(10, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
+        due_symbols = [s for s in symbols if not broad or due_scope(s)]
+        selected = due_symbols[:batch_limit]
         truncated = len(watched)>1000 or len(research)>1000 or len(ranked)>5000
         token = uuid.uuid4().hex
         if row is None:
@@ -107,13 +111,12 @@ def _run_locked():
         db.commit()
     # Planning commits before nested directory/panel cache transactions.
     results = []
-    for symbol in symbols[:batch_limit]:
-        priority = broad and symbol in priority_symbols
-        # Attempts order the broad rotation. Observation time, not cache access,
-        # sets the next priority refresh; failures keep the existing backoff.
+    for symbol in selected:
+        # Attempts order due work. Cache access never resets an observation's
+        # deadline, including stocks outside the watch/research priority set.
         next_refresh = now + PRIORITY_REFRESH
         try:
-            if priority:
+            if broad:
                 payload = sec_fundamentals_preparation.prepare(symbol, max_cache_age=PRIORITY_REFRESH)
                 observed = datetime.fromisoformat(payload['observed_at'])
                 if observed.tzinfo is None:
@@ -131,7 +134,7 @@ def _run_locked():
                 result['reason'] = str(exc)[:300]
         results.append(result)
         attempts[symbol] = now.isoformat()
-        if priority:
+        if broad:
             refresh_after[symbol] = next_refresh.isoformat()
         versions[symbol] = sec_fundamentals_preparation.version_for_symbol(symbol)
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
@@ -175,7 +178,7 @@ def _run_locked():
             metric_attempts[symbol] = attempted_at
     receipt = {'status': 'partial' if truncated or metric_stop or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': truncated, 'ranking_universe_enabled': broad, 'priority_universe_size': len(priority_symbols), 'ranking_cache_symbols': min(len(ranked),5000), 'batch_limit': batch_limit,
-        'planned_scopes': min(batch_limit, len(symbols)), 'completed_scopes': len(results), 'results': results,
+        'planned_scopes': len(selected), 'due_scopes': len(due_symbols), 'completed_scopes': len(results), 'results': results,
         'metric_results': metric_results,
         'planned_metric_scopes': metric_planned, 'completed_metric_scopes': len(metric_results),
         'metric_batch_limit': metric_limit, 'metric_elapsed_seconds': round(time.monotonic()-metric_started, 3),
@@ -187,7 +190,9 @@ def _run_locked():
         current = json.loads(row.payload_json) if row else {}
         if (current.get('lease') or {}).get('token') != token:
             return {**receipt, 'status': 'partial', 'reason': 'warming_lease_lost'}
-        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'priority_refresh_after': refresh_after, 'metric_attempted_at': metric_attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
+        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'scope_refresh_after': refresh_after,
+            'priority_refresh_after': {s: deadline for s, deadline in refresh_after.items() if s in priority_symbols},
+            'metric_attempted_at': metric_attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
         row.fetched_at = now
         db.commit()
     return receipt
