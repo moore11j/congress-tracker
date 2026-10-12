@@ -1,5 +1,8 @@
 # Walnut Markets product roadmap
 
+**October12,01:53UTC:** [Actual PostgreSQL publication](institutional-bounded-writes-2026-10-12.md) passes a20-filing positive scenario and identical whole-state repeat, but82.172CPU seconds/30108 SELECTs require query-cost repair before production activation. Full574-source replay46444 remainslive after119source-proof events in firstpass. Current-version financial audit accepts126SEC/44combined scopes; older broad coverage counts no longer establish readiness after adapter version changes. Ordinary rotation continues without new budgets; institutionsfalse/coreFMP and all remaining cutover gates persist.
+
+
 **October12,01:33UTC: Reference candidate repair live:** [PR595/70bd3639](institutional-reference-candidate-parity-2026-10-12.md) deployment/40hashes/ordinary version5 collection verified. Two new reference scopes verify under the unchanged budget; complete129scope coverage and dependent publication remain open. Full574-source replay46444 remains live; institutionsfalse/coreFMP and all remaining cutover gates persist.
 
 **October12,01:27UTC: Reference coverage planning repair prepared:** [Candidate parity](institutional-reference-candidate-parity-2026-10-12.md) passes70 checks and read-only production comparison admits129needed scopes versus84 with unchanged request budget. Collection, actual identity verification and deployment remain pending. Full574-source replay46444 remains live; institutional publication remainsfalse, other provider/consumer/finalMassive/globalFMP gates remain.
