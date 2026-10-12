@@ -1,0 +1,91 @@
+{
+  "source_sha256": "9112dbf52d805f97500c314cbfacf58b114c9448d0f9a81091bafdff63da1a95",
+  "purpose": "Independent identity evidence for subsequent complete filing reconciliation; not a runtime mapping registry.",
+  "publication_eligible": false,
+  "relationships": [
+    {
+      "rows": [
+        "p7:r10"
+      ],
+      "ticker": "VMRK",
+      "issuer_cik": "0000906107",
+      "class": "Common shares of beneficial interest",
+      "evidence": [
+        "vivmark-merger",
+        "vivmark-issuer"
+      ],
+      "finding": "Merger and rename effective August 17, 2026; VMRK trading starts August 18, before the September 11 transaction. Former EQR/AVB are not interchangeable current symbols."
+    },
+    {
+      "rows": [
+        "p12:r14"
+      ],
+      "ticker": "P",
+      "issuer_cik": "0001474432",
+      "class": "Class A common stock",
+      "evidence": [
+        "everpure"
+      ],
+      "finding": "August 2, 2026 statement identifies Everpure (formerly Pure Storage) and NYSE P, matching the disclosed Class A security."
+    },
+    {
+      "rows": [
+        "p5:r6",
+        "p16:r4"
+      ],
+      "ticker": "BLK",
+      "issuer_cik": "0002012383",
+      "class": "Common stock",
+      "evidence": [
+        "blackrock-reorganization",
+        "blackrock-current"
+      ],
+      "finding": "Former BlackRock Funding became the listed BlackRock parent October 1, 2024. June 30, 2026 filing confirms BLK common stock. The name is a historical alias, not an inferred subsidiary mapping."
+    },
+    {
+      "rows": [
+        "p25:r5"
+      ],
+      "ticker": "FDXF",
+      "issuer_cik": "0002082247",
+      "class": "Common stock",
+      "evidence": [
+        "fedex-freight",
+        "fedex-spinoff"
+      ],
+      "finding": "Independent FedEx Freight common stock starts regular-way NYSE trading June 1, 2026, before the September 4 transaction; do not assign parent FDX."
+    },
+    {
+      "rows": [
+        "p13:r5"
+      ],
+      "ticker": "PSKY",
+      "issuer_cik": "0002041610",
+      "class": "Class B common stock",
+      "evidence": [
+        "paramount"
+      ],
+      "finding": "June 30, 2026 filing cover identifies PSKY Class B on Nasdaq, matching the printed class."
+    },
+    {
+      "rows": [
+        "p21:r2"
+      ],
+      "ticker": null,
+      "evidence": [
+        "kimco"
+      ],
+      "finding": "Parent KIM common shares and Kimco Realty OP LLC units are distinct. June 30, 2026 parent owns 99.74% of OP units; source name does not justify a parent equity signal."
+    },
+    {
+      "rows": [
+        "p26:r1"
+      ],
+      "ticker": null,
+      "evidence": [
+        "vertiv-subsidiary"
+      ],
+      "finding": "Historical subsidiary exhibit explicitly lists Vertiv Holdings LLC. Current source Class A language does not independently resolve the LLC versus listed Holdings Co discrepancy; leave unmapped."
+    }
+  ]
+}

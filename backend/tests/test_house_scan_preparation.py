@@ -28,7 +28,7 @@ def source():
 def test_original_complete_population_and_economics_without_inferred_identity(source):
     raw, meta, _ = source
     text, parsed, holds = collection.parse_document('house_ptr', raw, meta)
-    assert text.startswith('Reviewed economic fields; unverified asset descriptions')
+    assert text.startswith('Reviewed economic fields; security identities unverified')
     assert holds == [prep.HOLD]
     rows = parsed['transactions']
     assert len(rows) == len({r['normalized_hash'] for r in rows}) == 459

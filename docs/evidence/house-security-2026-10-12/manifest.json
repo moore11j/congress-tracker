@@ -1,0 +1,112 @@
+[
+  {
+    "name": "blackrock-current",
+    "url": "https://www.sec.gov/Archives/edgar/data/2012383/000119312526337177/blk-20260630.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/2012383/000119312526337177/blk-20260630.htm",
+    "observed_at": "2026-10-12T20:10:14.000511+00:00",
+    "http_status": 200,
+    "sha256": "afebdd8eec7a19b08eb088170172dbeabf02eb86c5752a32c34a3e46ba12ce88",
+    "bytes": 10478110,
+    "stored_file": "blackrock-current.html.gz",
+    "stored_sha256": "27098499e525b201b616571f47131f344f336cbdb640ff8a59598e72deb4793d"
+  },
+  {
+    "name": "vertiv-subsidiary",
+    "url": "https://www.sec.gov/Archives/edgar/data/1674101/000162828023005248/exhibitno211vrt02272023.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/1674101/000162828023005248/exhibitno211vrt02272023.htm",
+    "observed_at": "2026-10-12T20:10:18.994658+00:00",
+    "http_status": 200,
+    "sha256": "67d73489bdda1e78d158624b19becdcdd0bde266c3595a94a1426f217c6b4ab2",
+    "bytes": 17701,
+    "stored_file": "vertiv-subsidiary.html.gz",
+    "stored_sha256": "b4cfd2a0eb9f842b94b41aca2758a29658af51850eee91ababec8f205ab100de"
+  },
+  {
+    "name": "fedex-spinoff",
+    "url": "https://www.sec.gov/Archives/edgar/data/1048911/000110465926068519/tm2616055d2_ex99-1.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/1048911/000110465926068519/tm2616055d2_ex99-1.htm",
+    "observed_at": "2026-10-12T20:10:20.106241+00:00",
+    "http_status": 200,
+    "sha256": "8afbc7293d2dfdd719599002d344de7c5e873ebdd58e618db800bbe9f0d3b059",
+    "bytes": 13834,
+    "stored_file": "fedex-spinoff.html.gz",
+    "stored_sha256": "c2f0be19d67f2d6577dba97b2b828eb63633f390913ca0585c9b4ef669ad5f4d"
+  },
+  {
+    "name": "vivmark-merger",
+    "url": "https://www.sec.gov/Archives/edgar/data/915912/000110465926097833/tm2623381d1_8k.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/915912/000110465926097833/tm2623381d1_8k.htm",
+    "observed_at": "2026-10-12T20:09:07.137876+00:00",
+    "http_status": 200,
+    "sha256": "9943c23121d8978ac27bae5c01e89df12be22314153f757a6234f81693e33b18",
+    "bytes": 57562,
+    "stored_file": "vivmark-merger.html.gz",
+    "stored_sha256": "82373c94aa3f4e0aeff9be7f4ad37b04eb72ebf8865b21e4e84682cf0bf3c013"
+  },
+  {
+    "name": "vivmark-issuer",
+    "url": "https://www.sec.gov/Archives/edgar/data/906107/000090610726000080/xslF345X06/form3a.xml",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/906107/000090610726000080/xslF345X06/form3a.xml",
+    "observed_at": "2026-10-12T20:09:08.263459+00:00",
+    "http_status": 200,
+    "sha256": "e715015f38a96f37da5603d13778e9e9d7220287f4679f6306667cbc3fc284f5",
+    "bytes": 14622,
+    "stored_file": "vivmark-issuer.html.gz",
+    "stored_sha256": "2c44a5cb790301bc8605f969f8b87cda0875784efbcd675583a425399a3b2b28"
+  },
+  {
+    "name": "everpure",
+    "url": "https://www.sec.gov/Archives/edgar/data/1474432/000147443226000088/pstg-20260802.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/1474432/000147443226000088/pstg-20260802.htm",
+    "observed_at": "2026-10-12T20:09:09.290495+00:00",
+    "http_status": 200,
+    "sha256": "fd8bffe658ca4ee0512820d010c954872e0b360d3353c9f448147669269e2273",
+    "bytes": 1614190,
+    "stored_file": "everpure.html.gz",
+    "stored_sha256": "aec527f2e5cad180eb75891f4291cbbe5dd7677c53948edc4d0937097c3d5411"
+  },
+  {
+    "name": "blackrock-reorganization",
+    "url": "https://www.sec.gov/Archives/edgar/data/2012383/000095017024122256/R35.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/2012383/000095017024122256/R35.htm",
+    "observed_at": "2026-10-12T20:09:11.027809+00:00",
+    "http_status": 200,
+    "sha256": "aadc0fe970d2cbbc0ed2afc8fd9445cb2d6f837e29587f0d292bdf1994876d42",
+    "bytes": 11171,
+    "stored_file": "blackrock-reorganization.html.gz",
+    "stored_sha256": "c9849c25cdb5ef8204baf77b5415ac14ba598bbccac0653232bcf5483ebc044e"
+  },
+  {
+    "name": "kimco",
+    "url": "https://www.sec.gov/Archives/edgar/data/879101/000119312526331817/kim-20260630.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/879101/000119312526331817/kim-20260630.htm",
+    "observed_at": "2026-10-12T20:09:29.567308+00:00",
+    "http_status": 200,
+    "sha256": "2f0905914825c6ef5eab29d5ade6b5f998a86bfe8e158b3da03c5d62adc9b837",
+    "bytes": 7179481,
+    "stored_file": "kimco.html.gz",
+    "stored_sha256": "93f62cabf98179f3834c9bf9da402f197fc3924254d4e1a49dc540cd378fce93"
+  },
+  {
+    "name": "fedex-freight",
+    "url": "https://www.sec.gov/Archives/edgar/data/2082247/000162828026053359/fdxf-20260531.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/2082247/000162828026053359/fdxf-20260531.htm",
+    "observed_at": "2026-10-12T20:09:31.769856+00:00",
+    "http_status": 200,
+    "sha256": "ba424f0f29682477b56425bc70f0505024ccb8760e1e0965a4547f969dc9172d",
+    "bytes": 2515818,
+    "stored_file": "fedex-freight.html.gz",
+    "stored_sha256": "c5d17d2f11e7330aba75b5b84a6df529f99097dd8e21aa1079704987cef181d5"
+  },
+  {
+    "name": "paramount",
+    "url": "https://www.sec.gov/Archives/edgar/data/2041610/000204161026000054/R1.htm",
+    "final_url": "https://www.sec.gov/Archives/edgar/data/2041610/000204161026000054/R1.htm",
+    "observed_at": "2026-10-12T20:09:33.338172+00:00",
+    "http_status": 200,
+    "sha256": "cdb5e30a7f3e1242db2829d6d600bca13634f43b4a4b7aae018000d88eac73ee",
+    "bytes": 55496,
+    "stored_file": "paramount.html.gz",
+    "stored_sha256": "9c69427d5c585458edbd0f1abd0bddc33c1d38387e5a16c4ccf4a165ae18ff31"
+  }
+]

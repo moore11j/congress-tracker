@@ -43,6 +43,8 @@ def prepared_house_scan(raw, metadata, page_count):
             or not 1 <= len(rows) <= 2000 or len(rows) != review['row_count'] or sum(counts) != len(rows)):
         raise ValueError('House economic preparation page population incomplete')
     expected = [(page, position) for page, count in enumerate(counts, 1) for position in range(1, count+1)]
+    from app.clients.house_ptr_descriptions import reviewed_descriptions
+    descriptions, description_review = reviewed_descriptions(review)
     transactions = []
     for row, (page, position) in zip(rows, expected, strict=True):
         fields = row['reviewed_economics']
@@ -63,22 +65,33 @@ def prepared_house_scan(raw, metadata, page_count):
         # No raw or resolved ticker is accepted by this preparation format.
         if set(row) != {'page', 'row', 'source_line_ref', 'candidate_asset_description', 'reviewed_economics'}:
             raise ValueError('Unexpected House preparation identity enrichment')
+        description = descriptions.get(row['source_line_ref'])
+        is_reviewed = bool(description and description['reviewed_description'] is not None)
         transactions.append({
             'source_line_ref': row['source_line_ref'], 'source_line_ref_kind': 'visual_position',
             'source_page': page, 'source_row': position,
             'owner': fields['ownerCodeRaw'], 'owner_disclosure_status': 'not_disclosed' if fields['ownerCodeRaw'] is None else 'reported',
-            'assetDescription': row['candidate_asset_description'], 'description_reviewed': False,
+            'assetDescription': description['reviewed_description'] if is_reviewed else row['candidate_asset_description'],
+            'description_reviewed': is_reviewed,
+            'description_status': description['description_status'] if description else 'unreviewed_candidate',
+            'candidate_asset_description': row['candidate_asset_description'],
+            'disclosed_trust_heading': description['trust_heading'] if description else None,
+            'disclosed_account_heading': description['account_heading'] if description else None,
+            'disclosed_instrument_indicator': description['disclosed_instrument_indicator'] if description else None,
             'asset_type': 'unresolved', 'symbol': None,
             'transaction_type_raw': 'Partial Sale' if fields['partialSale'] else fields['actionCodeRaw'],
             'transaction_type': fields['actionCodeRaw'].lower(),
             'transaction_date': fields['transactionDate'], 'notification_date': fields['notificationDate'],
             'amount': f"${fields['amountLow']:,} - ${fields['amountHigh']:,}",
             'capital_gains_over_200': fields['capGainsOver200'],
-            'source_notes': 'Economics visually reviewed; asset description is an unverified transcription candidate.',
+            'source_notes': ('Economics and description visually reviewed; security identity remains unverified.' if is_reviewed
+                             else 'Economics visually reviewed; asset description remains an unverified candidate.'),
         })
     report = {**metadata, 'document_url': metadata['url'], 'transactions': transactions,
         'parser_version': 'official_congress_rows_v2', 'amendment_flag': False,
         'preparation_review': {k: review[k] for k in ('source_sha256', 'reviewed_on', 'review_scope', 'review_method',
                                                      'page_count', 'row_count', 'page_row_counts', 'publication_eligible')},
         'review_holds': [HOLD], 'preparation_registry_sha256': hashlib.sha256(registry_bytes).hexdigest()}
-    return 'Reviewed economic fields; unverified asset descriptions\n' + json.dumps(review, sort_keys=True), report
+    if description_review is not None:
+        report['description_review'] = description_review
+    return 'Reviewed economic fields; security identities unverified\n' + json.dumps(review, sort_keys=True), report
