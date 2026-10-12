@@ -1,3 +1,5 @@
+2026-10-12,20:00: [House preparation PR622/f00f56f9](house-scan-preparation-2026-10-12.md) deployed and78 runtime hashes/459-row isolated original repeat verified, with117 focused checks. Publication remains held for security review; ordinary retention, sustained capacity and all remaining FMP exit gates are open.
+
 2026-10-12,19:45: [House economic review](house-scan-economic-review-2026-10-12.md) completes31-page/459-row original economic comparison and exact repeat, with one secondary notification-date gap. Descriptions/mappings/mixed assets and canonical/consumer proof still required; no source or deployment change. Sustained API capacity remains unproved.
 
 2026-10-12,19:34: [House scan retention](house-scan-retention-2026-10-12.md) PR621/d2793db6 deployed,108checks/75runtimehashes/actualoriginalrepeat pass. Ordinary retention and37-page transaction review remain gates; no provider cutover.
