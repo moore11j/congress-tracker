@@ -1,6 +1,6 @@
 # SEC debt aggregate reconciliation
 
-October 12, 2026. Implemented and locally validated; release pending. Public core remains FMP.
+October 12, 2026. Deployed and runtime verified through PR #617 / c4a90c9f. Public core remains FMP.
 
 ## Current coverage and discovered error
 
@@ -32,6 +32,18 @@ An offline21-issuer replay includes20 hash-verified October9 source pairs plus f
 
 `on-debt-oct12/runtime-fixture.json` captures137 source-bound observations and reproduces the entire full-source candidate panel exactly; it is prepared for deployedPython3.12 validation. Local artifacts are under primary `artifacts/direct-feeds/free-replacements-2026-10-09/`: audit, `on-debt-oct12` originals/manifest, `debt-bounds-replay-oct12.json`. Older manifest SHA052495c6b28b8f7b3837cdbafbadbe5e67ca51ef78c2d1576124c9ab3487acf8; ON manifest SHAee4ca5b8c9b20924964433796ed6c91402938dc4d58101dace4fda16130d5267. Initial audit query incorrectly treated a colon in its LIKE literal as a bind; corrected parameter binding completed the read-only audit.
 
+## Deployed verification, October 12 at 18:15 UTC
+
+[PR #617](https://github.com/moore11j/congress-tracker/pull/617) is merged as `c4a90c9f3975b7d552d4ecccde967bbbcc412dc8`. Deployment workflow `38289479562` succeeded. The exact source head was `0167f22b353ae0db8c9a1a6beb2d2fd399995c18`.
+
+Receipt `debt-bounds-release-1791828934.json` verifies all 74 runtime source hashes with zero mismatches on Python 3.12.15. The 137-observation source-bound ON fixture reproduces the entire expected leverage-v4 evidence panel, identical repeat and immutable inputs: zero eligible debt candidates, unchanged EBITDA of $1,565,700,000. The isolated fixture uses no database, provider requests or emails. Its 0.004451 CPU seconds measures only that fixture, not production capacity.
+
+Public receipt `issuer-staging-public-1791828933.json` returns HTTP 200 throughout: readiness 0.322 seconds, feeds 0.529/0.509 seconds, AAPL context 2.182 seconds, NVDA 1.242 seconds and AZO press 0.245 seconds with four distinct release links preserved. These postrelease samples do not establish sustained capacity or complete ticker coverage. Core fundamentals remains FMP and institutional publication remains disabled. Existing caches retain their recorded leverage versions until ordinary refresh; no broad forced refresh was performed.
+
+Exact-head CI run `38289347654` passes the secret scan. Backend and frontend dependency audits still fail on unchanged Pillow 10.4.0 and nanoid/Next/PostCSS/Sharp/source-map-js dependencies; manifests and lockfiles were unchanged. Those logs were inspected through the required CI tool. The 140 focused tests and 21-source replay passed, but this is not a green full-suite or automated-review claim. PR attachment was attempted and rejected by the app's 100-attachment limit.
+
+All local command handles are terminal; no local PostgreSQL was started. ACN's ordinary earnings receipt and dependent financial update remain pending from PR #616. Broader accounting coverage, public formula selection, sustained capacity and the other migration gates below remain open.
+
 ## Remaining migration gates
 
-Review/release/runtime verification are next. Broad missing debt/interest/D&A coverage, source-specific debt definitions, score/ranking/all-alert compatibility and ordinary freshness remain required; this guard does not fill1364 previously populated FMP leverage fields. ACN releasePR616 is live with74hashes, but its ordinary earnings-to-financial handoff remains pending. Institutions capacity/publication, transcripts, all retained consumers, finalMassive validation, globalzeroFMP traffic and subscription cancellation remain. No public provider switch, host/schedule/subscription/landing change or validation email.
+Release and runtime checks above are complete. Broad missing debt/interest/D&A coverage, source-specific debt definitions, score/ranking/all-alert compatibility and ordinary freshness remain required; this guard does not fill1364 previously populated FMP leverage fields. ACN releasePR616 is live with74hashes, but its ordinary earnings-to-financial handoff remains pending. Institutions capacity/publication, transcripts, all retained consumers, finalMassive validation, globalzeroFMP traffic and subscription cancellation remain. No public provider switch, host/schedule/subscription/landing change or validation email.
