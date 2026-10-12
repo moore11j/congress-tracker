@@ -315,3 +315,33 @@ def test_near_expiry_metric_cache_hit_does_not_defer_refresh_another_day(factory
     with factory() as db:attempts=json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']
     assert attempts['ABC']==observed.isoformat()
     assert job.metric_scopes(['ABC'],{'ABC'},attempts,now+timedelta(minutes=5),8)==['ABC']
+
+
+
+def test_changed_issuer_receipt_is_due_before_normal_deadline_and_only_once(factory,monkeypatch):
+    from datetime import datetime,timezone,timedelta
+    from app.models import FundamentalsCache
+    now=datetime.now(timezone.utc)
+    monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
+    monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','1')
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',[])
+    source_key='issuer-financials:AZO:0001171843-26-006159:v1'
+    with factory() as db:
+        db.add(FundamentalsCache(symbol='AZO',provider='fmp',status='ok',fetched_at=now))
+        db.add(InsightsSnapshot(kind=source_key,source='issuer_sec_exhibit',fetched_at=now,payload_json='{}'))
+        state={'attempted_at':{'AZO':now.isoformat()},
+            'attempted_versions':{'AZO':sec_fundamentals_preparation.version_for_symbol('AZO')},
+            'scope_refresh_after':{'AZO':(now+timedelta(hours=20)).isoformat()},
+            'issuer_dependencies':{'AZO':'earlier-source'}}
+        db.add(InsightsSnapshot(kind=job.KEY,source='free_direct',fetched_at=now,payload_json=json.dumps(state)));db.commit()
+    calls=[]
+    def prepare(symbol,**kwargs):
+        calls.append(symbol)
+        return {'status':'partial','source':'sec_edgar','values':{},'observed_at':now.isoformat()}
+    monkeypatch.setattr(sec_fundamentals_preparation,'prepare',prepare)
+    assert job.run()['completed_scopes']==1 and calls==['AZO']
+    assert job.run()['completed_scopes']==0
+    with factory() as db:
+        db.get(InsightsSnapshot,source_key).payload_json='{"version":2}';db.commit()
+    assert job.run()['completed_scopes']==1 and calls==['AZO','AZO']
+    assert job.run()['completed_scopes']==0

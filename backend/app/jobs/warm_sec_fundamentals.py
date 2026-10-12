@@ -70,6 +70,9 @@ def _run_locked():
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in symbols}
         metric_attempts = {key: value for key, value in state.get('metric_attempted_at', {}).items() if key in symbols}
         versions = {key: value for key, value in state.get('attempted_versions', {}).items() if key in symbols}
+        issuer_dependencies = {key:value for key,value in state.get('issuer_dependencies', {}).items() if key in symbols and key == 'AZO'}
+        current_dependencies = {symbol:sec_fundamentals_preparation._issuer_dependency(db, symbol) for symbol in symbols if symbol == 'AZO'}
+        changed_dependencies = {symbol for symbol,value in current_dependencies.items() if issuer_dependencies.get(symbol) != value}
         refresh_after = {key: value for key, value in {**state.get('priority_refresh_after', {}),
             **state.get('scope_refresh_after', {})}.items() if key in symbols}
         # Seed old state from compact cache metadata, never large source payloads.
@@ -83,6 +86,8 @@ def _run_locked():
                     stamp = fetched_at.replace(tzinfo=fetched_at.tzinfo or timezone.utc)
                     refresh_after[keys[kind]] = (stamp + PRIORITY_REFRESH if stamp <= now else now).isoformat()
         def due_scope(symbol):
+            if symbol in changed_dependencies:
+                return True
             if not broad:
                 return False
             if versions.get(symbol) != sec_fundamentals_preparation.version_for_symbol(symbol):
@@ -95,7 +100,7 @@ def _run_locked():
                 return not timedelta(0) <= now-last < PRIORITY_REFRESH
             except (KeyError, ValueError, TypeError):
                 return True
-        symbols.sort(key=lambda s: (0 if s in priority_symbols and due_scope(s) else 1, attempts.get(s, ''), s))
+        symbols.sort(key=lambda s: (s not in changed_dependencies, 0 if s in priority_symbols and due_scope(s) else 1, attempts.get(s, ''), s))
         batch_limit = 5
         if broad:
             batch_limit = max(1, min(10, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
@@ -137,6 +142,8 @@ def _run_locked():
         if broad:
             refresh_after[symbol] = next_refresh.isoformat()
         versions[symbol] = sec_fundamentals_preparation.version_for_symbol(symbol)
+        if symbol in current_dependencies:
+            issuer_dependencies[symbol] = current_dependencies[symbol]
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
     metric_results = []
@@ -190,7 +197,7 @@ def _run_locked():
         current = json.loads(row.payload_json) if row else {}
         if (current.get('lease') or {}).get('token') != token:
             return {**receipt, 'status': 'partial', 'reason': 'warming_lease_lost'}
-        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'scope_refresh_after': refresh_after,
+        row.payload_json = json.dumps({'attempted_at': attempts, 'attempted_versions': versions, 'scope_refresh_after': refresh_after, 'issuer_dependencies': issuer_dependencies,
             'priority_refresh_after': {s: deadline for s, deadline in refresh_after.items() if s in priority_symbols},
             'metric_attempted_at': metric_attempts, 'runs': [*current.get('runs', [])[-19:], receipt]}, sort_keys=True)
         row.fetched_at = now
