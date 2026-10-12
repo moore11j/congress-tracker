@@ -4,13 +4,14 @@ import json
 from itertools import zip_longest
 import os
 import re
+from app.jobs.reference_schedule import PLAN_VERSION, PLAN_TTL, periods as _periods, attempts as reference_attempts
 
 if __name__ == '__main__':
     from app.jobs.reference_preflight import early_result
     early = early_result()
     if early is not None:
         print(json.dumps(early, sort_keys=True))
-        raise SystemExit(0)
+        raise SystemExit(1 if early['status'] == 'partial' else 0)
 
 from sqlalchemy import or_, func, select
 from app.background_job_guard import check_background_job_guard
@@ -26,43 +27,17 @@ KEY = 'institutional-reference:warming:v1'
 BATCH_SIZE = 2
 MAX_DOCUMENTS = 500
 MAX_SCOPES = 5000
-PLAN_VERSION = 6
 
 
 def _now():
     return datetime.now(timezone.utc)
 
 
-def _periods(today):
-    year, quarter = today.year, (today.month-1)//3+1
-    result = set()
-    for _ in range(2):
-        quarter -= 1
-        if quarter == 0: year, quarter = year-1, 4
-        end = date(year,12,31) if quarter == 4 else date(year,quarter*3+1,1)-timedelta(days=1)
-        result.add(end.isoformat())
-    return result
-
-
 def plan_scopes(db, now, attempted_at, universe=None, *, source_scan_before_id=None):
     periods = _periods(now.date())
     if type(source_scan_before_id) is not int or source_scan_before_id <= 0:
         source_scan_before_id = None
-    attempts = {}
-    attempt_times = {}
-    recent_attempts = {}
-    for key, stamp in attempted_at.items():
-        try:
-            cusip, period = key.split(':')
-            previous = datetime.fromisoformat(stamp)
-            if (period in periods and re.fullmatch(r'[A-Z0-9]{9}', cusip)
-                    and previous.tzinfo is not None):
-                attempts[key] = stamp
-                attempt_times[key] = previous
-                if now-previous < timedelta(days=1):
-                    recent_attempts[key] = stamp
-        except (ValueError, TypeError, AttributeError):
-            continue
+    attempts, attempt_times, recent_attempts = reference_attempts(attempted_at, now)
     already_prepared = set()
     if universe is None:
         # Completed identities must not permanently occupy the bounded queue.
@@ -182,7 +157,7 @@ def _run_locked():
         planned_at=state.get('universe_prepared_at')
         fresh_plan=(cached_universe and cached_universe.get('version')==PLAN_VERSION
                     and planned_at and cached_universe.get('periods')==sorted(_periods(now.date()))
-                    and now-datetime.fromisoformat(planned_at)<timedelta(minutes=15))
+                    and now-datetime.fromisoformat(planned_at)<PLAN_TTL)
         # Cursor belongs to this plan version and quarter set. Never carry an
         # old schema/quarter cursor into a newly selected universe.
         compatible_plan=(cached_universe and cached_universe.get('version')==PLAN_VERSION
