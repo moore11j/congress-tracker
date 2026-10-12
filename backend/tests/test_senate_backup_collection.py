@@ -182,3 +182,23 @@ def test_incomplete_or_contradictory_decoded_populations_fail(bundle,tmp_path,da
     edit_manifest(bundle,lambda s:s['tables'][table]['manifests'][0]['files'][0].update(
         size=len(raw),sha256=hashlib.sha256(raw).hexdigest()))
     with pytest.raises(ValueError):collector.decode_bundle(bundle)
+
+
+@pytest.mark.parametrize('damage',['rollback','conflict'])
+def test_new_collection_cannot_restore_older_or_conflicting_snapshot(bundle,damage):
+    engine=create_engine('sqlite:///:memory:');Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        collector.stage_bundle(db,bundle,now=NOW);db.commit()
+        before=db.scalar(select(func.count()).select_from(DirectFeedRevision))
+        if damage=='rollback':
+            def rollback(s):
+                from datetime import datetime
+                s['generatedAt']=(datetime.fromisoformat(s['generatedAt'].replace('Z','+00:00'))-timedelta(hours=1)).isoformat()
+                s['lastSourceCheckAt']=s['generatedAt']
+            edit_manifest(bundle,rollback)
+        else:
+            edit_manifest(bundle,lambda s:s.update(sourceFingerprint='different-same-clock'))
+        with pytest.raises(ValueError,match='rollback|conflicting'):
+            collector.stage_bundle(db,bundle,now=NOW)
+        assert db.scalar(select(func.count()).select_from(DirectFeedRevision))==before
+    engine.dispose()

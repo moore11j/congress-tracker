@@ -225,8 +225,20 @@ def stage_bundle(db, bundle, *, now=None):
     _snapshot(bundle['manifest'], now or datetime.now(timezone.utc))
     prepared = decode_bundle(bundle)
     from sqlalchemy import select
-    from app.services.direct_feed_store import DirectFeedRevision, discover, record_document
+    from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, discover, record_document
     digest = hashlib.sha256(bundle['manifest']).hexdigest()
+    latest = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == FEED+'_snapshot')
+                       .order_by(DirectFeedDocument.checked_at.desc(), DirectFeedDocument.id.desc()).limit(1))
+    if latest is not None:
+        previous = db.scalar(select(DirectFeedRevision).where(
+            DirectFeedRevision.document_id == latest.id, DirectFeedRevision.content_hash == latest.content_hash))
+        if (previous is None or not previous.source_bytes
+                or hashlib.sha256(previous.source_bytes).hexdigest() != latest.content_hash):
+            raise ValueError('Previous snapshot evidence is missing')
+        prior_clock = _clock(_json(previous.source_bytes)['generatedAt'])
+        next_clock = _clock(_json(bundle['manifest'])['generatedAt'])
+        if next_clock < prior_clock or next_clock == prior_clock and digest != latest.content_hash:
+            raise ValueError('Snapshot rollback or conflicting generation')
     with db.begin_nested():
         manifest = discover(db, FEED+'_snapshot', dict(key=digest, url=BASE+'main/snapshot.json'))
         record_document(db, manifest, bundle['manifest'], bundle['manifest'].decode(),
