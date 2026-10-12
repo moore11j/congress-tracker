@@ -3199,6 +3199,17 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
             Event.source_filing_id == source_filing_id,
         )
     ).scalar_one_or_none()
+    if existing is not None:
+        try:
+            saved_payload = json.loads(existing.payload_json or '{}')
+        except (ValueError, TypeError):
+            saved_payload = {}
+        proof = saved_payload.get('sec_verification') if isinstance(saved_payload, dict) else None
+        if isinstance(proof, dict) and proof.get('feed') == 'sec_13f':
+            # A published event is the evidence available at its publication
+            # time. Current holder/cluster activity refreshes separately; it
+            # must not rewrite that event or erase its verified source timing.
+            return False
     created = existing is None
     event_ts = datetime.combine(activity.filing_date, datetime.min.time(), tzinfo=timezone.utc)
     payload = institutional_activity_event_payload(activity)
