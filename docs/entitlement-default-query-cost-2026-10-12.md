@@ -21,3 +21,16 @@ Remote profiling attempts did not produce usable timing: first failed because an
 Review exact-source CI; deploy the unchanged behavior repair; verify runtime hashes and the default-query/override fixture with isolated SQLite on productionPython3.12; then observe ordinary alert jobs and public latency. Keep previous403b0f4a release for rollback. Sustained CPU credit/capacity and every provider/consumer gate remain independently required.
 
 Yahoo preparation remains in separate draftPR619 and is not included. Core fundamentals and transcripts remainFMP, institutional publicationfalse. No new collection schedule, source activation, capacity/storage subscription, customer email, video or landing change, or FMP cancellation.
+
+
+## Deployed verification, October12 at 19:21 UTC
+
+[PR620](https://github.com/moore11j/congress-tracker/pull/620) merged99c2bf4944ba6e7f677454d7b7b7fb98c90b7859; backend workflow38296671226 succeeds, including readiness and Premium privacy checks. Exact premerge head a1db956248cbba164f8220643ef059328bb9cda7 passes secret scan in38296523613. Dependency audits fail on unchanged Pillow10.4.0 (33 advisories) and existing nanoid/Next/PostCSS/Sharp/source-map-js findings; manifests/lockfiles unchanged and logs inspected through the required CI tool. PR attachment was attempted but exceeds the app's100-attachment limit.
+
+entitlement-defaults-release-1791832784.json verifies75runtime hashes with zero mismatch and an isolated productionPython3.12.15 fixture: two existence SELECTs, full settings/override equality and same-session reseeding. SQLite is in memory, sockets blocked, no production database/network/email. The process timer reported0.0 for the tiny fixture operation; this is resolution-limited and not a zero-cost claim.
+
+Public receipt issuer-staging-public-1791832783.json: readiness0.438s, feeds0.517/0.493s, AAPLcontext1.351s, NVDAcontext1.502s, AZOpress0.477s with four source identities retained. These postrestart samples do not establish sustained capacity or broad data completeness.
+
+Ordinary receipt ordinary-idle-cpu-1791832839.json verifies the19:20:06 price-alert job exits0 with3.1627CPU/4.41wall seconds. The same command's19:05:17 sample was7.5982CPU/15.62wall. Work scope, cache state and provider latency may differ; this is corroborating observed improvement, not an isolated causal percentage or proof of delivered mail. SEC earnings/fundamentals/metadata and existing transcript job also exit0; SEC research, reference and Congress collection include exit1 receipts that need stored coverage explanations. A separate no-tail aggregate read (price-cycle-summary-1791832874.json) returned no cycle payload, so no delivery counts are claimed.
+
+Production coreFMP/institutional publicationfalse and all source/schedule/resource choices remain unchanged. Sustained API credit use, broader scheduled consumer completeness, financial/issuer definitions/coverage, institutions/transcripts, final Massive activation, zeroFMP traffic and cancellation remain open. Yahoo draft619 is separate and not deployed. No new local/remote diagnostic handle remains running; the owned local PostgreSQL server is stopped.

@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from sqlalchemy import case, or_, select
 
 from app.clients.direct_sources import (
-    DirectSourceError, Sec13FCoverMismatch, validated_ownership_xml, parse_house_index, parse_house_pdf,
+    DirectSourceError, HouseScanReviewRequired, Sec13FCoverMismatch, validated_ownership_xml, parse_house_index, parse_house_pdf,
     parse_issuer_material, parse_sec_index, parse_senate_html, parse_13f_submission,
 )
 from app.services.direct_feed_store import (
@@ -276,6 +276,22 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
                 raw = (senate_client if feed == 'senate_ptr' and senate_client else client).get(source_url)
                 try:
                     text, parsed, reasons = parse_document(feed, raw, metadata)
+                except HouseScanReviewRequired as exc:
+                    if feed != 'house_ptr':
+                        raise
+                    # Retain the exact unreadable original for review. No rows
+                    # are inferred; ordinary quarantine rechecks still apply.
+                    error = f"{type(exc).__name__}: {exc}"
+                    record_document(db, document, raw, '',
+                        {'metadata': metadata, 'transactions': [],
+                         'validation': {'status': 'held',
+                            'reason_code': 'house_scan_review_required',
+                            'page_count': exc.page_count}}, reasons=[error])
+                    db.commit()
+                    errors.append({'feed': feed, 'key': document.source_key, 'error': error})
+                    processed += 1
+                    results['quarantined'] = results.get('quarantined', 0) + 1
+                    continue
                 except Sec13FCoverMismatch as exc:
                     if feed != 'sec_13f':
                         raise

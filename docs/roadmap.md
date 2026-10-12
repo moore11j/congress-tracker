@@ -1,3 +1,7 @@
+2026-10-12,19:30: [House scan retention](house-scan-retention-2026-10-12.md) implemented locally,75checks/actualfour-original dedup replay. Deployment/ordinary retention and transaction review pending; provider gates unchanged.
+
+2026-10-12,19:21: [PR620 entitlement query repair](entitlement-default-query-cost-2026-10-12.md) deployed99c2bf49/75hashes and ordinary pricejob verified. Public feeds0.49-0.52s/tickercontexts1.35-1.50s are immediatepostrestart samples; sustainedcapacity and fullFMPexit gates remain. No source/schedule/resource change.
+
 2026-10-12,19:16: [Entitlement query repair](entitlement-default-query-cost-2026-10-12.md) local224passes/three reproduced baseline failures; actualPG six-user1339-to61SELECT/fullprojection parity. Release/ordinary savings and sustainedcapacity pending. Separate [Yahoo draft619](https://github.com/moore11j/congress-tracker/pull/619) remains defaultoff; no source or schedule change.
 
 2026-10-12, 18:18 UTC: [Debt aggregate repair](sec-debt-aggregate-reconciliation-2026-10-12.md) deployed PR617/c4a90c9f; 140 tests, 21-source replay and 74 runtime hashes pass. Actual ON evidence now holds two false preparation candidates. Public core remains FMP; ordinary propagation, broad financial coverage, formula/consumer acceptance and sustained capacity remain open.
