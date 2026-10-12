@@ -158,7 +158,6 @@ def pending_prior_documents(db, *, since, limit=20, recheck_hours=24, lookback_d
         raise ValueError('Invalid automatic prior discovery bounds')
     if db.new or db.dirty or db.deleted:
         raise ValueError('Prior selection session has unrelated changes')
-    cutoff = now - timedelta(hours=recheck_hours)
     filing_day = (cast(DirectFeedDocument.metadata_json, JSONB)['filing_date'].astext
                   if db.get_bind().dialect.name == 'postgresql'
                   else func.json_extract(DirectFeedDocument.metadata_json, '$.filing_date'))
@@ -170,35 +169,12 @@ def pending_prior_documents(db, *, since, limit=20, recheck_hours=24, lookback_d
         DirectFeedDocument.metadata_json, receipt_json).where(DirectFeedDocument.feed == 'sec_13f',
             DirectFeedDocument.status == 'parsed', filing_day >= start.isoformat(),
             filing_day <= now.date().isoformat()).order_by(filing_day, DirectFeedDocument.id).limit(20001)))
-    if len(candidates) > 20000:
-        raise ValueError('Prior candidate window exceeds reviewed filing bound')
-    from datetime import datetime, timezone
-    candidates = [(document_id, source_hash, metadata_json,
-                   json.loads(receipt) if isinstance(receipt, str) else receipt)
-                  for document_id, source_hash, metadata_json, receipt in candidates]
+    from app.services.direct_13f_prior_selection import normalize_candidates, select_priors
+    candidates = normalize_candidates(candidates)
     prior_ids = {receipt['prior_document_id'] for _, _, _, receipt in candidates
                  if receipt and receipt.get('status') == 'collected'}
-    priors = {row.id: row for row in db.execute(select(DirectFeedDocument.id, DirectFeedDocument.status,
+    priors = {row.id: (row.status, row.content_hash, row.metadata_json) for row in db.execute(select(DirectFeedDocument.id, DirectFeedDocument.status,
         DirectFeedDocument.content_hash, DirectFeedDocument.metadata_json).where(DirectFeedDocument.id.in_(prior_ids)))} if prior_ids else {}
-    eligible = []
-    for document_id, source_hash, metadata_json, receipt in candidates:
-        priority, checked = 0, datetime.min.replace(tzinfo=timezone.utc)
-        if receipt and (receipt.get('current_source_hash'), receipt.get('current_metadata_hash')) == (
-            source_hash, hashlib.sha256(metadata_json.encode()).hexdigest()):
-            checked = datetime.fromisoformat(receipt['checked_at'])
-            if receipt.get('status') == 'collected':
-                prior = priors.get(receipt['prior_document_id'])
-                valid = prior and prior.status == 'parsed' and prior.content_hash == receipt.get('content_hash') and (
-                    hashlib.sha256(prior.metadata_json.encode()).hexdigest() == receipt.get('prior_metadata_hash'))
-                if valid and checked >= now - timedelta(days=7):
-                    continue
-                priority = 1 if valid else 0
-            else:
-                if checked >= cutoff:
-                    continue
-                priority = 2
-        eligible.append((priority, checked, document_id))
-    eligible.sort()
+    result = select_priors(candidates, priors, now=now, start=start, limit=limit, recheck_hours=recheck_hours)
     db.rollback()
-    return {'document_ids': [item[2] for item in eligible[:limit]], 'eligible': len(eligible), 'candidates': len(candidates),
-            'cooling_down': len(candidates) - len(eligible), 'since': start.isoformat()}
+    return result
