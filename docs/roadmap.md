@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**October12,00:16UTC: SEC leverage preparation live, activation gated:** [PR591 release](sec-leverage-preparation-2026-10-11.md) verifies222 affected checks,38runtime hashes, exact liveLIN calculation/cached repeat and unchanged canonical financial rows. Ordinary00:11/00:16 runs complete10scopes each without canonical writes/emails;21 SECv5 caches and19 Finnhubv2 caches now exist. Most caches remain older versions; broad coverage/definition reconciliation and score/ranking/all-alert rebaseline remain. CoreFMP/institutionsfalse; finalMassive/globalFMP/billing and other source gates remain. No new spending or source activation.
+
 **October 11: Leverage evidence preparation implemented, not deployed:** [Checks and scope](sec-leverage-preparation-2026-10-11.md): 222 distinct passing checks and full saved 20-company parity preserve public financial fields while preparing explicit debt/EBITDA candidates. Public selection, broad coverage and consumer rebaseline remain gates.
 
 **October 11, 23:46 UTC: Leverage semantics gate clarified:** [Full saved-source audit](sec-leverage-reconciliation-2026-10-11.md) verifies four current FMP ratios and exact SEC reconstruction for NVIDIA, including operating leases. Other issuer debt/D&A differences preclude a generic substitution. Source-specific calculations, complete coverage and score/alert rebaseline remain required; no new source activation or deployment.
