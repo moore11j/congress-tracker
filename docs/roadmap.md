@@ -1,5 +1,7 @@
 # Walnut Markets product roadmap
 
+**2026-10-12, 03:46 UTC:** [Senate backup preparation](senate-backup-preparation-2026-10-12.md), draftPR600, passes104tests and all135filing/2176row conversion plus seven original-row bindings. Not activated or deployed; bounded staging/canonical reconciliation/consumers remain. Official03:17run still403. Institutional87489 firstpass574docs/137currentcomparisons/142events; repeat/consumers remainLIVE.
+
 **2026-10-12, 03:26 UTC:** [Reference retry fairness](institutional-reference-retry-fairness-2026-10-12.md) is implemented locally:87tests and a read-only live-state comparison pass; review/deployment/ordinary collection pending. Same two-request budget, institutions remainoff and full87489replay remainslive.
 
 **October 12, 03:02 UTC:** [Scheduled institutional evidence](institutional-scheduled-coverage-2026-10-12.md) verifies 13 additional comparisons/four events and identical 4/4/4 previews. B2Gold exact-listing repair is implemented and passes 100 checks/one actual pair; all nine affected pairs now pass; review and deployment pending. Publication remains off; all broader migration gates remain.

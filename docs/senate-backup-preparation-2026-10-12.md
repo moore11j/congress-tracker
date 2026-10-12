@@ -41,3 +41,8 @@ The tracked fixture contains the seven published secondary records and base64-en
 Next implement the bounded download/decoding and staging path, independently resolve member terms, reconcile secondary identities against existing official/FMP events with preserved multiplicity, and verify recovery, amendment behavior and no-send consumers before activation. The public snapshot does not itself expose original HTML/PDF bytes. Its freshness and completeness need continued observation; original-source matching of two filings is not blanket validation of all 135. Quiver is not used.
 
 The separate institutional replay `87489` has completed its first pass: 574 documents, 137 published current comparisons and 142 events. Its full-state repeat and consumer checks remain live and unverified. Earlier source/provider gates remain in force; FMP is still active. Production remains `d2fa4296` from PR599, with no deployment or source change for this preparation work.
+
+
+## Review and current official-source checkpoint
+
+Draft [PR600](https://github.com/moore11j/congress-tracker/pull/600) is open at `637a602357eaed1e137b4fb79bb52d70828bf4db`; CI is pending, no release claimed. A fresh read-only production audit at03:44:28 (`senate-runtime-1791776668.json`) finds32 failed official discoveries sinceOctober10,20:17. Latest run202 at03:17 still returns403 on the notice page. Last complete official discovery remains run85, October10,16:22. Official Senate generation2 and both saved originals are unchanged. No manual source retry or fallback activation was performed.
