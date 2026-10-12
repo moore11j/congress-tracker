@@ -57,13 +57,18 @@ from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
 from app.backfill_outcome_ledger_history import backfill_outcome_ledger_history
-from app.main import _run_profile_overview_prewarm
-
 logger = logging.getLogger(__name__)
 
 SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,provider_budget_exceeded,retry_later,no_entry_price,no_execution_price"
 UNRESOLVED_SYMBOL_LABEL = "<unresolved>"
 PORTFOLIO_REFRESH_DEFAULT_LOOKBACKS = [365, 30, 90, 180, 1095]
+
+
+def _run_profile_overview_prewarm(*, force_refresh: bool = False) -> dict[str, object]:
+    # Most scheduled jobs do not need the web application or its route graph.
+    # Keep the same cache warmer, loaded only by the guarded profile job.
+    from app.main import _run_profile_overview_prewarm as run
+    return run(force_refresh=force_refresh)
 
 
 def json_default(value: object) -> object:
