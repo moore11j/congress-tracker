@@ -387,3 +387,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,15:45UTC:** [Financial alert source/formula protection](financial-alert-source-baseline-2026-10-12.md) deployedPR606/1131b0d0 with isolated production-runtime proof. [Issuer financial preparation](issuer-release-financials-2026-10-12.md) deployedPR607/c01e03c5 and original-source parity: six AZO annual metrics, preparation only. Bounded persistent integration, broad coverage and public source/score/consumer acceptance remain open; no new provider activation or subscription.
+
+
+**October12,16:13UTC:** [Issuer financial collection](issuer-financial-staging-2026-10-12.md) PR608/ea6d7874 deployed and normal demand queue verified: six AZO annual metrics persisted, public core unchanged. [Current coverage](free-fundamentals-paired-coverage-2026-10-11.md)1081usableSEC/916combined; remaining cache/period/coverage and all-consumer gates prevent full activation. Massive stays final; no new subscription.
