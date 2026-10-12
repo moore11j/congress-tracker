@@ -305,3 +305,54 @@ def test_invalid_source_cursor_restarts_bounded_scan(setup, cursor):
     with factory() as db:
         plan = job.plan_scopes(db, clock[0], {}, source_scan_before_id=cursor)
     assert plan['scopes'][0]['cusip'] == '000361101' and calls == []
+
+def test_older_symbol_conflict_still_requests_dated_reference(setup):
+    factory, clock, calls = setup
+    seed(factory, cusips=('55826T102',))
+    with factory() as db:
+        for year, quarter, symbol, filed in [
+            (2022, 2, 'MSGE', date(2026, 6, 12)),
+            (2026, 2, 'SPHR', date(2026, 8, 14)),
+        ]:
+            filing = InstitutionalFiling(cik='0000000999', accession_number='history-'+symbol,
+                report_year=year, report_quarter=quarter, filing_date=filed)
+            db.add(filing); db.flush()
+            db.add(InstitutionalPosition(filing_id=filing.id, cik=filing.cik, cusip='55826T102',
+                normalized_symbol=symbol, symbol=symbol, shares=1, value_usd=1,
+                report_year=year, report_quarter=quarter, filing_date=filed))
+        db.commit()
+        plan = job.plan_scopes(db, clock[0], {})
+    assert [row['cusip'] for row in plan['scopes']] == ['55826T102']
+    assert calls == []
+
+
+def test_reference_backed_positions_do_not_suppress_another_period_reference(setup):
+    factory, clock, calls = setup
+    seed(factory, cusips=('000361105',))
+    with factory() as db:
+        filing = InstitutionalFiling(cik='0000000999', accession_number='reference-derived',
+            report_year=2026, report_quarter=2, filing_date=date(2026, 8, 14),
+            raw_metadata_json=json.dumps({'_walnut_direct_13f': {'reference_evidence': [{'cusip':'000361105'}]}}))
+        db.add(filing); db.flush()
+        db.add(InstitutionalPosition(filing_id=filing.id, cik=filing.cik, cusip='000361105',
+            normalized_symbol='AAA', symbol='AAA', shares=1, value_usd=1,
+            report_year=2026, report_quarter=2, filing_date=filing.filing_date))
+        db.commit()
+        plan = job.plan_scopes(db, clock[0], {})
+    assert [row['cusip'] for row in plan['scopes']] == ['000361105']
+    assert calls == []
+
+
+def test_independent_older_mapping_can_avoid_redundant_reference(setup):
+    factory, clock, calls = setup
+    seed(factory, cusips=('000361105',))
+    with factory() as db:
+        filing = InstitutionalFiling(cik='0000000999', accession_number='independent-old',
+            report_year=2025, report_quarter=4, filing_date=date(2026, 2, 14))
+        db.add(filing); db.flush()
+        db.add(InstitutionalPosition(filing_id=filing.id, cik=filing.cik, cusip='000361105',
+            normalized_symbol='AAA', symbol='AAA', shares=1, value_usd=1,
+            report_year=2025, report_quarter=4, filing_date=filing.filing_date))
+        db.commit()
+        plan = job.plan_scopes(db, clock[0], {})
+    assert plan['scopes'] == [] and calls == []
