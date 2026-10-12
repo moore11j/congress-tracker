@@ -49,3 +49,28 @@ def test_versioned_preparation_keeps_leverage_out_of_canonical_fields_and_reuses
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(FundamentalsCache)) == 0
         assert db.scalar(select(func.count()).select_from(Event)) == 0
+
+
+def test_auxiliary_rounded_fact_keeps_finer_value_in_either_order():
+    import pytest
+    from app.services.sec_inline_financials import InlineFactsError
+    precise = fact('11819', tag='IncomeTaxExpenseBenefit', attrs='scale="6" decimals="-6"')
+    rounded = fact('11.8', tag='IncomeTaxExpenseBenefit', attrs='scale="9" decimals="-8"')
+    for extra in [precise+rounded, rounded+precise]:
+        result = parse(document(extra))
+        assert result['facts']['IncomeTaxExpenseBenefit']['units']['USD'][0]['val'] == 11819000000
+        proof = result['evidence']['auxiliary_rounded_duplicates']
+        assert len(proof) == 1 and proof[0]['selected_value'] == 11819000000
+    for other in [fact('12.0', tag='IncomeTaxExpenseBenefit', attrs='scale="9" decimals="-8"'),
+                  fact('11.8', tag='IncomeTaxExpenseBenefit', attrs='scale="9"'),
+                  fact('11820', tag='IncomeTaxExpenseBenefit', attrs='scale="6" decimals="-6"')]:
+        with pytest.raises(InlineFactsError, match='conflicting_reported_facts'):
+            parse(document(precise+other))
+
+
+def test_core_conflicting_facts_keep_existing_hold_even_with_rounding_metadata():
+    import pytest
+    from app.services.sec_inline_financials import InlineFactsError
+    primary = fact('70.1', attrs='decimals="1"')
+    with pytest.raises(InlineFactsError, match='conflicting_reported_facts'):
+        parse(document(fact('70', attrs='decimals="0"'), primary=primary))

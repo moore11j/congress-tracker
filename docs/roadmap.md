@@ -1,6 +1,6 @@
 # Walnut Markets product roadmap
 
-**October 11: Leverage evidence preparation implemented, not deployed:** [Checks and scope](sec-leverage-preparation-2026-10-11.md): 217 distinct passing checks and full saved 20-company parity preserve public financial fields while preparing explicit debt/EBITDA candidates. Public selection, broad coverage and consumer rebaseline remain gates.
+**October 11: Leverage evidence preparation implemented, not deployed:** [Checks and scope](sec-leverage-preparation-2026-10-11.md): 219 distinct passing checks and full saved 20-company parity preserve public financial fields while preparing explicit debt/EBITDA candidates. Public selection, broad coverage and consumer rebaseline remain gates.
 
 **October 11, 23:46 UTC: Leverage semantics gate clarified:** [Full saved-source audit](sec-leverage-reconciliation-2026-10-11.md) verifies four current FMP ratios and exact SEC reconstruction for NVIDIA, including operating leases. Other issuer debt/D&A differences preclude a generic substitution. Source-specific calculations, complete coverage and score/alert rebaseline remain required; no new source activation or deployment.
 

@@ -1,7 +1,7 @@
 """Bounded standard-fact recovery when companyfacts lags a filed US GAAP report."""
 from copy import deepcopy
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import hashlib
 import json
 import math
@@ -54,6 +54,35 @@ def _number(node, tree):
     if not math.isfinite(result) or abs(result) > 1e16:
         raise InlineFactsError('numeric_fact_out_of_bounds')
     return -result if node.get('sign') == '-' else result
+
+
+
+def _consistent_precision(previous, previous_decimals, value, decimals):
+    """Select a more precise auxiliary fact only when its interval is contained.
+
+    Rounded narrative duplicates are not restatements. Unknown precision or
+    genuinely conflicting reported values remain held by the caller.
+    """
+    def precision(raw):
+        if raw == 'INF':
+            return 100
+        if not isinstance(raw, str) or not re.fullmatch(r'-?[0-9]{1,2}', raw):
+            return None
+        number = int(raw)
+        return number if -20 <= number <= 20 else None
+    old, new = precision(previous_decimals), precision(decimals)
+    if old is None or new is None or old == new:
+        return None
+    fine, fine_precision, coarse, coarse_precision = (
+        (value, new, previous, old) if new > old else (previous, old, value, new))
+    with localcontext() as context:
+        context.prec = 64
+        fine, coarse = Decimal(str(fine)), Decimal(str(coarse))
+        fine_error = Decimal(0) if fine_precision == 100 else Decimal(10)**(-fine_precision)/2
+        coarse_error = Decimal(0) if coarse_precision == 100 else Decimal(10)**(-coarse_precision)/2
+        if fine-fine_error >= coarse-coarse_error and fine+fine_error <= coarse+coarse_error:
+            return new > old
+    return None
 
 
 def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
@@ -150,10 +179,12 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
                     and [m.text_content().strip() for m in nodes(denominator, 'measure')] == ['xbrli:shares']):
                 units[key] = currency+'/shares'
     wanted = {tag for concepts in tags.values() for tag in concepts} | ({'EarningsPerShareDiluted'} if basis is None else set())
+    auxiliary = set()
     if basis is None:
         from app.services.sec_leverage import TAGS as leverage_tags
-        wanted |= {tag for concepts in leverage_tags.values() for tag in concepts}
-    records = {}; provenance = {}
+        auxiliary = {tag for concepts in leverage_tags.values() for tag in concepts} - wanted
+        wanted |= auxiliary
+    records = {}; provenance = {}; precisions = {}; rounded_duplicates = []
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')
         if not name.startswith(namespace+':') or name.split(':', 1)[1] not in wanted:
@@ -169,8 +200,22 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         if start:
             fact['start'] = str(start)
         if key in records and records[key]['val'] != value:
-            raise InlineFactsError('conflicting_reported_facts')
+            preference = _consistent_precision(records[key]['val'], precisions[key], value, n.get('decimals')) if tag in auxiliary else None
+            if preference is None:
+                raise InlineFactsError('conflicting_reported_facts')
+            rounded_duplicates.append({'tag':tag, 'unit':unit, 'start':key[2], 'end':key[3],
+                'values':[records[key]['val'], value], 'decimals':[precisions[key], n.get('decimals')],
+                'selected_value':value if preference else records[key]['val']})
+            if not preference:
+                continue
+        elif key in records and tag in auxiliary and records[key]['val'] == value:
+            # Keep the existing finer provenance when equal-value duplicates
+            # have known unequal precision; missing decimals grant no preference.
+            preference = _consistent_precision(value, precisions[key], value, n.get('decimals'))
+            if preference is False:
+                continue
         records[key] = fact
+        precisions[key] = n.get('decimals')
         provenance[key] = {'source_kind':'sec_inline_xbrl', 'source_url':url,
             'source_sha256':source_sha256, 'source_cik':cik,
             'context_id':n.get('contextref'), 'fact_id':n.get('id')}
@@ -182,7 +227,8 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
     return {'facts':gaap, 'provenance':provenance, 'evidence':{'methodology':VERSION,
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
         'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
-        'namespace':namespace, 'currency':currency}}
+        'namespace':namespace, 'currency':currency,
+        **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {})}}
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
