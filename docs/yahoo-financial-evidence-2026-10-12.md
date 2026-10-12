@@ -67,3 +67,6 @@ Python3.14.2: 91 focused tests pass across Yahoo parser, bundle and SEC leverage
 The 18:50 read-only ACN check (acn-release-1791831004.json) verifies74runtime hashes, original-source repeat and the ordinary18:47 issuer-financials receipt for period2026-08-31. The separate sec-current-fundamentals cache remains its18:01 May31 result; ordinary financial propagation is still pending. This supersedes the18:41 absent-receipt observation without claiming full handoff.
 
 PR619 remains a local/draft evidence package. Production403b0f4a is unchanged so sustained capacity observation can continue. Durable bounded collection/cache and live integration are still unfinished; no new recurring schedule or provider switch.
+
+
+Draft PR619 source4a6149be pushed. Exact-head CI38294146012: secret scan passes; backend audit fails on unchanged Pillow10.4.0 (33 advisories), frontend audit on unchanged dependencies (five reported vulnerabilities). Logs inspected via required CI tool, manifests/lockfiles unchanged. Not merged or deployed.
