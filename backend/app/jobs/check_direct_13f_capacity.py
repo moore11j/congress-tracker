@@ -6,7 +6,7 @@ import sqlite3
 import time
 
 
-JOB_KEY = 'maintenance-institutional-capacity-v1'
+JOB_NAME = 'maintenance-institutional-capacity-v1'
 QUEUE = '/data/scheduled-jobs.sqlite3'
 
 
@@ -16,7 +16,7 @@ def require_queue_ownership(queue, token, process_group):
         raise RuntimeError('missing_scheduler_token')
     with sqlite3.connect(Path(queue).resolve().as_uri() + '?mode=ro', uri=True, timeout=.2) as db:
         rows = db.execute("SELECT key, token, pid FROM jobs WHERE lane='data' AND started_at IS NOT NULL").fetchall()
-    if rows != [(JOB_KEY, token, process_group)]:
+    if rows != [(JOB_NAME, token, process_group)]:
         raise RuntimeError('not_exclusive_data_lane_owner')
 
 

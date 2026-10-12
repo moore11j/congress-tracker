@@ -5,7 +5,7 @@ import sys
 import pytest
 from sqlalchemy import select, func, text
 
-from app.jobs.check_direct_13f_capacity import JOB_KEY, require_queue_ownership, prepare_readonly
+from app.jobs.check_direct_13f_capacity import JOB_NAME, require_queue_ownership, prepare_readonly
 from app.services import direct_13f_batch as batch
 from app.services.direct_feed_worker import DirectFeedPublication
 from app.services.feed_source_control import FeedSourceControl
@@ -58,17 +58,17 @@ def test_diagnostic_rejects_non_postgres_session(db):
 
 
 def test_manual_capacity_job_has_no_calendar_and_serializes_with_imports(tmp_path):
-    definition = jobs.MANUAL_JOBS[JOB_KEY]
+    definition = jobs.MANUAL_JOBS[JOB_NAME]
     assert definition['lane'] == 'data'
     source = (Path(__file__).resolve().parents[1] / 'crontab').read_text()
     _, calendar = jobs.compile_schedule(source, Path('worker'), Path('manifest'), Path('queue'))
-    assert JOB_KEY not in calendar and definition not in calendar.values()
+    assert JOB_NAME not in calendar and definition not in calendar.values()
     manifest_path = tmp_path / 'manifest.json'
     manifest_path.write_text(json.dumps(calendar))
     manifest = jobs.load_manifest(manifest_path)
-    assert manifest[JOB_KEY] == definition
+    assert manifest[JOB_NAME] == definition
     with jobs.database(tmp_path / 'queue') as queue:
-        jobs.enqueue(queue, JOB_KEY, definition, now=1)
+        jobs.enqueue(queue, JOB_NAME, definition, now=1)
         running = jobs.claim(queue, 'data', manifest, now=2)
         jobs.enqueue(queue, 'external-ingest-core', manifest['external-ingest-core'], now=3)
         assert jobs.claim(queue, 'data', manifest, now=4) is None
@@ -80,9 +80,9 @@ def test_manual_capacity_job_has_no_calendar_and_serializes_with_imports(tmp_pat
 def test_diagnostic_requires_exact_live_scheduler_claim(tmp_path, change):
     queue_path = tmp_path / 'queue'
     with jobs.database(queue_path) as queue:
-        jobs.enqueue(queue, JOB_KEY, jobs.MANUAL_JOBS[JOB_KEY], now=1)
+        jobs.enqueue(queue, JOB_NAME, jobs.MANUAL_JOBS[JOB_NAME], now=1)
         running = jobs.claim(queue, 'data', jobs.MANUAL_JOBS, now=2)
-        queue.execute('UPDATE jobs SET pid=123 WHERE key=?', (JOB_KEY,))
+        queue.execute('UPDATE jobs SET pid=123 WHERE key=?', (JOB_NAME,))
         token, pid = running['token'], 123
         if change == 'token': token = 'forged'
         if change == 'pid': pid = 456
