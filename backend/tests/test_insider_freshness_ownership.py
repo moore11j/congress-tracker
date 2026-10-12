@@ -51,3 +51,40 @@ def test_unverified_ownership_fails_closed(engine, monkeypatch, failure):
         monkeypatch.setattr('app.services.feed_source_control.require_selected_source', busy)
     monkeypatch.setattr(ingest_run.requests, 'get', lambda *a, **k: pytest.fail('Failed ownership opened HTTP'))
     assert ingest_run._check_insider_freshness() is None
+
+
+@pytest.mark.parametrize('provider,disabled,key,expected_calls', [
+    ('sec_edgar', False, True, 0),
+    ('paused', False, True, 0),
+    ('fmp', False, True, 1),
+    ('fmp', True, True, 0),
+    ('fmp', False, False, 0),
+])
+def test_real_budget_counter_matches_transport_attempts(engine, monkeypatch, provider, disabled, key, expected_calls):
+    from app.services import provider_usage
+    if provider != 'fmp':
+        with Session(engine) as db:
+            select_feed_source(db, feed='sec_form4', provider=provider,
+                publish_since=date(2026,10,7), expected_generation=0, reason='test')
+            db.commit()
+    provider_usage.reset_provider_usage()
+    monkeypatch.setenv('FMP_PROVIDER_DISABLED', '1' if disabled else '0')
+    monkeypatch.setenv('FMP_PERSIST_USAGE_EVENTS', '0')
+    if not key:
+        monkeypatch.delenv('FMP_API_KEY')
+    monkeypatch.setattr(ingest_run, 'ensure_fmp_live_allowed', provider_usage.ensure_fmp_live_allowed)
+    calls=[]
+    class Response:
+        status_code=200
+        def json(self): return [{'filingDate':'2026-10-07'}]
+    def get(*args, **kwargs):
+        calls.append(True)
+        return Response()
+    monkeypatch.setattr(ingest_run.requests, 'get', get)
+    try:
+        result=ingest_run._check_insider_freshness()
+        assert result == ('2026-10-07' if expected_calls else None)
+        assert len(calls)==expected_calls
+        assert provider_usage.provider_usage_summary()['totals']['provider_calls']==expected_calls
+    finally:
+        provider_usage.reset_provider_usage()
