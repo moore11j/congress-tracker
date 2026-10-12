@@ -44,6 +44,41 @@ DELIVERIES = {"immediate", "daily", "both"}
 WINDOW_UNITS = {"hour", "day", "month"}
 DEFAULT_INTRADAY_PRICE_MOVE_ALERT_NAMES = {"5% Price Increase", "5% Price Decrease"}
 PRICE_QUOTE_FRESHNESS = timedelta(minutes=30)
+FUNDAMENTAL_METRICS = frozenset({"revenue_growth", "eps_growth", "trailing_pe", "forward_pe",
+    "ev_to_ebitda", "roe", "operating_margin", "net_debt_to_ebitda", "debt_to_equity", "current_ratio"})
+
+
+def _fundamentals_row(db: Session, ticker: str) -> FundamentalsCache | None:
+    return db.execute(select(FundamentalsCache).where(
+        func.upper(FundamentalsCache.symbol) == ticker, FundamentalsCache.status == "ok"
+    ).order_by(FundamentalsCache.fetched_at.desc(), FundamentalsCache.id.desc()).limit(1)).scalar_one_or_none()
+
+
+def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict[str, Any]:
+    """Stable calculation identity, excluding dates, numbers and document hashes."""
+    if row is None:
+        return {}
+    evidence = _loads(row.source_evidence_json, {})
+    evidence = evidence if isinstance(evidence, dict) else {}
+    supplement = evidence.get("supplement")
+    supplement = supplement if isinstance(supplement, dict) else {}
+    used = supplement.get("used_fields")
+    used = used if isinstance(used, list) else []
+    fields = supplement.get("fields")
+    fields = fields if isinstance(fields, dict) else {}
+    result = {}
+    for metric in sorted(metrics):
+        identity = {"provider": row.provider, "methodology": evidence.get("methodology")}
+        if metric == "revenue_growth":
+            identity["revenue_basis"] = evidence.get("revenue_basis")
+        if metric in used:
+            field = fields.get(metric)
+            field = field if isinstance(field, dict) else {}
+            identity["supplement"] = {key: field.get(key) for key in
+                ("source", "path", "basis", "unit", "scale", "source_symbol", "identity_basis")}
+            identity["supplement_version"] = supplement.get("version")
+        result[metric] = identity
+    return result
 
 
 # This registry is the server-side source of truth.  It describes only metrics
@@ -373,8 +408,8 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
         return (max(closes[-252:]) if closes else None, [])
     if metric == "week_52_low":
         return (min(closes[-252:]) if closes else None, [])
-    if metric in {"revenue_growth", "eps_growth", "trailing_pe", "forward_pe", "ev_to_ebitda", "roe", "operating_margin", "net_debt_to_ebitda", "debt_to_equity", "current_ratio"}:
-        fundamentals = db.execute(select(FundamentalsCache).where(func.upper(FundamentalsCache.symbol) == ticker, FundamentalsCache.status == "ok").order_by(FundamentalsCache.fetched_at.desc()).limit(1)).scalar_one_or_none()
+    if metric in FUNDAMENTAL_METRICS:
+        fundamentals = _fundamentals_row(db, ticker)
         raw = getattr(fundamentals, metric, None) if fundamentals is not None else None
         return (float(raw) if raw is not None else None, [])
     if metric in {"confirmation_score", "cross_source_count", "bullish_state", "bearish_state"}:
@@ -444,16 +479,33 @@ def evaluate_rule(db: Session, rule: WatchlistAlertRule, ticker: str, state: Wat
     results: list[dict[str, Any]] = []
     fingerprints: list[str] = []
     values: dict[str, Any] = {}
+    financial_metrics = {metric for condition in conditions
+        for metric in (condition.get("metric"), condition.get("comparison_metric")
+            if condition.get("comparison_type") == "metric" else None)
+        if metric in FUNDAMENTAL_METRICS}
+    fundamentals = _fundamentals_row(db, ticker) if financial_metrics else None
+    if financial_metrics:
+        values["__fundamental_basis"] = _fundamental_basis(fundamentals, financial_metrics)
+        if old_values.get("__fundamental_basis") != values["__fundamental_basis"]:
+            old_values = {}
+
+    def read_metric(condition):
+        # Read value and provenance from the same cached row, once per rule.
+        if condition.get("metric") in FUNDAMENTAL_METRICS:
+            raw = getattr(fundamentals, condition["metric"], None)
+            return (float(raw) if raw is not None else None), []
+        return _metric_value(db, ticker, condition, now)
+
     if any(c.get("metric") in {"confirmation_score", "cross_source_count", "bullish_state", "bearish_state"} or c.get("comparison_metric") in {"confirmation_score", "cross_source_count", "bullish_state", "bearish_state"} for c in conditions):
         from app.services.confirmation_score import CONFIRMATION_CLASSIFICATION_VERSION
         values["__confirmation_version"] = CONFIRMATION_CLASSIFICATION_VERSION
         if old_values.get("__confirmation_version") != CONFIRMATION_CLASSIFICATION_VERSION:
             old_values = {}
     for index, condition in enumerate(conditions):
-        value, event_ids = _metric_value(db, ticker, condition, now)
+        value, event_ids = read_metric(condition)
         target: float | None
         if condition["comparison_type"] == "metric":
-            target, _ = _metric_value(db, ticker, {"metric": condition["comparison_metric"], "metric_params": condition.get("comparison_metric_params") or {}, "time_window": condition.get("time_window")}, now)
+            target, _ = read_metric({"metric": condition["comparison_metric"], "metric_params": condition.get("comparison_metric_params") or {}, "time_window": condition.get("time_window")})
         elif condition["comparison_type"] == "none":
             target = None
         else:
@@ -534,7 +586,9 @@ def evaluate_watchlist_custom_alerts(
             if last_evaluated_at is not None and last_evaluated_at.tzinfo is None:
                 last_evaluated_at = last_evaluated_at.replace(tzinfo=timezone.utc)
             version_changed = bool(result.values.get("__confirmation_version") and result.values["__confirmation_version"] != (_loads(state.values_json, {}) if state else {}).get("__confirmation_version"))
-            if not daily_price_rule and (state is None or version_changed or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
+            basis_changed = ("__fundamental_basis" in result.values and
+                result.values["__fundamental_basis"] != (_loads(state.values_json, {}) if state else {}).get("__fundamental_basis"))
+            if not daily_price_rule and (state is None or version_changed or basis_changed or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
                 if state is None:
                     db.add(WatchlistAlertRuleState(rule_id=rule.id, ticker=ticker, previous_result=result.matched, current_result=result.matched, last_evaluated_at=current, values_json=json.dumps(result.values)))
                 else:

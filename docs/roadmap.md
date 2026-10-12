@@ -378,3 +378,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,04:59UTC:** [Senate PR600/c31b5afc](senate-backup-preparation-2026-10-12.md) deployed/55hashes/deployed3.12fixture. Reviewed non-equity duplicate repair applied with preserved survivor IDs, archives and zero events/emails; official ownershipgeneration4. Shadow collection enabled in existing schedule; first manually enqueued run stages135filings/2176rows, both October plans match production, backup publicationfalse. Ordinary scheduled/freshness/capacity acceptance remains; full FMP retirement incomplete.
+
+
+**October12,06:40UTC:** Owner-requested sleep pause. [Financial alert source baseline](financial-alert-source-baseline-2026-10-12.md) implemented locally with185 selected consumer tests; not deployed. Provider/calculation changes must rebaseline without false alerts. Existing production and all migration gates remain; no new source activation. Resume only at owner command.
