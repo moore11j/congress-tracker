@@ -23,3 +23,12 @@ All718 accepted saved originals produce exactly the same complete text/parsed/ho
 ## Release state
 
 Implementation is local and not yet deployed. Both source acceptance and institutional publication gates remain unchanged. Senate shadow collection's first manual run is already verified; ordinary collection/freshness and source selection remain separate. Institutions, public core financials, transcripts, all retained scheduled consumers, final Massive prices, global zero-FMP traffic and cancellation remain unfinished. No purchase, schedule or hardware change.
+
+
+## Production release, October 12, 05:13 UTC
+
+[PR601](https://github.com/moore11j/congress-tracker/pull/601), tested head d0023f8508157927ac416a2784abfa7e03d0e855, merged as ce0ce8570a6009da0344bcdc5c43c9a3ee877559. Backend workflow38206861642 succeeds, including readiness and Premium privacy.55 runtime files match; API shared2CPU/2048MB and database performance1CPU/2048MB are unchanged. Secret scan passes. Exact-head CI diagnostics show33 existing Pillow10.4.0 advisories and existing frontend dependency findings; no dependency manifests changed. Automated code review is unavailable because its quota is exhausted. This is not an all-CI or security-clear claim.
+
+Deployed Python3.12.15 runs the actual101-position original in isolated in-memory SQLite: exact bytes retained under the expected SHA, source totals still held, second-hour run performs no source fetch, zero canonical writes/emails. Receipt sec-cover-deployed-fixture-1791782001.json. This proves runtime behavior, not an ordinary SEC collection receipt; next ordinary SEC run remains required.
+
+Runtime receipt sec-cover-runtime-1791782014.json confirms zero pending/running queued jobs, institutional publicationfalse, Senate collectiontrue/publicationfalse and unchanged bounded schedules. News50items0.314s, feeds0.392/0.497s, freshAAPL1.569s/NVDA1.239s. These postrestart samples do not prove sustained capacity. No source selection, schedule, purchase or cancellation change.

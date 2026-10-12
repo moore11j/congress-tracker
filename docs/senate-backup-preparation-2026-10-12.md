@@ -135,3 +135,20 @@ Read-only production plans at04:58 (`senate-production-plans-1791781099.json`) n
 Postflag verification (`senate-shadow-runtime-1791781009.json`) again matches55hashes, unchanged hosts and an empty queue. Sampled feeds0.363–0.371seconds, freshAAPL1.574/NVDA1.290seconds; these are samples following a restart, not sustained capacity proof. One first state verifier attempted an unindexed aggregate event-provider count, which its5second statement timeout cancelled. The corrected verifier uses bounded staged-publication receipts and does not rerun collection or claim a global event-count proof. Source run206 separately retains17SEC13F errors; this turn did not inspect their individual reasons.
 
 All new local handles are terminal; the disposable PostgreSQL server is stopped. Institutions, public core financials, transcripts, remaining scheduled consumers, final Massive entitlement/prices, global zero-FMP traffic and billing cancellation remain separate unfinished gates. No new purchase, customer email, video, host-size change or FMP cancellation.
+
+
+## Historical freshness gap, October 12, 05:14 UTC
+
+Read-only [public dataset commit history](https://huggingface.co/datasets/austin-starks/congressional-stock-trades/commits/main) returns20 recent commits. Five revision-pinned snapshot manifests independently verify the source-check clocks, not merely repository commit times. October9 09:14:00.515UTC toOctober10 12:10:09.905UTC spans26.9359hours. September29 23:59:17.765UTC toOctober1 15:53:15.440UTC spans39.8994hours. These intervals exceed the existing24hour freshness guard. Latest October11 manifest hash remains5769a981fd6eb48cea17133e3554644357a438e9530d3511dae8306f63a56f9a, sourcechecked11:32:37.357UTC.
+
+Receipts senate-source-history-1791782040.json and senate-source-cadence-1791782061.json retain revisions, hashes and clocks. Web reader could not access the history page; bounded public API and pinned manifests succeeded. This is evidence of potential delayed/unavailable backup publication during gaps, not proof of missing specific disclosures. Preserve the freshness guard and truthful delay/hold state; do not claim continuous current coverage or weaken the guard merely to activate. Ordinary collector receipt, freshness rollover and stale-period recovery remain gates. Backup publication remainsfalse; official ownershipgeneration4 remains selected.
+
+
+## Ordinary scheduled collection verified, October 12, 05:17 UTC
+
+Existing hourly job35ce1f506a61e35515a360fb advances to35 completed runs, terminalexit1 because official discovery remains403. ParentDirectFeedRun212 starts05:17:08.901UTC and retains6unresolved documents/zero processed. Separate backup run213 completes05:17:09.380-05:17:13.919UTC with statusok,135filings/2176rows and unchanged snapshotSHA5769a981. This is an ordinary calendar-trigger run, not manual enqueue.135 stagedfilings, zero backup publicationreceipts, official_senate generation4/boundaryOctober1 remain verified. Receipt direct-scheduled-state-1791782250.json. The05:27 official publisher and next freshness rollover are not yet observed; no backup activation claimed.
+
+
+## Selected with strict freshness, October12,05:30UTC
+
+[Actual stale recovery and selected-source receipt](senate-freshness-recovery-2026-10-12.md) supersede earlier publication-off checkpoints. Full historical40hour recovery and12/8/358 no-send repeats pass; generation5 backup selected at unchangedOctober1 boundary, two current filings adopted with zero public inserts and identical canonical hashes. Both flags true. Existing queued publisher run34exit0/two receipts/55runtimehashes verify. Next calendar-trigger publication and freshness rollover remain; strict24hour guard retained, no continuous freshness claim.
