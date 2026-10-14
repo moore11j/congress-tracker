@@ -34,3 +34,10 @@ Next: exact release/runtime and ordinary public BULL refresh, then remaining fin
 [PR630](https://github.com/moore11j/congress-tracker/pull/630), tested application head `57e83e3faf28df9965aea56fb24382b94fcef039`, is open and unmerged. Secret scan and Vercel preview pass. Required CI-tool inspection confirms unchanged Pillow and frontend dependency audit failures; no dependency files were modified. Attachment was attempted but the chat already has 100 attachments. No production release or public four-year recovery claim is made.
 
 The 14:58 UTC check found exhausted API CPU credits and 18.8-19.5-second ticker reads. The financial release is held while recurring startup cost is addressed, as recorded in the [incident report](insights-outage-2026-10-13.md#october-14-1458-utc-throttling-recurs-after-the-overnight-recovery). FMP remains enabled. The implementation is preserved; current core, quarterly coverage and all remaining cutover gates remain open.
+
+
+## October 14 refreshed release checks
+
+Refreshed against deployed dffe004e on branch codex/webull-sec-annual. The application diff remains the reviewed reporting profile and explicit basis. Linux Python 3.12.3 passes 46 affected financial/foreign/cache/absence/comparison/warming checks; full hash-verified saved-source replay passes again, with four annual rows and identical transport-forbidden repeat. Earlier expanded 108 checks remain dated evidence. No new schedule or source activation.
+
+At 15:50 UTC the existing release returns Feed 0.395s and Insights 0.467s with research; AAPL/NVDA 2.790/2.416s. News has 42/42 fresh company caches and 23/23 completed scopes. CPU credits recover from 3,489 at 15:40 to 4,392 at 15:50, with zero sampled throttling. This supports proceeding with the bounded existing-source coverage repair; sustained capacity and broader migration remain open. Partial financial/reference job exit codes match explicit coverage statuses, not proof of worker crashes. Production is still dffe004e before this repair's release.
