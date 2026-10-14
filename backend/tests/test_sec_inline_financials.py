@@ -226,3 +226,32 @@ def test_invalid_numeric_report_dates_are_rejected(value):
 def test_numeric_report_date_does_not_bypass_identity_or_transform_guards(value, transform):
     with pytest.raises(inline.InlineFactsError):
         parse(report_date_document(value, transform))
+
+
+def test_unused_local_namespace_alias_does_not_rebind_financial_namespaces():
+    extra='<span xmlns:d5p1="http://www.w3.org/1999/xlink" d5p1:href="#note">note</span>'
+    result=parse(document(extra))
+    assert result['facts'][TAG]['units']['USD'][0]['val']==70
+    assert result['evidence']['reported_facts']==1
+
+
+@pytest.mark.parametrize('prefix', ['ix','xbrli','iso4217','us-gaap','dei','ixt'])
+def test_local_root_namespace_rebinding_remains_rejected(prefix):
+    extra=f'<span xmlns:{prefix}="https://example.com/fake">note</span>'
+    with pytest.raises(inline.InlineFactsError,match='namespace_redefinition'):
+        parse(document(extra))
+
+
+@pytest.mark.parametrize('value', ['1 234', '1\u00a0234', '1,234'])
+def test_reviewed_legacy_numeric_and_report_date_transforms(value):
+    raw=document(primary=fact(value,attrs='format="ixt:numdotdecimal"')).replace(b'transformation/2020-02-12',b'transformation/2015-02-26')
+    raw=raw.replace(b'name="dei:DocumentPeriodEndDate"',b'name="dei:DocumentPeriodEndDate" format="ixt:datemonthdayyearen"')
+    raw=raw.replace(b'>2026-06-30</ix:nonNumeric>',b'>June 30, 2026</ix:nonNumeric>')
+    raw=raw.replace('\u00a0'.encode(),b'&#160;')
+    assert parse(raw)['facts'][TAG]['units']['USD'][0]['val']==1234
+
+
+@pytest.mark.parametrize('value', ['1 23', '1,23', '1.234,56', '1e3', '-1234'])
+def test_legacy_numeric_transform_rejects_unreviewed_formats(value):
+    raw=document(primary=fact(value,attrs='format="ixt:numdotdecimal"')).replace(b'transformation/2020-02-12',b'transformation/2015-02-26')
+    with pytest.raises(inline.InlineFactsError): parse(raw)

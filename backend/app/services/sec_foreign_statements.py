@@ -21,6 +21,41 @@ IFRS = {
 }
 # Reviewed reporting currencies, never listing currencies or convenience USD.
 PROFILES = {
+    'ASML': {'cik': '0000937966',
+     'currency': 'EUR',
+     'namespace': 'us-gaap',
+     'proof_url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828026011378/asml-20251231.htm',
+     'proof_sha256': '7a3902f17f4ea364b45172a5b7da443b033e25d01404a42c9169547a4d9b72b7',
+     'cash_flow_basis': 'Free cash flow subtracts property, plant and equipment purchases only. '
+                        'Separately reported intangible purchases are excluded, so this differs from '
+                        'issuer-reported free cash flow.'},
+    'SAP': {'cik': '0001000184',
+     'currency': 'EUR',
+     'namespace': 'ifrs-full',
+     'proof_url': 'https://www.sec.gov/Archives/edgar/data/1000184/000110465926020058/sap-20251231x20f.htm',
+     'proof_sha256': '4628dc2d12f68bfbbe7c07a2099a6916db30d9547b8f3d1424b451272790fc15',
+     'tag_overrides': {'operating_cash_flow': ['CashFlowsFromUsedInOperatingActivitiesContinuingOperations'],
+                       'capex': ['PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets']},
+     'cash_flow_basis': 'Capital expenditure includes reported property, equipment, intangible and '
+                        'other noncurrent asset purchases. Free cash flow is continuing-operations '
+                        'cash flow less those purchases, without proceeds from asset sales or lease '
+                        'payments; it differs from issuer-reported free cash flow.',
+     'income_basis': 'Net income is consolidated profit, including discontinued operations where '
+                     'reported; revenue and operating profit follow the reported continuing operations '
+                     'basis.'},
+    'NVS': {'cik': '0001114448',
+     'currency': 'USD',
+     'namespace': 'ifrs-full',
+     'proof_url': 'https://www.sec.gov/Archives/edgar/data/1114448/000111444826000004/nvs-20251231.htm',
+     'proof_sha256': 'ee4e72876e1e8fe464286874b883191ffac5a9ba630aacf7023e59a66878eda0',
+     'tag_overrides': {'revenue': ['RevenueFromSaleOfGoods'],
+                       'operating_cash_flow': ['CashFlowsFromUsedInOperatingActivitiesContinuingOperations']},
+     'cash_flow_basis': 'Free cash flow is continuing-operations cash flow less reported property, '
+                        'plant and equipment purchases.',
+     'income_basis': 'Revenue is reported net sales from continuing operations, excluding separately '
+                     'reported other revenue. Margins use that net-sales denominator. Net income is '
+                     'consolidated profit including discontinued operations where reported, including '
+                     'the 2023 Sandoz distribution gain.'},
     'BULL': {'cik':'0001866364','currency':'USD','namespace':'us-gaap',
         'proof_url':'https://www.sec.gov/Archives/edgar/data/1866364/000121390026041653/ea0283691-20f_webull.htm',
         'proof_sha256':'9b64a0c7b4ee3a72cd8fb4acd3bb1e756eb0e238999af201fa45671b07c66890',
@@ -45,7 +80,12 @@ def profile(symbol, cik):
         return None
     if str(cik).zfill(10) != value['cik']:
         raise DirectSourceError('foreign_statement_cik_mismatch')
-    return {**value, 'tags': IFRS if value['namespace']=='ifrs-full' else {k:sec.TAGS[k] for k in IFRS}}
+    # Reviewed aliases are issuer-specific; never expand the shared taxonomy.
+    from copy import deepcopy
+    value = deepcopy(value)
+    tags = dict(IFRS if value['namespace']=='ifrs-full' else {k:sec.TAGS[k] for k in IFRS})
+    tags.update({name: tuple(concepts) for name, concepts in value.get('tag_overrides', {}).items()})
+    return {**value, 'tags': tags}
 
 
 def records(data, basis, available):
