@@ -278,6 +278,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         metrics={name:(tags, 'USD') for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
     all_records, operating_evidence = sec_operating_components.apply(all_records, symbol=symbol, cik=cik)
     all_records, consolidated_income_evidence = sec_parent_income.consolidated_for_leverage(all_records)
+    from app.services import sec_statement_income
+    all_records, statement_income_evidence = sec_statement_income.apply(all_records, symbol=symbol, cik=cik)
     all_records, parent_income_evidence = sec_parent_income.apply(all_records)
     depreciation_evidence = sec_depreciation_components.reconcile(all_records, symbol=symbol, cik=cik)
     records = {name: all_records[name] for name in TAGS}
@@ -377,6 +379,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     save("fcf_growth", fcf_growth - 100 if fcf_growth is not None else None, "(TTM free cash flow / prior TTM free cash flow - 1) * 100")
     evidence["leverage_preparation"] = sec_leverage.project(all_records, end=end, start=reference_start)
     evidence['leverage_preparation']['income_reconciliation'] = consolidated_income_evidence
+    if statement_income_evidence is not None:
+        evidence['leverage_preparation']['statement_income_reconciliation'] = statement_income_evidence
     if depreciation_evidence is not None:
         evidence['leverage_preparation']['depreciation_reconciliation'] = depreciation_evidence
     values["source_evidence_json"] = json.dumps(evidence, sort_keys=True)
