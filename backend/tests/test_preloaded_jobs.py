@@ -245,3 +245,15 @@ j.worker(sys.argv[1],json.loads(sys.argv[3]),'data',idle=.02)
     finished=[r for r in receipts if r['event']=='scheduled_job_finished']
     assert len(finished)==2 and all(r['preloaded'] for r in finished)
     assert not list(identity_dir.glob('*.json'))
+
+@LINUX
+def test_previous_boot_receipt_cannot_own_current_process(identity_dir):
+    token = 'd' * 32
+    warm._record_identity(os.getpid(), token)
+    assert warm.owns_process(os.getpid(), token)
+    path = identity_dir/(token+'.json')
+    record = json.loads(path.read_text())
+    record['boot_id'] = 'previous-boot'
+    path.write_text(json.dumps(record))
+    assert not warm.owns_process(os.getpid(), token)
+    warm.forget_identity(token)

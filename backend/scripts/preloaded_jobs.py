@@ -50,7 +50,8 @@ def _start_tick(pid):
 def owns_process(pid, token):
     try:
         record = json.loads(_identity_path(token).read_text())
-        return record['pid'] == pid and record['start_tick'] == _start_tick(pid)
+        return (record['pid'] == pid and record['start_tick'] == _start_tick(pid)
+                and record['boot_id'] == Path('/proc/sys/kernel/random/boot_id').read_text().strip())
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         return False
 
@@ -67,7 +68,8 @@ def _record_identity(pid, token):
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = path.with_suffix('.pending')
     with temporary.open('x', encoding='utf-8') as stream:
-        json.dump({'pid': pid, 'start_tick': _start_tick(pid)}, stream)
+        json.dump({'pid': pid, 'start_tick': _start_tick(pid),
+                   'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}, stream)
     os.replace(temporary, path)
 
 
