@@ -20,7 +20,7 @@ Local receipts under artifacts/parent-gaps-oct14: manifest.json, inventory.json,
 
 ## Release state
 
-Implemented and locally validated, release pending. Core financials remain FMP; institutional publication remains disabled. Future statement reviews, broad coverage/definitions, all consumer/scheduled operation, sustained capacity, institutions/transcripts, final Massive and global zero-FMP/billing gates remain. No selector, schedule, host cost, purchase, customer email, video or landing change.
+At PR preparation, implementation and local validation were complete; deployment was pending. Current release evidence follows below. Core financials remain FMP; institutional publication remains disabled. Future statement reviews, broad coverage/definitions, all consumer/scheduled operation, sustained capacity, institutions/transcripts, final Massive and global zero-FMP/billing gates remain. No selector, schedule, host cost, purchase, customer email, video or landing change.
 
 ## Captured source identities
 
@@ -36,3 +36,23 @@ Implemented and locally validated, release pending. Core financials remain FMP; 
 - JEF-facts.json: [https://data.sec.gov/api/xbrl/companyfacts/CIK0000096223.json](https://data.sec.gov/api/xbrl/companyfacts/CIK0000096223.json), SHA256 `b70dcc619f178bbd465da5037bc9de9827edc50a4de1629f21459e90697762a0`.
 - JEF-annual.html: [https://www.sec.gov/Archives/edgar/data/96223/000009622326000009/jef-20251130.htm](https://www.sec.gov/Archives/edgar/data/96223/000009622326000009/jef-20251130.htm), SHA256 `0d489f6f36087d7d88dd987d9bc7a5147cf090146f7b0c34c4f5ccf5e068cc41`.
 - JEF-interim.html: [https://www.sec.gov/Archives/edgar/data/96223/000009622326000033/jef-20260831.htm](https://www.sec.gov/Archives/edgar/data/96223/000009622326000033/jef-20260831.htm), SHA256 `6ead5c847ecc5035350a072c403abb5bf6715ad0d58a96d1d4d2a77e726bb1bd`.
+
+## Deployed runtime verification,21:43 UTC
+
+PR646 source c0d5935b0697a7d7c5de15f5b06df2e012bc2e18 merged/deployed a57e5ab9f90a55170075f6bd431ad39198fc39a7. Workflow38641989108/job116119532029 is terminalSUCCESS. Fourteen normalized runtime hashes match and all seven reviewed-period fixtures, immutable repeats and unreviewed-filing refusals pass on productionPython3.12.15. Receipt artifacts/parent-gaps-oct14/runtime-1792014140.json. CoreFMP and institutional publicationfalse remain unchanged; no production writes or provider calls in that verifier.
+
+Seven public reads all return200: Feed0.534s, Insights0.538s with research present, news0.443s/12items, research0.536s/44items, AAPL2.622s and NVDA2.357s. These are postrelease spot checks. At21:39, API credits14,353/current throttle0 have recovered from21:19, but the two-hour window still includes exhaustion/deployments; sustained capacity remains open. CPU receipt cpu-quota-1792013950.json and public receipt insights-incident-1792014140.json under artifacts/direct-feeds/free-replacements-2026-10-09.
+
+Read-only receipt artifacts/preload-receipts-1792014154.json verifies API8d1099c53ed378 shared2/2048MB, database81721da9770131 performance1/2048MB, and the exact release image. News23/23 with42fresh company caches, five metadata/earnings scopes succeed. Institutional950-scope preparation retains459pending/491deferred, truncated universe and publicationfalse; financial research16partial/4unavailable remains explicit.
+
+At21:42, the three parent-income preparation rows are still old versions, awaiting the ordinary job. No forced refresh or selector change. JNJ's ordinary21:06 preparation is now verified equal to its earlier original-statement reconciliation and EBITDA33.959billion; HCA still has its older19:31 panel. Receipt artifacts/parent-gaps-oct14/ordinary-1792014153.json. Future statement and full-consumer coverage remain open.
+
+CI secret scan succeeds. The existing frontend4high/1critical production dependency findings and Pillow10.4.0/33listed advisories still fail; manifests are unchanged. Required CI diagnostics were inspected. One deploy-log request returned502; the same run independently reachesSUCCESS through run-level diagnostics, with no repeated deployment. Attachment fails at the existing100-item limit; PR https://github.com/moore11j/congress-tracker/pull/646 remains available.
+
+## Specific next market-ratio gate
+
+JEF's reviewed statements also prove common-shareholder trailing income852.597million and preferred dividends84.053million, versus parent income936.650million. Parent income with total parent equity is the present ROE basis. The currently unselected SEC/Massive price-ratio path still divides common market capitalization by parent income. Before selecting that market path, implement and validate the common-income numerator (or a truthful missing-value hold) for preferred-share issuers. Do not call the parent-based multiple conventional common-equity P/E. This does not change today's selected FMP public ratios and is a concrete follow-up within the original final-Massive/financial-consumer acceptance gate.
+
+## Ordinary rotation checked,21:48 UTC
+
+The21:46 run completed ten of13 due SEC scopes, seven partial and three known symbols absent from the SEC directory. It selected older DBOEY through DEER.TO scopes; FLEX/FOX/JEF were not attempted. Exit1 reports partial coverage, not an execution crash. The three reviewed versions remain pending in normal age-ordered bounded rotation; no forced refresh or repeated job was issued. Read-only receipts ordinary-1792014394.json and warmer-1792014432.json under artifacts/parent-gaps-oct14 preserve the exact results. Earlier next-job expectations did not establish propagation. All handles are terminal. Continue independent common-equity valuation work while the ordinary rotation proceeds.
