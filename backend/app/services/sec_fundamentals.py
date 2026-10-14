@@ -114,6 +114,9 @@ def fetch_fundamentals(symbol: str):
                 if income:
                     from app.services.sec_parent_income import is_derived
                     income_basis = 'TTM parent net income (consolidated profit minus reported noncontrolling interest)' if is_derived(income) else 'TTM net income'
+                    from app.services.sec_parent_statement_income import is_reviewed
+                    if is_reviewed(income):
+                        income_basis = 'TTM parent net income (reviewed original-statement reconciliation)'
                     values['earnings_yield'] = income['value'] / cap * 100
                     evidence['calculations']['earnings_yield'] = income_basis+' / current Massive market cap * 100'
                     if income['value'] > 0:
@@ -268,7 +271,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
                        observed_at=observed_at, supplement=filing_supplement)
     from app.services.sec_financial_continuity import record_sets
     from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
+    from app.services import sec_parent_statement_income
     metric_tags = {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
+    if symbol in sec_parent_statement_income.SYMBOLS:
+        metric_tags.update(sec_parent_statement_income.TAGS)
     from app.services import sec_operating_components
     if sec_operating_components.applies(symbol, cik):
         metric_tags.update(sec_operating_components.TAGS)
@@ -281,6 +287,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     from app.services import sec_statement_income
     all_records, statement_income_evidence = sec_statement_income.apply(all_records, symbol=symbol, cik=cik)
     all_records, parent_income_evidence = sec_parent_income.apply(all_records)
+    all_records, parent_statement_evidence = sec_parent_statement_income.apply(all_records, symbol=symbol, cik=cik)
     depreciation_evidence = sec_depreciation_components.reconcile(all_records, symbol=symbol, cik=cik)
     records = {name: all_records[name] for name in TAGS}
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
@@ -320,6 +327,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             evidence['limitations'].append('HCA operating income is derived from reviewed expenses with independent pretax reconciliation, not a reported subtotal.')
     if parent_income_evidence['derived_periods'] or parent_income_evidence['holds']:
         evidence['parent_income_reconciliation'] = parent_income_evidence
+    if parent_statement_evidence is not None:
+        evidence['parent_statement_review'] = parent_statement_evidence
     from app.services.sec_bank_revenue import basis
     revenue_basis = basis(records)
     if revenue_basis:
@@ -349,6 +358,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     for name, numerator in (("gross_margin", "gross_profit"), ("operating_margin", "operating_income"), ("net_margin", "net_income")):
         label = ('parent net income (consolidated profit minus reported noncontrolling interest)'
             if numerator == 'net_income' and sec_parent_income.is_derived(current.get('net_income')) else numerator)
+        if numerator == "net_income" and sec_parent_statement_income.is_reviewed(current.get("net_income")):
+            label = "parent net income (reviewed original-statement reconciliation)"
         save(name, ratio(val(numerator), val("revenue"), 100), f"TTM {label} / TTM revenue * 100")
     growth = ratio(val("revenue"), val("revenue", True), 100)
     save("revenue_growth", growth - 100 if growth is not None else None, "(TTM revenue / prior TTM revenue - 1) * 100")
@@ -368,6 +379,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     if equity_then is not None and equity_now is not None and min(equity_then, equity_now) > 0:
         income_label = ("parent net income (consolidated profit minus reported noncontrolling interest)"
             if sec_parent_income.is_derived(current.get("net_income")) else "net income")
+        if sec_parent_statement_income.is_reviewed(current.get("net_income")):
+            income_label = "parent net income (reviewed original-statement reconciliation)"
         save("roe", ratio(val("net_income"), (equity_then + equity_now) / 2, 100), f"TTM {income_label} / average beginning and ending equity * 100")
     cash, capex = val("operating_cash_flow"), val("capex")
     old_cash, old_capex = val("operating_cash_flow", True), val("capex", True)

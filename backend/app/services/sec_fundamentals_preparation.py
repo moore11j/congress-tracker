@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    from app.services.sec_parent_statement_income import SYMBOLS as parent_symbols, VERSION as parent_version
+    if symbol in parent_symbols:
+        return VERSION+'_'+parent_version
     from app.services.sec_statement_income import SYMBOLS, VERSION as statement_income_version
     if symbol in SYMBOLS:
         return VERSION+'_'+statement_income_version
