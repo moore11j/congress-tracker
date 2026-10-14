@@ -258,7 +258,9 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
             or [canonical_symbol(s) for s in company.get('tickers',[])].count(canonical_symbol(symbol)) != 1):
         raise InlineFactsError('company_identity')
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
-    ends = [end for name in sec.TAGS for (_,end),value in sec._records(payload,name,available).items() if value]
+    from app.services.sec_reporting_policy import forms_for, periodic_document
+    forms = forms_for(symbol, cik)
+    ends = [end for name in sec.TAGS for (_,end),value in sec._records(payload,name,available,forms=forms).items() if value]
     if not ends:
         return None  # Unsupported taxonomy/currency requires a separate adapter.
     latest_fact = max(ends)
@@ -270,7 +272,8 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
     candidates = []
     for accession, form, filed, report, filename in zip(*arrays):
         end, filing = sec._day(report), sec._day(filed)
-        if form in FORMS and end and filing and latest_fact < end <= filing <= available:
+        if (end and filing and latest_fact < end <= filing <= available
+                and periodic_document(symbol, cik, form, report, filename)):
             candidates.append((str(end),str(filing),accession,form,filename))
     if not candidates:
         return None

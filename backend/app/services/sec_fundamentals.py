@@ -287,6 +287,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         "instant": {}, "calculations": {}, "limitations": ["USD US GAAP standard concepts only",
             "No consensus estimates, EBITDA/debt proxies, or inferred per-share inputs",
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
+    from app.services.sec_reporting_policy import reviewed
+    reporting_policy = reviewed(symbol, cik)
+    if reporting_policy:
+        evidence['reviewed_reporting_policy'] = reporting_policy
     if parent_income_evidence['derived_periods'] or parent_income_evidence['holds']:
         evidence['parent_income_reconciliation'] = parent_income_evidence
     from app.services.sec_bank_revenue import basis
