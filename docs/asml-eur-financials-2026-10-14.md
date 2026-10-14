@@ -1,6 +1,6 @@
 # ASML current financial ratios from SEC originals
 
-October14,2026. Implemented and locally verified; release and ordinary operation pending. Public core remains FMP.
+October14,2026. Deployed92312ba8; exact runtime verified. Ordinary preparation verified. Public core remains FMP.
 
 ## Gap and result
 
@@ -49,6 +49,16 @@ Initial Linux tests caught a local code-writer encoding error that changed the e
 
 Receipts: artifacts/financial-consumer-readiness-1792007313.json and artifacts/asml-eur-oct14/{manifest.json,annual-fact-observations.json,full-replay.json,cache-replay.json,control-replay.json,live-isolated.json}. The local calculation timing excludes annual-original extraction and is not a production capacity benchmark.
 
+## Release and ordinary-operation verification
+
+PR642 source `507bfa3607849be4037ffc90a11150a8a08b7a3f` merged as `92312ba8c40562e891f67f632b495743168d72fa`. Backend workflow38629596944/job116077518328 completed successfully.16 production source hashes match on Python3.12.15. The bounded, network-disabled fixture reproduces all nine current ratios and the simulated next-quarter ratios, with complete current/prior/instant/source/calculation evidence, unchanged inputs and identical repeats. It uses retained parsed originals and captured directory/facts fixture projections; it is not a fresh acquisition. Receipt: `artifacts/asml-eur-oct14/runtime-1792008656.json`.
+
+The ordinary schedule then prepares ASML at2026-10-14T20:12:24.824699+00:00. All nine stored fields and current/prior/instant/source/cash-flow calculation proofs match the complete-original replay. Offline combination of the actual SEC/Finnhub receipts preserves SEC priority and restores three classification inputs, with an identical repeat and no network/write/email. Receipt: `artifacts/asml-eur-oct14/ordinary-verification.json`. No forced preparation. The October15 ordinary quarterly rollover remains unverified; the completed-filing-day boundary is simulated only.
+
+Public samples all return200: Feed0.709s, Insights1.371s with research present, news0.309s, research0.512s, AAPL3.885s, NVDA3.121s; readiness database okay. Receipt: `artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792008656.json`. Two-hour sampled throttle is zero, but deployments occurred and five-minute background CPU is0.184 against the0.125 allowance; this is not sustained-capacity acceptance. Quota receipt: `artifacts/direct-feeds/free-replacements-2026-10-09/cpu-quota-1792008726.json`. Final machine list confirms one shared2CPU/2048MB API and one performance1CPU/2048MB database; the extra historical telemetry identity is not an additional current API machine.
+
+Secret scan passes. Unchanged dependency audits report33 Pillow advisories and frontend4high/1critical, confirmed from dedicated CI logs. No full-CI pass. PR attachment fails at the app's100-attachment limit. Main's backend matches the tested source exactly; committed fixture blobs match the original bytes. Public core staysFMP and institutional publicationfalse. No selector/schedule/host/subscription/customer-email/video/landing/cancellation changes.
+
 ## Remaining gates
 
-Exact release/runtime and ordinary ASML preparation, then next-day quarterly rollover. Broader financial coverage, cash-flow currency/display semantics, canonical leverage, full scoring/ranking/all-alert consumer acceptance, institutions, transcripts, sustained capacity, final Massive and zero-FMP/billing gates remain open. No selector, schedule, host size, subscription, video, landing, customer email or cancellation change.
+Next-day ordinary quarterly rollover. Broader financial coverage, cash-flow currency/display semantics, canonical leverage, full scoring/ranking/all-alert consumer acceptance, institutions, transcripts, sustained capacity, final Massive and zero-FMP/billing gates remain open. No selector, schedule, host size, subscription, video, landing, customer email or cancellation change.

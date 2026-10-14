@@ -6,9 +6,9 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v5'
+VERSION = 'sec_leverage_evidence_v6'
 DURATION = {
-    'leverage_net_income': ('NetIncomeLoss',),
+    'leverage_net_income': ('ProfitLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
     'leverage_interest': ('InterestExpense', 'InterestExpenseNonoperating'),
     'leverage_da': ('DepreciationDepletionAndAmortization', 'DepreciationAndAmortization'),
@@ -83,7 +83,8 @@ def _ebitda(records, end, start):
     missing = [name for name, point in components.items()
         if point is None or point['start'] != start or not _finite(point['value'])]
     result = {'period_start': start, 'period_end': str(end), 'unit': 'USD',
-        'formula': 'net income + income tax expense/benefit + interest expense + depreciation and amortization',
+        'income_basis': 'consolidated net income before allocation to noncontrolling interests',
+        'formula': 'consolidated net income + income tax expense/benefit + interest expense + depreciation and amortization',
         'components': components, 'missing_components': missing}
     if missing:
         return {**result, 'status': 'incomplete'}
